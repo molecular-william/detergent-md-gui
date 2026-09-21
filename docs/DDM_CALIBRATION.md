@@ -95,7 +95,7 @@ These are documented observations, not fixed by this documentation-only handoff.
 - `<workspace>/runs/<id>/manifest.json`, `inputs/`, `stages/`, `logs/` are simulation evidence. SQLite is the only live job-status authority. See [project operations](PROJECT_GUIDE.md).
 - `dashboard/models/bonded.py` owns overrides and torsion fitting; `carbohydrates.py` owns sugar geometry/topology; `bonded_states.py` owns state records; `dashboard/execution/` owns execution, `dashboard/web/routes/` owns HTTP endpoints, and `dashboard/web/static/js/`, CSS, and templates own UI behavior.
 - The personal skill is `/home/wtliaf/.codex/skills/detergent-calibration/SKILL.md` with `references/carbohydrates.md` and `references/building-blocks.md`. It is outside this repository; this handoff and the linked chemistry document provide the portable project context.
-- This directory did not have Git metadata at the latest check. Verify repository/worktree availability before planning commits or branches.
+- This repository is a Git worktree. Check `git status` and the active branch before planning commits or branches.
 
 Focused checks when modifying bonded logic:
 

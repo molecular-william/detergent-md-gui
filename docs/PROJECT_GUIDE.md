@@ -21,18 +21,19 @@ dashboard/app.py constructs the application. execution/ owns coordination and st
 * execution/cg_adapter.py — generic CG stage pipeline
 * execution/aa_workflow.py — AA-only stage pipeline
 * execution/cg_workflow.py — molecule naming for CG runs
-* execution/ddm.py — compatibility shim over cg_adapter.py
 * execution/stages.py — declarative stage dataclass
 * execution/admission.py — run-type admission rules
 * execution/stage_io.py — environment, tool probes, MDP edits
 * execution/coordinator.py — job lifecycle, workers, admission, recovery
+* execution/analysis_coordinator.py — derived analysis jobs and immutable outputs
+* execution/manifest.py — stage and run manifest helpers
 
 models/ owns molecular definitions; analysis/ owns derived calculations; web/ owns routes and browser code. CLI utilities live in dashboard/cli/. HTTP URLs and browser storage keys remain stable through the source reorganization.
 
 dashboard/README.md describes source ownership in detail and lists test commands.
 
 ## Environment
-The interpreter lives in dashboard/.venv/. Existing virtual environmentscannot be moved because launchers include absolute paths. Scientificresources and the local Fast_Forward package live under resources/. Fresh setup:
+The interpreter lives in dashboard/.venv/. Existing virtual environments cannot be moved because launchers include absolute paths. Scientific resources and the local Fast_Forward package live under resources/. Fresh setup:
 
 ```bash
 python -m venv --system-site-packages dashboard/.venv
@@ -119,11 +120,11 @@ Analysis graphs expand inline: ff_assess PNG plots and a Plot SASA action that g
 Select a run, pause display updates, copy the visible excerpt, or download its full log. New runs download a stage-log ZIP. Pausing affects the display only.
 
 ### New run
-Shows the exact packaged input paths, executable availability, and missing workflow requirements. The same readiness check runs server-side on submission and retry. Unsupported methods and incomplete workflows cannot be queued. Arbitrary uploads and SMILES are not offered because the current DDM adapter uses the packaged SwissParam files.
+Shows the exact packaged input paths, executable availability, and missing workflow requirements. The same readiness check runs server-side on submission and retry. Unsupported methods and incomplete workflows cannot be queued. The dashboard accepts registered molecule directories; arbitrary uploads and SMILES are not offered.
 
 Exposes AA/CG equilibration and production durations, temperature, trajectory output interval, and SASA probe radius. Each value has a Default button. Defaults come from the packaged Fast_Forward/CHARMM/Martini MDPs; the draft profile substitutes its bounded 10/50 ps diagnostic durations. Submitted settings are range-checked, converted to stage-specific nsteps, recorded in the manifest, and applied only inside that run directory.
 
-Lists compatible completed DDM runs for AA reference reuse. Selecting one copies its identity-checked ligand reference into the new run, records its ID and checksum, and marks AA reference as skipped; source artifacts are never modified.
+Lists compatible completed AA runs for AA reference reuse. Selecting one copies its identity-checked ligand reference into the new run, records its ID and checksum, and marks AA reference as skipped; source artifacts are never modified.
 
 ### CG Bead Assignment
 Compare two candidates against the original DDM coordinates and bond graph. Drag or use arrow keys to rotate the atom view; edit bead names, sizes, and atom indices; add or remove beads; export JSON or save a new draft. The 2D chemical diagram shows stereochemistry and bead circles over assigned atoms; it can be downloaded as standalone SVG. A new draft never overwrites its parent and remains unvalidated.
@@ -138,9 +139,9 @@ Delete is available only for completed, failed, or cancelled runs. The server ch
 
 Cancellation sets "Cancelling…" until the worker confirms process termination. The worker terminates only subprocess groups it created, escalating to kill when necessary. Saved PIDs from older sessions are never signalled. Runs whose workers are not owned by the current server cannot be controlled by it.
 
-Retry creates a new run ID after readiness checks; original logs and simulation outputs stay intact. Job updates use a lock around read/modify/write and atomic JSON replacement. Stage failures and cancellations are recorded in manifests.
+Retry creates a new run ID after readiness checks; original logs and simulation outputs stay intact. Job updates use SQLite transactions; immutable model and review records use atomic JSON replacement. Stage failures and cancellations are recorded in manifests.
 
-JSON and log endpoints are under /api/jobs, /api/readiness, and /api/mappings. Mapping edits are stored in dashboard/mapping_drafts/; original candidates stay under molecules/DDM/.
+JSON and log endpoints are under /api/jobs, /api/readiness, and /api/mappings. Mapping edits are stored in the configured workspace's mapping_drafts/ directory; original candidates stay under the canonical molecule source.
 
 ### Mapping exports and diagrams
 Each candidate can export .ndx, .map, .gro, or a ZIP containing all three plus candidate metadata, source hash, and validation report. All files use matching bead IDs B01, B02, …; original display names remain in model.json. This avoids GRO name truncation and Fast_Forward's restriction to alphanumeric bead identifiers. Missing, repeated, unknown, or hydrogen assignments block export. Size and connectivity findings remain visible and recorded as review issues.

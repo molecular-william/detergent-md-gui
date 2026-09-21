@@ -12,7 +12,7 @@ The dashboard binds to http://127.0.0.1:5000. Run one coordinator per workspace.
 Application source is grouped by responsibility:
 
 - `app.py`, `paths.py`: application construction and path configuration.
-- `execution/`: job coordination, stage execution, AA/DDM preparation, tools and limits.
+- `execution/`: job coordination, stage execution, AA/CG preparation, tools and limits.
 - `models/`: molecule inputs, mappings, bonded states, fragments and evidence gates.
 - `analysis/`: isolated derived analyses and AA reference publication/verification.
 - `web/`: HTTP routes, templates, native JavaScript modules and CSS.
