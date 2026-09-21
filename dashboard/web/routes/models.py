@@ -3,9 +3,10 @@ import io
 import json
 import re
 import zipfile
+from pathlib import Path
 from flask import abort
 from dashboard import files
-from dashboard.models import mappings, bonded_states, model_registry, compositions, evidence, depiction, mapping_context as mapping_context_model, mapping_references, mapping_suggestions
+from dashboard.models import mappings, bonded_states, bonded_generation, model_registry, compositions, evidence, depiction, mapping_context as mapping_context_model, mapping_references, mapping_suggestions
 from dashboard.models.json_repository import JsonRepository
 from flask import Blueprint, Response, jsonify, request, send_file
 from .common import coordinator
@@ -145,10 +146,39 @@ def bonded_state_create():
     payload = _json_object(); mapping = payload.get('mapping')
     if not isinstance(mapping,dict): abort(400,'A mapping snapshot is required')
     try:
-        mappings.validate(mapping)
-        record = bonded_states.create(mapping, payload.get('name',''), payload.get('kind','mapping-only'), payload.get('source'), payload.get('topology'), payload.get('status','incomplete'))
+        context = _payload_context(mapping)
+        mappings.validate(mapping, context=context)
+        topology = payload.get('topology')
+        source = payload.get('source')
+        status = payload.get('status', 'incomplete')
+        if 'interactions' in payload:
+            if not isinstance(payload['interactions'], list):
+                abort(400, 'interactions must be a list')
+            structure = context or mappings.molecule()
+            topology = bonded_generation.topology_from_terms(
+                mapping, structure, payload['interactions'], title='Manual bonded draft')
+            source = {**(source or {}), 'origin': 'manual-editor'}
+            status = 'complete'
+        record = bonded_states.create(mapping, payload.get('name',''), payload.get('kind','mapping-only'), source, topology, status)
     except (ValueError, OSError) as exc: abort(400,str(exc))
     return jsonify(record), 201
+
+
+@blueprint.post('/api/bonded-states/automatic')
+def bonded_state_automatic():
+    payload = _json_object(); mapping = payload.get('mapping')
+    if not isinstance(mapping, dict): abort(400, 'A mapping snapshot is required')
+    try:
+        context = _payload_context(mapping)
+        validation = mappings.validate(mapping, context=context)
+        blockers = {'missing', 'duplicate', 'unknown', 'hydrogen', 'empty', 'name',
+                    'virtual_ring', 'connections', 'disconnected'}
+        if any(issue['code'] in blockers for issue in validation['issues']):
+            raise ValueError('Mapping is incomplete or structurally invalid: ' +
+                             '; '.join(issue['message'] for issue in validation['issues']))
+        result = bonded_generation.generate(mapping, context or mappings.molecule(), coordinator().ROOT)
+    except (ValueError, OSError) as exc: abort(400, str(exc))
+    return jsonify(result)
 
 
 @blueprint.get('/api/bonded-states/<state_id>')
@@ -168,6 +198,19 @@ def bonded_state_interactions(state_id):
     terms = bonded_states.parse_interactions(current.get('topology'))
     return jsonify(state_id=state_id, revision=state.get('revision'),
                    status=current.get('status'), interactions=terms)
+
+
+@blueprint.get('/api/assets/plotly.min.js')
+def plotly_asset():
+    try:
+        import plotly
+        package_root = Path(plotly.__file__).parent
+        path = package_root / 'package_data' / 'plotly.min.js'
+        if package_root.is_symlink() or path.is_symlink() or not path.is_file():
+            abort(503, 'The local Plotly bundle is unavailable')
+    except (ImportError, OSError, RuntimeError):
+        abort(503, 'The local Plotly bundle is unavailable')
+    return send_file(path, mimetype='application/javascript', max_age=3600)
 
 
 @blueprint.patch('/api/bonded-states/<state_id>')
