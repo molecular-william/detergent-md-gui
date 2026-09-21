@@ -10,6 +10,61 @@ import numpy as np
 
 
 SECTION_WIDTHS = {'bonds': 2, 'constraints': 2, 'angles': 3, 'dihedrals': 4}
+FUNCTION_PARAMETER_LABELS = {
+    'bonds': {1: ['length (nm)', 'force (kJ mol^-1 nm^-2)']},
+    'angles': {
+        1: ['angle (deg)', 'force (kJ mol^-1 rad^-2)'],
+        2: ['angle (deg)', 'force (kJ mol^-1 rad^-2)'],
+        10: ['angle (deg)', 'force (kJ mol^-1 rad^-2)'],
+    },
+    'dihedrals': {
+        1: ['phase (deg)', 'force (kJ mol^-1 rad^-2)', 'multiplicity'],
+        2: ['phase (deg)', 'force (kJ mol^-1 rad^-2)'],
+        9: ['phase (deg)', 'force (kJ mol^-1 rad^-2)', 'multiplicity'],
+    },
+}
+FUNCTIONS = {kind: {function: len(labels) for function, labels in choices.items()}
+             for kind, choices in FUNCTION_PARAMETER_LABELS.items()}
+
+
+def _function_options(kind):
+    return [{'value': str(function), 'label': f'Function {function}',
+             'parameter_labels': labels}
+            for function, labels in FUNCTION_PARAMETER_LABELS.get(kind, {}).items()]
+
+
+def _validate_edit(kind, function, parameters):
+    try:
+        function = int(function)
+    except (TypeError, ValueError):
+        raise ValueError('Bonded function must be an integer') from None
+    expected = FUNCTIONS.get(kind, {}).get(function)
+    if expected is None or not isinstance(parameters, list) or len(parameters) != expected:
+        raise ValueError(f'Unsupported {kind} function or parameter count')
+    values = []
+    for value in parameters:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            raise ValueError('Bonded parameters must be finite numbers') from None
+        if not math.isfinite(number):
+            raise ValueError('Bonded parameters must be finite numbers')
+        values.append(number)
+    if kind == 'bonds' and not 0.01 <= values[0] <= 2:
+        raise ValueError('Bond length outside allowed range')
+    if kind == 'angles' and not 0 <= values[0] <= 180:
+        raise ValueError('Bond angle outside allowed range')
+    if kind == 'dihedrals' and not -180 <= values[0] <= 180:
+        raise ValueError('Dihedral phase outside allowed range')
+    if len(values) >= 2 and not 0 <= values[1] <= 100000:
+        raise ValueError('Bonded force constant outside allowed range')
+    if len(values) == 3 and (int(values[2]) != values[2] or not 1 <= values[2] <= 6):
+        raise ValueError('Dihedral multiplicity must be an integer from 1 to 6')
+    return function, values
+
+
+def _format_number(value):
+    return format(float(value), '.12g')
 
 
 def parse_interactions(topology):
@@ -55,35 +110,34 @@ def parse_interactions(topology):
             try: indices = [int(x) for x in fields[:width]]
             except ValueError: continue
             params = fields[width:]
+            function = params[0] if params else ''
             rows.append({'kind': section, 'indices': indices,
                          'beads': [atom_names.get(i, str(i)) for i in indices],
-                         'function': params[0] if params else '',
+                         'function': function,
                          'parameters': params[1:] if params else [],
-                         'id': f"{section}:{len(rows)+1}"})
+                         'id': f"{section}:{len(rows)+1}",
+                         'editable': section in FUNCTIONS,
+                         'function_options': _function_options(section),
+                         'parameter_labels': (FUNCTION_PARAMETER_LABELS.get(section, {}).get(int(function), [])
+                                              if function.isdigit() else [])})
     return rows
 
 
-def apply_interaction_parameters(topology, updates):
-    """Apply numeric parameters to ordinary bonded terms by parser ID."""
+def apply_interaction_edits(topology, updates):
+    """Apply function and numeric edits to ordinary flexible bonded terms."""
     if not isinstance(topology, str) or not isinstance(updates, list):
         raise ValueError('Interaction edits need topology text and a list')
     by_id = {}
     for update in updates:
         if not isinstance(update, dict) or not isinstance(update.get('id'), str):
             raise ValueError('Interaction edit needs an interaction ID')
-        parameters = update.get('parameters')
-        if not isinstance(parameters, list) or any(not isinstance(value, (int, float, str)) for value in parameters):
-            raise ValueError('Interaction parameters must be numeric values')
-        values = []
-        for value in parameters:
-            try:
-                number = float(value)
-            except (TypeError, ValueError):
-                raise ValueError('Interaction parameters must be finite numbers') from None
-            if number != number or number in (float('inf'), float('-inf')):
-                raise ValueError('Interaction parameters must be finite numbers')
-            values.append(str(value))
-        by_id[update['id']] = values
+        if update['id'] in by_id:
+            raise ValueError('Duplicate interaction edit')
+        parts = update['id'].split(':', 1)
+        if len(parts) != 2 or parts[0] not in FUNCTIONS:
+            raise ValueError('Only bonds, angles, and dihedrals can be edited')
+        function, values = _validate_edit(parts[0], update.get('function'), update.get('parameters'))
+        by_id[update['id']] = (function, values)
     section = None
     counts = {}
     output = []
@@ -99,24 +153,41 @@ def apply_interaction_parameters(topology, updates):
         count = counts.get(section, 0) + 1
         counts[section] = count
         interaction_id = f'{section}:{count}'
-        values = by_id.get(interaction_id)
-        if values is None:
+        update = by_id.get(interaction_id)
+        if update is None:
             output.append(raw)
             continue
+        if section not in FUNCTIONS:
+            raise ValueError(f'Interaction cannot be edited: {interaction_id}')
         fields = line.split()
         width = SECTION_WIDTHS[section]
         if len(fields) < width + 1:
             raise ValueError(f'Unknown interaction: {interaction_id}')
-        replacement = fields[:width + 1] + values
+        function, values = update
+        replacement = fields[:width] + [str(function)] + [_format_number(value) for value in values]
         comment = raw.split(';', 1)[1] if ';' in raw else ''
         rewritten = ' '.join(replacement)
         if comment:
             rewritten += ' ;' + comment
         output.append(rewritten)
-    unknown = set(by_id) - {f'{kind}:{index}' for kind, count in counts.items() for index in range(1, count + 1)}
+    known = {f'{kind}:{index}' for kind, count in counts.items() for index in range(1, count + 1)}
+    unknown = set(by_id) - known
     if unknown:
         raise ValueError('Unknown interaction: ' + ', '.join(sorted(unknown)))
     return '\n'.join(output) + ('\n' if topology.endswith('\n') else '')
+
+
+def apply_interaction_parameters(topology, updates):
+    """Apply numeric parameters while preserving each term's function."""
+    rows = {row['id']: row for row in parse_interactions(topology)}
+    edits = []
+    for update in updates:
+        row = rows.get(update.get('id'))
+        if row is None:
+            edits.append({'id': update.get('id'), 'function': 0, 'parameters': update.get('parameters')})
+        else:
+            edits.append({'id': update['id'], 'function': row['function'], 'parameters': update.get('parameters')})
+    return apply_interaction_edits(topology, edits)
 
 
 def validate(data):

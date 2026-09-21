@@ -10,14 +10,9 @@ import json
 import math
 from pathlib import Path
 
-from dashboard import files
+from .bonded import FUNCTIONS
 
 
-FUNCTIONS = {
-    'bonds': {1: 2},
-    'angles': {1: 2, 2: 2, 10: 2},
-    'dihedrals': {1: 3, 2: 2, 9: 3},
-}
 _MASSES = {'R': 72, 'S': 54, 'T': 36}
 _FALLBACK_BOND_FORCE = 5000.0
 _FALLBACK_ANGLE_FORCE = 25.0

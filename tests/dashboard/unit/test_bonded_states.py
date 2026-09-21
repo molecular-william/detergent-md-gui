@@ -40,6 +40,46 @@ def test_apply_interaction_parameters_updates_only_editable_terms():
     assert '3 1 1 2' in updated
 
 
+def test_function_edits_update_function_and_parameter_labels():
+    topology = (
+        '[ atoms ]\n'
+        '1 C1 1 RES B01 1 0 72\n'
+        '2 C1 1 RES B02 2 0 72\n'
+        '3 C1 1 RES B03 3 0 72\n'
+        '[ bonds ]\n1 2 1 0.30 100 ; keep this\n'
+        '[ angles ]\n1 2 3 1 120 25\n'
+        '[ constraints ]\n1 2 1 0.30\n'
+        '[ virtual_sitesn ]\n3 1 1 2\n'
+    )
+    rows = bonded_states.parse_interactions(topology)
+    bond = next(row for row in rows if row['kind'] == 'bonds')
+    angle = next(row for row in rows if row['kind'] == 'angles')
+    constraint = next(row for row in rows if row['kind'] == 'constraints')
+    site = next(row for row in rows if row['kind'] == 'virtual_sitesn')
+    assert bond['editable'] is True
+    assert bond['parameter_labels'] == ['length (nm)', 'force (kJ mol^-1 nm^-2)']
+    assert angle['parameter_labels'] == ['angle (deg)', 'force (kJ mol^-1 rad^-2)']
+    assert constraint['editable'] is False
+    assert site.get('editable', False) is False
+
+    updated = bonded_states.apply_interaction_edits(
+        topology, [{'id': 'bonds:1', 'function': 1, 'parameters': ['0.33', '1200']}]
+    )
+    assert '1 2 1 0.33 1200 ; keep this' in updated
+
+
+@pytest.mark.parametrize('update', [
+    {'id': 'bonds:1', 'function': 2, 'parameters': ['0.33', '1200']},
+    {'id': 'bonds:1', 'function': 1, 'parameters': ['0.33']},
+    {'id': 'constraints:1', 'function': 1, 'parameters': ['0.33', '100']},
+    {'id': 'bonds:9', 'function': 1, 'parameters': ['0.33', '100']},
+])
+def test_function_edits_reject_invalid_targets_and_shapes(update):
+    topology = '[ bonds ]\n1 2 1 0.30 100\n[ constraints ]\n1 2 1 0.30\n'
+    with pytest.raises(ValueError):
+        bonded_states.apply_interaction_edits(topology, [update])
+
+
 def test_state_revisions_and_mapping_identity(tmp_path, monkeypatch):
     monkeypatch.setattr(bonded_states, 'storage_root', lambda: tmp_path)
     m=mapping(); m['mapping_hash']=mappings.mapping_identity(m)
@@ -63,6 +103,19 @@ def test_save_as_new_preserves_source_and_in_place_is_explicit(tmp_path, monkeyp
     revised = bonded_states.revise(state['state_id'], {'name': 'r2'}, 1, in_place=True)
     assert revised['state_id'] == state['state_id']
     assert revised['revision'] == 2
+
+
+def test_save_as_new_applies_function_and_parameter_edits(tmp_path, monkeypatch):
+    monkeypatch.setattr(bonded_states, 'storage_root', lambda: tmp_path)
+    m = mapping(); m['mapping_hash'] = mappings.mapping_identity(m)
+    topology = '[ moleculetype ]\n[ atoms ]\n1 C1 1 RES B01 1 0 72\n2 C1 1 RES B02 2 0 72\n[ bonds ]\n1 2 1 0.30 100\n'
+    state = bonded_states.create(m, 'fit', topology=topology, status='complete')
+    copy = bonded_states.revise(state['state_id'], {
+        'name': 'edited',
+        'interaction_edits': [{'id': 'bonds:1', 'function': 1, 'parameters': ['0.33', '1200']}],
+    }, 1, in_place=False)
+    assert '1 2 1 0.33 1200' in copy['current']['topology']
+    assert '1 2 1 0.30 100' in bonded_states.get(state['state_id'])['current']['topology']
 
 
 def test_in_place_revision_rejects_stale_expected_revision(tmp_path, monkeypatch):

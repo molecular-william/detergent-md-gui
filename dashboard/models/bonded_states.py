@@ -12,7 +12,7 @@ import re
 import uuid
 from . import mappings
 from .json_repository import JsonRepository
-from .bonded import parse_interactions, apply_interaction_parameters  # noqa: F401  (façade re-export)
+from .bonded import parse_interactions, apply_interaction_edits, apply_interaction_parameters  # noqa: F401  (façade re-export)
 
 ROOT = paths.DEFAULT.project_root
 
@@ -94,9 +94,12 @@ def revise(state_id, patch, expected_revision=None, in_place=False):
     if expected_revision is not None and int(expected_revision)!=record['revision']:
         raise ValueError('Bonded state changed; reload it before editing')
     patch = dict(patch)
+    interaction_edits = patch.pop('interaction_edits', None)
     interaction_parameters = patch.pop('interaction_parameters', None)
     current=dict(record['current'])
-    if interaction_parameters is not None:
+    if interaction_edits is not None:
+        current['topology'] = apply_interaction_edits(current.get('topology'), interaction_edits)
+    elif interaction_parameters is not None:
         current['topology'] = apply_interaction_parameters(current.get('topology'), interaction_parameters)
     current.update(patch)
     _validate_revision_payload(record, current)
