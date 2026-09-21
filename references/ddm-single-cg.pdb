@@ -1,0 +1,14 @@
+TITLE     Gromacs Runs On Most of All Computer Systems
+REMARK    THIS IS A SIMULATION BOX
+CRYST1  100.000  100.000  100.000  90.00  90.00  90.00 P 1           1
+MODEL        1
+ATOM      1  B1  DDM     1      39.920  73.760  53.940  1.00  0.00            
+ATOM      2  B2  DDM     1      40.390  73.280  56.060  1.00  0.00            
+ATOM      3  B3  DDM     1      40.930  73.860  58.390  1.00  0.00            
+ATOM      4  B4  DDM     1      40.230  67.700  56.580  1.00  0.00            
+ATOM      5  B5  DDM     1      37.950  68.320  56.890  1.00  0.00            
+ATOM      6  B6  DDM     1      42.320  68.770  55.030  1.00  0.00            
+ATOM      7  C1  DDM     1      40.610  63.460  57.130  1.00  0.00            
+ATOM      8  C2  DDM     1      43.800  61.010  54.500  1.00  0.00            
+ATOM      9  C3  DDM     1      45.410  57.050  55.880  1.00  0.00            
+887

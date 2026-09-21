@@ -1,0 +1,27 @@
+dashboard/uploads/
+dashboard/jobs.sqlite3*
+dashboard/jobs.service.lock
+dashboard/*.log
+dashboard/runs/
+dashboard/.venv/
+workspace/
+dashboard/mapping_drafts/
+dashboard/bonded_states/
+dashboard/model_registry/
+dashboard/compositions/
+dashboard/reset-record.json
+reports/*
+!reports/.gitkeep
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+runs/*
+!runs/.gitkeep
+
+# Large local/vendor trees are provisioned separately from the source repo.
+archive/
+tools/
+resources/parameterizers/
+references/M3-Bible/
+references/M3-Small-Molecules/

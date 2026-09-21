@@ -1,13 +1,10 @@
 """Application-owned execution coordination and persistent job lifecycle."""
-from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 import json
 import hashlib
 import re
 import shutil
-import subprocess
-import sys
 import threading
 import time
 import uuid
@@ -15,11 +12,12 @@ import fcntl
 from flask import abort
 from dashboard import files, store, paths
 from dashboard.execution import aa_workflow, workflow, resources, temporary
-from dashboard.models import aa_molecules, mappings, bonded_states, carbohydrates
-from dashboard.analysis import aa_references, observability, targets, refinement, surfaces
-from dashboard.analysis import worker as analysis
+from dashboard.models import aa_molecules, mappings, bonded_states
+from dashboard.analysis import aa_references, observability
 from functools import wraps
 from .worker import Worker
+from .analysis_coordinator import AnalysisCoordinator
+from .manifest import ManifestCache, stage_log_path as resolve_stage_log
 
 
 _VISIBLE_FIELDS = frozenset((
@@ -34,44 +32,6 @@ _ANALYSIS_SUMMARY_FIELDS = frozenset((
     'id','kind','status','created_at','started_at','ended_at','error','directory',
 ))
 _STAGE_SUMMARY_FIELDS = frozenset(('name','status','started_at','ended_at'))
-
-
-class _ManifestCache:
-    """Bounded mtime-keyed cache of parsed manifest.json documents.
-
-    Every stage transition rewrites the manifest via ``files.atomic_json``,
-    which produces a distinct ``st_mtime_ns`` and usually a distinct size.
-    The cache therefore detects content changes without any explicit
-    invalidation hook. A hard cap bounds memory.
-    """
-
-    def __init__(self, capacity=256):
-        self._capacity = capacity
-        self._store = OrderedDict()
-
-    def read(self, path):
-        path = Path(path)
-        key = str(path)
-        try:
-            stat = path.stat()
-        except OSError:
-            self._store.pop(key, None)
-            return {}
-        entry = self._store.get(key)
-        if entry is not None and entry[0] == stat.st_mtime_ns and entry[1] == stat.st_size:
-            self._store.move_to_end(key)
-            return entry[2]
-        try:
-            data = json.loads(path.read_text())
-        except (OSError, ValueError):
-            data = {}
-        if not isinstance(data, dict):
-            data = {}
-        self._store[key] = (stat.st_mtime_ns, stat.st_size, data)
-        self._store.move_to_end(key)
-        while len(self._store) > self._capacity:
-            self._store.popitem(last=False)
-        return data
 
 
 def application_context(function):
@@ -95,7 +55,8 @@ class Coordinator:
         self.ANALYSIS_WORKERS = {}
         self.SERVICES = {}
         self.JOBS_LOCK = threading.RLock()
-        self.MANIFEST_CACHE = _ManifestCache()
+        self.MANIFEST_CACHE = ManifestCache()
+        self.analysis_coordinator = AnalysisCoordinator(self)
         self.ALLOWED_METHODS = {'fast_forward', 'bartender'}
 
     def Worker(self, run_dir=None):
@@ -221,21 +182,7 @@ class Coordinator:
 
     def stage_log_path(self, job, recorded):
         """Resolve captured log provenance within this run after workspace moves."""
-        run = self.run_path(job)
-        path = Path(recorded)
-        if path.is_absolute():
-            # Historical commands and manifests retain their original paths.
-            # Only the exact runs/<id>/ suffix can be relocated for display.
-            parts = path.parts
-            anchors = [i for i in range(len(parts)-1)
-                       if parts[i:i+2] == ('runs', job['id'])]
-            if not anchors:
-                return None
-            path = Path(*parts[anchors[-1]+2:])
-        candidate = run/path
-        if candidate.is_symlink() or not candidate.resolve().is_relative_to(run.resolve()):
-            return None
-        return candidate if candidate.is_file() else None
+        return resolve_stage_log(self.run_path(job), recorded)
 
 
     def tail(self, path, limit=65536):
@@ -401,15 +348,16 @@ class Coordinator:
                 else:
                     kwargs=dict(detergent=job['detergent'],profile=job.get('profile','standard'),settings={k:v for k,v in job.get('settings',{}).items() if k in workflow.SETTING_SPECS},reference_run_id=job.get('reference_run_id'),mapping_candidate=job.get('mapping_snapshot'),bonded_state_snapshot=job.get('bonded_state_snapshot'),bonded_intent=job.get('bonded_intent','fit_and_simulate'),molecule_snapshot=job.get('molecule_snapshot'))
                     if job.get('shared_reference'):kwargs.update(shared_reference=job['shared_reference'],reference_root=self.RUNS)
-                    (workflow.prepare_run if job.get('layout_version') == 2 else workflow.prepare)(work,**kwargs)
+                    workflow.prepare_run(work, **kwargs)
             finally:
                 if source_lease: source_lease.close()
             prepared = json.loads((work/'manifest.json').read_text())
             if job.get('molecule_snapshot'):
                 if aa_only:files.verify(workflow.execution_root(work)/'common/molecule',job['molecule_snapshot']['sha256'])
-                elif not job.get('shared_reference'):aa_molecules.verify_prepared(workflow.execution_root(work)/'1_AA-reference', job['molecule_snapshot'])
+                elif not job.get('shared_reference'):
+                    raise ValueError('CG run is missing its shared AA reference')
                 prepared.update(molecule_id=job['molecule_id'], molecule_snapshot=job['molecule_snapshot'])
-            prepared.update(id=jid, status='running', started_at=self.now(),run_type=job.get('run_type','aa_cg'),workflow_version=job.get('workflow_version','ddm-legacy-v1'))
+            prepared.update(id=jid, status='running', started_at=self.now(),run_type=job.get('run_type','aa_cg'),workflow_version=job.get('workflow_version','aa-cg-v2'))
             if job.get('shared_reference'):prepared['settings']=job['settings']
             files.atomic_json(work/'manifest.json', prepared)
             def stage_changed(name, entry):
@@ -419,7 +367,7 @@ class Coordinator:
             workflow.run(work, log, execute=worker.execute, on_stage=stage_changed, stop_after='CG topology (ff_inter)' if job.get('bonded_intent') == 'fit_only' else None)
             if aa_only:aa_references.verify(work,molecule_snapshot=job['molecule_snapshot'])
             if job.get('bonded_intent') == 'fit_only' and job.get('mapping_snapshot'):
-                topology = workflow.execution_root(work) / '3_initial_CG/DDM.itp'
+                topology = workflow.execution_root(work) / f"3_initial_CG/{prepared.get('cg_names', {}).get('final_itp', 'DDM.itp')}"
                 state = bonded_states.create(job['mapping_snapshot'], f"Fit from {jid}", 'fast-forward-fit', {'run_id': jid}, topology.read_text(), 'complete')
                 self.update_job(jid, bonded_state_id=state['state_id'], bonded_state_revision=state['revision'], bonded_state_snapshot=state['current'])
             status = 'completed'
@@ -464,7 +412,7 @@ class Coordinator:
             job=self.aa_job_record(molecule_id or detergent,label,settings,molecule_snapshot if resume_of else None)
             job.update(retry_of=retry_of,resume_of=resume_of,resume_from=resume_from)
             return self.admit_jobs([job],job)
-        shared=run_type=='aa_cg' and not (resume_of and not molecule_snapshot)
+        shared=run_type=='aa_cg'
         if shared:molecule_id=molecule_id or detergent
         if molecule_id is not None:
             try:
@@ -508,11 +456,7 @@ class Coordinator:
                 if self.lookup(reference_run_id).get('status')!='completed':raise ValueError('AA source must be completed')
             except (OSError,ValueError) as exc:abort(409,str(exc))
         elif reference_run_id:
-            try:
-                reference = workflow.validate_reference(reference_run_id)
-                actual = {'aa_equil_ps': workflow._mdp_value(reference/'1_AA-reference/eq.mdp','nsteps')*workflow._mdp_value(reference/'1_AA-reference/eq.mdp','dt'), 'aa_production_ps': workflow._mdp_value(reference/'1_AA-reference/run.mdp','nsteps')*workflow._mdp_value(reference/'1_AA-reference/run.mdp','dt'), 'temperature_k':workflow._mdp_value(reference/'1_AA-reference/run.mdp','ref_t')}
-                if any(abs(settings[k]-v)>1e-6 for k,v in actual.items()): abort(409, 'AA duration and temperature must match the reused reference; choose a new AA reference to change them')
-            except OSError as exc: abort(409, str(exc))
+            abort(409, 'CG runs require a shared AA reference')
         ready = workflow.readiness(molecule_id or detergent, method, profile, mapping_snapshot, molecule_root=self.ROOT / 'molecules')
         if not ready['ready']:
             abort(409, '; '.join(ready['blockers']))
@@ -525,7 +469,7 @@ class Coordinator:
         if molecule_snapshot is not None:
             job.update(molecule_id=molecule_snapshot['id'], molecule_snapshot=molecule_snapshot)
         job.update(layout_version=2, resume_of=resume_of, resume_from=resume_from)
-        job.update(run_type='aa_cg',workflow_version='ddm-shared-aa-v1' if shared else 'ddm-legacy-v1',stage_plan=[name for name,_ in workflow.STAGES])
+        job.update(run_type='aa_cg',workflow_version='aa-cg-v2',stage_plan=[name for name,_ in workflow.STAGES])
         if shared:
             if reference_snapshot:
                 job['shared_reference']={'source_run_id':reference_run_id,'sha256':reference_snapshot['sha256']}
@@ -605,48 +549,16 @@ class Coordinator:
 
 
     def update_analysis(self, jid, aid, **fields):
-        with self.JOBS_LOCK:
-            tasks = self.lookup(jid).get('analyses', [])
-            task = next(t for t in tasks if t['id'] == aid); task.update(fields)
-            self.update_job(jid, analyses=tasks)
-            attempt = self.run_path(self.lookup(jid))/task['directory']
-            if attempt.is_dir(): files.atomic_json(attempt/'manifest.json',task)
-            return task
+        return self.analysis_coordinator.update(jid, aid, **fields)
 
 
     def analysis_dependencies(self, job):
-        result = {}
-        for task in job.get('analyses', []):
-            if task['status'] == 'completed':
-                for relative in task.get('outputs', []):
-                    if Path(relative).name in ('numerical_stability.json','experimental_targets.json'):
-                        result[Path(relative).name] = relative
-        return result
+        return self.analysis_coordinator.dependencies(job)
 
 
     @application_context
     def run_analysis(self, jid, aid, worker):
-        job = self.lookup(jid); task = next(t for t in job['analyses'] if t['id'] == aid)
-        attempt = self.run_path(job)/task['directory']
-        try:
-            worker.run_dir = self.run_path(job)
-            worker.lease_file = self.lease(self.run_path(job)/'.worker.lock')
-            attempt.mkdir(parents=True, exist_ok=False)
-            command = [shutil.which('python', path=workflow.environment()['PATH']) or sys.executable, '-m', 'dashboard.analysis', str(attempt/'request.json')]
-            files.atomic_json(attempt/'request.json', {'run': str(self.run_path(job).resolve()), 'kind': task['kind'], 'payload': task['payload'], 'code_signature': task['signature'], 'dependencies': self.analysis_dependencies(job)})
-            self.update_analysis(jid, aid, status='running', started_at=self.now(), command=command, environment={k:workflow.environment()[k] for k in ('PATH','OMP_NUM_THREADS','MPLBACKEND')}, log=task['directory']+'/console.log')
-            with (attempt/'console.log').open('w') as output:
-                worker.execute(command, cwd=paths.PACKAGE_ROOT.parent, env=workflow.environment(), stdout=output, stderr=subprocess.STDOUT)
-            result = json.loads((attempt/'result.json').read_text())
-            outputs = [str((attempt/result.get('output_directory','output')/rel).relative_to(self.run_path(job))) for rel in result['outputs_sha256']]
-            self.update_analysis(jid, aid, status='completed', ended_at=self.now(), exit_code=0, outputs=outputs, **result)
-        except Exception as exc:
-            self.update_analysis(jid, aid, status='cancelled' if isinstance(exc, workflow.Cancelled) else 'failed', ended_at=self.now(), error=str(exc), exit_code=getattr(exc,'returncode',None))
-        finally:
-            try: self.artifact_index(self.lookup(jid), refresh=True)
-            finally:
-                if worker.lease_file: worker.lease_file.close()
-                with self.JOBS_LOCK: self.ANALYSIS_WORKERS.pop((jid,aid), None)
+        return self.analysis_coordinator.run(jid, aid, worker)
 
 
 
@@ -693,40 +605,8 @@ class Coordinator:
 
 
     def cancel_analysis(self, jid, aid):
-        with self.JOBS_LOCK:
-            worker = self.ANALYSIS_WORKERS.get((jid,aid))
-            if worker is None: abort(409, 'Analysis has no owned active worker')
-            task = self.update_analysis(jid, aid, status='cancelling'); worker.cancel.set()
-        return task
+        return self.analysis_coordinator.cancel(jid, aid)
 
 
     def queue_analysis(self, jid, kind, payload):
-        if kind not in analysis.KINDS: abort(404, 'Unknown analysis')
-        if not isinstance(payload, dict): abort(400, 'Expected an object')
-        if kind == 'snapshots' and payload.get('stage','1_AA-reference') != '1_AA-reference': abort(400, 'Only AA snapshots are supported')
-        with self.JOBS_LOCK:
-            job = self.lookup(jid)
-            if job['status'] not in ('completed','failed','cancelled') or jid in self.WORKERS: abort(409, 'Analysis requires a stopped run')
-            tasks = job.get('analyses', [])
-            # Stable source tree plus dependency/code revisions identify a reusable computation.
-            source_root = workflow.execution_root(self.run_path(job))
-            # Content identity prevents stale graph reuse when a trajectory is replaced
-            # while its size or mtime happens to remain unchanged.
-            source_entries=analysis.source_entries(source_root,kind)
-            fingerprint = [(relative,files.sha256(p)) for relative,p in source_entries.items()]
-            signature = hashlib.sha256(json.dumps([kind,payload,fingerprint,self.analysis_dependencies(job) if kind == 'refinement-score' else {},[(p.name,files.sha256(p)) for p in (Path(analysis.__file__),Path(observability.__file__),Path(targets.__file__),Path(refinement.__file__),Path(surfaces.__file__),Path(carbohydrates.__file__))]],sort_keys=True).encode()).hexdigest()
-            for task in reversed(tasks):
-                if task.get('signature') == signature and task['status'] in ('queued','running','completed'):
-                    return task, 200 if task['status'] == 'completed' else 202
-            if any(key[0] == jid for key in list(self.ANALYSIS_WORKERS)): abort(409, 'An analysis is already active for this run')
-            if len(self.ANALYSIS_WORKERS)+sum(self.externally_busy(j) for j in self.load()) >= self.limits()['max_concurrent_analyses']: abort(409, 'Analysis capacity is busy')
-            with self.lease(self.run_path(job)/'.worker.lock'): pass
-            copied_bytes = sum(path.stat().st_size for path in source_entries.values())
-            if resources.usage(self.run_path(job))+copied_bytes > self.limits()['max_run_bytes']: abort(409, 'Analysis workspace exceeds the per-run storage limit')
-            resources.admit(self.storage_report(), len(self.WORKERS)+len(self.ANALYSIS_WORKERS), copied_bytes)
-            aid = uuid.uuid4().hex[:12]
-            task = {'id':aid, 'kind':kind, 'signature':signature, 'payload':payload, 'status':'queued', 'created_at':self.now(), 'directory':f'analyses/{kind}/{signature}/{aid}'}
-            tasks.append(task); self.update_job(jid, analyses=tasks)
-            worker = self.Worker(); self.ANALYSIS_WORKERS[(jid,aid)] = worker
-            threading.Thread(target=self.run_analysis,args=(jid,aid,worker),daemon=True).start()
-        return task, 202
+        return self.analysis_coordinator.queue(jid, kind, payload)

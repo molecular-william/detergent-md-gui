@@ -1,0 +1,71 @@
+# Detergent MD automation
+
+Local Martini/GROMACS research dashboard for AA-only molecule simulation and
+AA→CG parameterization of any molecule with a compatible topology. The
+packaged DDM example (`molecules/DDM`) is a worked reference; other molecules
+run through the same generic adapter. The broader membrane-protein and
+micelle-builder workflows remain paused project goals.
+
+## Start
+
+From the repository root:
+
+```bash
+dashboard/.venv/bin/python -m dashboard
+Open http://127.0.0.1:5000. Run one coordinator per configured workspace.
+```
+
+## Documentation
+* Agent guidance — engineering rules, workflow contract, and the
+"do not" list for coding agents and contributors.
+* Project guide — dashboard operation, paths,
+persistence, migration, and testing.
+* DDM calibration — scientific status, bonded-state
+limitations, and the current DDM handoff.
+* Molecule directory contract — required AA inputs.
+* Dashboard developer guide — source ownership and
+testing.
+
+## Repository layout
+* dashboard/ — application source, grouped by execution, models, analyses, and web UI.
+* tests/dashboard/ — unit, integration, and browser tests with isolated stores.
+* reports/dashboard/, reports/validation/ — scientific reports and acceptance evidence.
+* molecules/, references/, resources/ — canonical scientific inputs.
+* config/ — workspace and tool/resource settings.
+* archive/ — preserved historical development material.
+
+## Roadmap
+The following work is documented but not yet implemented.
+
+### Iterative mapping refinement panel
+A fourth dashboard panel that manages candidate generation and evidence without changing immutable runs or silently selecting a model. It is a review queue linking a mapping candidate, its source structure/reference model, execution settings, analysis artifacts, and reviewer decision.
+
+Planned increments:
+
+1. Reference import and candidate records. Import reference CG PDB/ITP pairs; parse and preserve source files, checksums, force-field/version metadata, bead names/types, bonded terms, and any available atom-map file. Extend mapping JSON with parent_candidate, reference_sources, review_state, labels, and a revision number; revisions always create new files.
+2. Controlled candidate generation. Bounded variants from a selecteddraft: bead size changes obeying coverage/connectivity; local ±1 polarity variants; optional Martini d/a/e/v labels when supported; alternate boundaries from the user or inferred from the bond graph. Every generated candidate records parent, transformation, random seed (if applicable), and validation report; no draft is overwritten.
+3. Evidence execution. A short reproducible run using the existing workflow. Panel displays stage progress and links to structural validation, AA-to-CG COG error, fitted distributions, SASA and Connolly surface comparisons, topology-independent observables, numerical stability, and experimental-target residuals.
+4. Transparent ranking. Diagnostic score computed only from available, quality-checked metrics. Metric values, normalization, weights, missing-data mask, and score version persist in analysis/refinement_score.json. Rankings are labeled diagnostic; they
+cannot approve a model automatically.
+5. Human review gate. States draft, needs-review, approved-for-test, and rejected, with reviewer, timestamp, notes, and required justification for size/polarity exceptions. Approval is blocked for structural errors, unstable trajectories, missing required force-field terms, or unresolved atom correspondence.
+
+Scientific validation remains a separate decision. The panel accelerates
+review; it does not convert a high diagnostic score into a valid model.
+
+## Micelle builder
+A native spherical single-detergent Martini micelle builder around membrane
+proteins, exposed through the dashboard. Paused at the user's request.
+
+* Approved design: docs/superpowers/specs/2026-09-14-detergent-micelle-builder-design.md.
+* Implementation plan: docs/superpowers/plans/2026-09-14-detergent-micelle-builder.md.
+* Partial micelle/ package exists at the repository root. It is experimental and must not be used to claim a validated scientific model.
+* The initial core (python -m micelle build) validates a registered detergent template, creates a deterministic spherical center lattice, and writes geometry diagnostics. Protein-aware packing, topology closure, solvent/ions, GROMACS preprocessing, and dashboard submission are unfinished.
+
+## Protein-detergent workflow
+The broader memembed -> martinize -> insane -> cg2at chain remains a project goal. Historical assets are preserved under archive/MemProtMD/. The maintained path is aa_workflow -> cg_adapter -> Fast_Forward -> GROMACS, described in the project guide.
+
+## Verification
+```bash
+dashboard/.venv/bin/python -m pytest -q
+```
+See the project guide for focused test commands, browser acceptance criteria, and the fresh-workspace reset boundary.

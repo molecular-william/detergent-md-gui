@@ -1,0 +1,9 @@
+#include "martini_v2.2.itp"
+#include "DDM.itp"
+
+[system]
+This is an auto generated system
+
+[molecules]
+;moleculetype	count
+DDM	1

@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Detergent MD · Laboratory</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='runs.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='new-run.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='mappings.css') }}">
+  <script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
+</head>
+<body>
+<header><div><span class="eyebrow">LOCAL SIMULATION WORKSPACE</span><h1>Detergent MD</h1><p>Run, inspect, and refine molecular models.</p></div><span id="connection" role="status">Connecting…</span></header>
+<main>
+<nav role="tablist" aria-label="Workspace">
+  <button role="tab" id="tab-runs" aria-controls="runs" data-tab="runs">Runs</button>
+  <button role="tab" id="tab-new" aria-controls="new" data-tab="new">New run</button>
+  <button role="tab" id="tab-mappings" aria-label="CG mappings" aria-controls="mappings" data-tab="mappings">CG Bead Assignment</button>
+  <button role="tab" id="tab-bonded" aria-controls="bonded" data-tab="bonded">CG Bond Interactions</button>
+</nav>
+<p id="notice" role="status" class="notice" hidden></p>
+<section id="runs" role="tabpanel" aria-labelledby="tab-runs">
+  <div class="section-heading"><div><h2>Run activity</h2><p>Status updates in the background. Your workspace stays in place.</p></div><button data-go="new">New run</button></div>
+  <div class="card"><div class="toolbar">
+    <label>Filter status<select id="run-status-filter"><option value="">All statuses</option><option>waiting</option><option>queued</option><option>running</option><option>completed</option><option>failed</option><option>blocked</option><option>cancelled</option></select></label>
+    <label>Search runs<input id="run-search" type="search" maxlength="160"></label>
+    <button class="secondary" id="runs-prev">Previous</button><span id="runs-page" role="status"></span><button class="secondary" id="runs-next">Next</button>
+  </div><p id="storage-report" class="hint" role="status"></p><button class="secondary" id="refresh-storage">Refresh storage report</button></div>
+  <div class="runs-view-controls" role="group" aria-label="Run layout">
+    <span>View</span><button type="button" data-run-view="table" aria-pressed="true">Table</button><button type="button" data-run-view="grouped" aria-pressed="false">Grouped</button><button type="button" data-run-view="dense" aria-pressed="false">Dense</button>
+  </div>
+  <div class="run-table-scroll" tabindex="0" aria-label="Run table; scroll horizontally on smaller screens">
+    <table id="jobs" class="run-table"><caption class="sr-only">Simulation runs and their resources</caption><colgroup><col class="col-identity"><col class="col-status"><col class="col-molecule"><col class="col-method"><col class="col-created"><col class="col-duration"><col class="col-actions"></colgroup><thead><tr><th scope="col">Run / progress</th><th scope="col">Status</th><th scope="col">Molecule</th><th scope="col">Method</th><th scope="col">Created</th><th scope="col">Duration</th><th scope="col">Actions</th></tr></thead><tbody id="empty-jobs"><tr><td colspan="7">Loading runs…</td></tr></tbody></table>
+  </div>
+  <div id="console-parking" hidden>
+  <section id="console-panel" aria-label="Run console">
+    <label hidden>Run <select id="console-run"><option value="">Choose a run</option></select></label>
+    <div class="toolbar"><button class="secondary" id="pause-console" aria-pressed="false">Pause updates</button><button class="secondary" id="copy-console">Copy visible log</button><a id="download-console" class="button secondary" hidden>Download full log</a><span id="console-status" role="status"></span></div>
+    <pre id="console-output" tabindex="0" aria-label="Console output">Choose a run to inspect its console.</pre>
+    <p class="hint">Showing up to 256 KB. Scroll up to read; return to the bottom to follow new output. Pausing affects this display only.</p>
+  </section>
+  </div>
+</section>
+<section id="new" role="tabpanel" aria-labelledby="tab-new" hidden>
+  <div class="section-heading"><div><h2>Prepare a run</h2><p>Check the inputs and requirements before starting.</p></div></div>
+  <form id="run-form" class="new-run-layout">
+    <div class="new-run-inputs">
+    <section class="card" id="molecule-panel" aria-labelledby="molecule-title">
+      <span class="eyebrow">MOLECULE INPUTS</span><h3 id="molecule-title">Choose a molecule directory</h3>
+      <p class="hint">Select a folder under <code>molecules/</code> containing an ITP and matching GRO or PDB, including nested SwissParam output. Missing metadata is generated automatically; PDB is converted to GRO before simulation.</p>
+      <label>Molecule<select name="molecule_id" id="molecule-directory" required aria-describedby="molecule-details"><option value="">Loading molecule directories…</option></select></label>
+      <button type="button" id="refresh-molecules" class="secondary">Refresh directories</button>
+      <div id="molecule-details" aria-live="polite">Checking input files…</div>
+      <input type="hidden" name="detergent" id="detergent" value="DDM">
+      <p class="hint">AA runs accept supplied CHARMM36 July 2022 topologies with CHARMM TIP3P water. GROMACS checks parameter compatibility before simulation. CG execution currently supports DDM.</p>
+    </section>
+    <section class="card" aria-labelledby="execution-title">
+    <span class="eyebrow">RUN CONFIGURATION</span><h3 id="execution-title">Execution and CG inputs</h3>
+    <p class="hint" id="run-type-help">Choose the workflow before selecting CG-specific inputs.</p>
+    <label>Run type<select name="run_type" id="run-type"><option value="aa_cg">AA–CG run</option><option value="aa_only">AA run only</option></select></label>
+    <label class="cg-setting">Method<select name="method" id="method"><option value="fast_forward">Fast_Forward</option><option value="bartender">Bartender</option></select></label>
+    <input type="hidden" name="clone_of"><p id="clone-notice" class="hint" role="status"></p><button id="leave-clone" type="button" class="secondary" hidden>Use settings for a new run</button>
+    <label class="cg-setting">Execution<select name="profile"><option value="standard">Standard parameterization (reviewed model required)</option><option value="draft-smoke">Candidate screening · configurable CG durations</option><option value="draft-smoke-reference">Candidate screening · reuse full AA reference</option></select></label>
+    <p class="hint cg-setting">Candidate screening checks mapping, fitting and comparison using uncalibrated bead types. It does not validate a scientific model.</p>
+    <div class="cg-only" id="cg-inputs">
+    <label>CG mapping<select name="mapping_candidate" id="run-mapping"><option value="">Select a saved mapping</option></select></label>
+    <label>Bonded parameters<select name="bonded_state_id" id="run-bonded-state"><option value="">Fit bonded parameters during this run</option></select></label>
+    <label>Bonded workflow<select name="bonded_intent"><option value="fit_and_simulate">Fit and simulate</option><option value="fit_only">Fit only (stop for review)</option><option value="reuse_state">Reuse selected bonded state</option></select></label>
+    <p id="bonded-run-help" class="hint">Fit and simulate derives bonded parameters from AA, then runs CG. Fit only stops for review in CG Bond Interactions. Reuse uses the selected saved parameter revision.</p>
+    <p id="mapping-run-help" class="hint">Choose a saved candidate for screening. Each run keeps its own mapping snapshot. Structural approval does not establish scientific validation.</p>
+    <label>AA reference source<select name="reference_run_id" id="reference-run"><option value="">Run a new AA reference</option></select><button type="button" class="danger secondary" id="delete-reference" hidden>Delete selected AA reference</button></label>
+    <p id="reference-help" class="hint">A new AA simulation runs first as a separate job. Compatible completed AA-only references are shared by CG runs without trajectory copies.</p>
+    </div>
+
+    <label>Run label <input name="label" maxlength="160" placeholder="Optional label for this run"></label>
+    </section></div>
+    <aside class="new-run-settings">
+    <fieldset class="run-settings card"><legend>Stage settings</legend>
+      <p class="hint">One molecule in water: minimization → NVT → NPT → NPT production. Charged molecules receive counterions, with no added salt. Default durations are starting points, not a convergence guarantee.</p>
+      <div class="settings-grid">
+        <label>AA NVT equilibration (ps)<span class="setting-control"><input name="aa_nvt_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="aa_nvt_ps">Default</button></span></label>
+        <label>AA NPT equilibration (ps)<span class="setting-control"><input name="aa_npt_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="aa_npt_ps">Default</button></span></label>
+        <label>AA production (ps)<span class="setting-control"><input name="aa_production_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="aa_production_ps">Default</button></span></label>
+        <label class="cg-setting">CG equilibration (ps)<span class="setting-control"><input name="cg_equil_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="cg_equil_ps">Default</button></span></label>
+        <label class="cg-setting">CG production (ps)<span class="setting-control"><input name="cg_production_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="cg_production_ps">Default</button></span></label>
+        <label>Temperature (K)<span class="setting-control"><input name="temperature_k" type="number" min="200" max="500" step="0.1"><button type="button" class="secondary use-default" data-field="temperature_k">Default</button></span></label>
+        <label>Pressure (bar)<span class="setting-control"><input name="pressure_bar" type="number" min="0.1" max="100" step="0.1"><button type="button" class="secondary use-default" data-field="pressure_bar">Default</button></span></label>
+        <label>Box padding (nm)<span class="setting-control"><input name="box_padding_nm" type="number" min="1.3" max="10" step="0.1"><button type="button" class="secondary use-default" data-field="box_padding_nm">Default</button></span></label>
+        <label>AA random seed<span class="setting-control"><input name="aa_seed" type="number" min="1" max="2147483646" step="1"><button type="button" class="secondary use-default" data-field="aa_seed">Default</button></span></label>
+        <label>Trajectory interval (ps)<span class="setting-control"><input name="output_interval_ps" type="number" min="0.001" step="0.001"><button type="button" class="secondary use-default" data-field="output_interval_ps">Default</button></span></label>
+        <label class="cg-setting">SASA probe (nm)<span class="setting-control"><input name="sasa_probe_nm" type="number" min="0.05" max="0.5" step="0.001"><button type="button" class="secondary use-default" data-field="sasa_probe_nm">Default</button></span></label>
+      </div><p id="defaults-source" class="hint" aria-live="polite"></p>
+    </fieldset>
+    <section class="card run-review" aria-labelledby="run-checks-title"><div class="review-heading"><h3 id="run-checks-title">Review before launch</h3><span id="review-status" class="review-status" role="status">Checking readiness…</span></div>
+    <dl id="run-input-summary" class="review-grid"><dt>Molecule</dt><dd id="run-molecule-summary">Select a molecule</dd><dt>Directory</dt><dd id="run-directory-summary">—</dd><dt>Run type</dt><dd id="run-type-summary">AA–CG run</dd><dt>AA source</dt><dd id="run-aa-summary">New reference</dd><dt>CG mapping</dt><dd id="run-mapping-summary">Select a mapping</dd><dt>Bonded state</dt><dd id="run-bonded-summary">Fit during run</dd><dt>Settings</dt><dd id="run-settings-summary">300 K · AA/CG durations</dd></dl>
+    <p class="hint review-note">Execution success does not establish scientific validation.</p>
+    <p id="launch-blocker" class="hint" role="status"></p>
+    <details id="run-provenance"><summary>View detailed provenance and stages</summary><p id="new-storage" class="hint"></p><h4>Readiness details</h4><div id="readiness" aria-live="polite">Checking requirements…</div></details>
+    <button type="submit" id="start-run" disabled>Start run</button>
+    </section></aside>
+  </form>
+</section>
+<section id="mappings" role="tabpanel" aria-labelledby="tab-mappings" hidden>
+  <div class="section-heading"><div><h2>Design and screen CG mappings</h2><p>Assign heavy atoms to local beads and watch the overlay update live.</p></div></div>
+  <div class="card"><h3>How this workspace works</h3>
+    <p class="hint">All mappings here are unvalidated drafts. Passing structural checks does not establish force-field accuracy.</p>
+    <p class="hint"><strong>Design:</strong> edit bead names, sizes, and atom indices below; the molecular overlay updates as you type. <strong>Validate:</strong> green checks require complete, connected assignments and plausible bead sizes. <strong>Parameterize:</strong> save a reviewed draft, then choose it in a new draft-smoke run to fit bonded terms and run an independent CG test.</p>
+    <p class="hint">Recognized hexopyranose sugars use canonical fragments, 15% longer intra-ring constraints and a central massless TC4 interaction site. Linkage terms are fitted from AA data. Other chemistry remains a provisional draft.</p>
+  </div>
+  <section class="card model-registry" aria-labelledby="model-registry-title">
+    <h3 id="model-registry-title">Reference and building-block registry</h3>
+    <p class="hint">Canonical files stay under <code>references/</code>. The dashboard records hashes and evidence status; imported models are not validated automatically.</p>
+    <div class="registry-columns"><div><strong>References</strong><ul id="model-references"><li class="hint">Loading…</li></ul></div><div><strong>Fragments</strong><ul id="model-fragments"><li class="hint">Loading…</li></ul></div><div><strong>Compositions</strong><ul id="model-compositions"><li class="hint">Loading…</li></ul></div></div>
+    <p id="model-registry-message" class="hint" role="status"></p>
+  </section>
+  <section class="card molecule-mapping-workspace" aria-labelledby="molecule-mapping-title">
+    <div class="section-heading"><div><h3 id="molecule-mapping-title">Molecule-scoped bead editor</h3><p class="hint">Select heavy atoms on the canonical 2D structure. Edits stay local until explicit save. Bead assignments, validation and exports appear below the diagram.</p></div></div>
+    <div class="form-grid"><label>Molecule<select id="mapping-molecule" aria-label="Molecule"></select></label><label>Candidate filter<select id="mapping-candidate-filter" aria-label="Candidate filter"><option value="">New or all candidates</option></select></label></div>
+    <p id="mapping-editor-status" class="hint" role="status">Choose molecule.</p>
+    <div class="mapping-editor-layout">
+      <div id="mapping-editor-diagram" class="mapping-editor-diagram" aria-label="2D molecule structure"></div>
+      <div class="mapping-editor-controls">
+        <p id="mapping-selection-count" role="status">0 heavy atoms selected</p>
+        <div class="toolbar">
+          <button type="button" class="secondary" id="clear-selection">Clear selection</button>
+          <button type="button" id="group-into-bead">Group into bead</button>
+          <button type="button" class="secondary" id="suggest-bead">Suggest bead</button>
+          <button type="button" class="secondary" id="ring-site-preview">Suggest TC4 site</button>
+        </div>
+        <label>Candidate name<input id="mapping-editor-name" maxlength="160" value="New mapping"></label>
+        <p id="mapping-suggestion" class="hint"></p>
+        <div class="toolbar">
+          <button type="button" id="save-mapping-editor">Save as new</button>
+          <button type="button" class="secondary" id="generate-automatic-preview">Generate automatic preview</button>
+          <button type="button" class="secondary" id="create-candidate">Create new candidate</button>
+          <button type="button" class="secondary" id="generate-automatic">Generate automatic candidate</button>
+          <button type="button" class="secondary" id="discard-automatic-preview" hidden>Discard preview</button>
+        </div>
+        <p id="automatic-message" class="hint" role="status"></p>
+        <pre id="mapping-automatic-preview" class="mapping-preview" role="region" aria-label="Automatic preview" hidden></pre>
+      </div>
+    </div>
+    <div class="comparison" id="comparison"></div>
+  </section>
+</section>
+<section id="bonded" role="tabpanel" aria-labelledby="tab-bonded" hidden>
+  <div class="section-heading"><div><h2>CG Bond Interactions</h2><p>Create, inspect, and revise versioned bonded states for a mapping before using one in a simulation.</p></div></div>
+  <div class="card bonded-workspace">
+    <div class="notice bonded-help"><strong>Workflow</strong><p>Choose a mapping, then load an existing state or start from the mapping-only geometry. <strong>Create bonded state</strong> saves an editable version. <strong>Fit bonded parameters</strong> opens a fit-only run from the selected mapping. <strong>Run short CG validation</strong> launches a temporary screening run. Complete states can be selected in <em>New run</em> for reuse. Each edit creates a new revision; incomplete states cannot be reused.</p><p>Click an interaction row to highlight its beads in the enlarged 2D connectivity diagram. Virtual sites are derived from their parent beads and do not receive independent bonds.</p></div>
+    <div class="form-grid"><label>Mapping<select class="bonded-mapping-select"></select></label><label>Bonded state<select class="bonded-state-select"><option value="">Mapping only · fit parameters</option></select></label></div>
+    <p class="bonded-state-summary hint">Choose a mapping to load its bonded states.</p>
+    <div class="bonded-toolbar toolbar"><button class="secondary bonded-load">Load mapping</button><button class="bonded-create">Create bonded state</button><button class="secondary bonded-fit">Fit bonded parameters</button><button class="secondary bonded-short-run">Run short CG validation</button><button class="secondary bonded-save-new" disabled>Save as new state</button><button class="secondary bonded-revise" disabled>Revise selected state</button><button class="danger secondary bonded-delete" disabled>Delete state</button></div>
+    <div class="bonded-editor-panel card" hidden><h3>Edit selected interactions</h3><p class="hint">Numeric parameters use GROMACS units. Constraints and virtual-site parents stay read-only.</p><label>State name<input class="bonded-state-name" maxlength="160"></label><div class="bonded-parameter-editor"></div></div>
+    <div class="bonded-columns"><div><h3>Interactions</h3><div class="bonded-interaction-table"><p class="hint">Load a fitted state to inspect bonds, angles, dihedrals, constraints, and virtual sites.</p></div></div><div><h3>Molecular connectivity</h3><div class="bonded-diagram" role="img" aria-label="CG bonded interaction overlay">Select an interaction to highlight its beads and assigned atoms. This is a 2D connectivity view.</div></div></div>
+    <details><summary>Generated ITP preview</summary><p class="hint">A complete fitted state shows its exact topology. A mapping-only state shows a provisional connectivity preview until fitting produces an ITP.</p><pre class="bonded-itp-preview">No bonded state loaded.</pre></details><p class="bonded-panel-message hint" role="status"></p>
+  </div>
+</section>
+</main>
+<template id="job-template">
+  <tbody class="job">
+    <tr class="run-row">
+      <td class="run-summary" data-label="Run"><div class="run-identity"><h3 class="job-title"></h3><span class="job-meta hint"></span></div><ol class="workflow-timeline" aria-label="Workflow stage checkpoints"></ol></td>
+      <td class="run-status" data-label="Status"><span class="badge job-status"></span><span class="job-stage"></span><span class="job-eta hint"></span></td>
+      <td class="job-molecule" data-label="Molecule"></td><td class="job-method" data-label="Method"></td><td class="job-created" data-label="Created"></td><td class="job-elapsed" data-label="Duration"></td>
+      <td class="run-actions" data-label="Actions"><div class="toolbar"><button class="secondary job-clone" title="Clone with changed settings">Clone</button><button class="secondary job-cancel" hidden>Cancel</button><button class="secondary job-retry" hidden>Retry</button><button class="danger secondary job-delete" hidden>Delete</button></div><div class="resume-control" hidden><label>Resume from stage<select class="resume-stage"></select></label><button class="secondary job-resume" hidden>Resume</button></div></td>
+    </tr>
+    <tr class="run-detail-row"><td colspan="7">
+      <p class="job-error notice" hidden></p>
+      <div class="run-resources">
+        <details class="job-artifacts"><summary>Artifacts</summary><div class="resource-content"><p class="hint artifact-summary"></p><div class="toolbar"><label>Find artifact<input class="artifact-search" type="search"></label><button class="secondary artifacts-prev">Previous files</button><span class="artifacts-page"></span><button class="secondary artifacts-next">Next files</button></div><div class="artifact-list"></div></div></details>
+        <details class="job-records"><summary>Commands and stage records</summary><div class="resource-content"><p class="job-validation hint">Scientific validation: not established. Completion proves execution only.</p><pre class="job-command"></pre><div class="job-stages"></div></div></details>
+        <details class="job-console"><summary>Console</summary><div class="resource-content console-host"></div></details>
+        <details class="job-analysis"><summary>Analysis graphs</summary><div class="resource-content"><p class="hint">Choose a figure, then zoom or pan. A completed analysis does not establish model validity.</p><div class="analysis-tasks" aria-live="polite"></div><div class="analysis-plots"></div></div></details>
+      </div>
+    </td></tr>
+  </tbody>
+</template>
+<template id="mapping-template">
+  <article class="card mapping">
+    <label>Candidate<select class="candidate-select"></select></label>
+    <p class="mapping-status hint"></p>
+    <label>Candidate name<input class="candidate-name" maxlength="160"></label>
+    <div class="table-scroll"><table><caption>Bead assignments · heavy atom indices</caption><thead><tr><th>Bead</th><th>Size</th><th>Type</th><th>Atoms</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody class="bead-rows"></tbody></table></div>
+    <div class="bead-add-controls"><button class="secondary add-bead" type="button">Add bead</button> <button class="secondary add-virtual-site" type="button">Add ring interaction site</button></div><p class="ring-summary hint"></p>
+    <details class="bonded-editor"><summary>Bond topology and fitting (advanced)</summary>
+      <p class="hint">Edit connections using bead names. All massive beads must remain connected, and sugar ring constraints are protected. Flexible bonds and angles are fitted from AA; manual overrides are applied afterward and preserved in the run.</p>
+      <label>Bonded settings (JSON)<textarea class="bonded-settings" rows="14" spellcheck="false" aria-label="Bonded settings (JSON)"></textarea></label>
+      <p class="hint">An override example: <code>{"section":"bonds","beads":["S1B","S2A"],"function":1,"parameters":[0.327,1900]}</code>. Distances are nm, angles are degrees; force constants use GROMACS units. Supported functions: bonds 1; angles 1, 2, 10; dihedrals 1, 2, 9. Each override replaces an existing term. Use <code>"torsion_model":"circular-harmonic","torsion_scale":1</code> in bonded_options to fit the circular AA mean and variance. Save as a new candidate before running.</p>
+      <p class="bonded-message hint" role="status"></p>
+    </details>
+    <section class="validation" aria-live="polite"><h3>Checks</h3><p class="validation-summary"></p><ul class="validation-issues"></ul></section>
+    <div class="toolbar"><button class="save-candidate" type="button">Save candidate</button><button class="secondary approve-candidate" type="button">Approve mapping</button><button class="danger secondary delete-selected" type="button">Delete candidate</button><button class="secondary export-candidate" type="button">Export JSON</button><button class="secondary export-diagram" type="button">Download diagram (SVG)</button></div><p class="mapping-message hint" role="status"></p>
+    <div class="mapping-exports"><strong>Mapping exports</strong><div class="toolbar"><button class="secondary export-mapping" data-format="ndx" type="button">Index (.ndx)</button><button class="secondary export-mapping" data-format="map" type="button">Fast_Forward (.map)</button><button class="secondary export-mapping" data-format="gro" type="button">CG frame (.gro)</button><button class="secondary export-mapping" data-format="bundle" type="button">Download bundle</button></div></div>
+    <p class="hint">Exports share bead IDs B01, B02, … and preserve your labels in the bundle JSON. Coordinates use heavy-atom centres of geometry. Size and connectivity findings still require review.</p>
+  </article>
+</template>
+</body></html>

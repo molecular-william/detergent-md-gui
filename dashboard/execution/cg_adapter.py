@@ -60,26 +60,6 @@ def stage_contract(names: CGNames | None = None):
     return stage_tables(STAGE_DEFS, (names or _DEFAULT_NAMES).env())
 
 
-REQUIRED_INPUTS = {
-    'AA reference': ('molecule.pdb', 'system_EMPTY.top', 'em.mdp', 'eq.mdp', 'run.mdp'),
-    'trajectory mapping (ff_map)': ('../1_AA-reference/prod/lig.xtc', '../1_AA-reference/prod/lig.tpr', '../1_AA-reference/prod/lig.gro', 'mapping.map'),
-    'CG topology (ff_inter)': ('../2_mapping/mapped.xtc', '../2_mapping/mapped.gro', 'initial.mdp', 'topol.top', 'DDM_initial.itp'),
-    'CG simulation': ('../2_mapping/mapped.gro', '../3_initial_CG/DDM.itp', 'system_EMPTY.top', 'inputs/md.mdp'),
-    'CG assessment (ff_assess)': ('../4_CG_sim/prod/lig_CG.xtc', '../4_CG_sim/prod/lig_CG.tpr', '../4_CG_sim/prod/lig_CG.gro', '../3_initial_CG/DDM_initial.itp', '../3_initial_CG/*_bonds_distr.dat', '../3_initial_CG/*_distances_distr.dat'),
-    'SASA analysis': ('../1_AA-reference/prod/lig.xtc', '../4_CG_sim/prod/lig_CG.xtc', 'AA/vdwradii.dat', 'CG/vdwradii.dat'),
-}
-
-
-REQUIRED_OUTPUTS = {
-    'AA reference': ('prod/lig.gro', 'prod/lig.tpr', 'prod/lig.xtc', '3-run.xtc'),
-    'trajectory mapping (ff_map)': ('mapped.xtc', 'mapped.gro', 'mapping_validation.json'),
-    'CG topology (ff_inter)': ('mapped.tpr', 'DDM.itp', '*_bonds_distr.dat', '*_angles_distr.dat', '*_distances_distr.dat'),
-    'CG simulation': ('prod/lig_CG.gro', 'prod/lig_CG.tpr', 'prod/lig_CG.xtc'),
-    'CG assessment (ff_assess)': ('report_interactions.out', 'report_distances.out', 'validation.json', 'distance_diagnostics_stratified.json', 'distance_matrix_stratified_DDM.png'),
-    'SASA analysis': ('AA/SASA-AA.xvg', 'CG/SASA-CG.xvg'),
-}
-
-
 SETTING_SPECS = {
     'cg_seed': ('CG random seed', 1, 2147483646),
     'aa_equil_ps': ('AA equilibration duration', 1, 1000000),
@@ -129,80 +109,26 @@ def normalize_settings(settings=None, profile='standard'):
     return values
 
 
-def validate_reference(reference_run_id):
-    """Validate a legacy (non-shared) AA reference run for CG consumption.
-
-    Shared references flow through aa_references.resolve with explicit hashes
-    and molecule identity; this function only checks file presence for legacy
-    callers that still reference a run by ID without a shared-reference record.
-    Molecule identity is not checked here — aa_molecules handles that when the
-    reference is consumed via aa_references.resolve.
-    """
-    if not isinstance(reference_run_id, str) or not re.fullmatch(r'[a-f0-9]{12}', reference_run_id):
-        raise ValueError('Reference run ID is invalid')
-    source = paths.current().runs / reference_run_id
-    manifest = source / 'manifest.json'
-    if not manifest.is_file(): raise FileNotFoundError('Reference run manifest is missing')
-    metadata = json.loads(manifest.read_text())
-    source = execution_root(source)
-    if metadata.get('status') != 'completed': raise ValueError('Reference run must be completed')
-    required = ('1_AA-reference/molecule.pdb', '1_AA-reference/prod/lig.gro', '1_AA-reference/prod/lig.tpr', '1_AA-reference/prod/lig.xtc')
-    missing = [path for path in required if not (source / path).is_file()]
-    if missing: raise FileNotFoundError('Reference is missing: ' + ', '.join(missing))
-    return source
-
-
-def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM', profile='standard', settings=None, reference_run_id=None, mapping_candidate=None, bonded_state_snapshot=None, bonded_intent='fit_and_simulate', shared_reference=None, reference_root=None, molecule_snapshot=None):
+def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM', profile='standard', settings=None, mapping_candidate=None, bonded_state_snapshot=None, bonded_intent='fit_and_simulate', shared_reference=None, reference_root=None, molecule_snapshot=None):
     if profile not in ('standard', 'draft-smoke', 'draft-smoke-reference'):
         raise ValueError('Unsupported execution profile')
-    molecule_scoped = molecule_snapshot is not None
-    if molecule_scoped:
-        names = CGNames.for_snapshot(molecule_snapshot)
-        detergent = molecule_snapshot['id']
-    else:
-        names = CGNames.ddm_defaults()
+    if molecule_snapshot is None or not shared_reference:
+        raise ValueError('CG preparation requires a molecule snapshot and shared AA reference')
+    names = CGNames.for_snapshot(molecule_snapshot)
+    detergent = molecule_snapshot['id']
     require_script_compatibility(names)
+    stage_plan, _, _ = stage_contract(names)
 
     aa = run_dir / '1_AA-reference'
     aa.mkdir()
     reference_source = None
-    if molecule_scoped:
-        # Molecule-scoped CG runs consume an AA-only reference. The coordinator
-        # attaches shared_reference at admission (either an explicit reference
-        # or a parent AA-only job); reaching prepare without one is a bug.
-        if not shared_reference:
-            raise ValueError(
-                'CG preparation for a molecule-scoped run requires a shared AA '
-                'reference. Run an AA-only job for this molecule and submit the '
-                'CG run with that job as its reference, or let the coordinator '
-                'create the parent AA-only job automatically.'
-            )
-        from ..analysis import aa_references
-        aa_references.resolve(reference_root, shared_reference['source_run_id'], shared_reference['sha256'])
-    else:
-        # Legacy DDM-only path: stage packaged SwissParam inputs inline, either
-        # from a legacy reference run or from the shipped molecules/DDM tree.
-        reference_source = validate_reference(reference_run_id) if reference_run_id else None
-        if reference_source:
-            shutil.copytree(reference_source / '1_AA-reference', aa, dirs_exist_ok=True)
-        else:
-            source = ROOT / 'molecules/DDM/results/MMFF'
-            shutil.copy2(source / 'lig1.pdb', aa / 'molecule.pdb')
-            shutil.copy2(source / 'lig1.itp', aa / 'MMFF_lig1.itp')
+    from ..analysis import aa_references
+    aa_references.resolve(reference_root, shared_reference['source_run_id'], shared_reference['sha256'])
 
     shutil.copytree(FORCE_FIELD, run_dir / FORCE_FIELD.name)
-    inline_aa = not molecule_scoped and reference_source is None
-    if inline_aa:
-        for src, dest in [('em.mdp','em.mdp'), ('eq.mdp','eq.mdp'), ('md.mdp','run.mdp')]:
-            shutil.copy2(AA_TEMPLATE / 'mdps' / src, aa / dest)
-        (aa / 'system_EMPTY.top').write_text(
-            '#include "../charmm36-jul2022.ff/forcefield.itp"\n'
-            '#include "MMFF_lig1.itp"\n'
-            '#include "../charmm36-jul2022.ff/tip3p.itp"\n'
-            '#include "../charmm36-jul2022.ff/ions.itp"\n\n'
-            '[ system ]\nDDM in water\n\n[ molecules ]\nLIG1 1\n')
+    inline_aa = False
 
-    for name, relative in STAGES:
+    for name, relative in stage_plan:
         path = run_dir / relative
         path.parent.mkdir(exist_ok=True)
         shutil.copy2(SCRIPTS / path.name, path)
@@ -279,14 +205,10 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     if mapping_candidate is not None:
         metadata['mapping_candidate'] = mapping_candidate
         metadata['mapping_sha256'] = hashlib.sha256(json.dumps(mapping_candidate, sort_keys=True).encode()).hexdigest()
-    metadata.update(profile=profile, scientifically_validated=False, settings=settings, stage_plan=[name for name, _ in STAGES])
+    metadata.update(profile=profile, scientifically_validated=False, settings=settings, stage_plan=[name for name, _ in stage_plan])
     metadata['cg_names'] = {'residue_name': names.residue_name, 'initial_itp': names.initial_itp, 'final_itp': names.final_itp}
     if shared_reference:
         metadata.update(shared_reference=shared_reference, reference_reused=True, reference_run_id=shared_reference['source_run_id'])
-    if reference_source:
-        metadata.update(reference_reused=True, reference_run_id=reference_run_id,
-                        reference_artifacts=['1_AA-reference/prod/lig.gro', '1_AA-reference/prod/lig.tpr', '1_AA-reference/prod/lig.xtc'],
-                        reference_manifest_sha256=files.sha256((reference_source.parent if reference_source.name == 'stages' else reference_source) / 'manifest.json'))
     metadata['force_field'] = {'name': FORCE_FIELD.name, 'source': str(FORCE_FIELD.relative_to(ROOT)), 'staged_path': FORCE_FIELD.name,
         'sha256': {str(p.relative_to(FORCE_FIELD)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(FORCE_FIELD.rglob('*')) if p.is_file()}}
     metadata['inputs_sha256'] = {str(p.relative_to(run_dir)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(run_dir.rglob('*')) if p.is_file() and p != manifest}

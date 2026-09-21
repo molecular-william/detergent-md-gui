@@ -1,0 +1,9 @@
+{
+  "max_concurrent_runs": 1,
+  "max_concurrent_analyses": 2,
+  "min_free_bytes": 1073741824,
+  "max_run_bytes": 21474836480,
+  "max_total_bytes": 107374182400,
+  "reserve_per_job_bytes": 1073741824,
+  "retention_days": 90
+}

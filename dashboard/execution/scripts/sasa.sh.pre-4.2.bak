@@ -1,0 +1,7 @@
+#!/bin/bash
+set -euxo pipefail
+PROBE=${SASA_PROBE:-0.191}
+cd AA
+printf 'System\n' | gmx sasa -f "${AA_REFERENCE_DIR:-../../1_AA-reference/prod}/lig.xtc" -s "${AA_REFERENCE_DIR:-../../1_AA-reference/prod}/lig.tpr" -ndots 4800 -probe "$PROBE" -o SASA-AA.xvg
+cd ../CG
+printf 'System\n' | gmx sasa -f ../../4_CG_sim/prod/lig_CG.xtc -s ../../4_CG_sim/prod/lig_CG.tpr -ndots 4800 -probe "$PROBE" -o SASA-CG.xvg

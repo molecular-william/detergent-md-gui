@@ -1,0 +1,1 @@
+{"default":{"gpu_id":"0","nb":"gpu","pme":"gpu","pmefft":"gpu","bonded":"gpu","update":"gpu","pin":"on","ntmpi":1,"ntomp":8,"nstlist":100},"notes":"RTX 2060 CUDA build; benchmark must confirm bonded/update GPU support for each workload."}

@@ -1,0 +1,9 @@
+#!/bin/bash
+AA_REFERENCE_DIR="${AA_REFERENCE_DIR:-../1_AA-reference/prod}"
+set -euxo pipefail
+# GRO supplies ligand atom order/residue names; TPR 138 is unsupported by MDAnalysis 2.10.
+# XTC positions are molecule-whole from GROMACS. ITP supplies interaction connectivity.
+# Use the annotated seed to keep reference group labels identical after fitting.
+ff_assess -f ../4_CG_sim/prod/lig_CG.xtc -s ../4_CG_sim/prod/lig_CG.gro -i ../3_initial_CG/$INITIAL_ITP -d ../3_initial_CG -plots -plot-data -dists
+python validate_run.py
+if [ -f distance_diagnostics.py ]; then python distance_diagnostics.py; fi

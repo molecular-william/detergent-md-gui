@@ -1,0 +1,10 @@
+#include "inputs/martini_v3.0.0.itp"
+#include "inputs/martini_v3.0.0_solvents_v1.itp"
+#include "inputs/martini_v3.0.0_ions_v1.itp"
+#include "ENAP.itp"
+
+[ system ]
+One molecule in water
+
+[ molecules ]
+ENAP                    1

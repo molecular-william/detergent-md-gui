@@ -1,0 +1,10 @@
+{
+  "name": "DDM",
+  "molecule_type": "LIG1",
+  "net_charge": 0,
+  "force_field": "charmm36-jul2022.ff",
+  "water_model": "tip3p",
+  "generated": true,
+  "parameterization": "SwissParam",
+  "provenance": "Identity and charge read from ITP. SwissParam detected; CHARMM36 July 2022 / TIP3P selected for the supported adapter. GROMACS preprocessing must resolve parameters; scientific validation is not established."
+}

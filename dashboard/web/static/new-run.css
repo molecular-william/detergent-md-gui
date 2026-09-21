@@ -1,0 +1,32 @@
+/* New run uses the available width while keeping inputs and checks together. */
+#run-form.new-run-layout{max-width:none;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:20px;align-items:start}
+.new-run-inputs,.new-run-settings{min-width:0}
+#run-form .card{margin:0 0 16px}
+#run-form .run-settings{min-width:0;padding:20px}
+#run-form .settings-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+#run-form .setting-control{min-width:0}
+#run-form .setting-control input{min-width:0;width:100%}
+#run-form .use-default{padding:7px 9px;font-size:12px}
+#run-form .hint,#run-form dd{overflow-wrap:anywhere}
+#molecule-details{margin-top:16px;padding:12px;background:#f7f9fc;border:1px solid var(--line);border-radius:8px;font-size:13px;overflow-wrap:anywhere}
+#molecule-details ul{padding-left:20px;margin-bottom:0}
+#molecule-details li{margin:4px 0}
+#run-form #start-run{width:100%}
+#run-input-summary{display:grid;grid-template-columns:100px minmax(0,1fr);gap:8px 12px}
+#run-input-summary dd{margin:0;font-size:13px}
+@media(max-width:900px){#run-form.new-run-layout{grid-template-columns:1fr}}
+@media(max-width:520px){#run-form .settings-grid{grid-template-columns:1fr}}
+/* Compact launch review: key choices stay visible; provenance expands on demand. */
+#run-form .cg-only.hidden,#run-form .cg-setting.hidden{display:none}
+#run-form .cg-only{margin:0}
+.run-review{position:sticky;top:18px}
+.review-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.review-heading h3{margin:0}
+.review-status{font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap}
+.review-status[data-ready=true]{color:#286644}.review-status[data-ready=false]{color:var(--danger)}
+.review-grid{display:grid;grid-template-columns:100px minmax(0,1fr);gap:7px 12px;margin:16px 0}
+.review-grid dt{color:var(--muted);font-size:12px}.review-grid dd{margin:0;font-size:13px;font-weight:650;overflow-wrap:anywhere}
+#run-provenance{border-top:1px solid var(--line);padding-top:10px;margin-top:8px}
+#run-provenance summary{font-size:12px}
+#run-provenance h4{font-size:13px;margin:14px 0 6px}
+@media(max-width:900px){.run-review{position:static}}

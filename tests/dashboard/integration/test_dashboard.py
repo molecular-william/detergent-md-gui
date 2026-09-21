@@ -1,0 +1,178 @@
+import os
+from dashboard.execution import coordinator as backend
+"""Focused API, mapping and worker lifecycle acceptance tests."""
+import json
+from pathlib import Path
+import tempfile
+import threading
+import time
+import unittest
+from unittest.mock import patch
+
+from dashboard.app import default_coordinator as web
+from dashboard.models import mapping_store, mappings
+from dashboard.execution import workflow
+
+
+class DashboardTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        (self.root / 'dashboard').mkdir()
+        for name, value in [('ROOT', self.root), ('DATA', self.root / 'dashboard/jobs.sqlite3'), ('RUNS', self.root / 'dashboard/runs'), ('WORKERS', {})]:
+            mock = patch.object(web, name, value); mock.start(); self.addCleanup(mock.stop)
+        cfg = patch.dict(web.app.config, DISABLE_COORDINATOR=True); cfg.start(); self.addCleanup(cfg.stop)
+        workers = patch.object(web, 'ANALYSIS_WORKERS', {}); workers.start(); self.addCleanup(workers.stop)
+        self.client = web.app.test_client()
+        self.job = {'id': '123456abcdef', 'detergent': 'DDM', 'method': 'fast_forward', 'status': 'running', 'stage': 'input', 'created': web.now()}
+        web.save([self.job])
+
+    def test_readiness_blocks_unconnected_run_before_creation(self):
+        response = self.client.get('/api/readiness').get_json()
+        self.assertFalse(response['ready'])
+        self.assertTrue(response['blockers'])
+        self.assertEqual(self.client.post('/', json={'detergent': 'DDM', 'method': 'fast_forward'}).status_code, 409)
+        self.assertEqual(len(web.load()), 1)
+
+    def test_never_signal_an_unowned_stored_pid(self):
+        web.update_job(self.job['id'], pid=1)
+        with patch.object(os, 'killpg') as signal:
+            self.assertEqual(self.client.post('/control/123456abcdef/cancel').status_code, 409)
+            signal.assert_not_called()
+        self.assertFalse(self.client.get('/api/jobs').get_json()[0]['can_cancel'])
+
+    def test_console_cursor_download_and_unknown_run(self):
+        path = web.log_path(self.job); path.write_text('first\n')
+        result = self.client.get('/api/jobs/123456abcdef/log').get_json()
+        self.assertEqual(result['text'], 'first\n')
+        with path.open('a') as fp: fp.write('<script>literal</script>\n')
+        result = self.client.get(f'/api/jobs/123456abcdef/log?offset={result["offset"]}').get_json()
+        self.assertEqual(result['text'], '<script>literal</script>\n')
+        self.assertEqual(self.client.get('/api/jobs/123456abcdef/log?offset=-1').status_code, 400)
+        self.assertEqual(self.client.get('/api/jobs/ffffffffffff/log').status_code, 404)
+        response = self.client.get('/api/jobs/123456abcdef/log?download=1')
+        self.assertIn('attachment', response.headers['Content-Disposition'])
+        response.close()
+
+    def test_artifact_index_and_snapshot_preflight_are_explicit(self):
+        run_dir = web.RUNS / self.job['id']; run_dir.mkdir(parents=True)
+        (run_dir / 'manifest.json').write_text('{}')
+        (run_dir / 'result.gro').write_text('coordinates')
+        result = self.client.get('/api/jobs/123456abcdef/artifacts').get_json()
+        self.assertEqual([item['path'] for item in result], ['manifest.json', 'result.gro'])
+        self.assertEqual(self.client.get('/api/jobs/123456abcdef/artifacts/../jobs.sqlite3').status_code, 404)
+        snapshot = self.client.post('/api/jobs/123456abcdef/snapshots', json={'stage': '1_AA-reference'})
+        self.assertEqual(snapshot.status_code, 409)
+        self.assertIn('stopped run', snapshot.get_json()['error'])
+
+    def test_delete_removes_terminal_run_and_artifacts(self):
+        run_dir = web.RUNS / self.job['id']; run_dir.mkdir(parents=True)
+        (run_dir / 'artifact.dat').write_text('data')
+        log = web.log_path(self.job); log.write_text('console')
+        web.update_job(self.job['id'], status='failed')
+        response = self.client.delete('/api/jobs/' + self.job['id'])
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(web.load(), [])
+        self.assertFalse(run_dir.exists()); self.assertFalse(log.exists())
+
+    def test_delete_keeps_record_when_file_cleanup_fails(self):
+        run_dir = web.RUNS / self.job['id']; run_dir.mkdir(parents=True)
+        web.update_job(self.job['id'], status='failed')
+        with patch.object(backend.shutil, 'rmtree', side_effect=PermissionError('locked')):
+            response = self.client.delete('/api/jobs/' + self.job['id'])
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(len(web.load()), 1)
+        self.assertTrue(run_dir.exists())
+
+    def test_delete_rejects_active_owned_run(self):
+        worker = web.Worker(); web.WORKERS[self.job['id']] = worker
+        try:
+            response = self.client.delete('/api/jobs/' + self.job['id'])
+            self.assertEqual(response.status_code, 409)
+        finally:
+            web.WORKERS.pop(self.job['id'], None)
+
+    def test_references_api_excludes_legacy_combined_runs(self):
+        response = self.client.get('/api/references')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()['references'], [])
+
+    def test_legacy_defaults_api_preserves_tutorial_sources(self):
+        response = self.client.get('/api/defaults?profile=draft-smoke')
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data['values']['aa_production_ps'], 50)
+        self.assertIn('mdps', data['sources']['AA'])
+
+    def test_new_run_rejects_invalid_stage_setting(self):
+        with patch.object(workflow, 'readiness', return_value={'ready': True}):
+            response = self.client.post('/', json={'detergent': 'DDM', 'method': 'fast_forward', 'temperature_k': 100})
+        self.assertEqual(response.status_code, 400)
+
+    def test_run_page_contains_table_and_resource_controls(self):
+        response = self.client.get('/')
+        page = response.get_data(as_text=True)
+        self.assertIn('workflow-timeline', page)
+        self.assertIn('Molecule</th>', page)
+        self.assertIn('job-console', page)
+        self.assertNotIn('Capture AA snapshots', page)
+        self.assertNotIn('Select for comparison', page)
+
+    def test_eta_is_latest_and_not_shown_after_finish(self):
+        parse = web.parse_gromacs_eta
+        self.assertEqual(parse('remaining wall clock time: 300 s\rremaining wall clock time: 22.5 s')['gromacs_remaining_seconds'], 22.5)
+        self.assertEqual(parse('remaining wall clock time: 300 s\nwill finish Fri Sep 11 09:00:00 2026')['gromacs_eta'], 'Fri Sep 11 09:00:00 2026')
+        self.assertEqual(parse('remaining wall clock time: 300 s\nFinished mdrun'), {})
+        web.update_job(self.job['id'], status='failed', gromacs_eta='stale')
+        self.assertNotIn('gromacs_eta', self.client.get('/api/jobs').get_json()[0])
+
+    def test_retry_creates_new_id_and_preserves_failed_record(self):
+        web.update_job(self.job['id'], status='failed', error='Original failure')
+        before = web.lookup(self.job['id'])
+        with patch.object(workflow, 'readiness', return_value={'ready': True}), patch.object(threading.Thread, 'start'):
+            response = self.client.post('/retry/123456abcdef')
+        self.assertEqual(response.status_code, 201)
+        self.assertNotEqual(response.get_json()['id'], self.job['id'])
+        self.assertEqual(web.lookup(self.job['id']), before)
+
+
+class MappingTests(unittest.TestCase):
+    def test_all_35_heavy_atoms_come_from_matching_coordinate_topology_order(self):
+        structure = mappings.molecule()
+        self.assertEqual(sum(a['heavy'] for a in structure['atoms']), 35)
+        self.assertEqual(len(structure['atoms']), 81)
+
+    def test_reports_missing_duplicate_disconnected_and_size_findings(self):
+        result = mappings.validate({'name': 'test', 'beads': [
+            {'name': 'a', 'size': 'R', 'atoms': [1, 12]},
+            {'name': 'b', 'size': 'S', 'atoms': [12, 36, 999]},
+        ]})
+        codes = {issue['code'] for issue in result['issues']}
+        self.assertTrue({'missing', 'duplicate', 'disconnected', 'size', 'hydrogen', 'unknown', 'mismatch'} <= codes)
+        self.assertFalse(result['scientifically_validated'])
+
+    def test_candidate_validation_exposes_nominal_size_mismatch(self):
+        from tests.dashboard.fixtures import physical_mapping
+        candidate=physical_mapping()
+        for bead in candidate['beads']:bead['size']='T'
+        validation=mappings.validate(candidate)
+        self.assertEqual(validation['mismatch'],2*len(candidate['beads'])-35)
+        self.assertFalse(validation['checks_passed'])
+
+    def test_draft_save_does_not_overwrite_source_and_stays_unvalidated(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(mapping_store, 'storage_root', return_value=Path(temp)):
+            original=mappings.save_draft(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
+            source=Path(temp)/original['file'];before=source.read_bytes()
+            draft = json.loads(before); draft['file'] = source.name; draft['status'] = 'approved'
+            saved = mappings.save_draft(draft)
+            self.assertNotEqual(saved['file'], source.name)
+            self.assertEqual(saved['status'], 'candidate-unvalidated')
+            self.assertEqual(source.read_bytes(), before)
+        with web.app.test_client() as client:
+            self.assertEqual(client.get('/api/mappings/identity.json').status_code, 404)
+            self.assertEqual(client.post('/api/mappings/validate', json={'name': 'bad', 'beads': [{'name': 'b', 'size': 'R', 'atoms': [1.5]}]}).status_code, 400)
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -1,0 +1,9 @@
+#include "martini_v2.2.itp"
+#include "MALTOSE.itp"
+
+[system]
+This is an auto generated system
+
+[molecules]
+;moleculetype	count
+MALT	1

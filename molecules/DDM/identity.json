@@ -1,0 +1,11 @@
+{
+  "name": "n-Dodecyl-β-D-maltoside (DDM)",
+  "source": "detergents.json",
+  "source_sha256": "a1ffa7b14cd3e1887aa4c6f0206e8d14df7587fbf050b443e0797c72590d960c",
+  "input_smiles": "O([C@@H]1[C@@H](CO)O[C@@H](OCCCCCCCCCCCC)[C@H](O)[C@H]1O)[C@H]2O[C@H](CO)[C@@H](O)[C@H](O)[C@H]2O",
+  "canonical_isomeric_smiles": "CCCCCCCCCCCCO[C@@H]1O[C@H](CO)[C@@H](O[C@H]2O[C@H](CO)[C@@H](O)[C@H](O)[C@H]2O)[C@H](O)[C@H]1O",
+  "formula": "C24H46O11",
+  "formal_charge": 0,
+  "swissparam_smiles_matches": true,
+  "validation_scope": "SMILES parsing and stereochemical identity to SwissParam input; not force-field validation"
+}

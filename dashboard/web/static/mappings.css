@@ -1,0 +1,9 @@
+.molecule-mapping-workspace{margin-top:1rem}.mapping-editor-layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(18rem,1fr);gap:1rem;align-items:start}.mapping-editor-diagram{min-height:22rem;border:1px solid #d5dee8;border-radius:.5rem;background:#fbfcfe;overflow:auto}.mapping-editor-diagram svg{display:block;width:100%;min-width:32rem;height:auto}.mapping-editor-diagram .atom{cursor:pointer}.mapping-editor-diagram .atom.selected circle{fill:#ffe3a3;stroke:#a85b00;stroke-width:3}.mapping-editor-diagram .atom.assigned circle{stroke:#2864b5}.mapping-editor-diagram .bead-overlay{fill:#2864b5;fill-opacity:.1;stroke:#2864b5;stroke-width:2;pointer-events:none}.mapping-editor-controls{display:grid;gap:.75rem}.mapping-preview{max-height:14rem;overflow:auto;background:#f3f6fa;padding:.75rem;border-radius:.4rem}@media(max-width:800px){.mapping-editor-layout{grid-template-columns:1fr}.mapping-editor-diagram svg{min-width:24rem}}
+
+/* Combined editor + bead-assignment section: the panel now sits directly
+   beneath the editor diagram in a single column. */
+.mapping-columns{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
+.mapping-columns .mapping-left{width:auto;min-width:0;display:block;margin:0}
+.mapping-columns select{max-width:160px}
+.mapping-columns .atoms-input{min-width:105px}
+#comparison{display:grid;gap:16px;margin-top:20px}

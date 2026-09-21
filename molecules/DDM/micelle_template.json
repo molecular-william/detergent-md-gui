@@ -1,0 +1,9 @@
+{
+  "name": "DDM",
+  "residue": "DDM",
+  "coordinates": "results/MMFF/lig1.pdb",
+  "topology": "results/MMFF/lig1.itp",
+  "beads": [{"name": "DDM", "type": "registered-template"}],
+  "headgroup": [0, 0, 0],
+  "tail_direction": [0, 0, -1]
+}
