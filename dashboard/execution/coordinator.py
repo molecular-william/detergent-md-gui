@@ -108,17 +108,6 @@ class Coordinator:
             lease_file.close()
         self.SERVICES.clear()
 
-    def import_legacy_bonded_states(self):
-        imported = []
-        for job in self.load():
-            if job.get('status') == 'completed':
-                try:
-                    state = bonded_states.import_legacy_job(job, workflow.execution_root(self.run_path(job)))
-                    if state: imported.append(state['state_id'])
-                except (OSError, ValueError, KeyError):
-                    continue
-        return imported
-
     def now(self):
         return datetime.now(timezone.utc).isoformat()
 
@@ -196,7 +185,6 @@ class Coordinator:
                 try: self.SERVICES[key] = self.lease(self.DATA.with_suffix('.service.lock'))
                 except ValueError: abort(409, 'Another dashboard process owns this database; use one coordinator process')
                 self.reconcile()
-                self.import_legacy_bonded_states()
                 temporary.cleanup(self.load(), self.RUNS, self.database().delete, delete_with_cleanup=self.database().delete_with_cleanup)
             self.schedule_waiting()
 
