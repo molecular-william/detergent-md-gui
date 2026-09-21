@@ -95,7 +95,13 @@ def mapping_api(name):
 def mapping_validate():
     payload = _json_object()
     context = _payload_context(payload)
-    return jsonify(mappings.validate(payload, context=context, allow_partial=bool(payload.get('schema_version') == 3)))
+    result = mappings.validate(payload, context=context, allow_partial=bool(payload.get('schema_version') == 3))
+    identity = mappings.mapping_content_identity(payload)
+    duplicates = [item for item in mappings.list_candidates(summary=True, context=context)
+                  if item.get('mapping_content_hash') == identity]
+    result['mapping_content_hash'] = identity
+    result['duplicate_file'] = duplicates[0]['file'] if duplicates else None
+    return jsonify(result)
 
 
 @blueprint.post('/api/mappings/automatic/preview')

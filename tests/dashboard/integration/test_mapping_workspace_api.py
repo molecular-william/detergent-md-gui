@@ -27,6 +27,19 @@ def test_stale_mapping_context_is_rejected(isolated_workspace):
     assert response.status_code == 409
 
 
+def test_mapping_validation_reports_duplicate_content_without_matching_name(isolated_workspace):
+    client = web.app.test_client()
+    context = client.get('/api/mappings/context?molecule_id=DDM').json['context']
+    preview = client.post('/api/mappings/automatic/preview', json={
+        'molecule_id': 'DDM', 'molecule_snapshot': context['snapshot']}).json['candidate']
+    saved = client.post('/api/mappings/drafts', json=preview)
+    assert saved.status_code == 201
+    renamed = {**saved.json, 'name': 'A different label'}
+    result = client.post('/api/mappings/validate', json=renamed)
+    assert result.status_code == 200
+    assert result.json['duplicate_file'] == saved.json['file']
+
+
 def test_suggestion_and_ring_site_endpoints(isolated_workspace):
     client = web.app.test_client()
     context = client.get('/api/mappings/context?molecule_id=DDM').json['context']

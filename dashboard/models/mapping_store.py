@@ -12,7 +12,7 @@ from .. import paths
 from .mapping_context import as_structure
 from .packaged_ddm_source import SOURCE, molecule
 from .mapping_graph import require_usable, validate
-from .mapping_schema import check_schema, mapping_identity
+from .mapping_schema import check_schema, mapping_identity, mapping_content_identity
 from .json_repository import JsonRepository
 
 
@@ -48,6 +48,7 @@ def _read_candidate(path, name, structure):
     data['file'] = name
     data['sha256'] = hashlib.sha256(raw.encode()).hexdigest()
     data['mapping_hash'] = mapping_identity(data)
+    data['mapping_content_hash'] = mapping_content_identity(data)
     data['validation'] = deepcopy(_validation(raw, structure, bool(data.get('schema_version') == 3)))
     return data
 
@@ -66,7 +67,7 @@ def list_candidates(summary=False, *, context=None):
             if context and (data.get('molecule_id') != context.get('molecule_id') or data.get('molecule_snapshot') != context.get('snapshot')):
                 continue
             if summary:
-                data = {k: data[k] for k in ('file','name','status','sha256','mapping_hash','validation') if k in data}
+                data = {k: data[k] for k in ('file','name','status','sha256','mapping_hash','mapping_content_hash','validation') if k in data}
             result.append(data)
         except (ValueError, OSError) as exc:
             result.append({'file': name, 'name': name, 'error': str(exc)})

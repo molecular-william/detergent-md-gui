@@ -119,6 +119,17 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn('Capture AA snapshots', page)
         self.assertNotIn('Select for comparison', page)
 
+    def test_mapping_editor_exposes_only_the_compact_authoring_actions(self):
+        page = self.client.get('/').get_data(as_text=True)
+        self.assertNotIn('Reference and building-block registry', page)
+        self.assertIn('id="group-into-bead"', page)
+        self.assertIn('id="clear-all-mapping"', page)
+        self.assertIn('id="generate-automatic"', page)
+        self.assertIn('id="save-mapping-editor"', page)
+        self.assertNotIn('Approve mapping', page)
+        self.assertNotIn('Download diagram (SVG)', page)
+        self.assertNotIn('Mapping exports', page)
+
     def test_eta_is_latest_and_not_shown_after_finish(self):
         parse = web.parse_gromacs_eta
         self.assertEqual(parse('remaining wall clock time: 300 s\rremaining wall clock time: 22.5 s')['gromacs_remaining_seconds'], 22.5)

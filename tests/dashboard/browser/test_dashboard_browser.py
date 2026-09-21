@@ -20,7 +20,7 @@ class DashboardBrowserTests(unittest.TestCase):
     def test_tab_switch_preserves_form_and_mapping_edits(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); (root / 'dashboard').mkdir()
-            with patch.object(web, 'ROOT', root), patch.object(web, 'DATA', root/'dashboard/jobs.sqlite3'), patch.object(web, 'RUNS', root/'dashboard/runs'), patch.object(web, 'WORKERS', {}), patch.object(mappings, 'storage_root', return_value=root/'drafts'):
+            with patch.object(web, 'DATA', root/'dashboard/jobs.sqlite3'), patch.object(web, 'RUNS', root/'dashboard/runs'), patch.object(web, 'WORKERS', {}), patch.object(mappings, 'storage_root', return_value=root/'drafts'):
                 candidate = mappings.save_draft(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
                 job = {'id': '123456abcdef', 'detergent': 'DDM', 'method': 'fast_forward', 'status': 'failed', 'stage': 'AA reference', 'created': web.now(), 'error': 'Missing mapping'}
                 web.save([job])
@@ -46,14 +46,18 @@ class DashboardBrowserTests(unittest.TestCase):
                         expect(page.locator('#method')).to_have_value('bartender')
                         expect(page.locator('.job').first.locator('details').filter(has_text='Commands')).to_have_attribute('open', '')
                         page.get_by_role('tab', name='CG mappings', exact=True).click()
-                        editor = page.locator('.mapping').first
-                        editor.locator('.candidate-name').fill('My edited mapping')
+                        expect(page.locator('#mapping-editor-status')).to_contain_text('loaded')
+                        page.locator('#generate-automatic').click()
+                        expect(page.locator('#mapping-bead-rows tr')).not_to_have_count(0)
+                        page.locator('#mapping-editor-name').fill('My edited mapping')
                         duplicate_atoms = ' '.join(map(str, candidate['beads'][0]['atoms'] + [candidate['beads'][1]['atoms'][0]]))
-                        editor.locator('.atoms-input').first.fill(duplicate_atoms)
+                        page.locator('#mapping-bead-rows input[aria-label$=" atoms"]').first.fill(duplicate_atoms)
                         page.clock.fast_forward(500)
-                        expect(editor.locator('.validation-issues')).to_contain_text('Repeated atom assignments')
+                        expect(page.locator('#mapping-validation-issues')).to_contain_text('Repeated atom assignments')
                         page.get_by_role('tab', name='Runs', exact=True).click()
                         expect(page.locator('.job').first.locator('details').filter(has_text='Commands')).to_have_attribute('open', '')
+                        page.get_by_role('tab', name='CG mappings', exact=True).click()
+                        expect(page.locator('#mapping-editor-name')).to_have_value('My edited mapping')
                         self.assertEqual(errors, [])
                         browser.close()
                 finally:
@@ -92,6 +96,49 @@ class DashboardBrowserTests(unittest.TestCase):
                         page.get_by_role('tab', name='Runs', exact=True).click()
                         expect(first.locator('.resume-stage')).to_have_value('AA reference')
                         self.assertEqual(errors, [])
+                        browser.close()
+                finally:
+                    server.shutdown(); thread.join(3)
+
+    def test_mapping_editor_clear_all_removes_local_assignments(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); (root / 'dashboard').mkdir()
+            with patch.object(web, 'DATA', root/'dashboard/jobs.sqlite3'), patch.object(web, 'RUNS', root/'dashboard/runs'), patch.object(web, 'WORKERS', {}), patch.object(mappings, 'storage_root', return_value=root/'drafts'):
+                server = make_server('127.0.0.1', 0, web.app, request_handler=QuietHandler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+                try:
+                    with sync_playwright() as p:
+                        browser = p.chromium.launch(channel='chrome', headless=True)
+                        page = browser.new_page(viewport={'width': 1280, 'height': 900})
+                        page.goto(f'http://127.0.0.1:{server.server_port}/#mappings')
+                        page.get_by_role('tab', name='CG mappings', exact=True).click()
+                        page.locator('#generate-automatic').click()
+                        expect(page.locator('#mapping-bead-rows tr')).not_to_have_count(0)
+                        page.on('dialog', lambda dialog: dialog.accept())
+                        page.locator('#clear-all-mapping').click()
+                        expect(page.locator('#mapping-bead-rows tr')).to_have_count(0)
+                        browser.close()
+                finally:
+                    server.shutdown(); thread.join(3)
+
+    def test_mapping_editor_disables_save_for_an_identical_saved_mapping(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); (root / 'dashboard').mkdir()
+            with patch.object(web, 'DATA', root/'dashboard/jobs.sqlite3'), patch.object(web, 'RUNS', root/'dashboard/runs'), patch.object(web, 'WORKERS', {}), patch.object(mappings, 'storage_root', return_value=root/'drafts'):
+                server = make_server('127.0.0.1', 0, web.app, request_handler=QuietHandler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+                try:
+                    with sync_playwright() as p:
+                        browser = p.chromium.launch(channel='chrome', headless=True)
+                        page = browser.new_page(viewport={'width': 1280, 'height': 900})
+                        page.goto(f'http://127.0.0.1:{server.server_port}/#mappings')
+                        page.get_by_role('tab', name='CG mappings', exact=True).click()
+                        expect(page.locator('#mapping-editor-status')).to_contain_text('loaded')
+                        page.locator('#generate-automatic').click()
+                        expect(page.locator('#mapping-bead-rows tr')).not_to_have_count(0)
+                        expect(page.locator('#save-mapping-editor')).to_be_enabled()
+                        page.locator('#save-mapping-editor').click()
+                        expect(page.locator('#save-mapping-editor')).to_be_disabled()
                         browser.close()
                 finally:
                     server.shutdown(); thread.join(3)

@@ -23,6 +23,11 @@ def mapping_identity(mapping):
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
+def mapping_content_identity(mapping):
+    """Return the mapping identity without the user-facing candidate name."""
+    return mapping_identity({**mapping, 'name': ''})
+
+
 def check_schema(data, *, allow_empty=False):
     if not isinstance(data, dict) or not isinstance(data.get('name'), str) or not 1 <= len(data['name'].strip()) <= 160:
         raise ValueError('Give this candidate a name (1–160 characters)')

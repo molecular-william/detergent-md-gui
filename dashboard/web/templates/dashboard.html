@@ -102,45 +102,28 @@
 </section>
 <section id="mappings" role="tabpanel" aria-labelledby="tab-mappings" hidden>
   <div class="section-heading"><div><h2>Design and screen CG mappings</h2><p>Assign heavy atoms to local beads and watch the overlay update live.</p></div></div>
-  <div class="card"><h3>How this workspace works</h3>
-    <p class="hint">All mappings here are unvalidated drafts. Passing structural checks does not establish force-field accuracy.</p>
-    <p class="hint"><strong>Design:</strong> edit bead names, sizes, and atom indices below; the molecular overlay updates as you type. <strong>Validate:</strong> green checks require complete, connected assignments and plausible bead sizes. <strong>Parameterize:</strong> save a reviewed draft, then choose it in a new draft-smoke run to fit bonded terms and run an independent CG test.</p>
-    <p class="hint">Recognized hexopyranose sugars use canonical fragments, 15% longer intra-ring constraints and a central massless TC4 interaction site. Linkage terms are fitted from AA data. Other chemistry remains a provisional draft.</p>
-  </div>
-  <section class="card model-registry" aria-labelledby="model-registry-title">
-    <h3 id="model-registry-title">Reference and building-block registry</h3>
-    <p class="hint">Canonical files stay under <code>references/</code>. The dashboard records hashes and evidence status; imported models are not validated automatically.</p>
-    <div class="registry-columns"><div><strong>References</strong><ul id="model-references"><li class="hint">Loading…</li></ul></div><div><strong>Fragments</strong><ul id="model-fragments"><li class="hint">Loading…</li></ul></div><div><strong>Compositions</strong><ul id="model-compositions"><li class="hint">Loading…</li></ul></div></div>
-    <p id="model-registry-message" class="hint" role="status"></p>
-  </section>
   <section class="card molecule-mapping-workspace" aria-labelledby="molecule-mapping-title">
-    <div class="section-heading"><div><h3 id="molecule-mapping-title">Molecule-scoped bead editor</h3><p class="hint">Select heavy atoms on the canonical 2D structure. Edits stay local until explicit save. Bead assignments, validation and exports appear below the diagram.</p></div></div>
-    <div class="form-grid"><label>Molecule<select id="mapping-molecule" aria-label="Molecule"></select></label><label>Candidate filter<select id="mapping-candidate-filter" aria-label="Candidate filter"><option value="">New or all candidates</option></select></label></div>
+    <div class="section-heading"><div><h3 id="molecule-mapping-title">Molecule-scoped bead editor</h3><p class="hint">Select heavy atoms on the molecule, group them into beads, and save a new mapping draft when the structure is ready.</p></div></div>
     <p id="mapping-editor-status" class="hint" role="status">Choose molecule.</p>
     <div class="mapping-editor-layout">
       <div id="mapping-editor-diagram" class="mapping-editor-diagram" aria-label="2D molecule structure"></div>
       <div class="mapping-editor-controls">
+        <div class="form-grid"><label>Molecule<select id="mapping-molecule" aria-label="Molecule"></select></label><label>Candidate<select id="mapping-candidate-filter" aria-label="Candidate"><option value="">New local draft</option></select></label></div>
         <p id="mapping-selection-count" role="status">0 heavy atoms selected</p>
         <div class="toolbar">
-          <button type="button" class="secondary" id="clear-selection">Clear selection</button>
           <button type="button" id="group-into-bead">Group into bead</button>
-          <button type="button" class="secondary" id="suggest-bead">Suggest bead</button>
-          <button type="button" class="secondary" id="ring-site-preview">Suggest TC4 site</button>
+          <button type="button" class="secondary" id="clear-all-mapping">Clear all</button>
         </div>
         <label>Candidate name<input id="mapping-editor-name" maxlength="160" value="New mapping"></label>
-        <p id="mapping-suggestion" class="hint"></p>
-        <div class="toolbar">
-          <button type="button" id="save-mapping-editor">Save as new</button>
-          <button type="button" class="secondary" id="generate-automatic-preview">Generate automatic preview</button>
-          <button type="button" class="secondary" id="create-candidate">Create new candidate</button>
+        <div class="table-scroll"><table><caption>Bead assignments · heavy atom indices</caption><thead><tr><th>Bead</th><th>Size</th><th>Type</th><th>Atoms</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="mapping-bead-rows"></tbody></table></div>
+        <section class="validation" aria-live="polite"><h3>Checks</h3><p id="mapping-validation-summary" class="validation-summary"></p><ul id="mapping-validation-issues" class="validation-issues"></ul></section>
+        <div class="toolbar mapping-primary-actions">
           <button type="button" class="secondary" id="generate-automatic">Generate automatic candidate</button>
-          <button type="button" class="secondary" id="discard-automatic-preview" hidden>Discard preview</button>
+          <button type="button" id="save-mapping-editor" disabled>Save as new</button>
         </div>
         <p id="automatic-message" class="hint" role="status"></p>
-        <pre id="mapping-automatic-preview" class="mapping-preview" role="region" aria-label="Automatic preview" hidden></pre>
       </div>
     </div>
-    <div class="comparison" id="comparison"></div>
   </section>
 </section>
 <section id="bonded" role="tabpanel" aria-labelledby="tab-bonded" hidden>
@@ -174,24 +157,5 @@
       </div>
     </td></tr>
   </tbody>
-</template>
-<template id="mapping-template">
-  <article class="card mapping">
-    <label>Candidate<select class="candidate-select"></select></label>
-    <p class="mapping-status hint"></p>
-    <label>Candidate name<input class="candidate-name" maxlength="160"></label>
-    <div class="table-scroll"><table><caption>Bead assignments · heavy atom indices</caption><thead><tr><th>Bead</th><th>Size</th><th>Type</th><th>Atoms</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody class="bead-rows"></tbody></table></div>
-    <div class="bead-add-controls"><button class="secondary add-bead" type="button">Add bead</button> <button class="secondary add-virtual-site" type="button">Add ring interaction site</button></div><p class="ring-summary hint"></p>
-    <details class="bonded-editor"><summary>Bond topology and fitting (advanced)</summary>
-      <p class="hint">Edit connections using bead names. All massive beads must remain connected, and sugar ring constraints are protected. Flexible bonds and angles are fitted from AA; manual overrides are applied afterward and preserved in the run.</p>
-      <label>Bonded settings (JSON)<textarea class="bonded-settings" rows="14" spellcheck="false" aria-label="Bonded settings (JSON)"></textarea></label>
-      <p class="hint">An override example: <code>{"section":"bonds","beads":["S1B","S2A"],"function":1,"parameters":[0.327,1900]}</code>. Distances are nm, angles are degrees; force constants use GROMACS units. Supported functions: bonds 1; angles 1, 2, 10; dihedrals 1, 2, 9. Each override replaces an existing term. Use <code>"torsion_model":"circular-harmonic","torsion_scale":1</code> in bonded_options to fit the circular AA mean and variance. Save as a new candidate before running.</p>
-      <p class="bonded-message hint" role="status"></p>
-    </details>
-    <section class="validation" aria-live="polite"><h3>Checks</h3><p class="validation-summary"></p><ul class="validation-issues"></ul></section>
-    <div class="toolbar"><button class="save-candidate" type="button">Save candidate</button><button class="secondary approve-candidate" type="button">Approve mapping</button><button class="danger secondary delete-selected" type="button">Delete candidate</button><button class="secondary export-candidate" type="button">Export JSON</button><button class="secondary export-diagram" type="button">Download diagram (SVG)</button></div><p class="mapping-message hint" role="status"></p>
-    <div class="mapping-exports"><strong>Mapping exports</strong><div class="toolbar"><button class="secondary export-mapping" data-format="ndx" type="button">Index (.ndx)</button><button class="secondary export-mapping" data-format="map" type="button">Fast_Forward (.map)</button><button class="secondary export-mapping" data-format="gro" type="button">CG frame (.gro)</button><button class="secondary export-mapping" data-format="bundle" type="button">Download bundle</button></div></div>
-    <p class="hint">Exports share bead IDs B01, B02, … and preserve your labels in the bundle JSON. Coordinates use heavy-atom centres of geometry. Size and connectivity findings still require review.</p>
-  </article>
 </template>
 </body></html>

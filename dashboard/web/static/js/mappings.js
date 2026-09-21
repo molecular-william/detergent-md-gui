@@ -1,47 +1,11 @@
-import { $, $$, storage, setText, api, post, downloadBlob, cachedApi, invalidateResource } from './shared.js';
+import { $, storage, setText, post, cachedApi, invalidateResource } from './shared.js';
 import { setupBondedWorkspace } from './bonded.js';
-import { createEditor, toggleAtom, clearSelection, groupAtoms } from './mapping-state.js';
+import { createEditor, toggleAtom, clearSelection, clearMapping, groupAtoms, renameBead, removeBead } from './mapping-state.js';
 import { mountDiagram } from './mapping-diagram.js';
-import { MappingPanel } from './mapping-panel.js';
 
-// Candidate edits, local drafts, validation and exports stay inside this workspace.
+// Candidate edits and local drafts stay inside this workspace.
 export function createMappings({ onFit }) {
-  function renderRegistryList(selector, items, formatter) {
-    const list = $(selector); if (!list) return; list.replaceChildren();
-    if (!items?.length) {
-      list.append(Object.assign(document.createElement('li'), {textContent: 'None indexed yet', className: 'hint'}));
-      return;
-    }
-    for (const item of items) {
-      const li = document.createElement('li');
-      li.textContent = typeof item === 'string' ? item : formatter(item);
-      list.append(li);
-    }
-  }
-
-  async function loadModelRegistry() {
-    const [index, refs, frags, comps] = await Promise.all([
-      cachedApi('/api/reference-index', {maxAge: 10000}),
-      cachedApi('/api/model-references', {maxAge: 10000}),
-      cachedApi('/api/model-fragments', {maxAge: 10000}),
-      cachedApi('/api/compositions', {maxAge: 10000}),
-    ]);
-    const sourceRows = (index.sources || []).map(item =>
-      `${item.path} · rank ${item.rank} · ${String(item.sha256).slice(0, 8)}…`);
-    const registeredRows = refs.references.map(item =>
-      `${item.name} · ${item.force_field?.name || 'unknown FF'} · ${item.evidence_status}`);
-    renderRegistryList('#model-references', [...sourceRows, ...registeredRows], item => String(item));
-    renderRegistryList('#model-fragments', frags.fragments, item =>
-      `${item.name} · ${item.model_kind || 'fragment'}`);
-    renderRegistryList('#model-compositions', comps.compositions, item =>
-      `${item.snapshot?.name || item.id} · ${item.validation?.ok ? 'valid' : 'invalid'}`);
-    const records = (index.records || []).length;
-    const diags = (index.diagnostics || []).length;
-    setText($('#model-registry-message'),
-      `Indexed ${index.sources?.length || 0} reference sources · ${records} fragment records · ${diags} diagnostics · ${refs.references.length} registered references.`);
-  }
-
-  const mappingData = {candidates: []};
+  const mappingData = {candidates: [], bead_types: []};
   let moleculeEditor = null;
   let moleculeDiagram = null;
 
@@ -55,9 +19,6 @@ export function createMappings({ onFit }) {
     if (key) storage.set(key, moleculeEditor.candidate);
   }
 
-  if ($('#create-candidate')) $('#create-candidate').disabled = true;
-  if ($('#generate-automatic')) $('#generate-automatic').disabled = true;
-
   async function loadMapping(file) {
     if (!file) return null;
     return cachedApi('/api/mappings/' + encodeURIComponent(file), {maxAge: 10000});
@@ -65,41 +26,93 @@ export function createMappings({ onFit }) {
 
   let bondedWorkspace;
 
-  const panels = [];
+  function editorMessage(message) { setText($('#mapping-editor-status'), message); }
+  function editorSelection() { setText($('#mapping-selection-count'), `${moleculeEditor?.selectedAtoms.size || 0} heavy atoms selected`); }
 
-  document.addEventListener('click', event => {
-    if (event.target.id !== 'create-candidate' || !mappingData) return;
-    const base = {name: 'New candidate', beads: []};
-    ensureMappingPanel();
-    panels[0]?.loadData(base);
-    setText($('#automatic-message'), 'New candidate ready. Add beads and atom assignments, then save candidate.');
-  });
+  let validationGeneration = 0;
 
-  document.addEventListener('click', async event => {
-    if (event.target.id !== 'generate-automatic') return;
-    const b = event.target; b.disabled = true;
-    try {
-      const r = await post('/api/mappings/automatic', {});
-      const saved = await post('/api/mappings/drafts', r.candidate);
-      invalidateResource('/api/mappings');
-      mappingData.candidates.push(saved);
-      ensureMappingPanel();
-      panels.forEach(p => p.fillOptions());
-      panels[0].load(saved.file);
-      setText($('#automatic-message'), 'Generated a sugar-first DDM draft: canonical fragments, scaled ring constraints and virtual sites. Review linkage chemistry and screen against AA.');
-    } catch (e) { setText($('#automatic-message'), e.message); }
-    finally { b.disabled = false; }
-  });
+  function updateDiagram() {
+    moleculeDiagram?.update(moleculeEditor?.candidate || {}, moleculeEditor?.selectedAtoms, moleculeEditor?.selectedBeads);
+  }
 
-  function ensureMappingPanel() {
-    if (!panels.length) {
-      $('#comparison').replaceChildren();
-      panels.push(new MappingPanel({index: 0, mappingData, loadMapping, panels}));
+  function updateBeadField(index, field, value) {
+    const bead = moleculeEditor?.candidate.beads[index];
+    if (!bead) return;
+    if (field === 'name') {
+      try { renameBead(moleculeEditor, bead.name, value); }
+      catch (error) { editorMessage(error.message); return; }
+    } else if (field === 'atoms') {
+      if (bead.virtual_site) bead.virtual_site.parents = value.trim().split(/[\s,]+/).filter(Boolean);
+      else bead.atoms = value.trim() ? value.trim().split(/[\s,]+/).map(Number) : [];
+    } else bead[field] = value;
+    moleculeEditor.dirty = true;
+    persistEditor(); updateDiagram(); editorSelection(); validateEditor();
+  }
+
+  function renderBeadRows() {
+    const table = $('#mapping-bead-rows');
+    if (!table) return;
+    table.replaceChildren();
+    for (const [index, bead] of (moleculeEditor?.candidate.beads || []).entries()) {
+      const row = document.createElement('tr');
+      const fields = ['name', 'size', 'type', 'atoms'];
+      for (const field of fields) {
+        const cell = document.createElement('td');
+        const input = field === 'size' || field === 'type' ? document.createElement('select') : document.createElement('input');
+        input.setAttribute('aria-label', `Bead ${index + 1} ${field}`);
+        if (field === 'size') for (const size of ['R', 'S', 'T']) input.append(new Option(size, size));
+        if (field === 'type') {
+          input.append(new Option('Choose type', ''));
+          for (const item of mappingData.bead_types || []) input.append(new Option(item.type, item.type));
+          if (bead.type && !Array.from(input.options).some(option => option.value === bead.type)) input.append(new Option(`${bead.type} · unsupported`, bead.type));
+          const selected = (mappingData.bead_types || []).find(item => item.type === bead.type);
+          input.title = selected?.description || bead.type || 'Choose a Martini bead type';
+        }
+        if (field === 'atoms') input.className = 'atoms-input';
+        input.value = field === 'atoms' && bead.virtual_site ? bead.virtual_site.parents.join(' ') : field === 'atoms' ? bead.atoms.join(' ') : (bead[field] || '');
+        if (bead.virtual_site && ['size', 'type'].includes(field)) input.disabled = true;
+        input.addEventListener(field === 'size' || field === 'type' ? 'change' : 'input', () => updateBeadField(index, field, input.value));
+        cell.append(input); row.append(cell);
+      }
+      const cell = document.createElement('td');
+      const removeButton = document.createElement('button');
+      removeButton.type = 'button'; removeButton.className = 'secondary'; removeButton.textContent = '×';
+      removeButton.setAttribute('aria-label', `Remove bead ${bead.name}`);
+      removeButton.onclick = () => {
+        try { removeBead(moleculeEditor, bead.name); renderEditor(); }
+        catch (error) { editorMessage(error.message); }
+      };
+      cell.append(removeButton); row.append(cell); table.append(row);
     }
   }
 
-  function editorMessage(message) { setText($('#mapping-editor-status'), message); }
-  function editorSelection() { setText($('#mapping-selection-count'), `${moleculeEditor?.selectedAtoms.size || 0} heavy atoms selected`); }
+  function renderValidation(result) {
+    if (!result) return;
+    setText($('#mapping-validation-summary'), `${result.covered}/${result.heavy_atoms} heavy atoms · ${result.bead_count} beads · nominal ${result.represented_atoms} atoms · difference ${result.mismatch > 0 ? '+' : ''}${result.mismatch}`);
+    const issues = $('#mapping-validation-issues'); issues.replaceChildren();
+    for (const item of result.issues || []) { const li = document.createElement('li'); li.textContent = item.message; issues.append(li); }
+    if (!result.issues?.length) { const li = document.createElement('li'); li.textContent = 'Structural checks passed. Bead chemistry and physical behaviour still need review.'; issues.append(li); }
+    const save = $('#save-mapping-editor');
+    if (save) save.disabled = !result.can_save || !!result.duplicate_file;
+    setText($('#automatic-message'), result.duplicate_file ? 'This mapping already exists. Change the assignments before saving a new draft.' : '');
+  }
+
+  async function validateEditor() {
+    if (!moleculeEditor) return;
+    const generation = ++validationGeneration;
+    try {
+      const result = await post('/api/mappings/validate', moleculeEditor.candidate);
+      if (generation === validationGeneration) renderValidation(result);
+    } catch (error) { if (generation === validationGeneration) editorMessage(error.message); }
+  }
+
+  function renderEditor() {
+    if (!moleculeEditor) return;
+    $('#mapping-editor-name').value = moleculeEditor.candidate.name || 'New mapping';
+    renderBeadRows(); editorSelection(); updateDiagram();
+    persistEditor();
+    validateEditor();
+  }
 
   async function loadMoleculeEditor(moleculeId) {
     if (!moleculeId) { editorMessage('Select a molecule to begin.'); return; }
@@ -113,6 +126,8 @@ export function createMappings({ onFit }) {
       ]);
       if (generation !== loadMoleculeEditor.generation) return;
       if (!source?.context || !source?.scene) { editorMessage('Server did not return a mapping context; reload the page.'); return; }
+      mappingData.candidates = catalogue.candidates || [];
+      mappingData.bead_types = source.bead_types || catalogue.bead_types || [];
       const key = editorStorageKey(source.context);
       const recovered = key ? storage.get(key) : null;
       const candidate = recovered?.molecule_snapshot?.snapshot_sha256 === source.context.snapshot.snapshot_sha256
@@ -123,12 +138,12 @@ export function createMappings({ onFit }) {
         toggleAtom(moleculeEditor, id); persistEditor(); editorSelection();
         moleculeDiagram.update(moleculeEditor.candidate, moleculeEditor.selectedAtoms, moleculeEditor.selectedBeads);
       });
-      moleculeDiagram.update(moleculeEditor.candidate, moleculeEditor.selectedAtoms, moleculeEditor.selectedBeads);
-      $('#mapping-editor-name').value = moleculeEditor.candidate.name || 'New mapping'; editorSelection();
+      renderEditor();
       editorMessage(`${source.context.name || moleculeId} loaded · ${source.context.atoms.length} atoms · ${source.context.source_quality.bond_order} bond graph`);
       const filter = $('#mapping-candidate-filter');
       filter.replaceChildren(new Option('New local draft', ''));
       for (const item of catalogue.candidates || []) filter.append(new Option(item.name, item.file));
+      if (candidate?.file) filter.value = candidate.file;
     } catch (error) { editorMessage(error.message); }
   }
 
@@ -154,11 +169,6 @@ export function createMappings({ onFit }) {
 
   function setupMoleculeEditorControls() {
     const moleculeSelect = $('#mapping-molecule'); if (!moleculeSelect || moleculeSelect.dataset.ready) return; moleculeSelect.dataset.ready = 'true';
-    $('#clear-selection').onclick = () => {
-      if (!moleculeEditor) return;
-      clearSelection(moleculeEditor); persistEditor(); editorSelection();
-      moleculeDiagram?.update(moleculeEditor.candidate, moleculeEditor.selectedAtoms, moleculeEditor.selectedBeads);
-    };
     $('#mapping-editor-diagram').addEventListener('click', event => {
       const bead = event.target.closest('[data-bead-name]'); if (!bead || !moleculeEditor) return;
       const name = bead.dataset.beadName;
@@ -168,15 +178,18 @@ export function createMappings({ onFit }) {
       moleculeDiagram?.update(moleculeEditor.candidate, moleculeEditor.selectedAtoms, moleculeEditor.selectedBeads);
       editorSelection();
     });
-    $('#mapping-editor-name').oninput = event => { if (moleculeEditor) { moleculeEditor.candidate.name = event.target.value; moleculeEditor.dirty = true; persistEditor(); } };
+    $('#mapping-editor-name').oninput = event => { if (moleculeEditor) { moleculeEditor.candidate.name = event.target.value; moleculeEditor.dirty = true; persistEditor(); validateEditor(); } };
     moleculeSelect.onchange = () => loadMoleculeEditor(moleculeSelect.value);
     $('#mapping-candidate-filter').onchange = async event => {
       if (!event.target.value) return loadMoleculeEditor(moleculeSelect.value);
       const candidate = await loadMapping(event.target.value);
       if (!candidate || candidate.molecule_id !== moleculeEditor?.context.molecule_id) return;
       moleculeEditor = createEditor(moleculeEditor.context, candidate);
-      moleculeDiagram?.update(moleculeEditor.candidate, moleculeEditor.selectedAtoms, moleculeEditor.selectedBeads);
-      $('#mapping-editor-name').value = candidate.name;
+      renderEditor();
+    };
+    $('#clear-all-mapping').onclick = () => {
+      if (!moleculeEditor || !window.confirm('Remove every bead assignment from this local draft?')) return;
+      clearMapping(moleculeEditor); renderEditor(); editorMessage('All bead assignments cleared from the local draft.');
     };
     $('#group-into-bead').onclick = () => {
       if (!moleculeEditor?.selectedAtoms.size) return editorMessage('Select one or more heavy atoms first.');
@@ -194,54 +207,39 @@ export function createMappings({ onFit }) {
             confirm.form.addEventListener('submit', event2 => {
               event2.preventDefault();
               groupAtoms(moleculeEditor, moleculeEditor.selectedAtoms, {name, size, type: null}, {confirmed: true});
-              persistEditor();
-              moleculeDiagram?.update(moleculeEditor.candidate, moleculeEditor.selectedAtoms, moleculeEditor.selectedBeads);
-              editorSelection(); confirm.dialog.close();
+              renderEditor(); confirm.dialog.close();
             });
             return;
           }
-          persistEditor();
-          moleculeDiagram?.update(moleculeEditor.candidate, moleculeEditor.selectedAtoms, moleculeEditor.selectedBeads);
-          editorSelection(); modal.dialog.close();
+          renderEditor(); modal.dialog.close();
         } catch (error) { editorMessage(error.message); }
       });
-    };
-    $('#suggest-bead').onclick = async () => {
-      if (!moleculeEditor?.selectedAtoms.size) return editorMessage('Select atoms before requesting a suggestion.');
-      try {
-        const result = await post('/api/mappings/suggest-bead', {molecule_id: moleculeEditor.context.molecule_id, molecule_snapshot: moleculeEditor.context.snapshot, atom_ids: [...moleculeEditor.selectedAtoms]});
-        setText($('#mapping-suggestion'), result.suggestions?.map(item => `${item.size}/${item.type || 'review'} · ${item.confidence} · ${item.reason}`).join('\n') || result.warnings?.join(' '));
-      } catch (error) { editorMessage(error.message); }
-    };
-    $('#ring-site-preview').onclick = async () => {
-      if (!moleculeEditor) return;
-      const parents = [...moleculeEditor.selectedBeads];
-      if (parents.length !== 3) return editorMessage('Select three beads for TC4 preview.');
-      try {
-        const result = await post('/api/mappings/ring-site/preview', {molecule_id: moleculeEditor.context.molecule_id, molecule_snapshot: moleculeEditor.context.snapshot, mapping: moleculeEditor.candidate, parents});
-        setText($('#mapping-suggestion'), `${result.bead.name} TC4${result.warnings?.length ? ' · warning: ' + result.warnings.map(item => item.message).join(' ') : ''}`);
-      } catch (error) { editorMessage(error.message); }
     };
     $('#save-mapping-editor').onclick = async () => {
       if (!moleculeEditor) return;
       try {
         const saved = await post('/api/mappings/drafts', moleculeEditor.candidate);
+        mappingData.candidates = [...mappingData.candidates.filter(item => item.file !== saved.file), saved];
+        $('#mapping-candidate-filter').append(new Option(saved.name, saved.file));
+        $('#mapping-candidate-filter').value = saved.file;
+        moleculeEditor = createEditor(moleculeEditor.context, saved);
+        renderEditor();
         editorMessage(`Saved ${saved.name} as a new candidate.`);
         invalidateResource('/api/mappings');
       } catch (error) { editorMessage(error.message); }
     };
-    $('#generate-automatic-preview').onclick = async () => {
+    $('#generate-automatic').onclick = async () => {
       if (!moleculeEditor) return;
-      const button = $('#generate-automatic-preview'); button.disabled = true;
+      const button = $('#generate-automatic'); button.disabled = true;
       try {
         const result = await post('/api/mappings/automatic/preview', {molecule_id: moleculeEditor.context.molecule_id, molecule_snapshot: moleculeEditor.context.snapshot});
-        const output = $('#mapping-automatic-preview'); output.hidden = false;
-        $('#discard-automatic-preview').hidden = false;
-        output.textContent = result.available ? JSON.stringify(result.candidate, null, 2) : `Automatic unavailable: ${(result.reasons || []).join(' ')}`;
+        if (!result.available) throw new Error(`Automatic candidate unavailable: ${(result.reasons || []).join(' ')}`);
+        moleculeEditor.candidate = result.candidate;
+        clearSelection(moleculeEditor); renderEditor();
+        editorMessage('Generated an automatic candidate for local review.');
       } catch (error) { editorMessage(error.message); }
       finally { button.disabled = false; }
     };
-    $('#discard-automatic-preview').onclick = () => { $('#mapping-automatic-preview').hidden = true; $('#discard-automatic-preview').hidden = true; };
   }
 
   async function loadMoleculeList() {
@@ -254,7 +252,6 @@ export function createMappings({ onFit }) {
 
   async function mount(id = 'mappings') {
     const section = $('#' + id); section.setAttribute('aria-busy', 'true');
-    if (id === 'mappings' && !panels.length) setText($('#comparison'), 'Loading mapping catalogue…');
     try {
       const [catalogue, legacy] = await Promise.all([
         cachedApi('/api/mappings?view=summary', {maxAge: 10000}),
@@ -262,20 +259,12 @@ export function createMappings({ onFit }) {
       ]);
       Object.assign(mappingData, catalogue, legacy);
       if (id === 'mappings') { setupMoleculeEditorControls(); await loadMoleculeList(); }
-      if ($('#create-candidate')) $('#create-candidate').disabled = false;
-      if ($('#generate-automatic')) $('#generate-automatic').disabled = false;
       if (id === 'bonded') {
         bondedWorkspace ||= setupBondedWorkspace(mappingData, {onFit, loadMapping});
         await bondedWorkspace.mount();
-      } else {
-        loadModelRegistry().catch(error => setText($('#model-registry-message'), `Registry unavailable: ${error.message}`));
-        if (mappingData.candidates.length || panels.length) {
-          ensureMappingPanel();
-          panels.forEach(panel => panel.fillOptions());
-        } else setText($('#comparison'), 'No mapping candidates are available.');
       }
     } catch (error) {
-      setText(id === 'bonded' ? $('.bonded-panel-message') : $('#comparison'), `Could not load mappings: ${error.message}`);
+      setText(id === 'bonded' ? $('.bonded-panel-message') : $('#mapping-editor-status'), `Could not load mappings: ${error.message}`);
     } finally { section.setAttribute('aria-busy', 'false'); }
   }
   return {mount};

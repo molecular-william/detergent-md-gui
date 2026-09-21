@@ -1,13 +1,12 @@
 """Browser proof for run-specific figure selection, zoom, and display-only beads."""
 import json
-from pathlib import Path
 import threading
 from unittest.mock import patch
 
 from playwright.sync_api import sync_playwright, expect
 from werkzeug.serving import make_server, WSGIRequestHandler
 from dashboard.app import default_coordinator as web
-from dashboard.models import mappings
+from dashboard.models import mappings, mapping_context
 
 
 class QuietHandler(WSGIRequestHandler):
@@ -17,7 +16,10 @@ class QuietHandler(WSGIRequestHandler):
 def test_run_figure_tabs_zoom_and_mapping_display(tmp_path):
     runs=tmp_path/'runs';runs.mkdir()
     with patch.object(web,'DATA',tmp_path/'jobs.sqlite3'), patch.object(web,'RUNS',runs), patch.object(web,'WORKERS',{}), patch.object(web,'ANALYSIS_WORKERS',{}), patch.object(mappings, 'storage_root', return_value=tmp_path/'drafts'), patch.dict(web.app.config,DISABLE_COORDINATOR=True):
-        mappings.save_draft(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
+        context = mapping_context.build_context(web.ROOT / 'molecules', 'DDM')
+        candidate = mappings.automatic_candidate(mappings.molecule(), 'DDM')
+        candidate.update(molecule_id='DDM', molecule_snapshot=context['snapshot'])
+        mappings.save_draft(candidate)
         jobs=[{'id':jid,'label':f'Figure run {i}','detergent':'DDM','method':'fast_forward','status':'completed','stage':'complete','created':web.now()} for i,jid in enumerate(('abcdef123456','abcdef123457'))]
         web.save(jobs)
         for job in jobs:
@@ -67,20 +69,12 @@ def test_run_figure_tabs_zoom_and_mapping_display(tmp_path):
                 first.get_by_role('button',name='Zoom in',exact=True).click();expect(first.locator('.figure-zoom-level')).to_have_text('125%')
                 assert '1.25' in first.locator('iframe').evaluate('(el)=>el.style.transform')
                 page.get_by_role('tab',name='CG mappings',exact=True).click()
-                editor=page.locator('.mapping');expect(editor.locator('.candidate-name')).to_be_visible()
-                # The pre-refactor "Inspect the 3D structure" disclosure no longer exists;
-                # bead assignments are visible directly in .bead-rows.
-                expect(editor.locator('.bead-rows')).to_be_visible()
-                with page.expect_download() as before_download:
-                    editor.locator('.export-candidate').click()
-                before=json.loads(Path(before_download.value.path()).read_text())
-                # Display-only adjustments no longer exist in the current template; the
-                # immutable export contract is tested by changing a form field without
-                # saving and confirming the downloaded JSON is unchanged.
-                editor.locator('.bead-rows input').first.fill(editor.locator('.bead-rows input').first.input_value())
-                with page.expect_download() as after_download:
-                    editor.locator('.export-candidate').click()
-                assert json.loads(Path(after_download.value.path()).read_text())==before
+                editor=page.locator('#mappings')
+                expect(editor.locator('#mapping-editor-name')).to_be_visible()
+                expect(editor.locator('#mapping-bead-rows tr')).not_to_have_count(0)
+                expect(editor.locator('#save-mapping-editor')).to_be_disabled()
+                expect(editor.locator('button', has_text='Export JSON')).to_have_count(0)
+                expect(editor.locator('button', has_text='Download diagram')).to_have_count(0)
                 page.locator('#tab-bonded').click()
                 mapping_file=page.locator('.bonded-mapping-select').input_value()
                 page.locator('.bonded-fit').click()

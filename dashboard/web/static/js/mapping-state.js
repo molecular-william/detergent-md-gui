@@ -30,6 +30,13 @@ export function toggleAtom(editor, id) {
 
 export function clearSelection(editor) { editor.selectedAtoms.clear(); editor.selectedBeads.clear(); return editor; }
 
+export function clearMapping(editor) {
+  editor.candidate = {...editor.candidate, beads: [], rings: [], connections: [], bonded_options: {}, bonded_overrides: []};
+  clearSelection(editor);
+  editor.dirty = true;
+  return editor;
+}
+
 export function groupAtoms(editor, atomIds, bead, {confirmed = false} = {}) {
   const ids = new Set(atomIds);
   if (!ids.size) throw new Error('Select one or more heavy atoms first.');

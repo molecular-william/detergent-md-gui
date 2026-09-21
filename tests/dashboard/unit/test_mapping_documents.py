@@ -27,3 +27,17 @@ def test_schema_three_identity_changes_with_molecule_snapshot(tmp_path):
     draft = mappings.new_draft(context)
     altered = dict(draft, molecule_snapshot={"files": {"molecule.itp": "changed"}})
     assert mappings.mapping_identity(draft) != mappings.mapping_identity(altered)
+
+
+def test_mapping_content_identity_ignores_candidate_name():
+    candidate = {
+        'schema_version': 3,
+        'molecule_id': 'Fixture',
+        'molecule_snapshot': {'snapshot_sha256': 'snapshot'},
+        'name': 'First label',
+        'beads': [{'name': 'B01', 'size': 'S', 'type': 'P1', 'atoms': [1, 2, 3]}],
+        'rings': [],
+        'connections': [],
+    }
+    renamed = {**candidate, 'name': 'Different label'}
+    assert mappings.mapping_content_identity(candidate) == mappings.mapping_content_identity(renamed)

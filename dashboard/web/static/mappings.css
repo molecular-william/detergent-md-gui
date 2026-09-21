@@ -1,9 +1,28 @@
-.molecule-mapping-workspace{margin-top:1rem}.mapping-editor-layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(18rem,1fr);gap:1rem;align-items:start}.mapping-editor-diagram{min-height:22rem;border:1px solid #d5dee8;border-radius:.5rem;background:#fbfcfe;overflow:auto}.mapping-editor-diagram svg{display:block;width:100%;min-width:32rem;height:auto}.mapping-editor-diagram .atom{cursor:pointer}.mapping-editor-diagram .atom.selected circle{fill:#ffe3a3;stroke:#a85b00;stroke-width:3}.mapping-editor-diagram .atom.assigned circle{stroke:#2864b5}.mapping-editor-diagram .bead-overlay{fill:#2864b5;fill-opacity:.1;stroke:#2864b5;stroke-width:2;pointer-events:none}.mapping-editor-controls{display:grid;gap:.75rem}.mapping-preview{max-height:14rem;overflow:auto;background:#f3f6fa;padding:.75rem;border-radius:.4rem}@media(max-width:800px){.mapping-editor-layout{grid-template-columns:1fr}.mapping-editor-diagram svg{min-width:24rem}}
-
-/* Combined editor + bead-assignment section: the panel now sits directly
-   beneath the editor diagram in a single column. */
-.mapping-columns{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
-.mapping-columns .mapping-left{width:auto;min-width:0;display:block;margin:0}
-.mapping-columns select{max-width:160px}
-.mapping-columns .atoms-input{min-width:105px}
-#comparison{display:grid;gap:16px;margin-top:20px}
+.molecule-mapping-workspace{margin-top:1rem}
+.mapping-editor-layout{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(28rem,1fr);gap:20px;align-items:start}
+.mapping-editor-diagram{min-height:34rem;border:1px solid #d5dee8;border-radius:8px;background:#fbfcfe;overflow:auto}
+.mapping-editor-diagram svg{display:block;width:100%;min-width:38rem;height:auto}
+.mapping-editor-diagram .atom{cursor:pointer}
+.mapping-editor-diagram .atom.selected circle{fill:#ffe3a3;stroke:#a85b00;stroke-width:3}
+.mapping-editor-diagram .atom.assigned circle{stroke:#2864b5}
+.mapping-editor-diagram .bead-overlay{fill:#2864b5;fill-opacity:.1;stroke:#2864b5;stroke-width:2;pointer-events:none}
+.mapping-editor-controls{display:grid;gap:.75rem;min-width:0}
+.mapping-editor-controls .form-grid{grid-template-columns:1fr}
+.mapping-editor-controls .table-scroll{max-height:34rem;overflow:auto;border:1px solid var(--line);border-radius:8px}
+.mapping-editor-controls table{margin:0;table-layout:fixed;min-width:31rem}
+.mapping-editor-controls caption{padding:10px 12px;margin:0;background:#f3f6fa}
+.mapping-editor-controls td,.mapping-editor-controls th{padding:8px 6px}
+.mapping-editor-controls td input,.mapping-editor-controls td select{min-width:0}
+.mapping-editor-controls th:nth-child(1){width:4.5rem}
+.mapping-editor-controls th:nth-child(2){width:3.5rem}
+.mapping-editor-controls th:nth-child(3){width:5.5rem}
+.mapping-editor-controls th:nth-child(4){width:8rem}
+.mapping-editor-controls th:nth-child(5){width:2.75rem}
+.mapping-editor-controls td input.atoms-input{min-width:0}
+.mapping-primary-actions{justify-content:flex-end;border-top:1px solid var(--line);padding-top:12px}
+.validation{margin:10px 0 0;font-size:13px}
+.validation ul{padding-left:20px;max-height:180px;overflow:auto}
+.validation li{margin:6px 0}
+.invalid-bead{background:#fff2e9}
+@media(max-width:900px){.mapping-editor-layout{grid-template-columns:1fr}.mapping-editor-diagram{min-height:24rem}.mapping-editor-diagram svg{min-width:30rem}}
+@media(max-width:520px){.mapping-editor-diagram{min-height:18rem}.mapping-editor-diagram svg{min-width:24rem}.mapping-primary-actions{justify-content:stretch}.mapping-primary-actions button{flex:1}}

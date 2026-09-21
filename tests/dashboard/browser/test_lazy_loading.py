@@ -5,13 +5,16 @@ from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright, expect
 from werkzeug.serving import make_server
 from dashboard.app import create_app, default_coordinator as web
-from dashboard.models import mappings, bonded_states
+from dashboard.models import mappings, bonded_states, mapping_context
 from dashboard.execution import workflow
 from tests.dashboard.fixtures import QuietHandler, physical_mapping
 
 
 def test_lazy_tabs_reuse_catalogues_and_preserve_edits(isolated_workspace, monkeypatch):
-    saved = mappings.save_draft(physical_mapping())
+    context = mapping_context.build_context(isolated_workspace.project_root / 'molecules', 'DDM')
+    candidate = physical_mapping()
+    candidate.update(molecule_id='DDM', molecule_snapshot=context['snapshot'])
+    saved = mappings.save_draft(candidate)
     bonded_states.create(saved, 'Test state')
     monkeypatch.setattr(workflow, 'readiness', lambda *a, **k: {'ready': False, 'checks': [], 'blockers': ['Test only']})
     app = create_app(isolated_workspace, {'TESTING': True, 'DISABLE_COORDINATOR': True})
@@ -44,12 +47,12 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(isolated_workspace, monke
             assert urls.count('/api/bonded-states?view=summary') == 1
             # Keyboard and hash navigation have the same activation semantics.
             page.locator('#tab-new').press('ArrowRight')
-            expect(page.locator('.candidate-name')).to_have_value(saved['name'])
-            page.locator('.candidate-name').fill('Unsaved local edit')
+            expect(page.locator('#mapping-editor-name')).to_have_value(saved['name'])
+            page.locator('#mapping-editor-name').fill('Unsaved local edit')
             page.locator('#tab-bonded').click()
             expect(page.locator('.bonded-mapping-select')).to_have_value(saved['file'])
             page.evaluate("location.hash='mappings'")
-            expect(page.locator('.candidate-name')).to_have_value('Unsaved local edit')
+            expect(page.locator('#mapping-editor-name')).to_have_value('Unsaved local edit')
             assert page.evaluate('tabEvents') == ['new', 'mappings', 'bonded', 'mappings']
             assert urls.count('/api/mappings?view=summary') == 1
             assert urls.count('/api/bonded-states?view=summary') == 1
@@ -60,7 +63,7 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(isolated_workspace, monke
             other.goto(f'http://127.0.0.1:{server.server_port}/#bonded')
             expect(other.locator('.bonded-mapping-select')).to_have_value(saved['file'])
             expect(other.locator('.bonded-diagram svg')).to_have_count(1)
-            expect(other.locator('#comparison .mapping')).to_have_count(0)
+            expect(other.locator('#mapping-bead-rows tr')).to_have_count(0)
             browser.close()
     finally:
         server.shutdown(); thread.join(timeout=5)
