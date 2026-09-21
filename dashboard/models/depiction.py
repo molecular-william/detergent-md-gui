@@ -15,23 +15,85 @@ NS = 'http://www.w3.org/2000/svg'
 ET.register_namespace('', NS)
 
 
+def _zigzag_carbon_chains(context, atoms, points):
+    """Give long, straight carbon paths a readable skeletal zig-zag."""
+    carbon_ids = {atom['id'] for atom in atoms if atom.get('element') == 'C'}
+    adjacency = {atom_id: set() for atom_id in carbon_ids}
+    for bond in context.get('bonds', []):
+        a, b = bond['a'], bond['b']
+        if a in adjacency and b in adjacency:
+            adjacency[a].add(b)
+            adjacency[b].add(a)
+
+    remaining = set(carbon_ids)
+    while remaining:
+        component = set()
+        stack = [remaining.pop()]
+        while stack:
+            atom_id = stack.pop()
+            component.add(atom_id)
+            for neighbor in adjacency[atom_id] & remaining:
+                remaining.remove(neighbor)
+                stack.append(neighbor)
+        if len(component) < 5 or any(len(adjacency[atom_id] & component) > 2 for atom_id in component):
+            continue
+        endpoints = [atom_id for atom_id in component if len(adjacency[atom_id] & component) == 1]
+        if len(endpoints) != 2:
+            continue
+
+        path = [endpoints[0]]
+        previous = None
+        while True:
+            neighbors = [atom_id for atom_id in adjacency[path[-1]] & component if atom_id != previous]
+            if not neighbors:
+                break
+            previous, next_atom = path[-1], neighbors[0]
+            if next_atom in path:
+                path = []
+                break
+            path.append(next_atom)
+        if len(path) != len(component) or any(atom_id not in points for atom_id in path):
+            continue
+
+        start, end = points[path[0]], points[path[-1]]
+        axis_x, axis_y = end[0] - start[0], end[1] - start[1]
+        length = math.hypot(axis_x, axis_y)
+        if length <= 1e-9:
+            continue
+        axis_x, axis_y = axis_x / length, axis_y / length
+        perpendicular = (-axis_y, axis_x)
+        residuals = [abs((point[0] - start[0]) * perpendicular[0] +
+                         (point[1] - start[1]) * perpendicular[1]) for point in (points[atom_id] for atom_id in path)]
+        spacing = sum(math.hypot(points[path[index + 1]][0] - points[path[index]][0],
+                                 points[path[index + 1]][1] - points[path[index]][1])
+                      for index in range(len(path) - 1)) / (len(path) - 1)
+        if max(residuals) > spacing * 0.15 or spacing <= 1e-9:
+            continue
+
+        amplitude = spacing * 0.35
+        for index, atom_id in enumerate(path):
+            offset = amplitude if index % 2 else -amplitude
+            points[atom_id] = [points[atom_id][0] + perpendicular[0] * offset,
+                               points[atom_id][1] + perpendicular[1] * offset]
+
+
 def _scene_bounds(context):
     visible_atoms = [atom for atom in context.get('atoms', []) if atom.get('heavy')]
-    display_atoms = [atom for atom in visible_atoms if atom.get('display_xy')]
-    if len(display_atoms) == len(visible_atoms):
-        points = [atom['display_xy'] for atom in display_atoms]
+    if all(atom.get('display_xy') for atom in visible_atoms):
+        points = {atom['id']: list(atom['display_xy']) for atom in visible_atoms}
     else:
-        display_atoms = visible_atoms
-        points = [[float(atom['xyz'][0]), float(atom['xyz'][1])] for atom in visible_atoms]
+        points = {atom['id']: [float(atom['xyz'][0]), float(atom['xyz'][1])] for atom in visible_atoms}
     if not points:
         raise ValueError('Molecule has no coordinates for 2D depiction')
-    min_x = min(point[0] for point in points); max_x = max(point[0] for point in points)
-    min_y = min(point[1] for point in points); max_y = max(point[1] for point in points)
+    _zigzag_carbon_chains(context, visible_atoms, points)
+    min_x = min(point[0] for point in points.values()); max_x = max(point[0] for point in points.values())
+    min_y = min(point[1] for point in points.values()); max_y = max(point[1] for point in points.values())
     width, height, padding = 1000.0, 650.0, 70.0
     scale = min((width - 2 * padding) / max(max_x - min_x, 1e-9),
                 (height - 2 * padding) / max(max_y - min_y, 1e-9))
     positions = {}
-    for atom, point in zip(display_atoms, points):
+    for atom in visible_atoms:
+        point = points[atom['id']]
         positions[atom['id']] = [padding + (point[0] - min_x) * scale,
                                  height - padding - (point[1] - min_y) * scale]
     return positions, width, height
