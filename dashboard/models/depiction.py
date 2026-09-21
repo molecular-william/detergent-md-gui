@@ -16,9 +16,13 @@ ET.register_namespace('', NS)
 
 
 def _scene_bounds(context):
-    points = [atom.get('display_xy') for atom in context.get('atoms', []) if atom.get('display_xy')]
-    if not points:
-        points = [[float(atom['xyz'][0]), float(atom['xyz'][1])] for atom in context.get('atoms', [])]
+    visible_atoms = [atom for atom in context.get('atoms', []) if atom.get('heavy')]
+    display_atoms = [atom for atom in visible_atoms if atom.get('display_xy')]
+    if len(display_atoms) == len(visible_atoms):
+        points = [atom['display_xy'] for atom in display_atoms]
+    else:
+        display_atoms = visible_atoms
+        points = [[float(atom['xyz'][0]), float(atom['xyz'][1])] for atom in visible_atoms]
     if not points:
         raise ValueError('Molecule has no coordinates for 2D depiction')
     min_x = min(point[0] for point in points); max_x = max(point[0] for point in points)
@@ -27,7 +31,7 @@ def _scene_bounds(context):
     scale = min((width - 2 * padding) / max(max_x - min_x, 1e-9),
                 (height - 2 * padding) / max(max_y - min_y, 1e-9))
     positions = {}
-    for atom, point in zip([a for a in context.get('atoms', []) if a.get('display_xy')], points):
+    for atom, point in zip(display_atoms, points):
         positions[atom['id']] = [padding + (point[0] - min_x) * scale,
                                  height - padding - (point[1] - min_y) * scale]
     return positions, width, height
@@ -50,17 +54,19 @@ def build_scene(context):
         ET.SubElement(bonds, tag('line'), attrs)
     atoms = ET.SubElement(root, tag('g'), {'class': 'chemical-atoms'})
     for atom in context.get('atoms', []):
+        if not atom.get('heavy'):
+            continue
         if atom['id'] not in positions:
             continue
-        group = ET.SubElement(atoms, tag('g'), {'class': 'atom' + (' heavy' if atom.get('heavy') else ' hydrogen'),
+        group = ET.SubElement(atoms, tag('g'), {'class': 'atom heavy',
                                                 'data-atom-id': str(atom['id']),
-                                                'data-heavy': str(bool(atom.get('heavy'))).lower(),
-                                                'tabindex': '0' if atom.get('heavy') else '-1',
+                                                'data-heavy': 'true',
+                                                'tabindex': '0',
                                                 'aria-label': f'Atom {atom["id"]} ({atom["name"]})'})
         ET.SubElement(group, tag('circle'), {'cx': f'{positions[atom["id"]][0]:.2f}',
                                               'cy': f'{positions[atom["id"]][1]:.2f}',
-                                              'r': '11' if atom.get('heavy') else '6',
-                                              'fill': '#ffffff' if atom.get('heavy') else '#d8e0e8',
+                                              'r': '11',
+                                              'fill': '#ffffff',
                                               'stroke': '#8295aa', 'stroke-width': '2'})
         ET.SubElement(group, tag('text'), {'x': f'{positions[atom["id"]][0] + 14:.2f}',
                                            'y': f'{positions[atom["id"]][1] - 10:.2f}',

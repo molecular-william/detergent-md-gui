@@ -7,7 +7,9 @@ def test_empty_mapping_does_not_remove_structure(tmp_path):
     _write_fixture(tmp_path)
     context = build_context(tmp_path, "Fixture")
     scene = depiction.build_scene(context)
-    assert set(scene["positions"]) == {1, 2, 3, 4, 5}
+    assert set(scene["positions"]) == {1, 2, 3, 4}
+    assert 'data-atom-id="5"' not in scene["svg"]
+    assert "H1" not in scene["svg"]
     assert context["source_quality"]["bond_order"] == "fallback"
     assert scene == depiction.build_scene(context)
 
