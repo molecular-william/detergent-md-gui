@@ -73,6 +73,7 @@ def parse_interactions(topology):
         return []
     atom_names = {}
     section = None
+    section_counts = {}
     rows = []
     for raw in topology.splitlines():
         line = raw.split(';', 1)[0].strip()
@@ -98,12 +99,13 @@ def parse_interactions(topology):
                     params = fields[5:]
             except ValueError:
                 continue
+            section_counts[section] = section_counts.get(section, 0) + 1
             rows.append({'kind': section, 'indices': [site],
                          'beads': [atom_names.get(site, str(site))],
                          'function': function, 'parameters': params,
                          'parents': parents,
                          'parent_beads': [atom_names.get(i, str(i)) for i in parents],
-                         'id': f"{section}:{len(rows)+1}"})
+                         'id': f"{section}:{section_counts[section]}"})
         elif section in SECTION_WIDTHS:
             width = SECTION_WIDTHS[section]
             if len(fields) < width + 1: continue
@@ -111,11 +113,12 @@ def parse_interactions(topology):
             except ValueError: continue
             params = fields[width:]
             function = params[0] if params else ''
+            section_counts[section] = section_counts.get(section, 0) + 1
             rows.append({'kind': section, 'indices': indices,
                          'beads': [atom_names.get(i, str(i)) for i in indices],
                          'function': function,
                          'parameters': params[1:] if params else [],
-                         'id': f"{section}:{len(rows)+1}",
+                         'id': f"{section}:{section_counts[section]}",
                          'editable': section in FUNCTIONS,
                          'function_options': _function_options(section),
                          'parameter_labels': (FUNCTION_PARAMETER_LABELS.get(section, {}).get(int(function), [])

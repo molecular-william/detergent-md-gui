@@ -12,7 +12,7 @@ const newRun = createNewRun({
   refreshJobs: runs.refreshJobs,
   refreshStorage: runs.refreshStorage,
 });
-const mappings=createMappings({ onFit: newRun.prepareBondedFit });
+const mappings=createMappings();
 document.addEventListener('dashboard:tab', event=>{
   const id=event.detail.id;
   const loading=id==='runs'?runs.mount():id==='new'?newRun.mount():mappings.mount(id);

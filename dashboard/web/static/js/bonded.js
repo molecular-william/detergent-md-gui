@@ -1,209 +1,280 @@
 import { $, $$, setText, api, post, cachedApi, invalidateResource } from './shared.js';
+import { mountBondedPlot } from './bonded-plot.js';
 
-// Bonded-state interaction rendering receives the current mapping catalog.
-export function setupBondedWorkspace(mappingData, { onFit, loadMapping }) {
+const FUNCTION_OPTIONS = {
+  bonds: {1: ['length (nm)', 'force (kJ mol^-1 nm^-2)']},
+  angles: {
+    1: ['angle (deg)', 'force (kJ mol^-1 rad^-2)'],
+    2: ['angle (deg)', 'force (kJ mol^-1 rad^-2)'],
+    10: ['angle (deg)', 'force (kJ mol^-1 rad^-2)'],
+  },
+  dihedrals: {
+    1: ['phase (deg)', 'force (kJ mol^-1 rad^-2)', 'multiplicity'],
+    2: ['phase (deg)', 'force (kJ mol^-1 rad^-2)'],
+    9: ['phase (deg)', 'force (kJ mol^-1 rad^-2)', 'multiplicity'],
+  },
+};
+
+const ordinaryKinds = new Set(Object.keys(FUNCTION_OPTIONS));
+const formatNumber = value => Number.isFinite(Number(value)) ? Number(value).toString() : '';
+
+function optionsFor(kind) {
+  return Object.entries(FUNCTION_OPTIONS[kind] || {}).map(([value, labels]) => ({value, label: `Function ${value}`, labels}));
+}
+
+function normalizeTerm(term, fallbackId) {
+  const kind = term.kind || 'bonds';
+  const functionValue = String(term.function || '1');
+  const options = term.function_options?.length ? term.function_options.map(option => ({
+    value: String(option.value), label: option.label, labels: option.parameter_labels || [],
+  })) : optionsFor(kind);
+  const selected = options.find(option => option.value === functionValue) || options[0];
+  return {...term, id: term.id || fallbackId, kind, beads: [...(term.beads || [])],
+    function: functionValue, parameters: [...(term.parameters || [])],
+    editable: term.editable ?? ordinaryKinds.has(kind), function_options: options,
+    parameter_labels: term.parameter_labels?.length ? [...term.parameter_labels] : [...(selected?.labels || [])]};
+}
+
+export function setupBondedWorkspace(mappingData, {loadMapping}) {
   const host = $('.bonded-workspace');
   if (!host || !mappingData) return;
   const mappingSelect = $('.bonded-mapping-select', host);
   const stateSelect = $('.bonded-state-select', host);
   const message = $('.bonded-panel-message', host);
-  const editorPanel = $('.bonded-editor-panel', host);
-  const parameterEditor = $('.bonded-parameter-editor', host);
   const nameInput = $('.bonded-state-name', host);
   const saveNew = $('.bonded-save-new', host);
-  const revise = $('.bonded-revise', host);
+  const automatic = $('.bonded-automatic', host);
+  const createInteraction = $('.bonded-create-interaction', host);
+  const shortRun = $('.bonded-short-run', host);
+  const deleteState = $('.bonded-delete', host);
+  const tableHost = $('.bonded-interaction-table', host);
+  const selectionStatus = $('.bonded-selection-status', host);
+  const plot = mountBondedPlot($('.bonded-plot', host), {
+    onBeadSelection: selected => { selectedBeads = selected; renderState(); },
+    onTermSelection: id => { selectedTermId = id; renderState(); },
+    onPlotError: notice,
+  });
   let states = [];
   let selectedState = null;
   let selectedMapping = null;
   let terms = [];
+  let selectedBeads = [];
+  let selectedTermId = '';
+  let dirty = false;
   let generation = 0;
-  const notice = text => setText(message, text);
+  let draftCounter = 0;
 
-  function clearPreview() {
-    $('.bonded-diagram', host).replaceChildren();
-    $('.bonded-interaction-table', host).replaceChildren();
-    $('.bonded-itp-preview', host).textContent = 'Loading bonded interaction preview…';
-    parameterEditor.replaceChildren();
-    editorPanel.hidden = true;
-    saveNew.disabled = true;
-    revise.disabled = true;
-    $('.bonded-delete', host).disabled = true;
+  function notice(text) { setText(message, text); }
+
+  function structureAtoms() {
+    const atoms = mappingData.molecule?.atoms || [];
+    const legacyAngstrom = !mappingData.molecule?.molecule_id && !mappingData.molecule?.snapshot;
+    const factor = legacyAngstrom ? 0.1 : 1;
+    return new Map(atoms.map(atom => [Number(atom.id), {...atom, xyz: (atom.xyz || [0, 0, 0]).map(value => Number(value) * factor)}]));
   }
 
-  function selectedMappingHash(mapping) {
-    return mapping?.mapping_hash || '';
-  }
-
-  async function loadStates(mappingHash, token) {
-    if (!mappingHash) {
-      states = [];
-      stateSelect.replaceChildren(new Option('Mapping only · fit parameters', ''));
-      return;
+  function beadGeometry(mapping) {
+    const atoms = structureAtoms();
+    const centers = new Map();
+    for (const bead of mapping?.beads || []) {
+      if (bead.virtual_site) continue;
+      const points = (bead.atoms || []).map(id => atoms.get(Number(id))?.xyz).filter(Boolean);
+      if (points.length) centers.set(bead.name, points[0].map((_, index) => points.reduce((sum, point) => sum + point[index], 0) / points.length));
     }
-    const query = new URLSearchParams({view: 'summary', mapping_hash: mappingHash});
-    const response = await cachedApi('/api/bonded-states?' + query.toString(), {maxAge: 10000});
+    for (const bead of mapping?.beads || []) {
+      if (!bead.virtual_site) continue;
+      const points = (bead.virtual_site.parents || []).map(name => centers.get(name)).filter(Boolean);
+      if (points.length) centers.set(bead.name, points[0].map((_, index) => points.reduce((sum, point) => sum + point[index], 0) / points.length));
+    }
+    const physical = new Set((mapping?.beads || []).filter(bead => !bead.virtual_site).map(bead => bead.name));
+    let edges = (mapping?.connections || []).map(pair => [...pair]);
+    if (!edges.length) {
+      const owners = new Map();
+      for (const bead of mapping?.beads || []) for (const id of bead.atoms || []) owners.set(Number(id), bead.name);
+      edges = (mappingData.molecule?.bonds || []).map(edge => Array.isArray(edge) ? edge : [edge.a, edge.b])
+        .map(([first, second]) => [owners.get(Number(first)), owners.get(Number(second))])
+        .filter(([first, second]) => first && second && first !== second && physical.has(first) && physical.has(second));
+    }
+    return {beads: [...centers].map(([name, position]) => ({name, position,
+      virtual_site: (mapping?.beads || []).find(bead => bead.name === name)?.virtual_site})), edges};
+  }
+
+  function mappingTerms(mapping) {
+    const geometry = beadGeometry(mapping);
+    const positions = new Map(geometry.beads.map(bead => [bead.name, bead.position]));
+    const distance = (first, second) => {
+      const a = positions.get(first), b = positions.get(second);
+      if (!a || !b) return 0.3;
+      return Math.sqrt(a.reduce((sum, value, index) => sum + (value - b[index]) ** 2, 0));
+    };
+    return (mapping?.connections || geometry.edges).map((pair, index) => normalizeTerm({
+      id: `mapping:${index}`, kind: 'bonds', beads: pair, function: '1',
+      parameters: [formatNumber(distance(pair[0], pair[1])), '5000'], editable: true,
+    }, `mapping:${index}`));
+  }
+
+  function updateControls() {
+    createInteraction.disabled = selectedBeads.length !== 2 || !selectedMapping;
+    saveNew.disabled = !selectedMapping || !terms.length || !dirty;
+    deleteState.disabled = !selectedState;
+    shortRun.disabled = !selectedState;
+    setText(selectionStatus, selectedBeads.length ? `Selected beads: ${selectedBeads.join(' · ')}${selectedBeads.length === 2 ? ' · ready to create an interaction' : ''}` : 'Select up to two physical beads to create an interaction.');
+  }
+
+  function renderTable() {
+    tableHost.replaceChildren();
+    if (!terms.length) { tableHost.textContent = 'No bonded terms loaded.'; return; }
+    const table = document.createElement('table');
+    table.innerHTML = '<caption>Functions choose the potential form; parameters use the labels shown.</caption><thead><tr><th>Kind</th><th>Beads</th><th>Function</th><th>Parameters</th></tr></thead>';
+    const body = document.createElement('tbody');
+    for (const term of terms) {
+      const row = document.createElement('tr'); row.dataset.id = term.id; row.tabIndex = 0; row.setAttribute('aria-selected', String(term.id === selectedTermId));
+      const kind = document.createElement('td'); kind.textContent = term.kind; row.append(kind);
+      const beads = document.createElement('td'); beads.textContent = term.beads.join(' · '); row.append(beads);
+      const functionCell = document.createElement('td');
+      if (term.editable && term.function_options.length) {
+        const select = document.createElement('select'); select.setAttribute('aria-label', `${term.kind} ${term.beads.join(' ')} function`);
+        for (const option of term.function_options) select.append(new Option(option.label, option.value));
+        select.value = term.function;
+        select.onchange = () => {
+          const selected = term.function_options.find(option => option.value === select.value) || optionsFor(term.kind).find(option => option.value === select.value);
+          const old = [...term.parameters]; term.function = select.value; term.parameter_labels = [...(selected?.labels || [])];
+          term.parameters = term.parameter_labels.map((_, index) => old[index] ?? ''); dirty = true; renderState();
+        };
+        functionCell.append(select);
+      } else functionCell.textContent = term.function || '—';
+      row.append(functionCell);
+      const parameters = document.createElement('td');
+      if (term.editable) {
+        const grid = document.createElement('div'); grid.className = 'bonded-parameter-row';
+        for (const [index, value] of term.parameters.entries()) {
+          const label = document.createElement('label'); label.textContent = term.parameter_labels[index] || `Parameter ${index + 1}`;
+          const input = document.createElement('input'); input.type = 'number'; input.step = 'any'; input.value = value;
+          input.setAttribute('aria-label', `${term.kind} ${term.beads.join(' ')} ${label.textContent}`);
+          input.oninput = () => { term.parameters[index] = input.value; dirty = true; updateControls(); };
+          label.append(input); grid.append(label);
+        }
+        parameters.append(grid);
+      } else parameters.textContent = term.parameters?.join(' ') || 'Read-only';
+      row.append(parameters);
+      row.onclick = () => { selectedTermId = term.id; renderState(); };
+      row.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectedTermId = term.id; renderState(); } };
+      body.append(row);
+    }
+    table.append(body); tableHost.append(table);
+  }
+
+  function renderState() {
+    renderTable();
+    const geometry = beadGeometry(selectedMapping || {});
+    plot.render({beads: geometry.beads, edges: geometry.edges, terms, selectedBeads, selectedTermId});
+    if (selectedState) nameInput.value = selectedState.name || selectedState.current?.name || nameInput.value;
+    updateControls();
+  }
+
+  async function loadStates(hash, token) {
+    const response = hash ? await cachedApi('/api/bonded-states?' + new URLSearchParams({view: 'summary', mapping_hash: hash}), {maxAge: 10000}) : {states: []};
     if (token !== generation) return;
     states = response.states || [];
-    const chosen = stateSelect.value;
-    stateSelect.replaceChildren(new Option('Mapping only · fit parameters', ''));
-    for (const state of states) {
-      const status = state.current?.status || 'unknown';
-      stateSelect.append(new Option(`${state.name} · r${state.revision} · ${status}`, state.state_id));
-    }
-    stateSelect.value = states.some(state => state.state_id === chosen) ? chosen : '';
+    const selected = stateSelect.value;
+    stateSelect.replaceChildren(new Option('Mapping draft · unsaved', ''));
+    for (const state of states) stateSelect.append(new Option(`${state.name} · r${state.revision} · ${state.current?.status || 'unknown'}`, state.state_id));
+    stateSelect.value = states.some(state => state.state_id === selected) ? selected : '';
   }
 
-  function translateTerms(rawTerms, mapping) {
-    const byIndex = new Map((mapping.beads || []).map((bead, index) => [index + 1, bead.name]));
-    return rawTerms.map(term => {
-      const indices = term.kind.startsWith('virtual_sites') ? (term.parents || []) : (term.indices || []);
-      const beads = indices.map(index => byIndex.get(index) || term.beads?.[0] || String(index));
-      return {...term, beads, topology_beads: term.beads || [], indices};
-    });
-  }
-
-  function renderEditor() {
-    parameterEditor.replaceChildren();
-    if (!selectedState || !terms.length) {
-      editorPanel.hidden = true;
-      return;
-    }
-    editorPanel.hidden = false;
-    nameInput.value = selectedState.name || selectedState.current?.name || '';
-    for (const term of terms) {
-      if (term.kind.startsWith('virtual_sites') || term.kind === 'constraints') continue;
-      const row = document.createElement('div');
-      row.className = 'bonded-parameter-row';
-      const label = document.createElement('span');
-      label.textContent = `${term.kind} · ${term.beads.join(' · ')}`;
-      row.append(label);
-      for (const [index, value] of (term.parameters || []).entries()) {
-        const input = document.createElement('input');
-        input.type = 'number'; input.step = 'any'; input.value = value;
-        input.dataset.termId = term.id; input.dataset.parameterIndex = String(index);
-        input.setAttribute('aria-label', `${term.kind} ${term.beads.join(' ')} parameter ${index + 1}`);
-        row.append(input);
-      }
-      parameterEditor.append(row);
-    }
-  }
-
-  function editedParameters() {
-    const byId = new Map();
-    $$('.bonded-parameter-row input', host).forEach(input => {
-      const value = Number(input.value);
-      if (!Number.isFinite(value)) throw new Error('Bonded parameters must be finite numbers');
-      const values = byId.get(input.dataset.termId) || [];
-      values[Number(input.dataset.parameterIndex)] = value;
-      byId.set(input.dataset.termId, values);
-    });
-    return [...byId].map(([id, parameters]) => ({id, parameters}));
-  }
-
-  function renderDiagram(mapping, stateTerms, token) {
-    const ns = 'http://www.w3.org/2000/svg';
-    const svg = document.createElementNS(ns, 'svg');
-    svg.setAttribute('viewBox', '0 0 960 620'); svg.classList.add('bonded-svg');
-    const atoms = mappingData.molecule.atoms.filter(atom => atom.heavy);
-    const xs = atoms.map(atom => atom.xyz[0]), ys = atoms.map(atom => atom.xyz[1]);
-    const minx = Math.min(...xs), maxx = Math.max(...xs), miny = Math.min(...ys), maxy = Math.max(...ys);
-    const scale = Math.min(820 / (maxx - minx || 1), 500 / (maxy - miny || 1));
-    const point = atom => ({x: 70 + (atom.xyz[0] - minx) * scale, y: 560 - (atom.xyz[1] - miny) * scale});
-    const atomPos = new Map(atoms.map(atom => [atom.id, point(atom)]));
-    for (const [a, b] of mappingData.molecule.bonds) {
-      const p = atomPos.get(a), q = atomPos.get(b); if (!p || !q) continue;
-      const line = document.createElementNS(ns, 'line');
-      for (const [key, value] of Object.entries({x1: p.x, y1: p.y, x2: q.x, y2: q.y, class: 'aa-link'})) line.setAttribute(key, value);
-      svg.append(line);
-    }
-    const centers = {};
-    for (const bead of mapping.beads || []) {
-      if (bead.virtual_site) continue;
-      const points = bead.atoms.map(id => atomPos.get(id)).filter(Boolean);
-      if (points.length) centers[bead.name] = {x: points.reduce((sum, p) => sum + p.x, 0) / points.length, y: points.reduce((sum, p) => sum + p.y, 0) / points.length};
-    }
-    for (const bead of (mapping.beads || []).filter(item => item.virtual_site)) {
-      const points = bead.virtual_site.parents.map(name => centers[name]).filter(Boolean);
-      if (points.length === 3) centers[bead.name] = {x: points.reduce((sum, p) => sum + p.x, 0) / 3, y: points.reduce((sum, p) => sum + p.y, 0) / 3};
-    }
-    const selected = id => {
-      $$('.bonded-interaction-table tr', host).forEach(row => row.setAttribute('aria-selected', String(row.dataset.id === id)));
-      $$('.cg-term', svg).forEach(element => element.classList.toggle('selected', element.dataset.id === id));
-      const term = stateTerms.find(item => item.id === id);
-      $$('.cg-node', svg).forEach(element => element.classList.toggle('selected', !!term?.beads.includes(element.dataset.bead)));
-    };
-    for (const term of stateTerms) {
-      const points = term.beads.map(name => centers[name]).filter(Boolean); if (points.length < 2) continue;
-      const line = document.createElementNS(ns, 'polyline'); line.setAttribute('points', points.map(item => `${item.x},${item.y}`).join(' ')); line.dataset.id = term.id; line.setAttribute('class', 'cg-term'); svg.append(line);
-    }
-    for (const [name, point] of Object.entries(centers)) {
-      const circle = document.createElementNS(ns, 'circle'); circle.setAttribute('cx', point.x); circle.setAttribute('cy', point.y); circle.setAttribute('r', 18); circle.setAttribute('class', 'cg-node'); circle.dataset.bead = name; svg.append(circle);
-      const text = document.createElementNS(ns, 'text'); text.setAttribute('x', point.x); text.setAttribute('y', point.y + 5); text.setAttribute('text-anchor', 'middle'); text.textContent = name; svg.append(text);
-    }
-    const legend = document.createElementNS(ns, 'text'); legend.setAttribute('x', '70'); legend.setAttribute('y', '30'); legend.setAttribute('class', 'bonded-legend'); legend.textContent = 'Grey: AA connectivity   Blue: bonded interaction   Red: selected term'; svg.append(legend);
-    $('.bonded-diagram', host).replaceChildren(svg);
-    const tableHost = $('.bonded-interaction-table', host); tableHost.replaceChildren();
-    if (!stateTerms.length) tableHost.textContent = 'No bonded terms are available yet. Fit parameters or edit the mapping, then create a state revision.';
-    else {
-      const table = document.createElement('table'); table.innerHTML = '<caption>Click a term to highlight its beads</caption><thead><tr><th>Type</th><th>Beads</th><th>Function</th><th>Parameters</th></tr></thead>';
-      const body = document.createElement('tbody');
-      for (const term of stateTerms) {
-        const row = document.createElement('tr'); row.dataset.id = term.id; row.tabIndex = 0;
-        [term.kind, term.beads.join(' · '), term.function || '—', (term.parameters || []).join(' ') || '—'].forEach(value => { const cell = document.createElement('td'); cell.textContent = value; row.append(cell); });
-        row.onclick = () => selected(term.id); row.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selected(term.id); } }; body.append(row);
-      }
-      table.append(body); tableHost.append(table);
-    }
-    $('.bonded-itp-preview', host).textContent = selectedState?.current?.topology || `[ mapping-only preview ]\n; ${mapping.name}\n; Fit bonded parameters to generate a reusable ITP\n\n[ connections ]\n${(mapping.connections || []).map(pair => pair.join('  ')).join('\n')}`;
-    renderEditor();
-    if (token !== generation) clearPreview();
-  }
-
-  async function draw(stateSummary, mapping, token) {
-    if (token !== generation) return;
-    selectedState = null; terms = [];
-    if (stateSummary) {
-      selectedState = await cachedApi('/api/bonded-states/' + encodeURIComponent(stateSummary.state_id), {maxAge: 10000});
+  async function draw(summary, mapping, token) {
+    selectedState = null; selectedTermId = ''; selectedBeads = []; dirty = false;
+    if (summary) {
+      selectedState = await cachedApi('/api/bonded-states/' + encodeURIComponent(summary.state_id), {maxAge: 10000});
       if (token !== generation) return;
-      const response = await cachedApi('/api/bonded-states/' + encodeURIComponent(stateSummary.state_id) + '/interactions', {maxAge: 10000});
+      const response = await cachedApi('/api/bonded-states/' + encodeURIComponent(summary.state_id) + '/interactions', {maxAge: 10000});
       if (token !== generation) return;
-      terms = translateTerms(response.interactions || [], mapping);
-    } else terms = (mapping.connections || []).map((pair, index) => ({id: 'mapping:' + index, kind: 'bonds', beads: pair, function: '1', parameters: []}));
-    if (token !== generation) return;
-    renderDiagram(mapping, terms, token);
-    $('.bonded-delete', host).disabled = !selectedState; saveNew.disabled = !selectedState; revise.disabled = !selectedState;
-    setText($('.bonded-state-summary', host), selectedState ? `Revision ${selectedState.revision} · ${selectedState.current.origin} · ${selectedState.current.status}` : 'No bonded state selected; a run will fit parameters.');
+      terms = (response.interactions || []).map((term, index) => normalizeTerm(term, `${term.kind}:${index + 1}`));
+      nameInput.value = selectedState.name || selectedState.current?.name || '';
+    } else {
+      terms = mappingTerms(mapping); nameInput.value = `${mapping.name || 'Mapping'} bonded draft`;
+    }
+    setText($('.bonded-state-summary', host), selectedState ? `Revision ${selectedState.revision} · ${selectedState.current.origin} · ${selectedState.current.status}` : 'Mapping draft · unsaved');
+    renderState();
   }
 
   async function refreshMapping() {
-    const token = ++generation; clearPreview();
+    const token = ++generation;
     try {
       const mapping = await loadMapping(mappingSelect.value);
       if (token !== generation || !mapping) return;
       selectedMapping = mapping;
-      await loadStates(selectedMappingHash(mapping), token);
+      await loadStates(mapping.mapping_hash || '', token);
       if (token !== generation) return;
       await draw(states.find(state => state.state_id === stateSelect.value), mapping, token);
-    } catch (error) { if (token === generation) { clearPreview(); notice(error.message); } }
+    } catch (error) { if (token === generation) { notice(error.message); terms = []; renderState(); } }
   }
 
-  async function saveState(inPlace) {
-    if (!selectedState || !selectedMapping) return;
-    const patch = {name: nameInput.value.trim() || selectedState.name, interaction_parameters: editedParameters()};
-    const response = await api('/api/bonded-states/' + encodeURIComponent(selectedState.state_id), {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({patch, expected_revision: selectedState.revision, in_place: inPlace})});
-    invalidateResource('/api/bonded-states'); await refreshMapping(); stateSelect.value = response.state_id; stateSelect.dispatchEvent(new Event('change'));
-    notice(inPlace ? 'Bonded state revision saved.' : 'New bonded state saved; source state unchanged.');
+  async function generateAutomatic() {
+    if (!selectedMapping) return notice('Choose a mapping first.');
+    automatic.disabled = true;
+    try {
+      const result = await post('/api/bonded-states/automatic', {mapping: selectedMapping});
+      terms = (result.interactions || []).map((term, index) => normalizeTerm(term, `${term.kind}:${index + 1}`));
+      selectedState = null; selectedTermId = ''; selectedBeads = []; dirty = true;
+      setText($('.bonded-state-summary', host), 'Automatic draft · unsaved'); renderState();
+      notice(result.diagnostics?.length ? result.diagnostics.join(' ') : 'Automatic bonded draft generated.');
+    } catch (error) { notice(error.message); }
+    finally { automatic.disabled = false; updateControls(); }
+  }
+
+  function createNewInteraction() {
+    if (selectedBeads.length !== 2) return notice('Select exactly two physical beads first.');
+    const pair = [...selectedBeads];
+    if (terms.some(term => term.kind === 'bonds' && new Set(term.beads).size === 2 && term.beads.every(name => pair.includes(name)))) return notice('That bead pair already has a bond.');
+    const geometry = beadGeometry(selectedMapping); const positions = new Map(geometry.beads.map(bead => [bead.name, bead.position]));
+    const first = positions.get(pair[0]), second = positions.get(pair[1]);
+    const distance = first && second ? Math.sqrt(first.reduce((sum, value, index) => sum + (value - second[index]) ** 2, 0)) : 0.3;
+    const term = normalizeTerm({id: `draft:${++draftCounter}`, kind: 'bonds', beads: pair, function: '1', parameters: [formatNumber(distance), '5000'], editable: true}, `draft:${draftCounter}`);
+    terms.push(term); selectedTermId = term.id; dirty = true; renderState(); notice(`Created a draft bond between ${pair.join(' and ')}.`);
+  }
+
+  async function saveDraft() {
+    if (!selectedMapping || !terms.length) return;
+    const interactions = terms.filter(term => ordinaryKinds.has(term.kind)).map(term => ({kind: term.kind, beads: term.beads, function: term.function, parameters: term.parameters}));
+    const name = nameInput.value.trim() || `${selectedMapping.name || 'Mapping'} bonded state`;
+    try {
+      let response;
+      const hasDraftTerms = terms.some(term => String(term.id).startsWith('draft:') || String(term.id).startsWith('mapping:'));
+      if (!selectedState || hasDraftTerms) {
+        response = await post('/api/bonded-states', {mapping: selectedMapping, name, kind: 'manual-edit', status: 'complete', interactions,
+          source: {origin: 'manual-editor', parent_state_id: selectedState?.state_id || null, parent_revision: selectedState?.revision || null}});
+      } else {
+        const edits = terms.filter(term => term.editable && ordinaryKinds.has(term.kind)).map(term => ({id: term.id, function: term.function, parameters: term.parameters}));
+        response = await api('/api/bonded-states/' + encodeURIComponent(selectedState.state_id), {method: 'PATCH', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({patch: {name, interaction_edits: edits}, expected_revision: selectedState.revision, in_place: false})});
+      }
+      invalidateResource('/api/bonded-states'); await refreshMapping(); stateSelect.value = response.state_id; stateSelect.dispatchEvent(new Event('change')); notice('New bonded state saved; source state unchanged.');
+    } catch (error) { notice(error.message); }
   }
 
   mappingSelect.onchange = () => refreshMapping();
-  stateSelect.onchange = () => { const token = ++generation; clearPreview(); draw(states.find(state => state.state_id === stateSelect.value), selectedMapping, token).catch(error => { if (token === generation) notice(error.message); }); };
-  $('.bonded-load', host).onclick = () => refreshMapping();
-  $('.bonded-create', host).onclick = async () => { try { const mapping = await loadMapping(mappingSelect.value); if (!mapping) throw new Error('Choose a mapping first.'); const state = await post('/api/bonded-states', {mapping, name: `${mapping.name} bonded state`, kind: 'mapping-only', status: 'incomplete'}); invalidateResource('/api/bonded-states'); await refreshMapping(); stateSelect.value = state.state_id; stateSelect.dispatchEvent(new Event('change')); notice('Created a mapping-only state. Fit parameters or edit it before reuse.'); } catch (error) { notice(error.message); } };
-  $('.bonded-fit', host).onclick = () => onFit(mappingSelect.value).catch(error => notice(error.message));
-  $('.bonded-short-run', host).onclick = async () => { try { const mapping = await loadMapping(mappingSelect.value); if (!mapping) throw new Error('Choose a mapping first.'); const response = await post('/', {detergent: 'DDM', method: 'fast_forward', profile: 'draft-smoke', label: `Short bonded validation · ${mapping.name}`, mapping_candidate: mapping.file, bonded_state_id: stateSelect.value || '', temporary_validation: true, aa_equil_ps: 10, aa_production_ps: 50, cg_equil_ps: 10, cg_production_ps: 100, temperature_k: 300, output_interval_ps: 1, cg_seed: Math.floor(Math.random() * 2147483646) + 1}); notice(`Short validation queued: ${response.id}. Inspect it in Runs.`); } catch (error) { notice(error.message); } };
-  $('.bonded-delete', host).onclick = async () => { const id = stateSelect.value; if (!id || !confirm('Delete this bonded state? Referenced runs will block deletion.')) return; try { await api('/api/bonded-states/' + encodeURIComponent(id), {method: 'DELETE', body: JSON.stringify({confirm: true}), headers: {'Content-Type': 'application/json'}}); invalidateResource('/api/bonded-states'); await refreshMapping(); notice('Bonded state deleted.'); } catch (error) { notice(error.message); } };
-  saveNew.onclick = () => saveState(false).catch(error => notice(error.message));
-  revise.onclick = () => { if (confirm('Create a new revision of this bonded state?')) saveState(true).catch(error => notice(error.message)); };
+  stateSelect.onchange = () => { const token = ++generation; draw(states.find(state => state.state_id === stateSelect.value), selectedMapping, token).catch(error => { if (token === generation) notice(error.message); }); };
+  automatic.onclick = () => generateAutomatic();
+  createInteraction.onclick = () => createNewInteraction();
+  saveNew.onclick = () => saveDraft();
+  shortRun.onclick = async () => {
+    if (!selectedState || !selectedMapping) return;
+    try {
+      const response = await post('/', {detergent: 'DDM', method: 'fast_forward', profile: 'draft-smoke', label: `Short bonded validation · ${selectedMapping.name}`,
+        mapping_candidate: selectedMapping.file, bonded_state_id: selectedState.state_id, temporary_validation: true,
+        aa_equil_ps: 10, aa_production_ps: 50, cg_equil_ps: 10, cg_production_ps: 100, temperature_k: 300, output_interval_ps: 1,
+        cg_seed: Math.floor(Math.random() * 2147483646) + 1});
+      notice(`Short validation queued: ${response.id}. Inspect it in Runs.`);
+    } catch (error) { notice(error.message); }
+  };
+  deleteState.onclick = async () => {
+    if (!selectedState || !confirm('Delete this bonded state? Referenced runs will block deletion.')) return;
+    try {
+      await api('/api/bonded-states/' + encodeURIComponent(selectedState.state_id), {method: 'DELETE', body: JSON.stringify({confirm: true}), headers: {'Content-Type': 'application/json'}});
+      invalidateResource('/api/bonded-states'); await refreshMapping(); notice('Bonded state deleted.');
+    } catch (error) { notice(error.message); }
+  };
 
   async function mount() {
     const chosen = mappingSelect.value;

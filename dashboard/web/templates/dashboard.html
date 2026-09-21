@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='runs.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='new-run.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='mappings.css') }}">
+  <script src="{{ url_for('models.plotly_asset') }}"></script>
   <script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
 </head>
 <body>
@@ -127,14 +128,14 @@
   </section>
 </section>
 <section id="bonded" role="tabpanel" aria-labelledby="tab-bonded" hidden>
-  <div class="section-heading"><div><h2>CG Bond Interactions</h2><p>Create, inspect, and revise versioned bonded states for a mapping before using one in a simulation.</p></div></div>
+  <div class="section-heading"><div><h2>CG Bond Interactions</h2><p>Edit bonded terms for a selected mapping and save immutable state revisions.</p></div></div>
   <div class="card bonded-workspace">
-    <div class="notice bonded-help"><strong>Workflow</strong><p>Choose a mapping, then load an existing state or start from the mapping-only geometry. <strong>Create bonded state</strong> saves an editable version. <strong>Fit bonded parameters</strong> opens a fit-only run from the selected mapping. <strong>Run short CG validation</strong> launches a temporary screening run. Complete states can be selected in <em>New run</em> for reuse. Each edit creates a new revision; incomplete states cannot be reused.</p><p>Click an interaction row to highlight its beads in the enlarged 2D connectivity diagram. Virtual sites are derived from their parent beads and do not receive independent bonds.</p></div>
+    <div class="notice bonded-help"><strong>Workflow</strong><p>Choose a mapping and one of its saved states, or start from the mapping draft. Generate a reference-informed draft, select two physical beads in the 3D diagram, then create and edit an interaction in the table. <strong>Save as new state</strong> preserves the selected state unchanged. Generated parameters are hypotheses and short validation is an execution check, not scientific approval.</p><p>Functions select the GROMACS potential form; parameters use the units shown in each row. Constraints and virtual-site parents remain read-only.</p></div>
     <div class="form-grid"><label>Mapping<select class="bonded-mapping-select"></select></label><label>Bonded state<select class="bonded-state-select"><option value="">Mapping only · fit parameters</option></select></label></div>
     <p class="bonded-state-summary hint">Choose a mapping to load its bonded states.</p>
-    <div class="bonded-toolbar toolbar"><button class="secondary bonded-load">Load mapping</button><button class="bonded-create">Create bonded state</button><button class="secondary bonded-fit">Fit bonded parameters</button><button class="secondary bonded-short-run">Run short CG validation</button><button class="secondary bonded-save-new" disabled>Save as new state</button><button class="secondary bonded-revise" disabled>Revise selected state</button><button class="danger secondary bonded-delete" disabled>Delete state</button></div>
-    <div class="bonded-editor-panel card" hidden><h3>Edit selected interactions</h3><p class="hint">Numeric parameters use GROMACS units. Constraints and virtual-site parents stay read-only.</p><label>State name<input class="bonded-state-name" maxlength="160"></label><div class="bonded-parameter-editor"></div></div>
-    <div class="bonded-columns"><div><h3>Interactions</h3><div class="bonded-interaction-table"><p class="hint">Load a fitted state to inspect bonds, angles, dihedrals, constraints, and virtual sites.</p></div></div><div><h3>Molecular connectivity</h3><div class="bonded-diagram" role="img" aria-label="CG bonded interaction overlay">Select an interaction to highlight its beads and assigned atoms. This is a 2D connectivity view.</div></div></div>
+    <div class="bonded-toolbar toolbar"><button class="bonded-automatic">Generate automatic bonded state</button><button class="secondary bonded-create-interaction" disabled>Create interaction</button><button class="secondary bonded-short-run" disabled>Run short CG validation</button><button class="secondary bonded-save-new" disabled>Save as new state</button><button class="danger secondary bonded-delete" disabled>Delete state</button></div>
+    <div class="bonded-editor-panel"><label>State name<input class="bonded-state-name" maxlength="160"></label><div class="bonded-parameter-editor"></div></div>
+    <div class="bonded-columns"><div><h3>Interactions</h3><p class="hint">Select a row to highlight it in the diagram. Kind identifies the GROMACS topology section; function selects its potential form.</p><div class="bonded-interaction-table"><p class="hint">No bonded terms loaded.</p></div></div><div><h3>Molecular connectivity</h3><p class="hint bonded-selection-status">Select up to two physical beads to create an interaction.</p><div class="bonded-diagram" role="img" aria-label="Interactive three-dimensional CG bead connectivity diagram"><div class="bonded-plot"></div></div></div></div>
     <details><summary>Generated ITP preview</summary><p class="hint">A complete fitted state shows its exact topology. A mapping-only state shows a provisional connectivity preview until fitting produces an ITP.</p><pre class="bonded-itp-preview">No bonded state loaded.</pre></details><p class="bonded-panel-message hint" role="status"></p>
   </div>
 </section>

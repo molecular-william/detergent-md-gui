@@ -322,15 +322,5 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     if (form.elements.clone_of.value === id) setCloneSource('', 'Clone source deleted. Your settings are kept for a new run.');
   }
 
-  async function prepareBondedFit(mappingFile) {
-    selectTab('new');await mount();
-    form.elements.mapping_candidate.value = mappingFile;
-    form.elements.bonded_intent.value = 'fit_only';
-    if(form.elements.profile.value==='standard')form.elements.profile.value='draft-smoke';
-    refreshReadiness();syncRunSummary();saveForm();
-    setText($('#bonded-run-help'), 'Fit-only mode selected. Start the run to publish a reviewable bonded state.');
-
-  }
-
-  return { mount, cloneRun, clearDeletedClone, prepareBondedFit, setCloneSource };
+  return { mount, cloneRun, clearDeletedClone, setCloneSource };
 }

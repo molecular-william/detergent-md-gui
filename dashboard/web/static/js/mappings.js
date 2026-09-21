@@ -4,7 +4,7 @@ import { createEditor, toggleAtom, clearSelection, clearMapping, groupAtoms, ren
 import { mountDiagram } from './mapping-diagram.js';
 
 // Candidate edits and local drafts stay inside this workspace.
-export function createMappings({ onFit }) {
+export function createMappings() {
   const mappingData = {candidates: [], bead_types: []};
   let moleculeEditor = null;
   let moleculeDiagram = null;
@@ -260,7 +260,7 @@ export function createMappings({ onFit }) {
       Object.assign(mappingData, catalogue, legacy);
       if (id === 'mappings') { setupMoleculeEditorControls(); await loadMoleculeList(); }
       if (id === 'bonded') {
-        bondedWorkspace ||= setupBondedWorkspace(mappingData, {onFit, loadMapping});
+        bondedWorkspace ||= setupBondedWorkspace(mappingData, {loadMapping});
         await bondedWorkspace.mount();
       }
     } catch (error) {

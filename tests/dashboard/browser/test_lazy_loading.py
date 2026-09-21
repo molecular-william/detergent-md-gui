@@ -62,7 +62,7 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(isolated_workspace, monke
             other = browser.new_page()
             other.goto(f'http://127.0.0.1:{server.server_port}/#bonded')
             expect(other.locator('.bonded-mapping-select')).to_have_value(saved['file'])
-            expect(other.locator('.bonded-diagram svg')).to_have_count(1)
+            expect(other.locator('.bonded-plot .plotly')).to_be_visible()
             expect(other.locator('#mapping-bead-rows tr')).to_have_count(0)
             browser.close()
     finally:

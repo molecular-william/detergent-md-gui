@@ -57,6 +57,8 @@ def test_function_edits_update_function_and_parameter_labels():
     constraint = next(row for row in rows if row['kind'] == 'constraints')
     site = next(row for row in rows if row['kind'] == 'virtual_sitesn')
     assert bond['editable'] is True
+    assert bond['id'] == 'bonds:1'
+    assert angle['id'] == 'angles:1'
     assert bond['parameter_labels'] == ['length (nm)', 'force (kJ mol^-1 nm^-2)']
     assert angle['parameter_labels'] == ['angle (deg)', 'force (kJ mol^-1 rad^-2)']
     assert constraint['editable'] is False
