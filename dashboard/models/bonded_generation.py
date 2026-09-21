@@ -1,0 +1,366 @@
+"""Deterministic bonded drafts from mappings and read-only CG references."""
+
+from __future__ import annotations
+
+from collections import Counter, defaultdict
+from copy import deepcopy
+import hashlib
+import itertools
+import json
+import math
+from pathlib import Path
+
+from dashboard import files
+
+
+FUNCTIONS = {
+    'bonds': {1: 2},
+    'angles': {1: 2, 2: 2, 10: 2},
+    'dihedrals': {1: 3, 2: 2, 9: 3},
+}
+_MASSES = {'R': 72, 'S': 54, 'T': 36}
+_FALLBACK_BOND_FORCE = 5000.0
+_FALLBACK_ANGLE_FORCE = 25.0
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _format(value):
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError('Bonded parameters must be finite numbers')
+    return format(number, '.12g')
+
+
+def _pair_key(first, second):
+    return '|'.join(sorted((str(first), str(second))))
+
+
+def _parse_reference(path: Path, root: Path, diagnostics: list[str]):
+    section = ''
+    atom_types = {}
+    rows = []
+    try:
+        lines = path.read_text(errors='replace').splitlines()
+    except OSError as exc:
+        diagnostics.append(f'{path}: {exc}')
+        return rows
+    for line_number, raw in enumerate(lines, 1):
+        line = raw.split(';', 1)[0].strip()
+        if line.startswith('[') and line.endswith(']'):
+            section = line[1:-1].strip().lower()
+            continue
+        if not line or line.startswith(('#', ';')):
+            continue
+        fields = line.split()
+        if section == 'atoms':
+            if len(fields) < 2:
+                diagnostics.append(f'{path}:{line_number}: malformed atom row')
+                continue
+            try:
+                atom_types[int(fields[0])] = fields[1]
+            except ValueError:
+                diagnostics.append(f'{path}:{line_number}: malformed atom index')
+        elif section == 'bonds':
+            if len(fields) < 5:
+                diagnostics.append(f'{path}:{line_number}: malformed bond row')
+                continue
+            try:
+                first, second, function = int(fields[0]), int(fields[1]), int(fields[2])
+                parameters = [float(value) for value in fields[3:5]]
+            except (TypeError, ValueError):
+                diagnostics.append(f'{path}:{line_number}: malformed bond values')
+                continue
+            if not all(math.isfinite(value) for value in parameters):
+                diagnostics.append(f'{path}:{line_number}: nonfinite bond values')
+                continue
+            first_type, second_type = atom_types.get(first), atom_types.get(second)
+            if not first_type or not second_type:
+                diagnostics.append(f'{path}:{line_number}: bond references unknown atom type')
+                continue
+            rows.append({
+                'pair': _pair_key(first_type, second_type),
+                'function': function,
+                'parameters': parameters,
+                'source_rank': 1,
+                'path': path.relative_to(root).as_posix(),
+                'line': line_number,
+                'sha256': _sha256(path),
+            })
+    return rows
+
+
+def reference_bond_index(project_root: Path) -> dict:
+    """Index reference ITP bonds without mutating the reference tree."""
+    root = Path(project_root)
+    reference_root = root / 'references'
+    diagnostics = []
+    sources = []
+    grouped = defaultdict(list)
+    if reference_root.is_dir() and not reference_root.is_symlink():
+        paths = sorted(path for path in reference_root.rglob('*.itp')
+                       if path.is_file() and not path.is_symlink())
+    else:
+        paths = []
+    for path in paths:
+        relative = path.relative_to(root).as_posix()
+        source_hash = _sha256(path)
+        sources.append({'path': relative, 'sha256': source_hash, 'rank': 1})
+        for record in _parse_reference(path, root, diagnostics):
+            grouped[record['pair']].append(record)
+    bonds = {}
+    for pair, records in sorted(grouped.items()):
+        signatures = Counter((item['function'], tuple(item['parameters'])) for item in records)
+        ordered = sorted(
+            signatures,
+            key=lambda signature: (
+                -signatures[signature],
+                min((item['source_rank'], item['path'], item['line'])
+                    for item in records if (item['function'], tuple(item['parameters'])) == signature),
+            ),
+        )
+        bonds[pair] = []
+        for function, parameters in ordered:
+            matching = [item for item in records
+                        if (item['function'], tuple(item['parameters'])) == (function, parameters)]
+            first = min(matching, key=lambda item: (item['source_rank'], item['path'], item['line']))
+            bonds[pair].append({
+                'function': function,
+                'parameters': list(parameters),
+                'count': signatures[(function, parameters)],
+                'references': [
+                    {key: item[key] for key in ('path', 'sha256', 'line')}
+                    for item in sorted(matching, key=lambda item: (item['path'], item['line']))
+                ],
+                'source_rank': first['source_rank'],
+            })
+    payload = {'version': 1, 'sources': sources, 'bonds': bonds, 'diagnostics': diagnostics}
+    payload['index_sha256'] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    return payload
+
+
+def _structure_parts(structure):
+    atoms = {int(atom['id']): atom for atom in structure.get('atoms', [])}
+    raw_edges = structure.get('bonds', [])
+    edges = []
+    for edge in raw_edges:
+        if isinstance(edge, dict):
+            pair = (edge.get('a'), edge.get('b'))
+        else:
+            pair = tuple(edge[:2]) if isinstance(edge, (list, tuple)) and len(edge) >= 2 else ()
+        if len(pair) == 2 and pair[0] in atoms and pair[1] in atoms and pair[0] != pair[1]:
+            edges.append(tuple(sorted((int(pair[0]), int(pair[1])))))
+    return atoms, sorted(set(edges))
+
+
+def _coordinates_nm(structure):
+    atoms, _ = _structure_parts(structure)
+    legacy_angstrom = not structure.get('molecule_id') and not structure.get('snapshot')
+    factor = 0.1 if legacy_angstrom else 1.0
+    return {atom_id: tuple(float(value) * factor for value in atom.get('xyz', (0, 0, 0)))
+            for atom_id, atom in atoms.items()}
+
+
+def _centers(mapping, structure):
+    coordinates = _coordinates_nm(structure)
+    beads = {bead['name']: bead for bead in mapping.get('beads', [])}
+    centers = {}
+    for name, bead in beads.items():
+        if bead.get('virtual_site'):
+            continue
+        points = [coordinates[atom_id] for atom_id in bead.get('atoms', []) if atom_id in coordinates]
+        if points:
+            centers[name] = tuple(sum(point[index] for point in points) / len(points) for index in range(3))
+    for name, bead in beads.items():
+        if not bead.get('virtual_site'):
+            continue
+        points = [centers[parent] for parent in bead['virtual_site'].get('parents', []) if parent in centers]
+        if points:
+            centers[name] = tuple(sum(point[index] for point in points) / len(points) for index in range(3))
+    return centers
+
+
+def _distance(first, second):
+    return math.sqrt(sum((first[index] - second[index]) ** 2 for index in range(3)))
+
+
+def _angle(first, middle, last):
+    left = [first[index] - middle[index] for index in range(3)]
+    right = [last[index] - middle[index] for index in range(3)]
+    left_norm = math.sqrt(sum(value * value for value in left))
+    right_norm = math.sqrt(sum(value * value for value in right))
+    if left_norm == 0 or right_norm == 0:
+        return 180.0
+    cosine = sum(left[index] * right[index] for index in range(3)) / (left_norm * right_norm)
+    return math.degrees(math.acos(max(-1.0, min(1.0, cosine))))
+
+
+def _physical_edges(mapping, structure):
+    names = {bead['name'] for bead in mapping.get('beads', []) if not bead.get('virtual_site')}
+    if mapping.get('connections'):
+        return sorted({tuple(sorted(pair)) for pair in mapping['connections']})
+    owner = {atom_id: bead['name'] for bead in mapping.get('beads', [])
+             if not bead.get('virtual_site') for atom_id in bead.get('atoms', [])}
+    _, edges = _structure_parts(structure)
+    return sorted({tuple(sorted((owner[first], owner[second]))) for first, second in edges
+                   if first in owner and second in owner and owner[first] != owner[second]
+                   and owner[first] in names and owner[second] in names})
+
+
+def _validate_term(term, physical):
+    if not isinstance(term, dict):
+        raise ValueError('Each bonded term must be an object')
+    kind = term.get('kind')
+    if kind not in FUNCTIONS:
+        raise ValueError(f'Unsupported bonded section: {kind}')
+    beads = term.get('beads')
+    arity = {'bonds': 2, 'angles': 3, 'dihedrals': 4}[kind]
+    if not isinstance(beads, list) or len(beads) != arity or any(name not in physical for name in beads):
+        raise ValueError(f'{kind} terms must name {arity} physical beads')
+    function = int(term.get('function', 1))
+    parameters = term.get('parameters')
+    if function not in FUNCTIONS[kind] or not isinstance(parameters, list) or len(parameters) != FUNCTIONS[kind][function]:
+        raise ValueError(f'Unsupported {kind} function or parameter count')
+    values = []
+    for value in parameters:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            raise ValueError('Bonded parameters must be finite numbers') from None
+        if not math.isfinite(number):
+            raise ValueError('Bonded parameters must be finite numbers')
+        values.append(number)
+    return kind, list(beads), function, values
+
+
+def _canonical_term_key(kind, beads):
+    forward = tuple(beads)
+    reverse = tuple(reversed(beads))
+    return kind, min(forward, reverse)
+
+
+def topology_from_terms(mapping: dict, structure: dict, terms: list[dict], *, title='Bonded draft') -> str:
+    """Build a complete, mapping-bound topology from editable ordinary terms."""
+    beads = mapping.get('beads', [])
+    physical = {bead['name'] for bead in beads if not bead.get('virtual_site')}
+    checked = []
+    seen = set()
+    for term in terms:
+        kind, names, function, parameters = _validate_term(term, physical)
+        key = _canonical_term_key(kind, names)
+        if key in seen:
+            raise ValueError('Duplicate bonded term')
+        seen.add(key)
+        checked.append((kind, names, function, parameters))
+    centers = _centers(mapping, structure)
+    edges = _physical_edges(mapping, structure)
+    existing_angles = {tuple(names) for kind, names, _, _ in checked if kind == 'angles'}
+    adjacency = {name: set() for name in physical}
+    for first, second in edges:
+        adjacency[first].add(second)
+        adjacency[second].add(first)
+    for middle, neighbors in adjacency.items():
+        for first, last in itertools.combinations(sorted(neighbors), 2):
+            names = [first, middle, last]
+            if tuple(names) in existing_angles or tuple(reversed(names)) in existing_angles:
+                continue
+            if first not in centers or middle not in centers or last not in centers:
+                continue
+            checked.append(('angles', names, 1, [_angle(centers[first], centers[middle], centers[last]), _FALLBACK_ANGLE_FORCE]))
+    by_name = {bead['name']: index for index, bead in enumerate(beads, 1)}
+    lines = [f'; {title}', '[ moleculetype ]', 'MOL 1', '', '[ atoms ]']
+    for index, bead in enumerate(beads, 1):
+        size = bead.get('size', 'R')
+        mass = 0 if bead.get('virtual_site') else _MASSES.get(size, 72)
+        lines.append(f'{index} {bead.get("type") or "C1"} 1 MOL {bead["name"]} {index} {bead.get("charge", 0)} {mass}')
+    ring_pairs = set()
+    if mapping.get('rings'):
+        lines += ['', '[ constraints ]']
+        for ring in mapping['rings']:
+            ring_names = ring['beads']
+            scale = float(ring.get('scale', 1.15))
+            for first, second in itertools.combinations(ring_names, 2):
+                if first not in centers or second not in centers:
+                    continue
+                pair = tuple(sorted((first, second)))
+                ring_pairs.add(pair)
+                lines.append(f'{by_name[first]} {by_name[second]} 1 {_format(_distance(centers[first], centers[second]) * scale)}')
+    bonds = [(names, function, parameters) for kind, names, function, parameters in checked if kind == 'bonds']
+    if bonds:
+        lines += ['', '[ bonds ]']
+        for names, function, parameters in bonds:
+            if tuple(sorted(names)) in ring_pairs:
+                continue
+            indices = ' '.join(str(by_name[name]) for name in names)
+            lines.append(f'{indices} {function} ' + ' '.join(_format(value) for value in parameters))
+    angles = [(names, function, parameters) for kind, names, function, parameters in checked if kind == 'angles']
+    if angles:
+        lines += ['', '[ angles ]']
+        for names, function, parameters in angles:
+            indices = ' '.join(str(by_name[name]) for name in names)
+            lines.append(f'{indices} {function} ' + ' '.join(_format(value) for value in parameters))
+    dihedrals = [(names, function, parameters) for kind, names, function, parameters in checked if kind == 'dihedrals']
+    if dihedrals:
+        lines += ['', '[ dihedrals ]']
+        for names, function, parameters in dihedrals:
+            indices = ' '.join(str(by_name[name]) for name in names)
+            lines.append(f'{indices} {function} ' + ' '.join(_format(value) for value in parameters))
+    virtual_sites = [(index, bead) for index, bead in enumerate(beads, 1) if bead.get('virtual_site')]
+    if virtual_sites:
+        lines += ['', '[ virtual_sitesn ]']
+        for index, bead in virtual_sites:
+            parents = ' '.join(str(by_name[name]) for name in bead['virtual_site']['parents'])
+            lines.append(f'{index} 1 {parents}')
+        lines += ['', '[ exclusions ]']
+        for index, bead in virtual_sites:
+            parents = ' '.join(str(by_name[name]) for name in bead['virtual_site']['parents'])
+            lines.append(f'{index} {parents}')
+    return '\n'.join(lines) + '\n'
+
+
+def generate(mapping: dict, structure: dict, project_root: Path) -> dict:
+    """Generate a nonpersistent bonded draft for one mapping."""
+    if not isinstance(mapping, dict) or not isinstance(structure, dict):
+        raise ValueError('A mapping and molecule structure are required')
+    physical = {bead['name']: bead for bead in mapping.get('beads', []) if not bead.get('virtual_site')}
+    centers = _centers(mapping, structure)
+    index = reference_bond_index(project_root)
+    diagnostics = list(index['diagnostics'])
+    terms = []
+    for first, second in _physical_edges(mapping, structure):
+        first_type = physical.get(first, {}).get('type') or ''
+        second_type = physical.get(second, {}).get('type') or ''
+        matches = index['bonds'].get(_pair_key(first_type, second_type), [])
+        if matches:
+            selected = matches[0]
+            parameters = [_format(value) for value in selected['parameters']]
+            provenance = {'fallback': False, 'references': deepcopy(selected['references'])}
+        else:
+            if first not in centers or second not in centers:
+                raise ValueError(f'Cannot place bond {first}-{second}: bead coordinates are unavailable')
+            parameters = [_format(_distance(centers[first], centers[second])), _format(_FALLBACK_BOND_FORCE)]
+            provenance = {'fallback': True, 'references': []}
+            diagnostics.append(f'No exact reference bond for {first_type}|{second_type}; used geometry fallback for {first}-{second}.')
+        terms.append({'kind': 'bonds', 'beads': [first, second], 'function': '1',
+                      'parameters': parameters, 'provenance': provenance})
+    adjacency = {name: set() for name in physical}
+    for first, second in _physical_edges(mapping, structure):
+        adjacency[first].add(second)
+        adjacency[second].add(first)
+    for middle, neighbors in adjacency.items():
+        for first, last in itertools.combinations(sorted(neighbors), 2):
+            if first not in centers or middle not in centers or last not in centers:
+                continue
+            terms.append({'kind': 'angles', 'beads': [first, middle, last], 'function': '1',
+                          'parameters': [_format(_angle(centers[first], centers[middle], centers[last])), _format(_FALLBACK_ANGLE_FORCE)],
+                          'provenance': {'fallback': True, 'references': []}})
+    topology = topology_from_terms(mapping, structure, terms, title='Automatic bonded draft')
+    provenance = {
+        'algorithm': {'name': 'reference-bond-frequency-with-geometry-fallback', 'version': '1'},
+        'reference_index_sha256': index['index_sha256'],
+        'references': sorted({reference['path'] for term in terms for reference in term['provenance']['references']}),
+    }
+    return {'topology': topology, 'interactions': terms, 'provenance': provenance, 'diagnostics': diagnostics}
