@@ -94,12 +94,12 @@ force when no reference angle is available. For each mapped length-three graph
 path, it adds a dihedral only when the canonical bead-type quadruple has a
 reference match.
 
-The matcher includes bead size and graph context in candidate scoring where the
-reference provides enough information, while preserving type-based matching as
-the compatibility baseline. Conflicting signatures at the same specificity
-are resolved by deterministic weighted consensus; the selected term records
-the competing signatures and an ambiguity diagnostic. No reference match is a
-per-term fallback and is explicitly recorded as such.
+The matcher records bead size and graph context in each generated term while
+using the reference type sequence and term arity as the compatibility baseline.
+Conflicting signatures at the same specificity are resolved by deterministic
+source-rank/count ordering; the selected term records the competing signatures
+and an ambiguity diagnostic. No reference match is a per-term fallback and is
+explicitly recorded as such.
 
 Every generated term includes provenance containing the selected reference
 records, fallback status, confidence, and ambiguity details when applicable.
