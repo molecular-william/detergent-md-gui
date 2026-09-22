@@ -236,19 +236,19 @@ git commit -m "feat: generate bonded terms from reference topology"
 - Existing bonded-state endpoints continue accepting and returning the same topology and interaction fields.
 - Function options expose descriptions without changing existing selection values.
 
-- [ ] **Step 1: Run focused backend and API tests**
+- [x] **Step 1: Run focused backend and API tests**
 
 Run: `pytest tests/dashboard/unit/test_bonded_states.py tests/dashboard/unit/test_bonded_generation.py tests/dashboard/integration -q`
 
 Expected: PASS; unrelated legacy workflow failures remain separately identified if present.
 
-- [ ] **Step 2: Run frontend/browser validation**
+- [x] **Step 2: Run frontend/browser validation**
 
 Run the repository’s bonded workspace browser command from `docs/PROJECT_GUIDE.md`; if no browser command is documented, run `npm test` from the dashboard frontend directory and record the exact command/output.
 
 Expected: PASS with function descriptions rendered and no regression in interaction editing.
 
-- [ ] **Step 3: Reindex and inspect GitNexus changes**
+- [x] **Step 3: Reindex and inspect GitNexus changes**
 
 ```bash
 node .gitnexus/run.cjs analyze --index-only
@@ -257,7 +257,7 @@ node .gitnexus/run.cjs detect-changes --scope all --repo .
 
 Expected: the change report is complete (`partial: false`, `truncated: false`) and has no unexpected high-risk caller/process changes. Re-run if the report is partial or truncated.
 
-- [ ] **Step 4: Run final verification**
+- [x] **Step 4: Run final verification**
 
 ```bash
 python -m compileall dashboard/models dashboard/web
@@ -267,7 +267,7 @@ git status --short
 
 Expected: compile succeeds, diff check is clean, and only the intended commits/files are present.
 
-- [ ] **Step 5: Commit any final compatibility fix**
+- [x] **Step 5: Commit any final compatibility fix**
 
 ```bash
 git add dashboard/web/static/js/bonded.js tests/dashboard/unit/test_bonded_states.py
