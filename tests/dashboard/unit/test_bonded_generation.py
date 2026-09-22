@@ -37,6 +37,20 @@ def _itp(atoms, bonds):
     ])
 
 
+def _itp_with_terms():
+    return '\n'.join([
+        '[ moleculetype ]', 'REF 1', '', '[ atoms ]',
+        '1 C1 1 REF B1 1 0 72',
+        '2 C2 1 REF B2 2 0 72',
+        '3 C3 1 REF B3 3 0 72',
+        '4 C4 1 REF B4 4 0 72',
+        '', '[ bonds ]', '1 2 1 0.47 1250',
+        '', '[ angles ]', '1 2 3 2 150 50',
+        '', '[ dihedrals ]', '1 2 3 4 1 110 8 1',
+        '',
+    ])
+
+
 def test_reference_index_records_sources_and_deterministic_pair_selection(tmp_path):
     root = tmp_path / 'references'
     root.mkdir()
@@ -46,7 +60,7 @@ def test_reference_index_records_sources_and_deterministic_pair_selection(tmp_pa
 
     index = bonded_generation.reference_bond_index(tmp_path)
 
-    assert index['version'] == 1
+    assert index['version'] == 2
     assert index['bonds']['C1|C1'][0]['parameters'] == [0.47, 1250.0]
     assert len(index['bonds']['C1|C1']) == 2
     assert {source['path'] for source in index['sources']} == {
@@ -63,6 +77,33 @@ def test_malformed_reference_is_diagnostic_and_does_not_abort(tmp_path):
     index = bonded_generation.reference_bond_index(tmp_path)
 
     assert index['bonds'] == {}
+    assert index['diagnostics']
+
+
+def test_reference_index_normalizes_angles_and_dihedrals(tmp_path):
+    root = tmp_path / 'references'
+    root.mkdir()
+    (root / 'ddm.itp').write_text(_itp_with_terms())
+
+    index = bonded_generation.reference_bond_index(tmp_path)
+
+    assert index['version'] == 2
+    assert index['angles']['C1|C2|C3'][0]['parameters'] == [150.0, 50.0]
+    assert index['dihedrals']['C1|C2|C3|C4'][0]['parameters'] == [110.0, 8.0, 1.0]
+    assert index['angles']['C1|C2|C3'][0]['references'][0]['line'] > 0
+
+
+def test_reference_index_reports_nonfinite_and_short_rows(tmp_path):
+    root = tmp_path / 'references'
+    root.mkdir()
+    (root / 'bad.itp').write_text(
+        '[ atoms ]\n1 C1\n2 C2\n3 C3\n'
+        '[ angles ]\n1 2 3 2 nan 50\n1 2 3 2 150\n'
+    )
+
+    index = bonded_generation.reference_bond_index(tmp_path)
+
+    assert index['angles'] == {}
     assert index['diagnostics']
 
 

@@ -33,6 +33,29 @@ def _pair_key(first, second):
     return '|'.join(sorted((str(first), str(second))))
 
 
+def _reference_term_key(kind, types):
+    values = tuple(str(value) for value in types)
+    if kind == 'bonds':
+        values = tuple(sorted(values))
+    else:
+        values = min(values, tuple(reversed(values)))
+    return '|'.join(values)
+
+
+def _source_rank(path):
+    """Rank known reference families without reading or mutating their files."""
+    normalized = path.lower()
+    if 'mad database' in normalized and '/ddm/' in normalized:
+        return 4
+    if 'martini-ddm' in normalized:
+        return 4
+    if 'mad database' in normalized:
+        return 3
+    if 'martini' in normalized:
+        return 2
+    return 1
+
+
 def _parse_reference(path: Path, root: Path, diagnostics: list[str]):
     section = ''
     atom_types = {}
@@ -58,29 +81,44 @@ def _parse_reference(path: Path, root: Path, diagnostics: list[str]):
                 atom_types[int(fields[0])] = fields[1]
             except ValueError:
                 diagnostics.append(f'{path}:{line_number}: malformed atom index')
-        elif section == 'bonds':
-            if len(fields) < 5:
-                diagnostics.append(f'{path}:{line_number}: malformed bond row')
+        elif section in ('bonds', 'angles', 'dihedrals'):
+            width = {'bonds': 2, 'angles': 3, 'dihedrals': 4}[section]
+            if len(fields) < width + 1:
+                diagnostics.append(f'{path}:{line_number}: malformed {section} row')
                 continue
             try:
-                first, second, function = int(fields[0]), int(fields[1]), int(fields[2])
-                parameters = [float(value) for value in fields[3:5]]
+                indices = [int(value) for value in fields[:width]]
+                function = int(fields[width])
             except (TypeError, ValueError):
-                diagnostics.append(f'{path}:{line_number}: malformed bond values')
+                diagnostics.append(f'{path}:{line_number}: malformed {section} indices/function')
+                continue
+            expected = FUNCTIONS.get(section, {}).get(function)
+            if expected is None:
+                diagnostics.append(f'{path}:{line_number}: unsupported {section} function {function}')
+                continue
+            if len(fields) < width + 1 + expected:
+                diagnostics.append(f'{path}:{line_number}: malformed {section} parameters')
+                continue
+            try:
+                parameters = [float(value) for value in fields[width + 1:width + 1 + expected]]
+            except (TypeError, ValueError):
+                diagnostics.append(f'{path}:{line_number}: malformed {section} parameters')
                 continue
             if not all(math.isfinite(value) for value in parameters):
-                diagnostics.append(f'{path}:{line_number}: nonfinite bond values')
+                diagnostics.append(f'{path}:{line_number}: nonfinite {section} parameters')
                 continue
-            first_type, second_type = atom_types.get(first), atom_types.get(second)
-            if not first_type or not second_type:
-                diagnostics.append(f'{path}:{line_number}: bond references unknown atom type')
+            types = [atom_types.get(index) for index in indices]
+            if any(not value for value in types):
+                diagnostics.append(f'{path}:{line_number}: {section} references unknown atom type')
                 continue
+            relative = path.relative_to(root).as_posix()
             rows.append({
-                'pair': _pair_key(first_type, second_type),
+                'kind': section,
+                'key': _reference_term_key(section, types),
                 'function': function,
                 'parameters': parameters,
-                'source_rank': 1,
-                'path': path.relative_to(root).as_posix(),
+                'source_rank': _source_rank(relative),
+                'path': relative,
                 'line': line_number,
                 'sha256': _sha256(path),
             })
@@ -93,7 +131,7 @@ def reference_bond_index(project_root: Path) -> dict:
     reference_root = root / 'references'
     diagnostics = []
     sources = []
-    grouped = defaultdict(list)
+    grouped = {kind: defaultdict(list) for kind in ('bonds', 'angles', 'dihedrals')}
     if reference_root.is_dir() and not reference_root.is_symlink():
         paths = sorted(path for path in reference_root.rglob('*.itp')
                        if path.is_file() and not path.is_symlink())
@@ -102,36 +140,48 @@ def reference_bond_index(project_root: Path) -> dict:
     for path in paths:
         relative = path.relative_to(root).as_posix()
         source_hash = _sha256(path)
-        sources.append({'path': relative, 'sha256': source_hash, 'rank': 1})
+        sources.append({'path': relative, 'sha256': source_hash, 'rank': _source_rank(relative)})
         for record in _parse_reference(path, root, diagnostics):
-            grouped[record['pair']].append(record)
-    bonds = {}
-    for pair, records in sorted(grouped.items()):
-        signatures = Counter((item['function'], tuple(item['parameters'])) for item in records)
-        ordered = sorted(
-            signatures,
-            key=lambda signature: (
-                -signatures[signature],
-                min((item['source_rank'], item['path'], item['line'])
-                    for item in records if (item['function'], tuple(item['parameters'])) == signature),
-            ),
-        )
-        bonds[pair] = []
-        for function, parameters in ordered:
-            matching = [item for item in records
-                        if (item['function'], tuple(item['parameters'])) == (function, parameters)]
-            first = min(matching, key=lambda item: (item['source_rank'], item['path'], item['line']))
-            bonds[pair].append({
-                'function': function,
-                'parameters': list(parameters),
-                'count': signatures[(function, parameters)],
-                'references': [
-                    {key: item[key] for key in ('path', 'sha256', 'line')}
-                    for item in sorted(matching, key=lambda item: (item['path'], item['line']))
-                ],
-                'source_rank': first['source_rank'],
-            })
-    payload = {'version': 1, 'sources': sources, 'bonds': bonds, 'diagnostics': diagnostics}
+            grouped[record['kind']][record['key']].append(record)
+
+    def pack(records_by_key):
+        packed = {}
+        for key, records in sorted(records_by_key.items()):
+            signatures = Counter((item['function'], tuple(item['parameters'])) for item in records)
+            ordered = sorted(
+                signatures,
+                key=lambda signature: (
+                    -max(item['source_rank'] for item in records
+                         if (item['function'], tuple(item['parameters'])) == signature),
+                    -signatures[signature],
+                    min((item['path'], item['line']) for item in records
+                        if (item['function'], tuple(item['parameters'])) == signature),
+                ),
+            )
+            packed[key] = []
+            for function, parameters in ordered:
+                matching = [item for item in records
+                            if (item['function'], tuple(item['parameters'])) == (function, parameters)]
+                first = min(matching, key=lambda item: (-item['source_rank'], item['path'], item['line']))
+                packed[key].append({
+                    'function': function,
+                    'parameters': list(parameters),
+                    'count': signatures[(function, parameters)],
+                    'references': [
+                        {key: item[key] for key in ('path', 'sha256', 'line')}
+                        for item in sorted(matching, key=lambda item: (item['path'], item['line']))
+                    ],
+                    'source_rank': first['source_rank'],
+                })
+        return packed
+
+    bonds = pack(grouped['bonds'])
+    angles = pack(grouped['angles'])
+    dihedrals = pack(grouped['dihedrals'])
+    payload = {
+        'version': 2, 'sources': sources, 'bonds': bonds,
+        'angles': angles, 'dihedrals': dihedrals, 'diagnostics': diagnostics,
+    }
     payload['index_sha256'] = hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
     return payload
