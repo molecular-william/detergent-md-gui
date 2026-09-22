@@ -14,6 +14,7 @@
 
 - Preserve `reference_bond_index(...)["bonds"]` compatibility and existing term fields.
 - Do not mutate files under `references/`.
+- Exclude explicit atomistic reference trees under `references/**/AA/` from CG-term indexing.
 - Do not generate dihedrals without a matching reference term.
 - Keep constraints, virtual sites, exclusions, and mapping persistence behavior unchanged.
 - Keep automatic generation deterministic and local; do not invoke Fast Forward.
@@ -33,7 +34,7 @@
 - Produces `FUNCTION_SPECS`, derived `FUNCTION_PARAMETER_LABELS`/`FUNCTIONS`, and `_function_options()` records with `description` and `parameter_labels`.
 - Preserves existing `parse_interactions()` fields and validation behavior.
 
-- [ ] **Step 1: Write failing metadata tests**
+- [x] **Step 1: Write failing metadata tests**
 
 ```python
 def test_function_metadata_has_correct_units_and_descriptions():
@@ -50,13 +51,13 @@ def test_function_metadata_has_correct_units_and_descriptions():
     assert row['function_options'][1]['description'] == 'GROMOS-96 cosine'
 ```
 
-- [ ] **Step 2: Run the focused test to verify it fails**
+- [x] **Step 2: Run the focused test to verify it fails**
 
 Run: `pytest tests/dashboard/unit/test_bonded_states.py::test_function_metadata_has_correct_units_and_descriptions -q`
 
 Expected: FAIL because function descriptions are absent and the current units are incorrect.
 
-- [ ] **Step 3: Implement the shared specification**
+- [x] **Step 3: Implement the shared specification**
 
 Define each function once, for example:
 
@@ -74,13 +75,13 @@ FUNCTIONS = {kind: {fn: len(spec['parameters']) for fn, spec in choices.items()}
 
 Update `_function_options()` to return `description` and keep `parameter_labels`. Correct all units from the spec. Update the JavaScript fallback object and normalized options to carry `description` so legacy API responses render the same metadata.
 
-- [ ] **Step 4: Run metadata and existing parser tests**
+- [x] **Step 4: Run metadata and existing parser tests**
 
 Run: `pytest tests/dashboard/unit/test_bonded_states.py -q`
 
 Expected: PASS, including the existing parameter-label assertions updated only where the corrected units require it.
 
-- [ ] **Step 5: Commit the metadata change**
+- [x] **Step 5: Commit the metadata change**
 
 ```bash
 git add dashboard/models/bonded.py dashboard/web/static/js/bonded.js tests/dashboard/unit/test_bonded_states.py
@@ -97,7 +98,7 @@ git commit -m "fix: centralize bonded function metadata"
 - `reference_bond_index(project_root)` returns version 2 with additive `angles` and `dihedrals` maps.
 - `_parse_reference()` returns normalized records for all supported sections and diagnostics for malformed rows.
 
-- [ ] **Step 1: Write failing parser/index tests**
+- [x] **Step 1: Write failing parser/index tests**
 
 ```python
 def test_reference_index_normalizes_angles_and_dihedrals(tmp_path):
@@ -117,15 +118,15 @@ def test_reference_index_reports_nonfinite_and_short_rows(tmp_path):
     assert index['diagnostics']
 ```
 
-- [ ] **Step 2: Run the focused tests to verify they fail**
+- [x] **Step 2: Run the focused tests to verify they fail**
 
 Run: `pytest tests/dashboard/unit/test_bonded_generation.py -q`
 
 Expected: FAIL because only bonds are indexed and the payload is version 1.
 
-- [ ] **Step 3: Implement normalized section parsing**
+- [x] **Step 3: Implement normalized section parsing**
 
-Add section widths and a shared numeric parser. Parse the first `width` atom indices, the function, and the exact function parameter count from `FUNCTIONS`. Resolve atom types from `[atoms]`; reject missing types, unsupported functions, short rows, and non-finite parameters with a diagnostic. Add canonical key helpers:
+Add section widths and a shared numeric parser. Parse the first `width` atom indices, the function, and the exact function parameter count from `FUNCTIONS`. Resolve atom types from `[atoms]`; reject missing types, unsupported functions, short rows, and non-finite parameters with a diagnostic. Exclude paths whose relative path contains `/AA/` so atomistic force-field terms cannot pollute CG bead-type matches. Add canonical key helpers:
 
 ```python
 def _sequence_key(types, kind):
@@ -138,17 +139,17 @@ def _sequence_key(types, kind):
 
 Retain bond output shape and build the same signature records for angles and dihedrals. Set `version: 2`; include all source hashes and diagnostics in the index hash input.
 
-- [ ] **Step 4: Implement deterministic source ranking and consensus ordering**
+- [x] **Step 4: Implement deterministic source ranking and consensus ordering**
 
 Rank paths using stable string rules (`MAD Database/<molecule>` or a path component equal to the molecule-specific stem before generic Martini paths), then sort candidates by descending rank/count and ascending source path/line. Keep all signatures in each keyed list so ambiguity is inspectable.
 
-- [ ] **Step 5: Run parser/index tests and compatibility tests**
+- [x] **Step 5: Run parser/index tests and compatibility tests**
 
 Run: `pytest tests/dashboard/unit/test_bonded_generation.py -q`
 
 Expected: PASS, including the existing version/shape assertions updated to expect version 2 and legacy bond records unchanged.
 
-- [ ] **Step 6: Commit the reference-index change**
+- [x] **Step 6: Commit the reference-index change**
 
 ```bash
 git add dashboard/models/bonded_generation.py tests/dashboard/unit/test_bonded_generation.py
@@ -165,7 +166,7 @@ git commit -m "feat: index reference angles and dihedrals"
 - `generate(mapping, structure, project_root)` keeps its return shape and adds reference-informed interactions and provenance fields.
 - New private helpers select signatures by canonical key and add graph-derived angles/dihedrals deterministically.
 
-- [ ] **Step 1: Write failing generation tests**
+- [x] **Step 1: Write failing generation tests**
 
 ```python
 def test_generate_uses_reference_angles_and_dihedrals(tmp_path):
@@ -194,31 +195,31 @@ def test_generate_records_ambiguous_reference_signatures(tmp_path):
     assert angle['provenance']['ambiguity']
 ```
 
-- [ ] **Step 2: Run the focused tests to verify they fail**
+- [x] **Step 2: Run the focused tests to verify they fail**
 
 Run: `pytest tests/dashboard/unit/test_bonded_generation.py -q`
 
 Expected: FAIL because angles are always function 1 geometry terms and dihedrals are absent.
 
-- [ ] **Step 3: Implement deterministic reference selection**
+- [x] **Step 3: Implement deterministic reference selection**
 
 Add `_select_reference(index, kind, types, mapping_name)` that looks up the canonical key, ranks candidates by source rank/count/path/line, returns the selected record plus an ambiguity list when more than one signature exists, and never mutates the index. Use bead type and size in the generated context record; keep type-key lookup as the compatibility baseline when references lack size metadata.
 
-- [ ] **Step 4: Implement graph term generation**
+- [x] **Step 4: Implement graph term generation**
 
 For each physical edge, select a reference bond or use the existing geometry/5000 fallback. For each sorted neighbor pair around a central bead, select a reference angle or use `_angle()` with function 1 and the existing fallback force. For every sorted length-three graph path, select a reference dihedral and append it only when present. Avoid duplicate terms using `_canonical_term_key()`.
 
-- [ ] **Step 5: Add provenance and diagnostics**
+- [x] **Step 5: Add provenance and diagnostics**
 
 Set per-term provenance to include `fallback`, `references`, `confidence`, `ambiguity`, and the matched canonical key. Set the overall algorithm name/version to `reference-bond-angle-dihedral-consensus`/`2`, retain the reference index hash, and list all selected reference paths. Add a diagnostic for each fallback and each ambiguous consensus.
 
-- [ ] **Step 6: Run generator and topology tests**
+- [x] **Step 6: Run generator and topology tests**
 
 Run: `pytest tests/dashboard/unit/test_bonded_generation.py -q`
 
 Expected: PASS with reference terms preserved, fallback angles still generated, virtual sites and constraints retained, and no unsupported dihedral invented.
 
-- [ ] **Step 7: Commit the generation change**
+- [x] **Step 7: Commit the generation change**
 
 ```bash
 git add dashboard/models/bonded_generation.py tests/dashboard/unit/test_bonded_generation.py
@@ -272,4 +273,3 @@ Expected: compile succeeds, diff check is clean, and only the intended commits/f
 git add dashboard/web/static/js/bonded.js tests/dashboard/unit/test_bonded_states.py
 git commit -m "test: verify bonded metadata compatibility"
 ```
-

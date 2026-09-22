@@ -65,6 +65,10 @@ parse `[atoms]`, `[bonds]`, `[angles]`, and `[dihedrals]` rows, retaining
 function numbers, numeric parameters, source paths, line numbers, SHA-256
 hashes, source rank, and occurrence counts.
 
+Explicit atomistic reference trees under `references/**/AA/` are excluded from
+the index because their atom-type terms are not compatible with CG bead-type
+matching. Other malformed or unsupported rows remain diagnostic-only.
+
 Keys are canonicalized as follows:
 
 - bonds: unordered type pair (`A|B`).

@@ -15,7 +15,7 @@ def test_automatic_bonded_draft_is_nonpersistent_and_snapshot_bound():
     payload = response.json
     assert payload['topology']
     assert payload['interactions']
-    assert payload['provenance']['algorithm']['version'] == '1'
+    assert payload['provenance']['algorithm']['version'] == '2'
     assert bonded_states.all_states() == []
 
     changed = deepcopy(mapping)

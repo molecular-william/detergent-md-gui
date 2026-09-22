@@ -29,10 +29,6 @@ def _format(value):
     return format(number, '.12g')
 
 
-def _pair_key(first, second):
-    return '|'.join(sorted((str(first), str(second))))
-
-
 def _reference_term_key(kind, types):
     values = tuple(str(value) for value in types)
     if kind == 'bonds':
@@ -126,7 +122,7 @@ def _parse_reference(path: Path, root: Path, diagnostics: list[str]):
 
 
 def reference_bond_index(project_root: Path) -> dict:
-    """Index reference ITP bonds without mutating the reference tree."""
+    """Index CG bonded terms from reference ITPs without mutating them."""
     root = Path(project_root)
     reference_root = root / 'references'
     diagnostics = []
@@ -134,7 +130,8 @@ def reference_bond_index(project_root: Path) -> dict:
     grouped = {kind: defaultdict(list) for kind in ('bonds', 'angles', 'dihedrals')}
     if reference_root.is_dir() and not reference_root.is_symlink():
         paths = sorted(path for path in reference_root.rglob('*.itp')
-                       if path.is_file() and not path.is_symlink())
+                       if path.is_file() and not path.is_symlink()
+                       and '/aa/' not in path.relative_to(root).as_posix().lower())
     else:
         paths = []
     for path in paths:
@@ -366,6 +363,71 @@ def topology_from_terms(mapping: dict, structure: dict, terms: list[dict], *, ti
     return '\n'.join(lines) + '\n'
 
 
+def _select_reference(index, kind, types, mapping_name=''):
+    key = _reference_term_key(kind, types)
+    candidates = list(index.get(kind, {}).get(key, []))
+    if not candidates:
+        return key, None, []
+    molecule_name = str(mapping_name or '').lower().replace('_', '-')
+
+    def rank(record):
+        paths = [reference['path'].lower() for reference in record.get('references', [])]
+        molecule_match = bool(molecule_name and any(molecule_name in path for path in paths))
+        path = min(paths) if paths else ''
+        return (int(molecule_match), int(record.get('source_rank', 0)),
+                int(record.get('count', 0)), path)
+
+    ordered = sorted(
+        candidates,
+        key=lambda record: (-rank(record)[0], -rank(record)[1], -rank(record)[2], rank(record)[3]),
+    )
+    selected = ordered[0]
+    selected_rank = rank(selected)[:3]
+    competing = [record for record in ordered
+                 if rank(record)[:3] == selected_rank
+                 and (record['function'], tuple(record['parameters'])) !=
+                 (selected['function'], tuple(selected['parameters']))]
+    return key, selected, competing
+
+
+def _term_provenance(key, selected, competing, *, fallback=False, context=None):
+    if selected is None:
+        result = {
+            'fallback': True,
+            'references': [],
+            'matched_key': key,
+            'confidence': 0.0,
+            'ambiguity': [],
+        }
+        if context is not None:
+            result['context'] = context
+        return result
+    total = selected['count'] + sum(record['count'] for record in competing)
+    ambiguity = [
+        {'function': record['function'], 'parameters': list(record['parameters']),
+         'count': record['count'], 'source_rank': record['source_rank']}
+        for record in competing
+    ]
+    result = {
+        'fallback': fallback,
+        'references': deepcopy(selected['references']),
+        'matched_key': key,
+        'confidence': selected['count'] / total if total else 0.0,
+        'ambiguity': ambiguity,
+    }
+    if context is not None:
+        result['context'] = context
+    return result
+
+
+def _term_context(physical, names):
+    return {
+        'types': [physical[name].get('type') or '' for name in names],
+        'sizes': [physical[name].get('size') or '' for name in names],
+        'arity': len(names),
+    }
+
+
 def generate(mapping: dict, structure: dict, project_root: Path) -> dict:
     """Generate a nonpersistent bonded draft for one mapping."""
     if not isinstance(mapping, dict) or not isinstance(structure, dict):
@@ -375,36 +437,98 @@ def generate(mapping: dict, structure: dict, project_root: Path) -> dict:
     index = reference_bond_index(project_root)
     diagnostics = list(index['diagnostics'])
     terms = []
-    for first, second in _physical_edges(mapping, structure):
+    mapping_name = mapping.get('name', '')
+    edges = _physical_edges(mapping, structure)
+    term_keys = set()
+    for first, second in edges:
         first_type = physical.get(first, {}).get('type') or ''
         second_type = physical.get(second, {}).get('type') or ''
-        matches = index['bonds'].get(_pair_key(first_type, second_type), [])
-        if matches:
-            selected = matches[0]
+        key, selected, competing = _select_reference(
+            index, 'bonds', [first_type, second_type], mapping_name)
+        if selected:
             parameters = [_format(value) for value in selected['parameters']]
-            provenance = {'fallback': False, 'references': deepcopy(selected['references'])}
+            function = str(selected['function'])
+            provenance = _term_provenance(
+                key, selected, competing,
+                context=_term_context(physical, [first, second]),
+            )
+            if competing:
+                diagnostics.append(f'Ambiguous reference bond {key}; selected deterministic consensus for {first}-{second}.')
         else:
             if first not in centers or second not in centers:
                 raise ValueError(f'Cannot place bond {first}-{second}: bead coordinates are unavailable')
             parameters = [_format(_distance(centers[first], centers[second])), _format(_FALLBACK_BOND_FORCE)]
-            provenance = {'fallback': True, 'references': []}
+            function = '1'
+            provenance = _term_provenance(
+                key, None, [], fallback=True,
+                context=_term_context(physical, [first, second]),
+            )
             diagnostics.append(f'No exact reference bond for {first_type}|{second_type}; used geometry fallback for {first}-{second}.')
-        terms.append({'kind': 'bonds', 'beads': [first, second], 'function': '1',
+        terms.append({'kind': 'bonds', 'beads': [first, second], 'function': function,
                       'parameters': parameters, 'provenance': provenance})
+        term_keys.add(_canonical_term_key('bonds', [first, second]))
     adjacency = {name: set() for name in physical}
-    for first, second in _physical_edges(mapping, structure):
+    for first, second in edges:
         adjacency[first].add(second)
         adjacency[second].add(first)
     for middle, neighbors in adjacency.items():
         for first, last in itertools.combinations(sorted(neighbors), 2):
             if first not in centers or middle not in centers or last not in centers:
                 continue
-            terms.append({'kind': 'angles', 'beads': [first, middle, last], 'function': '1',
-                          'parameters': [_format(_angle(centers[first], centers[middle], centers[last])), _format(_FALLBACK_ANGLE_FORCE)],
-                          'provenance': {'fallback': True, 'references': []}})
+            names = [first, middle, last]
+            key, selected, competing = _select_reference(
+                index, 'angles', [physical[name].get('type') or '' for name in names], mapping_name)
+            if selected:
+                function = str(selected['function'])
+                parameters = [_format(value) for value in selected['parameters']]
+                provenance = _term_provenance(
+                    key, selected, competing,
+                    context=_term_context(physical, names),
+                )
+                if competing:
+                    diagnostics.append(f'Ambiguous reference angle {key}; selected deterministic consensus for {first}-{middle}-{last}.')
+            else:
+                function = '1'
+                parameters = [_format(_angle(centers[first], centers[middle], centers[last])), _format(_FALLBACK_ANGLE_FORCE)]
+                provenance = _term_provenance(
+                    key, None, [], fallback=True,
+                    context=_term_context(physical, names),
+                )
+                diagnostics.append(f'No exact reference angle for {key}; used geometry fallback for {first}-{middle}-{last}.')
+            term_key = _canonical_term_key('angles', names)
+            if term_key in term_keys:
+                continue
+            terms.append({'kind': 'angles', 'beads': names, 'function': function,
+                          'parameters': parameters, 'provenance': provenance})
+            term_keys.add(term_key)
+
+    for second, third in sorted((first, second) for first, second in edges):
+        left = sorted(adjacency.get(second, set()) - {third})
+        right = sorted(adjacency.get(third, set()) - {second})
+        for first in left:
+            for fourth in right:
+                names = [first, second, third, fourth]
+                key, selected, competing = _select_reference(
+                    index, 'dihedrals', [physical[name].get('type') or '' for name in names], mapping_name)
+                if not selected:
+                    continue
+                term_key = _canonical_term_key('dihedrals', names)
+                if term_key in term_keys:
+                    continue
+                if competing:
+                    diagnostics.append(f'Ambiguous reference dihedral {key}; selected deterministic consensus for {first}-{second}-{third}-{fourth}.')
+                terms.append({
+                    'kind': 'dihedrals', 'beads': names, 'function': str(selected['function']),
+                    'parameters': [_format(value) for value in selected['parameters']],
+                    'provenance': _term_provenance(
+                        key, selected, competing,
+                        context=_term_context(physical, names),
+                    ),
+                })
+                term_keys.add(term_key)
     topology = topology_from_terms(mapping, structure, terms, title='Automatic bonded draft')
     provenance = {
-        'algorithm': {'name': 'reference-bond-frequency-with-geometry-fallback', 'version': '1'},
+        'algorithm': {'name': 'reference-bond-angle-dihedral-consensus', 'version': '2'},
         'reference_index_sha256': index['index_sha256'],
         'references': sorted({reference['path'] for term in terms for reference in term['provenance']['references']}),
     }
