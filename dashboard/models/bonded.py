@@ -10,27 +10,45 @@ import numpy as np
 
 
 SECTION_WIDTHS = {'bonds': 2, 'constraints': 2, 'angles': 3, 'dihedrals': 4}
-FUNCTION_PARAMETER_LABELS = {
-    'bonds': {1: ['length (nm)', 'force (kJ mol^-1 nm^-2)']},
+FUNCTION_SPECS = {
+    'bonds': {
+        1: {'description': 'Harmonic',
+            'parameters': ['length (nm)', 'force (kJ mol^-1 nm^-2)']},
+    },
     'angles': {
-        1: ['angle (deg)', 'force (kJ mol^-1 rad^-2)'],
-        2: ['angle (deg)', 'force (kJ mol^-1 rad^-2)'],
-        10: ['angle (deg)', 'force (kJ mol^-1 rad^-2)'],
+        1: {'description': 'Harmonic',
+            'parameters': ['angle (deg)', 'force (kJ mol^-1 rad^-2)']},
+        2: {'description': 'GROMOS-96 cosine',
+            'parameters': ['angle (deg)', 'force (kJ mol^-1)']},
+        10: {'description': 'Restricted bending',
+             'parameters': ['angle (deg)', 'force (kJ mol^-1)']},
     },
     'dihedrals': {
-        1: ['phase (deg)', 'force (kJ mol^-1 rad^-2)', 'multiplicity'],
-        2: ['phase (deg)', 'force (kJ mol^-1 rad^-2)'],
-        9: ['phase (deg)', 'force (kJ mol^-1 rad^-2)', 'multiplicity'],
+        1: {'description': 'Proper periodic',
+            'parameters': ['phase (deg)', 'force (kJ mol^-1)', 'multiplicity']},
+        2: {'description': 'Improper harmonic',
+            'parameters': ['phase (deg)', 'force (kJ mol^-1 rad^-2)']},
+        9: {'description': 'Proper periodic multi-term',
+            'parameters': ['phase (deg)', 'force (kJ mol^-1)', 'multiplicity']},
     },
 }
-FUNCTIONS = {kind: {function: len(labels) for function, labels in choices.items()}
-             for kind, choices in FUNCTION_PARAMETER_LABELS.items()}
+FUNCTION_PARAMETER_LABELS = {
+    kind: {function: spec['parameters'] for function, spec in choices.items()}
+    for kind, choices in FUNCTION_SPECS.items()
+}
+FUNCTIONS = {
+    kind: {function: len(spec['parameters']) for function, spec in choices.items()}
+    for kind, choices in FUNCTION_SPECS.items()
+}
 
 
 def _function_options(kind):
-    return [{'value': str(function), 'label': f'Function {function}',
-             'parameter_labels': labels}
-            for function, labels in FUNCTION_PARAMETER_LABELS.get(kind, {}).items()]
+    return [
+        {'value': str(function), 'label': f'Function {function}',
+         'description': spec['description'],
+         'parameter_labels': spec['parameters']}
+        for function, spec in FUNCTION_SPECS.get(kind, {}).items()
+    ]
 
 
 def _validate_edit(kind, function, parameters):

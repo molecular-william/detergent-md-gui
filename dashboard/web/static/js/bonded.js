@@ -2,16 +2,16 @@ import { $, $$, setText, api, post, cachedApi, invalidateResource } from './shar
 import { mountBondedPlot } from './bonded-plot.js';
 
 const FUNCTION_OPTIONS = {
-  bonds: {1: ['length (nm)', 'force (kJ mol^-1 nm^-2)']},
+  bonds: {1: {description: 'Harmonic', labels: ['length (nm)', 'force (kJ mol^-1 nm^-2)']}},
   angles: {
-    1: ['angle (deg)', 'force (kJ mol^-1 rad^-2)'],
-    2: ['angle (deg)', 'force (kJ mol^-1 rad^-2)'],
-    10: ['angle (deg)', 'force (kJ mol^-1 rad^-2)'],
+    1: {description: 'Harmonic', labels: ['angle (deg)', 'force (kJ mol^-1 rad^-2)']},
+    2: {description: 'GROMOS-96 cosine', labels: ['angle (deg)', 'force (kJ mol^-1)']},
+    10: {description: 'Restricted bending', labels: ['angle (deg)', 'force (kJ mol^-1)']},
   },
   dihedrals: {
-    1: ['phase (deg)', 'force (kJ mol^-1 rad^-2)', 'multiplicity'],
-    2: ['phase (deg)', 'force (kJ mol^-1 rad^-2)'],
-    9: ['phase (deg)', 'force (kJ mol^-1 rad^-2)', 'multiplicity'],
+    1: {description: 'Proper periodic', labels: ['phase (deg)', 'force (kJ mol^-1)', 'multiplicity']},
+    2: {description: 'Improper harmonic', labels: ['phase (deg)', 'force (kJ mol^-1 rad^-2)']},
+    9: {description: 'Proper periodic multi-term', labels: ['phase (deg)', 'force (kJ mol^-1)', 'multiplicity']},
   },
 };
 
@@ -19,14 +19,16 @@ const ordinaryKinds = new Set(Object.keys(FUNCTION_OPTIONS));
 const formatNumber = value => Number.isFinite(Number(value)) ? Number(value).toString() : '';
 
 function optionsFor(kind) {
-  return Object.entries(FUNCTION_OPTIONS[kind] || {}).map(([value, labels]) => ({value, label: `Function ${value}`, labels}));
+  return Object.entries(FUNCTION_OPTIONS[kind] || {}).map(([value, spec]) => ({
+    value, label: `Function ${value}`, description: spec.description, labels: spec.labels,
+  }));
 }
 
 function normalizeTerm(term, fallbackId) {
   const kind = term.kind || 'bonds';
   const functionValue = String(term.function || '1');
   const options = term.function_options?.length ? term.function_options.map(option => ({
-    value: String(option.value), label: option.label, labels: option.parameter_labels || [],
+    value: String(option.value), label: option.label, description: option.description || '', labels: option.parameter_labels || [],
   })) : optionsFor(kind);
   const selected = options.find(option => option.value === functionValue) || options[0];
   return {...term, id: term.id || fallbackId, kind, beads: [...(term.beads || [])],
@@ -137,7 +139,10 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       const functionCell = document.createElement('td');
       if (term.editable && term.function_options.length > 1) {
         const select = document.createElement('select'); select.setAttribute('aria-label', `${term.kind} ${term.beads.join(' ')} function`);
-        for (const option of term.function_options) select.append(new Option(option.label, option.value));
+        for (const option of term.function_options) {
+          const label = option.description ? `${option.label} — ${option.description}` : option.label;
+          select.append(new Option(label, option.value));
+        }
         select.value = term.function;
         select.onchange = () => {
           const selected = term.function_options.find(option => option.value === select.value) || optionsFor(term.kind).find(option => option.value === select.value);
@@ -145,7 +150,10 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
           term.parameters = term.parameter_labels.map((_, index) => old[index] ?? ''); dirty = true; renderState();
         };
         functionCell.append(select);
-      } else functionCell.textContent = term.function_options[0]?.label || term.function || '—';
+      } else {
+        const option = term.function_options[0];
+        functionCell.textContent = option ? `${option.label}${option.description ? ` — ${option.description}` : ''}` : (term.function || '—');
+      }
       row.append(functionCell);
       const parameters = document.createElement('td');
       if (term.editable) {

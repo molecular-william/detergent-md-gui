@@ -1,6 +1,6 @@
 import pytest
 import json
-from dashboard.models import bonded_states, mappings
+from dashboard.models import bonded, bonded_states, mappings
 from tests.dashboard.fixtures import physical_mapping
 
 
@@ -68,6 +68,19 @@ def test_function_edits_update_function_and_parameter_labels():
         topology, [{'id': 'bonds:1', 'function': 1, 'parameters': ['0.33', '1200']}]
     )
     assert '1 2 1 0.33 1200 ; keep this' in updated
+
+
+def test_function_metadata_has_correct_units_and_descriptions():
+    assert bonded.FUNCTION_SPECS['angles'][2]['description'] == 'GROMOS-96 cosine'
+    assert bonded.FUNCTION_PARAMETER_LABELS['angles'][2][1] == 'force (kJ mol^-1)'
+    assert bonded.FUNCTION_PARAMETER_LABELS['angles'][10][1] == 'force (kJ mol^-1)'
+    assert bonded.FUNCTION_PARAMETER_LABELS['dihedrals'][1][1] == 'force (kJ mol^-1)'
+    assert bonded.FUNCTION_PARAMETER_LABELS['dihedrals'][9][1] == 'force (kJ mol^-1)'
+    assert bonded.FUNCTION_PARAMETER_LABELS['dihedrals'][2][1] == 'force (kJ mol^-1 rad^-2)'
+
+    row = next(row for row in bonded.parse_interactions('[ angles ]\n1 2 3 2 150 50\n')
+               if row['kind'] == 'angles')
+    assert row['function_options'][1]['description'] == 'GROMOS-96 cosine'
 
 
 @pytest.mark.parametrize('update', [
