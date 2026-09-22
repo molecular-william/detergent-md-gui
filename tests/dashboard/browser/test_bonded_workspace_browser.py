@@ -54,8 +54,12 @@ def test_bonded_workspace_filters_states_and_creates_a_new_state_from_two_beads(
             expect(page.get_by_role('button', name='Create interaction')).to_be_disabled()
             plot = page.locator('.bonded-plot')
             expect(plot.locator('.plotly')).to_be_visible()
-            names = plot.evaluate('(el) => el.data[0].customdata.slice(0, 4)')
+            names = plot.evaluate("(el) => el.data.filter(trace => trace.meta === 'bead').flatMap(trace => trace.customdata.map(item => Array.isArray(item) ? item[0] : item)).slice(0, 4)")
             assert len(names) == 4
+            plot_data = plot.evaluate("(el) => el.data.map(trace => ({meta: trace.meta, showlegend: trace.showlegend, name: trace.name, sizes: trace.marker?.size || []}))")
+            bead_traces = [trace for trace in plot_data if trace['meta'] == 'bead']
+            assert bead_traces and all(size > 9 for trace in bead_traces for size in trace['sizes'])
+            assert all(trace['showlegend'] is not True for trace in plot_data if trace['meta'] in ('edge', 'term'))
             for name in names[:3]:
                 plot.evaluate('(el, bead) => el.emit("plotly_click", {points: [{data: {meta: "bead"}, customdata: bead}]})', name)
             expect(page.locator('.bonded-selection-status')).to_contain_text(names[1])
@@ -82,6 +86,9 @@ def test_bonded_workspace_filters_states_and_creates_a_new_state_from_two_beads(
             assert new_state_id
             state_select.select_option(new_state_id)
             expect(page.locator('.bonded-interaction-table tbody tr')).not_to_have_count(0)
+            expect(page.locator('.bonded-interaction-table select[aria-label^="bonds "]')).to_have_count(0)
+            expect(page.locator('.bonded-interaction-table input[aria-label*="length (nm)"]')).to_have_count(0)
+            expect(page.locator('.bonded-interaction-table .bonded-readonly-parameter')).not_to_have_count(0)
             parameter = page.locator('.bonded-interaction-table input[type=number]').first
             parameter.fill('0.31')
             expect(page.get_by_role('button', name='Save as new state')).to_be_enabled()

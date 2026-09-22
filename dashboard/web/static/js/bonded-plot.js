@@ -1,4 +1,8 @@
 // Plotly owns the 3D scene; the workspace controller owns draft state.
+// Keep the visual scale aligned with dashboard.models.sugar_recognition.RADII_NM.
+const BEAD_RADII_NM = {R: 0.264, S: 0.230, T: 0.191};
+const TYPE_COLORS = ['#2455b0', '#b24b8f', '#168477', '#d27a1f', '#6c4bb2', '#5d7187', '#c03b3b', '#4d8c45'];
+
 export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotError}) {
   let selectedBeads = [];
   let clickHandler = null;
@@ -15,30 +19,41 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
     }
     const positions = new Map(beads.map(bead => [bead.name, bead.position]));
     const physical = beads.filter(bead => !bead.virtual_site);
-    const traces = [{
-      type: 'scatter3d', mode: 'markers+text', name: 'CG beads',
-      x: physical.map(bead => bead.position[0]), y: physical.map(bead => bead.position[1]),
-      z: physical.map(bead => bead.position[2]), text: physical.map(bead => bead.name),
-      textposition: 'top center', customdata: physical.map(bead => bead.name),
-      marker: {size: physical.map(bead => selectedBeads.includes(bead.name) ? 12 : 9),
-               color: physical.map(bead => selectedBeads.includes(bead.name) ? '#df203d' : '#2455b0'),
-               line: {width: 1, color: '#ffffff'}},
-      hovertemplate: '<b>%{text}</b><br>x %{x:.3f} nm<br>y %{y:.3f} nm<br>z %{z:.3f} nm<extra></extra>',
-      meta: 'bead',
-    }];
+    const typeGroups = new Map();
+    for (const bead of physical) {
+      const type = bead.type || 'Unspecified';
+      if (!typeGroups.has(type)) typeGroups.set(type, []);
+      typeGroups.get(type).push(bead);
+    }
+    const types = [...typeGroups.keys()].sort((first, second) => first.localeCompare(second));
+    const typeColors = new Map(types.map((type, index) => [type, TYPE_COLORS[index % TYPE_COLORS.length]]));
+    const traces = types.map(type => {
+      const group = typeGroups.get(type);
+      return {
+        type: 'scatter3d', mode: 'markers+text', name: type, legendgroup: `bead-type-${type}`,
+        x: group.map(bead => bead.position[0]), y: group.map(bead => bead.position[1]),
+        z: group.map(bead => bead.position[2]), text: group.map(bead => bead.name),
+        textposition: 'top center', customdata: group.map(bead => [bead.name, bead.size || 'R']),
+        marker: {size: group.map(bead => (BEAD_RADII_NM[bead.size] || BEAD_RADII_NM.R) * 72 + (selectedBeads.includes(bead.name) ? 4 : 0)),
+                 color: group.map(bead => selectedBeads.includes(bead.name) ? '#df203d' : typeColors.get(type)),
+                 line: {width: 1, color: '#ffffff'}},
+        hovertemplate: `<b>%{text}</b><br>type ${type}<br>size class %{customdata[1]}<br>x %{x:.3f} nm<br>y %{y:.3f} nm<br>z %{z:.3f} nm<extra></extra>`,
+        meta: 'bead',
+      };
+    });
     const edgeX = [], edgeY = [], edgeZ = [];
     for (const edge of edges) {
       const first = positions.get(edge[0]), second = positions.get(edge[1]);
       if (!first || !second) continue;
       edgeX.push(first[0], second[0], null); edgeY.push(first[1], second[1], null); edgeZ.push(first[2], second[2], null);
     }
-    if (edgeX.length) traces.push({type: 'scatter3d', mode: 'lines', name: 'Mapping connectivity',
+    if (edgeX.length) traces.push({type: 'scatter3d', mode: 'lines', name: 'Mapping connectivity', showlegend: false,
       x: edgeX, y: edgeY, z: edgeZ, line: {color: '#a8b5c4', width: 4}, hoverinfo: 'skip', meta: 'edge'});
     for (const term of terms) {
       const points = pointsFor(term.beads || [], positions);
       if (points.length < 2) continue;
       const selectedTerm = term.id === selectedTermId;
-      traces.push({type: 'scatter3d', mode: 'lines', name: `${term.kind} · ${term.beads.join(' · ')}`,
+      traces.push({type: 'scatter3d', mode: 'lines', name: `${term.kind} · ${term.beads.join(' · ')}`, showlegend: false,
         x: points.map(point => point[0]), y: points.map(point => point[1]), z: points.map(point => point[2]),
         customdata: points.map(() => term.id), meta: 'term',
         line: {color: selectedTerm ? '#df203d' : '#36a269', width: selectedTerm ? 10 : 6},
@@ -58,7 +73,7 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
       const point = event?.points?.[0];
       if (!point) return;
       if (point.data?.meta === 'bead') {
-        const name = point.customdata;
+        const name = Array.isArray(point.customdata) ? point.customdata[0] : point.customdata;
         const next = selectedBeads.includes(name)
           ? selectedBeads.filter(item => item !== name)
           : [...selectedBeads.slice(-1), name];

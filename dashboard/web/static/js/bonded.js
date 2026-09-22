@@ -95,8 +95,11 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
         .map(([first, second]) => [owners.get(Number(first)), owners.get(Number(second))])
         .filter(([first, second]) => first && second && first !== second && physical.has(first) && physical.has(second));
     }
-    return {beads: [...centers].map(([name, position]) => ({name, position,
-      virtual_site: (mapping?.beads || []).find(bead => bead.name === name)?.virtual_site})), edges};
+    return {beads: [...centers].map(([name, position]) => {
+      const definition = (mapping?.beads || []).find(bead => bead.name === name) || {};
+      return {name, position, size: definition.size || 'R', type: definition.type || 'Unspecified',
+        virtual_site: definition.virtual_site};
+    }), edges};
   }
 
   function mappingTerms(mapping) {
@@ -125,14 +128,14 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
     tableHost.replaceChildren();
     if (!terms.length) { tableHost.textContent = 'No bonded terms loaded.'; return; }
     const table = document.createElement('table');
-    table.innerHTML = '<caption>Functions choose the potential form; parameters use the labels shown.</caption><thead><tr><th>Kind</th><th>Beads</th><th>Function</th><th>Parameters</th></tr></thead>';
+    table.innerHTML = '<caption>Functions choose the potential form; bond lengths are derived from bead geometry and remain read-only.</caption><thead><tr><th>Kind</th><th>Beads</th><th>Function</th><th>Parameters</th></tr></thead>';
     const body = document.createElement('tbody');
     for (const term of terms) {
       const row = document.createElement('tr'); row.dataset.id = term.id; row.tabIndex = 0; row.setAttribute('aria-selected', String(term.id === selectedTermId));
       const kind = document.createElement('td'); kind.textContent = term.kind; row.append(kind);
       const beads = document.createElement('td'); beads.textContent = term.beads.join(' · '); row.append(beads);
       const functionCell = document.createElement('td');
-      if (term.editable && term.function_options.length) {
+      if (term.editable && term.function_options.length > 1) {
         const select = document.createElement('select'); select.setAttribute('aria-label', `${term.kind} ${term.beads.join(' ')} function`);
         for (const option of term.function_options) select.append(new Option(option.label, option.value));
         select.value = term.function;
@@ -142,17 +145,25 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
           term.parameters = term.parameter_labels.map((_, index) => old[index] ?? ''); dirty = true; renderState();
         };
         functionCell.append(select);
-      } else functionCell.textContent = term.function || '—';
+      } else functionCell.textContent = term.function_options[0]?.label || term.function || '—';
       row.append(functionCell);
       const parameters = document.createElement('td');
       if (term.editable) {
         const grid = document.createElement('div'); grid.className = 'bonded-parameter-row';
         for (const [index, value] of term.parameters.entries()) {
-          const label = document.createElement('label'); label.textContent = term.parameter_labels[index] || `Parameter ${index + 1}`;
-          const input = document.createElement('input'); input.type = 'number'; input.step = 'any'; input.value = value;
-          input.setAttribute('aria-label', `${term.kind} ${term.beads.join(' ')} ${label.textContent}`);
-          input.oninput = () => { term.parameters[index] = input.value; dirty = true; updateControls(); };
-          label.append(input); grid.append(label);
+          const labelText = term.parameter_labels[index] || `Parameter ${index + 1}`;
+          const label = document.createElement('label'); label.textContent = labelText;
+          if (term.kind === 'bonds' && index === 0) {
+            const output = document.createElement('output'); output.className = 'bonded-readonly-parameter';
+            output.textContent = value; output.setAttribute('aria-label', `${term.kind} ${term.beads.join(' ')} ${labelText}`);
+            label.append(output);
+          } else {
+            const input = document.createElement('input'); input.type = 'number'; input.step = 'any'; input.value = value;
+            input.setAttribute('aria-label', `${term.kind} ${term.beads.join(' ')} ${labelText}`);
+            input.oninput = () => { term.parameters[index] = input.value; dirty = true; updateControls(); };
+            label.append(input);
+          }
+          grid.append(label);
         }
         parameters.append(grid);
       } else parameters.textContent = term.parameters?.join(' ') || 'Read-only';
