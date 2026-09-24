@@ -9,12 +9,13 @@ import threading
 import time
 import uuid
 import fcntl
-from flask import abort
 from dashboard import files, store, paths
 from ..adapters import aa
 from ..adapters import cg
 from .. import workflow
 from . import resources, temporary, admission
+from .errors import (CapacityFull, DependencyRetained, InvalidRequest, InvalidRunId,
+                     RunBusy, RunConflict, RunNotFound, SourceUnavailable)
 from .. import protocol
 from ...models.molecules import aa as aa_molecules
 from ...models import mappings, compositions
@@ -81,7 +82,7 @@ class Coordinator:
 
     def lookup(self, jid):
         job = self.database().get(jid)
-        if job is None: abort(404, 'Unknown run')
+        if job is None: raise RunNotFound('Unknown run')
         return job
 
 
@@ -94,33 +95,33 @@ class Coordinator:
         with self.JOBS_LOCK:
             job = self.lookup(jid)
             if job.get('status') not in ('failed', 'cancelled', 'completed') or jid in self.WORKERS:
-                abort(409, 'Run must be stopped before it can be resumed')
+                raise RunBusy('Run must be stopped before it can be resumed')
             if any(key[0] == jid for key in list(self.ANALYSIS_WORKERS)) or any(
                     task.get('status') in ('queued', 'running', 'cancelling') for task in job.get('analyses', [])):
-                abort(409, 'Active analyses must finish before the run can be resumed')
+                raise RunBusy('Active analyses must finish before the run can be resumed')
             if self.externally_busy(job):
-                abort(409, 'An external worker still holds this run')
+                raise RunBusy('An external worker still holds this run')
             if any(other.get('reference_run_id') == jid or other.get('resume_of') == jid
                    for other in self.load() if other.get('id') != jid):
-                abort(409, 'The run has retained consumers; resume the consumers or clone this run')
+                raise DependencyRetained('The run has retained consumers; resume the consumers or clone this run')
             if len(self.WORKERS) + sum(self.externally_busy(item) for item in self.load()) >= self.limits()['max_concurrent_runs']:
-                abort(409, 'Simulation capacity is busy; wait for a run to stop')
+                raise CapacityFull('Simulation capacity is busy; wait for a run to stop')
             try:
                 resources.check_worker(self.run_path(job), self.RUNS, self.limits())
             except (OSError, ValueError) as exc:
-                abort(409, str(exc))
+                raise RunBusy(str(exc))
             path = self.run_path(job)
             try:
                 lease = self.lease(path / '.worker.lock')
             except ValueError as exc:
-                abort(409, str(exc))
+                raise RunBusy(str(exc))
             try:
                 if stage not in workflow.resumable_stages(path):
-                    abort(409, 'Cannot resume that stage; choose a completed-stage boundary')
+                    raise RunConflict('Cannot resume that stage; choose a completed-stage boundary')
                 try:
                     prepared = workflow.prepare_resume_in_place(path, stage, analyses=job.get('analyses', []), finalize=False)
                 except (OSError, ValueError, KeyError) as exc:
-                    abort(409, str(exc))
+                    raise RunConflict(str(exc))
                 try:
                     updated = self.update_job(jid, status='queued', stage='queued', started_at=None, ended_at=None,
                                               error=None, command=None, resume_count=prepared['resume_count'],
@@ -198,7 +199,7 @@ class Coordinator:
         with self.JOBS_LOCK:
             if key not in self.SERVICES:
                 try: self.SERVICES[key] = self.lease(self.DATA.with_suffix('.service.lock'))
-                except ValueError: abort(409, 'Another dashboard process owns this database; use one coordinator process')
+                except ValueError: raise RunBusy('Another dashboard process owns this database; use one coordinator process')
                 self.reconcile()
                 temporary.cleanup(self.load(), self.RUNS, self.database().delete, delete_with_cleanup=self.database().delete_with_cleanup)
             self.schedule_waiting()
@@ -224,9 +225,9 @@ class Coordinator:
     def run_path(self, job):
         # Never use arbitrary manifest/log paths supplied by a client or old metadata.
         if not re.fullmatch(r'[a-f0-9]{12}', job['id']):
-            abort(404, 'Invalid run ID')
+            raise InvalidRunId('Invalid run ID')
         path = self.RUNS / job['id']
-        if path.is_symlink(): abort(409, 'Run directories must not be symbolic links')
+        if path.is_symlink(): raise RunConflict('Run directories must not be symbolic links')
         return path
 
 
@@ -391,14 +392,14 @@ class Coordinator:
                                          'bonded_intent': None if bonded_intent in (None, 'fit_and_simulate') else bonded_intent,
                                          **(settings or {})})
         except ValueError as exc:
-            abort(400, str(exc))
+            raise InvalidRequest(str(exc))
         if run_type == 'cg_composition':
             try:
                 record = compositions.get(composition_id)
                 from ..adapters.composition import readiness as composition_readiness
                 ready = composition_readiness(composition_id, self.ROOT)
-                if not ready['ready']: abort(409, '; '.join(ready['blockers']))
-            except (ValueError, OSError, KeyError, FileNotFoundError) as exc: abort(404, str(exc))
+                if not ready['ready']: raise RunConflict('; '.join(ready['blockers']))
+            except (ValueError, OSError, KeyError, FileNotFoundError) as exc: raise RunNotFound(str(exc))
             job = {'id': uuid.uuid4().hex[:12], 'detergent': record.get('name', composition_id),
                    'method': 'gromacs', 'label': str(label)[:160], 'status': 'queued', 'stage': 'queued',
                    'created': self.now(), 'retry_of': retry_of, 'profile': profile,
@@ -411,7 +412,7 @@ class Coordinator:
         if run_type=='aa_only':
             if molecule_snapshot and not resume_of:
                 try:aa_molecules.verify_selection(self.ROOT/'molecules',molecule_snapshot)
-                except (OSError,ValueError) as exc:abort(409,str(exc))
+                except (OSError,ValueError) as exc:raise RunConflict(str(exc))
             job=self.aa_job_record(molecule_id or detergent,label,settings,molecule_snapshot if resume_of else None,profile)
             job.update(retry_of=retry_of,resume_of=resume_of,resume_from=resume_from)
             return self.admit_jobs([job],job)
@@ -420,19 +421,19 @@ class Coordinator:
         if molecule_id is not None:
             try:
                 aa_molecules.validate_id(molecule_id)
-            except ValueError as exc: abort(400, str(exc))
+            except ValueError as exc: raise InvalidRequest(str(exc))
             try:
                 selected = molecule_snapshot if resume_of and molecule_snapshot else aa_molecules.selection(self.ROOT/'molecules', molecule_id)
                 if molecule_snapshot and not resume_of and selected != molecule_snapshot:
                     raise ValueError('Molecule files changed; clone with a fresh selection instead')
                 molecule_snapshot = selected if not resume_of else molecule_snapshot
-            except (OSError, ValueError) as exc: abort(409, str(exc))
+            except (OSError, ValueError) as exc: raise RunConflict(str(exc))
         if method not in self.ALLOWED_METHODS:
-            abort(400, 'Unsupported method')
+            raise InvalidRequest('Unsupported method')
         if mapping_snapshot is not None:
             mapping_snapshot = cg.draft_model.load(mapping_snapshot, molecule_root=self.ROOT / 'molecules')
         elif mapping_candidate:
-            if not isinstance(mapping_candidate, str): abort(400, 'Mapping candidate must be a saved filename')
+            if not isinstance(mapping_candidate, str): raise InvalidRequest('Mapping candidate must be a saved filename')
             try:
                 context = (mapping_context.build_context(self.ROOT / 'molecules', molecule_snapshot['id'])
                            if molecule_snapshot else None)
@@ -440,28 +441,28 @@ class Coordinator:
                     mappings.get(mapping_candidate, context=context),
                     molecule_root=self.ROOT / 'molecules',
                 )
-            except FileNotFoundError: abort(400, 'Selected mapping is unavailable; refresh the candidate list')
+            except FileNotFoundError: raise InvalidRequest('Selected mapping is unavailable; refresh the candidate list')
         bonded_snapshot = None
         if bonded_state_id:
             try: bonded_snapshot = bonded_states.get(bonded_state_id)
-            except (KeyError, OSError, ValueError): abort(400, 'Selected bonded state is unavailable')
+            except (KeyError, OSError, ValueError): raise InvalidRequest('Selected bonded state is unavailable')
             if mapping_snapshot is None or bonded_snapshot.get('mapping_hash') != mappings.mapping_identity(mapping_snapshot):
-                abort(409, 'Bonded state does not belong to the selected mapping')
-            if bonded_snapshot.get('current',{}).get('status') != 'complete': abort(409, 'Selected bonded state is incomplete; fit it before reuse')
+                raise RunConflict('Bonded state does not belong to the selected mapping')
+            if bonded_snapshot.get('current',{}).get('status') != 'complete': raise RunConflict('Selected bonded state is incomplete; fit it before reuse')
         if bonded_intent == 'reuse_state' and bonded_snapshot is None:
-            abort(409, 'Reuse state intent requires a complete bonded state')
+            raise RunConflict('Reuse state intent requires a complete bonded state')
         settings = protocol.adapter_for(run_type or 'aa_cg').normalize_settings(settings, profile)
         reference_snapshot=None
         if reference_run_id and shared:
             try:
                 _,reference_snapshot=aa_references.resolve(self.RUNS,reference_run_id,molecule_snapshot=molecule_snapshot,settings=settings)
                 if self.lookup(reference_run_id).get('status')!='completed':raise ValueError('AA source must be completed')
-            except (OSError,ValueError) as exc:abort(409,str(exc))
+            except (OSError,ValueError) as exc:raise SourceUnavailable(str(exc))
         elif reference_run_id:
-            abort(409, 'CG runs require a shared AA reference')
+            raise SourceUnavailable('CG runs require a shared AA reference')
         ready = cg.readiness(molecule_id or detergent, method, profile, mapping_snapshot, molecule_root=self.ROOT / 'molecules')
         if not ready['ready']:
-            abort(409, '; '.join(ready['blockers']))
+            raise RunConflict('; '.join(ready['blockers']))
         job = {'id': uuid.uuid4().hex[:12], 'detergent': detergent, 'method': method, 'label': str(label)[:160],
                'status': 'queued', 'stage': 'queued', 'created': self.now(), 'retry_of': retry_of, 'profile': profile, 'settings': settings, 'reference_run_id': reference_run_id, 'scientifically_validated': False, 'temporary_validation': bool(temporary_validation), 'bonded_intent': bonded_intent}
         if mapping_snapshot is not None:
@@ -476,7 +477,7 @@ class Coordinator:
             if reference_snapshot:
                 job['shared_reference']={'source_run_id':reference_run_id,'sha256':reference_snapshot['sha256']}
                 return self.admit_jobs([job],job)
-            if resume_of:abort(409,'Shared CG resume requires its AA reference source')
+            if resume_of:raise SourceUnavailable('Shared CG resume requires its AA reference source')
             # The AA source is an aa_only run: it takes the AA half of the composed settings.
             aa_settings = {key: value for key, value in settings.items() if key in aa.SETTING_SPECS}
             parent=self.aa_job_record(molecule_id,(str(label)+' · AA source').strip(),aa_settings,profile=profile)
@@ -484,10 +485,10 @@ class Coordinator:
             return self.admit_jobs([parent,job],parent,result=job)
         worker = self.Worker()
         with self.JOBS_LOCK:
-            if len(self.WORKERS)+sum(self.externally_busy(j) for j in self.load()) >= self.limits()['max_concurrent_runs']: abort(409, 'Simulation capacity is busy; wait for a run to stop')
+            if len(self.WORKERS)+sum(self.externally_busy(j) for j in self.load()) >= self.limits()['max_concurrent_runs']: raise CapacityFull('Simulation capacity is busy; wait for a run to stop')
             source_id = resume_of or reference_run_id
             required = 2*resources.usage(self.RUNS/source_id) if source_id else 0
-            if required > self.limits()['max_run_bytes']: abort(409, 'Source copies exceed the per-run storage limit')
+            if required > self.limits()['max_run_bytes']: raise CapacityFull('Source copies exceed the per-run storage limit')
             resources.admit(self.storage_report(), len(self.WORKERS)+len(self.ANALYSIS_WORKERS), required)
             self.database().insert(job)
             self.WORKERS[job['id']] = worker
@@ -503,7 +504,7 @@ class Coordinator:
             if not snapshot:
                 ready=aa.readiness(self.ROOT/'molecules',molecule_id)
                 if not ready['ready']:raise ValueError('; '.join(ready['blockers']))
-        except (ValueError,OSError) as exc:abort(409,str(exc))
+        except (ValueError,OSError) as exc:raise RunConflict(str(exc))
         return {'id':uuid.uuid4().hex[:12],'detergent':molecule_id,'molecule_id':molecule_id,'molecule_snapshot':selected,
                 'method':'gromacs','run_type':'aa_only','workflow_version':aa.VERSION,'protocol_version':aa.VERSION,
                 'stage_plan':[name for name,_ in aa.STAGES],'label':str(label)[:160],
@@ -513,11 +514,11 @@ class Coordinator:
 
     def admit_jobs(self, records,first,result=None):
         with self.JOBS_LOCK:
-            if len(self.WORKERS)+sum(self.externally_busy(j) for j in self.load())>=self.limits()['max_concurrent_runs']:abort(409,'Simulation capacity is busy; wait for a run to stop')
+            if len(self.WORKERS)+sum(self.externally_busy(j) for j in self.load())>=self.limits()['max_concurrent_runs']:raise CapacityFull('Simulation capacity is busy; wait for a run to stop')
             copies=[]
             for job in records:
                 required=2*resources.usage(self.RUNS/job['resume_of']) if job.get('resume_of') else 0
-                if required>self.limits()['max_run_bytes']:abort(409,'Source copies exceed the per-run storage limit')
+                if required>self.limits()['max_run_bytes']:raise CapacityFull('Source copies exceed the per-run storage limit')
                 copies.append(required)
             resources.admit(self.storage_report(),len(self.WORKERS)+len(self.ANALYSIS_WORKERS)+len(records)-1,sum(copies))
             self.database().insert_many(records)
@@ -571,14 +572,14 @@ class Coordinator:
         with self.JOBS_LOCK:
             job = self.lookup(jid)
             if job['status'] not in ('completed', 'failed', 'cancelled','blocked'):
-                abort(409, 'Only completed, failed, or cancelled runs can be deleted')
+                raise RunConflict('Only completed, failed, or cancelled runs can be deleted')
             if jid in self.WORKERS or any(key[0] == jid for key in list(self.ANALYSIS_WORKERS)):
-                abort(409, 'This run still has an active worker')
+                raise RunBusy('This run still has an active worker')
             # Keep the record visible if filesystem cleanup fails, so deletion can be retried.
             run_dir = self.run_path(job)
             log = self.log_path(job)
             if run_dir.is_symlink():
-                abort(409, 'Refusing to delete a run directory that is a symbolic link')
+                raise RunConflict('Refusing to delete a run directory that is a symbolic link')
             def cleanup():
                 if run_dir.exists():
                     with self.lease(run_dir/'.worker.lock'):
@@ -587,7 +588,7 @@ class Coordinator:
             try:
                 self.database().delete_with_cleanup(jid, cleanup)
             except (OSError, ValueError) as exc:
-                abort(409, f'Run cleanup failed; the run record is retained for retry: {exc}')
+                raise RunConflict(f'Run cleanup failed; the run record is retained for retry: {exc}')
         return jid
 
 
@@ -601,7 +602,7 @@ class Coordinator:
                 return job, 200
             worker = self.WORKERS.get(jid)
             if worker is None or job['status'] not in ('queued', 'running'):
-                abort(409, 'This server does not own an active worker for this run')
+                raise RunBusy('This server does not own an active worker for this run')
             # Persist the request before acknowledgement by the worker.
             self.update_job(jid, status='cancelling')
             worker.cancel.set()

@@ -5,9 +5,33 @@ protocol live here: every route module derives the caller's context through the
 same two functions, so a schema-3 payload is rejected the same way wherever it
 arrives.
 """
-from flask import abort, current_app, request
+from flask import abort, current_app, jsonify, request
 
+from ...execution.coordination import errors
 from ...models.mappings import context as mapping_context
+
+# The lifecycle names a failure; the status code is decided here, once. These are the
+# codes the surface returned before the failures were named, so the browser's
+# stale-source branch and the API tests keep working unchanged.
+STATUS_CODES = {
+    errors.InvalidRequest: 400,
+    errors.InvalidRunId: 404,
+    errors.RunNotFound: 404,
+    errors.RunBusy: 409,
+    errors.RunConflict: 409,
+    errors.CapacityFull: 409,
+    errors.DependencyRetained: 409,
+    errors.SourceUnavailable: 409,
+}
+
+
+def register_error_handlers(app):
+    """Answer a domain failure with its status code, wherever it was raised."""
+    def handler(error, status):
+        return jsonify(error=str(error)), status
+
+    for error, status in STATUS_CODES.items():
+        app.register_error_handler(error, lambda error, _status=status: handler(error, _status))
 
 
 def coordinator():

@@ -10,7 +10,7 @@ from flask import Flask, jsonify
 from . import paths as path_config
 from .constants import HOST, PORT
 from .execution.coordination.coordinator import Coordinator
-from .web.routes import analyses, bonded, catalog, maintenance, mappings, molecules, refinement, runs
+from .web.routes import analyses, bonded, catalog, common, maintenance, mappings, molecules, refinement, runs
 
 
 def create_app(paths=None, config=None):
@@ -27,6 +27,8 @@ def create_app(paths=None, config=None):
     @app.errorhandler(ValueError)
     def invalid_value(error):
         return jsonify(error=str(error)), 400
+
+    common.register_error_handlers(app)
 
     def request_error(error):
         return jsonify(error=error.description), error.code

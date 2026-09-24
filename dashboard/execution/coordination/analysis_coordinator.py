@@ -16,6 +16,7 @@ from ...analysis.validation import targets, report as carbohydrate_validation, g
 from ...models import sugars as carbohydrates
 from dashboard.analysis import worker as analysis
 from . import resources
+from .errors import CapacityFull, InvalidRequest, RunBusy, RunNotFound
 from .. import workflow
 
 
@@ -47,29 +48,27 @@ class AnalysisCoordinator:
             return task
 
     def cancel(self, jid, aid):
-        from flask import abort
         owner = self.owner
         with owner.JOBS_LOCK:
             worker = owner.ANALYSIS_WORKERS.get((jid, aid))
             if worker is None:
-                abort(409, 'Analysis has no owned active worker')
+                raise RunBusy('Analysis has no owned active worker')
             task = self.update(jid, aid, status='cancelling')
             worker.cancel.set()
         return task
 
     def queue(self, jid, kind, payload):
-        from flask import abort
         owner = self.owner
         if kind not in analysis.KINDS:
-            abort(404, 'Unknown analysis')
+            raise RunNotFound('Unknown analysis')
         if not isinstance(payload, dict):
-            abort(400, 'Expected an object')
+            raise InvalidRequest('Expected an object')
         if kind == 'snapshots' and payload.get('stage', '1_AA-reference') != '1_AA-reference':
-            abort(400, 'Only AA snapshots are supported')
+            raise InvalidRequest('Only AA snapshots are supported')
         with owner.JOBS_LOCK:
             job = owner.lookup(jid)
             if job['status'] not in ('completed', 'failed', 'cancelled') or jid in owner.WORKERS:
-                abort(409, 'Analysis requires a stopped run')
+                raise RunBusy('Analysis requires a stopped run')
             source_root = workflow.execution_root(owner.run_path(job))
             source_entries = analysis.source_entries(source_root, kind)
             fingerprint = [(relative, files.sha256(path)) for relative, path in source_entries.items()]
@@ -87,14 +86,14 @@ class AnalysisCoordinator:
                 if task.get('signature') == signature and task['status'] in ('queued', 'running', 'completed'):
                     return task, 200 if task['status'] == 'completed' else 202
             if any(key[0] == jid for key in list(owner.ANALYSIS_WORKERS)):
-                abort(409, 'An analysis is already active for this run')
+                raise RunBusy('An analysis is already active for this run')
             if len(owner.ANALYSIS_WORKERS) + sum(owner.externally_busy(item) for item in owner.load()) >= owner.limits()['max_concurrent_analyses']:
-                abort(409, 'Analysis capacity is busy')
+                raise CapacityFull('Analysis capacity is busy')
             with owner.lease(owner.run_path(job) / '.worker.lock'):
                 pass
             copied_bytes = sum(path.stat().st_size for path in source_entries.values())
             if resources.usage(owner.run_path(job)) + copied_bytes > owner.limits()['max_run_bytes']:
-                abort(409, 'Analysis workspace exceeds the per-run storage limit')
+                raise CapacityFull('Analysis workspace exceeds the per-run storage limit')
             resources.admit(owner.storage_report(), len(owner.WORKERS) + len(owner.ANALYSIS_WORKERS), copied_bytes)
             aid = uuid.uuid4().hex[:12]
             task = {'id': aid, 'kind': kind, 'signature': signature, 'payload': payload,
