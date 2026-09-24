@@ -64,7 +64,7 @@ proteins, exposed through the dashboard. Paused at the user's request.
 * The initial core (python -m micelle build) validates a registered detergent template, creates a deterministic spherical center lattice, and writes geometry diagnostics. Protein-aware packing, topology closure, solvent/ions, GROMACS preprocessing, and dashboard submission are unfinished.
 
 ## Protein-detergent workflow
-The broader memembed -> martinize -> insane -> cg2at chain remains a project goal. Historical assets are preserved under archive/MemProtMD/. The maintained path is aa_workflow -> cg_adapter -> Fast_Forward -> GROMACS, described in the project guide.
+The broader memembed -> martinize -> insane -> cg2at chain remains a project goal. Historical assets are preserved under archive/MemProtMD/. The maintained path is execution/adapters/aa.py -> execution/adapters/cg.py -> Fast_Forward -> GROMACS, described in the project guide.
 
 ## Verification
 ```bash

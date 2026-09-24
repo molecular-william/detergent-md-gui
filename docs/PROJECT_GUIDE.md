@@ -18,17 +18,22 @@ Check active simulation and analysis jobs and worker leases before restarting. S
 
 ## Source ownership
 dashboard/app.py constructs the application. execution/ owns coordination and stage execution:
-* execution/cg_adapter.py — generic CG stage pipeline
-* execution/aa_workflow.py — AA-only stage pipeline
-* execution/cg_workflow.py — molecule naming for CG runs
-* execution/stages.py — declarative stage dataclass
-* execution/admission.py — run-type admission rules
-* execution/stage_io.py — environment, tool probes, MDP edits
-* execution/coordinator.py — job lifecycle, workers, admission, recovery
-* execution/analysis_coordinator.py — derived analysis jobs and immutable outputs
-* execution/manifest.py — stage and run manifest helpers
+* execution/adapters/cg.py — generic CG stage pipeline
+* execution/adapters/aa.py — AA-only stage pipeline
+* execution/adapters/cg_names.py — molecule naming for CG runs
+* execution/adapters/composition.py — molecule-combination runs
+* execution/adapters/micelle.py — protein-detergent micelle prototype (paused)
+* execution/stages.py — declarative stage tables
+* execution/workflow.py — shared stage execution, provenance and resumable state
+* execution/environment.py — environment, tool probes, MDP edits
+* execution/coordination/coordinator.py — job lifecycle, workers, admission, recovery
+* execution/coordination/worker.py — subprocess stage execution
+* execution/coordination/admission.py — run-type admission rules
+* execution/coordination/analysis_coordinator.py — derived analysis jobs and immutable outputs
+* execution/coordination/resources.py, temporary.py — limits and scratch lifetime
+* execution/coordination/manifest.py — stage and run manifest helpers
 
-models/ owns molecular definitions; analysis/ owns derived calculations; web/ owns routes and browser code. CLI utilities live in dashboard/cli/. HTTP URLs and browser storage keys remain stable through the source reorganization.
+models/ owns molecular definitions, grouped by concept: mappings/ (candidate schema, storage, context, graph, exports, suggestions, references, depiction over a public facade), bonded/ (interaction library, state records, generation), sugars/ (ring recognition, coordinate construction, constrained topology, validation), compositions/ (reference-backed assembly and immutable Molecule Combination snapshots), molecules/ (AA input discovery, model registry, evidence gates, draft models, packaged DDM source), plus repository.py (JSON record storage) and catalog.py (CG model catalogue). analysis/ owns derived calculations: validation/ (targets, geometry, transfer free energy, osmotic pressure, reports) and runs/ (references, observability, refinement, surfaces), with metadata.py and worker.py at the root. web/ owns HTTP routes — one module per concept under web/routes/ — templates and browser code. CLI utilities live in dashboard/cli/. HTTP URLs and browser storage keys remain stable through the source reorganization.
 
 dashboard/README.md describes source ownership in detail and lists test commands.
 

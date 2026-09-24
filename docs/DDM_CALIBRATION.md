@@ -93,7 +93,7 @@ Present in code:
 - Figure tabs with image zoom, native and stratified matrices, and diagnostic tables.
 - Figure listing refreshes the persisted artifact index for `media=1`, fixing stale completed-run lists that hid newly generated matrices. Figure captions are currently selected in JavaScript by filename.
 - Bonded-state JSON store, revision API, legacy-fit indexing, confirmation/dependency checks for deletion, fit-only/reuse run intents, short-validation launcher, topology parser, and read-only interaction table/ITP preview.
-- Manual bonded overrides remain available through the advanced JSON editor in CG Bead Assignment and are applied after fitting. `dashboard/models/bonded.py` supports circular-harmonic fitting and one override per flexible term.
+- Manual bonded overrides remain available through the advanced JSON editor in CG Bead Assignment and are applied after fitting. `dashboard/models/bonded/` (the interaction library in `__init__.py`) supports circular-harmonic fitting and one override per flexible term.
 
 Code-inspected gaps to address before claiming the full approved bonded workspace is complete:
 
@@ -112,7 +112,7 @@ These are documented observations, not fixed by this documentation-only handoff.
 - Start only one dashboard coordinator at `127.0.0.1:5000`. Check active jobs, leases, and subprocesses before restart; a restart can interrupt work. Do not reuse old PIDs or broadly kill Python processes.
 - Campaign runner: `-m dashboard.cli.screen_candidates <absolute-plan-path>`. Plans store unique labels, run IDs, seeds, status and errors and support resumption. The runner executes serially and stops on failure. A completed plan resumes without new MD; use a new plan for new variants. Verify that any background launcher persists and records the first accepted run.
 - `<workspace>/runs/<id>/manifest.json`, `inputs/`, `stages/`, `logs/` are simulation evidence. SQLite is the only live job-status authority. See [project operations](PROJECT_GUIDE.md).
-- `dashboard/models/bonded.py` owns overrides and torsion fitting; `carbohydrates.py` owns sugar geometry/topology; `bonded_states.py` owns state records; `dashboard/execution/` owns execution, `dashboard/web/routes/` owns HTTP endpoints, and `dashboard/web/static/js/`, CSS, and templates own UI behavior.
+- `dashboard/models/bonded/` owns overrides and torsion fitting (the interaction library is `bonded/__init__.py`, state records are `bonded/states.py`); `dashboard/models/sugars/` owns sugar recognition, geometry and topology; `dashboard/execution/` owns execution, `dashboard/web/routes/` owns HTTP endpoints, and `dashboard/web/static/js/`, CSS, and templates own UI behavior.
 - The personal skill is `/home/wtliaf/.codex/skills/detergent-calibration/SKILL.md` with `references/carbohydrates.md` and `references/building-blocks.md`. It is outside this repository; this handoff and the linked chemistry document provide the portable project context.
 - This repository is a Git worktree. Check `git status` and the active branch before planning commits or branches.
 
@@ -171,6 +171,6 @@ Ring expansion reduces the mapped SASA shortfall from about 7.2% to 3.1%. Frame 
 
 ## Files and operation
 
-`dashboard/models/carbohydrates.py` owns ring recognition, fragment assignment, coordinate construction and constrained topology architecture. `dashboard/models/mappings.py` owns schema, review and exports. `dashboard/analysis/surfaces.py` owns surface geometry and GROMACS SASA. The DDM calibration skill includes a dedicated carbohydrate reference and corrected type/size naming guidance.
+`dashboard/models/sugars/` owns ring recognition, fragment assignment, coordinate construction and constrained topology architecture. `dashboard/models/mappings/` owns schema, review and exports. `dashboard/analysis/runs/surfaces.py` owns surface geometry and GROMACS SASA. The DDM calibration skill includes a dedicated carbohydrate reference and corrected type/size naming guidance.
 
 Refresh the dashboard, open CG mappings, and select “DDM carbohydrate paper draft.” Its approval remains a structural review, separate from simulation validation. New surface analyses appear as sandboxed interactive HTML within a run's analysis gallery. Earlier immutable surface artifacts remain available.

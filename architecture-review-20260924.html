@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Architecture review for detergent-md-gui</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+    </script>
+    <style>
+      .seam { stroke-dasharray: 5 5; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+      .leak { stroke: #dc2626; stroke-width: 2; fill: none; }
+      .band { border-left-width: 6px; }
+      .lbl { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans antialiased">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-14">
+
+      <header class="border-b border-slate-300 pb-6">
+        <h1 class="font-serif text-3xl tracking-tight">Architecture review — detergent-md-gui</h1>
+        <div class="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-600">
+          <span class="font-mono">e0504a3 · main · 2026-09-24</span>
+          <span class="flex items-center gap-2"><span class="inline-block h-3 w-5 border border-slate-400 bg-white"></span> module</span>
+          <span class="flex items-center gap-2"><svg width="22" height="4"><line x1="0" y1="2" x2="22" y2="2" stroke="#64748b" class="seam"/></svg> seam</span>
+          <span class="flex items-center gap-2"><svg width="22" height="4"><line x1="0" y1="2" x2="22" y2="2" stroke="#dc2626" stroke-width="2"/></svg> leak</span>
+          <span class="flex items-center gap-2"><span class="inline-block h-3 w-5 deep"></span> deep module</span>
+          <span class="font-mono">86 modules · 8 737 py lines · 1 868 js lines · 59 test files</span>
+        </div>
+      </header>
+
+      <section id="candidates" class="space-y-16">
+
+        <!-- ── C1 ───────────────────────────────────────────────────── -->
+        <article id="c1" class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div class="flex flex-wrap items-center gap-3">
+            <h2 class="font-serif text-xl">1 · Give the stage protocol one interface, and the run types one dispatch</h2>
+            <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">Strong</span>
+            <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">in-process</span>
+          </div>
+          <p class="mt-4 font-mono text-xs text-slate-600 leading-5">
+            execution/aa_workflow.py:14-184 · execution/cg_adapter.py:21-291 · execution/composition_workflow.py:12-62 ·
+            execution/workflow.py:13-88 · execution/coordinator.py:416-438, 494-636 · execution/admission.py:8-39 ·
+            web/routes/runs.py:12-43
+          </p>
+
+          <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <div class="lbl text-slate-500 mb-2">Before — four protocol modules, dispatch in six places</div>
+              <svg viewBox="0 0 460 300" class="w-full h-[300px]">
+                <rect x="6" y="4" width="448" height="32" fill="#fff" stroke="#94a3b8"/>
+                <text x="16" y="24" font-size="11" fill="#475569">web/routes/runs.py · admission.validate_run_type (43, 157)</text>
+                <rect x="6" y="42" width="448" height="32" fill="#fff" stroke="#94a3b8"/>
+                <text x="16" y="62" font-size="11" fill="#475569">coordinator.create_job · run-type matrix inline (495-522)</text>
+                <rect x="6" y="80" width="448" height="32" fill="#fff" stroke="#94a3b8"/>
+                <text x="16" y="100" font-size="11" fill="#475569">coordinator.run_job · readiness + prepare branch (416-438)</text>
+                <rect x="6" y="118" width="448" height="32" fill="#fff" stroke="#94a3b8"/>
+                <text x="16" y="138" font-size="11" fill="#475569">workflow.stage_definitions / plan_for (64-88)</text>
+                <line x1="230" y1="152" x2="230" y2="176" stroke="#64748b" class="seam"/>
+                <rect x="6" y="176" width="106" height="112" fill="#fff" stroke="#94a3b8"/>
+                <text x="14" y="194" font-size="10" fill="#475569">aa_workflow</text>
+                <text x="14" y="212" font-size="9" fill="#64748b">STAGE_DEFS</text>
+                <text x="14" y="226" font-size="9" fill="#64748b">settings (lo,hi)</text>
+                <text x="14" y="240" font-size="9" fill="#64748b">defaults · normalize</text>
+                <text x="14" y="254" font-size="9" fill="#64748b">tools · readiness</text>
+                <text x="14" y="268" font-size="9" fill="#64748b">prepare_run</text>
+                <rect x="120" y="176" width="106" height="112" fill="#fff" stroke="#94a3b8"/>
+                <text x="128" y="194" font-size="10" fill="#475569">cg_adapter</text>
+                <text x="128" y="212" font-size="9" fill="#64748b">STAGE_DEFS</text>
+                <text x="128" y="226" font-size="9" fill="#64748b">settings (lbl,lo,hi)</text>
+                <text x="128" y="240" font-size="9" fill="#64748b">defaults(profile)</text>
+                <text x="128" y="254" font-size="9" fill="#64748b">tools · readiness</text>
+                <text x="128" y="268" font-size="9" fill="#64748b">prepare</text>
+                <rect x="234" y="176" width="106" height="112" fill="#fff" stroke="#94a3b8"/>
+                <text x="242" y="194" font-size="10" fill="#475569">composition</text>
+                <text x="242" y="212" font-size="9" fill="#64748b">STAGE_DEFS</text>
+                <text x="242" y="226" font-size="9" fill="#64748b">no settings</text>
+                <text x="242" y="240" font-size="9" fill="#64748b">no tools</text>
+                <text x="242" y="254" font-size="9" fill="#64748b">readiness</text>
+                <text x="242" y="268" font-size="9" fill="#64748b">prepare_run (stub)</text>
+                <rect x="348" y="176" width="106" height="112" fill="#fff" stroke="#dc2626"/>
+                <text x="356" y="194" font-size="10" fill="#b91c1c">admission</text>
+                <text x="356" y="212" font-size="9" fill="#b91c1c">one rule,</text>
+                <text x="356" y="226" font-size="9" fill="#b91c1c">declared twice:</text>
+                <text x="356" y="240" font-size="9" fill="#b91c1c">routes/runs.py</text>
+                <text x="356" y="254" font-size="9" fill="#b91c1c">and create_job</text>
+              </svg>
+            </div>
+            <div>
+              <div class="lbl text-slate-500 mb-2">After — one protocol interface, one dispatch seam</div>
+              <svg viewBox="0 0 460 300" class="w-full h-[300px]">
+                <rect x="6" y="4" width="448" height="32" fill="#fff" stroke="#94a3b8"/>
+                <text x="16" y="24" font-size="11" fill="#475569">web routes · parse, call, translate the error</text>
+                <line x1="230" y1="40" x2="230" y2="66" stroke="#64748b" class="seam"/>
+                <text x="238" y="58" font-size="9" fill="#64748b">seam</text>
+                <rect x="6" y="66" width="448" height="228" class="deep"/>
+                <text x="22" y="92" font-size="11" fill="#cbd5e1">workflow — one protocol interface</text>
+                <text x="22" y="114" font-size="10" fill="#94a3b8">stage_plan(metadata) · settings_specs() · defaults(profile)</text>
+                <text x="22" y="132" font-size="10" fill="#94a3b8">normalize(settings) · readiness(ctx) · prepare(run_dir, ctx)</text>
+                <text x="22" y="150" font-size="10" fill="#94a3b8">tool_report() · run(run_dir, log, on_stage)</text>
+                <line x1="22" y1="164" x2="438" y2="164" stroke="#475569" class="seam"/>
+                <rect x="22" y="180" width="132" height="98" fill="#334155" stroke="#64748b"/>
+                <text x="32" y="200" font-size="10" fill="#e2e8f0">AA adapter</text>
+                <text x="32" y="218" font-size="9" fill="#94a3b8">protocol ctx</text>
+                <text x="32" y="232" font-size="9" fill="#94a3b8">+ prepare_run</text>
+                <rect x="164" y="180" width="132" height="98" fill="#334155" stroke="#64748b"/>
+                <text x="174" y="200" font-size="10" fill="#e2e8f0">CG adapter</text>
+                <text x="174" y="218" font-size="9" fill="#94a3b8">protocol ctx</text>
+                <text x="174" y="232" font-size="9" fill="#94a3b8">+ prepare</text>
+                <rect x="306" y="180" width="132" height="98" fill="#334155" stroke="#64748b"/>
+                <text x="316" y="200" font-size="10" fill="#e2e8f0">composition</text>
+                <text x="316" y="218" font-size="9" fill="#94a3b8">protocol ctx</text>
+                <text x="316" y="232" font-size="9" fill="#94a3b8">+ prepare_run</text>
+              </svg>
+            </div>
+          </div>
+
+          <dl class="mt-6 space-y-3 text-sm">
+            <div><dt class="lbl text-slate-500">Problem</dt><dd>Four modules answer one question — <em>what stages exist, which settings are legal, is this runnable, how is it prepared</em> — in three incompatible shapes, and the dispatch that chooses between them is smeared across routes, admission, the coordinator and the workflow.</dd></div>
+            <div><dt class="lbl text-slate-500">Solution</dt><dd>One protocol interface in <span class="font-mono text-xs">workflow.py</span> that every run type satisfies as an adapter, with the run-type matrix enforced once at the seam instead of six times above it.</dd></div>
+            <div>
+              <dt class="lbl text-slate-500">Wins</dt>
+              <dd><ul class="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 list-disc list-inside text-slate-700">
+                <li>leverage: one interface, every run type</li>
+                <li>locality: a new run type touches one file</li>
+                <li>settings validated once, not twice</li>
+                <li>readiness result has one shape</li>
+                <li>admission stops duplicating create_job</li>
+                <li>delete three parallel name lists</li>
+              </ul></dd>
+            </div>
+          </dl>
+          <p class="mt-4 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-900">
+            Contradicts the "three independent protocol modules" framing in <span class="font-mono">docs/PROJECT_GUIDE.md:82-96</span> — worth reopening, because the independence is what makes every workflow change a four-file edit.
+          </p>
+          <p class="mt-3 text-xs text-slate-500">Evidence: <span class="font-mono">SETTING_SPECS</span> is <span class="font-mono">(lo,hi)</span> in aa_workflow.py:48-50 and <span class="font-mono">(label,lo,hi)</span> in cg_adapter.py:63-72, so coordinator.py:560-565 hand-merges both dialects; three <span class="font-mono">tool_metadata()</span> bodies and three differently-keyed readiness dicts; the CG parse of AA settings rebuilds a legacy dict at coordinator.py:563.</p>
+        </article>
+
+        <!-- ── C2 ───────────────────────────────────────────────────── -->
+        <article id="c2" class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div class="flex flex-wrap items-center gap-3">
+            <h2 class="font-serif text-xl">2 · Take the browser's field set and Flask's status codes out of the lifecycle module</h2>
+            <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">Strong</span>
+            <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">in-process</span>
+          </div>
+          <p class="mt-4 font-mono text-xs text-slate-600 leading-5">
+            execution/coordinator.py:12, 23-34, 37-42, 88-91, 271-385, 680-722 · execution/analysis_coordinator.py:48, 59 ·
+            web/routes/runs.py:29-35
+          </p>
+
+          <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <div class="lbl text-slate-500 mb-2">Before — interface as wide as the sum of its callers</div>
+              <div class="relative h-[300px] rounded-lg border border-slate-200">
+                <div class="absolute left-4 top-4 w-40 h-28 border-2 border-slate-500 bg-white">
+                  <div class="lbl px-2 py-1 text-slate-600">interface</div>
+                  <div class="px-2 text-[10px] leading-4 text-slate-600">34 public methods · 12 are one-line delegations · abort() error modes · <span class="font-mono">_VISIBLE_FIELDS</span> · <span class="font-mono">_STAGE_SUMMARY_FIELDS</span> · <span class="font-mono">detail_revision</span></div>
+                </div>
+                <div class="absolute left-4 top-36 w-40 h-28 border border-slate-300 bg-white">
+                  <div class="lbl px-2 py-1 text-slate-500">implementation</div>
+                  <div class="px-2 text-[10px] leading-4 text-slate-500">726 lines of lifecycle: leases, admission, recovery, dispatch</div>
+                </div>
+                <svg viewBox="0 0 200 300" class="absolute right-0 top-0 h-[300px] w-[200px]">
+                  <rect x="6" y="70" width="90" height="60" fill="#fff" stroke="#94a3b8"/>
+                  <text x="14" y="92" font-size="9" fill="#475569">coordinator</text>
+                  <text x="14" y="108" font-size="8" fill="#64748b">public_job:354</text>
+                  <rect x="104" y="16" width="90" height="46" fill="#fff" stroke="#dc2626"/>
+                  <text x="112" y="34" font-size="9" fill="#b91c1c">flask.abort</text>
+                  <text x="112" y="48" font-size="8" fill="#b91c1c">400/404/409</text>
+                  <rect x="104" y="130" width="90" height="60" fill="#fff" stroke="#dc2626"/>
+                  <text x="112" y="150" font-size="9" fill="#b91c1c">browser field set</text>
+                  <text x="112" y="164" font-size="8" fill="#b91c1c">progress.json, ETA,</text>
+                  <text x="112" y="176" font-size="8" fill="#b91c1c">stage log paths</text>
+                  <path d="M96 92 L104 40" class="leak"/>
+                  <path d="M96 108 L104 152" class="leak"/>
+                  <text x="6" y="230" font-size="8" fill="#64748b">no test can cross this without a Flask app</text>
+                </svg>
+              </div>
+            </div>
+            <div>
+              <div class="lbl text-slate-500 mb-2">After — lifecycle without HTTP, view built at the seam</div>
+              <pre class="mermaid">
+flowchart TB
+  R[web run view] -->|reads job + manifest + logs| V[run view module]
+  R --> C
+  C[coordinator: lifecycle] -->|domain error| R
+  V -->|field set| J[(job row)]
+  classDef dom stroke:#0f172a,stroke-width:2px;
+  class C dom
+              </pre>
+              <div class="mt-3 rounded-lg border border-slate-200 bg-stone-50 p-3 text-[11px] leading-5 text-slate-600 font-mono">
+                run_view.build(job, manifest, logs) → 38 fields<br/>
+                coordinator.lease/cancel/delete → RunBusy, RunUnknown, CapacityFull
+              </div>
+            </div>
+          </div>
+
+          <dl class="mt-6 space-y-3 text-sm">
+            <div><dt class="lbl text-slate-500">Problem</dt><dd>The module that owns run lifecycle also decides which fields the browser may see, parses GROMACS ETA out of logs, reads <span class="font-mono text-xs">progress.json</span>, and raises HTTP status codes — so its interface includes the web layer and nothing can test it without one.</dd></div>
+            <div><dt class="lbl text-slate-500">Solution</dt><dd>A run-view module in <span class="font-mono text-xs">web/</span> builds the response from a job plus its manifest and logs; the coordinator raises domain errors and routes translate them.</dd></div>
+            <div>
+              <dt class="lbl text-slate-500">Wins</dt>
+              <dd><ul class="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 list-disc list-inside text-slate-700">
+                <li>lifecycle testable without Flask</li>
+                <li>field sets in one module</li>
+                <li>status codes decided once</li>
+                <li>12 delegations absorbed</li>
+                <li>log-layout guessing removed</li>
+                <li>leverage: N routes, one view</li>
+              </ul></dd>
+            </div>
+          </dl>
+          <p class="mt-3 text-xs text-slate-500">Evidence: <span class="font-mono">abort()</span> at coordinator.py:90, 103, 108, 111, 113, 117, 122, 125, 129, 207, 233, 236, 534, 536, 540, …; <span class="font-mono">public_job</span> (354-385) reads <span class="font-mono">progress.json</span> at 380 and resolves four candidate log paths at 322-336; <span class="font-mono">run_path</span> raises 404 on a malformed id at 232-236; analysis_coordinator.py:48,59 imports <span class="font-mono">abort</span> inside methods.</p>
+        </article>
+
+        <!-- ── C3 ───────────────────────────────────────────────────── -->
+        <article id="c3" class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div class="flex flex-wrap items-center gap-3">
+            <h2 class="font-serif text-xl">3 · Deepen the mapping candidate: one gate, one identity, one store</h2>
+            <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">Strong</span>
+            <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">local-substitutable</span>
+          </div>
+          <p class="mt-4 font-mono text-xs text-slate-600 leading-5">
+            models/mappings.py:8-28 · models/mapping_schema.py:17-136 · models/mapping_graph.py:10-120 ·
+            models/mapping_store.py:19-130 · models/mapping_exports.py:18-114 · models/draft_model.py:27-94 ·
+            web/routes/models.py:322, 341
+          </p>
+
+          <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <div class="lbl text-slate-500 mb-2">Before — one question, eight modules, five code lists</div>
+              <pre class="mermaid">
+flowchart LR
+  Q{candidate usable?}
+  Q --> A[mapping_schema.check_schema]
+  Q --> B[mapping_graph.validate]
+  Q --> C[mapping_store.save_draft]
+  Q --> D[mapping_exports.export_files]
+  Q --> E[draft_model.load]
+  Q --> F[routes models.py 165,216]
+  A -. 12 codes .-> L[5 hard-coded lists]
+  B -. 9 codes .-> L
+  C -. re-decides .-> L
+  D -. ignores can_save .-> L
+  E -. third gate .-> L
+  F -. routes rebuilds storage_root/reviews .-> S[(drafts)]
+  C --> S
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class F,L leak
+              </pre>
+            </div>
+            <div>
+              <div class="lbl text-slate-500 mb-2">After — candidate module: verdict, identity, store</div>
+              <pre class="mermaid">
+flowchart LR
+  Q{candidate usable?} --> M[candidate module]
+  M --> V[verdict: usable/codes]
+  M --> I[identity: hash]
+  M --> S[(drafts + reviews)]
+  classDef dom stroke:#0f172a,stroke-width:2px;
+  class M dom
+              </pre>
+              <div class="mt-3 rounded-lg border border-slate-200 bg-stone-50 p-3 text-[11px] leading-5 text-slate-600 font-mono">
+                candidate.load(name, ctx) → record + verdict<br/>
+                candidate.save(record) → revision<br/>
+                candidate.identity(record) → hash<br/>
+                routes never name a directory
+              </div>
+            </div>
+          </div>
+
+          <dl class="mt-6 space-y-3 text-sm">
+            <div><dt class="lbl text-slate-500">Problem</dt><dd>"Can this candidate be saved, reused, exported, approved?" is answered in eight modules with five hard-coded issue-code lists, candidate identity is recomputed in five places, and the candidate store's layout is written by an HTTP route that bypasses the store's own id guard.</dd></div>
+            <div><dt class="lbl text-slate-500">Solution</dt><dd>One candidate module returning a verdict (and its codes) with the identity and the store behind it; callers ask <em>is it usable</em>, never <em>which codes came back</em>.</dd></div>
+            <div>
+              <dt class="lbl text-slate-500">Wins</dt>
+              <dd><ul class="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 list-disc list-inside text-slate-700">
+                <li>one gate, five call sites</li>
+                <li>one identity hash</li>
+                <li>delete the 25-name facade</li>
+                <li>routes stop owning storage</li>
+                <li>the id guard holds everywhere</li>
+                <li>locality: code lists live once</li>
+              </ul></dd>
+            </div>
+          </dl>
+          <p class="mt-3 text-xs text-slate-500">Evidence: the facade re-exports 25 names and 14 of them have at most one production call site, while 58 direct import sites already name the real modules; <span class="font-mono">web/routes/models.py:322</span> builds a <span class="font-mono">JsonRepository(storage_root()/'reviews', …, lambda value: value)</span> — a pass-through id validator, unlike mapping_store.py:124; <span class="font-mono">:341</span> unlinks inside <span class="font-mono">storage_root()</span> directly. This is the cluster the roadmap's next increment (the refinement panel) lands in, so it pays back immediately.</p>
+        </article>
+
+        <!-- ── C4 ───────────────────────────────────────────────────── -->
+        <article id="c4" class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div class="flex flex-wrap items-center gap-3">
+            <h2 class="font-serif text-xl">4 · One root, resolved once: adapters stop using the import-time default</h2>
+            <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">Strong</span>
+            <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">in-process</span>
+          </div>
+          <p class="mt-4 font-mono text-xs text-slate-600 leading-5">
+            execution/stage_io.py:12-24 · execution/coordinator.py:48-53 · execution/worker.py:28 ·
+            analysis/surfaces.py:65 · config/tools.json · cli/*
+          </p>
+
+          <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <div class="lbl text-slate-500 mb-2">Before — two roots, three ways to find a tool</div>
+              <svg viewBox="0 0 460 300" class="w-full h-[300px]">
+                <rect x="6" y="10" width="216" height="76" fill="#fff" stroke="#dc2626"/>
+                <text x="16" y="30" font-size="11" fill="#b91c1c">paths.DEFAULT (import time)</text>
+                <text x="16" y="48" font-size="9" fill="#64748b">ROOT · TUTORIAL_TEMPLATE</text>
+                <text x="16" y="62" font-size="9" fill="#64748b">AA_TEMPLATE · FORCE_FIELD</text>
+                <text x="16" y="76" font-size="9" fill="#64748b">used by every adapter + probe_tool</text>
+                <rect x="238" y="10" width="216" height="76" fill="#fff" stroke="#94a3b8"/>
+                <text x="248" y="30" font-size="11" fill="#475569">selected Paths (per app)</text>
+                <text x="248" y="48" font-size="9" fill="#64748b">ROOT · DATA · RUNS · UPLOADS</text>
+                <text x="248" y="62" font-size="9" fill="#64748b">handed to Coordinator.__init__</text>
+                <text x="248" y="76" font-size="9" fill="#64748b">— invisible to the adapters</text>
+                <line x1="222" y1="48" x2="238" y2="48" stroke="#dc2626" class="seam"/>
+                <rect x="6" y="106" width="448" height="58" fill="#fff" stroke="#94a3b8"/>
+                <text x="16" y="126" font-size="11" fill="#475569">environment() builds PATH by hand</text>
+                <text x="16" y="144" font-size="9" fill="#64748b">stage_io.py:21 → {ROOT}/dashboard/.venv/bin:~/Downloads/gromacs-2026.0/build/bin:$PATH</text>
+                <text x="16" y="157" font-size="9" fill="#64748b">surfaces.py:65 → the same Downloads path, copied</text>
+                <rect x="6" y="176" width="140" height="52" fill="#fff" stroke="#dc2626"/>
+                <text x="16" y="196" font-size="10" fill="#b91c1c">config/tools.json</text>
+                <text x="16" y="212" font-size="9" fill="#b91c1c">read by nothing</text>
+                <rect x="156" y="176" width="140" height="52" fill="#fff" stroke="#94a3b8"/>
+                <text x="166" y="196" font-size="10" fill="#475569">probe_tool</text>
+                <text x="166" y="212" font-size="9" fill="#64748b">shutil.which on that PATH</text>
+                <rect x="306" y="176" width="148" height="52" fill="#fff" stroke="#94a3b8"/>
+                <text x="316" y="196" font-size="10" fill="#475569">readiness</text>
+                <text x="316" y="212" font-size="9" fill="#64748b">same PATH again</text>
+                <text x="6" y="256" font-size="9" fill="#64748b">A selected workspace still resolves templates, force field and tools</text>
+                <text x="6" y="270" font-size="9" fill="#64748b">against the checkout that was imported.</text>
+              </svg>
+            </div>
+            <div>
+              <div class="lbl text-slate-500 mb-2">After — one environment module behind Paths</div>
+              <svg viewBox="0 0 460 300" class="w-full h-[300px]">
+                <rect x="56" y="14" width="348" height="70" class="deep"/>
+                <text x="70" y="38" font-size="11" fill="#cbd5e1">environment module</text>
+                <text x="70" y="58" font-size="10" fill="#94a3b8">workspace() · tool('gmx') · force_field()</text>
+                <text x="70" y="74" font-size="10" fill="#94a3b8">templates() · probe(tool) — one PATH, one root</text>
+                <line x1="230" y1="84" x2="230" y2="112" stroke="#64748b" class="seam"/>
+                <rect x="20" y="112" width="132" height="52" fill="#fff" stroke="#94a3b8"/>
+                <text x="30" y="132" font-size="10" fill="#475569">adapters</text>
+                <text x="30" y="150" font-size="9" fill="#64748b">read it, never guess</text>
+                <rect x="164" y="112" width="132" height="52" fill="#fff" stroke="#94a3b8"/>
+                <text x="174" y="132" font-size="10" fill="#475569">readiness</text>
+                <text x="174" y="150" font-size="9" fill="#64748b">probes the same tool set</text>
+                <rect x="308" y="112" width="132" height="52" fill="#fff" stroke="#94a3b8"/>
+                <text x="318" y="132" font-size="10" fill="#475569">analysis</text>
+                <text x="318" y="150" font-size="9" fill="#64748b">no copied gmx path</text>
+                <line x1="230" y1="164" x2="230" y2="188" stroke="#64748b" class="seam"/>
+                <rect x="164" y="188" width="132" height="46" fill="#fff" stroke="#94a3b8"/>
+                <text x="174" y="208" font-size="10" fill="#475569">tools.json</text>
+                <text x="174" y="224" font-size="9" fill="#64748b">read, or deleted</text>
+              </svg>
+            </div>
+          </div>
+
+          <dl class="mt-6 space-y-3 text-sm">
+            <div><dt class="lbl text-slate-500">Problem</dt><dd>Adapters, readiness and tool probes resolve the project root, templates, force field and executables from a default captured at import, while the coordinator works against a selected workspace — and tool locations come from a PATH prefix typed into two modules rather than the config file that declares them.</dd></div>
+            <div><dt class="lbl text-slate-500">Solution</dt><dd>One environment module that answers <em>where is the workspace, the force field, the templates, this tool</em> from the selected paths, with <span class="font-mono text-xs">config/tools.json</span> either honoured or removed.</dd></div>
+            <div>
+              <dt class="lbl text-slate-500">Wins</dt>
+              <dd><ul class="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 list-disc list-inside text-slate-700">
+                <li>one place knows the root</li>
+                <li>config stops describing fiction</li>
+                <li>tests point at a scratch tree</li>
+                <li>no copied GROMACS path</li>
+                <li>frozen tools resolve honestly</li>
+                <li>locality: PATH built once</li>
+              </ul></dd>
+            </div>
+          </dl>
+          <p class="mt-3 text-xs text-slate-500">Evidence checked in this checkout: <span class="font-mono">grep -rn "tools.json" dashboard/</span> returns nothing outside the venv, <span class="font-mono">stage_io.environment()</span> hard-codes <span class="font-mono">~/Downloads/gromacs-2026.0/build/bin</span> (a path that does not exist here), <span class="font-mono">analysis/surfaces.py:65</span> repeats it, and the working GROMACS at <span class="font-mono">/usr/local/gromacs/2026.3/bin/gmx</span> is found only because it happens to be on the inherited PATH.</p>
+        </article>
+
+        <!-- ── C5 ───────────────────────────────────────────────────── -->
+        <article id="c5" class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div class="flex flex-wrap items-center gap-3">
+            <h2 class="font-serif text-xl">5 · Make the test surface the construction seam that already exists</h2>
+            <span class="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">Worth exploring</span>
+            <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">mock</span>
+          </div>
+          <p class="mt-4 font-mono text-xs text-slate-600 leading-5">
+            tests/dashboard/conftest.py:10-22 · dashboard/app.py:16, 38-39 · tests/dashboard/fixtures.py ·
+            tests/dashboard/mapping_fixtures.py · 63 test bodies patching module globals
+          </p>
+
+          <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <div class="lbl text-slate-500 mb-2">Before — tests reach past the interface</div>
+              <svg viewBox="0 0 460 300" class="w-full h-[300px]">
+                <rect x="60" y="8" width="340" height="52" fill="#fff" stroke="#dc2626"/>
+                <text x="72" y="28" font-size="11" fill="#b91c1c">default_coordinator (import-time singleton)</text>
+                <text x="72" y="46" font-size="9" fill="#b91c1c">ROOT · DATA · RUNS · UPLOADS · WORKERS · ANALYSIS_WORKERS</text>
+                <path d="M400 34 L452 34" class="leak"/>
+                <text x="150" y="76" font-size="9" fill="#b91c1c">patched by conftest.py:16-20 — six attribute names</text>
+                <line x1="230" y1="86" x2="230" y2="104" stroke="#64748b" class="seam"/>
+                <rect x="6" y="104" width="142" height="66" fill="#fff" stroke="#94a3b8"/>
+                <text x="16" y="124" font-size="10" fill="#475569">18 of 59 files</text>
+                <text x="16" y="142" font-size="9" fill="#64748b">drive test_client()</text>
+                <text x="16" y="158" font-size="9" fill="#64748b">49 uses of web.save</text>
+                <rect x="159" y="104" width="142" height="66" fill="#fff" stroke="#94a3b8"/>
+                <text x="169" y="124" font-size="10" fill="#475569">63 tests</text>
+                <text x="169" y="142" font-size="9" fill="#64748b">patch module globals</text>
+                <text x="169" y="158" font-size="9" fill="#64748b">15 production modules</text>
+                <rect x="312" y="104" width="142" height="66" fill="#fff" stroke="#94a3b8"/>
+                <text x="322" y="124" font-size="10" fill="#475569">11 lines only</text>
+                <text x="322" y="142" font-size="9" fill="#64748b">use create_app(</text>
+                <text x="322" y="158" font-size="9" fill="#64748b">paths, config)</text>
+                <rect x="6" y="182" width="448" height="94" fill="#fff" stroke="#94a3b8"/>
+                <text x="16" y="202" font-size="11" fill="#475569">replaced, so never exercised for real</text>
+                <text x="16" y="222" font-size="9" fill="#64748b">aa_workflow.readiness/tool_metadata · workflow.readiness/prepare_run</text>
+                <text x="16" y="238" font-size="9" fill="#64748b">aa_references.verify · resources.usage · mapping_store · bonded_states</text>
+                <text x="16" y="254" font-size="9" fill="#64748b">model_registry · compositions · micelle_job.subprocess.run</text>
+                <text x="16" y="270" font-size="9" fill="#64748b">cli.screen_candidates.api · coordinator.Worker.execute</text>
+              </svg>
+            </div>
+            <div>
+              <div class="lbl text-slate-500 mb-2">After — build the coordinator, don't patch it</div>
+              <pre class="mermaid">
+flowchart TB
+  F[app/coordinator factory fixture] --> P[Paths over tmp workspace]
+  F --> C[Coordinator]
+  F --> A[Flask app]
+  C --> S[(tmp store)]
+  T[test] -->|client + coordinator| F
+  T -.->|gate adapter: ready / blocked| G[launch gate]
+  classDef dom stroke:#0f172a,stroke-width:2px;
+  class F,C dom
+              </pre>
+              <div class="mt-3 rounded-lg border border-slate-200 bg-stone-50 p-3 text-[11px] leading-5 text-slate-600 font-mono">
+                def dashboard(tmp_path): → app, client, coordinator<br/>
+                # no monkeypatch, parallel-safe
+              </div>
+            </div>
+          </div>
+
+          <dl class="mt-6 space-y-3 text-sm">
+            <div><dt class="lbl text-slate-500">Problem</dt><dd>The suite's real seam is the import-time singleton plus an autouse fixture that knows six of its attribute names, so 63 tests replace module globals and a whole class of changes (anything inside a replaced function) passes the suite and fails only in a live dashboard.</dd></div>
+            <div><dt class="lbl text-slate-500">Solution</dt><dd>One factory fixture that builds an app, client and coordinator over a temporary workspace, and constructor-injected adapters for the two things tests must control — the launch gate and the tool set.</dd></div>
+            <div>
+              <dt class="lbl text-slate-500">Wins</dt>
+              <dd><ul class="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 list-disc list-inside text-slate-700">
+                <li>interface is the test surface</li>
+                <li>no global replacement</li>
+                <li>parallel-safe by construction</li>
+                <li>one fixture, 246 tests</li>
+                <li>delete two helper modules</li>
+                <li>rename-safe test bodies</li>
+              </ul></dd>
+            </div>
+          </dl>
+          <p class="mt-3 text-xs text-slate-500">Evidence: conftest.py is 28 lines and appears in no test signature for 232 of 246 tests while patching six singleton attributes; browser tests rebuild server + thread + chromium in nine files; <span class="font-mono">workflow.readiness</span> is patched at two different binding addresses (test_dashboard.py:110 vs test_aa_api.py:43) so neither patch reaches the other. Baseline in this checkout: 5 failed, 242 passed — all five failures are missing datasets/tools, not code.</p>
+        </article>
+
+        <!-- ── C6 ───────────────────────────────────────────────────── -->
+        <article id="c6" class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div class="flex flex-wrap items-center gap-3">
+            <h2 class="font-serif text-xl">6 · Split the routes by concept, and give the browser one request module</h2>
+            <span class="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">Worth exploring</span>
+            <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">in-process</span>
+          </div>
+          <p class="mt-4 font-mono text-xs text-slate-600 leading-5">
+            web/routes/models.py:1-412 (38 rules) · routes/{runs,molecules,maintenance,analyses}.py · routes/common.py:7-12 ·
+            static/js/{runs,console,new-run,mappings,bonded,compositions}.js
+          </p>
+
+          <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <div class="lbl text-slate-500 mb-2">Before — 38 rules, 4 body parsers, 2 response shapes</div>
+              <svg viewBox="0 0 460 300" class="w-full h-[300px]">
+                <rect x="6" y="8" width="448" height="152" fill="#fff" stroke="#94a3b8"/>
+                <text x="16" y="28" font-size="11" fill="#475569">web/routes/models.py — 412 lines, 38 rules</text>
+                <rect x="16" y="38" width="140" height="26" fill="#f1f5f9" stroke="#94a3b8"/><text x="24" y="55" font-size="9" fill="#475569">mappings (14 rules)</text>
+                <rect x="16" y="70" width="140" height="26" fill="#f1f5f9" stroke="#94a3b8"/><text x="24" y="87" font-size="9" fill="#475569">bonded-states (7)</text>
+                <rect x="16" y="102" width="140" height="26" fill="#f1f5f9" stroke="#94a3b8"/><text x="24" y="119" font-size="9" fill="#475569">compositions (5, one twice)</text>
+                <rect x="16" y="134" width="140" height="20" fill="#f1f5f9" stroke="#94a3b8"/><text x="24" y="148" font-size="9" fill="#475569">cg-models 2 · registry 4</text>
+                <rect x="166" y="38" width="140" height="26" fill="#f1f5f9" stroke="#94a3b8"/><text x="174" y="55" font-size="9" fill="#475569">refinement 2 · evidence 1</text>
+                <rect x="166" y="70" width="140" height="26" fill="#f1f5f9" stroke="#94a3b8"/><text x="174" y="87" font-size="9" fill="#475569">plotly asset · reference index</text>
+                <rect x="316" y="38" width="130" height="26" fill="#fff" stroke="#dc2626"/><text x="324" y="55" font-size="9" fill="#b91c1c">_json_object</text>
+                <rect x="316" y="70" width="130" height="26" fill="#fff" stroke="#dc2626"/><text x="324" y="87" font-size="9" fill="#b91c1c">_payload_context</text>
+                <rect x="316" y="102" width="130" height="26" fill="#fff" stroke="#dc2626"/><text x="324" y="119" font-size="9" fill="#b91c1c">_query_context</text>
+                <rect x="316" y="134" width="130" height="20" fill="#fff" stroke="#dc2626"/><text x="324" y="148" font-size="9" fill="#b91c1c">a third inline copy</text>
+                <rect x="6" y="176" width="448" height="112" fill="#fff" stroke="#94a3b8"/>
+                <text x="16" y="196" font-size="11" fill="#475569">browser — the same guard, hand-rolled eight times</text>
+                <text x="16" y="216" font-size="9" fill="#64748b">runs.js:172,198 · console.js:38 · new-run.js:60,132,230 · mappings.js:110,127</text>
+                <text x="16" y="232" font-size="9" fill="#64748b">bonded.js:221,276 · compositions.js:53 — increment, await, compare, discard</text>
+                <text x="16" y="252" font-size="9" fill="#b91c1c">the runs collection answers with an array without ?page, an object with it</text>
+                <text x="16" y="268" font-size="9" fill="#b91c1c">browser defends: Array.isArray(jobs) ? jobs : [] (mappings.js:207)</text>
+              </svg>
+            </div>
+            <div>
+              <div class="lbl text-slate-500 mb-2">After — concept modules, one request context, one guarded loader</div>
+              <pre class="mermaid">
+flowchart TB
+  subgraph routes
+    M[mappings] ~~~ B[bonded]
+    C[compositions] ~~~ G[registry + refinement]
+  end
+  M & B & C & G --> Q[request context module]
+  Q --> P[payload · query · staleness verdict]
+  Q --> G2[pagination + summary wrapper]
+  W[browser modules] --> L[guarded loader]
+  L --> A[api · cachedApi]
+  classDef dom stroke:#0f172a,stroke-width:2px;
+  class Q,L dom
+              </pre>
+            </div>
+          </div>
+
+          <dl class="mt-6 space-y-3 text-sm">
+            <div><dt class="lbl text-slate-500">Problem</dt><dd>One module carries the rule table for eight concepts behind four body parsers with different failure behaviour, a response shape that changes with query keys, and a staleness protocol copied into three places on the server and eight in the browser.</dd></div>
+            <div><dt class="lbl text-slate-500">Solution</dt><dd>Split the rules by concept, put payload/query/staleness in one request-context module, and give the browser one generation-guarded loader above <span class="font-mono text-xs">api</span>.</dd></div>
+            <div>
+              <dt class="lbl text-slate-500">Wins</dt>
+              <dd><ul class="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 list-disc list-inside text-slate-700">
+                <li>68 rules in concept-sized parts</li>
+                <li>one staleness protocol</li>
+                <li>shape contract in one place</li>
+                <li>one parse failure mode</li>
+                <li>delete eight stale-guards</li>
+                <li>leverage: one loader, N tabs</li>
+              </ul></dd>
+            </div>
+          </dl>
+          <p class="mt-3 text-xs text-slate-500">Evidence: <span class="font-mono">pagination()</span> (common.py:7-12) is used by 2 of 68 rules; <span class="font-mono">coordinator()</span> hands back the extension object so callers still touch <span class="font-mono">JOBS_LOCK</span> and <span class="font-mono">RUNS</span> directly; the <span class="font-mono">view=summary</span> key is passed from nine JS call sites with no shared constant.</p>
+        </article>
+
+        <!-- ── C7 ───────────────────────────────────────────────────── -->
+        <article id="c7" class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div class="flex flex-wrap items-center gap-3">
+            <h2 class="font-serif text-xl">7 · Contracts nothing honours: the stub workflow, the dead dispatch, the phantom shim</h2>
+            <span class="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">Worth exploring</span>
+            <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">in-process</span>
+          </div>
+          <p class="mt-4 font-mono text-xs text-slate-600 leading-5">
+            execution/composition_workflow.py:39-61 · execution/admission.py:8-39 · web/static/js/main.js:18 ·
+            AGENTS.md:34 · config/tools.json · models/compositions.py:88
+          </p>
+
+          <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <div class="lbl text-slate-500 mb-2">Before — the protocol accepts a stub as a workflow</div>
+              <pre class="mermaid">
+flowchart LR
+  P[stage protocol] --> A[AA adapter]
+  P --> B[CG adapter]
+  P --> S[composition adapter]
+  S -->|writes printf scripts| X[stages complete]
+  X --> Y[reported like real MD]
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class S,X,Y leak
+              </pre>
+            </div>
+            <div>
+              <div class="lbl text-slate-500 mb-2">After — say what it is, or make it real</div>
+              <pre class="mermaid">
+flowchart LR
+  P[stage protocol] --> A[AA adapter]
+  P --> B[CG adapter]
+  P --> R[screening adapter — declared, not silent]
+  R -->|named limit in the manifest| X[stages complete]
+  classDef dom stroke:#0f172a,stroke-width:2px;
+  class P dom
+              </pre>
+            </div>
+          </div>
+
+          <dl class="mt-6 space-y-3 text-sm">
+            <div><dt class="lbl text-slate-500">Problem</dt><dd>The stage protocol is loose enough that a placeholder satisfies it: the composition adapter writes <span class="font-mono text-xs">printf</span> scripts instead of GROMACS runs, yet its three stages complete and appear beside real trajectories in the Runs tab.</dd></div>
+            <div><dt class="lbl text-slate-500">Solution</dt><dd>Either give the composition adapter a real implementation, or declare it as a screening adapter whose limit is recorded in the manifest and surfaced in the run view.</dd></div>
+            <div>
+              <dt class="lbl text-slate-500">Wins</dt>
+              <dd><ul class="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 list-disc list-inside text-slate-700">
+                <li>completion means one thing</li>
+                <li>stub visible in the manifest</li>
+                <li>delete the duplicate rule</li>
+                <li>docs stop naming absent modules</li>
+                <li>config stops lying</li>
+                <li>one owner per contract</li>
+              </ul></dd>
+            </div>
+          </dl>
+          <p class="mt-4 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-900">
+            This one is not only architectural. <span class="font-mono">composition_workflow.prepare_run</span> writes <span class="font-mono">printf "composition CG screening" &gt; cg.xtc</span> and <span class="font-mono">printf "# composition CG SASA screening" &gt; sasa.xvg</span>, then manifests those stages as completed — a run that looks like executed MD and ran none. Worth fixing regardless of any refactor.
+          </p>
+          <p class="mt-3 text-xs text-slate-500">Also checked here: <span class="font-mono">AGENTS.md:34</span> documents <span class="font-mono">dashboard/execution/ddm.py</span> as a thin shim over cg_adapter.py — that file does not exist. <span class="font-mono">admission.validate_run_type</span> is imported only by <span class="font-mono">web/routes/runs.py</span> and never by the coordinator that re-implements the same matrix (495-522, 556-573). <span class="font-mono">main.js:18</span> dispatches <span class="font-mono">dashboard:composition-selected</span> and no listener exists in the tree, so the Molecule Combination handoff is dropped. <span class="font-mono">compositions.py:88</span> publishes <span class="font-mono">state_id: "composition:&lt;id&gt;"</span>, which <span class="font-mono">bonded_states._validate_id</span> rejects (tested: <span class="font-mono">ValueError: Invalid bonded state ID</span>).</p>
+        </article>
+
+      </section>
+
+      <!-- ── top recommendation ─────────────────────────────────────── -->
+      <section id="top-recommendation">
+        <div class="rounded-xl border-2 border-slate-800 bg-white p-8">
+          <div class="lbl text-slate-500">Top recommendation</div>
+          <h2 class="mt-2 font-serif text-2xl">Start with <a href="#c1" class="underline decoration-emerald-500 decoration-2 underline-offset-4">candidate 1 — the stage protocol</a></h2>
+          <p class="mt-3 text-sm text-slate-700 max-w-3xl">
+            Every recent feature in the log (bonded generation, the molecule-combination panel, the sucrose validation workflow, in-place resume)
+            touched the coordinator plus one of the three protocol modules, and each one paid the same tax: the same setting, the same readiness key
+            and the same stage contract declared a fourth time. One interface there shrinks four of the other candidates — the coordinator's
+            run-type branch (4), the duplicated protocol contract (7) and half of the web surface (6) — into ordinary edits.
+          </p>
+          <p class="mt-3 text-sm text-slate-700 max-w-3xl">
+            If the next feature is the roadmap's mapping-refinement panel, start with <a href="#c3" class="underline">candidate 3</a> instead: that panel
+            lands exactly on the candidate-verdict cluster, so deepening it first means writing the feature once.
+          </p>
+        </div>
+      </section>
+
+      <footer class="border-t border-slate-300 pt-6 text-xs text-slate-500">
+        <div class="lbl text-slate-500 mb-2">Evidence checked in this checkout</div>
+        <ul class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1 list-disc list-inside font-mono text-[11px]">
+          <li>86 python modules, 8 737 lines; 1 868 lines of browser modules</li>
+          <li>266 tests collect; fast suite 5 failed / 242 passed / 19 deselected</li>
+          <li>dashboard/.venv created here; app builds with 69 HTTP rules</li>
+          <li>config/tools.json is read by nothing: 0 hits for "tools.json" under dashboard/</li>
+          <li>bonded_states.get("composition:…") → ValueError: Invalid bonded state ID</li>
+          <li>grep for dashboard:composition-selected → one dispatch, zero listeners</li>
+          <li>dashboard/execution/ddm.py → absent, though AGENTS.md:34 documents it</li>
+          <li>admission.validate_run_type → imported by web/routes/runs.py only</li>
+        </ul>
+      </footer>
+
+    </main>
+  </body>
+</html>

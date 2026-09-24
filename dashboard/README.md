@@ -14,12 +14,18 @@ Application source is grouped by responsibility:
 - `app.py`, `paths.py`: application construction and path configuration.
 - `execution/`: job coordination, stage execution, AA/CG preparation, tools and limits.
 - `models/`: molecule inputs, mappings, bonded states, fragments and evidence gates.
-- `models/composition_topology.py` and `models/compositions.py`: reference-backed
-  sugar/tail assembly and immutable Molecule Combination snapshots.
+- `models/compositions/` and `models/sugars/`: reference-backed sugar/tail assembly
+  and immutable Molecule Combination snapshots, over the ring-recognition and
+  constrained-topology library.
 - `analysis/`: isolated derived analyses and AA reference publication/verification.
 - `web/`: HTTP routes, templates, native JavaScript modules and CSS.
 - `cli/`: screening and bounded fresh-workspace reset.
 - `store.py`, `files.py`: transactional persistence and safe filesystem operations.
+
+Each of these is a few packages deep and has its own README-level ownership note in
+the project guide: `execution/adapters/` and `execution/coordination/`,
+`models/{mappings,bonded,sugars,compositions,molecules}/`,
+`analysis/{validation,runs}/`, and one route module per concept in `web/routes/`.
 
 Tests live in `tests/dashboard/`; shared fixtures isolate all writable stores.
 For a fast edit loop, omit rendered-browser and subprocess/GROMACS checks. Run

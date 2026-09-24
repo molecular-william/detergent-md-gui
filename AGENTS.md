@@ -28,11 +28,11 @@ dashboard.
 
 ## Current repository facts
 
-- The maintained AA→CG path is `aa_workflow -> cg_adapter -> Fast_Forward ->
-  GROMACS`. Any molecule with a compatible AA topology runs through it; the
-  packaged `molecules/DDM` tree supplies the reference example and smoke
-  candidate. `dashboard/execution/ddm.py` is a thin compatibility shim over
-  `cg_adapter.py`.
+- The maintained AA→CG path is `execution/adapters/aa.py ->
+  execution/adapters/cg.py -> Fast_Forward -> GROMACS`. Any molecule with a
+  compatible AA topology runs through it; the packaged `molecules/DDM` tree
+  supplies the reference example and smoke candidate. `cg.py` is the generic CG
+  adapter and the only CG stage pipeline; there is no `ddm` shim.
 - `archive/MemProtMD/` preserves Colab notebooks, legacy scripts, force-field
   files, example structures, MDP files, and archives. Maintained workflow
   assets live under `resources/` and `dashboard/`. The historical
@@ -77,12 +77,13 @@ dashboard.
 
 ## Workflow contract
 
-AA-only runs use `aa_workflow.STAGES`: solvation, neutralization,
-minimization, NVT equilibration, NPT equilibration, NPT production, and
-reference publication. CG runs consume an AA reference — their own parent
-AA-only job or a completed shared reference — and run `cg_adapter.STAGES`:
-AA reference, trajectory mapping (`ff_map`), CG topology (`ff_inter`), CG
-simulation, CG assessment (`ff_assess`), and SASA analysis.
+AA-only runs use `STAGES` from `execution/adapters/aa.py`: solvation,
+neutralization, minimization, NVT equilibration, NPT equilibration, NPT
+production, and reference publication. CG runs consume an AA reference — their
+own parent AA-only job or a completed shared reference — and run `STAGES` from
+`execution/adapters/cg.py`: AA reference, trajectory mapping (`ff_map`), CG
+topology (`ff_inter`), CG simulation, CG assessment (`ff_assess`), and SASA
+analysis.
 
 Every stage records start/end time, command, environment, inputs, outputs,
 exit code, and log path. Runs terminate as `complete`, `failed`, `cancelled`,
