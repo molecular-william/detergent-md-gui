@@ -14,7 +14,7 @@ from dashboard import files
 from dashboard.models.mappings import store as mapping_store
 from dashboard.models import mappings
 from dashboard.execution import workflow
-from dashboard.execution.adapters import cg
+from dashboard.execution.adapters import aa, cg
 
 
 class DashboardTests(unittest.TestCase):
@@ -107,6 +107,28 @@ class DashboardTests(unittest.TestCase):
         data = response.get_json()
         self.assertEqual(data['values']['aa_production_ps'], 50)
         self.assertIn('mdps', data['sources']['AA'])
+
+    def test_aa_cg_defaults_are_the_settings_the_run_will_use(self):
+        """The form and the run must not disagree, at any profile.
+
+        Before this, a draft-smoke AA-to-CG form showed the full-length AA half while
+        the run shortened only the CG half: the profile reached the CG settings and
+        stopped, because the AA half had no profile at all.
+        """
+        for profile in aa.PROFILES:
+            data = self.client.get('/api/defaults?run_type=aa_cg&profile=' + profile).get_json()
+            settings = cg.normalize_settings(None, profile)
+            for key in ('aa_nvt_ps', 'aa_npt_ps', 'aa_production_ps', 'cg_equil_ps', 'cg_production_ps'):
+                self.assertEqual(data['values'][key], settings[key], profile + ': ' + key)
+
+    def test_aa_only_defaults_shorten_with_the_smoke_profile(self):
+        data = self.client.get('/api/defaults?run_type=aa_only&profile=draft-smoke').get_json()
+        self.assertEqual(data['values']['aa_production_ps'], 50)
+        self.assertEqual(data['values']['aa_nvt_ps'] + data['values']['aa_npt_ps'], 10)
+
+    def test_defaults_reject_an_unknown_profile(self):
+        self.assertEqual(self.client.get('/api/defaults?profile=nonsense').status_code, 400)
+        self.assertEqual(self.client.get('/api/defaults?run_type=aa_only&profile=nonsense').status_code, 400)
 
     def test_new_run_rejects_invalid_stage_setting(self):
         with patch.object(cg, 'readiness', return_value={'ready': True}):

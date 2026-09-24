@@ -37,18 +37,30 @@ def molecules_api():
     return jsonify(molecules=aa_molecules.catalogue(c.ROOT/'molecules'))
 
 
+def _requested_profile(default='standard'):
+    """The profile a defaults request asks for. A typo is reported, not silently standard."""
+    profile = request.args.get('profile') or default
+    try:
+        aa.validate_profile(profile)
+    except ValueError as exc:
+        abort(400, str(exc))
+    return profile
+
+
 @blueprint.get('/api/defaults')
 def defaults_api():
     run_type=request.args.get('run_type')
-    if run_type=='aa_only':return jsonify(aa.stage_defaults())
+    if run_type=='aa_only':return jsonify(aa.stage_defaults(_requested_profile()))
     if run_type == 'cg_composition':
-        result = cg.stage_defaults(request.args.get('profile','draft-smoke'))
+        result = cg.stage_defaults(_requested_profile('draft-smoke'))
         result['values'].update({'cg_equil_ps': 10.0, 'cg_production_ps': 50.0})
         return jsonify(result)
     if run_type not in (None,'aa_cg'):abort(400,'Unknown run type')
-    result=cg.stage_defaults(request.args.get('profile','standard'))
+    result=cg.stage_defaults(_requested_profile())
     if run_type=='aa_cg':
-        result['values'].update(aa.DEFAULTS);result['values'].pop('aa_equil_ps',None)
+        # The AA half at this profile, which is what the run will use: aa_equil_ps is
+        # derived from the two AA equilibration durations, so the form shows those.
+        result['values'].update(aa.stage_defaults(_requested_profile())['values']);result['values'].pop('aa_equil_ps',None)
         result['sources']['AA']=aa.VERSION
     return jsonify(result)
 

@@ -532,7 +532,7 @@ class Coordinator:
             if molecule_snapshot and not resume_of:
                 try:aa_molecules.verify_selection(self.ROOT/'molecules',molecule_snapshot)
                 except (OSError,ValueError) as exc:abort(409,str(exc))
-            job=self.aa_job_record(molecule_id or detergent,label,settings,molecule_snapshot if resume_of else None)
+            job=self.aa_job_record(molecule_id or detergent,label,settings,molecule_snapshot if resume_of else None,profile)
             job.update(retry_of=retry_of,resume_of=resume_of,resume_from=resume_from)
             return self.admit_jobs([job],job)
         shared=run_type=='aa_cg'
@@ -599,7 +599,7 @@ class Coordinator:
             if resume_of:abort(409,'Shared CG resume requires its AA reference source')
             # The AA source is an aa_only run: it takes the AA half of the composed settings.
             aa_settings = {key: value for key, value in settings.items() if key in aa.SETTING_SPECS}
-            parent=self.aa_job_record(molecule_id,(str(label)+' · AA source').strip(),aa_settings)
+            parent=self.aa_job_record(molecule_id,(str(label)+' · AA source').strip(),aa_settings,profile=profile)
             job.update(status='waiting',stage='Waiting for AA reference',reference_run_id=parent['id'])
             return self.admit_jobs([parent,job],parent,result=job)
         worker = self.Worker()
@@ -615,11 +615,11 @@ class Coordinator:
         return job
 
 
-    def aa_job_record(self, molecule_id,label,settings,snapshot=None):
+    def aa_job_record(self, molecule_id,label,settings,snapshot=None,profile='standard'):
         try:
             aa_molecules.validate_id(molecule_id)
             selected=snapshot or aa_molecules.selection(self.ROOT/'molecules',molecule_id,run_type='aa_only')
-            settings=aa.normalize_settings(settings)
+            settings=aa.normalize_settings(settings,profile)
             if not snapshot:
                 ready=aa.readiness(self.ROOT/'molecules',molecule_id)
                 if not ready['ready']:raise ValueError('; '.join(ready['blockers']))
@@ -627,7 +627,7 @@ class Coordinator:
         return {'id':uuid.uuid4().hex[:12],'detergent':molecule_id,'molecule_id':molecule_id,'molecule_snapshot':selected,
                 'method':'gromacs','run_type':'aa_only','workflow_version':aa.VERSION,'protocol_version':aa.VERSION,
                 'stage_plan':[name for name,_ in aa.STAGES],'label':str(label)[:160],
-                'status':'queued','stage':'queued','created':self.now(),'settings':settings,'profile':aa.VERSION,
+                'status':'queued','stage':'queued','created':self.now(),'settings':settings,'profile':profile,
                 'layout_version':2,'scientifically_validated':False,'reference_eligible':False}
 
 

@@ -25,13 +25,20 @@ def service(tmp_path,monkeypatch):
     return web.app.test_client()
 
 
-def reference_fixture():
+def reference_fixture(profile='standard'):
+    """A completed, reference-eligible AA run whose recorded settings are its own.
+
+    The profile matters: a consumer inherits the AA half of the run it attaches, and
+    references.resolve refuses a consumer whose inherited AA settings differ from the
+    reference's, so a draft-smoke consumer needs a reference built at draft-smoke.
+    """
     selected=aa_molecules.selection(web.ROOT/'molecules','DDM',run_type='aa_only')
-    job={'id':'111111111111','status':'completed','run_type':'aa_only','reference_eligible':True,'molecule_id':'DDM','molecule_snapshot':selected,'settings':aa.DEFAULTS,'layout_version':2}
+    settings=aa.normalize_settings(None,profile)
+    job={'id':'111111111111','status':'completed','run_type':'aa_only','reference_eligible':True,'molecule_id':'DDM','molecule_snapshot':selected,'settings':settings,'layout_version':2}
     directory=web.RUNS/job['id'];(directory/'stages/07_reference').mkdir(parents=True)
     files.atomic_json(directory/'manifest.json',job|{'stages':[]})
     trajectory=directory/'stages/07_reference/lig.xtc';trajectory.write_bytes(b'Immutable fixture trajectory for lifecycle checks')
-    data={'reference_eligible':True,'molecule_identity':aa_references.identity(selected),'settings':aa.DEFAULTS,
+    data={'reference_eligible':True,'molecule_identity':aa_references.identity(selected),'settings':settings,
           'protocol_version':aa.VERSION,'frames':{'count':3},'sha256':{'stages/07_reference/lig.xtc':files.sha256(trajectory)}}
     files.atomic_json(directory/'stages/07_reference/reference.json',data)
     web.database().insert(job)
@@ -51,6 +58,16 @@ def test_aa_launch_and_clone_do_not_require_cg_tools(service,monkeypatch):
     assert clone.get_json()['settings']['aa_nvt_ps']==5
     assert service.post('/api/jobs/'+job['id']+'/clone',json={'run_type':'unknown'}).status_code==400
     assert service.post('/',json={'run_type':'aa_only','molecule_id':'DDM','mapping_candidate':'anything'}).status_code==400
+
+
+def test_an_aa_only_job_at_the_smoke_profile_records_short_settings(service):
+    """The AA-only half of the same rule: a draft profile shortens an AA-only run too,
+    and the job records what it will use."""
+    response=service.post('/',json={'run_type':'aa_only','molecule_id':'DDM','profile':'draft-smoke'})
+    assert response.status_code==201,response.get_json()
+    settings=response.get_json()['settings']
+    assert settings['aa_production_ps']==50
+    assert settings['aa_nvt_ps']+settings['aa_npt_ps']==10
 
 
 def test_reference_filter_and_hash_tampering(service):
@@ -73,7 +90,7 @@ def test_new_aa_cg_pair_waits_without_taking_second_slot(service,monkeypatch):
 
 
 def test_two_completed_consumers_share_source_and_prevent_deletion(service,monkeypatch):
-    source=reference_fixture()
+    source=reference_fixture('draft-smoke')
     monkeypatch.setattr(cg,'readiness',lambda *a,**k:{'ready':True})
     consumers=[]
     for _ in range(2):
@@ -86,7 +103,7 @@ def test_two_completed_consumers_share_source_and_prevent_deletion(service,monke
 
 
 def test_cg_worker_does_not_pass_reference_run_id_to_preparation(service, monkeypatch):
-    source = reference_fixture()
+    source = reference_fixture('draft-smoke')
     monkeypatch.setattr(cg, 'readiness', lambda *a, **k: {'ready': True})
     captured = {}
 
@@ -141,7 +158,7 @@ def test_new_attempt_preserves_run_type_and_shared_source(service, monkeypatch, 
     if run_type == 'aa_only':
         job = service.post('/', json={'run_type': run_type, 'molecule_id': 'DDM'}).get_json()
     else:
-        source = reference_fixture()
+        source = reference_fixture('draft-smoke')
         with web.app.test_request_context():
             job = web.create_job('DDM', 'fast_forward', profile='draft-smoke',
                                  run_type=run_type, molecule_id='DDM',
@@ -186,7 +203,7 @@ def test_new_attempt_preserves_run_type_and_shared_source(service, monkeypatch, 
 
 
 def test_shared_source_rejects_changed_inherited_temperature(service, monkeypatch):
-    source = reference_fixture()
+    source = reference_fixture('draft-smoke')
     monkeypatch.setattr(cg, 'readiness', lambda *a, **k: {'ready': True})
     response = service.post('/', json={
         'run_type': 'aa_cg', 'molecule_id': 'DDM', 'profile': 'draft-smoke',
@@ -194,6 +211,22 @@ def test_shared_source_rejects_changed_inherited_temperature(service, monkeypatc
     assert response.status_code == 409
     assert 'temperature_k' in response.get_json()['error']
     assert len(web.load()) == 1
+
+
+def test_a_full_length_reference_cannot_serve_a_smoke_consumer(service, monkeypatch):
+    """The consumer's inherited AA half has to be the reference's own.
+
+    A draft profile shortens the AA half, so attaching a full-length reference would
+    record AA settings the reference was never produced with. The profile is what
+    makes the two disagree; the reference is the authority.
+    """
+    source = reference_fixture()
+    monkeypatch.setattr(cg, 'readiness', lambda *a, **k: {'ready': True})
+    response = service.post('/', json={
+        'run_type': 'aa_cg', 'molecule_id': 'DDM', 'profile': 'draft-smoke',
+        'method': 'fast_forward', 'reference_run_id': source['id']})
+    assert response.status_code == 409
+    assert 'aa_nvt_ps' in response.get_json()['error']
 
 
 def test_cancelled_source_cancels_waiting_consumer(service):

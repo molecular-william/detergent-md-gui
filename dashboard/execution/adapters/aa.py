@@ -23,6 +23,16 @@ RUN_HELPERS = (('aa_references.py', aa_references),
                ('files.py', files))
 
 VERSION='charmm36-single-solute-v1'
+# One vocabulary of execution profiles, owned here because it decides AA durations.
+# 'draft-smoke-reference' is the exception: it keeps a full-length AA reference and
+# shortens only the CG half, for a run whose reference is meant to be reused.
+PROFILES=('standard','draft-smoke','draft-smoke-reference')
+DRAFT_DURATIONS={'draft-smoke':{'aa_nvt_ps':5.0,'aa_npt_ps':5.0,'aa_production_ps':50.0}}
+
+
+def validate_profile(profile):
+    if profile not in PROFILES:raise ValueError('Unsupported execution profile')
+    return profile
 MDRUN_GPU_NONBONDED_FLAGS='-gpu_id 0 -nb gpu -pin on'
 MDRUN_GPU_PME_FLAGS=f'{MDRUN_GPU_NONBONDED_FLAGS} -pme gpu -pmefft gpu'
 
@@ -64,13 +74,23 @@ SETTING_SPECS={'aa_nvt_ps':('AA NVT duration',1,1000000),'aa_npt_ps':('AA NPT du
                'box_padding_nm':('Box padding',1.3,10),'aa_seed':('AA random seed',1,2147483646)}
 
 
-def stage_defaults():
-    return {'values':dict(DEFAULTS),'sources':{'AA':VERSION+' · CHARMM36 July 2022 / CHARMM TIP3P'},'profile':VERSION}
+def stage_defaults(profile='standard'):
+    """The settings an AA run starts from, at one execution profile.
+
+    A draft profile shortens the work: it is a diagnostic execution check, short enough
+    to run interactively, and it says nothing about the physics. The CG composition
+    derives its AA durations from these, so a profile that is not applied here reaches
+    an AA-to-CG run as a full-length AA reference (see cg.mirror_aa_settings).
+    """
+    validate_profile(profile)
+    values = dict(DEFAULTS)
+    values.update(DRAFT_DURATIONS.get(profile, {}))
+    return {'values': values, 'sources': {'AA': VERSION + ' · CHARMM36 July 2022 / CHARMM TIP3P'}, 'profile': VERSION}
 
 
-def normalize_settings(settings=None):
+def normalize_settings(settings=None, profile='standard'):
     if settings is not None and not isinstance(settings,dict):raise ValueError('AA settings must be an object')
-    result=dict(DEFAULTS)
+    result=dict(stage_defaults(profile)['values'])
     for key,value in (settings or {}).items():
         if key not in SETTING_SPECS:raise ValueError('Unknown AA setting: '+key)
         if isinstance(value,bool):raise ValueError('AA settings must be numeric')
@@ -228,7 +248,7 @@ PROTOCOL = protocol.Protocol(
     stages=_protocol_stages,
     settings_specs=lambda: SETTING_SPECS,
     stage_defaults=stage_defaults,
-    normalize_settings=lambda settings=None, profile='standard': normalize_settings(settings),
+    normalize_settings=lambda settings=None, profile='standard': normalize_settings(settings, profile),
     readiness=_protocol_readiness,
     prepare=_protocol_prepare,
     tool_report=tool_metadata,

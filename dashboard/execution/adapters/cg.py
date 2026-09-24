@@ -140,7 +140,7 @@ def normalize_settings(settings=None, profile='standard'):
     unknown = set(supplied) - set(SETTING_SPECS) - set(aa.SETTING_SPECS)
     if unknown:
         raise ValueError('Unknown run settings: ' + ', '.join(sorted(unknown)))
-    aa_settings = aa.normalize_settings({key: value for key, value in supplied.items() if key in aa.SETTING_SPECS})
+    aa_settings = aa.normalize_settings({key: value for key, value in supplied.items() if key in aa.SETTING_SPECS}, profile)
     cg_settings = _normalize_cg_settings(
         {key: value for key, value in supplied.items() if key in SETTING_SPECS} | mirror_aa_settings(aa_settings),
         profile)
@@ -148,8 +148,7 @@ def normalize_settings(settings=None, profile='standard'):
 
 
 def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM', profile='standard', settings=None, mapping_candidate=None, bonded_state_snapshot=None, bonded_intent='fit_and_simulate', shared_reference=None, reference_root=None, molecule_snapshot=None, molecule_root=None):
-    if profile not in ('standard', 'draft-smoke', 'draft-smoke-reference'):
-        raise ValueError('Unsupported execution profile')
+    aa.validate_profile(profile)
     if molecule_snapshot is None or not shared_reference:
         raise ValueError('CG preparation requires a molecule snapshot and shared AA reference')
     names = CGNames.for_snapshot(molecule_snapshot)
@@ -157,8 +156,8 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     require_script_compatibility(names)
     stage_plan, _, _ = stage_contract(names)
 
-    aa = run_dir / '1_AA-reference'
-    aa.mkdir()
+    aa_dir = run_dir / '1_AA-reference'
+    aa_dir.mkdir()
     reference_source = None
     from ...analysis.runs import references as aa_references
     aa_references.resolve(reference_root, shared_reference['source_run_id'], shared_reference['sha256'])
@@ -206,12 +205,12 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
         sim = run_dir / '4_CG_sim'
         shutil.copytree(TUTORIAL_TEMPLATE / '4_CG_sim/inputs', sim / 'inputs')
         (sim / 'system_EMPTY.top').write_text(f'#include "inputs/martini_v3.0.0.itp"\n#include "inputs/martini_v3.0.0_solvents_v1.itp"\n#include "{names.final_itp}"\n[ system ]\n{names.residue_name} draft in pure water\n[ molecules ]\n{names.residue_name} 1\n')
-        for folder, mdp_names in ((aa, ('em.mdp','eq.mdp','run.mdp')), (sim / 'inputs', ('minimization.mdp','eq.mdp','md.mdp'))):
-            if folder == aa and not inline_aa: continue
+        for folder, mdp_names in ((aa_dir, ('em.mdp','eq.mdp','run.mdp')), (sim / 'inputs', ('minimization.mdp','eq.mdp','md.mdp'))):
+            if folder == aa_dir and not inline_aa: continue
             update_mdp(folder / mdp_names[0], {'nsteps': 20000, 'define': ''})
             for filename, steps in zip(mdp_names[1:], (5000, 25000)):
                 changes = {'nsteps': steps, 'dt': 0.002, 'nstlog': 100, 'nstenergy': 100, 'pcoupl': 'no', 'gen-seed': 20260911}
-                if folder == aa:
+                if folder == aa_dir:
                     changes['nstxout-compressed'] = 100
                 else:
                     changes['nstxtcout'] = 100
@@ -226,9 +225,9 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
 
     settings = normalize_settings(settings, profile)
     if inline_aa:
-        aa_dt_eq = _mdp_value(aa / 'eq.mdp', 'dt'); aa_dt_prod = _mdp_value(aa / 'run.mdp', 'dt')
-        update_mdp(aa / 'eq.mdp', {'nsteps': round(settings['aa_equil_ps'] / aa_dt_eq), 'ref_t': settings['temperature_k'], 'nstxout-compressed': max(1, round(settings['output_interval_ps'] / aa_dt_eq))})
-        update_mdp(aa / 'run.mdp', {'nsteps': round(settings['aa_production_ps'] / aa_dt_prod), 'ref_t': settings['temperature_k'], 'nstxout-compressed': max(1, round(settings['output_interval_ps'] / aa_dt_prod))})
+        aa_dt_eq = _mdp_value(aa_dir / 'eq.mdp', 'dt'); aa_dt_prod = _mdp_value(aa_dir / 'run.mdp', 'dt')
+        update_mdp(aa_dir / 'eq.mdp', {'nsteps': round(settings['aa_equil_ps'] / aa_dt_eq), 'ref_t': settings['temperature_k'], 'nstxout-compressed': max(1, round(settings['output_interval_ps'] / aa_dt_eq))})
+        update_mdp(aa_dir / 'run.mdp', {'nsteps': round(settings['aa_production_ps'] / aa_dt_prod), 'ref_t': settings['temperature_k'], 'nstxout-compressed': max(1, round(settings['output_interval_ps'] / aa_dt_prod))})
     if (run_dir / '4_CG_sim/inputs/eq.mdp').is_file():
         cg_eq = run_dir / '4_CG_sim/inputs/eq.mdp'; cg_md = run_dir / '4_CG_sim/inputs/md.mdp'
         eq_dt = _mdp_value(cg_eq, 'dt'); md_dt = _mdp_value(cg_md, 'dt')
@@ -278,8 +277,7 @@ def tool_metadata():
 
 def readiness(molecule_id, method, profile='standard', mapping_candidate=None, molecule_root=None):
     """Check AA inputs, CG tools, and mapping for any molecule id."""
-    if profile not in ('standard','draft-smoke','draft-smoke-reference'):
-        raise ValueError('Unknown execution profile')
+    aa.validate_profile(profile)
     if method != 'fast_forward':
         return {'ready': False, 'checks': [], 'blockers': ['This method is not connected to an executable workflow.']}
     molecule_root = Path(molecule_root) if molecule_root is not None else ROOT / 'molecules'
