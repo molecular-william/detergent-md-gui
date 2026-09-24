@@ -17,8 +17,23 @@ from ...execution.adapters.micelle import run_micelle_job
 from ...models.molecules import aa as aa_molecules
 from flask import Blueprint, Response, jsonify, render_template, request, send_file
 from .common import coordinator, pagination
+from .. import views
 
 blueprint = Blueprint('runs', __name__)
+
+
+def view_of(c, job, summary=False):
+    """The browser's view of one run: the view module decides, the coordinator supplies.
+
+    Two of its inputs are the coordinator's to know -- which of its workers holds the
+    run, and where the console log is (outside the run directory in the pre-2.0 layout).
+    """
+    run_dir = c.run_path(job) if views.usable_run_id(job) else None
+    if run_dir is None:
+        return views.run_view(job, summary=summary)
+    return views.run_view(job, run_dir=run_dir, manifest=c.manifest_data(job),
+                          ownership=c.ownership(job), busy=c.externally_busy(job),
+                          console_log=c.log_path(job), summary=summary)
 
 @blueprint.get('/')
 def index():
@@ -29,10 +44,10 @@ def index():
 def jobs_api():
     c = coordinator()
     summary = request.args.get('view') == 'summary'
-    if 'page' not in request.args: return jsonify([c.public_job(j, summary=summary) for j in c.load()])
+    if 'page' not in request.args: return jsonify([view_of(c, j, summary=summary) for j in c.load()])
     page, limit = pagination()
     rows, total = c.database().page(page, limit, request.args.get('status',''), request.args.get('search','')[:160])
-    payload = {'jobs': [c.public_job(j, summary=summary) | {'revision': revision} for j,revision in rows], 'total': total, 'page': page, 'limit': limit}
+    payload = {'jobs': [view_of(c, j, summary=summary) | {'revision': revision} for j,revision in rows], 'total': total, 'page': page, 'limit': limit}
     etag = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
     if request.if_none_match.contains(etag): return Response(status=304, headers={'ETag': etag})
     response = jsonify(payload); response.set_etag(etag); return response
@@ -51,7 +66,7 @@ def queue():
     if intent not in ('fit_and_simulate','fit_only','reuse_state'): abort(400,'Unknown bonded run intent')
     specs=set(aa.SETTING_SPECS) if data.get('run_type')=='aa_only' else set(cg.SETTING_SPECS)|set(aa.SETTING_SPECS)
     job = c.create_job(data.get('detergent') or data.get('molecule_id') or data.get('composition_id'), data.get('method'), data.get('label', ''), profile=data.get('profile', 'standard'), settings={k: data.get(k) for k in specs if data.get(k) not in (None, '')}, reference_run_id=data.get('reference_run_id') or None, mapping_candidate=data.get('mapping_candidate'), bonded_state_id=data.get('bonded_state_id') or None, bonded_intent=intent, temporary_validation=str(data.get('temporary_validation','')).lower() in ('1','true','yes'), molecule_id=data.get('molecule_id'),run_type=data.get('run_type'), composition_id=data.get('composition_id'))
-    return jsonify(c.public_job(job)), 201
+    return jsonify(view_of(c, job)), 201
 
 
 @blueprint.post('/api/micelle/build')
@@ -73,7 +88,7 @@ def micelle_build_api():
         c.update_job(jid, status='completed' if result['status']=='completed' else 'failed', stage='complete' if result['status']=='completed' else 'micelle build', ended_at=c.now(), error=result.get('stderr') if result['status']!='completed' else None, command=' '.join(result['command']))
     except Exception as exc:
         c.update_job(jid, status='failed', stage='micelle build', ended_at=c.now(), error=str(exc))
-    return jsonify(c.public_job(c.lookup(jid))), 201
+    return jsonify(view_of(c, c.lookup(jid))), 201
 
 
 @blueprint.post('/control/<jid>/<action>')
@@ -81,7 +96,7 @@ def control(jid, action):
     c = coordinator()
     if action != 'cancel': abort(400, 'Only cancellation is supported')
     job, status = c.cancel_job(jid)
-    return jsonify(c.public_job(job)), status
+    return jsonify(view_of(c, job)), status
 
 
 @blueprint.post('/retry/<jid>')
@@ -91,7 +106,7 @@ def retry(jid):
     if job['status'] != 'failed':
         abort(409, 'Only failed runs can be retried')
     new = c.create_job(job['detergent'], job['method'], job.get('label', ''), retry_of=jid, profile=job.get('profile', 'standard'), settings=job.get('settings'), reference_run_id=job.get('reference_run_id'), mapping_snapshot=job.get('mapping_snapshot'), molecule_id=job.get('molecule_id'), molecule_snapshot=job.get('molecule_snapshot'),run_type=job.get('run_type'),bonded_state_id=job.get('bonded_state_id'),bonded_intent=job.get('bonded_intent','fit_and_simulate'))
-    return jsonify(c.public_job(new)), 201
+    return jsonify(view_of(c, new)), 201
 
 
 @blueprint.get('/api/jobs/<jid>/log')
@@ -148,7 +163,7 @@ def delete_job(jid):
 def job_detail(jid):
     c = coordinator()
     job = c.lookup(jid)
-    return jsonify(c.public_job(job) | {'tools': c.manifest_data(job).get('tools', {})})
+    return jsonify(view_of(c, job) | {'tools': c.manifest_data(job).get('tools', {})})
 
 
 @blueprint.post('/api/jobs/<jid>/clone')
@@ -166,7 +181,7 @@ def clone_job(jid):
                      settings=data.get('settings', source.get('settings')), reference_run_id=(data.get('reference_run_id',source.get('reference_run_id')) or None) if effective_type!='aa_only' else None,
                      mapping_candidate=data.get('mapping_candidate'), mapping_snapshot=source.get('mapping_snapshot') if data.get('run_type',source.get('run_type'))!='aa_only' and data.get('mapping_candidate', source.get('mapping_candidate')) == source.get('mapping_candidate') else None, molecule_id=data.get('molecule_id', source.get('molecule_id')),
                      run_type=effective_type,bonded_state_id=None if effective_type=='aa_only' else data.get('bonded_state_id',source.get('bonded_state_id')),bonded_intent=data.get('bonded_intent',source.get('bonded_intent','fit_and_simulate')))
-    return jsonify(c.public_job(new)), 201
+    return jsonify(view_of(c, new)), 201
 
 
 @blueprint.post('/api/jobs/<jid>/resume')
@@ -175,7 +190,7 @@ def resume_job(jid):
     data = request.get_json() or {}
     if not isinstance(data, dict): abort(400, 'Expected an object')
     job = c.resume_in_place(jid, data.get('stage'))
-    return jsonify(c.public_job(job)), 200
+    return jsonify(view_of(c, job)), 200
 
 
 @blueprint.get('/api/jobs/<jid>/artifacts')
