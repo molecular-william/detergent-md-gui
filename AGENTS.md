@@ -40,8 +40,12 @@ dashboard.
 - `martini_v3.itp`, `martini_v300.zip`, `insane3.py`, and `mdp_files/` are
   local assets. Detergent support and residue/topology coverage must be
   verified per molecule.
-- `~/Downloads/gromacs-2026.0` appears to be a source/build tree; locate the
-  built `gmx` before execution and record version/path in each run manifest.
+- Tool locations are declared in `config/tools.json` and resolved by
+  `dashboard/execution/tools.py`: a declared path is verified executable before use,
+  and a declaration that cannot be honoured resolves to nothing rather than to a
+  substitute. Record the resolved version and path in each run manifest.
+  (`~/Downloads/gromacs-2026.0` is a source tree with no built `gmx`; the build in
+  use on this machine is `/usr/local/gromacs/2026.3/bin/gmx`.)
 - Carbohydrate validation is an immutable analysis attached to a completed
   source run. The dashboard exposes representation modes at
   `/api/mappings/representations`, molecule-specific target metadata at
