@@ -14,11 +14,15 @@ import re
 
 try:
     from ... import files, paths
-except ImportError:
+    _PROJECT_ROOT = paths.PROJECT_ROOT
+except ImportError:  # imported as a run-local copy: no package, and no paths module beside it
     import files
-    import paths
+    _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-PACKAGED = paths.PROJECT_ROOT / 'molecules/DDM/results/MMFF'
+# The packaged DDM results are read through the project root when the package is
+# importable. A run-local copy never reads them, so its fallback only has to
+# resolve to something; it must not require a module the run directory lacks.
+PACKAGED = _PROJECT_ROOT / 'molecules/DDM/results/MMFF'
 
 
 def validate_id(value):

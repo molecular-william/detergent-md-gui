@@ -11,6 +11,15 @@ from ...analysis.runs import references as aa_references
 from ..environment import FORCE_FIELD, environment, probe_tool
 from ..stages import Stage, stage_tables
 
+# Modules copied into every run's common/ directory. The names are part of the
+# run contract, not a detail: the generated stage scripts invoke
+# ../common/aa_references.py, and the copied publication helper imports
+# aa_molecules by module name. Copying each module under its own __file__ name
+# silently breaks both whenever a module moves.
+RUN_HELPERS = (('aa_references.py', aa_references),
+               ('aa_molecules.py', aa_molecules),
+               ('files.py', files))
+
 VERSION='charmm36-single-solute-v1'
 MDRUN_GPU_NONBONDED_FLAGS='-gpu_id 0 -nb gpu -pin on'
 MDRUN_GPU_PME_FLAGS=f'{MDRUN_GPU_NONBONDED_FLAGS} -pme gpu -pmefft gpu'
@@ -140,8 +149,8 @@ def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
     preparation['prepared_gro_sha256']=files.sha256(molecule/'molecule.gro')
     if any(p.is_symlink() for p in FORCE_FIELD.rglob('*')):raise ValueError('Force-field symlinks are unsupported')
     shutil.copytree(FORCE_FIELD,common/FORCE_FIELD.name)
-    for module in (aa_references, aa_molecules, files):
-        shutil.copy2(Path(module.__file__), common/Path(module.__file__).name)
+    for name,module in RUN_HELPERS:
+        shutil.copy2(Path(module.__file__), common/name)
     context={'protocol_version':VERSION,'settings':settings,'molecule_snapshot':molecule_snapshot,
              'input_preparation':preparation, 'force_field_sha256':files.hashes(common/FORCE_FIELD.name),'scientifically_validated':False}
     files.atomic_json(common/'context.json',context)

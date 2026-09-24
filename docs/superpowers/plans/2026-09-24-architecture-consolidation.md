@@ -276,15 +276,25 @@ What the executed move changed about this tree, and why:
   separate, reviewable change; the guard test lists both the retired and the target
   paths, so the move cannot silently half-land.
 
-Two latent path defects the move exposed and this phase fixed: after `cg_adapter.py`
+Three latent path defects the move exposed and Phase 1 or Phase 2 fixed: after `cg_adapter.py`
 became `execution/adapters/cg.py`, its `SCRIPTS` constant computed
 `execution/adapters/scripts` (absent) — every script copy in run preparation would
-have raised `FileNotFoundError` at the first real CG run; and after `aa_molecules.py`
+have raised `FileNotFoundError` at the first real CG run; after `aa_molecules.py`
 became `models/molecules/aa.py`, `PACKAGED` computed
-`dashboard/molecules/DDM/results/MMFF`. Both are now anchored to the package root
-rather than counted parents. `test_module_layout.py` walks every dashboard module's
-module-level `Path` constants and asserts they exist, because this failure class is
-invisible to import checks and unit tests.
+`dashboard/molecules/DDM/results/MMFF`; and the AA adapter copied its run helpers
+under `Path(module.__file__).name`, so a prepared run received `references.py` and
+`aa.py` while the generated stage scripts invoke `../common/aa_references.py` and
+the copied publication helper imports `aa_molecules` — the AA neutralization and
+reference-publication stages would have failed on a missing file.
+
+All three are now anchored to something explicit: the package root rather than
+counted parents, and an `RUN_HELPERS` table of `(name, module)` pairs rather than
+whatever the file happens to be called. Two guards cover the class, because it is
+invisible to import checks and to unit tests that never run a stage:
+`test_module_layout.py` walks every dashboard module's module-level `Path`
+constants and asserts they exist, and `test_run_helpers.py` asserts the helper
+names the stage scripts invoke are the names a run directory receives, and that
+those copies import with no package beside them.
 
 ### Task 1.1: Move `execution/` into `adapters/` and `coordination/`
 
