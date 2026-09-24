@@ -156,7 +156,7 @@ export function createMappings() {
     } catch (error) { editorMessage(error.message); }
   }
 
-  function renderValidationReports(tasks) {
+  function renderValidationReports(tasks, sourceRunId) {
     const target = $('#carbohydrate-validation-reports');
     if (!target) return;
     target.replaceChildren();
@@ -172,6 +172,16 @@ export function createMappings() {
           const item = document.createElement('li'); item.textContent = `${name}: ${result.status || 'not reported'}`; list.append(item);
         }
         card.append(list);
+        const plot = (task.outputs || []).find(path => path.endsWith('/surface-comparison.html'));
+        if (plot) {
+          const link = document.createElement('a');
+          link.href = `/api/jobs/${encodeURIComponent(sourceRunId)}/artifacts/${plot.split('/').map(encodeURIComponent).join('/')}?inline=1`;
+          link.target = '_blank';
+          link.rel = 'noopener';
+          link.textContent = 'Open AA/CG surface comparison';
+          link.className = 'validation-plot-link';
+          card.append(link);
+        }
       }
       target.append(card);
     }
@@ -205,7 +215,7 @@ export function createMappings() {
   }
 
   async function refreshValidationReports(jid) {
-    try { renderValidationReports(await cachedApi('/api/jobs/' + encodeURIComponent(jid) + '/carbohydrate-validation', {maxAge: 1000})); }
+    try { renderValidationReports(await cachedApi('/api/jobs/' + encodeURIComponent(jid) + '/carbohydrate-validation', {maxAge: 1000}), jid); }
     catch (error) { setText($('#validation-target-status'), error.message); }
   }
 

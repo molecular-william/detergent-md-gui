@@ -20,6 +20,9 @@ def test_validation_catalog_exposes_modes_tiers_and_cited_targets(isolated_works
     targets = client.get('/api/mappings/validation-targets?molecule_id=Maltose')
     assert targets.status_code == 200
     assert targets.json['datasets'][0]['citation']
+    sucrose = client.get('/api/mappings/validation-targets?molecule_id=Sucrose')
+    assert sucrose.status_code == 200
+    assert sucrose.json['datasets'][0]['id'] == 'sucrose-martini3-paper-v1'
 
 
 def test_validation_queue_rejects_unknown_representation(isolated_workspace):

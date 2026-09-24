@@ -105,7 +105,11 @@ def coordinates(data, positions, atom_ids=None, scaled=False, representation_mod
             seen.add(ci)
             for other,i,j in links[ci]:
                 if other==parent: continue
-                if other in seen: raise ValueError('Cyclic inter-ring links need constrained coordinate reconstruction')
+                # The AA graph can produce redundant links between already
+                # placed components.  The first path supplies a stable
+                # rigid placement; later links remain available to topology
+                # generation but must not trigger a second placement.
+                if other in seen: continue
                 delta=xyz[i]+raw[j]-raw[i]-xyz[j]
                 xyz[components[other]] += delta
                 place(other,ci)

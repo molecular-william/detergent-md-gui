@@ -31,3 +31,35 @@ Validation status is independent of mapping approval and production
 authorization. A completed analysis proves that the requested calculations ran;
 it does not establish a scientifically validated model without complete,
 target-backed evidence.
+
+## Sucrose diagnostic setup
+
+The dashboard discovers sucrose from `molecules/Sucrose` when its SwissParam
+topology and coordinates are present. Restart the dashboard after adding a new
+molecule so the process loads the current validation routes and molecule
+catalogue:
+
+```bash
+dashboard/.venv/bin/python dashboard/app.py
+```
+
+In **CG Bead Assignment**, select **Sucrose** and use **Generate automatic
+candidate**. The current sugar recognizer covers one hexopyranose ring and
+keeps the remaining sucrose graph as a provisional connected draft. Its
+limitations are stored in the candidate provenance; it is suitable for a
+diagnostic execution check, not an official Martini sucrose parameterization.
+
+For a reproducible short AA-to-CG diagnostic, select the saved sucrose mapping
+in **New Run**, choose `draft-smoke`, and start an AA-CG run. The coordinator
+creates the AA source and waiting CG child together. The run records the
+molecule snapshot, mapping snapshot, seeds, GPU-enabled GROMACS commands, and
+all stage logs. Once the child completes, select the completed source run in
+the carbohydrate validation controls and run a `Setup check` with the
+`sucrose-martini3-paper-v1` target.
+
+The validation attempt can publish the existing immutable
+`analysis/surfaces/surface-comparison.html` Plotly artifact and SASA statistics
+for AA, raw mapped, ring-scaled mapped, and simulated CG coordinates. These
+plots are diagnostic for short trajectories. The paper's 200 ns geometry
+sampling, 19-window transfer calculations, and 500 ns osmotic-pressure series
+remain required before an evidence run can be complete.

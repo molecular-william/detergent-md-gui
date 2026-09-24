@@ -26,3 +26,14 @@ def test_physical_only_coordinates_keep_scaled_ring_cogs_without_tc4_atoms():
     positions = [atom['xyz'] for atom in structure['atoms']]
 
     assert len(coordinates(physical, positions, scaled=True)) == len(physical['beads'])
+
+
+def test_scaled_coordinates_ignore_redundant_component_links():
+    structure = mappings.molecule()
+    candidate = mappings.automatic_candidate(structure, 'DDM')
+    candidate['connections'].append(['TAIL1', 'TAIL3'])
+    positions = [atom['xyz'] for atom in structure['atoms']]
+
+    result = coordinates(candidate, positions, scaled=True)
+
+    assert len(result) == len(candidate['beads'])
