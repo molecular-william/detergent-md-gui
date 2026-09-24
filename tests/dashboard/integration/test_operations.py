@@ -224,10 +224,10 @@ class ResumeTests(unittest.TestCase):
     pytestmark = pytest.mark.slow
 
     def test_resume_reuses_verified_stage_and_keeps_old_attempt(self):
-        # The resume path records tool versions, so the probe is stubbed: the
-        # vendored Fast_Forward package is not installed in this checkout, and
-        # the subject here is resume bookkeeping. The stage plan comes from the
-        # runner's own seam (stage_definitions), which is what run() iterates.
+        # The resume path records tool versions, so the probe is stubbed: this
+        # test is about resume bookkeeping, not about which tools this machine
+        # happens to have installed. The stage plan comes from the runner's own
+        # seam (stage_definitions), which is what run() iterates.
         with tempfile.TemporaryDirectory() as temp, patch.object(workflow,'stage_definitions',lambda metadata: ([('first','first/run.sh'),('second','second/run.sh')], {}, {'first':('result.txt',),'second':('result.txt',)})), patch.object(cg,'tool_metadata',return_value={'gmx':{'path':'stub'}}):
             root=Path(temp); source=root/'source'; source.mkdir(); stages=source/'stages'; stages.mkdir()
             for name in ('first','second'):

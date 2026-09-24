@@ -44,10 +44,10 @@ def test_tool_report_returns_a_mapping_or_fails_loudly(run_type):
     """A tool that cannot be reported must fail the report, not be left out of it.
 
     Preparation records this mapping in the run manifest, so a partial answer
-    would let a run start on tools nobody verified. On this checkout the
-    Fast_Forward Python package is not installed in the dashboard virtualenv, so
-    `aa_cg` takes the failure branch; the environment gap is recorded in the
-    project guide, and what is under test here is that the gap is not silent.
+    would let a run start on tools nobody verified. What is under test is that a
+    gap is loud rather than silent: `aa_cg` either returns a full mapping or
+    raises while naming the tool it could not report, whichever this machine's
+    environment supports.
     """
     adapter = protocol.adapter_for(run_type)
     try:

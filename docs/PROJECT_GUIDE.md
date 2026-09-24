@@ -38,12 +38,18 @@ models/ owns molecular definitions, grouped by concept: mappings/ (candidate sch
 dashboard/README.md describes source ownership in detail and lists test commands.
 
 ## Environment
-The interpreter lives in dashboard/.venv/. Existing virtual environments cannot be moved because launchers include absolute paths. Scientific resources and the local Fast_Forward package live under resources/. Fresh setup:
+The interpreter lives in dashboard/.venv/. Existing virtual environments cannot be moved because launchers include absolute paths. Scientific resources and the local Fast_Forward package live under resources/. Fresh setup, from the repository root:
 
 ```bash
 python -m venv --system-site-packages dashboard/.venv
+git clone --depth 1 https://github.com/Martini-Force-Field-Initiative/fast_forward resources/parameterizers/fast_forward
+git -C resources/parameterizers/fast_forward apply "$PWD/resources/patches/fast_forward-dihedral-membership.patch"
 dashboard/.venv/bin/python -m pip install --no-build-isolation --no-deps ./resources/parameterizers/fast_forward
 ```
+
+Fast_Forward also needs lmfit, cgsmiles, matplotlib, MDAnalysis, numba, pbr, pysmiles, tqdm and vermouth; `--no-deps` installs the package alone, so add any that are missing (`pip install lmfit cgsmiles` pulls asteval, dill and uncertainties with lmfit).
+
+`resources/parameterizers/` is gitignored, which means the vendor tree and the installed package are both outside version control. A rebuilt virtualenv therefore loses the local patch and silently runs pristine upstream, where the `dihedrals` getter reports an empty system for every molecule and no angle is ever recognised as part of a dihedral, so restricted bending is never assigned. The tracked patch `resources/patches/fast_forward-dihedral-membership.patch` is the record, `unit/test_carbohydrates.py` fails when the installed fitter is not the vendored source, and the run manifest records the sha256 of the fitted `interaction_fit.py`. The patch was written against upstream commit `718ce2de`; tags `v0.0.2` and `v0.0.3` carry both defects too, so no tag can be pinned instead of patching.
 
 Readiness checks tool executables and imports before launch. Every run captures resolved tool paths, versions, commands, environment, and input/script hashes. No package installation happens inside simulation jobs.
 
@@ -251,14 +257,18 @@ Serial pytest commands require no additional runner plugin. Threaded execution i
 
 ### Environment gaps
 
-Measured on 2026-09-24 with `dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q -p no:cacheprovider`: **245 passed, 2 skipped, 19 deselected**. Two tests skip by design when a vendor tree is absent — neither skip is a defect in the dashboard:
+Measured on this checkout with `dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q -p no:cacheprovider`: **309 passed, 19 deselected, no skips**.
 
-| Test | Skip reason | Restored by |
+The two tests that used to skip by design on a missing vendor tree now run, because the Fast_Forward source tree is provisioned and patched:
+
+| Test | Previously | Now |
 | --- | --- | --- |
-| `integration/test_mapping_exports.py::test_fast_forward_parser_reads_names_and_order` | `resources/parameterizers/fast_forward/fast_forward/map_file_parers.py` is absent | provisioning the Fast_Forward Python source tree |
-| `unit/test_carbohydrates.py::test_ff_dihedral_membership_controls_restricted_bending` | same gap (`interaction_fit.py`) | same |
+| `integration/test_mapping_exports.py::test_fast_forward_parser_reads_names_and_order` | skipped: `map_file_parers.py` absent | passes against the vendored source |
+| `unit/test_carbohydrates.py::test_ff_dihedral_membership_controls_restricted_bending` | skipped: `interaction_fit.py` absent | passes; it pins both local patches |
 
-Both resolve their path through `tests/dashboard/tool_paths.py` instead of a literal path, so a missing vendor tree skips with a reason rather than failing for a reason unrelated to the code under test.
+Both still resolve their path through `tests/dashboard/tool_paths.py` instead of a literal path, so a missing vendor tree skips with a reason rather than failing for a reason unrelated to the code under test. Provisioning is not the whole story on its own: pristine upstream passes the parser test and fails the membership test, which is why the tracked patch is part of setup (see Environment). `unit/test_carbohydrates.py::test_installed_fast_forward_is_the_vendored_source` fails when the installed package is not the vendored source, so a rebuilt virtualenv cannot silently revert to upstream behaviour.
+
+Measured toolchain on this machine: GROMACS 2026.3 at `/usr/local/gromacs/2026.3/bin/gmx` (CUDA, OpenMPI), Fast_Forward 0.0.1.dev1 built from the patched vendor tree (fitter sha256 `0ab9252d…`), MDAnalysis 2.9.0, numba 0.61.2, vermouth 0.15.0. `config/tools.json` still names `~/Downloads/gromacs-2026.0/build/bin/gmx`, which does not exist on this machine; the resolved path above is what readiness actually finds.
 
 `unit/test_mapping_references.py` derives the expected reference ranks from the sources present rather than asserting ranks 1-3: `references/M3-Small-Molecules/` and `references/M3-Bible/` are partial clones, so `models/martini_v3.0.0_small_molecules_v1.itp` and `src/MartiniCGSmilesDB_v6.xlsx` are missing and `load_index` reports rank 1 only (verified: 1 source, 50 records, no diagnostics). Provisioning those files widens the index without changing the test.
 

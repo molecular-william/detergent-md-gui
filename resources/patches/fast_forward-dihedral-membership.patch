@@ -1,0 +1,37 @@
+diff --git a/fast_forward/interaction_fit.py b/fast_forward/interaction_fit.py
+index 1ed8926..3d2606c 100644
+--- a/fast_forward/interaction_fit.py
++++ b/fast_forward/interaction_fit.py
+@@ -27,15 +27,15 @@ def _is_part_of_dihedral(angle_atoms, dihedrals):
+     bool
+         True if angle is part of a dihedral, False otherwise
+     """
+-    match = False
+     for dih in dihedrals:
+-        match = (
++        if (
+             np.array_equal(angle_atoms, dih[0:3]) or
+             np.array_equal(angle_atoms, dih[1:4]) or
+             np.array_equal(angle_atoms[::-1], dih[0:3]) or
+             np.array_equal(angle_atoms[::-1], dih[1:4])
+-        )
+-    return match
++        ):
++            return True
++    return False
+ 
+ def _gaussian_fitter(x, y, initial_center, initial_sigma, initial_amplitude):
+     """
+@@ -348,7 +348,11 @@ class InteractionFitter:
+ 
+     @property
+     def dihedrals(self):
+-        return getattr(self, "__dihedrals", [])
++        # ``self.__dihedrals`` is name-mangled to ``_InteractionFitter__dihedrals``
++        # inside this class; looking it up by the unmangled string silently misses
++        # it and reports an empty system, which disables the type-10 angle branch
++        # in fit_to_gmx(). Read the attribute through the class instead.
++        return self.__dihedrals or []
+ 
+     @dihedrals.setter
+     def dihedrals(self, interaction_groups):

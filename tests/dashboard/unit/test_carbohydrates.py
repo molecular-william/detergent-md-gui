@@ -118,6 +118,30 @@ def test_ff_dihedral_membership_controls_restricted_bending():
     assert not module._is_part_of_dihedral([0,1,6],fitter.dihedrals)
 
 
+def test_installed_fast_forward_is_the_vendored_source():
+    """The interpreter must run the source the other tests pin.
+
+    The vendor tree is gitignored, so a rebuilt virtualenv silently falls back to
+    pristine upstream: the dihedrals getter then reports an empty system, no
+    angle is recognised as part of a dihedral, and restricted bending is never
+    assigned. Compare what is installed against the vendored file.
+    """
+    import hashlib
+    import importlib.util
+    path = fast_forward_source('interaction_fit.py')
+    if path is None:
+        pytest.skip('Fast_Forward source is not provisioned in this checkout')
+    spec = importlib.util.find_spec('fast_forward.interaction_fit')
+    if spec is None or not spec.origin:
+        pytest.skip('the Fast_Forward package is not installed for this interpreter')
+    installed = Path(spec.origin)
+    digest = lambda candidate: hashlib.sha256(Path(candidate).read_bytes()).hexdigest()
+    assert digest(installed) == digest(path), (
+        f'the installed fitter {installed} is not the vendored source {path}; reinstall it with: '
+        'pip install --force-reinstall --no-cache-dir --no-build-isolation --no-deps '
+        './resources/parameterizers/fast_forward')
+
+
 def test_three_repeat_units_get_additional_orientation_torsion():
     from vermouth.gmx import read_itp
     from vermouth.forcefield import ForceField
