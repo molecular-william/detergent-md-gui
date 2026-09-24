@@ -10,7 +10,7 @@ from collections.abc import Mapping
 
 import pytest
 
-from dashboard.execution import protocol
+from dashboard.execution import protocol, tools
 
 RUN_TYPES = ('aa_only', 'aa_cg', 'cg_composition')
 
@@ -57,6 +57,10 @@ def test_tool_report_returns_a_mapping_or_fails_loudly(run_type):
         assert str(exc), 'the failure must name what could not be reported'
     else:
         assert isinstance(report, Mapping)
+        if run_type == 'aa_cg' and tools.declared('fast_forward_source'):
+            # A version output says nothing about which source produced the tool.
+            provenance = report['fast_forward_source']
+            assert provenance['path'] and provenance['declared_commit'], provenance
 
 
 @pytest.mark.parametrize('run_type', RUN_TYPES)

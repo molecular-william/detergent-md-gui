@@ -6,6 +6,8 @@ fallback, and the honesty of a declaration that cannot be honoured.
 """
 import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -72,6 +74,49 @@ def test_search_path_introduces_only_the_workspace_and_declared_directories(tmp_
     assert composed.endswith(inherited), 'the inherited PATH stays last'
     introduced = [entry for entry in composed[:len(composed) - len(inherited)].split(os.pathsep) if entry]
     assert introduced == [str(paths.current().project_root / 'dashboard/.venv/bin'), str(tmp_path)]
+
+
+def test_a_provenance_declaration_is_not_treated_as_a_tool(tmp_path, monkeypatch):
+    """config/tools.json also says where a tool's source is and which revision it should
+    be at. Neither is a command to resolve, nor a directory to put on PATH."""
+    source = tmp_path / 'fast_forward'
+    source.mkdir()
+    monkeypatch.setattr(tools, 'declared_tools', lambda config=None: {
+        'fast_forward_source': str(source), 'fast_forward_commit': 'a' * 40})
+    checks, blockers = tools.declared_tool_checks()
+    assert checks == [] and blockers == []
+    assert str(source) not in tools.search_path()
+
+
+def test_a_relative_declared_path_is_anchored_to_the_workspace():
+    """A declaration means one thing wherever the process happened to start."""
+    assert (tools.declared_path('resources/parameterizers/fast_forward')
+            == paths.current().project_root / 'resources/parameterizers/fast_forward')
+    assert tools.declared_path('/opt/tool/bin') == Path('/opt/tool/bin')
+    assert tools.declared_path('~/bin') == Path.home() / 'bin'
+
+
+def test_a_declaration_that_is_not_a_repository_has_no_revision(tmp_path):
+    assert tools.vendor_state(tmp_path) == {}
+    assert tools.declared_provenance(config=tmp_path / 'absent.json') == {}
+
+
+def test_a_vendor_revision_and_its_dirtiness_are_read_from_the_tree(tmp_path):
+    """Read-only: the pin is only useful if the tree can be asked what it is at."""
+    if shutil.which('git') is None:
+        pytest.skip('git is not available')
+    repo = tmp_path / 'vendor'
+    repo.mkdir()
+    env = {**os.environ, 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@example.com',
+           'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@example.com'}
+    subprocess.run(['git', 'init', '-q'], cwd=repo, env=env, check=True)
+    (repo / 'file.txt').write_text('x\n')
+    subprocess.run(['git', 'add', '.'], cwd=repo, env=env, check=True)
+    subprocess.run(['git', 'commit', '-qm', 'one'], cwd=repo, env=env, check=True)
+    state = tools.vendor_state(repo)
+    assert state['dirty'] is False and len(state['commit']) == 40
+    (repo / 'file.txt').write_text('changed\n')
+    assert tools.vendor_state(repo)['dirty'] is True
 
 
 def test_no_hard_coded_build_directory_is_introduced():

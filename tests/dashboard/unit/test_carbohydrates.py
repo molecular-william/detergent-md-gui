@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from dashboard.models import sugars
+from dashboard.execution import tools
 from dashboard.models import mappings
 from dashboard.models.molecules import draft as draft_model
 from dashboard.models.mappings import depiction
@@ -140,6 +141,32 @@ def test_installed_fast_forward_is_the_vendored_source():
         f'the installed fitter {installed} is not the vendored source {path}; reinstall it with: '
         'pip install --force-reinstall --no-cache-dir --no-build-isolation --no-deps '
         './resources/parameterizers/fast_forward')
+
+
+def test_the_vendored_source_is_at_the_revision_the_configuration_pins():
+    """A provenance pin is only worth having if it is the revision that is installed.
+
+    The vendor tree is gitignored, so config/tools.json is the only place that says
+    which build a run used. A tree edited in place keeps the installed-fitter test
+    above green while the pin stops describing what produced the fitter, which is how
+    the project's two dihedral fixes were lost once already.
+
+    When the vendor tree legitimately changes, update fast_forward_commit in
+    config/tools.json to the new revision in the same change.
+    """
+    provenance = tools.declared_provenance()
+    if not provenance:
+        pytest.skip('Fast_Forward source is not declared in config/tools.json')
+    tree = Path(provenance['path'])
+    if not (tree / '.git').exists():
+        pytest.skip('the declared Fast_Forward source is not a git checkout')
+    state = tools.vendor_state(tree)
+    assert state.get('commit') == provenance['declared_commit'], (
+        f"the vendor tree is at {state.get('commit')} but config/tools.json pins "
+        f"{provenance['declared_commit']}; update the pin if the change is deliberate")
+    assert state.get('dirty') is False, (
+        'the vendor tree has uncommitted changes, so the pinned revision no longer '
+        'describes what is installed; commit the change and update the pin')
 
 
 def test_three_repeat_units_get_additional_orientation_torsion():

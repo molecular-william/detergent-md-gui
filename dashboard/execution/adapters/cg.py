@@ -272,6 +272,10 @@ def tool_metadata():
     for exe in ('ff_map','ff_inter','ff_assess'):
         executable = tools.tool_path(exe)
         if executable: result[exe] = {'path':executable,'sha256':files.sha256(executable)}
+    # Which source produced those entry points: their version output cannot say.
+    provenance = tools.declared_provenance()
+    if provenance:
+        result['fast_forward_source'] = provenance
     return result
 
 
