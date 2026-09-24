@@ -1,3 +1,8 @@
-# Optional dashboard test-runner acceleration.
+# Dashboard test dependencies.
 # The dashboard's scientific/runtime dependencies are provisioned separately.
+# pytest-xdist is the optional test-runner accelerator; playwright and vermouth
+# are imported by tests that exercise a rendered browser or the sugar topology
+# path, so a fresh checkout needs them to run the full suite.
 pytest-xdist>=3.6,<4
+playwright>=1.40
+vermouth>=0.15

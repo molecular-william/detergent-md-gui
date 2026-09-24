@@ -37,11 +37,15 @@ Browser tests require the installed Python Playwright package and Google Chrome.
 The environment under `.venv/` includes the locally installed scientific tools;
 do not relocate an existing virtual environment because launchers contain paths.
 
-Process parallelism is optional. Install the test-runner add-on once:
+Process parallelism is optional. Install the test dependencies once:
 
 ```bash
 dashboard/.venv/bin/python -m pip install -r requirements-dashboard-tests.txt
 ```
+
+That file carries `pytest-xdist` (four workers for the fast suite, two for
+browser tests, one for resource-heavy checks) plus `playwright` and `vermouth`,
+which the browser and sugar-topology tests import directly.
 
 Then use four workers for the fast suite, two for browser tests, and one for
 resource-heavy checks:
