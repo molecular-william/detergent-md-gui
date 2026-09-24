@@ -1,0 +1,168 @@
+"""The run-type protocol: one surface every execution adapter answers.
+
+A caller -- the coordinator, a queue route, a readiness panel, a test -- asks
+the same questions of any run type: which stages exist, which settings are
+legal, can this run, how is it prepared, which tools were used. The adapters
+disagree about the answers' shapes (argument order, settings dialects, whether
+they can name a tool at all); absorbing that disagreement here is the point of
+this module, so it stops leaking into every caller.
+
+Shapes, as of this module:
+
+- ``stage_contract(metadata)`` -> ``(plan, required_inputs, required_outputs)``
+  as ``stages.stage_tables`` defines them.
+- ``settings_specs()`` -> ``{key: (lo, hi)}`` or ``{key: (label, lo, hi)}``.
+  ``setting_bounds`` reads either; Task 2.6 makes them one shape.
+- ``readiness(metadata)`` -> a mapping that always carries ``ready``, ``checks``
+  and ``blockers``. Incomplete metadata is a blocker, never an exception: a
+  caller that does not know what a run type needs must still get an answer.
+- ``prepare(run_dir, metadata)`` -> writes the run directory.
+- ``tool_report()`` -> the recorded tool versions, or an empty mapping for a run
+  type that uses no external tool.
+
+The per-type wrappers live here for now and move into their adapters as each
+adapter is wrapped (Tasks 2.2-2.4), at which point ``adapter_for`` returns the
+adapter's own ``Protocol`` instance. They import their adapter inside the
+builder so wrapping an adapter with ``protocol.Protocol`` stays free of an
+import cycle.
+"""
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Callable
+
+RUN_TYPES = ('aa_only', 'aa_cg', 'cg_composition')
+
+
+@dataclass(frozen=True)
+class Protocol:
+    """What every run type can be asked, in shapes that do not vary."""
+
+    name: str
+    stage_contract: Callable[[Mapping], tuple]
+    settings_specs: Callable[[], Mapping]
+    stage_defaults: Callable[[], Mapping]
+    normalize_settings: Callable[[Mapping | None], Mapping]
+    readiness: Callable[[Mapping], Mapping]
+    prepare: Callable[..., None]
+    tool_report: Callable[[], Mapping]
+
+
+def setting_bounds(key: str, bounds) -> tuple[str, float, float]:
+    """Read either settings dialect as ``(label, lo, hi)``.
+
+    AA declares ``(lo, hi)`` and CG declares ``(label, lo, hi)``; callers that
+    render or compare bounds should not care which adapter they came from.
+    """
+    if not isinstance(bounds, tuple) or len(bounds) not in (2, 3):
+        raise ValueError(f'{key}: settings bounds must be (lo, hi) or (label, lo, hi)')
+    return (key, bounds[0], bounds[1]) if len(bounds) == 2 else (bounds[0], bounds[1], bounds[2])
+
+
+def blocked(*reasons: str) -> dict:
+    """The readiness answer for a run that cannot start, in the shared shape."""
+    return {'ready': False, 'checks': [], 'blockers': [reason for reason in reasons if reason]}
+
+
+def _composition_stage_contract(metadata: Mapping) -> tuple:
+    from .adapters import composition
+    return composition.STAGES, composition.REQUIRED_INPUTS, composition.REQUIRED_OUTPUTS
+
+
+def _aa_protocol() -> Protocol:
+    from .adapters import aa
+
+    def readiness(metadata: Mapping) -> dict:
+        molecule_id = metadata.get('molecule_id')
+        if not molecule_id:
+            return blocked('molecule_id is required to check an AA-only run')
+        return aa.readiness(metadata.get('molecule_root'), molecule_id)
+
+    def prepare(run_dir, metadata: Mapping) -> None:
+        aa.prepare_run(run_dir, metadata['molecule_root'], metadata['molecule_snapshot'],
+                       metadata.get('settings'))
+
+    return Protocol(
+        name='aa_only',
+        stage_contract=lambda metadata: (aa.STAGES, aa.REQUIRED_INPUTS, aa.REQUIRED_OUTPUTS),
+        settings_specs=lambda: aa.SETTING_SPECS,
+        stage_defaults=aa.stage_defaults,
+        normalize_settings=lambda settings=None: aa.normalize_settings(settings),
+        readiness=readiness,
+        prepare=prepare,
+        tool_report=aa.tool_metadata,
+    )
+
+
+def _cg_protocol() -> Protocol:
+    from .adapters import cg
+
+    def stage_contract(metadata: Mapping) -> tuple:
+        snapshot = metadata.get('molecule_snapshot')
+        names = cg.CGNames.for_snapshot(snapshot) if snapshot else metadata.get('names')
+        return cg.stage_contract(names)
+
+    def readiness(metadata: Mapping) -> dict:
+        molecule_id = metadata.get('molecule_id')
+        if not molecule_id:
+            return blocked('molecule_id is required to check an AA to CG run')
+        return cg.readiness(molecule_id, metadata.get('method') or 'gromacs',
+                            metadata.get('profile') or 'standard',
+                            metadata.get('mapping_candidate'), metadata.get('molecule_root'))
+
+    def prepare(run_dir, metadata: Mapping) -> None:
+        keys = ('structure', 'detergent', 'profile', 'settings', 'mapping_candidate',
+                'bonded_state_snapshot', 'bonded_intent', 'shared_reference',
+                'reference_root', 'molecule_snapshot', 'molecule_root')
+        cg.prepare(run_dir, **{key: metadata[key] for key in keys if key in metadata})
+
+    return Protocol(
+        name='aa_cg',
+        stage_contract=stage_contract,
+        settings_specs=lambda: cg.SETTING_SPECS,
+        stage_defaults=lambda: cg.stage_defaults(),
+        normalize_settings=lambda settings=None: cg.normalize_settings(settings),
+        readiness=readiness,
+        prepare=prepare,
+        tool_report=cg.tool_metadata,
+    )
+
+
+def _composition_protocol() -> Protocol:
+    from .adapters import composition
+
+    def readiness(metadata: Mapping) -> dict:
+        composition_id = metadata.get('composition_id')
+        if not composition_id:
+            return blocked('composition_id is required to check a composition run')
+        return composition.readiness(composition_id, metadata.get('root'))
+
+    def prepare(run_dir, metadata: Mapping) -> None:
+        composition.prepare_run(run_dir, metadata['composition_id'], metadata.get('settings'))
+
+    return Protocol(
+        name='cg_composition',
+        stage_contract=_composition_stage_contract,
+        settings_specs=dict,  # no configurable setting yet; Task 2.4 makes this explicit
+        stage_defaults=dict,
+        normalize_settings=lambda settings=None: dict(settings or {}),
+        readiness=readiness,
+        prepare=prepare,
+        tool_report=dict,  # screening runs no external tool; Task 2.4 makes this explicit
+    )
+
+
+_BUILDERS: dict[str, Callable[[], Protocol]] = {
+    'aa_only': _aa_protocol,
+    'aa_cg': _cg_protocol,
+    'cg_composition': _composition_protocol,
+}
+
+
+def adapter_for(run_type: str) -> Protocol:
+    """Return the protocol for a run type, or raise ValueError for an unknown one."""
+    try:
+        return _BUILDERS[run_type]()
+    except KeyError as exc:
+        raise ValueError(f'Unknown run type: {run_type}') from exc
