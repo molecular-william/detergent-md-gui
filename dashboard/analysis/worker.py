@@ -12,6 +12,7 @@ import time
 
 from .. import files
 from ..execution import workflow
+from ..execution import tools
 from .runs import observability, refinement, references as aa_references
 from .validation import targets, report as carbohydrate_validation
 from . import metadata as analysis_metadata
@@ -67,7 +68,7 @@ def execute(request_path):
     for package in ('MDAnalysis','numpy','matplotlib','plotly','scikit-image','scipy'):
         try: versions[package] = importlib.metadata.version(package)
         except importlib.metadata.PackageNotFoundError: pass
-    gmx = shutil.which('gmx')
+    gmx = tools.tool_path('gmx')
     if gmx and kind in ('surfaces','stability','carbohydrate-validation'):
         info = subprocess.run([gmx,'--version'],capture_output=True,text=True,timeout=30,check=True)
         versions['gmx'] = {'path':gmx,'version_output':info.stdout}

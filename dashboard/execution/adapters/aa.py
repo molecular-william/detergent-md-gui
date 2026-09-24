@@ -9,6 +9,7 @@ from ...models.molecules import aa as aa_molecules
 from ... import files
 from ...analysis.runs import references as aa_references
 from ..environment import FORCE_FIELD, environment, probe_tool
+from .. import tools
 from ..stages import Stage, stage_tables
 from .. import protocol
 
@@ -85,7 +86,7 @@ def normalize_settings(settings=None):
 
 
 def tool_metadata():
-    executable=shutil.which('gmx',path=environment()['PATH'])
+    executable=tools.tool_path('gmx')
     if not executable:raise ValueError('GROMACS executable is unavailable')
     result=subprocess.run([executable,'--version'],capture_output=True,text=True,check=True,timeout=30,env=environment())
     return {'gmx':{'path':executable,'version_output':result.stdout,'sha256':files.sha256(executable)}}
@@ -97,11 +98,13 @@ def readiness(molecule_root,molecule_id):
         selected=aa_molecules.selection(molecule_root,molecule_id,run_type='aa_only')
         checks.append({'label':'AA molecule','path':selected['path'],'ready':True,'detail':'Input consistency checked; GROMACS verifies parameter resolution before MD.'})
     except (ValueError,OSError) as exc:blockers.append(str(exc))
-    executable=shutil.which('gmx',path=environment()['PATH'])
+    executable=tools.tool_path('gmx')
     ok,detail=probe_tool(executable) if executable else (False,'Executable not found')
     checks.append({'label':'GROMACS','path':executable or 'gmx','ready':ok,'detail':detail})
     if not ok:blockers.append('GROMACS: '+detail)
     if not (FORCE_FIELD/'forcefield.itp').is_file():blockers.append('CHARMM36 force field is missing')
+    declared_checks,declared_blockers=tools.declared_tool_checks()
+    checks.extend(declared_checks);blockers.extend(declared_blockers)
     return {'ready':not blockers,'checks':checks,'blockers':blockers,'scientifically_validated':False}
 
 

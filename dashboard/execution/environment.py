@@ -9,6 +9,7 @@ import os
 import subprocess
 
 from .. import paths
+from . import tools
 
 ROOT = paths.DEFAULT.project_root
 TUTORIAL_TEMPLATE = ROOT / "resources/templates/small_mols_fast_forward"
@@ -18,7 +19,7 @@ FORCE_FIELD = AA_TEMPLATE / "charmm36-jul2022.ff"
 
 def environment():
     env = os.environ.copy()
-    env['PATH'] = f"{ROOT}/dashboard/.venv/bin:{Path.home()}/Downloads/gromacs-2026.0/build/bin:" + env.get('PATH', '')
+    env['PATH'] = tools.search_path()
     env['MPLBACKEND'] = 'Agg'
     env['OMP_NUM_THREADS'] = '8'
     return env

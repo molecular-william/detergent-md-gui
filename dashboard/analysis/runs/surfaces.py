@@ -12,6 +12,7 @@ import os
 import numpy as np
 from ...models import sugars as carbohydrates
 from ... import files
+from ...execution import tools
 
 AA_RADII = {'H':.109,'C':.175,'N':.161,'O':.156,'F':.144,'P':.180,'S':.179,'Cl':.174,'Br':.185,'I':.200}
 PROBE = .191
@@ -62,7 +63,7 @@ def generate(run_dir):
     variants={'AA':(aa,aa_r),'Mapped raw':(cg,cg_r)}
     if model.get('rings'): variants['Mapped ring-scaled']=(cg,cg_r)
     variants['Simulated CG']=(cg,cg_r)
-    gmx=shutil.which('gmx',path=f'{Path.home()}/Downloads/gromacs-2026.0/build/bin:'+os.environ.get('PATH',''))
+    gmx=tools.tool_path('gmx')
     if not gmx: raise FileNotFoundError('GROMACS not available')
     first={};stats={};commands=[]
     try:

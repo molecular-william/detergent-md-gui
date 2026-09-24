@@ -6,6 +6,7 @@ import re
 import subprocess
 import os, shutil
 from ... import files
+from ...execution import tools
 
 try:
     import MDAnalysis as mda
@@ -278,7 +279,7 @@ def numerical_stability(run_dir):
     report = {'lincs_warnings': lincs, 'trajectory_count': len(traces), 'trajectories': traces,
               'checks': {'gmx_check': 'not_run'}, 'scientifically_validated': False,
               'interpretation': 'Diagnostic checks only; passing signals do not establish physical stability.'}
-    gmx = shutil.which('gmx')
+    gmx = tools.tool_path('gmx')
     checks = []
     if gmx:
         for trace in traces:

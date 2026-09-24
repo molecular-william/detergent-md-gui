@@ -14,6 +14,7 @@ from ...models.molecules import aa as aa_molecules, draft as draft_model
 from ...models import mappings, bonded
 from .cg_names import CGNames, require_script_compatibility
 from . import aa
+from .. import tools
 from .. import protocol
 from ..environment import ROOT, TUTORIAL_TEMPLATE, AA_TEMPLATE, FORCE_FIELD, environment, probe_tool, update_mdp, execution_root
 from ..stages import Stage, stage_tables
@@ -265,12 +266,12 @@ def tool_metadata():
     result = {}
     commands = [('gmx',['--version']), ('python',['-c', 'import fast_forward,MDAnalysis,hashlib,pathlib; import fast_forward.interaction_fit as fitter; print("Fast_Forward",fast_forward.__version__); print("MDAnalysis",MDAnalysis.__version__); print("Fitter",fitter.__file__,hashlib.sha256(pathlib.Path(fitter.__file__).read_bytes()).hexdigest())'])]
     for exe,args in commands:
-        executable = shutil.which(exe, path=environment()['PATH'])
+        executable = tools.tool_path(exe)
         if not executable: raise FileNotFoundError(f'Missing tool: {exe}')
         proc = subprocess.run([executable,*args],env=environment(),capture_output=True,text=True,check=True,timeout=30)
         result[exe] = {'path':executable,'version_output':proc.stdout,'sha256':files.sha256(executable)}
     for exe in ('ff_map','ff_inter','ff_assess'):
-        executable = shutil.which(exe,path=environment()['PATH'])
+        executable = tools.tool_path(exe)
         if executable: result[exe] = {'path':executable,'sha256':files.sha256(executable)}
     return result
 
@@ -305,7 +306,7 @@ def readiness(molecule_id, method, profile='standard', mapping_candidate=None, m
                    'ready': (FORCE_FIELD / 'forcefield.itp').is_file(),
                    'detail': 'Copied into each run with checksums'})
     for tool in ('gmx','ff_map','ff_inter','ff_assess'):
-        executable = shutil.which(tool, path=environment()['PATH'])
+        executable = tools.tool_path(tool)
         ok, detail = probe_tool(executable) if executable else (False, 'Executable not found')
         checks.append({'label': tool, 'path': executable or tool, 'ready': ok, 'detail': detail})
     if profile in ('draft-smoke','draft-smoke-reference'):
@@ -321,6 +322,10 @@ def readiness(molecule_id, method, profile='standard', mapping_candidate=None, m
                                 if mapping_candidate is not None else 'none selected'),
                        'ready': ok, 'detail': detail})
     blockers = [x['label'] + ': ' + x['detail'] for x in checks if not x['ready']]
+    # Tools a stage never invokes (bartender, xtb) are reported here, not turned into
+    # blockers: the blockers above already come from the commands this run type resolves.
+    declared_checks, _ = tools.declared_tool_checks()
+    checks.extend(declared_checks)
     if profile == 'standard':
         blockers.append('A reviewed CG model is required for standard parameterization. Choose candidate screening to test execution only.')
     return {'ready': not blockers, 'checks': checks, 'blockers': blockers, 'profile': profile,
