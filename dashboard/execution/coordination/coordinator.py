@@ -570,14 +570,7 @@ class Coordinator:
             if bonded_snapshot.get('current',{}).get('status') != 'complete': abort(409, 'Selected bonded state is incomplete; fit it before reuse')
         if bonded_intent == 'reuse_state' and bonded_snapshot is None:
             abort(409, 'Reuse state intent requires a complete bonded state')
-        if shared:
-            supplied=settings or {}
-            unknown=set(supplied)-set(aa.SETTING_SPECS)-set(cg.SETTING_SPECS)
-            if unknown:abort(400,'Unknown run settings: '+', '.join(sorted(unknown)))
-            aa_settings=aa.normalize_settings({k:v for k,v in supplied.items() if k in aa.SETTING_SPECS})
-            legacy_settings=cg.normalize_settings({k:v for k,v in supplied.items() if k in cg.SETTING_SPECS} | {'aa_equil_ps':aa_settings['aa_nvt_ps']+aa_settings['aa_npt_ps'],'aa_production_ps':aa_settings['aa_production_ps'],'temperature_k':aa_settings['temperature_k'],'output_interval_ps':aa_settings['output_interval_ps']},profile)
-            settings=legacy_settings|aa_settings
-        else:settings = cg.normalize_settings(settings, profile)
+        settings = protocol.adapter_for(run_type or 'aa_cg').normalize_settings(settings, profile)
         reference_snapshot=None
         if reference_run_id and shared:
             try:
@@ -604,6 +597,8 @@ class Coordinator:
                 job['shared_reference']={'source_run_id':reference_run_id,'sha256':reference_snapshot['sha256']}
                 return self.admit_jobs([job],job)
             if resume_of:abort(409,'Shared CG resume requires its AA reference source')
+            # The AA source is an aa_only run: it takes the AA half of the composed settings.
+            aa_settings = {key: value for key, value in settings.items() if key in aa.SETTING_SPECS}
             parent=self.aa_job_record(molecule_id,(str(label)+' · AA source').strip(),aa_settings)
             job.update(status='waiting',stage='Waiting for AA reference',reference_run_id=parent['id'])
             return self.admit_jobs([parent,job],parent,result=job)

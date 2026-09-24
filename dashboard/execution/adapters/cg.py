@@ -13,6 +13,7 @@ from ... import files, paths
 from ...models.molecules import aa as aa_molecules, draft as draft_model
 from ...models import mappings, bonded
 from .cg_names import CGNames, require_script_compatibility
+from . import aa
 from .. import protocol
 from ..environment import ROOT, TUTORIAL_TEMPLATE, AA_TEMPLATE, FORCE_FIELD, environment, probe_tool, update_mdp, execution_root
 from ..stages import Stage, stage_tables
@@ -98,7 +99,7 @@ def stage_defaults(profile='standard'):
     return {'values': values, 'sources': {'AA': 'resources/templates/small_mols_fast_forward/1_AA_reference/mdps/{eq,md}.mdp', 'CG': 'resources/templates/small_mols_fast_forward/4_CG_sim/inputs/{eq,md}.mdp', 'SASA probe': 'Fast_Forward tutorial probe convention (0.191 nm)'}, 'profile': profile}
 
 
-def normalize_settings(settings=None, profile='standard'):
+def _normalize_cg_settings(settings=None, profile='standard'):
     if settings is not None and not isinstance(settings,dict): raise ValueError('Run settings must be an object')
     values = dict(stage_defaults(profile)['values'])
     for key, value in (settings or {}).items():
@@ -112,6 +113,37 @@ def normalize_settings(settings=None, profile='standard'):
     if values['output_interval_ps'] > min(values['aa_production_ps'], values['cg_production_ps']):
         raise ValueError('Trajectory interval must not exceed either production duration')
     return values
+
+
+def mirror_aa_settings(aa_settings):
+    """The AA view a CG run needs, derived from the AA settings it was given."""
+    return {'aa_equil_ps': aa_settings['aa_nvt_ps'] + aa_settings['aa_npt_ps'],
+            'aa_production_ps': aa_settings['aa_production_ps'],
+            'temperature_k': aa_settings['temperature_k'],
+            'output_interval_ps': aa_settings['output_interval_ps']}
+
+
+def normalize_settings(settings=None, profile='standard'):
+    """Normalize an AA-to-CG run's settings: both halves, composed in one place.
+
+    This run type accepts the AA settings (its AA reference is prepared from them)
+    and the CG settings, derives the one duration the CG half needs from the AA
+    halves instead of asking for it, and rejects a key neither half owns. Where
+    both tables bound the same key, the AA bound decides -- output_interval_ps is
+    tighter there -- so a value cannot be acceptable to one half and invalid to
+    the other.
+    """
+    if settings is not None and not isinstance(settings, dict):
+        raise ValueError('Run settings must be an object')
+    supplied = dict(settings or {})
+    unknown = set(supplied) - set(SETTING_SPECS) - set(aa.SETTING_SPECS)
+    if unknown:
+        raise ValueError('Unknown run settings: ' + ', '.join(sorted(unknown)))
+    aa_settings = aa.normalize_settings({key: value for key, value in supplied.items() if key in aa.SETTING_SPECS})
+    cg_settings = _normalize_cg_settings(
+        {key: value for key, value in supplied.items() if key in SETTING_SPECS} | mirror_aa_settings(aa_settings),
+        profile)
+    return cg_settings | aa_settings
 
 
 def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM', profile='standard', settings=None, mapping_candidate=None, bonded_state_snapshot=None, bonded_intent='fit_and_simulate', shared_reference=None, reference_root=None, molecule_snapshot=None, molecule_root=None):
@@ -332,7 +364,7 @@ PROTOCOL = protocol.Protocol(
     stages=_protocol_stages,
     settings_specs=lambda: SETTING_SPECS,
     stage_defaults=lambda: stage_defaults(),
-    normalize_settings=lambda settings=None: normalize_settings(settings),
+    normalize_settings=lambda settings=None, profile='standard': normalize_settings(settings, profile),
     readiness=_protocol_readiness,
     prepare=_protocol_prepare,
     tool_report=tool_metadata,

@@ -55,9 +55,12 @@ STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS = stage_tables(STAGE_DEFS)
 
 DEFAULTS=dict(aa_nvt_ps=100,aa_npt_ps=1000,aa_production_ps=10000,temperature_k=300,
               pressure_bar=1,output_interval_ps=10,box_padding_nm=1.5,aa_seed=20260917)
-SETTING_SPECS={'aa_nvt_ps':(1,1000000),'aa_npt_ps':(1,1000000),'aa_production_ps':(1,1000000),
-               'temperature_k':(200,500),'pressure_bar':(.1,100),'output_interval_ps':(.002,100000),
-               'box_padding_nm':(1.3,10),'aa_seed':(1,2147483646)}
+# One shape across every run type: (label, lo, hi). The label is what a caller renders.
+SETTING_SPECS={'aa_nvt_ps':('AA NVT duration',1,1000000),'aa_npt_ps':('AA NPT duration',1,1000000),
+               'aa_production_ps':('AA production duration',1,1000000),
+               'temperature_k':('Temperature',200,500),'pressure_bar':('Pressure',.1,100),
+               'output_interval_ps':('Trajectory output interval',.002,100000),
+               'box_padding_nm':('Box padding',1.3,10),'aa_seed':('AA random seed',1,2147483646)}
 
 
 def stage_defaults():
@@ -72,7 +75,7 @@ def normalize_settings(settings=None):
         if isinstance(value,bool):raise ValueError('AA settings must be numeric')
         try:value=float(value)
         except (ValueError,TypeError) as exc:raise ValueError(key+' must be numeric') from exc
-        lo,hi=SETTING_SPECS[key]
+        label,lo,hi=SETTING_SPECS[key]
         if not math.isfinite(value) or not lo<=value<=hi:raise ValueError(f'{key} must be between {lo} and {hi}')
         result[key]=value
     if int(result['aa_seed'])!=result['aa_seed']:raise ValueError('AA seed must be an integer')
@@ -222,7 +225,7 @@ PROTOCOL = protocol.Protocol(
     stages=_protocol_stages,
     settings_specs=lambda: SETTING_SPECS,
     stage_defaults=stage_defaults,
-    normalize_settings=lambda settings=None: normalize_settings(settings),
+    normalize_settings=lambda settings=None, profile='standard': normalize_settings(settings),
     readiness=_protocol_readiness,
     prepare=_protocol_prepare,
     tool_report=tool_metadata,

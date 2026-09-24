@@ -131,7 +131,7 @@ PROTOCOL = protocol.Protocol(
     stages=lambda metadata: tuple(STAGE_DEFS),
     settings_specs=lambda: SETTING_SPECS,
     stage_defaults=stage_defaults,
-    normalize_settings=lambda settings=None: normalize_settings(settings),
+    normalize_settings=lambda settings=None, profile='standard': normalize_settings(settings),
     readiness=_protocol_readiness,
     prepare=_protocol_prepare,
     tool_report=tool_metadata,

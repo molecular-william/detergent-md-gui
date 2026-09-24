@@ -11,8 +11,14 @@ Shapes, as of this module:
 
 - ``stage_contract(metadata)`` -> ``(plan, required_inputs, required_outputs)``
   as ``stages.stage_tables`` defines them.
-- ``settings_specs()`` -> ``{key: (lo, hi)}`` or ``{key: (label, lo, hi)}``.
-  ``setting_bounds`` reads either; Task 2.6 makes them one shape.
+- ``stages(metadata)`` -> the resolved stage declarations, with any
+  molecule-specific script names substituted.
+- ``settings_specs()`` -> ``{key: (label, lo, hi)}``. One shape, so a caller that
+  renders or compares bounds never asks which adapter it came from.
+- ``normalize_settings(settings, profile)`` -> the settings the run will use,
+  range-checked and completed with that run type's defaults. A run type whose
+  stages need both an AA and a CG view composes them itself (``aa_cg`` does),
+  rather than making its caller merge two dialects.
 - ``readiness(metadata)`` -> a mapping that always carries ``ready``, ``checks``
   and ``blockers``. Incomplete metadata is a blocker, never an exception: a
   caller that does not know what a run type needs must still get an answer.
@@ -20,11 +26,10 @@ Shapes, as of this module:
 - ``tool_report()`` -> the recorded tool versions, or an empty mapping for a run
   type that uses no external tool.
 
-The per-type wrappers live here for now and move into their adapters as each
-adapter is wrapped (Tasks 2.2-2.4): `aa_only` is wrapped already, and
-``adapter_for`` returns the adapter's own ``Protocol`` instance for it. The
-builders import their adapter inside the function so that an adapter may import
-this module to declare its Protocol without creating a cycle.
+Every run type's wrapper lives in its own adapter: ``adapter_for`` returns the
+adapter's own ``Protocol`` instance. The builders import their adapter inside the
+function so that an adapter may import this module to declare its Protocol
+without creating a cycle.
 """
 from __future__ import annotations
 
@@ -44,21 +49,10 @@ class Protocol:
     stages: Callable[[Mapping], tuple]
     settings_specs: Callable[[], Mapping]
     stage_defaults: Callable[[], Mapping]
-    normalize_settings: Callable[[Mapping | None], Mapping]
+    normalize_settings: Callable[..., Mapping]
     readiness: Callable[[Mapping], Mapping]
     prepare: Callable[..., None]
     tool_report: Callable[[], Mapping]
-
-
-def setting_bounds(key: str, bounds) -> tuple[str, float, float]:
-    """Read either settings dialect as ``(label, lo, hi)``.
-
-    AA declares ``(lo, hi)`` and CG declares ``(label, lo, hi)``; callers that
-    render or compare bounds should not care which adapter they came from.
-    """
-    if not isinstance(bounds, tuple) or len(bounds) not in (2, 3):
-        raise ValueError(f'{key}: settings bounds must be (lo, hi) or (label, lo, hi)')
-    return (key, bounds[0], bounds[1]) if len(bounds) == 2 else (bounds[0], bounds[1], bounds[2])
 
 
 def blocked(*reasons: str) -> dict:
