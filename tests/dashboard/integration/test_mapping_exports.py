@@ -18,6 +18,7 @@ from dashboard.models import depiction
 from dashboard.models import mappings
 from dashboard.execution import workflow
 from tests.dashboard.fixtures import physical_mapping
+from tests.dashboard.tool_paths import fast_forward_source
 
 
 class MappingExportTests(unittest.TestCase):
@@ -27,7 +28,9 @@ class MappingExportTests(unittest.TestCase):
         self.data = physical_mapping()
 
     def test_fast_forward_parser_reads_names_and_order(self):
-        path = mappings.ROOT / 'resources/parameterizers/fast_forward/fast_forward/map_file_parers.py'
+        path = fast_forward_source('map_file_parers.py')
+        if path is None:
+            self.skipTest('Fast_Forward source is not provisioned in this checkout')
         spec = importlib.util.spec_from_file_location('ff_mapping_reader', path)
         reader = importlib.util.module_from_spec(spec); spec.loader.exec_module(reader)
         files = mappings.export_files(self.data)

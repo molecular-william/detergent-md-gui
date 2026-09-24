@@ -244,17 +244,20 @@ dashboard/.venv/bin/python -m pytest -m slow -n 1 -q
 ```
 Serial pytest commands require no additional runner plugin. Threaded execution is unsafe because tests patch shared dashboard module state.
 
-### Known environment gaps
+### Environment gaps
 
-Measured on 2026-09-24 with `dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q -p no:cacheprovider`: **3 failed, 244 passed, 19 deselected**. None of the three is a defect in the dashboard; each needs data or a vendor tree this checkout does not carry.
+Measured on 2026-09-24 with `dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q -p no:cacheprovider`: **245 passed, 2 skipped, 19 deselected**. Two tests skip by design when a vendor tree is absent — neither skip is a defect in the dashboard:
 
-| Test | Cause |
-| --- | --- |
-| `integration/test_mapping_exports.py::test_fast_forward_parser_reads_names_and_order` | `resources/parameterizers/fast_forward/fast_forward/map_file_parers.py` is absent — the Fast_Forward Python source tree is not provisioned here |
-| `unit/test_carbohydrates.py::test_ff_dihedral_membership_controls_restricted_bending` | same Fast_Forward source gap (`interaction_fit.py`) |
-| `unit/test_mapping_references.py::test_real_reference_records_have_verifiable_origins` | reference ranks 2-3 are absent: `references/M3-Small-Molecules/` and `references/M3-Bible/` hold only partial clones, so `models/martini_v3.0.0_small_molecules_v1.itp` and `src/MartiniCGSmilesDB_v6.xlsx` are missing and `load_index` reports rank 1 only (verified: 1 source, 50 records, no diagnostics) |
+| Test | Skip reason | Restored by |
+| --- | --- | --- |
+| `integration/test_mapping_exports.py::test_fast_forward_parser_reads_names_and_order` | `resources/parameterizers/fast_forward/fast_forward/map_file_parers.py` is absent | provisioning the Fast_Forward Python source tree |
+| `unit/test_carbohydrates.py::test_ff_dihedral_membership_controls_restricted_bending` | same gap (`interaction_fit.py`) | same |
 
-The first two share one root cause and are resolved by `tests/dashboard/tool_paths.py`, which resolves vendored sources by path and skips with a reason instead of failing; provisioning Fast_Forward restores them. `vermouth` was missing from requirements-dashboard-tests.txt until this review and accounted for two further failures in `unit/test_carbohydrates.py`.
+Both resolve their path through `tests/dashboard/tool_paths.py` instead of a literal path, so a missing vendor tree skips with a reason rather than failing for a reason unrelated to the code under test.
+
+`unit/test_mapping_references.py` derives the expected reference ranks from the sources present rather than asserting ranks 1-3: `references/M3-Small-Molecules/` and `references/M3-Bible/` are partial clones, so `models/martini_v3.0.0_small_molecules_v1.itp` and `src/MartiniCGSmilesDB_v6.xlsx` are missing and `load_index` reports rank 1 only (verified: 1 source, 50 records, no diagnostics). Provisioning those files widens the index without changing the test.
+
+`vermouth` was missing from requirements-dashboard-tests.txt until this review and accounted for two further failures in `unit/test_carbohydrates.py`.
 
 ## Focused validation
 ```bash

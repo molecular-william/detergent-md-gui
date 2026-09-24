@@ -5,11 +5,13 @@ import json
 import tempfile
 from pathlib import Path
 import numpy as np
+import pytest
 from dashboard.models import carbohydrates as sugars
 from dashboard.models import mappings
 from dashboard.models import draft_model
 from dashboard.models import depiction
 from dashboard.models import mapping_store
+from tests.dashboard.tool_paths import fast_forward_source
 
 
 def test_ddm_canonical_ownership_and_coverage():
@@ -105,7 +107,9 @@ def test_free_glucose_matches_official_fragment_types():
 
 def test_ff_dihedral_membership_controls_restricted_bending():
     import importlib.util
-    path=Path('resources/parameterizers/fast_forward/fast_forward/interaction_fit.py')
+    path=fast_forward_source('interaction_fit.py')
+    if path is None:
+        pytest.skip('Fast_Forward source is not provisioned in this checkout')
     spec=importlib.util.spec_from_file_location('patched_fitter',path);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     fitter=module.InteractionFitter(constraint_converter=10000,max_dihedrals=10,temperature=300,precision=3,dihedral_scaling=1000)
     fitter.dihedrals={'dihedrals':{'a':[[0,1,2,3]],'b':[[4,5,6,7]]}}
