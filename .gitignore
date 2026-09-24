@@ -19,6 +19,18 @@ __pycache__/
 runs/*
 !runs/.gitkeep
 
+# Local developer and tool state.
+.gitnexus/
+.env
+.env.*
+!.env.example
+.coverage
+coverage.xml
+htmlcov/
+.DS_Store
+.idea/
+.vscode/
+
 # Large local/vendor trees are provisioned separately from the source repo.
 archive/
 tools/

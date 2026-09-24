@@ -21,7 +21,9 @@ Open http://127.0.0.1:5000. Run one coordinator per configured workspace.
 * Project guide — dashboard operation, paths,
 persistence, migration, and testing.
 * DDM calibration — scientific status, bonded-state
-limitations, and the current DDM handoff.
+  limitations, and the current DDM handoff.
+* Carbohydrate validation operations — the Sucrose diagnostic workflow,
+  target registry, artifact access, and scientific validation boundary.
 * Molecule directory contract — required AA inputs.
 * Dashboard developer guide — source ownership and
 testing.

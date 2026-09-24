@@ -7,6 +7,11 @@ dashboard operation, persistence, migration, and testing. For DDM
 calibration, score interpretation, or bonded-state work, read
 [docs/DDM_CALIBRATION.md](docs/DDM_CALIBRATION.md) first. Planned work is
 listed in the roadmap section of [README.md](README.md).
+For carbohydrate mapping or validation work, read
+[docs/research/2026-09-24-carbohydrate-validation-operations.md](docs/research/2026-09-24-carbohydrate-validation-operations.md)
+and the scientific method note
+[docs/research/2026-09-24-martini3-carbohydrate-validation.md](docs/research/2026-09-24-martini3-carbohydrate-validation.md)
+before changing the recognizer, validation routes, or analysis worker.
 
 The protein-detergent micelle builder is paused. Its design lives under
 `docs/superpowers/specs/` and `docs/superpowers/plans/`; a partial
@@ -37,6 +42,19 @@ dashboard.
   verified per molecule.
 - `~/Downloads/gromacs-2026.0` appears to be a source/build tree; locate the
   built `gmx` before execution and record version/path in each run manifest.
+- Carbohydrate validation is an immutable analysis attached to a completed
+  source run. The dashboard exposes representation modes at
+  `/api/mappings/representations`, molecule-specific target metadata at
+  `/api/mappings/validation-targets`, and reports at
+  `/api/jobs/<run-id>/carbohydrate-validation`.
+- The checked-in carbohydrate targets are citation metadata only until
+  molecule-specific measurements and uncertainties are supplied. `setup`
+  analyses and short trajectories are diagnostic execution checks; they do
+  not authorize a model or establish scientific validation.
+- The current Sucrose path is provisional: the automatic recognizer handles
+  one hexopyranose ring and preserves the remaining connected graph as a
+  draft. Treat generated Sucrose mappings as diagnostic inputs, not official
+  Martini parameters.
 
 ## Engineering rules
 
@@ -81,6 +99,28 @@ or `blocked`.
   current worker owns its subprocess groups.
 - Promote a completed diagnostic analysis to scientific validation. Completion
   proves execution, not model validity.
+
+## Carbohydrate validation hand-off
+
+Use the operations note for the complete Sucrose procedure, target IDs, report
+locations, and the paper-scale evidence requirements. The stable workflow is:
+
+1. Restart the dashboard after adding a molecule or changing route/catalogue
+   code so the process loads current validation endpoints.
+2. In **CG Bead Assignment**, generate and save a molecule-scoped candidate;
+   preserve its provenance and limitations.
+3. In **New Run**, launch the saved mapping with the `draft-smoke` profile and
+   wait for the AA source and CG consumer to complete.
+4. In the validation controls, select the completed source run, a supported
+   representation, and a target dataset, then run `Setup check`.
+5. Open generated figures through the run artifact route
+   `/api/jobs/<run-id>/artifacts/<relative-path>?inline=1`. Use the artifact
+   path returned by `/api/jobs/<run-id>/artifacts`; do not construct a URL from
+   the absolute filesystem path.
+
+The current Sucrose diagnostic records are documented in the operations note.
+They are preserved examples, not a replacement for a fresh run after changing
+inputs or code.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

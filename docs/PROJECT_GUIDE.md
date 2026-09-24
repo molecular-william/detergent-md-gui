@@ -2,7 +2,7 @@
 
 The local dashboard runs AA-only simulations from compatible molecule directories and AA→CG parameterization for any molecule with a compatible AA topology. The packaged DDM example (`molecules/DDM`) is a worked reference. The broader membrane-protein workflow and the micelle builder remain paused project goals; see [the roadmap](../README.md#roadmap).
 
-Read [DDM calibration](DDM_CALIBRATION.md) for scientific results and bonded-workspace limitations before changing DDM scoring, fitting, or carbohydrate mapping.
+Read [DDM calibration](DDM_CALIBRATION.md) for scientific results and bonded-workspace limitations before changing DDM scoring, fitting, or carbohydrate mapping. For the carbohydrate validation panel, target registry, Sucrose diagnostic procedure, and paper-scale evidence boundary, read [Carbohydrate Validation Operations](research/2026-09-24-carbohydrate-validation-operations.md) and [Martini 3 carbohydrate validation](research/2026-09-24-martini3-carbohydrate-validation.md).
 
 ## Start and develop
 
