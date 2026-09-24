@@ -15,6 +15,8 @@ the AST walk replaced it.
 import ast
 import importlib
 import pathlib
+import pkgutil
+from pathlib import Path
 
 import pytest
 
@@ -107,6 +109,69 @@ def sources():
     for path in sorted(list((ROOT / 'dashboard').rglob('*.py')) + list((ROOT / 'tests').rglob('*.py'))):
         if '.venv' not in path.parts:
             yield path
+
+
+def module_names():
+    root = str(ROOT / 'dashboard')
+    return sorted(name for _, name, _ in pkgutil.walk_packages([root], prefix='dashboard.')
+                  if '.venv' not in name)
+
+
+def test_module_level_path_constants_point_at_real_locations():
+    """A moved module breaks its own `Path(__file__)` arithmetic silently.
+
+    Nothing fails at import time and no unit test notices: the constant is only
+    dereferenced by a real run. Both instances this guard was written from were
+    exactly that -- after the adapters moved, `cg.SCRIPTS` computed
+    execution/adapters/scripts (absent) and every script copy in run
+    preparation would have raised FileNotFoundError; after the molecule modules
+    moved, `aa.PACKAGED` computed dashboard/molecules/DDM/results/MMFF.
+
+    Paths that a run creates later are listed as optional with the reason, so
+    a genuinely missing constant cannot hide behind them.
+    """
+    optional = {
+        # Written when the smoke mapping is saved; absent in a fresh checkout.
+        'dashboard.models.molecules.draft.CANDIDATE',
+    }
+    missing = []
+    for name in module_names():
+        module = importlib.import_module(name)
+        for attr, value in vars(module).items():
+            key = f'{name}.{attr}'
+            if attr.startswith('__') or not isinstance(value, pathlib.Path):
+                continue
+            if key in optional or value.exists():
+                continue
+            missing.append(f'{key} -> {value}')
+    assert not missing, 'Module-level paths that do not exist: ' + '; '.join(missing)
+
+
+def test_run_preparation_scripts_are_present():
+    """cg.py copies these into each run directory; the adapter owns the list."""
+    from dashboard.execution.adapters import cg
+    from dashboard.execution import environment
+
+    assert cg.SCRIPTS.is_dir(), f'{cg.SCRIPTS} is not a directory'
+    assert cg.SCRIPTS == Path(environment.ROOT / 'dashboard/execution/scripts')
+    copied = ('finalize_mapping.py', 'refine_bonded.py', 'sugar_mapping.py',
+              'prepare_ring_constraints.py', 'validate_run.py', 'distance_diagnostics.py')
+    assert [name for name in copied if not (cg.SCRIPTS / name).is_file()] == []
+
+
+def test_the_run_local_bonded_library_stays_standalone():
+    """cg.py copies this one file into a run directory as bonded.py.
+
+    The copy has no package beside it, so it must import nothing from the
+    dashboard package: a relative import or a dashboard import would break
+    every CG run at the point the copied file is first executed.
+    """
+    from dashboard.models import bonded
+
+    source = pathlib.Path(bonded.__file__).read_text()
+    offenders = [line for line in source.splitlines()
+                 if line.startswith(('from .', 'import dashboard', 'from dashboard'))]
+    assert not offenders, 'The copied bonded library imports the package: ' + '; '.join(offenders)
 
 
 def test_no_module_imports_a_retired_path():

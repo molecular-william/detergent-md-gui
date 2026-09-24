@@ -15,9 +15,11 @@ from ...models import mappings, bonded
 from .cg_names import CGNames, require_script_compatibility
 from ..environment import ROOT, TUTORIAL_TEMPLATE, AA_TEMPLATE, FORCE_FIELD, environment, probe_tool, update_mdp, execution_root
 from ..stages import Stage, stage_tables
-SCRIPTS = Path(__file__).parent / "scripts"
-# SCRIPTS and every other module-level name below are public API for the
-# historical `ddm` shim. cg.py owns them; ddm.py re-exports them.
+SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+# SCRIPTS and every other module-level name below are public API: preparation
+# copies the scripts into each run's stages/ tree, and the analysis coordinator
+# hashes adapter and analysis sources into run manifests. A rename here is a
+# compatibility change, not an internal detail.
 
 STAGE_DEFS = (
     Stage('AA reference', '1_AA-reference/aa_reference.sh',

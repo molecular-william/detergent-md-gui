@@ -13,11 +13,12 @@ from pathlib import Path
 import re
 
 try:
-    from ... import files
+    from ... import files, paths
 except ImportError:
     import files
+    import paths
 
-PACKAGED = Path(__file__).resolve().parents[2] / 'molecules/DDM/results/MMFF'
+PACKAGED = paths.PROJECT_ROOT / 'molecules/DDM/results/MMFF'
 
 
 def validate_id(value):
