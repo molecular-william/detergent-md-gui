@@ -41,6 +41,7 @@ class Protocol:
 
     name: str
     stage_contract: Callable[[Mapping], tuple]
+    stages: Callable[[Mapping], tuple]
     settings_specs: Callable[[], Mapping]
     stage_defaults: Callable[[], Mapping]
     normalize_settings: Callable[[Mapping | None], Mapping]

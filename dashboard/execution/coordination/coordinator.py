@@ -14,7 +14,8 @@ from dashboard import files, store, paths
 from ..adapters import aa
 from ..adapters import cg
 from .. import workflow
-from . import resources, temporary
+from . import resources, temporary, admission
+from .. import protocol
 from ...models.molecules import aa as aa_molecules
 from ...models import mappings, compositions
 from ...models.bonded import states as bonded_states
@@ -422,11 +423,14 @@ class Coordinator:
             aa_only=job.get('run_type')=='aa_only'
             composition_only=job.get('run_type')=='cg_composition'
             resuming = in_place or bool(job.get('resume_of'))
-            if composition_only:
-                from ..adapters.composition import readiness as composition_readiness
-                readiness = composition_readiness(job['composition_id'], self.ROOT) if not resuming else {'ready': True}
+            if resuming:
+                readiness = {'ready': True}
             else:
-                readiness = (aa.readiness(self.ROOT/'molecules',job['molecule_id']) if not resuming else {'ready':True}) if aa_only else cg.readiness(job.get('molecule_id') or job['detergent'], job['method'], job.get('profile', 'standard'), job.get('mapping_snapshot'), molecule_root=self.ROOT / 'molecules')
+                readiness = protocol.adapter_for(job.get('run_type') or 'aa_cg').readiness({
+                    'molecule_id': job.get('molecule_id') or job.get('detergent'),
+                    'molecule_root': self.ROOT / 'molecules', 'method': job.get('method'),
+                    'profile': job.get('profile', 'standard'), 'mapping_candidate': job.get('mapping_snapshot'),
+                    'composition_id': job.get('composition_id'), 'root': self.ROOT})
             if not readiness['ready']:
                 raise ValueError('; '.join(readiness['blockers']))
             source_id = None if in_place else (job.get('resume_of') or job.get('reference_run_id'))
@@ -434,10 +438,10 @@ class Coordinator:
             try:
                 if job.get('resume_of'):
                     workflow.prepare_resume(work, self.RUNS/job['resume_of'], job['resume_from'])
-                elif not in_place and aa_only:
-                    aa.prepare_run(work,self.ROOT/'molecules',job['molecule_snapshot'],job['settings'])
-                elif not in_place and composition_only:
-                    workflow.prepare_run(work, composition_id=job['composition_id'], settings=job.get('settings'))
+                elif not in_place and (aa_only or composition_only):
+                    protocol.adapter_for(job.get('run_type')).prepare(
+                        work, {'molecule_root': self.ROOT/'molecules', 'molecule_snapshot': job.get('molecule_snapshot'),
+                               'composition_id': job.get('composition_id'), 'settings': job.get('settings')})
                 elif not in_place:
                     kwargs=dict(detergent=job['detergent'],profile=job.get('profile','standard'),settings={k:v for k,v in job.get('settings',{}).items() if k in cg.SETTING_SPECS},mapping_candidate=job.get('mapping_snapshot'),bonded_state_snapshot=job.get('bonded_state_snapshot'),bonded_intent=job.get('bonded_intent','fit_and_simulate'),molecule_snapshot=job.get('molecule_snapshot'),molecule_root=self.ROOT / 'molecules')
                     if job.get('shared_reference'):kwargs.update(shared_reference=job['shared_reference'],reference_root=self.RUNS)
@@ -498,10 +502,17 @@ class Coordinator:
 
 
     def create_job(self, detergent, method, label='', retry_of=None, profile='standard', settings=None, reference_run_id=None, resume_of=None, resume_from=None, mapping_candidate=None, mapping_snapshot=None, bonded_state_id=None, bonded_intent='fit_and_simulate', temporary_validation=False, molecule_id=None, molecule_snapshot=None, run_type=None, composition_id=None):
+        try:
+            admission.validate_run_type({'run_type': run_type, 'composition_id': composition_id,
+                                         'molecule_id': molecule_id, 'molecule_snapshot': molecule_snapshot,
+                                         'reference_run_id': reference_run_id, 'mapping_candidate': mapping_candidate,
+                                         'mapping_snapshot': mapping_snapshot, 'bonded_state_id': bonded_state_id,
+                                         'method': method,
+                                         'bonded_intent': None if bonded_intent in (None, 'fit_and_simulate') else bonded_intent,
+                                         **(settings or {})})
+        except ValueError as exc:
+            abort(400, str(exc))
         if run_type == 'cg_composition':
-            if not composition_id: abort(400, 'CG composition runs require composition_id')
-            if any(value for value in (reference_run_id, molecule_id, molecule_snapshot, mapping_candidate, mapping_snapshot, bonded_state_id)):
-                abort(400, 'CG composition runs cannot use AA or ordinary mapping inputs')
             try:
                 record = compositions.get(composition_id)
                 from ..adapters.composition import readiness as composition_readiness
@@ -517,9 +528,7 @@ class Coordinator:
                    'stage_plan': ['CG simulation', 'CG assessment', 'CG SASA'], 'resume_of': resume_of,
                    'resume_from': resume_from}
             return self.admit_jobs([job], job)
-        if run_type not in (None,'aa_only','aa_cg'):abort(400,'Unknown run type')
         if run_type=='aa_only':
-            if reference_run_id or mapping_candidate or mapping_snapshot or bonded_state_id:abort(400,'AA-only cannot use CG inputs or an AA source')
             if molecule_snapshot and not resume_of:
                 try:aa_molecules.verify_selection(self.ROOT/'molecules',molecule_snapshot)
                 except (OSError,ValueError) as exc:abort(409,str(exc))

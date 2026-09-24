@@ -7,6 +7,7 @@ admission rules can be unit-tested and reused outside the web layer.
 
 AA_ONLY_FORBIDDEN = (
     'mapping_candidate',
+    'mapping_snapshot',
     'bonded_state_id',
     'bonded_intent',
     'reference_run_id',
@@ -27,7 +28,8 @@ def validate_run_type(data):
     if kind == 'cg_composition':
         if not data.get('composition_id'):
             raise ValueError('CG composition runs require composition_id')
-        for key in ('molecule_id', 'reference_run_id', 'mapping_candidate', 'bonded_state_id'):
+        for key in ('molecule_id', 'molecule_snapshot', 'reference_run_id', 'mapping_candidate',
+                    'mapping_snapshot', 'bonded_state_id'):
             if data.get(key) not in (None, ''):
                 raise ValueError('CG composition runs cannot include AA or ordinary mapping inputs')
         return

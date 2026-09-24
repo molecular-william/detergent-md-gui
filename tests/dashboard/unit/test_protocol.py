@@ -31,6 +31,7 @@ def test_every_adapter_exposes_the_same_surface(run_type):
     plan, required_inputs, required_outputs = adapter.stage_contract({})
     assert plan, 'the stage contract must declare at least one stage'
     assert required_inputs is not None and required_outputs is not None
+    assert adapter.stages({}), 'the adapter must resolve its own stage declarations'
     specs = adapter.settings_specs()
     assert all(isinstance(bounds, tuple) and len(bounds) in (2, 3) for bounds in specs.values())
     assert set(adapter.readiness({})) >= {'ready', 'checks', 'blockers'}

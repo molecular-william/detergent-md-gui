@@ -303,6 +303,13 @@ def _protocol_stage_contract(metadata):
     return stage_contract(names)
 
 
+def _protocol_stages(metadata):
+    """Resolve the named stage declarations for the metadata's molecule."""
+    snapshot = metadata.get('molecule_snapshot')
+    names = CGNames.for_snapshot(snapshot) if snapshot else CGNames.ddm_defaults()
+    return tuple(stage.resolve(names.env()) for stage in STAGE_DEFS)
+
+
 def _protocol_readiness(metadata):
     molecule_id = metadata.get('molecule_id')
     if not molecule_id:
@@ -322,6 +329,7 @@ def _protocol_prepare(run_dir, metadata):
 PROTOCOL = protocol.Protocol(
     name='aa_cg',
     stage_contract=_protocol_stage_contract,
+    stages=_protocol_stages,
     settings_specs=lambda: SETTING_SPECS,
     stage_defaults=lambda: stage_defaults(),
     normalize_settings=lambda settings=None: normalize_settings(settings),

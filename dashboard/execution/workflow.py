@@ -6,6 +6,7 @@ from .environment import environment, execution_root
 from .adapters import cg
 from .adapters.cg_names import CGNames
 from .stages import Stage
+from . import protocol
 
 def stage_command(name, script):
     command = ['bash', '-e', '-o', 'pipefail', str(script)]
@@ -53,31 +54,19 @@ def validate_stage_inputs(name, directory, required=None):
         raise FileNotFoundError(f'{name}: missing required inputs: {", ".join(missing)}. Stage molecule-specific inputs before execution.')
 
 
+def _run_type(metadata) -> str:
+    """The adapter that owns a run; absent means the historical combined AA-to-CG job."""
+    return metadata.get('run_type') or 'aa_cg'
+
+
 def stage_definitions(metadata):
     """Return the executable contract selected by immutable run metadata."""
-    if metadata.get('run_type') == 'cg_composition':
-        from .adapters import composition
-        return composition.STAGES, composition.REQUIRED_INPUTS, composition.REQUIRED_OUTPUTS
-    if metadata.get('run_type')=='aa_only':
-        from .adapters import aa
-        return aa.STAGES,aa.REQUIRED_INPUTS,aa.REQUIRED_OUTPUTS
-    if metadata.get('run_type') not in (None,'aa_cg'):raise ValueError('Unknown run type')
-    names = CGNames.for_snapshot(metadata['molecule_snapshot']) if metadata.get('molecule_snapshot') else CGNames.ddm_defaults()
-    return cg.stage_contract(names)
+    return protocol.adapter_for(_run_type(metadata)).stage_contract(metadata)
 
 
 def plan_for(metadata) -> tuple[Stage, ...]:
     """Return the resolved immutable stage declarations for a run."""
-    if metadata.get('run_type') == 'cg_composition':
-        from .adapters import composition
-        return tuple(composition.STAGE_DEFS)
-    if metadata.get('run_type') == 'aa_only':
-        from .adapters import aa
-        return tuple(aa.STAGE_DEFS)
-    if metadata.get('run_type') not in (None, 'aa_cg'):
-        raise ValueError('Unknown run type')
-    names = CGNames.for_snapshot(metadata['molecule_snapshot']) if metadata.get('molecule_snapshot') else CGNames.ddm_defaults()
-    return tuple(stage.resolve(names.env()) for stage in cg.STAGE_DEFS)
+    return protocol.adapter_for(_run_type(metadata)).stages(metadata)
 
 
 def prepare_run(run_dir, **kwargs):

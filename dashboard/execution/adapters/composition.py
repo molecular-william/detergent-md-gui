@@ -128,6 +128,7 @@ def _protocol_prepare(run_dir, metadata):
 PROTOCOL = protocol.Protocol(
     name='cg_composition',
     stage_contract=_protocol_stage_contract,
+    stages=lambda metadata: tuple(STAGE_DEFS),
     settings_specs=lambda: SETTING_SPECS,
     stage_defaults=stage_defaults,
     normalize_settings=lambda settings=None: normalize_settings(settings),

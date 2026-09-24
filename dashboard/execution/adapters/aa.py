@@ -199,6 +199,11 @@ def _protocol_stage_contract(metadata):
     return STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS
 
 
+def _protocol_stages(metadata):
+    """AA stages name no molecule-specific script, so metadata is unused."""
+    return tuple(STAGE_DEFS)
+
+
 def _protocol_readiness(metadata):
     molecule_id = metadata.get('molecule_id')
     if not molecule_id:
@@ -214,6 +219,7 @@ def _protocol_prepare(run_dir, metadata):
 PROTOCOL = protocol.Protocol(
     name='aa_only',
     stage_contract=_protocol_stage_contract,
+    stages=_protocol_stages,
     settings_specs=lambda: SETTING_SPECS,
     stage_defaults=stage_defaults,
     normalize_settings=lambda settings=None: normalize_settings(settings),
