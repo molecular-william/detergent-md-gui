@@ -3,9 +3,9 @@ from pathlib import Path
 import hashlib
 import json
 
-from .. import carbohydrates
+from .. import sugars as carbohydrates
 from .context import as_structure
-from ..packaged_ddm_source import ROOT, SOURCE, molecule
+from ..molecules.packaged import ROOT, SOURCE, molecule
 from .graph import require_usable, validate
 
 

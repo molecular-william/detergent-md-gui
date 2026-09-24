@@ -5,9 +5,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from dashboard.models import compositions
-from dashboard.models import evidence
+from dashboard.models.molecules import evidence
 from dashboard.cli import migration
-from dashboard.models import model_registry
+from dashboard.models.molecules import registry as model_registry
 
 class DetergentModelTests(unittest.TestCase):
     def test_reference_hash_and_duplicate(self):

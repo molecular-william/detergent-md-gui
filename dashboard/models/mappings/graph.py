@@ -1,9 +1,9 @@
 """Graph-based structural validation, reuse gate and ring-site preview."""
 from collections import Counter
 
-from .. import carbohydrates
+from .. import sugars as carbohydrates
 from .context import as_structure
-from ..packaged_ddm_source import molecule
+from ..molecules.packaged import molecule
 from .schema import SIZES, check_schema
 
 

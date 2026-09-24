@@ -1,7 +1,8 @@
 from copy import deepcopy
 
 from dashboard.app import default_coordinator as web
-from dashboard.models import bonded_states, mappings
+from dashboard.models.bonded import states as bonded_states
+from dashboard.models import mappings
 from tests.dashboard.fixtures import physical_mapping
 
 

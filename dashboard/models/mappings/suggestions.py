@@ -5,7 +5,7 @@ from copy import deepcopy
 import hashlib
 import json
 
-from .. import carbohydrates
+from .. import sugars as carbohydrates
 from .context import as_structure
 
 def _candidate_types(index, atom_count):

@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from dashboard.models import mappings
 from dashboard.execution import workflow
-from dashboard.models import draft_model
+from dashboard.models.molecules import draft as draft_model
 from dashboard.models import bonded
 from dashboard.models.mappings import store as mapping_store
 

@@ -13,7 +13,7 @@ from ...execution.adapters import aa
 from ...execution.coordination import admission
 from ...execution import workflow
 from ...execution.adapters.micelle import run_micelle_job
-from dashboard.models import aa_molecules
+from ...models.molecules import aa as aa_molecules
 from flask import Blueprint, Response, jsonify, render_template, request, send_file
 from .common import coordinator, pagination
 

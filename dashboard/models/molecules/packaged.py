@@ -10,7 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 import re
 
-from .. import paths
+from ... import paths
 
 ROOT = paths.DEFAULT.project_root
 SOURCE = ROOT / 'molecules' / 'DDM'

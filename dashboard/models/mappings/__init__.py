@@ -12,14 +12,14 @@ sub-module that owns it.
 from .schema import (
     SIZES, LABELS, mapping_identity, mapping_content_identity, check_schema, new_draft, automatic_candidate,
 )
-from ..carbohydrate_validation import derive_representation, validate_representation, representation_modes
+from ..sugars.validation import derive_representation, validate_representation, representation_modes
 from .graph import validate, require_usable, ring_site_preview
 from .store import (
     storage_root, candidate_paths, get, list_candidates,
     save_draft, generate_variants, record_review,
 )
 from .exports import export_files
-from ..packaged_ddm_source import ROOT, SOURCE, molecule, bead_types
+from ..molecules.packaged import ROOT, SOURCE, molecule, bead_types
 
 __all__ = [
     'SIZES', 'LABELS',

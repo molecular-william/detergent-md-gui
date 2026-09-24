@@ -5,7 +5,7 @@ import json
 import math
 import shutil
 import subprocess
-from ...models import aa_molecules
+from ...models.molecules import aa as aa_molecules
 from ... import files
 from ...analysis import aa_references
 from ..environment import FORCE_FIELD, environment, probe_tool

@@ -1,7 +1,8 @@
 """Application construction and requests never share writable research state."""
 from dashboard.app import create_app
 from dashboard.paths import Paths
-from dashboard.models import bonded_states, mappings
+from dashboard.models.bonded import states as bonded_states
+from dashboard.models import mappings
 from tests.dashboard.fixtures import physical_mapping
 from dashboard import files
 

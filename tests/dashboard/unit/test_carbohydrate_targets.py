@@ -3,7 +3,7 @@ import json
 import pytest
 
 from dashboard.analysis.carbohydrate_targets import catalog, validate_selection
-from dashboard.models.evidence import evaluate
+from dashboard.models.molecules.evidence import evaluate
 
 
 def test_carbohydrate_profile_requires_three_physical_evidence_keys():

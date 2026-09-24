@@ -3,7 +3,7 @@ import copy
 import pytest
 
 from dashboard.models import mappings
-from dashboard.models.carbohydrate_validation import derive_representation, validate_representation
+from dashboard.models.sugars.validation import derive_representation, validate_representation
 
 
 def test_physical_only_removes_tc4_but_preserves_physical_ring_data():

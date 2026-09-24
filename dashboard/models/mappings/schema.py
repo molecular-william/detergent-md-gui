@@ -108,7 +108,7 @@ def automatic_candidate(structure, molecule_name):
     if not isinstance(molecule_name, str) or not molecule_name.strip():
         raise ValueError('automatic_candidate requires a molecule name')
     # Deferred import keeps the schema module independent for pure callers.
-    from .. import carbohydrates
+    from .. import sugars as carbohydrates
     heavy = [a['id'] for a in structure['atoms'] if a['heavy']]
     sugar = carbohydrates.candidate(structure, molecule_name)
     if sugar is not None:

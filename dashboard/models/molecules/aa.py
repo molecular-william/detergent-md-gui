@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 
 try:
-    from .. import files
+    from ... import files
 except ImportError:
     import files
 

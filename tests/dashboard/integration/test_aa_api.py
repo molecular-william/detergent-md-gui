@@ -7,7 +7,7 @@ import shutil
 import pytest
 from dashboard.app import default_coordinator as web
 from dashboard.execution.adapters import aa
-from dashboard.models import aa_molecules
+from dashboard.models.molecules import aa as aa_molecules
 from dashboard.analysis import aa_references
 from dashboard import files
 from dashboard.models import mappings

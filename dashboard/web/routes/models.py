@@ -6,9 +6,11 @@ import zipfile
 from pathlib import Path
 from flask import abort
 from dashboard import files
-from ...models import mappings, bonded_states, bonded_generation, model_registry, compositions, cg_models, evidence
+from ...models import mappings, compositions, catalog as cg_models
+from ...models.bonded import states as bonded_states, generation as bonded_generation
+from ...models.molecules import registry as model_registry, evidence
 from ...models.mappings import depiction, context as mapping_context_model, references as mapping_references, suggestions as mapping_suggestions
-from dashboard.models.json_repository import JsonRepository
+from ...models.repository import JsonRepository
 from dashboard.analysis import carbohydrate_targets
 from flask import Blueprint, Response, jsonify, request, send_file
 from .common import coordinator

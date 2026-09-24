@@ -3,7 +3,7 @@ import json
 import shutil
 import pytest
 from pathlib import Path
-from dashboard.models import aa_molecules
+from dashboard.models.molecules import aa as aa_molecules
 from dashboard.execution import workflow
 
 

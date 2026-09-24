@@ -7,7 +7,7 @@ import re
 import sys
 try:
     from .. import files
-    from ..models import aa_molecules
+    from ..models.molecules import aa as aa_molecules
 except ImportError:
     import files, aa_molecules
 

@@ -5,7 +5,8 @@ from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright, expect
 from werkzeug.serving import make_server
 from dashboard.app import create_app, default_coordinator as web
-from dashboard.models import mappings, bonded_states
+from dashboard.models import mappings
+from dashboard.models.bonded import states as bonded_states
 from dashboard.models.mappings import context as mapping_context
 from dashboard.execution import workflow
 from tests.dashboard.fixtures import QuietHandler, physical_mapping

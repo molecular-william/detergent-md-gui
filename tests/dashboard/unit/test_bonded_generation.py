@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from dashboard.models import bonded_generation
+from dashboard.models.bonded import generation as bonded_generation
 
 
 def _mapping(*, virtual=False):

@@ -3,9 +3,9 @@ import itertools
 import json
 import math
 from pathlib import Path
-from .. import paths
-from . import carbohydrates, mappings
-from .mappings.context import as_structure, build_context
+from ... import paths
+from .. import sugars as carbohydrates, mappings
+from ..mappings.context import as_structure, build_context
 
 CANDIDATE = mappings.SOURCE / 'mapping_candidate_smoke.json'
 

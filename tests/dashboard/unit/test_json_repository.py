@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from dashboard.models.json_repository import JsonRepository
+from dashboard.models.repository import JsonRepository
 
 
 def repository(root):

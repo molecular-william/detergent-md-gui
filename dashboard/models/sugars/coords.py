@@ -1,7 +1,7 @@
 """Sugar-first mapping candidate, coordinate construction and CG edge topology."""
 import itertools
 
-from .sugar_recognition import RADII_NM, graph, identify_hexoses
+from .recognition import RADII_NM, graph, identify_hexoses
 
 
 def candidate(structure, name):

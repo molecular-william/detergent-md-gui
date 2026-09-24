@@ -6,7 +6,8 @@ import pytest
 
 from dashboard.execution.adapters import cg
 from dashboard.execution.adapters.cg_names import CGNames
-from dashboard.models import draft_model, mappings
+from dashboard.models.molecules import draft as draft_model
+from dashboard.models import mappings
 from dashboard.models.mappings.context import as_structure, build_context
 
 

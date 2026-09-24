@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 
-from .mappings.schema import mapping_identity
+from ..mappings.schema import mapping_identity
 
 
 PHYSICAL_ONLY = 'physical_only_ring_constrained'

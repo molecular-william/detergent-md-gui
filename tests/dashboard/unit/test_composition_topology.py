@@ -1,7 +1,7 @@
 from pathlib import Path
 import pytest
 
-from dashboard.models.composition_topology import (
+from dashboard.models.compositions.topology import (
     build_preview, composition_identity, expand_tail, load_sugar_catalog,
 )
 

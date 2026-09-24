@@ -5,7 +5,8 @@ from playwright.sync_api import expect, sync_playwright
 from werkzeug.serving import WSGIRequestHandler, make_server
 
 from dashboard.app import create_app
-from dashboard.models import bonded_states, mappings
+from dashboard.models.bonded import states as bonded_states
+from dashboard.models import mappings
 from dashboard.paths import Paths, use
 from tests.dashboard.fixtures import PROJECT_ROOT, physical_mapping
 

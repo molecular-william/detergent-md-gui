@@ -10,7 +10,8 @@ snapshot (historical smoke-test paths).
 from pathlib import Path
 import os, shutil, subprocess, json, datetime, re, shlex, hashlib
 from ... import files, paths
-from ...models import aa_molecules, mappings, draft_model, bonded
+from ...models.molecules import aa as aa_molecules, draft as draft_model
+from ...models import mappings, bonded
 from .cg_names import CGNames, require_script_compatibility
 from ..environment import ROOT, TUTORIAL_TEMPLATE, AA_TEMPLATE, FORCE_FIELD, environment, probe_tool, update_mdp, execution_root
 from ..stages import Stage, stage_tables

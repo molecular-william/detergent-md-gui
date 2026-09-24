@@ -6,7 +6,7 @@ intergroup separation.
 """
 import itertools
 
-from .sugar_mapping import coordinates, physical_edges, ring_pairs
+from .coords import coordinates, physical_edges, ring_pairs
 
 
 def topology(data, structure, *, residue_name='DDM', representation_mode=None):

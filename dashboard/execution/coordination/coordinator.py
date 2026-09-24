@@ -14,7 +14,9 @@ from dashboard import files, store, paths
 from ..adapters import aa
 from .. import workflow
 from . import resources, temporary
-from ...models import aa_molecules, mappings, bonded_states, compositions
+from ...models.molecules import aa as aa_molecules
+from ...models import mappings, compositions
+from ...models.bonded import states as bonded_states
 from ...models.mappings import context as mapping_context
 from dashboard.analysis import aa_references, observability
 from functools import wraps

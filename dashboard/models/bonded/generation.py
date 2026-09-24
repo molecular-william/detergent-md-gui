@@ -10,7 +10,7 @@ import json
 import math
 from pathlib import Path
 
-from .bonded import FUNCTIONS
+from . import FUNCTIONS
 
 
 _MASSES = {'R': 72, 'S': 54, 'T': 36}

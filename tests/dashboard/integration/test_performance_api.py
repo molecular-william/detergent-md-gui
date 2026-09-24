@@ -2,7 +2,8 @@
 import json
 from unittest.mock import patch
 from dashboard.app import default_coordinator as web
-from dashboard.models import mappings, bonded_states
+from dashboard.models import mappings
+from dashboard.models.bonded import states as bonded_states
 from dashboard import files
 from tests.dashboard.fixtures import physical_mapping
 

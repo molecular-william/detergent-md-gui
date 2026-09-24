@@ -1,7 +1,7 @@
 from dashboard.models import mappings
-from dashboard.models.carbohydrate_validation import derive_representation
-from dashboard.models.sugar_mapping import coordinates
-from dashboard.models.sugar_topology import topology
+from dashboard.models.sugars.validation import derive_representation
+from dashboard.models.sugars.coords import coordinates
+from dashboard.models.sugars.topology import topology
 
 
 def test_physical_only_has_ring_constraints_without_virtual_sites():

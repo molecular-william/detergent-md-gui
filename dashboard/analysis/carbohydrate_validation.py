@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from dashboard.models.carbohydrate_validation import derive_representation
+from ..models.sugars.validation import derive_representation
 from . import carbohydrate_geometry, osmotic_pressure, transfer_free_energy
 
 

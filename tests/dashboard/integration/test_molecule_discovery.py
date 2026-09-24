@@ -8,7 +8,7 @@ import pytest
 from dashboard import files
 from dashboard.analysis import aa_references
 from dashboard.execution.adapters import aa
-from dashboard.models import aa_molecules
+from dashboard.models.molecules import aa as aa_molecules
 from tests.dashboard.fixtures import PROJECT_ROOT
 
 
