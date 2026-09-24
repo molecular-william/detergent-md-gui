@@ -4,6 +4,7 @@ The interface exists so no caller has to know which adapter it is talking to:
 the coordinator, the queue routes and these tests all ask the same questions
 and get the same shapes back. These tests pin the shapes, not the internals.
 """
+import importlib
 import subprocess
 from collections.abc import Mapping
 
@@ -63,6 +64,13 @@ def test_readiness_without_metadata_reports_a_blocker_instead_of_raising(run_typ
     report = protocol.adapter_for(run_type).readiness({})
     assert report['ready'] is False
     assert report['blockers'], 'a missing input must appear as a blocker'
+
+
+@pytest.mark.parametrize('run_type, adapter_name', [('aa_only', 'aa')])
+def test_adapter_for_returns_the_adapters_own_protocol(run_type, adapter_name):
+    """The interface lives with the adapter that implements it."""
+    adapter = importlib.import_module(f'dashboard.execution.adapters.{adapter_name}')
+    assert protocol.adapter_for(run_type) is adapter.PROTOCOL
 
 
 def test_setting_bounds_accepts_both_dialects():

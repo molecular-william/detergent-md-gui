@@ -21,10 +21,10 @@ Shapes, as of this module:
   type that uses no external tool.
 
 The per-type wrappers live here for now and move into their adapters as each
-adapter is wrapped (Tasks 2.2-2.4), at which point ``adapter_for`` returns the
-adapter's own ``Protocol`` instance. They import their adapter inside the
-builder so wrapping an adapter with ``protocol.Protocol`` stays free of an
-import cycle.
+adapter is wrapped (Tasks 2.2-2.4): `aa_only` is wrapped already, and
+``adapter_for`` returns the adapter's own ``Protocol`` instance for it. The
+builders import their adapter inside the function so that an adapter may import
+this module to declare its Protocol without creating a cycle.
 """
 from __future__ import annotations
 
@@ -72,27 +72,7 @@ def _composition_stage_contract(metadata: Mapping) -> tuple:
 
 def _aa_protocol() -> Protocol:
     from .adapters import aa
-
-    def readiness(metadata: Mapping) -> dict:
-        molecule_id = metadata.get('molecule_id')
-        if not molecule_id:
-            return blocked('molecule_id is required to check an AA-only run')
-        return aa.readiness(metadata.get('molecule_root'), molecule_id)
-
-    def prepare(run_dir, metadata: Mapping) -> None:
-        aa.prepare_run(run_dir, metadata['molecule_root'], metadata['molecule_snapshot'],
-                       metadata.get('settings'))
-
-    return Protocol(
-        name='aa_only',
-        stage_contract=lambda metadata: (aa.STAGES, aa.REQUIRED_INPUTS, aa.REQUIRED_OUTPUTS),
-        settings_specs=lambda: aa.SETTING_SPECS,
-        stage_defaults=aa.stage_defaults,
-        normalize_settings=lambda settings=None: aa.normalize_settings(settings),
-        readiness=readiness,
-        prepare=prepare,
-        tool_report=aa.tool_metadata,
-    )
+    return aa.PROTOCOL
 
 
 def _cg_protocol() -> Protocol:

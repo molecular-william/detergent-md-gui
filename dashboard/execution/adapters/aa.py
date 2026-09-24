@@ -10,6 +10,7 @@ from ... import files
 from ...analysis.runs import references as aa_references
 from ..environment import FORCE_FIELD, environment, probe_tool
 from ..stages import Stage, stage_tables
+from .. import protocol
 
 # Modules copied into every run's common/ directory. The names are part of the
 # run contract, not a detail: the generated stage scripts invoke
@@ -191,3 +192,32 @@ python ../common/aa_references.py publish ..
         stage_plan=[name for name,_ in STAGES],stages=[],input_snapshot_sha256=files.hashes(run_dir/'inputs'),
         tools=tool_metadata(),prepared_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
         environment={k:environment()[k] for k in ('PATH','MPLBACKEND','OMP_NUM_THREADS')}))
+
+
+def _protocol_stage_contract(metadata):
+    """AA stages carry no run-specific placeholders, so metadata is unused."""
+    return STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS
+
+
+def _protocol_readiness(metadata):
+    molecule_id = metadata.get('molecule_id')
+    if not molecule_id:
+        return protocol.blocked('molecule_id is required to check an AA-only run')
+    return readiness(metadata.get('molecule_root'), molecule_id)
+
+
+def _protocol_prepare(run_dir, metadata):
+    prepare_run(run_dir, metadata['molecule_root'], metadata['molecule_snapshot'],
+                metadata.get('settings'))
+
+
+PROTOCOL = protocol.Protocol(
+    name='aa_only',
+    stage_contract=_protocol_stage_contract,
+    settings_specs=lambda: SETTING_SPECS,
+    stage_defaults=stage_defaults,
+    normalize_settings=lambda settings=None: normalize_settings(settings),
+    readiness=_protocol_readiness,
+    prepare=_protocol_prepare,
+    tool_report=tool_metadata,
+)
