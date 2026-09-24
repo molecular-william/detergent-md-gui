@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='runs.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='new-run.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='mappings.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='compositions.css') }}">
   <script src="{{ url_for('models.plotly_asset') }}"></script>
   <script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
 </head>
@@ -18,6 +19,7 @@
   <button role="tab" id="tab-new" aria-controls="new" data-tab="new">New run</button>
   <button role="tab" id="tab-mappings" aria-label="CG mappings" aria-controls="mappings" data-tab="mappings">CG Bead Assignment</button>
   <button role="tab" id="tab-bonded" aria-controls="bonded" data-tab="bonded">CG Bond Interactions</button>
+  <button role="tab" id="tab-compositions" aria-controls="compositions" data-tab="compositions">Molecule Combination</button>
 </nav>
 <p id="notice" role="status" class="notice" hidden></p>
 <section id="runs" role="tabpanel" aria-labelledby="tab-runs">
@@ -58,13 +60,14 @@
     <section class="card" aria-labelledby="execution-title">
     <span class="eyebrow">RUN CONFIGURATION</span><h3 id="execution-title">Execution and CG inputs</h3>
     <p class="hint" id="run-type-help">Choose the workflow before selecting CG-specific inputs.</p>
-    <label>Run type<select name="run_type" id="run-type"><option value="aa_cg">AA–CG run</option><option value="aa_only">AA run only</option></select></label>
+    <label>Run type<select name="run_type" id="run-type"><option value="aa_cg">AA–CG run</option><option value="aa_only">AA run only</option><option value="cg_composition">CG composition screening</option></select></label>
     <label class="cg-setting">Method<select name="method" id="method"><option value="fast_forward">Fast_Forward</option><option value="bartender">Bartender</option></select></label>
     <input type="hidden" name="clone_of"><p id="clone-notice" class="hint" role="status"></p><button id="leave-clone" type="button" class="secondary" hidden>Use settings for a new run</button>
     <label class="cg-setting">Execution<select name="profile"><option value="standard">Standard parameterization (reviewed model required)</option><option value="draft-smoke">Candidate screening · configurable CG durations</option><option value="draft-smoke-reference">Candidate screening · reuse full AA reference</option></select></label>
     <p class="hint cg-setting">Candidate screening checks mapping, fitting and comparison using uncalibrated bead types. It does not validate a scientific model.</p>
     <div class="cg-only" id="cg-inputs">
     <label>CG mapping<select name="mapping_candidate" id="run-mapping"><option value="">Select a saved mapping</option></select></label>
+    <label id="composition-run-selector">CG composition<select name="composition_id" id="run-composition"><option value="">Select a saved composition</option></select></label>
     <label>Bonded parameters<select name="bonded_state_id" id="run-bonded-state"><option value="">Fit bonded parameters during this run</option></select></label>
     <label>Bonded workflow<select name="bonded_intent"><option value="fit_and_simulate">Fit and simulate</option><option value="fit_only">Fit only (stop for review)</option><option value="reuse_state">Reuse selected bonded state</option></select></label>
     <p id="bonded-run-help" class="hint">Fit and simulate derives bonded parameters from AA, then runs CG. Fit only stops for review in CG Bond Interactions. Reuse uses the selected saved parameter revision.</p>
@@ -126,6 +129,46 @@
       </div>
     </div>
   </section>
+  <section class="card carbohydrate-validation-workspace" aria-labelledby="carbohydrate-validation-title">
+    <div class="section-heading"><div><h3 id="carbohydrate-validation-title">Carbohydrate validation</h3><p class="hint">Compare the published TC4 representation with the controlled physical-only ring-constrained representation.</p></div></div>
+    <div class="form-grid">
+      <label>Representation<select id="validation-representation" aria-label="Representation"></select></label>
+      <label>Tier<select id="validation-tier" aria-label="Validation tier"></select></label>
+      <label>Target dataset<select id="validation-target" aria-label="Target dataset"></select></label>
+      <label>Completed source run<select id="validation-source-run" aria-label="Completed source run"></select></label>
+    </div>
+    <p id="validation-target-status" class="hint" role="status">Choose a molecule to load cited target datasets.</p>
+    <div class="toolbar"><button type="button" id="launch-carbohydrate-validation" disabled>Run validation</button></div>
+    <div id="carbohydrate-validation-reports" class="validation-reports" aria-live="polite"><p class="hint">No validation attempts for this mapping.</p></div>
+  </section>
+</section>
+<section id="compositions" role="tabpanel" aria-labelledby="tab-compositions" hidden>
+  <div class="section-heading"><div><h2>Molecule Combination</h2><p>Attach a reference-backed mapped headgroup to a deterministic Martini carbon tail.</p></div></div>
+  <div class="composition-workspace">
+    <section class="card composition-controls" aria-labelledby="composition-controls-title">
+      <h3 id="composition-controls-title">Build a candidate</h3>
+      <p class="hint">Sources are immutable. A saved composition is a candidate-unvalidated CG model.</p>
+      <label>Sugar headgroup<select id="composition-sugar"></select></label>
+      <label>Tail recipe<select id="composition-tail-recipe"></select></label>
+      <label>Carbon count<input id="composition-carbon-count" type="number" min="2" max="200" step="1" value="12"></label>
+      <label>Head endpoint<select id="composition-head-endpoint"></select></label>
+      <label>Tail endpoint<select id="composition-tail-endpoint"></select></label>
+      <label>Linkage profile<select id="composition-linkage-profile"></select></label>
+      <label>Display name<input id="composition-display-name" maxlength="160" placeholder="Optional name"></label>
+      <div class="toolbar"><button type="button" id="composition-preview">Preview composition</button><button type="button" class="secondary" id="composition-save" disabled>Save composition</button></div>
+      <p id="composition-panel-status" class="hint" role="status"></p>
+    </section>
+    <section class="card composition-preview" aria-labelledby="composition-preview-title">
+      <h3 id="composition-preview-title">Combined geometry</h3>
+      <div id="composition-plot" class="composition-plot" role="img" aria-label="Combined CG bead preview"></div>
+      <div id="composition-diagnostics" class="composition-diagnostics" aria-live="polite">Choose the fragments and preview the candidate.</div>
+    </section>
+    <aside class="card composition-provenance" aria-labelledby="composition-provenance-title">
+      <h3 id="composition-provenance-title">Provenance</h3>
+      <dl id="composition-provenance-list"><dt>Head source</dt><dd>—</dd><dt>Tail</dt><dd>—</dd><dt>Linkage</dt><dd>—</dd><dt>Status</dt><dd>candidate-unvalidated</dd></dl>
+      <div class="toolbar"><button type="button" class="secondary" id="composition-open-bonded" disabled>Open CG Bond Interactions</button><button type="button" class="secondary" id="composition-start-run" disabled>Start CG-only run</button></div>
+    </aside>
+  </div>
 </section>
 <section id="bonded" role="tabpanel" aria-labelledby="tab-bonded" hidden>
   <div class="section-heading"><div><h2>CG Bond Interactions</h2><p>Edit bonded terms for a selected mapping and save immutable state revisions.</p></div></div>

@@ -1,7 +1,7 @@
 import { $, $$, storage } from './shared.js';
 
 export function selectTab(id) {
-  if (!['runs', 'new', 'mappings', 'bonded'].includes(id)) id = 'runs';
+  if (!['runs', 'new', 'mappings', 'bonded', 'compositions'].includes(id)) id = 'runs';
   $$('[role=tab][data-tab]').forEach(tab => {
     const active = tab.dataset.tab === id;
     tab.setAttribute('aria-selected', String(active)); tab.tabIndex = active ? 0 : -1;

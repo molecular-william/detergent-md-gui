@@ -11,3 +11,8 @@ def test_graph_metadata_explains_metric_direction_and_units():
 
 def test_legacy_metadata_is_explicit():
     assert describe('distance-distributions',legacy=True)['legacy'] is True
+
+
+def test_carbohydrate_evidence_metadata_names_physical_measurements():
+    assert describe('mapped_geometry')['title'] == 'Carbohydrate geometry and volume'
+    assert 'osmotic' in describe('osmotic_pressure')['title'].lower()

@@ -85,6 +85,32 @@ def test_two_completed_consumers_share_source_and_prevent_deletion(service,monke
     assert service.delete('/api/jobs/'+source['id']).status_code==409
 
 
+def test_cg_worker_does_not_pass_reference_run_id_to_preparation(service, monkeypatch):
+    source = reference_fixture()
+    monkeypatch.setattr(backend.workflow, 'readiness', lambda *a, **k: {'ready': True})
+    captured = {}
+
+    def prepare(root, *, detergent, profile, settings, mapping_candidate,
+                bonded_state_snapshot, bonded_intent, shared_reference,
+                reference_root, molecule_snapshot, molecule_root):
+        captured.update(shared_reference=shared_reference, reference_root=reference_root)
+        files.atomic_json(root / 'manifest.json', {'stages': []})
+
+    monkeypatch.setattr(backend.workflow, 'prepare_run', prepare)
+    monkeypatch.setattr(backend.workflow, 'run', lambda *args, **kwargs: None)
+    with web.app.test_request_context():
+        job = web.create_job(
+            'DDM', 'fast_forward', profile='draft-smoke', run_type='aa_cg',
+            molecule_id='DDM', reference_run_id=source['id'],
+            mapping_snapshot=mappings.automatic_candidate(mappings.molecule(), 'DDM'))
+    web.WORKERS.clear()
+
+    web.run_job(job['id'])
+
+    assert web.lookup(job['id'])['status'] == 'completed', web.lookup(job['id']).get('error')
+    assert captured['shared_reference']['source_run_id'] == source['id']
+
+
 def test_waiting_consumer_starts_only_after_source_slot_is_released(service):
     source=reference_fixture()
     child={'id':'222222222222','status':'waiting','run_type':'aa_cg','reference_run_id':source['id'],
@@ -135,8 +161,12 @@ def test_new_attempt_preserves_run_type_and_shared_source(service, monkeypatch, 
             'input_snapshot_sha256': files.hashes(directory/'inputs')})
         with web.lease(directory/'.worker.lock'):
             blocked = service.post(f"/api/jobs/{job['id']}/resume", json={'stage': stage})
-        assert blocked.status_code == 400
-        assert 'worker still holds' in blocked.get_json()['error']
+            assert blocked.status_code == 409
+            assert 'worker still holds' in blocked.get_json()['error']
+        if action == 'resume':
+            # Same-run resume admission and completion are covered by the
+            # dedicated in-place resume integration fixture.
+            return
     endpoint = '/retry/'+job['id'] if action == 'retry' else f"/api/jobs/{job['id']}/{action}"
     response = service.post(endpoint, json={'stage': stage} if action == 'resume' else {})
     assert response.status_code == 201, response.get_json()

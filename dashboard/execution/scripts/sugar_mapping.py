@@ -63,7 +63,8 @@ aa_source = Path(os.environ.get('AA_REFERENCE_DIR', '../1_AA-reference/prod'))
 aa = mda.Universe(str(aa_source / 'lig.gro'), str(aa_source / 'lig.xtc'))
 names = [b['export_name'] for b in model['beads']]
 cg = mda.Universe.empty(len(names), n_residues=1, atom_resindex=np.zeros(len(names), dtype=int), trajectory=True)
-cg.add_TopologyAttr('names', names); cg.add_TopologyAttr('resnames', ['DDM']); cg.add_TopologyAttr('resids', [1])
+cg_resname = os.environ.get('MOLECULE_TYPE', 'DDM')
+cg.add_TopologyAttr('names', names); cg.add_TopologyAttr('resnames', [cg_resname]); cg.add_TopologyAttr('resids', [1])
 for file in ('mapped.xtc', 'mapped.gro', 'mapped_scaled.xtc', 'mapped_scaled.gro', 'ring_targets.json'):
     if Path(file).exists(): raise FileExistsError(file)
 sums = {pair: 0.0 for pair in ring_pairs(model)}

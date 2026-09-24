@@ -3,10 +3,12 @@ from dashboard.execution import coordinator as backend
 from tests.dashboard.fixtures import PROJECT_ROOT
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
 
+from dashboard import paths
 from dashboard.app import default_coordinator as web
 
 
@@ -68,6 +70,32 @@ class MoleculeDirectoryTests(unittest.TestCase):
         response=self.client.get('/api/readiness?molecule_id=example&detergent=example&method=fast_forward&run_type=aa_cg').get_json()
         self.assertFalse(response['ready'])
         self.assertTrue(response['blockers'])
+
+    def test_new_run_readiness_validates_mapping_against_selected_molecule(self):
+        shutil.copytree(PROJECT_ROOT / 'molecules/Maltose', self.root / 'molecules/Maltose')
+        source = PROJECT_ROOT / 'workspace/dashboard/mapping_drafts/mapping_candidate_75a9442a2f88484d91c3b397b386d5fb.json'
+        candidate_name = source.name
+        paths.current().mapping_drafts.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, paths.current().mapping_drafts / candidate_name)
+        seen = {}
+
+        def readiness(*args, **kwargs):
+            seen['candidate'] = args[3]
+            return {'ready': True, 'checks': [], 'blockers': []}
+
+        with patch.object(backend.workflow, 'readiness', side_effect=readiness), \
+             patch.object(backend.aa_workflow, 'readiness', return_value={'ready': True, 'blockers': []}):
+            mappings_response = self.client.get('/api/mappings?view=summary&molecule_id=Maltose')
+            response = self.client.get(
+                '/api/readiness?run_type=aa_cg&molecule_id=Maltose&detergent=Maltose'
+                '&method=fast_forward&profile=draft-smoke&mapping_candidate=' + candidate_name
+            )
+
+        self.assertEqual(mappings_response.status_code, 200, mappings_response.get_json())
+        self.assertEqual([item['file'] for item in mappings_response.get_json()['candidates']], [candidate_name])
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(seen['candidate']['molecule_id'], 'Maltose')
+        self.assertEqual(seen['candidate']['validation']['issues'], [])
 
     def install_ddm(self):
         import shutil

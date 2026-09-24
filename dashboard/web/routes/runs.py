@@ -47,7 +47,7 @@ def queue():
     intent=data.get('bonded_intent','fit_and_simulate')
     if intent not in ('fit_and_simulate','fit_only','reuse_state'): abort(400,'Unknown bonded run intent')
     specs=set(aa_workflow.SETTING_SPECS) if data.get('run_type')=='aa_only' else set(workflow.SETTING_SPECS)|set(aa_workflow.SETTING_SPECS)
-    job = c.create_job(data.get('detergent') or data.get('molecule_id'), data.get('method'), data.get('label', ''), profile=data.get('profile', 'standard'), settings={k: data.get(k) for k in specs if data.get(k) not in (None, '')}, reference_run_id=data.get('reference_run_id') or None, mapping_candidate=data.get('mapping_candidate'), bonded_state_id=data.get('bonded_state_id') or None, bonded_intent=intent, temporary_validation=str(data.get('temporary_validation','')).lower() in ('1','true','yes'), molecule_id=data.get('molecule_id'),run_type=data.get('run_type'))
+    job = c.create_job(data.get('detergent') or data.get('molecule_id') or data.get('composition_id'), data.get('method'), data.get('label', ''), profile=data.get('profile', 'standard'), settings={k: data.get(k) for k in specs if data.get(k) not in (None, '')}, reference_run_id=data.get('reference_run_id') or None, mapping_candidate=data.get('mapping_candidate'), bonded_state_id=data.get('bonded_state_id') or None, bonded_intent=intent, temporary_validation=str(data.get('temporary_validation','')).lower() in ('1','true','yes'), molecule_id=data.get('molecule_id'),run_type=data.get('run_type'), composition_id=data.get('composition_id'))
     return jsonify(c.public_job(job)), 201
 
 
@@ -169,19 +169,10 @@ def clone_job(jid):
 @blueprint.post('/api/jobs/<jid>/resume')
 def resume_job(jid):
     c = coordinator()
-    with c.JOBS_LOCK:
-        source = c.lookup(jid); data = request.get_json() or {}
-        if not isinstance(data,dict): abort(400, 'Expected an object')
-        if source['status'] not in ('failed','cancelled','completed') or jid in c.WORKERS: abort(409, 'Source run must be stopped')
-        stage = data.get('stage')
-        with c.lease(c.run_path(source)/'.worker.lock'):
-            if stage not in workflow.resumable_stages(c.run_path(source)): abort(409, 'Cannot resume that stage; upstream checksums required')
-        # Release the inspection lease before admission checks external workers.
-        # JOBS_LOCK still prevents local deletion or scheduling of the source;
-        # run_job reacquires its lease while copying verified resume inputs.
-        new = c.create_job(source['detergent'], source['method'], source.get('label','')+' resumed', profile=source.get('profile','standard'),
-                         settings=source.get('settings'), resume_of=jid, resume_from=stage, mapping_snapshot=source.get('mapping_snapshot'), molecule_snapshot=source.get('molecule_snapshot'),molecule_id=source.get('molecule_id'),reference_run_id=source.get('reference_run_id'),run_type=source.get('run_type'),bonded_state_id=source.get('bonded_state_id'),bonded_intent=source.get('bonded_intent','fit_and_simulate'))
-    return jsonify(c.public_job(new)), 201
+    data = request.get_json() or {}
+    if not isinstance(data, dict): abort(400, 'Expected an object')
+    job = c.resume_in_place(jid, data.get('stage'))
+    return jsonify(c.public_job(job)), 200
 
 
 @blueprint.get('/api/jobs/<jid>/artifacts')

@@ -79,7 +79,8 @@ def export_files(data, *, context=None):
               'mapping_mode': 'COG', 'hydrogens': 'excluded', 'beads': beads, 'validation': validation,
               'source': structure['source'],
               'source_sha256': hashlib.sha256((SOURCE / 'results/MMFF/lig1.pdb').read_bytes()).hexdigest()}
-    for key in ('rings','connections','bonded_options','bonded_overrides','schema_version','provenance','limitations'):
+    for key in ('rings','connections','bonded_options','bonded_overrides','schema_version','provenance','limitations',
+                'representation_mode','source_mapping_hash','transformation'):
         if key in data: record[key] = data[key]
     readme = '''DDM mapping export — candidate, not a fitted CG force field
 
@@ -104,7 +105,8 @@ Size and disconnected-group findings remain review issues, even when files parse
     exported = {'mapping.ndx': ndx, 'mapping.map': mapping, 'mapped.gro': gro,
                 'model.json': json.dumps(record, indent=2), 'README.txt': readme}
     if data.get('rings'):
-        exported['DDM_initial.itp'] = carbohydrates.topology(data, structure)
+        exported['DDM_initial.itp'] = carbohydrates.topology(
+            data, structure, representation_mode=data.get('representation_mode'))
         exported['carbohydrates.py'] = (Path(carbohydrates.__file__)).read_text()
         exported['sugar_mapping.py'] = (ROOT/'dashboard/execution/scripts/sugar_mapping.py').read_text()
         exported['prepare_ring_constraints.py'] = (ROOT/'dashboard/execution/scripts/prepare_ring_constraints.py').read_text()

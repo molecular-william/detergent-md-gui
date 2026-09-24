@@ -58,7 +58,7 @@ export function createRuns({ onClone, onDeleted }) {
           } catch(error) { notice(error.message); }
         };
         $('.job-resume',card).onclick = async () => {
-          try { await post(`/api/jobs/${job.id}/resume`,{stage:$('.resume-stage',card).value}); notice('New attempt created; verified upstream stages will be reused.'); await refreshJobs(); }
+          try { await post(`/api/jobs/${job.id}/resume`,{stage:$('.resume-stage',card).value}); notice('Run resumed; current stage files will be executed.'); await refreshJobs(); }
           catch(error) { notice(error.message); }
         };
         card.artifactPage = 1;

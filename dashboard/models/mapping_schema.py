@@ -20,6 +20,8 @@ def mapping_identity(mapping):
     if mapping.get('schema_version') == 3:
         payload.update(identity_version=3, molecule_id=mapping.get('molecule_id'),
                        molecule_snapshot=mapping.get('molecule_snapshot'))
+    if 'representation_mode' in mapping:
+        payload['representation_mode'] = mapping.get('representation_mode')
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
@@ -28,7 +30,8 @@ def mapping_content_identity(mapping):
     return mapping_identity({**mapping, 'name': ''})
 
 
-def check_schema(data, *, allow_empty=False):
+def check_schema(data, *, allow_empty=False, representation_mode=None):
+    representation_mode = representation_mode or data.get('representation_mode')
     if not isinstance(data, dict) or not isinstance(data.get('name'), str) or not 1 <= len(data['name'].strip()) <= 160:
         raise ValueError('Give this candidate a name (1–160 characters)')
     beads = data.get('beads')
@@ -73,8 +76,12 @@ def check_schema(data, *, allow_empty=False):
         if not set(parents) <= byname.keys() or used & set(parents): raise ValueError('Missing or overlapping sugar ring beads')
         if any(byname[p].get('virtual_site') for p in parents): raise ValueError('Ring vertices must be massive beads')
         used.update(parents)
-        site = byname.get(ring.get('virtual_site'), {})
-        if site.get('virtual_site',{}).get('parents') != parents: raise ValueError('Ring virtual site parents disagree with its ring')
+        site_name = ring.get('virtual_site')
+        site = byname.get(site_name, {})
+        if representation_mode == 'physical_only_ring_constrained':
+            if site_name is not None: raise ValueError('Physical-only ring definitions cannot reference virtual sites')
+        elif site.get('virtual_site',{}).get('parents') != parents:
+            raise ValueError('Ring virtual site parents disagree with its ring')
         if type(ring.get('scale')) not in (int,float) or ring['scale'] != 1.15: raise ValueError('Paper ring distance scale must be 1.15')
     bonded.validate(data)
 

@@ -37,6 +37,13 @@ def test_aa_preparation_has_only_aa_stages_and_consistent_temperature(tmp_path,m
     assert 'gen-seed = 20260917' in nvt
     npt=(tmp_path/'stages/05_npt/run.mdp').read_text()
     assert 'gen-vel = no' in npt and 'continuation = yes' in npt
+    minimization=(tmp_path/'stages/03_minimization/run.sh').read_text()
+    assert '-gpu_id 0 -nb gpu -pin on' in minimization
+    assert '-pme gpu' not in minimization and '-pmefft gpu' not in minimization
+    for stage in ('04_nvt', '05_npt', '06_production'):
+        script=(tmp_path/'stages'/stage/'run.sh').read_text()
+        assert '-gpu_id 0 -nb gpu -pin on' in script
+        assert '-pme gpu' in script and '-pmefft gpu' in script
     assert workflow.resumable_stages(tmp_path)==[aa_workflow.STAGES[0][0]]
 
 
@@ -65,10 +72,17 @@ def test_aa_resume_uses_server_stages_and_rejects_changed_upstream(tmp_path,monk
         return subprocess.CompletedProcess(command,0)
     workflow.run(root,root/'logs/console.log',execute=execute,stop_after=aa_workflow.STAGES[0][0])
     assert workflow.resumable_stages(root)==[name for name,_ in aa_workflow.STAGES[:2]]
+    recorded=json.loads((root/'manifest.json').read_text())['stages'][0]['outputs_sha256']
+    assert all(not name.endswith(('run.sh', 'run.mdp')) for name in recorded)
+    stage_script=root/'stages/01_solvation/run.sh'
+    stage_script.write_text(stage_script.read_text()+'\n# regenerated launcher\n')
     target=tmp_path/'resumed';target.mkdir()
     workflow.prepare_resume(target,root,aa_workflow.STAGES[1][0])
     metadata=json.loads((target/'manifest.json').read_text())
     assert metadata['stages'][0]['status']=='reused'
+    assert all(not name.endswith('run.sh') for name in metadata['stages'][0]['outputs_sha256'])
+    assert (target/'stages/01_solvation/system.gro').read_text()=='completed solvation output'
+    assert '# regenerated launcher' not in (target/'stages/01_solvation/run.sh').read_text()
     (root/'stages/01_solvation/system.gro').write_text('tampered')
     bad=tmp_path/'bad';bad.mkdir()
     with pytest.raises(ValueError,match='changed'):

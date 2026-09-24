@@ -71,7 +71,7 @@ runs/<id>/
 ```
 Old flat layouts remain readable. Original snapshots and stage names are retained; source-package moves do not rewrite captured scripts or historical manifests.
 
-**Clone** creates a new attempt with changed settings. Retry preserves failed-attempt identity and settings in a new job, rejecting changed canonical molecule inputs. Resume verifies saved inputs and upstream output hashes, then copies only reusable stages into a new attempt; it never overlays a failed attempt. Legacy jobs without original input hashes can be cloned but cannot safely resume.
+**Clone** creates a new run with changed settings. Retry preserves failed-attempt identity and settings in a new job, rejecting changed canonical molecule inputs. Resume keeps the same run ID and database row and executes the current files already present in the selected and downstream `stages/` directories. It uses the manifest's completed-stage prefix to choose the restart point, without hashing or restoring files from `inputs/`; edits made after the original attempt therefore take effect on resume. The prior manifest and job metadata are recorded under `resume_history/`, while stage directories and their existing scratch files remain in place. Prior analyses are marked superseded because a rerun may change their source trajectories. Legacy copied-resume jobs remain readable; new resume requests continue the selected run in place.
 
 Cancellation targets process groups created by the current coordinator. Recovery marks interrupted active jobs and analyses failed. Orphan subprocess leases continue to block unsafe reuse and deletion. Logs and stage records retain commands, environment, start/end times, exit codes, hashes, and failure details.
 
@@ -93,7 +93,7 @@ In New run, choose DDM draft smoke test under Execution. This explicit option us
 
 The profile runs 10 ps NVT equilibration and 50 ps NVT production for both AA and CG, in pure water at 300 K, using one MPI rank and four OpenMP threads. It runs AA → ff_map → ff_inter → CG → ff_assess → SASA with checks at each handoff. Every run is new; retry preserves the draft profile and original data.
 
-Scripts live in dashboard/execution/scripts/. Only scientific assets (SwissParam, CHARMM36, Martini, MDP/water templates) are copied from local resource folders. No ENAP molecule or script is used. GROMACS 2026 TPRs are kept for simulation; analysis uses supported ligand GRO inputs with matching trajectories.
+Scripts live in dashboard/execution/scripts/. Only scientific assets (SwissParam, CHARMM36, Martini, MDP/water templates) are copied from local resource folders. No ENAP molecule or script is used. GROMACS 2026 TPRs are kept for simulation; analysis uses supported ligand GRO inputs with matching trajectories. Maintained AA and CG `mdrun` launchers request CUDA offload on GPU 0 for nonbonded and PME work (`-nb gpu -pme gpu -pmefft gpu`) with thread pinning; verify the recorded command and GROMACS log when diagnosing hardware selection.
 
 Set up the isolated tool installation once from the repository root:
 
@@ -107,7 +107,24 @@ Readiness invokes each tool's help to check imports as well as executable discov
 5_assessment/validation.json records frame and atom counts, finite coordinates, AA/mapped COG agreement, and actual comparison reports. Inspect plots and SASA curves through the artifact browser. Capture AA snapshots uses molecule-whole ligand coordinates in new runs. Completion means the execution checks passed; scientifically_validated remains false.
 
 ## Dashboard workspace
-The web UI is a single page with four tabs.
+
+### Molecule Combination
+
+The Molecule Combination tab builds an immutable coarse-grained candidate by
+combining one of the 15 reference-backed Martini sugar fragments with a named
+carbon-tail recipe. The browser submits identifiers and choices only; the
+server reparses `references/martini_v3.0.0_sugars_v2.itp`, checks the source
+hash, applies the selected linkage profile, and writes a new composition
+snapshot. The two initial recipes are `Linear C1` and `Linear C1/C2 terminal`.
+Saved records are reported as `candidate-unvalidated` and are never promoted to
+scientific validation by a successful preview, save, or screening run.
+
+Saved compositions are available in CG Bond Interactions through the unified CG
+model catalog. `cg_composition` runs are independent of the AA-to-CG workflow
+and contain only CG simulation, CG assessment, and CG SASA stages; they do not
+fabricate or require an AA reference. Composition artifacts and their hashes
+are immutable, so changing a choice creates another record.
+The web UI is a single page with five tabs.
 
 ### Runs
 Background polling updates individual status fields every five seconds. Forms, expanded details, mapping edits, and scroll position are not rebuilt. Terminal runs can be manually deleted from their run card; active workers are protected. Tabs, form values, and mapping drafts are remembered in browser storage. Elapsed time is reported only when recorded; ETA is shown only when present in current GROMACS output. Legacy runs without timestamps show "Not recorded".
@@ -141,9 +158,9 @@ Delete is available only for completed, failed, or cancelled runs. The server ch
 
 Cancellation sets "Cancelling…" until the worker confirms process termination. The worker terminates only subprocess groups it created, escalating to kill when necessary. Saved PIDs from older sessions are never signalled. Runs whose workers are not owned by the current server cannot be controlled by it.
 
-Retry creates a new run ID after readiness checks; original logs and simulation outputs stay intact. Job updates use SQLite transactions; immutable model and review records use atomic JSON replacement. Stage failures and cancellations are recorded in manifests.
+Resume continues the existing run ID after lease, dependency, and resource checks. The selected and downstream stage directories must exist and must not be symlinks; their current launchers, inputs, and outputs are executed as found. Retry and Clone create new run IDs after readiness checks; original logs and simulation outputs stay intact. In-place resume records its prior manifest and job metadata in `resume_history/` without replacing current stage directories. Job updates use SQLite transactions; immutable model and review records use atomic JSON replacement. Stage failures and cancellations are recorded in manifests.
 
-JSON and log endpoints are under /api/jobs, /api/readiness, and /api/mappings. Mapping edits are stored in the configured workspace's mapping_drafts/ directory; original candidates stay under the canonical molecule source.
+JSON and log endpoints are under /api/jobs, /api/readiness, /api/mappings, /api/compositions, and /api/cg-models. Mapping edits are stored in the configured workspace's mapping_drafts/ directory; original candidates stay under the canonical molecule source.
 
 ### Mapping exports and diagrams
 Each candidate can export .ndx, .map, .gro, or a ZIP containing all three plus candidate metadata, source hash, and validation report. All files use matching bead IDs B01, B02, …; original display names remain in model.json. This avoids GRO name truncation and Fast_Forward's restriction to alphanumeric bead identifiers. Missing, repeated, unknown, or hydrogen assignments block export. Size and connectivity findings remain visible and recorded as review issues.
@@ -151,6 +168,8 @@ Each candidate can export .ndx, .map, .gro, or a ZIP containing all three plus c
 The .map header is [ molecule ] LIG1 <molecule_name>, as required by Fast_Forward. The .gro frame is calculated from equal-weight heavy-atom COGs, converted from ångströms to nm, and has no periodic box. These are review artifacts, not fitted parameters or a ready-to-run system. Original atom indices refer to the matching SwissParam ligand-only order.
 
 RDKit, already present in the local environment, draws the 2D structure from SwissParam MOL2 after checking atom names/order and bonds against PDB and ITP. Circle radii represent the 2D extent of assigned atoms, not Martini physical radii. Diagrams update with mapping edits and export as self-contained SVG.
+
+The carbohydrate validation controls in this workspace are separate from mapping approval. They offer the published `tc4` representation and a deterministic `physical_only_ring_constrained` derivative, which removes TC4 sites while retaining physical bead ownership and 1.15-scaled ring constraints. A setup check is diagnostic-only. An evidence run requires cited targets and paper-aligned sampling before it can report `evidence_complete`.
 
 See FAST_FORWARD_ALIGNMENT.md for the tutorial comparison, compatibility decisions, and scientific validation still required.
 
@@ -164,6 +183,8 @@ POST /api/jobs/<id>/stability records LINCS warning counts from stage logs, immu
 POST/GET /api/jobs/<id>/targets stores schema-versioned transfer and partition free energies and other supported detergent properties with units, uncertainty, conditions, and citation. Optional measured values produce standardized residuals; absent measurements remain absent.
 
 POST /api/jobs/<id>/refinement-score persists a versioned evidence breakdown in analysis/refinement_score.json, retaining native metric scales and explicitly listing missing evidence. The dashboard exposes this action; it is not an automatic ranking or scientific approval.
+
+POST /api/jobs/<id>/carbohydrate-validation creates an immutable validation analysis attempt for a completed source run. The request records the mapping snapshot, representation mode, tier, target dataset, source hashes, tool versions, and protocol. Its report has the three required evidence keys: `mapped_geometry`, `transfer_free_energy`, and `osmotic_pressure`. Metadata-only or missing target datasets, missing octanol parameters, short trajectories, and incomplete concentration series remain `insufficient_data`; validation never changes mapping approval or production authorization.
 
 ### Models, analyses, and browser behavior
 Each tab loads its data when activated, including keyboard and direct-link navigation. Shared catalogue requests are deduplicated and cached for ten seconds; saving or deleting models invalidates the relevant cache. Mapping editors retain unsaved edits across tab changes. New run debounces readiness checks and ignores cancelled or superseded responses. Runs pauses polling while another tab is open and refreshes on return.

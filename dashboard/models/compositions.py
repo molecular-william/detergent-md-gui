@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 from . import model_registry
 from .json_repository import JsonRepository
+from . import composition_topology
 
 ROOT = paths.DEFAULT.project_root
 
@@ -36,6 +37,69 @@ def all_compositions():
 
 
 def get(cid): return _repository().get(cid)
+
+
+def catalog(project_root=None):
+    """Return the immutable choices exposed by Molecule Combination."""
+    root = Path(project_root or ROOT)
+    source = root / 'references' / 'martini_v3.0.0_sugars_v2.itp'
+    sugars = composition_topology.load_sugar_catalog(source)
+    return {
+        'sugars': [{'id': key, 'name': key, 'source_sha256': value['source_sha256'],
+                    'beads': value['bead_names'],
+                    'endpoints': [atom['name'] for atom in value['atoms'] if atom['name'] != 'VS']}
+                   for key, value in sugars.items()],
+        'tail_recipes': composition_topology.tail_recipe_catalog(),
+        'linkage_profiles': composition_topology.linkage_profile_catalog(),
+    }
+
+
+def preview(payload, project_root=None):
+    result = composition_topology.build_preview(payload, Path(project_root or ROOT))
+    composition_topology.validate_preview(result)
+    return result
+
+
+def create_composition(payload, project_root=None):
+    result = preview(payload, project_root)
+    identity = result['identity']
+    for record in all_compositions():
+        if record.get('identity') == identity:
+            raise ValueError(f'Composition already exists: {record["id"]}')
+    cid = _id()
+    root = storage_root() / cid
+    root.mkdir(parents=True, exist_ok=False)
+    try:
+        artifacts = {'composition.itp': result['itp'], 'composition.gro': result['gro'],
+                     'mapping.json': json.dumps(result['mapping'], indent=2),
+                     'bonded-state.json': json.dumps({'mapping': result['mapping'],
+                         'topology': result['topology'], 'status': 'complete',
+                         'origin': 'composition-generated'}, indent=2)}
+        for name, content in artifacts.items():
+            (root / name).write_text(content)
+        snapshot = {'payload': dict(payload), 'identity': identity,
+                    'mapping': result['mapping'], 'topology': result['topology'],
+                    'tail': result['tail'], 'profile': result['profile'],
+                    'artifacts': {name: files.sha256(root / name) for name in artifacts}}
+        record = {'id': cid, 'kind': 'composition', 'name': result['mapping']['name'],
+                  'created_at': files.now_iso(), 'identity': identity,
+                  'snapshot_hash': files.json_sha256(snapshot),
+                  'status': 'candidate-unvalidated', 'scientifically_validated': False,
+                  'state_id': f'composition:{cid}', 'artifact_root': str(root),
+                  'snapshot': snapshot}
+        _repository().write(cid, record, replace=False)
+        return record
+    except Exception:
+        for path in sorted(root.rglob('*'), reverse=True):
+            if path.is_file(): path.unlink()
+        root.rmdir()
+        raise
+
+
+def composition_detail(cid, project_root=None):
+    record = get(cid)
+    return {**record, **record.get('snapshot', {}), 'composition_id': cid,
+            'state_id': record.get('state_id', f'composition:{cid}')}
 
 
 def validate(payload):

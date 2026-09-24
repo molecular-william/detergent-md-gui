@@ -4,6 +4,8 @@ import json
 from flask import abort
 from dashboard.execution import workflow
 from dashboard.analysis import targets
+from dashboard.analysis import carbohydrate_targets
+from dashboard.models import mappings
 from flask import Blueprint, jsonify, request
 from .common import coordinator
 
@@ -11,8 +13,33 @@ blueprint = Blueprint('analyses', __name__)
 
 @blueprint.post('/api/jobs/<jid>/<kind>')
 def queue_analysis(jid, kind):
-    task, status = coordinator().queue_analysis(jid, kind, request.get_json() or {})
+    payload = request.get_json() or {}
+    if kind == 'carbohydrate-validation':
+        c = coordinator(); job = c.lookup(jid)
+        if job.get('status') != 'completed': abort(409, 'Carbohydrate validation requires a completed source run')
+        if payload.get('tier') not in ('setup', 'evidence'):
+            abort(400, 'Validation tier must be setup or evidence')
+        if payload.get('representation_mode') not in ('tc4', 'physical_only_ring_constrained'):
+            abort(400, 'Unknown carbohydrate representation')
+        mapping = payload.get('mapping_snapshot')
+        molecule_id = payload.get('molecule_id') or job.get('molecule_id')
+        dataset_id = payload.get('target_dataset_id')
+        if not isinstance(mapping, dict) or not molecule_id or not dataset_id:
+            abort(400, 'Validation requires molecule_id, mapping_snapshot, and target_dataset_id')
+        try:
+            mappings.validate_representation(mapping, payload['representation_mode'])
+            dataset = carbohydrate_targets.validate_selection(c.ROOT, molecule_id, dataset_id)
+        except (ValueError, OSError) as exc:
+            abort(400, str(exc))
+        payload = {**payload, 'molecule_id': molecule_id, 'target_dataset': dataset}
+    task, status = coordinator().queue_analysis(jid, kind, payload)
     return jsonify(task), status
+
+
+@blueprint.get('/api/jobs/<jid>/carbohydrate-validation')
+def carbohydrate_validation_api(jid):
+    c = coordinator(); job = c.lookup(jid)
+    return jsonify([task for task in job.get('analyses', []) if task.get('kind') == 'carbohydrate-validation'])
 
 
 @blueprint.post('/api/jobs/<jid>/analyses/<aid>/cancel')
@@ -88,5 +115,4 @@ def compare_api():
                 except (ValueError, IndexError): pass
         comparisons.append({'id':jid,'label':job.get('label',jid),'status':job['status'],'settings':job.get('settings',{}),'reports':reports,'sasa':sasa,'scientifically_validated':False})
     return jsonify(runs=comparisons, interpretation='Native units only. Different settings and sampling durations are not directly comparable. Missing values remain missing.')
-
 

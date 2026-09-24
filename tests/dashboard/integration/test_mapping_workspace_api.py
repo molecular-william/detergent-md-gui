@@ -1,4 +1,5 @@
 from dashboard.app import default_coordinator as web
+from dashboard.models import mappings
 
 
 def test_mapping_context_lists_valid_molecule_and_scene(isolated_workspace):
@@ -8,6 +9,35 @@ def test_mapping_context_lists_valid_molecule_and_scene(isolated_workspace):
     assert response.json['context']['molecule_id'] == 'DDM'
     assert response.json['scene']['svg'].startswith('<svg')
     assert response.json['context']['atoms']
+
+
+def test_validation_catalog_exposes_modes_tiers_and_cited_targets(isolated_workspace):
+    client = web.app.test_client()
+    representations = client.get('/api/mappings/representations')
+    assert representations.status_code == 200
+    assert {item['id'] for item in representations.json['representations']} == {'tc4', 'physical_only_ring_constrained'}
+    assert {item['id'] for item in representations.json['tiers']} == {'setup', 'evidence'}
+    targets = client.get('/api/mappings/validation-targets?molecule_id=Maltose')
+    assert targets.status_code == 200
+    assert targets.json['datasets'][0]['citation']
+
+
+def test_validation_queue_rejects_unknown_representation(isolated_workspace):
+    client = web.app.test_client()
+    owner = web
+    owner.database().insert({'id': '123456abcdef', 'status': 'completed', 'molecule_id': 'Maltose', 'detergent': 'Maltose'})
+    mapping = mappings.automatic_candidate(mappings.molecule(), 'Maltose')
+    response = client.post('/api/jobs/123456abcdef/carbohydrate-validation', json={
+        'molecule_id': 'Maltose', 'mapping_snapshot': mapping,
+        'representation_mode': 'unknown', 'tier': 'setup', 'target_dataset_id': 'maltose-pilot-v1'})
+    assert response.status_code == 400
+
+
+def test_dashboard_contains_validation_controls(isolated_workspace):
+    html = web.app.test_client().get('/').get_data(as_text=True)
+    assert 'id="validation-representation"' in html
+    assert 'id="validation-tier"' in html
+    assert 'id="launch-carbohydrate-validation"' in html
 
 
 def test_automatic_preview_has_no_saved_candidate(isolated_workspace):

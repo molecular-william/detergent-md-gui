@@ -3,17 +3,20 @@ import hashlib
 import json
 from pathlib import Path
 import bonded
+import os
 
 model_path = Path('../2_mapping/model.json')
 model = json.loads(model_path.read_text())
 # Read the temperature passed to ff_inter, recorded in its generated ITP header.
 import re
-path = Path('DDM.itp')
+path = Path(os.environ.get('FINAL_ITP', 'DDM.itp'))
 original = path.read_text()
 match = re.search(r'-temperature\s+([\d.]+)', original)
 if not match: raise ValueError('Fitted topology has no recorded fitting temperature')
 result, report = bonded.refine(original, model, Path('.'), float(match[1]))
-with Path('DDM_ff_inter.itp').open('x') as fp: fp.write(original)
+preserved = Path(f'{path.stem}_ff_inter.itp')
+if not preserved.exists():
+    preserved.write_text(original)
 report.update(source_sha256=hashlib.sha256(original.encode()).hexdigest(),
               fitted_sha256=hashlib.sha256(result.encode()).hexdigest(),
               model_sha256=hashlib.sha256(model_path.read_bytes()).hexdigest())

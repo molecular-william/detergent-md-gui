@@ -34,7 +34,10 @@ def cg_residue_name(record_or_snapshot):
     DDM). Defaults to the molecule id.
     """
     metadata = record_or_snapshot.get('metadata') or {}
-    return metadata.get('cg_molecule_type') or record_or_snapshot['id']
+    residue = metadata.get('cg_molecule_type') or record_or_snapshot['id']
+    if len(residue) > 5 and isinstance(metadata.get('molecule_type'), str):
+        residue = metadata['molecule_type']
+    return residue
 
 
 def _read(path):

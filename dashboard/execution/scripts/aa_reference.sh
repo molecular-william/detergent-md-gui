@@ -5,14 +5,14 @@ set -euxo pipefail
 cp system_EMPTY.top system.top
 gmx editconf -f molecule.pdb -d 1.5 -c -bt dodecahedron -o boxed.gro
 gmx grompp -f em.mdp -c boxed.gro -p system.top -o vacuum.tpr
-gmx mdrun -deffnm vacuum -ntmpi 1 -ntomp 8 -v
+gmx mdrun -deffnm vacuum -ntmpi 1 -ntomp 8 -gpu_id 0 -nb gpu -pin on -v
 gmx solvate -cp vacuum.gro -cs spc216.gro -p system.top -o solvated.gro
 gmx grompp -f em.mdp -c solvated.gro -p system.top -o 1-em.tpr
-gmx mdrun -deffnm 1-em -ntmpi 1 -ntomp 8 -v
+gmx mdrun -deffnm 1-em -ntmpi 1 -ntomp 8 -gpu_id 0 -nb gpu -pin on -v
 gmx grompp -f eq.mdp -c 1-em.gro -p system.top -o 2-eq.tpr
-gmx mdrun -deffnm 2-eq -ntmpi 1 -ntomp 8 -v
+gmx mdrun -deffnm 2-eq -ntmpi 1 -ntomp 8 -gpu_id 0 -nb gpu -pme gpu -pmefft gpu -pin on -v
 gmx grompp -f run.mdp -c 2-eq.gro -t 2-eq.cpt -p system.top -o 3-run.tpr
-gmx mdrun -deffnm 3-run -ntmpi 1 -ntomp 8 -v
+gmx mdrun -deffnm 3-run -ntmpi 1 -ntomp 8 -gpu_id 0 -nb gpu -pme gpu -pmefft gpu -pin on -v
 mkdir prod
 printf 'LIG1\nLIG1\n' | gmx trjconv -f 3-run.xtc -s 3-run.tpr -pbc mol -center -o prod/lig.xtc
 printf 'LIG1\n' | gmx convert-tpr -s 3-run.tpr -o prod/lig.tpr

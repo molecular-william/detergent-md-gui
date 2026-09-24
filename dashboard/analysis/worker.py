@@ -12,9 +12,9 @@ import time
 
 from .. import files
 from ..execution import workflow
-from . import observability, targets, refinement, metadata as analysis_metadata, aa_references
+from . import observability, targets, refinement, metadata as analysis_metadata, aa_references, carbohydrate_validation
 
-KINDS = {'plots', 'snapshots', 'surfaces', 'observables', 'stability', 'refinement-score', 'targets'}
+KINDS = {'plots', 'snapshots', 'surfaces', 'observables', 'stability', 'refinement-score', 'targets', 'carbohydrate-validation'}
 PATTERNS = {
     'plots': ['*SASA*/AA/*.xvg', '*SASA*/CG/*.xvg'],
     'snapshots': ['1_AA-reference/prod/lig.gro', '1_AA-reference/prod/lig.xtc'],
@@ -23,6 +23,9 @@ PATTERNS = {
     'stability': ['*.log', '*.xtc'],
     'refinement-score': ['5_assessment/validation.json'],
     'targets': [],
+    'carbohydrate-validation': ['1_AA-reference/prod/lig.gro', '1_AA-reference/prod/lig.xtc',
+                                '2_mapping/model.json', '4_CG_sim/prod/lig_CG.gro', '4_CG_sim/prod/lig_CG.xtc',
+                                '3_initial_CG/*.itp'],
 }
 
 
@@ -36,7 +39,7 @@ def source_entries(root,kind):
     run=root.parent if root.name=='stages' else root
     metadata=json.loads((run/'manifest.json').read_text()) if (run/'manifest.json').is_file() else {}
     shared=metadata.get('shared_reference');aa_source=None
-    if kind in ('snapshots','surfaces'):
+    if kind in ('snapshots','surfaces','carbohydrate-validation'):
         if shared:aa_source,_=aa_references.resolve(run.parent,shared['source_run_id'],shared['sha256'])
         elif metadata.get('run_type')=='aa_only':
             aa_references.verify(run);aa_source=root/'07_reference'
@@ -63,7 +66,7 @@ def execute(request_path):
         try: versions[package] = importlib.metadata.version(package)
         except importlib.metadata.PackageNotFoundError: pass
     gmx = shutil.which('gmx')
-    if gmx and kind in ('surfaces','stability'):
+    if gmx and kind in ('surfaces','stability','carbohydrate-validation'):
         info = subprocess.run([gmx,'--version'],capture_output=True,text=True,timeout=30,check=True)
         versions['gmx'] = {'path':gmx,'version_output':info.stdout}
     started = time.monotonic()
@@ -88,6 +91,7 @@ def execute(request_path):
         progress('Calculating ' + kind)
         if kind == 'targets': result = targets.build(work, request.get('payload', {}))
         elif kind == 'refinement-score': result = refinement.score(work)
+        elif kind == 'carbohydrate-validation': result = carbohydrate_validation.run(work, request.get('payload', {}))
         else:
             function = {'plots': observability.sasa_plot, 'snapshots': observability.generate,
                         'surfaces': observability.connolly_surfaces, 'observables': observability.unparameterized_observables,

@@ -1,6 +1,6 @@
-"""Shared stage execution, provenance and checksum-verified resume."""
-from pathlib import Path
-import os, shutil, subprocess, json, datetime, re, shlex, hashlib
+"""Shared stage execution, provenance, and resumable workflow state."""
+from pathlib import Path, PurePosixPath
+import os, shutil, subprocess, json, datetime, fnmatch, re, shlex, hashlib
 from .. import files, paths
 from .stage_io import environment, execution_root
 from . import cg_adapter
@@ -26,6 +26,32 @@ def missing_files(directory, patterns):
     return [pattern for pattern in patterns if not any(p.is_file() and p.stat().st_size for p in directory.glob(pattern))]
 
 
+def declared_output_hashes(directory, patterns, recorded=None):
+    """Hash only the declared outputs, keeping launchers out of resume checks.
+
+    ``recorded`` supports manifests written before output-only checksums were
+    introduced: their full-directory hash map is filtered using the current
+    stage contract before verification or copying.
+    """
+    patterns = tuple(patterns)
+    result = {}
+    if recorded is not None:
+        # Keep missing declared outputs in the expected map so ``files.verify``
+        # rejects them instead of silently verifying an empty filtered set.
+        for relative, digest in recorded.items():
+            if any(PurePosixPath(relative).match(pattern) or fnmatch.fnmatch(relative, pattern)
+                   for pattern in patterns):
+                result[relative] = digest
+        return result
+    directory = Path(directory)
+    for pattern in patterns:
+        for path in directory.glob(pattern):
+            if path.is_file() and not path.is_symlink():
+                relative = path.relative_to(directory).as_posix()
+                result[relative] = files.sha256(path)
+    return result
+
+
 def validate_stage_inputs(name, directory, required=None):
     missing = missing_files(directory, (REQUIRED_INPUTS if required is None else required).get(name, ()))
     if name == 'AA reference' and (directory / 'system_EMPTY.top').is_file():
@@ -37,6 +63,9 @@ def validate_stage_inputs(name, directory, required=None):
 
 def stage_definitions(metadata):
     """Return the executable contract selected by immutable run metadata."""
+    if metadata.get('run_type') == 'cg_composition':
+        from . import composition_workflow
+        return composition_workflow.STAGES, composition_workflow.REQUIRED_INPUTS, composition_workflow.REQUIRED_OUTPUTS
     if metadata.get('run_type')=='aa_only':
         from . import aa_workflow
         return aa_workflow.STAGES,aa_workflow.REQUIRED_INPUTS,aa_workflow.REQUIRED_OUTPUTS
@@ -47,6 +76,9 @@ def stage_definitions(metadata):
 
 def plan_for(metadata) -> tuple[Stage, ...]:
     """Return the resolved immutable stage declarations for a run."""
+    if metadata.get('run_type') == 'cg_composition':
+        from . import composition_workflow
+        return tuple(composition_workflow.STAGE_DEFS)
     if metadata.get('run_type') == 'aa_only':
         from . import aa_workflow
         return tuple(aa_workflow.STAGE_DEFS)
@@ -58,6 +90,10 @@ def plan_for(metadata) -> tuple[Stage, ...]:
 
 def prepare_run(run_dir, **kwargs):
     """New layout; all executable relative paths remain inside stages/."""
+    if kwargs.get('composition_id'):
+        from . import composition_workflow
+        composition_workflow.prepare_run(run_dir, kwargs['composition_id'], kwargs.get('settings'))
+        return
     stages = run_dir / 'stages'; stages.mkdir()
     cg_adapter.prepare(stages, **kwargs)
     metadata = json.loads((stages / 'manifest.json').read_text())
@@ -74,12 +110,12 @@ def resumable_stages(run_dir, metadata=None):
             metadata = json.loads((run_dir / 'manifest.json').read_text())
         except (ValueError, OSError): return []
     data = metadata
-    if not isinstance(data,dict) or not data.get('input_snapshot_sha256'): return []
+    if not isinstance(data,dict): return []
     choices = []
     for name, _ in stage_definitions(data)[0]:
         choices.append(name)
         entry = next((e for e in reversed(data.get('stages', [])) if isinstance(e,dict) and e.get('name') == name), {})
-        if entry.get('status') not in ('completed', 'reused') or not entry.get('outputs_sha256'): break
+        if entry.get('status') not in ('completed', 'reused'): break
     return choices
 
 
@@ -97,20 +133,121 @@ def prepare_resume(run_dir, source, from_stage):
         tools=aa_workflow.tool_metadata()
     else:tools=tool_metadata()
     metadata.update(tools=tools, environment={k:environment()[k] for k in ('PATH','OMP_NUM_THREADS','MPLBACKEND')}, source_manifest_sha256=files.sha256(source/'manifest.json'), stages=[], resume_of=source.name, resume_from=from_stage, reference_reused=old.get('reference_reused',False))
-    for name, relative in stage_definitions(old)[0]:
+    plan, _, required_outputs = stage_definitions(old)
+    for name, relative in plan:
         if name == from_stage: break
         entry = next(e for e in reversed(old['stages']) if e['name'] == name)
         src = execution_root(source) / Path(relative).parent
-        files.verify(src, entry['outputs_sha256'])
+        outputs = declared_output_hashes(src, required_outputs.get(name, ()), entry.get('outputs_sha256'))
+        files.verify(src, outputs)
         dst = run_dir / 'stages' / Path(relative).parent
-        for rel in entry['outputs_sha256']:
+        for rel in outputs:
             out = dst / rel; out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src / rel, out)
-        record = dict(entry, status='reused', source_run=source.name,
+        record = dict(entry, outputs_sha256=outputs, status='reused', source_run=source.name,
                       source_stage=name, tools=old.get('tools',{}), command=[], started_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                       ended_at=datetime.datetime.now(datetime.timezone.utc).isoformat(), log=None)
         metadata['stages'].append(record)
     files.atomic_json(run_dir / 'manifest.json', metadata)
+
+
+def _resume_attempt(run_dir):
+    history = Path(run_dir) / 'resume_history'
+    history.mkdir(parents=True, exist_ok=True)
+    attempts = [int(path.name) for path in history.iterdir() if path.is_dir() and path.name.isdigit()]
+    return history / f'{max(attempts, default=0) + 1:04d}'
+
+
+def _restore_resume_journal(run_dir, journal):
+    run_dir = Path(run_dir)
+    archive = run_dir / journal['archive']
+    stage_root = execution_root(run_dir)
+    for relative in reversed(journal.get('created', [])):
+        current = stage_root / relative
+        if current.is_symlink() or current.is_file():
+            current.unlink()
+        elif current.is_dir():
+            shutil.rmtree(current)
+    for item in reversed(journal.get('moved', [])):
+        current = stage_root / item['relative']
+        saved = archive / 'stages' / item['relative']
+        if current.is_symlink() or current.is_file():
+            current.unlink()
+        elif current.is_dir():
+            shutil.rmtree(current)
+        if saved.exists():
+            current.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(saved), str(current))
+    before = archive / 'manifest.before.json'
+    if before.is_file():
+        restored = run_dir / '.manifest.resume.restore'
+        restored.write_bytes(before.read_bytes())
+        os.replace(restored, run_dir / 'manifest.json')
+    journal_path = run_dir / 'resume_journal.json'
+    if journal_path.is_file(): journal_path.unlink()
+    if archive.is_dir(): shutil.rmtree(archive)
+
+
+def recover_resume_journal(run_dir, job=None):
+    """Finish or roll back an interrupted in-place resume preparation."""
+    run_dir = Path(run_dir)
+    journal_path = run_dir / 'resume_journal.json'
+    if not journal_path.is_file(): return
+    journal = json.loads(journal_path.read_text())
+    if journal.get('status') == 'committed' and job and job.get('status') in ('queued', 'running'):
+        journal_path.unlink()
+        return
+    _restore_resume_journal(run_dir, journal)
+
+
+def prepare_resume_in_place(run_dir, from_stage, analyses=None, finalize=True):
+    """Prepare an in-place resume while preserving current stage files and run ID."""
+    run_dir = Path(run_dir)
+    manifest_path = run_dir / 'manifest.json'
+    metadata = json.loads(manifest_path.read_text())
+    if from_stage not in resumable_stages(run_dir, metadata):
+        raise ValueError('That stage is outside the completed-stage prefix; choose an earlier stage or clone the run')
+    plan, _, _ = stage_definitions(metadata)
+    names = [name for name, _ in plan]
+    start = names.index(from_stage)
+    if run_dir.joinpath('resume_journal.json').is_file():
+        recover_resume_journal(run_dir, {'status': 'failed'})
+    attempt = _resume_attempt(run_dir)
+    archive = attempt.relative_to(run_dir)
+    if analyses is not None and analyses != metadata.get('analyses', []):
+        metadata['analyses'] = analyses
+    files.atomic_json(attempt / 'manifest.before.json', metadata)
+    files.atomic_json(attempt / 'job.before.json', metadata)
+    journal_path = run_dir / 'resume_journal.json'
+    journal = {'status': 'preparing', 'archive': str(archive), 'moved': [], 'created': []}
+    files.atomic_json(journal_path, journal)
+    try:
+        stage_root = execution_root(run_dir)
+        for name, relative in plan[start:]:
+            relative_dir = Path(relative).parent
+            source = stage_root / relative_dir
+            if source.is_symlink(): raise ValueError(f'{relative_dir}: stage directory must not be symbolic')
+            if not source.is_dir():
+                raise FileNotFoundError(f'{relative_dir}: current stage directory is missing')
+        history = metadata.setdefault('resume_history', [])
+        history.append({'attempt': attempt.name, 'from_stage': from_stage, 'status': metadata.get('status'),
+                        'stages': metadata.get('stages', []), 'analyses': metadata.get('analyses', []),
+                        'archived_at': datetime.datetime.now(datetime.timezone.utc).isoformat()})
+        metadata['stages'] = [entry for entry in metadata.get('stages', []) if entry.get('name') in names[:start]]
+        metadata['analyses'] = [dict(task, status='superseded', superseded_at=datetime.datetime.now(datetime.timezone.utc).isoformat())
+                                for task in metadata.get('analyses', [])]
+        metadata.update(status='queued', error=None, ended_at=None, resume_count=metadata.get('resume_count', 0) + 1,
+                        resume_from=from_stage, resume_requested_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        resume_in_place=True)
+        files.atomic_json(manifest_path, metadata)
+        journal['status'] = 'committed'
+        files.atomic_json(journal_path, journal)
+        if finalize:
+            journal_path.unlink()
+        return metadata
+    except Exception:
+        _restore_resume_journal(run_dir, journal)
+        raise
 
 
 def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
@@ -130,15 +267,20 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
             previous = next((s for s in reversed(data['stages']) if s.get('name') == name), None)
             if previous:
                 if previous.get('status') in ('completed','reused'):
-                    files.verify(script.parent, previous.get('outputs_sha256'))
+                    if not data.get('resume_in_place'):
+                        outputs = declared_output_hashes(script.parent, required_outputs.get(name, ()), previous.get('outputs_sha256'))
+                        files.verify(script.parent, outputs)
                     continue
-                raise ValueError('This stage already has an attempt; resume into a new run to preserve its outputs')
+                raise ValueError('This stage already has an attempt; reset it through resume preparation before running again')
             started = datetime.datetime.now(datetime.timezone.utc).isoformat()
             entry = {'inputs': list(required_inputs.get(name, ())), 'outputs': list(required_outputs.get(name, ())), 'cwd': str(script.parent), 'environment': {k: environment()[k] for k in ('PATH','MPLBACKEND','OMP_NUM_THREADS')}, 'name': name, 'command': stage_command(name, script), 'started_at': started, 'status': 'running', 'log': str(log), 'exit_code': None}
             entry['inputs_sha256'] = files.hashes(script.parent)
             entry['dependency_sha256'] = {str(p.relative_to(stage_root)): files.sha256(p) for pattern in required_inputs.get(name,()) for p in script.parent.glob(pattern) if p.is_file() and not p.is_symlink() and p.resolve().is_relative_to(stage_root.resolve())}
             data['stages'].append(entry); files.atomic_json(manifest, data)
-            stage_log = log.parent / (script.parent.name + '.log') if log.parent.name == 'logs' else log
+            if log.parent.name == 'logs' and data.get('resume_count'):
+                stage_log = log.parent / f"resume-{data['resume_count']:04d}" / (script.parent.name + '.log')
+            else:
+                stage_log = log.parent / (script.parent.name + '.log') if log.parent.name == 'logs' else log
             entry['log'] = str(stage_log)
             tick = __import__('time').monotonic()
             try:
@@ -159,7 +301,8 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
                         entry['environment'][key] = value
                 if name == 'AA reference' and data.get('reference_reused'):
                     if on_stage: on_stage(name, entry)
-                    entry.update(status='reused', command=[], source_run=data['reference_run_id'], outputs_sha256=files.hashes(script.parent), exit_code=0)
+                    entry.update(status='reused', command=[], source_run=data['reference_run_id'],
+                                 outputs_sha256=declared_output_hashes(script.parent, required_outputs.get(name, ())), exit_code=0)
                     continue
                 if on_stage:
                     on_stage(name, entry)
@@ -168,6 +311,7 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
                 local_required={k:tuple(p for p in patterns if not (shared_path and '1_AA-reference/prod/' in p)) for k,patterns in required_inputs.items()}
                 validate_stage_inputs(name, script.parent,local_required)
                 fp.write(f'\n## {name}\n$ {shlex.join(entry["command"])}\n'); fp.flush()
+                stage_log.parent.mkdir(parents=True, exist_ok=True)
                 with stage_log.open('a') as output:
                     result = (execute or subprocess.run)(entry['command'], cwd=script.parent, env=stage_env, stdout=output, stderr=subprocess.STDOUT, check=True)
                 entry['exit_code'] = result.returncode
@@ -175,7 +319,7 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
                 if missing:
                     raise RuntimeError(f'{name}: command exited successfully but required outputs are missing or empty: {", ".join(missing)}')
                 entry['status'] = 'completed'; entry['exit_code'] = 0
-                entry['outputs_sha256'] = files.hashes(script.parent)
+                entry['outputs_sha256'] = declared_output_hashes(script.parent, required_outputs.get(name, ()))
             except Exception as exc:
                 entry['status'] = 'cancelled' if isinstance(exc, Cancelled) else 'failed'; entry['error'] = str(exc)
                 if isinstance(exc, subprocess.CalledProcessError): entry['exit_code'] = exc.returncode

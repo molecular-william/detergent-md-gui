@@ -11,7 +11,7 @@ import threading
 import uuid
 
 from dashboard import files, paths
-from dashboard.analysis import observability, refinement, surfaces, targets
+from dashboard.analysis import observability, refinement, surfaces, targets, carbohydrate_validation, carbohydrate_geometry, transfer_free_energy, osmotic_pressure
 from dashboard.models import carbohydrates
 from dashboard.analysis import worker as analysis
 from . import resources, workflow
@@ -72,7 +72,9 @@ class AnalysisCoordinator:
             source_entries = analysis.source_entries(source_root, kind)
             fingerprint = [(relative, files.sha256(path)) for relative, path in source_entries.items()]
             code_files = (Path(analysis.__file__), Path(observability.__file__), Path(targets.__file__),
-                          Path(refinement.__file__), Path(surfaces.__file__), Path(carbohydrates.__file__))
+                          Path(refinement.__file__), Path(surfaces.__file__), Path(carbohydrates.__file__),
+                          Path(carbohydrate_validation.__file__), Path(carbohydrate_geometry.__file__),
+                          Path(transfer_free_energy.__file__), Path(osmotic_pressure.__file__))
             signature = hashlib.sha256(json.dumps(
                 [kind, payload, fingerprint,
                  self.dependencies(job) if kind == 'refinement-score' else {},

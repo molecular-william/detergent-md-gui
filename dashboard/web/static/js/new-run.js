@@ -86,25 +86,38 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
   }
   function syncRunType() {
     const aaOnly=form.elements.run_type.value==='aa_only';
+    const compositionOnly=form.elements.run_type.value==='cg_composition';
     $('#cg-inputs').classList.toggle('hidden',aaOnly);
     $$('.cg-setting').forEach(label=>label.classList.toggle('hidden',aaOnly));
-    $('#execution-title').textContent=aaOnly?'AA run settings':'Execution and CG inputs';
-    setText($('#run-type-help'), aaOnly?'Standalone AA execution is selected. CG mapping and bonded controls are not needed.':'Choose the workflow before selecting CG-specific inputs.');
+    $('#execution-title').textContent=aaOnly?'AA run settings':compositionOnly?'CG composition settings':'Execution and CG inputs';
+    setText($('#run-type-help'), aaOnly?'Standalone AA execution is selected. CG mapping and bonded controls are not needed.':compositionOnly?'Run a saved composition through CG simulation, assessment, and CG-only SASA.':'Choose the workflow before selecting CG-specific inputs.');
     $('#cg-inputs').querySelectorAll('input,select,button').forEach(control=>{control.disabled=aaOnly;});
     $$('.cg-setting').forEach(label=>label.querySelectorAll('input,select,button').forEach(control=>{control.disabled=aaOnly;}));
     applyReferenceSettings(aaOnly?null:referenceRecords.find(r=>r.id===form.elements.reference_run_id.value));
-    $('#start-run').textContent=aaOnly?'Start AA run':'Start AA–CG run';
+    $('#start-run').textContent=aaOnly?'Start AA run':compositionOnly?'Start CG composition run':'Start AA–CG run';
+    $('#molecule-panel').classList.toggle('hidden', compositionOnly);
+    $('#composition-run-selector').classList.toggle('hidden', !compositionOnly);
+    $('#run-mapping').closest('label').classList.toggle('hidden', compositionOnly);
+    $('#run-bonded-state').closest('label').classList.toggle('hidden', compositionOnly);
+    $('#reference-run').closest('label').classList.toggle('hidden', compositionOnly);
+    form.elements.molecule_id.disabled = compositionOnly;
+    form.elements.molecule_id.required = !compositionOnly;
+    form.elements.composition_id.disabled = !compositionOnly;
+    form.elements.composition_id.required = compositionOnly;
     showMolecule(moleculeRecords.find(record=>record.id===form.elements.molecule_id.value));
     if(mounted)loadStageDefaults().catch(error=>setText($('#defaults-source'),error.message));
     syncRunSummary();
     storage.set('form',formValues());
     refreshReadiness();
   }
-  function updateMolecule() {
+  async function updateMolecule() {
     const record=moleculeRecords.find(record=>record.id===form.elements.molecule_id.value);
     form.elements.detergent.value=record?.id || '';
+    form.elements.mapping_candidate.value='';
     showMolecule(record);
     loadReferences().catch(error=>setText($('#reference-help'),error.message));
+    try { await loadRunMappings(); }
+    catch (error) { setText($('#readiness'), error.message); }
     storage.set('form',formValues());
     refreshReadiness();
   }
@@ -153,7 +166,9 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
   async function loadRunMappings() {
     const select = form.elements.mapping_candidate;
     const chosen = select.value || (!mappingsLoaded && savedForm?.mapping_candidate) || '';
-    const result = await cachedApi('/api/mappings?view=summary',{maxAge:10000});
+    const moleculeId = form.elements.molecule_id.value;
+    const query = moleculeId ? `&molecule_id=${encodeURIComponent(moleculeId)}` : '';
+    const result = await cachedApi(`/api/mappings?view=summary${query}`,{maxAge:10000});
     mappingsLoaded=true;
     select.replaceChildren(new Option('Select a saved mapping', ''));
     for (const candidate of result.candidates) {
@@ -221,13 +236,15 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
   async function checkReadiness(generation) {
     readinessController=new AbortController();
     $('#start-run').disabled = true;
+    const compositionOnly=form.elements.run_type.value==='cg_composition';
     const selectedMolecule=moleculeRecords.find(record=>record.id===form.elements.molecule_id.value);
     syncRunSummary();
     const run_type=form.elements.run_type.value;
-    if(!selectedMolecule){const message='Select an available molecule directory before starting.';setText($('#readiness'),message);setText($('#launch-blocker'),message);setText($('#review-status'),'Action required');$('#review-status').dataset.ready='false';return;}
+    if(!compositionOnly && !selectedMolecule){const message='Select an available molecule directory before starting.';setText($('#readiness'),message);setText($('#launch-blocker'),message);setText($('#review-status'),'Action required');$('#review-status').dataset.ready='false';return;}
     try {
       const query={run_type,molecule_id:form.elements.molecule_id.value, detergent:form.elements.detergent.value};
       if(run_type==='aa_cg')Object.assign(query,{method:form.elements.method.value,profile:form.elements.profile.value,mapping_candidate:form.elements.mapping_candidate.value,reference_run_id:form.elements.reference_run_id.value});
+      if(run_type==='cg_composition')Object.assign(query,{composition_id:form.elements.composition_id.value});
       const ready = await api('/api/readiness?' + new URLSearchParams(query),{signal:readinessController.signal});
       if (generation !== readinessGeneration) return;
       if(ready.molecule) showMolecule(ready.molecule);
@@ -247,7 +264,7 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
       panel.append(blockers); $('#start-run').disabled = !ready.ready;
     } catch (error) { if(generation!==readinessGeneration || error.name==='AbortError')return;setText($('#readiness'), error.message);setText($('#launch-blocker'),error.message); setText($('#review-status'),'Readiness unavailable'); $('#review-status').dataset.ready='false'; }
   }
-  for (const input of [form.elements.detergent, form.elements.method, form.elements.profile, form.elements.mapping_candidate]) input.addEventListener('change', refreshReadiness);
+  for (const input of [form.elements.detergent, form.elements.method, form.elements.profile, form.elements.mapping_candidate, form.elements.composition_id]) input.addEventListener('change', refreshReadiness);
   form.elements.bonded_state_id.addEventListener('change', syncRunSummary);
   form.elements.reference_run_id.addEventListener('change', syncRunSummary);
   form.elements.bonded_intent.addEventListener('change', syncRunSummary);
@@ -295,7 +312,11 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     $('#new').setAttribute('aria-busy','true');$('#start-run').disabled=true;
     mounting=(async()=>{
       await validateCloneSource();
-      await Promise.all([loadMolecules(),loadStageDefaults(),loadRunMappings(),loadRunBondedStates()]);
+      await Promise.all([loadMolecules(),loadStageDefaults(),loadRunBondedStates()]);
+      await loadRunMappings();
+      const modelCatalog=await cachedApi('/api/cg-models?view=summary',{maxAge:10000});
+      form.elements.composition_id.replaceChildren(new Option('Select a saved composition',''));
+      for(const item of (modelCatalog.models||[]).filter(item=>item.kind==='composition')) form.elements.composition_id.append(new Option(`${item.name} · ${item.status}`,item.id));
       await loadReferences();
       mounted=true;
       syncRunType();syncRunSummary();
@@ -310,17 +331,27 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
 
 
   async function cloneRun(source) {
-    selectTab('new');await mount();
+    selectTab('new');
     applyReferenceSettings(null);
     for (const [key,value] of Object.entries({...source.settings,run_type:source.run_type || 'aa_cg',detergent:source.detergent,molecule_id:source.molecule_id || source.detergent,method:source.run_type==='aa_only'?form.elements.method.value:source.method,profile:source.run_type==='aa_only'?form.elements.profile.value:source.profile || 'standard',mapping_candidate:source.mapping_candidate || '',bonded_state_id:source.bonded_state_id || '',bonded_intent:source.bonded_intent || 'fit_and_simulate',label:(source.label || source.id)+' copy',clone_of:source.id,reference_run_id:source.reference_run_id || ''})) {
       if (form.elements[key]) form.elements[key].value = value;
     }
-    setCloneSource(source.id);syncRunType(); await loadMolecules(); await loadReferences(); refreshReadiness();
+    setCloneSource(source.id);syncRunType();
+    await mount();
+    await loadMolecules(); await loadRunMappings(); await loadReferences(); refreshReadiness();
   }
 
   function clearDeletedClone(id) {
     if (form.elements.clone_of.value === id) setCloneSource('', 'Clone source deleted. Your settings are kept for a new run.');
   }
 
-  return { mount, cloneRun, clearDeletedClone, setCloneSource };
+  async function openComposition(compositionId) {
+    await mount();
+    form.elements.run_type.value='cg_composition';
+    form.elements.composition_id.value=compositionId;
+    syncRunType();
+    refreshReadiness();
+  }
+
+  return { mount, cloneRun, clearDeletedClone, setCloneSource, openComposition };
 }

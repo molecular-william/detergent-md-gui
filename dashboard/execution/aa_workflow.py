@@ -12,6 +12,8 @@ from .stage_io import FORCE_FIELD, environment, probe_tool
 from .stages import Stage, stage_tables
 
 VERSION='charmm36-single-solute-v1'
+MDRUN_GPU_NONBONDED_FLAGS='-gpu_id 0 -nb gpu -pin on'
+MDRUN_GPU_PME_FLAGS=f'{MDRUN_GPU_NONBONDED_FLAGS} -pme gpu -pmefft gpu'
 
 
 STAGE_DEFS = (
@@ -163,7 +165,8 @@ mv neutral.gro system.gro
     for i,kind in enumerate(('em','nvt','npt','production'),2):
         prev=Path(STAGES[i-1][1]).parent.as_posix(); coord='system.gro' if i==2 else 'run.gro'
         checkpoint=f' -t ../{prev}/run.cpt' if i>=4 else ''
-        scripts.append(f'cp ../{prev}/system.top system.top\ngmx grompp -f run.mdp -c ../{prev}/{coord}{checkpoint} -p system.top -o run.tpr\ngmx mdrun -deffnm run -ntmpi 1 -ntomp 8 -nb cpu -v\n')
+        gpu_flags = MDRUN_GPU_NONBONDED_FLAGS if kind == 'em' else MDRUN_GPU_PME_FLAGS
+        scripts.append(f'cp ../{prev}/system.top system.top\ngmx grompp -f run.mdp -c ../{prev}/{coord}{checkpoint} -p system.top -o run.tpr\ngmx mdrun -deffnm run -ntmpi 1 -ntomp 8 {gpu_flags} -v\n')
     scripts.append('''printf 'Solute\\nSolute\\n' | gmx trjconv -f ../06_production/run.xtc -s ../06_production/run.tpr -n ../common/solute.ndx -pbc mol -center -o lig.xtc
 printf 'Solute\\n' | gmx trjconv -f ../06_production/run.xtc -s ../06_production/run.tpr -n ../common/solute.ndx -dump 0 -o lig.gro
 printf 'Solute\\n' | gmx convert-tpr -s ../06_production/run.tpr -n ../common/solute.ndx -o lig.tpr

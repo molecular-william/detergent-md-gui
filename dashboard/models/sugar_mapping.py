@@ -67,7 +67,7 @@ def candidate(structure, name):
                             'SP1r sugar–alkyl ether assignment is a transferability hypothesis; validate partitioning']}
 
 
-def coordinates(data, positions, atom_ids=None, scaled=False):
+def coordinates(data, positions, atom_ids=None, scaled=False, representation_mode=None):
     """COG of physical groups then equal-weight parent COG for virtual sites.
 
     Units follow positions. Dilate each ring then translate connected rigid
@@ -75,6 +75,9 @@ def coordinates(data, positions, atom_ids=None, scaled=False):
     separate constrained reconstruction and are rejected.
     """
     import numpy as np
+    representation_mode = representation_mode or data.get('representation_mode') or 'tc4'
+    if representation_mode not in ('tc4', 'physical_only_ring_constrained'):
+        raise ValueError(f'Unknown carbohydrate representation: {representation_mode}')
     ids = atom_ids if atom_ids is not None else range(1,len(positions)+1)
     lookup = dict(zip(ids, positions))
     beads = data['beads']; names = {b['name']:i for i,b in enumerate(beads)}
@@ -109,7 +112,7 @@ def coordinates(data, positions, atom_ids=None, scaled=False):
         for ci in links:
             if ci not in seen: place(ci)
     for i,b in enumerate(beads):
-        if b.get('virtual_site'):
+        if representation_mode == 'tc4' and b.get('virtual_site'):
             xyz[i] = xyz[[names[n] for n in b['virtual_site']['parents']]].mean(axis=0)
     return xyz
 

@@ -21,10 +21,18 @@ export function createMappings() {
 
   async function loadMapping(file) {
     if (!file) return null;
+    if (file.startsWith('composition:')) {
+      const detail = await cachedApi('/api/cg-models/composition/' + encodeURIComponent(file.slice('composition:'.length)), {maxAge: 10000});
+      const mapping = detail.mapping || {};
+      const atoms = (mapping.beads || []).map((bead, index) => ({id: index + 1, name: bead.name, xyz: [index * 0.1, 0, 0]}));
+      return {...mapping, file, molecule: {atoms, bonds: (mapping.connections || []).map(([a, b]) => ({a: (mapping.beads || []).findIndex(item => item.name === a) + 1, b: (mapping.beads || []).findIndex(item => item.name === b) + 1}))}, composition: detail};
+    }
     return cachedApi('/api/mappings/' + encodeURIComponent(file), {maxAge: 10000});
   }
 
   let bondedWorkspace;
+  let validationTargets = [];
+  let validationModes = [];
 
   function editorMessage(message) { setText($('#mapping-editor-status'), message); }
   function editorSelection() { setText($('#mapping-selection-count'), `${moleculeEditor?.selectedAtoms.size || 0} heavy atoms selected`); }
@@ -139,12 +147,91 @@ export function createMappings() {
         moleculeDiagram.update(moleculeEditor.candidate, moleculeEditor.selectedAtoms, moleculeEditor.selectedBeads);
       });
       renderEditor();
+      await loadValidationOptions(moleculeId);
       editorMessage(`${source.context.name || moleculeId} loaded · ${source.context.atoms.length} atoms · ${source.context.source_quality.bond_order} bond graph`);
       const filter = $('#mapping-candidate-filter');
       filter.replaceChildren(new Option('New local draft', ''));
       for (const item of catalogue.candidates || []) filter.append(new Option(item.name, item.file));
       if (candidate?.file) filter.value = candidate.file;
     } catch (error) { editorMessage(error.message); }
+  }
+
+  function renderValidationReports(tasks) {
+    const target = $('#carbohydrate-validation-reports');
+    if (!target) return;
+    target.replaceChildren();
+    if (!tasks?.length) { target.innerHTML = '<p class="hint">No validation attempts for this mapping.</p>'; return; }
+    for (const task of tasks) {
+      const card = document.createElement('article'); card.className = 'validation-report';
+      const heading = document.createElement('h4'); heading.textContent = `${task.payload?.representation_mode || 'representation'} · ${task.status}`; card.append(heading);
+      const detail = document.createElement('p'); detail.className = 'hint';
+      detail.textContent = task.error || task.progress || `Attempt ${task.id} · ${task.payload?.tier || 'setup'} · ${task.payload?.target_dataset_id || 'no target'}`; card.append(detail);
+      if (task.result?.result) {
+        const list = document.createElement('ul');
+        for (const [name, result] of Object.entries(task.result.result).filter(([name]) => ['mapped_geometry', 'transfer_free_energy', 'osmotic_pressure'].includes(name))) {
+          const item = document.createElement('li'); item.textContent = `${name}: ${result.status || 'not reported'}`; list.append(item);
+        }
+        card.append(list);
+      }
+      target.append(card);
+    }
+  }
+
+  async function loadValidationOptions(moleculeId) {
+    const representation = $('#validation-representation');
+    const tier = $('#validation-tier');
+    const target = $('#validation-target');
+    const source = $('#validation-source-run');
+    if (!representation || !tier || !target || !source) return;
+    const [catalogue, targets, jobs] = await Promise.all([
+      cachedApi('/api/mappings/representations', {maxAge: 10000}),
+      cachedApi('/api/mappings/validation-targets?molecule_id=' + encodeURIComponent(moleculeId), {maxAge: 10000}).catch(() => ({datasets: []})),
+      cachedApi('/api/jobs?view=summary', {maxAge: 5000}).catch(() => []),
+    ]);
+    validationModes = catalogue.representations || [];
+    representation.replaceChildren(...validationModes.map(item => new Option(item.label, item.id)));
+    tier.replaceChildren(...(catalogue.tiers || []).map(item => new Option(item.label, item.id)));
+    validationTargets = targets.datasets || [];
+    target.replaceChildren(...validationTargets.map(item => new Option(`${item.id} · ${item.availability || 'available'}`, item.id)));
+    source.replaceChildren(new Option('Choose completed source run', ''));
+    for (const job of Array.isArray(jobs) ? jobs : []) {
+      if (job.status === 'completed' && (job.molecule_id === moleculeId || job.detergent === moleculeId)) source.append(new Option(`${job.label || job.id} · ${job.id}`, job.id));
+    }
+    const launch = $('#launch-carbohydrate-validation');
+    launch.disabled = !validationTargets.length || !source.value;
+    target.onchange = () => { setText($('#validation-target-status'), validationTargets.find(item => item.id === target.value)?.citation || 'Target citation unavailable; evidence remains blocked.'); launch.disabled = !target.value || !source.value; };
+    source.onchange = () => { launch.disabled = !target.value || !source.value; if (source.value) refreshValidationReports(source.value); };
+    setText($('#validation-target-status'), validationTargets.length ? 'Targets are cited; metadata-only datasets remain insufficient for evidence.' : 'No cited target dataset is available for this molecule.');
+  }
+
+  async function refreshValidationReports(jid) {
+    try { renderValidationReports(await cachedApi('/api/jobs/' + encodeURIComponent(jid) + '/carbohydrate-validation', {maxAge: 1000})); }
+    catch (error) { setText($('#validation-target-status'), error.message); }
+  }
+
+  function setupValidationControls() {
+    const launch = $('#launch-carbohydrate-validation');
+    if (!launch || launch.dataset.ready) return;
+    launch.dataset.ready = 'true';
+    launch.onclick = async () => {
+      if (!moleculeEditor) return;
+      const source = $('#validation-source-run').value;
+      const target = validationTargets.find(item => item.id === $('#validation-target').value);
+      if (!source || !target) return;
+      launch.disabled = true;
+      try {
+        await post(`/api/jobs/${encodeURIComponent(source)}/carbohydrate-validation`, {
+          molecule_id: moleculeEditor.context.molecule_id,
+          mapping_snapshot: moleculeEditor.candidate,
+          representation_mode: $('#validation-representation').value,
+          tier: $('#validation-tier').value,
+          target_dataset_id: target.id,
+        });
+        await refreshValidationReports(source);
+        setText($('#validation-target-status'), 'Validation attempt queued. Mapping approval is unchanged.');
+      } catch (error) { setText($('#validation-target-status'), error.message); }
+      finally { launch.disabled = false; }
+    };
   }
 
   function makeDialog(title, submitText, fields = []) {
@@ -253,12 +340,14 @@ export function createMappings() {
   async function mount(id = 'mappings') {
     const section = $('#' + id); section.setAttribute('aria-busy', 'true');
     try {
-      const [catalogue, legacy] = await Promise.all([
+      const [catalogue, legacy, cgCatalogue] = await Promise.all([
         cachedApi('/api/mappings?view=summary', {maxAge: 10000}),
         cachedApi('/api/mappings/context'),
+        cachedApi('/api/cg-models?view=summary', {maxAge: 10000}),
       ]);
       Object.assign(mappingData, catalogue, legacy);
-      if (id === 'mappings') { setupMoleculeEditorControls(); await loadMoleculeList(); }
+      mappingData.candidates = [...(mappingData.candidates || []), ...(cgCatalogue.models || []).filter(item => item.kind === 'composition').map(item => ({file: `composition:${item.id}`, name: `${item.name} · Composition`, status: item.status}))];
+      if (id === 'mappings') { setupMoleculeEditorControls(); setupValidationControls(); await loadMoleculeList(); }
       if (id === 'bonded') {
         bondedWorkspace ||= setupBondedWorkspace(mappingData, {loadMapping});
         await bondedWorkspace.mount();

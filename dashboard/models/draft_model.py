@@ -3,16 +3,40 @@ import itertools
 import json
 import math
 from pathlib import Path
-from . import mappings, carbohydrates
+from .. import paths
+from . import carbohydrates, mappings
+from .mapping_context import as_structure, build_context
 
 CANDIDATE = mappings.SOURCE / 'mapping_candidate_smoke.json'
 
 
-def load(data=None):
+def _structure_for(data, molecule_root=None):
+    """Resolve the AA graph bound to a mapping, or the legacy DDM graph."""
+    if data.get('schema_version') != 3:
+        return mappings.molecule()
+    molecule_id = data.get('molecule_id')
+    if not isinstance(molecule_id, str) or not molecule_id:
+        raise ValueError('schema 3 mappings require molecule_id')
+    root = Path(molecule_root) if molecule_root is not None else paths.current().project_root / 'molecules'
+    context = build_context(root, molecule_id)
+    if data.get('molecule_snapshot') != context['snapshot']:
+        raise ValueError('Molecule sources changed; reload the mapping workspace')
+    return as_structure(context)
+
+
+def load(data=None, *, molecule_root=None):
     selected = data is not None
     data = json.loads(json.dumps(data)) if selected else json.loads(CANDIDATE.read_text())
-    validation = mappings.validate(data)
-    blockers = [x['message'] for x in validation['issues'] if selected or x['code'] != 'size']
+    validation = mappings.validate(data, structure=_structure_for(data, molecule_root))
+    # Bead-size and nominal-representation checks describe Martini's coarse
+    # mass convention. They are useful review warnings, but do not make a
+    # structurally complete mapping unrunnable (for example, removing ring
+    # virtual sites changes the nominal count by design). Missing, duplicate,
+    # disconnected, unknown, hydrogen, and topology-consistency issues remain
+    # execution blockers.
+    advisory = {'size', 'mismatch'}
+    blockers = [x['message'] for x in validation['issues']
+                if x['code'] not in advisory and (selected or x['code'] != 'size')]
     force_field = mappings.ROOT / 'resources/templates/small_mols_fast_forward/3_initial_CG/martini_v3.0.0.itp'
     section = ''
     types = set()
@@ -31,11 +55,12 @@ def load(data=None):
     return data
 
 
-def initial_topology(data):
+def initial_topology(data, *, molecule_root=None, residue_name=None):
     """Infer bonded connectivity from the AA bond graph, never from bead indices."""
-    structure = mappings.molecule()
+    structure = _structure_for(data, molecule_root)
+    residue_name = residue_name or data.get('molecule_id') or 'DDM'
     if data.get('rings'):
-        return carbohydrates.topology(data, structure)
+        return carbohydrates.topology(data, structure, residue_name=residue_name)
     beads = data['beads']
     atoms = {a['id']: a for a in structure['atoms']}
     owner = {a: i for i, bead in enumerate(beads, 1) for a in bead['atoms']}
@@ -48,10 +73,10 @@ def initial_topology(data):
                for d in range(3)] for i, b in enumerate(beads, 1)}
     lines = ['; DRAFT SMOKE TEST ONLY: bead types uncalibrated; bonded guesses replaced by ff_inter.',
              '; Bond lengths / angle centers from SwissParam COG. Initial k: 5000 bonds, 25 angles.',
-             '[ moleculetype ]', 'DDM 1', '', '[ atoms ]']
+             '[ moleculetype ]', f'{residue_name} 1', '', '[ atoms ]']
     for i, bead in enumerate(beads, 1):
         mass = {'R': 72, 'S': 54, 'T': 36}[bead['size']]
-        lines.append(f'{i} {bead["type"]} 1 DDM B{i:02d} {i} 0 {mass}')
+        lines.append(f'{i} {bead["type"]} 1 {residue_name} B{i:02d} {i} 0 {mass}')
     adjacency = {i: set() for i in xyz}
     lines += ['', '[ bonds ]']
     for a, b in edges:

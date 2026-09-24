@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from dashboard.app import default_coordinator as web
+from dashboard import files
 from dashboard.models import mapping_store, mappings
 from dashboard.execution import workflow
 
@@ -137,6 +138,27 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(parse('remaining wall clock time: 300 s\nFinished mdrun'), {})
         web.update_job(self.job['id'], status='failed', gromacs_eta='stale')
         self.assertNotIn('gromacs_eta', self.client.get('/api/jobs').get_json()[0])
+
+    def test_resumed_eta_does_not_fall_back_to_previous_attempt_log(self):
+        job = dict(self.job, layout_version=2, run_type='aa_only', resume_in_place=True, resume_count=1)
+        web.update_job(job['id'], layout_version=2, run_type='aa_only', resume_in_place=True, resume_count=1)
+        run = web.run_path(job)
+        (run / 'stages/06_production').mkdir(parents=True)
+        (run / 'logs').mkdir()
+        (run / 'logs/console.log').write_text('starting mdrun\nwill finish OLD ATTEMPT\n')
+        current_log = run / 'logs/resume-0001/06_production.log'
+        files.atomic_json(run / 'manifest.json', {
+            'run_type': 'aa_only',
+            'stages': [{'name': 'AA NPT production', 'status': 'running', 'log': str(current_log)}],
+        })
+
+        response = self.client.get('/api/jobs/' + job['id'])
+
+        self.assertNotIn('gromacs_eta', response.get_json())
+        current_log.parent.mkdir(parents=True)
+        current_log.write_text('starting mdrun\nwill finish CURRENT ATTEMPT\n')
+        response = self.client.get('/api/jobs/' + job['id'])
+        self.assertEqual(response.get_json()['gromacs_eta'], 'CURRENT ATTEMPT')
 
     def test_retry_creates_new_id_and_preserves_failed_record(self):
         web.update_job(self.job['id'], status='failed', error='Original failure')

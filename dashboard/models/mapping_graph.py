@@ -92,14 +92,19 @@ def validate(data, structure=None, *, context=None, allow_partial=False):
             if dist < threshold:
                 overlap += (threshold-dist)/threshold; pairs += 1
     crowding = overlap / max(1, len(centers)*(len(centers)-1)/2)
+    # Size and nominal-count findings are review advisories. They describe
+    # coarse-graining conventions, while the remaining findings indicate an
+    # incomplete or unsafe graph that must block downstream artifacts.
+    advisory_codes = {'size', 'mismatch'}
+    hard_issues = [item for item in issues if item['code'] not in advisory_codes]
     hard_codes = {'duplicate', 'unknown', 'hydrogen', 'name', 'virtual_ring'}
     return {'issues': issues, 'covered': len(counts.keys() & heavy), 'heavy_atoms': len(heavy),
             'bead_count': len(data['beads']), 'virtual_sites': sum(bool(b.get('virtual_site')) for b in data['beads']), 'represented_atoms': represented, 'mismatch': mismatch,
             'overlap_pairs': pairs, 'overlap_crowding': round(crowding, 4),
             'checks_passed': not issues, 'scientifically_validated': False,
             'can_save': not any(item['code'] in hard_codes for item in issues),
-            'can_approve': not issues, 'can_export': not issues,
-            'can_reuse': not issues}
+            'can_approve': not issues, 'can_export': not hard_issues,
+            'can_reuse': not hard_issues}
 
 
 def require_usable(data, context, *, operation):

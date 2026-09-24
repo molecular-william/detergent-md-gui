@@ -9,11 +9,15 @@ import itertools
 from .sugar_mapping import coordinates, physical_edges, ring_pairs
 
 
-def topology(data, structure):
+def topology(data, structure, *, residue_name='DDM', representation_mode=None):
     import numpy as np
     from MDAnalysis.lib.distances import calc_angles, calc_dihedrals
+    representation_mode = representation_mode or data.get('representation_mode') or 'tc4'
+    if representation_mode not in ('tc4', 'physical_only_ring_constrained'):
+        raise ValueError(f'Unknown carbohydrate representation: {representation_mode}')
     beads = data['beads']; names = {b['name']:i+1 for i,b in enumerate(beads)}
-    xyz = coordinates(data, [a['xyz'] for a in structure['atoms']], [a['id'] for a in structure['atoms']])/10
+    xyz = coordinates(data, [a['xyz'] for a in structure['atoms']], [a['id'] for a in structure['atoms']],
+                      representation_mode=representation_mode)/10
     pairs = ring_pairs(data)
     if data.get('connections'):
         edges = sorted(set(tuple(sorted((names[a], names[b]))) for a,b in data['connections']) | set(pairs))
@@ -23,10 +27,10 @@ def topology(data, structure):
     ring_of = {names[n]:ri for ri,r in enumerate(data['rings']) for n in r['beads']}
     lines = ['; Carbohydrate paper architecture; linkage parameters are AA-fit hypotheses.',
              '; Ring constraints: mean raw AA COG distances x 1.15; links remain unscaled.',
-             '[ moleculetype ]', 'DDM 1', '', '[ atoms ]']
+             '[ moleculetype ]', f'{residue_name} 1', '', '[ atoms ]']
     for i,b in enumerate(beads,1):
         mass = 0 if b.get('virtual_site') else {'R':72,'S':54,'T':36}[b['size']]
-        lines.append(f'{i} {b["type"]} 1 DDM B{i:02d} {i} {b.get("charge",0)} {mass}')
+        lines.append(f'{i} {b["type"]} 1 {residue_name} B{i:02d} {i} {b.get("charge",0)} {mass}')
     lines += ['', '[ constraints ]']
     for (a,b),scale in pairs.items():
         # No inline comment: bundled FF retains uncommented constraints unchanged.
@@ -60,12 +64,12 @@ def topology(data, structure):
     for a,b,c,d in dihedrals:
         phi = np.degrees(calc_dihedrals(xyz[a-1],xyz[b-1],xyz[c-1],xyz[d-1]))
         lines.append(f'{a} {b} {c} {d} 1 {phi:.5f} 5 1 ; B{a:02d}_B{b:02d}_B{c:02d}_B{d:02d}')
-    lines += ['', '[ virtual_sitesn ]']
-    for i,b in enumerate(beads,1):
-        if b.get('virtual_site'):
+    sites = [(i, b) for i, b in enumerate(beads, 1) if b.get('virtual_site')]
+    if representation_mode == 'tc4' and sites:
+        lines += ['', '[ virtual_sitesn ]']
+        for i, b in sites:
             lines.append(f'{i} 1 ' + ' '.join(str(names[n]) for n in b['virtual_site']['parents']))
-    lines += ['', '[ exclusions ]']
-    for i,b in enumerate(beads,1):
-        if b.get('virtual_site'):
+        lines += ['', '[ exclusions ]']
+        for i, b in sites:
             lines.append(f'{i} ' + ' '.join(str(names[n]) for n in b['virtual_site']['parents']))
     return '\n'.join(lines)+'\n'

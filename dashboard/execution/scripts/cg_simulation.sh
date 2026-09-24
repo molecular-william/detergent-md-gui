@@ -33,11 +33,11 @@ if [ -f ../2_mapping/mapped_scaled.gro ]; then CG_START=../2_mapping/mapped_scal
 gmx editconf -f "$CG_START" -c -d 1.5 -bt dodecahedron -o boxed.gro
 gmx solvate -cp boxed.gro -cs inputs/water.gro -p system.top -radius 0.21 -o solvated.gro
 gmx grompp -f inputs/minimization.mdp -p system.top -c solvated.gro -o min.tpr
-gmx mdrun -deffnm min -ntmpi 1 -ntomp 8 -nb cpu -v
+gmx mdrun -deffnm min -ntmpi 1 -ntomp 8 -gpu_id 0 -nb gpu -pin on -v
 gmx grompp -f inputs/eq.mdp -p system.top -c min.gro -o eq.tpr -maxwarn 1
-gmx mdrun -deffnm eq -ntmpi 1 -ntomp 8 -nb cpu -v
+gmx mdrun -deffnm eq -ntmpi 1 -ntomp 8 -gpu_id 0 -nb gpu -pin on -v
 gmx grompp -f inputs/md.mdp -p system.top -c eq.gro -t eq.cpt -o md.tpr -maxwarn 1
-gmx mdrun -deffnm md -ntmpi 1 -ntomp 8 -nb cpu -v
+gmx mdrun -deffnm md -ntmpi 1 -ntomp 8 -gpu_id 0 -nb gpu -pin on -v
 mkdir prod
 printf "$MOLECULE_TYPE\n$MOLECULE_TYPE\n" | gmx trjconv -f md.xtc -s md.tpr -pbc mol -center -o prod/lig_CG.xtc
 printf "$MOLECULE_TYPE\n" | gmx convert-tpr -s md.tpr -o prod/lig_CG.tpr

@@ -80,7 +80,8 @@ current worker process group.
 - Integration tests prepare a non-DDM molecule and assert that no DDM-only
   filenames enter its contracts or manifest.
 - Workflow tests prove fit-only completion contains only its selected stages,
-  resume verifies hashes, and a missing shared AA reference blocks admission.
+  in-place resume executes current stage files without checksum gates, and a
+  missing shared AA reference blocks admission.
 - Existing command-construction, cancellation, failure-recovery, and
   manifest-provenance tests are updated to the current layout.
 - GitNexus impact checks cover `Stage`, `stage_tables`, `execution_root`,

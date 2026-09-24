@@ -109,7 +109,7 @@ def normalize_settings(settings=None, profile='standard'):
     return values
 
 
-def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM', profile='standard', settings=None, mapping_candidate=None, bonded_state_snapshot=None, bonded_intent='fit_and_simulate', shared_reference=None, reference_root=None, molecule_snapshot=None):
+def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM', profile='standard', settings=None, mapping_candidate=None, bonded_state_snapshot=None, bonded_intent='fit_and_simulate', shared_reference=None, reference_root=None, molecule_snapshot=None, molecule_root=None):
     if profile not in ('standard', 'draft-smoke', 'draft-smoke-reference'):
         raise ValueError('Unsupported execution profile')
     if molecule_snapshot is None or not shared_reference:
@@ -134,7 +134,7 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
         shutil.copy2(SCRIPTS / path.name, path)
 
     if profile in ('draft-smoke','draft-smoke-reference'):
-        data = draft_model.load(mapping_candidate)
+        data = draft_model.load(mapping_candidate, molecule_root=molecule_root)
         shutil.copy2(SCRIPTS / 'finalize_mapping.py', run_dir / '2_mapping/finalize_mapping.py')
         exports = mappings.export_files(data)
         for filename in ('mapping.map', 'mapping.ndx', 'model.json', 'README.txt'):
@@ -143,7 +143,11 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
         cg = run_dir / '3_initial_CG'
         shutil.copy2(Path(bonded.__file__), cg/'bonded.py')
         shutil.copy2(SCRIPTS/'refine_bonded.py', cg/'refine_bonded.py')
-        (cg / names.initial_itp).write_text(draft_model.initial_topology(data))
+        (cg / names.initial_itp).write_text(
+            draft_model.initial_topology(
+                data, molecule_root=molecule_root, residue_name=names.residue_name
+            )
+        )
         if bonded_intent == 'reuse_state' and bonded_state_snapshot and isinstance(bonded_state_snapshot.get('topology'), str):
             (cg / 'BOND_STATE.itp').write_text(bonded_state_snapshot['topology'])
             source_id = bonded_state_snapshot.get('source', {}).get('run_id')
@@ -269,7 +273,7 @@ def readiness(molecule_id, method, profile='standard', mapping_candidate=None, m
         checks.append({'label': tool, 'path': executable or tool, 'ready': ok, 'detail': detail})
     if profile in ('draft-smoke','draft-smoke-reference'):
         try:
-            draft_model.load(mapping_candidate)
+            draft_model.load(mapping_candidate, molecule_root=molecule_root)
             detail, ok = 'Connected heavy-atom draft; bead types uncalibrated. Short execution test only.', True
         except (ValueError, OSError) as exc:
             detail, ok = ('Select a saved CG mapping before launching candidate screening'

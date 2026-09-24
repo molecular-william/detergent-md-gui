@@ -22,8 +22,15 @@ def validate_run_type(data):
     if not hasattr(data, 'get'):
         raise ValueError('Expected an object')
     kind = data.get('run_type')
-    if kind not in (None, 'aa_only', 'aa_cg'):
+    if kind not in (None, 'aa_only', 'aa_cg', 'cg_composition'):
         raise ValueError('Unknown run type')
+    if kind == 'cg_composition':
+        if not data.get('composition_id'):
+            raise ValueError('CG composition runs require composition_id')
+        for key in ('molecule_id', 'reference_run_id', 'mapping_candidate', 'bonded_state_id'):
+            if data.get(key) not in (None, ''):
+                raise ValueError('CG composition runs cannot include AA or ordinary mapping inputs')
+        return
     if kind != 'aa_only':
         return
     if any(data.get(key) not in (None, '') for key in AA_ONLY_FORBIDDEN):

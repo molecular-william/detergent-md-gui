@@ -12,7 +12,7 @@ import fcntl
 from flask import abort
 from dashboard import files, store, paths
 from dashboard.execution import aa_workflow, workflow, resources, temporary
-from dashboard.models import aa_molecules, mappings, bonded_states
+from dashboard.models import aa_molecules, mappings, bonded_states, mapping_context, compositions
 from dashboard.analysis import aa_references, observability
 from functools import wraps
 from .worker import Worker
@@ -95,6 +95,62 @@ class Coordinator:
         return self.database().update(jid, **fields)
 
 
+    def resume_in_place(self, jid, stage):
+        """Queue an in-place resume on the existing job and run directory."""
+        with self.JOBS_LOCK:
+            job = self.lookup(jid)
+            if job.get('status') not in ('failed', 'cancelled', 'completed') or jid in self.WORKERS:
+                abort(409, 'Run must be stopped before it can be resumed')
+            if any(key[0] == jid for key in list(self.ANALYSIS_WORKERS)) or any(
+                    task.get('status') in ('queued', 'running', 'cancelling') for task in job.get('analyses', [])):
+                abort(409, 'Active analyses must finish before the run can be resumed')
+            if self.externally_busy(job):
+                abort(409, 'An external worker still holds this run')
+            if any(other.get('reference_run_id') == jid or other.get('resume_of') == jid
+                   for other in self.load() if other.get('id') != jid):
+                abort(409, 'The run has retained consumers; resume the consumers or clone this run')
+            if len(self.WORKERS) + sum(self.externally_busy(item) for item in self.load()) >= self.limits()['max_concurrent_runs']:
+                abort(409, 'Simulation capacity is busy; wait for a run to stop')
+            try:
+                resources.check_worker(self.run_path(job), self.RUNS, self.limits())
+            except (OSError, ValueError) as exc:
+                abort(409, str(exc))
+            path = self.run_path(job)
+            try:
+                lease = self.lease(path / '.worker.lock')
+            except ValueError as exc:
+                abort(409, str(exc))
+            try:
+                if stage not in workflow.resumable_stages(path):
+                    abort(409, 'Cannot resume that stage; choose a completed-stage boundary')
+                try:
+                    prepared = workflow.prepare_resume_in_place(path, stage, analyses=job.get('analyses', []), finalize=False)
+                except (OSError, ValueError, KeyError) as exc:
+                    abort(409, str(exc))
+                try:
+                    updated = self.update_job(jid, status='queued', stage='queued', started_at=None, ended_at=None,
+                                              error=None, command=None, resume_count=prepared['resume_count'],
+                                              resume_from=stage, resume_requested_at=prepared['resume_requested_at'],
+                                              resume_in_place=True, reference_eligible=False,
+                                              analyses=prepared.get('analyses', job.get('analyses', [])),
+                                              resume_history=prepared.get('resume_history', []))
+                except Exception:
+                    workflow.recover_resume_journal(path, job)
+                    raise
+                workflow.recover_resume_journal(path, updated)
+                worker = self.Worker()
+                self.WORKERS[jid] = worker
+            finally:
+                lease.close()
+            try:
+                threading.Thread(target=self.run_job, args=(jid, worker), daemon=True).start()
+            except Exception as exc:
+                self.WORKERS.pop(jid, None)
+                self.update_job(jid, status='failed', stage='queued', error=str(exc), ended_at=self.now())
+                raise
+            return updated
+
+
     def lease(self, path):
         path.parent.mkdir(parents=True, exist_ok=True)
         fp = path.open('a')
@@ -115,8 +171,12 @@ class Coordinator:
     def reconcile(self):
         for job in self.load():
             updates = {}
+            try:
+                workflow.recover_resume_journal(self.run_path(job), job)
+            except (OSError, ValueError, KeyError):
+                updates.update(status='failed', ended_at=self.now(), error='Resume preparation journal could not be recovered; inspect the run history before retrying.')
             if job.get('status') in ('running','queued','cancelling') and job['id'] not in self.WORKERS:
-                updates.update(status='failed', ended_at=self.now(), error='Dashboard restarted before worker completion; inspect logs and resume in a new run.')
+                updates.update(status='failed', ended_at=self.now(), error='Dashboard restarted before worker completion; inspect logs and resume this run.')
                 path = self.run_path(job)/'manifest.json'
                 try:
                     with self.lease(self.run_path(job)/'.worker.lock'):
@@ -254,13 +314,26 @@ class Coordinator:
             return {}
         stage_dir = next((Path(rel).parent for name, rel in workflow.stage_definitions(job)[0] if name == current['name']), None)
         candidates = []
+        resume_logs = None
+        if job.get('resume_in_place') and job.get('resume_count'):
+            try:
+                attempt = int(job['resume_count'])
+                if attempt > 0:
+                    resume_logs = self.run_path(job) / 'logs' / f'resume-{attempt:04d}'
+            except (TypeError, ValueError):
+                pass
         if current.get('log'):
             recorded = self.stage_log_path(job, current['log'])
-            if recorded: candidates.append(recorded)
-        if stage_dir:
+            if recorded and (resume_logs is None or recorded.resolve().is_relative_to(resume_logs.resolve())):
+                candidates.append(recorded)
+        if resume_logs and stage_dir:
+            candidates.append(resume_logs / f'{stage_dir.name}.log')
+        elif stage_dir:
             candidates.append(self.run_path(job) / 'stages' / stage_dir / f'{stage_dir.name}.log')
             candidates.append(self.run_path(job) / 'logs' / f'{stage_dir.name}.log')
-        candidates.append(self.log_path(job))
+            candidates.append(self.log_path(job))
+        elif not resume_logs:
+            candidates.append(self.log_path(job))
         for candidate in candidates:
             if candidate.is_file():
                 eta = self.parse_gromacs_eta(self.tail(candidate))
@@ -321,32 +394,46 @@ class Coordinator:
             self.WORKERS[jid] = worker
         job = self.lookup(jid)
         work, log = self.run_path(job), self.log_path(job)
+        in_place = bool(job.get('resume_in_place'))
         status, error, created = 'failed', None, False
         try:
             if worker.cancel.is_set():
                 raise workflow.Cancelled('Cancelled by user')
             self.update_job(jid, status='running', stage='input', started_at=self.now(), log=str(log.relative_to(self.DATA.parent)))
-            work.mkdir(parents=True, exist_ok=False)
-            created = True
-            if job.get('layout_version') == 2: (work/'logs').mkdir()
+            if in_place:
+                if not work.is_dir(): raise FileNotFoundError(f'Existing run directory is missing: {work}')
+                created = True
+            else:
+                work.mkdir(parents=True, exist_ok=False)
+                created = True
+            if job.get('layout_version') == 2: (work/'logs').mkdir(exist_ok=True)
             worker.run_dir = work
             worker.lease_file = self.lease(work/'.worker.lock')
-            files.atomic_json(work/'manifest.json', {'id': jid, 'status': 'running', 'stages': [], **{k:job[k] for k in ('run_type','workflow_version','protocol_version','stage_plan','reference_run_id','shared_reference','molecule_id','molecule_snapshot') if k in job}})
-            if job.get('molecule_snapshot') and not job.get('resume_of'):
+            if not in_place:
+                files.atomic_json(work/'manifest.json', {'id': jid, 'status': 'running', 'stages': [], **{k:job[k] for k in ('run_type','workflow_version','protocol_version','stage_plan','reference_run_id','shared_reference','molecule_id','molecule_snapshot','composition_id','composition_snapshot_sha256') if k in job}})
+            if job.get('molecule_snapshot') and not (job.get('resume_of') or in_place):
                 aa_molecules.verify_selection(self.ROOT/'molecules', job['molecule_snapshot'])
             aa_only=job.get('run_type')=='aa_only'
-            readiness = (aa_workflow.readiness(self.ROOT/'molecules',job['molecule_id']) if not job.get('resume_of') else {'ready':True}) if aa_only else workflow.readiness(job.get('molecule_id') or job['detergent'], job['method'], job.get('profile', 'standard'), job.get('mapping_snapshot'), molecule_root=self.ROOT / 'molecules')
+            composition_only=job.get('run_type')=='cg_composition'
+            resuming = in_place or bool(job.get('resume_of'))
+            if composition_only:
+                from dashboard.execution.composition_workflow import readiness as composition_readiness
+                readiness = composition_readiness(job['composition_id'], self.ROOT) if not resuming else {'ready': True}
+            else:
+                readiness = (aa_workflow.readiness(self.ROOT/'molecules',job['molecule_id']) if not resuming else {'ready':True}) if aa_only else workflow.readiness(job.get('molecule_id') or job['detergent'], job['method'], job.get('profile', 'standard'), job.get('mapping_snapshot'), molecule_root=self.ROOT / 'molecules')
             if not readiness['ready']:
                 raise ValueError('; '.join(readiness['blockers']))
-            source_id = job.get('resume_of') or job.get('reference_run_id')
+            source_id = None if in_place else (job.get('resume_of') or job.get('reference_run_id'))
             source_lease = self.lease(self.RUNS/source_id/'.worker.lock') if source_id else None
             try:
                 if job.get('resume_of'):
                     workflow.prepare_resume(work, self.RUNS/job['resume_of'], job['resume_from'])
-                elif aa_only:
+                elif not in_place and aa_only:
                     aa_workflow.prepare_run(work,self.ROOT/'molecules',job['molecule_snapshot'],job['settings'])
-                else:
-                    kwargs=dict(detergent=job['detergent'],profile=job.get('profile','standard'),settings={k:v for k,v in job.get('settings',{}).items() if k in workflow.SETTING_SPECS},reference_run_id=job.get('reference_run_id'),mapping_candidate=job.get('mapping_snapshot'),bonded_state_snapshot=job.get('bonded_state_snapshot'),bonded_intent=job.get('bonded_intent','fit_and_simulate'),molecule_snapshot=job.get('molecule_snapshot'))
+                elif not in_place and composition_only:
+                    workflow.prepare_run(work, composition_id=job['composition_id'], settings=job.get('settings'))
+                elif not in_place:
+                    kwargs=dict(detergent=job['detergent'],profile=job.get('profile','standard'),settings={k:v for k,v in job.get('settings',{}).items() if k in workflow.SETTING_SPECS},mapping_candidate=job.get('mapping_snapshot'),bonded_state_snapshot=job.get('bonded_state_snapshot'),bonded_intent=job.get('bonded_intent','fit_and_simulate'),molecule_snapshot=job.get('molecule_snapshot'),molecule_root=self.ROOT / 'molecules')
                     if job.get('shared_reference'):kwargs.update(shared_reference=job['shared_reference'],reference_root=self.RUNS)
                     workflow.prepare_run(work, **kwargs)
             finally:
@@ -357,6 +444,8 @@ class Coordinator:
                 elif not job.get('shared_reference'):
                     raise ValueError('CG run is missing its shared AA reference')
                 prepared.update(molecule_id=job['molecule_id'], molecule_snapshot=job['molecule_snapshot'])
+            if composition_only:
+                prepared.update(composition_id=job['composition_id'], composition_snapshot_sha256=job['composition_snapshot_sha256'])
             prepared.update(id=jid, status='running', started_at=self.now(),run_type=job.get('run_type','aa_cg'),workflow_version=job.get('workflow_version','aa-cg-v2'))
             if job.get('shared_reference'):prepared['settings']=job['settings']
             files.atomic_json(work/'manifest.json', prepared)
@@ -402,7 +491,26 @@ class Coordinator:
                 self.schedule_waiting()
 
 
-    def create_job(self, detergent, method, label='', retry_of=None, profile='standard', settings=None, reference_run_id=None, resume_of=None, resume_from=None, mapping_candidate=None, mapping_snapshot=None, bonded_state_id=None, bonded_intent='fit_and_simulate', temporary_validation=False, molecule_id=None, molecule_snapshot=None, run_type=None):
+    def create_job(self, detergent, method, label='', retry_of=None, profile='standard', settings=None, reference_run_id=None, resume_of=None, resume_from=None, mapping_candidate=None, mapping_snapshot=None, bonded_state_id=None, bonded_intent='fit_and_simulate', temporary_validation=False, molecule_id=None, molecule_snapshot=None, run_type=None, composition_id=None):
+        if run_type == 'cg_composition':
+            if not composition_id: abort(400, 'CG composition runs require composition_id')
+            if any(value for value in (reference_run_id, molecule_id, molecule_snapshot, mapping_candidate, mapping_snapshot, bonded_state_id)):
+                abort(400, 'CG composition runs cannot use AA or ordinary mapping inputs')
+            try:
+                record = compositions.get(composition_id)
+                from dashboard.execution.composition_workflow import readiness as composition_readiness
+                ready = composition_readiness(composition_id, self.ROOT)
+                if not ready['ready']: abort(409, '; '.join(ready['blockers']))
+            except (ValueError, OSError, KeyError, FileNotFoundError) as exc: abort(404, str(exc))
+            job = {'id': uuid.uuid4().hex[:12], 'detergent': record.get('name', composition_id),
+                   'method': 'gromacs', 'label': str(label)[:160], 'status': 'queued', 'stage': 'queued',
+                   'created': self.now(), 'retry_of': retry_of, 'profile': profile,
+                   'settings': settings or {}, 'scientifically_validated': False,
+                   'composition_id': composition_id, 'composition_snapshot_sha256': record['snapshot_hash'],
+                   'run_type': run_type, 'workflow_version': 'cg-composition-v1', 'layout_version': 2,
+                   'stage_plan': ['CG simulation', 'CG assessment', 'CG SASA'], 'resume_of': resume_of,
+                   'resume_from': resume_from}
+            return self.admit_jobs([job], job)
         if run_type not in (None,'aa_only','aa_cg'):abort(400,'Unknown run type')
         if run_type=='aa_only':
             if reference_run_id or mapping_candidate or mapping_snapshot or bonded_state_id:abort(400,'AA-only cannot use CG inputs or an AA source')
@@ -427,10 +535,16 @@ class Coordinator:
         if method not in self.ALLOWED_METHODS:
             abort(400, 'Unsupported method')
         if mapping_snapshot is not None:
-            mapping_snapshot = workflow.draft_model.load(mapping_snapshot)
+            mapping_snapshot = workflow.draft_model.load(mapping_snapshot, molecule_root=self.ROOT / 'molecules')
         elif mapping_candidate:
             if not isinstance(mapping_candidate, str): abort(400, 'Mapping candidate must be a saved filename')
-            try: mapping_snapshot = workflow.draft_model.load(mappings.get(mapping_candidate))
+            try:
+                context = (mapping_context.build_context(self.ROOT / 'molecules', molecule_snapshot['id'])
+                           if molecule_snapshot else None)
+                mapping_snapshot = workflow.draft_model.load(
+                    mappings.get(mapping_candidate, context=context),
+                    molecule_root=self.ROOT / 'molecules',
+                )
             except FileNotFoundError: abort(400, 'Selected mapping is unavailable; refresh the candidate list')
         bonded_snapshot = None
         if bonded_state_id:

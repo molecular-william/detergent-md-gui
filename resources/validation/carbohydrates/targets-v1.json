@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "source": {
+    "citation": "Grunewald et al., J. Chem. Theory Comput. 2022, DOI: 10.1021/acs.jctc.2c00757",
+    "note": "Metadata-only until molecule-specific experimental values and uncertainties are entered from the cited source. Evidence runs remain blocked while targets are unavailable."
+  },
+  "datasets": [
+    {
+      "id": "glucose-martini3-paper-v1",
+      "molecule_id": "Glucose",
+      "citation": "10.1021/acs.jctc.2c00757",
+      "availability": "metadata_only",
+      "targets": []
+    },
+    {
+      "id": "sucrose-martini3-paper-v1",
+      "molecule_id": "Sucrose",
+      "citation": "10.1021/acs.jctc.2c00757",
+      "availability": "metadata_only",
+      "targets": []
+    },
+    {
+      "id": "trehalose-martini3-paper-v1",
+      "molecule_id": "Trehalose",
+      "citation": "10.1021/acs.jctc.2c00757",
+      "availability": "metadata_only",
+      "targets": []
+    },
+    {
+      "id": "maltose-pilot-v1",
+      "molecule_id": "Maltose",
+      "citation": "10.1021/acs.jctc.2c00757",
+      "availability": "metadata_only",
+      "targets": []
+    }
+  ]
+}

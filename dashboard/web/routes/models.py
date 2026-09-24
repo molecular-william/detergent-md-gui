@@ -6,12 +6,60 @@ import zipfile
 from pathlib import Path
 from flask import abort
 from dashboard import files
-from dashboard.models import mappings, bonded_states, bonded_generation, model_registry, compositions, evidence, depiction, mapping_context as mapping_context_model, mapping_references, mapping_suggestions
+from dashboard.models import mappings, bonded_states, bonded_generation, model_registry, compositions, cg_models, evidence, depiction, mapping_context as mapping_context_model, mapping_references, mapping_suggestions
 from dashboard.models.json_repository import JsonRepository
+from dashboard.analysis import carbohydrate_targets
 from flask import Blueprint, Response, jsonify, request, send_file
 from .common import coordinator
 
 blueprint = Blueprint('models', __name__)
+
+
+@blueprint.get('/api/compositions/catalog')
+def composition_catalog_api():
+    try:
+        return jsonify(compositions.catalog(coordinator().ROOT))
+    except (ValueError, OSError) as exc:
+        abort(500, str(exc))
+
+
+@blueprint.post('/api/compositions/preview')
+def composition_preview_api():
+    try:
+        return jsonify(compositions.preview(_json_object(), coordinator().ROOT))
+    except ValueError as exc:
+        status = 409 if 'stale' in str(exc).lower() else 400
+        abort(status, str(exc))
+
+
+@blueprint.post('/api/compositions')
+def composition_create_api():
+    try:
+        return jsonify(compositions.create_composition(_json_object(), coordinator().ROOT)), 201
+    except ValueError as exc:
+        status = 409 if ('stale' in str(exc).lower() or 'already exists' in str(exc).lower()) else 400
+        abort(status, str(exc))
+
+
+@blueprint.get('/api/compositions/<composition_id>')
+def composition_detail_api(composition_id):
+    try:
+        return jsonify(compositions.composition_detail(composition_id, coordinator().ROOT))
+    except (ValueError, KeyError, OSError, FileNotFoundError) as exc:
+        abort(404, str(exc))
+
+
+@blueprint.get('/api/cg-models')
+def cg_model_list_api():
+    return jsonify(models=cg_models.list_models(request.args.get('view', 'summary')))
+
+
+@blueprint.get('/api/cg-models/<kind>/<identifier>')
+def cg_model_detail_api(kind, identifier):
+    try:
+        return jsonify(cg_models.get_model(kind, identifier))
+    except (ValueError, KeyError, OSError, FileNotFoundError) as exc:
+        abort(404, str(exc))
 
 
 def _json_object():
@@ -72,6 +120,24 @@ def mapping_context():
         scene = depiction.build_scene(context)
         return jsonify(context=context, scene=scene, molecule=context, bead_types=mappings.bead_types())
     return jsonify(molecule=mappings.molecule(), bead_types=mappings.bead_types())
+
+
+@blueprint.get('/api/mappings/representations')
+def mapping_representations():
+    return jsonify(representations=mappings.representation_modes(), tiers=[
+        {'id': 'setup', 'label': 'Setup check'},
+        {'id': 'evidence', 'label': 'Evidence run'},
+    ])
+
+
+@blueprint.get('/api/mappings/validation-targets')
+def carbohydrate_validation_targets():
+    molecule_id = request.args.get('molecule_id')
+    if not molecule_id: abort(400, 'molecule_id is required')
+    try:
+        return jsonify(carbohydrate_targets.catalog(coordinator().ROOT, molecule_id))
+    except ValueError as exc:
+        abort(404, str(exc))
 
 
 @blueprint.get('/api/reference-index')

@@ -67,6 +67,25 @@ Legacy reports may lack pair categories. Missing fields are **unknown**, not zer
 
 ## Dashboard implementation status and remaining gaps
 
+### Carbohydrate validation controls
+
+CG Bead Assignment now exposes two representation choices for a selected
+carbohydrate mapping: the published TC4 model and a controlled physical-only
+variant that removes TC4 sites but keeps physical bead ownership, ring parents,
+and 1.15-scaled ring constraints. The controls also distinguish a setup check
+from an evidence run and require a cited target dataset. Attempts are immutable
+analysis records attached to a completed source run, and their status does not
+approve a mapping or authorize production.
+
+The evidence profile has three required keys: mapped geometry and molecular
+volume, water-to-octanol transfer free energy, and concentration-dependent
+osmotic pressure. The local target registry currently records Martini 3 paper
+citations as metadata-only for the packaged Maltose pilot and several reference
+sugars; no evidence-complete result is possible until molecule-specific target
+values and uncertainties are entered. The paper-aligned minimums are 200 ns for
+geometry, 19 BAR lambda windows for transfer, and a 0–2.5 molal series with
+approximately 500 ns per concentration for osmotic pressure.
+
 Latest user preference: molecular connectivity is an **enlarged fixed 2D view**, not rotatable. Tabs are Runs, New run, CG Bead Assignment, CG Bond Interactions. Keep one selected mapping candidate at a time. The separate 3D bead-assignment visualization is a different feature.
 
 Present in code:
@@ -89,7 +108,7 @@ These are documented observations, not fixed by this documentation-only handoff.
 
 ## Operation, verification, and file ownership
 
-- Use `dashboard/.venv/bin/python` from the repository root; check the configured GROMACS path/version and manifests. CG scripts currently request `-ntmpi 1 -ntomp 8 -nb cpu`.
+- Use `dashboard/.venv/bin/python` from the repository root; check the configured GROMACS path/version and manifests. Maintained AA and CG scripts request GPU 0 for nonbonded and PME work (`-gpu_id 0 -nb gpu -pme gpu -pmefft gpu`) with one MPI rank and eight OpenMP threads; confirm the resulting GROMACS log reports the selected GPU.
 - Start only one dashboard coordinator at `127.0.0.1:5000`. Check active jobs, leases, and subprocesses before restart; a restart can interrupt work. Do not reuse old PIDs or broadly kill Python processes.
 - Campaign runner: `-m dashboard.cli.screen_candidates <absolute-plan-path>`. Plans store unique labels, run IDs, seeds, status and errors and support resumption. The runner executes serially and stops on failure. A completed plan resumes without new MD; use a new plan for new variants. Verify that any background launcher persists and records the first accepted run.
 - `<workspace>/runs/<id>/manifest.json`, `inputs/`, `stages/`, `logs/` are simulation evidence. SQLite is the only live job-status authority. See [project operations](PROJECT_GUIDE.md).

@@ -14,6 +14,8 @@ Application source is grouped by responsibility:
 - `app.py`, `paths.py`: application construction and path configuration.
 - `execution/`: job coordination, stage execution, AA/CG preparation, tools and limits.
 - `models/`: molecule inputs, mappings, bonded states, fragments and evidence gates.
+- `models/composition_topology.py` and `models/compositions.py`: reference-backed
+  sugar/tail assembly and immutable Molecule Combination snapshots.
 - `analysis/`: isolated derived analyses and AA reference publication/verification.
 - `web/`: HTTP routes, templates, native JavaScript modules and CSS.
 - `cli/`: screening and bounded fresh-workspace reset.
@@ -59,3 +61,11 @@ See [the project guide](../docs/PROJECT_GUIDE.md) for operation, data locations,
 backup, reset, and recovery. See [DDM calibration](../docs/DDM_CALIBRATION.md)
 for scientific status and limits. Historical reports live under `reports/`, and
 UI prototypes under `docs/design/prototypes/`.
+
+Carbohydrate validation is launched from CG Bead Assignment for a completed
+source run. The server derives either the TC4 mapping or the physical-only
+ring-constrained mapping, then publishes an immutable analysis attempt. Geometry,
+water-to-octanol transfer free energy, and concentration-dependent osmotic
+pressure are reported independently. A setup check is diagnostic-only; an
+evidence-complete report requires cited targets and the sampling minimums in the
+carbohydrate validation design.

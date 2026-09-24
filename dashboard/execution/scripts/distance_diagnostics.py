@@ -4,6 +4,7 @@ Wasserstein distances are in nm, not Fast_Forward's unitless score. Expansion
 is a design target; neither comparison alone establishes physical validation.
 """
 import json
+import os
 from pathlib import Path
 import numpy as np
 import MDAnalysis as mda
@@ -53,7 +54,7 @@ def compare(root):
     export = {b['name']: b.get('export_name', b['name']) for b in model['beads']}
     virtual = {b['name'] for b in model['beads'] if b.get('virtual_site')}
     constrained = set()
-    itp = root/'3_initial_CG/DDM_initial.itp'
+    itp = root/'3_initial_CG'/os.environ.get('INITIAL_ITP', 'DDM_initial.itp')
     section = None
     if itp.is_file():
         for raw_line in itp.read_text().splitlines():
@@ -84,4 +85,4 @@ if __name__=='__main__':
     result=compare(Path('..'))
     Path('distance_diagnostics.json').write_text(json.dumps(result,indent=2)+'\n')
     Path('distance_diagnostics_stratified.json').write_text(json.dumps(result,indent=2)+'\n')
-    write_matrix_plot(result, Path('distance_matrix_stratified_DDM.png'))
+    write_matrix_plot(result, Path(f"distance_matrix_stratified_{os.environ.get('MOLECULE_TYPE', 'DDM')}.png"))
