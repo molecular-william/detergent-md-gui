@@ -7,7 +7,7 @@ import pytest
 from dashboard.execution.adapters import cg
 from dashboard.execution.adapters.cg_names import CGNames
 from dashboard.models import draft_model, mappings
-from dashboard.models.mapping_context import as_structure, build_context
+from dashboard.models.mappings.context import as_structure, build_context
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]

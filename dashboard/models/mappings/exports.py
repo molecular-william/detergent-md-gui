@@ -3,10 +3,10 @@ from pathlib import Path
 import hashlib
 import json
 
-from . import carbohydrates
-from .mapping_context import as_structure
-from .packaged_ddm_source import ROOT, SOURCE, molecule
-from .mapping_graph import require_usable, validate
+from .. import carbohydrates
+from .context import as_structure
+from ..packaged_ddm_source import ROOT, SOURCE, molecule
+from .graph import require_usable, validate
 
 
 def export_files(data, *, context=None):
@@ -17,7 +17,7 @@ def export_files(data, *, context=None):
     """
     if data.get('schema_version') == 3:
         if context is None:
-            from .mapping_context import build_context
+            from .context import build_context
             context = build_context(ROOT / 'molecules', data.get('molecule_id', ''))
         validation = require_usable(data, context, operation='export')
         structure = as_structure(context)

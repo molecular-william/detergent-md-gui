@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 from .. import paths
 from . import carbohydrates, mappings
-from .mapping_context import as_structure, build_context
+from .mappings.context import as_structure, build_context
 
 CANDIDATE = mappings.SOURCE / 'mapping_candidate_smoke.json'
 

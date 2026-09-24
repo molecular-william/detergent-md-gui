@@ -1,5 +1,5 @@
 from dashboard.models import mappings
-from dashboard.models.mapping_context import build_context
+from dashboard.models.mappings.context import build_context
 from tests.dashboard.mapping_fixtures import write_aa_fixture
 
 

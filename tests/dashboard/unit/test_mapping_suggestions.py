@@ -1,8 +1,8 @@
 from copy import deepcopy
 
-from dashboard.models.mapping_context import build_context
-from dashboard.models.mapping_references import load_index
-from dashboard.models.mapping_suggestions import generate_baseline, suggest_bead
+from dashboard.models.mappings.context import build_context
+from dashboard.models.mappings.references import load_index
+from dashboard.models.mappings.suggestions import generate_baseline, suggest_bead
 from tests.dashboard.fixtures import PROJECT_ROOT
 
 

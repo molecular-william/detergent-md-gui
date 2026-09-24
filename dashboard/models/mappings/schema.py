@@ -8,7 +8,7 @@ from copy import deepcopy
 import hashlib
 import json
 
-from . import bonded
+from .. import bonded
 
 SIZES = {'R': 4, 'S': 3, 'T': 2}
 LABELS = {'d', 'a', 'e', 'v'}
@@ -108,7 +108,7 @@ def automatic_candidate(structure, molecule_name):
     if not isinstance(molecule_name, str) or not molecule_name.strip():
         raise ValueError('automatic_candidate requires a molecule name')
     # Deferred import keeps the schema module independent for pure callers.
-    from . import carbohydrates
+    from .. import carbohydrates
     heavy = [a['id'] for a in structure['atoms'] if a['heavy']]
     sugar = carbohydrates.candidate(structure, molecule_name)
     if sugar is not None:

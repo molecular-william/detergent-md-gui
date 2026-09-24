@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 from rdkit import Chem
 from rdkit.Chem import rdDepictor
 from rdkit.Chem.Draw import rdMolDraw2D
-from . import mappings
+from .. import mappings
 
 COLORS = ['#2864b5', '#169186', '#aa6920', '#8762b6', '#ba4775', '#347844',
           '#a74b32', '#536697', '#8b751b', '#6754ac', '#287d93', '#ae5486']

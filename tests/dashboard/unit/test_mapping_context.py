@@ -1,4 +1,4 @@
-from dashboard.models.mapping_context import build_context
+from dashboard.models.mappings.context import build_context
 
 
 def _write_fixture(root, molecule_id="Fixture"):

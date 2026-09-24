@@ -5,8 +5,8 @@ from copy import deepcopy
 import hashlib
 import json
 
-from . import carbohydrates
-from .mapping_context import as_structure
+from .. import carbohydrates
+from .context import as_structure
 
 def _candidate_types(index, atom_count):
     size = "R" if atom_count >= 4 else "S" if atom_count == 3 else "T"

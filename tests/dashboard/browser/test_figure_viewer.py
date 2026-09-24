@@ -6,7 +6,8 @@ from unittest.mock import patch
 from playwright.sync_api import sync_playwright, expect
 from werkzeug.serving import make_server, WSGIRequestHandler
 from dashboard.app import default_coordinator as web
-from dashboard.models import mappings, mapping_context
+from dashboard.models import mappings
+from dashboard.models.mappings import context as mapping_context
 
 
 class QuietHandler(WSGIRequestHandler):

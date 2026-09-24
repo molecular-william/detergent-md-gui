@@ -1,10 +1,10 @@
 """Graph-based structural validation, reuse gate and ring-site preview."""
 from collections import Counter
 
-from . import carbohydrates
-from .mapping_context import as_structure
-from .packaged_ddm_source import molecule
-from .mapping_schema import SIZES, check_schema
+from .. import carbohydrates
+from .context import as_structure
+from ..packaged_ddm_source import molecule
+from .schema import SIZES, check_schema
 
 
 def validate(data, structure=None, *, context=None, allow_partial=False):

@@ -12,7 +12,7 @@ import json
 import math
 import re
 
-from . import aa_molecules
+from .. import aa_molecules
 
 
 _SECTION_RE = re.compile(r"^\s*\[\s*([^]]+)\s*\]")

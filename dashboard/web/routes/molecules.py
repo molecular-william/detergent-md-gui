@@ -3,7 +3,8 @@ import json
 from flask import abort
 from ...execution.adapters import aa
 from ...execution import workflow
-from dashboard.models import aa_molecules, mappings, mapping_context, compositions
+from ...models import aa_molecules, mappings, compositions
+from ...models.mappings import context as mapping_context
 from dashboard.analysis import aa_references
 from flask import Blueprint, jsonify, request
 from .common import coordinator

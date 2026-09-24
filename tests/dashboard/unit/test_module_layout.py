@@ -49,8 +49,8 @@ RETIRED = (
 )
 
 NEW_MODULES = (
-    'dashboard.models.candidates.schema', 'dashboard.models.candidates.store',
-    'dashboard.models.candidates.context', 'dashboard.models.compositions.model',
+    'dashboard.models.mappings.schema', 'dashboard.models.mappings.store',
+    'dashboard.models.mappings.context', 'dashboard.models.compositions.model',
     'dashboard.models.bonded.states', 'dashboard.models.sugars.coords',
     'dashboard.models.molecules.aa', 'dashboard.execution.adapters.aa',
     'dashboard.execution.adapters.cg', 'dashboard.execution.coordination.coordinator',

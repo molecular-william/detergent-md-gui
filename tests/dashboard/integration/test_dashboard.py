@@ -11,7 +11,8 @@ from unittest.mock import patch
 
 from dashboard.app import default_coordinator as web
 from dashboard import files
-from dashboard.models import mapping_store, mappings
+from dashboard.models.mappings import store as mapping_store
+from dashboard.models import mappings
 from dashboard.execution import workflow
 
 

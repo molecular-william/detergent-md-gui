@@ -5,7 +5,7 @@ from dashboard.models import mappings
 from dashboard.execution import workflow
 from dashboard.models import draft_model
 from dashboard.models import bonded
-from dashboard.models import mapping_store
+from dashboard.models.mappings import store as mapping_store
 
 
 def test_circular_fit_handles_seam_and_gromacs_harmonic_minimum():

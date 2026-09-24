@@ -1,4 +1,4 @@
-from dashboard.models.mapping_references import load_index
+from dashboard.models.mappings.references import load_index
 from tests.dashboard.fixtures import PROJECT_ROOT
 
 

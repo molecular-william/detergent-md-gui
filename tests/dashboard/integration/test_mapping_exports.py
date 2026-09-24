@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from rdkit import Chem
 from dashboard.app import default_coordinator as web
-from dashboard.models import depiction
+from dashboard.models.mappings import depiction
 from dashboard.models import mappings
 from dashboard.execution import workflow
 from tests.dashboard.fixtures import physical_mapping

@@ -8,12 +8,12 @@ from pathlib import Path
 import re
 import uuid
 
-from .. import paths
-from .mapping_context import as_structure
-from .packaged_ddm_source import SOURCE, molecule
-from .mapping_graph import require_usable, validate
-from .mapping_schema import check_schema, mapping_identity, mapping_content_identity
-from .json_repository import JsonRepository
+from ... import paths
+from .context import as_structure
+from ..packaged_ddm_source import SOURCE, molecule
+from .graph import require_usable, validate
+from .schema import check_schema, mapping_identity, mapping_content_identity
+from ..json_repository import JsonRepository
 
 
 def storage_root():

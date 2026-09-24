@@ -9,8 +9,8 @@ import pytest
 from dashboard.models import carbohydrates as sugars
 from dashboard.models import mappings
 from dashboard.models import draft_model
-from dashboard.models import depiction
-from dashboard.models import mapping_store
+from dashboard.models.mappings import depiction
+from dashboard.models.mappings import store as mapping_store
 from tests.dashboard.tool_paths import fast_forward_source
 
 
