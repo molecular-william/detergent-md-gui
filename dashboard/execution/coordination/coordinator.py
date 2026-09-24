@@ -201,7 +201,7 @@ class Coordinator:
                 try: self.SERVICES[key] = self.lease(self.DATA.with_suffix('.service.lock'))
                 except ValueError: raise RunBusy('Another dashboard process owns this database; use one coordinator process')
                 self.reconcile()
-                temporary.cleanup(self.load(), self.RUNS, self.database().delete, delete_with_cleanup=self.database().delete_with_cleanup)
+                temporary.cleanup(self.load(), self.RUNS, self.database())
             self.schedule_waiting()
 
 

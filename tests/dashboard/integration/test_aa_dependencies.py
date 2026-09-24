@@ -60,6 +60,17 @@ def test_http_delete_keeps_source_files_for_completed_consumer(tmp_path, monkeyp
     assert artifact.read_bytes() == b'source'
 
 
+class Deletions:
+    """The deletion seam a cleanup call goes through: run the removal, record the id."""
+
+    def __init__(self):
+        self.deleted = []
+
+    def delete_with_cleanup(self, jid, cleanup):
+        cleanup()
+        self.deleted.append(jid)
+
+
 def test_temporary_retention_preserves_a_retained_reference(tmp_path):
     from dashboard.execution.coordination import temporary
     from datetime import datetime, timezone, timedelta
@@ -69,7 +80,7 @@ def test_temporary_retention_preserves_a_retained_reference(tmp_path):
     source = jobs[-1]['id']
     jobs.append({'id': 'eeeeeeeeeeee', 'status': 'completed', 'reference_run_id': source})
     artifact = tmp_path/source/'trajectory.xtc'; artifact.parent.mkdir(); artifact.write_bytes(b'source')
-    deleted = []
-    temporary.cleanup(jobs, tmp_path, deleted.append, now)
-    assert source not in deleted
+    store = Deletions()
+    temporary.cleanup(jobs, tmp_path, store, now=now)
+    assert source not in store.deleted
     assert artifact.read_bytes() == b'source'

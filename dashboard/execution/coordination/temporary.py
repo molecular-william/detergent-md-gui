@@ -1,10 +1,16 @@
-"""Retention for explicitly marked short bonded-state validation jobs."""
+"""Retention for explicitly marked short bonded-state validation jobs.
+
+Deletion goes through the store object, not through injected callables: the store is what
+checks retained dependencies under the DB lock before the files and the record come out,
+and both callers -- the startup sweep and the maintenance route -- now pass the same kind
+of object, so they cannot drift apart.
+"""
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import shutil
 
 
-def cleanup(jobs, runs_root, delete_record, now=None, delete_with_cleanup=None):
+def cleanup(jobs, runs_root, store, *, now=None):
     now = now or datetime.now(timezone.utc)
     grouped={}
     for job in jobs:
@@ -29,10 +35,7 @@ def cleanup(jobs, runs_root, delete_record, now=None, delete_with_cleanup=None):
         def remove_files():
             if path.exists(): shutil.rmtree(path)
         try:
-            if delete_with_cleanup:
-                delete_with_cleanup(job['id'], remove_files)
-            else:
-                remove_files(); delete_record(job['id'])
+            store.delete_with_cleanup(job['id'], remove_files)
             results.append({'id':job['id'],'status':'deleted','age_days':age.days})
         except (OSError, ValueError) as exc: results.append({'id':job['id'],'status':'failed','reason':str(exc)})
     return results
