@@ -9,7 +9,7 @@ if not __package__:
 from flask import Flask, jsonify
 from . import paths as path_config
 from .constants import HOST, PORT
-from .execution.coordinator import Coordinator
+from .execution.coordination.coordinator import Coordinator
 from .web.routes import runs, molecules, models, analyses, maintenance
 
 

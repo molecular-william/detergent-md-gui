@@ -9,14 +9,14 @@ snapshot (historical smoke-test paths).
 """
 from pathlib import Path
 import os, shutil, subprocess, json, datetime, re, shlex, hashlib
-from .. import files, paths
-from ..models import aa_molecules, mappings, draft_model, bonded
-from .cg_workflow import CGNames, require_script_compatibility
-from .stage_io import ROOT, TUTORIAL_TEMPLATE, AA_TEMPLATE, FORCE_FIELD, environment, probe_tool, update_mdp, execution_root
-from .stages import Stage, stage_tables
+from ... import files, paths
+from ...models import aa_molecules, mappings, draft_model, bonded
+from .cg_names import CGNames, require_script_compatibility
+from ..environment import ROOT, TUTORIAL_TEMPLATE, AA_TEMPLATE, FORCE_FIELD, environment, probe_tool, update_mdp, execution_root
+from ..stages import Stage, stage_tables
 SCRIPTS = Path(__file__).parent / "scripts"
 # SCRIPTS and every other module-level name below are public API for the
-# historical `ddm` shim. cg_adapter.py owns them; ddm.py re-exports them.
+# historical `ddm` shim. cg.py owns them; ddm.py re-exports them.
 
 STAGE_DEFS = (
     Stage('AA reference', '1_AA-reference/aa_reference.sh',
@@ -122,7 +122,7 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     aa = run_dir / '1_AA-reference'
     aa.mkdir()
     reference_source = None
-    from ..analysis import aa_references
+    from ...analysis import aa_references
     aa_references.resolve(reference_root, shared_reference['source_run_id'], shared_reference['sha256'])
 
     shutil.copytree(FORCE_FIELD, run_dir / FORCE_FIELD.name)

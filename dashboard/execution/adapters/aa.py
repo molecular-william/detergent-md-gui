@@ -5,11 +5,11 @@ import json
 import math
 import shutil
 import subprocess
-from ..models import aa_molecules
-from .. import files
-from ..analysis import aa_references
-from .stage_io import FORCE_FIELD, environment, probe_tool
-from .stages import Stage, stage_tables
+from ...models import aa_molecules
+from ... import files
+from ...analysis import aa_references
+from ..environment import FORCE_FIELD, environment, probe_tool
+from ..stages import Stage, stage_tables
 
 VERSION='charmm36-single-solute-v1'
 MDRUN_GPU_NONBONDED_FLAGS='-gpu_id 0 -nb gpu -pin on'
@@ -146,7 +146,7 @@ def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
              'input_preparation':preparation, 'force_field_sha256':files.hashes(common/FORCE_FIELD.name),'scientifically_validated':False}
     files.atomic_json(common/'context.json',context)
     n=molecule_snapshot['atom_count'];charge=round(molecule_snapshot['metadata']['net_charge'])
-    from ..analysis.aa_references import index_group
+    from ...analysis.aa_references import index_group
     (common/'solute.ndx').write_text(index_group('Solute',1,n+1))
     top='#include "../common/charmm36-jul2022.ff/forcefield.itp"\n#include "../common/molecule/molecule.itp"\n#include "../common/charmm36-jul2022.ff/tip3p.itp"\n#include "../common/charmm36-jul2022.ff/ions.itp"\n\n[ system ]\nSingle solute in water\n[ molecules ]\n'+molecule_snapshot['metadata']['molecule_type']+' 1\n'
     scripts=[f'''gmx editconf -f ../common/molecule/molecule.gro -d {settings['box_padding_nm']:g} -c -bt dodecahedron -o boxed.gro

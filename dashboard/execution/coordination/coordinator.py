@@ -11,7 +11,9 @@ import uuid
 import fcntl
 from flask import abort
 from dashboard import files, store, paths
-from dashboard.execution import aa_workflow, workflow, resources, temporary
+from ..adapters import aa
+from .. import workflow
+from . import resources, temporary
 from dashboard.models import aa_molecules, mappings, bonded_states, mapping_context, compositions
 from dashboard.analysis import aa_references, observability
 from functools import wraps
@@ -417,10 +419,10 @@ class Coordinator:
             composition_only=job.get('run_type')=='cg_composition'
             resuming = in_place or bool(job.get('resume_of'))
             if composition_only:
-                from dashboard.execution.composition_workflow import readiness as composition_readiness
+                from ..adapters.composition import readiness as composition_readiness
                 readiness = composition_readiness(job['composition_id'], self.ROOT) if not resuming else {'ready': True}
             else:
-                readiness = (aa_workflow.readiness(self.ROOT/'molecules',job['molecule_id']) if not resuming else {'ready':True}) if aa_only else workflow.readiness(job.get('molecule_id') or job['detergent'], job['method'], job.get('profile', 'standard'), job.get('mapping_snapshot'), molecule_root=self.ROOT / 'molecules')
+                readiness = (aa.readiness(self.ROOT/'molecules',job['molecule_id']) if not resuming else {'ready':True}) if aa_only else workflow.readiness(job.get('molecule_id') or job['detergent'], job['method'], job.get('profile', 'standard'), job.get('mapping_snapshot'), molecule_root=self.ROOT / 'molecules')
             if not readiness['ready']:
                 raise ValueError('; '.join(readiness['blockers']))
             source_id = None if in_place else (job.get('resume_of') or job.get('reference_run_id'))
@@ -429,7 +431,7 @@ class Coordinator:
                 if job.get('resume_of'):
                     workflow.prepare_resume(work, self.RUNS/job['resume_of'], job['resume_from'])
                 elif not in_place and aa_only:
-                    aa_workflow.prepare_run(work,self.ROOT/'molecules',job['molecule_snapshot'],job['settings'])
+                    aa.prepare_run(work,self.ROOT/'molecules',job['molecule_snapshot'],job['settings'])
                 elif not in_place and composition_only:
                     workflow.prepare_run(work, composition_id=job['composition_id'], settings=job.get('settings'))
                 elif not in_place:
@@ -498,7 +500,7 @@ class Coordinator:
                 abort(400, 'CG composition runs cannot use AA or ordinary mapping inputs')
             try:
                 record = compositions.get(composition_id)
-                from dashboard.execution.composition_workflow import readiness as composition_readiness
+                from ..adapters.composition import readiness as composition_readiness
                 ready = composition_readiness(composition_id, self.ROOT)
                 if not ready['ready']: abort(409, '; '.join(ready['blockers']))
             except (ValueError, OSError, KeyError, FileNotFoundError) as exc: abort(404, str(exc))
@@ -557,9 +559,9 @@ class Coordinator:
             abort(409, 'Reuse state intent requires a complete bonded state')
         if shared:
             supplied=settings or {}
-            unknown=set(supplied)-set(aa_workflow.SETTING_SPECS)-set(workflow.SETTING_SPECS)
+            unknown=set(supplied)-set(aa.SETTING_SPECS)-set(workflow.SETTING_SPECS)
             if unknown:abort(400,'Unknown run settings: '+', '.join(sorted(unknown)))
-            aa_settings=aa_workflow.normalize_settings({k:v for k,v in supplied.items() if k in aa_workflow.SETTING_SPECS})
+            aa_settings=aa.normalize_settings({k:v for k,v in supplied.items() if k in aa.SETTING_SPECS})
             legacy_settings=workflow.normalize_settings({k:v for k,v in supplied.items() if k in workflow.SETTING_SPECS} | {'aa_equil_ps':aa_settings['aa_nvt_ps']+aa_settings['aa_npt_ps'],'aa_production_ps':aa_settings['aa_production_ps'],'temperature_k':aa_settings['temperature_k'],'output_interval_ps':aa_settings['output_interval_ps']},profile)
             settings=legacy_settings|aa_settings
         else:settings = workflow.normalize_settings(settings, profile)
@@ -609,15 +611,15 @@ class Coordinator:
         try:
             aa_molecules.validate_id(molecule_id)
             selected=snapshot or aa_molecules.selection(self.ROOT/'molecules',molecule_id,run_type='aa_only')
-            settings=aa_workflow.normalize_settings(settings)
+            settings=aa.normalize_settings(settings)
             if not snapshot:
-                ready=aa_workflow.readiness(self.ROOT/'molecules',molecule_id)
+                ready=aa.readiness(self.ROOT/'molecules',molecule_id)
                 if not ready['ready']:raise ValueError('; '.join(ready['blockers']))
         except (ValueError,OSError) as exc:abort(409,str(exc))
         return {'id':uuid.uuid4().hex[:12],'detergent':molecule_id,'molecule_id':molecule_id,'molecule_snapshot':selected,
-                'method':'gromacs','run_type':'aa_only','workflow_version':aa_workflow.VERSION,'protocol_version':aa_workflow.VERSION,
-                'stage_plan':[name for name,_ in aa_workflow.STAGES],'label':str(label)[:160],
-                'status':'queued','stage':'queued','created':self.now(),'settings':settings,'profile':aa_workflow.VERSION,
+                'method':'gromacs','run_type':'aa_only','workflow_version':aa.VERSION,'protocol_version':aa.VERSION,
+                'stage_plan':[name for name,_ in aa.STAGES],'label':str(label)[:160],
+                'status':'queued','stage':'queued','created':self.now(),'settings':settings,'profile':aa.VERSION,
                 'layout_version':2,'scientifically_validated':False,'reference_eligible':False}
 
 

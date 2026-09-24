@@ -2,17 +2,17 @@
 from pathlib import Path, PurePosixPath
 import os, shutil, subprocess, json, datetime, fnmatch, re, shlex, hashlib
 from .. import files, paths
-from .stage_io import environment, execution_root
-from . import cg_adapter
-from .cg_workflow import CGNames
+from .environment import environment, execution_root
+from .adapters import cg
+from .adapters.cg_names import CGNames
 from .stages import Stage, stage_tables
-from .cg_adapter import (STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS, SETTING_SPECS,
+from .adapters.cg import (STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS, SETTING_SPECS,
     stage_defaults, normalize_settings,
     tool_metadata, _mdp_value, draft_model, FORCE_FIELD, TUTORIAL_TEMPLATE, AA_TEMPLATE, ROOT)
 
 def readiness(detergent, method, profile='standard', mapping_candidate=None, molecule_root=None):
     """Re-export DDM readiness, forwarding an optional molecule root."""
-    from .cg_adapter import readiness as _readiness
+    from .adapters.cg import readiness as _readiness
     return _readiness(detergent, method, profile, mapping_candidate, molecule_root=molecule_root)
 
 def stage_command(name, script):
@@ -64,38 +64,38 @@ def validate_stage_inputs(name, directory, required=None):
 def stage_definitions(metadata):
     """Return the executable contract selected by immutable run metadata."""
     if metadata.get('run_type') == 'cg_composition':
-        from . import composition_workflow
-        return composition_workflow.STAGES, composition_workflow.REQUIRED_INPUTS, composition_workflow.REQUIRED_OUTPUTS
+        from .adapters import composition
+        return composition.STAGES, composition.REQUIRED_INPUTS, composition.REQUIRED_OUTPUTS
     if metadata.get('run_type')=='aa_only':
-        from . import aa_workflow
-        return aa_workflow.STAGES,aa_workflow.REQUIRED_INPUTS,aa_workflow.REQUIRED_OUTPUTS
+        from .adapters import aa
+        return aa.STAGES,aa.REQUIRED_INPUTS,aa.REQUIRED_OUTPUTS
     if metadata.get('run_type') not in (None,'aa_cg'):raise ValueError('Unknown run type')
     names = CGNames.for_snapshot(metadata['molecule_snapshot']) if metadata.get('molecule_snapshot') else CGNames.ddm_defaults()
-    return cg_adapter.stage_contract(names)
+    return cg.stage_contract(names)
 
 
 def plan_for(metadata) -> tuple[Stage, ...]:
     """Return the resolved immutable stage declarations for a run."""
     if metadata.get('run_type') == 'cg_composition':
-        from . import composition_workflow
-        return tuple(composition_workflow.STAGE_DEFS)
+        from .adapters import composition
+        return tuple(composition.STAGE_DEFS)
     if metadata.get('run_type') == 'aa_only':
-        from . import aa_workflow
-        return tuple(aa_workflow.STAGE_DEFS)
+        from .adapters import aa
+        return tuple(aa.STAGE_DEFS)
     if metadata.get('run_type') not in (None, 'aa_cg'):
         raise ValueError('Unknown run type')
     names = CGNames.for_snapshot(metadata['molecule_snapshot']) if metadata.get('molecule_snapshot') else CGNames.ddm_defaults()
-    return tuple(stage.resolve(names.env()) for stage in cg_adapter.STAGE_DEFS)
+    return tuple(stage.resolve(names.env()) for stage in cg.STAGE_DEFS)
 
 
 def prepare_run(run_dir, **kwargs):
     """New layout; all executable relative paths remain inside stages/."""
     if kwargs.get('composition_id'):
-        from . import composition_workflow
-        composition_workflow.prepare_run(run_dir, kwargs['composition_id'], kwargs.get('settings'))
+        from .adapters import composition
+        composition.prepare_run(run_dir, kwargs['composition_id'], kwargs.get('settings'))
         return
     stages = run_dir / 'stages'; stages.mkdir()
-    cg_adapter.prepare(stages, **kwargs)
+    cg.prepare(stages, **kwargs)
     metadata = json.loads((stages / 'manifest.json').read_text())
     (stages / 'manifest.json').unlink()
     shutil.copytree(stages, run_dir / 'inputs')
@@ -129,8 +129,8 @@ def prepare_resume(run_dir, source, from_stage):
     shutil.copytree(source / 'inputs', run_dir / 'stages')
     metadata = {k: v for k,v in old.items() if k not in ('stages','status','error','ended_at','started_at','id')}
     if old.get('run_type')=='aa_only':
-        from . import aa_workflow
-        tools=aa_workflow.tool_metadata()
+        from .adapters import aa
+        tools=aa.tool_metadata()
     else:tools=tool_metadata()
     metadata.update(tools=tools, environment={k:environment()[k] for k in ('PATH','OMP_NUM_THREADS','MPLBACKEND')}, source_manifest_sha256=files.sha256(source/'manifest.json'), stages=[], resume_of=source.name, resume_from=from_stage, reference_reused=old.get('reference_reused',False))
     plan, _, required_outputs = stage_definitions(old)

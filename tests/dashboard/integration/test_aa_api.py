@@ -1,4 +1,4 @@
-from dashboard.execution import coordinator as backend
+from dashboard.execution.coordination import coordinator as backend
 """Run-type admission and the fixed AA-source/CG-consumer lifecycle."""
 from tests.dashboard.fixtures import PROJECT_ROOT
 import json
@@ -6,7 +6,7 @@ from pathlib import Path
 import shutil
 import pytest
 from dashboard.app import default_coordinator as web
-from dashboard.execution import aa_workflow
+from dashboard.execution.adapters import aa
 from dashboard.models import aa_molecules
 from dashboard.analysis import aa_references
 from dashboard import files
@@ -20,19 +20,19 @@ def service(tmp_path,monkeypatch):
     for key,value in {'ROOT':tmp_path,'DATA':tmp_path/'jobs.sqlite3','RUNS':tmp_path/'runs','WORKERS':{},'ANALYSIS_WORKERS':{}}.items():monkeypatch.setattr(web,key,value)
     monkeypatch.setitem(web.app.config,'DISABLE_COORDINATOR',True)
     monkeypatch.setattr(backend.threading.Thread,'start',lambda self:None)
-    monkeypatch.setattr(aa_workflow,'readiness',lambda *a,**k:{'ready':True,'checks':[],'blockers':[]})
+    monkeypatch.setattr(aa,'readiness',lambda *a,**k:{'ready':True,'checks':[],'blockers':[]})
     web.save([])
     return web.app.test_client()
 
 
 def reference_fixture():
     selected=aa_molecules.selection(web.ROOT/'molecules','DDM',run_type='aa_only')
-    job={'id':'111111111111','status':'completed','run_type':'aa_only','reference_eligible':True,'molecule_id':'DDM','molecule_snapshot':selected,'settings':aa_workflow.DEFAULTS,'layout_version':2}
+    job={'id':'111111111111','status':'completed','run_type':'aa_only','reference_eligible':True,'molecule_id':'DDM','molecule_snapshot':selected,'settings':aa.DEFAULTS,'layout_version':2}
     directory=web.RUNS/job['id'];(directory/'stages/07_reference').mkdir(parents=True)
     files.atomic_json(directory/'manifest.json',job|{'stages':[]})
     trajectory=directory/'stages/07_reference/lig.xtc';trajectory.write_bytes(b'Immutable fixture trajectory for lifecycle checks')
-    data={'reference_eligible':True,'molecule_identity':aa_references.identity(selected),'settings':aa_workflow.DEFAULTS,
-          'protocol_version':aa_workflow.VERSION,'frames':{'count':3},'sha256':{'stages/07_reference/lig.xtc':files.sha256(trajectory)}}
+    data={'reference_eligible':True,'molecule_identity':aa_references.identity(selected),'settings':aa.DEFAULTS,
+          'protocol_version':aa.VERSION,'frames':{'count':3},'sha256':{'stages/07_reference/lig.xtc':files.sha256(trajectory)}}
     files.atomic_json(directory/'stages/07_reference/reference.json',data)
     web.database().insert(job)
     return job

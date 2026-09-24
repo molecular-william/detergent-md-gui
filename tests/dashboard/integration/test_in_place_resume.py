@@ -70,7 +70,7 @@ def test_in_place_preparation_ignores_changed_inputs_and_outputs(tmp_path, monke
 def resume_service(tmp_path, monkeypatch):
     from dashboard.app import create_app
     from dashboard.paths import Paths
-    from dashboard.execution import aa_workflow
+    from dashboard.execution.adapters import aa
     app = create_app(Paths(workspace=tmp_path), {'TESTING': True, 'DISABLE_COORDINATOR': True})
     owner = app.extensions['dashboard_coordinator']
     job = {'id': '123456abcdef', 'status': 'failed', 'run_type': 'aa_only',
@@ -95,7 +95,7 @@ def resume_service(tmp_path, monkeypatch):
     files.atomic_json(root/'manifest.json', metadata)
     owner.database().insert(job)
     monkeypatch.setattr(workflow, 'stage_definitions', lambda metadata: (plan, {}, outputs))
-    monkeypatch.setattr(aa_workflow, 'tool_metadata', lambda: {'gmx': {'path': 'fixture'}})
+    monkeypatch.setattr(aa, 'tool_metadata', lambda: {'gmx': {'path': 'fixture'}})
     # Admission stays real; execute its worker explicitly to assert persisted state.
     monkeypatch.setattr('threading.Thread.start', lambda self: None)
     yield app.test_client(), owner, root, job
@@ -200,7 +200,7 @@ def test_missing_upstream_output_does_not_block_current_file_resume(resume_servi
 
 @pytest.mark.parametrize('blocker', ['worker', 'analysis', 'external', 'consumer', 'capacity', 'quota'])
 def test_resume_admission_preserves_terminal_run_on_rejection(resume_service, monkeypatch, blocker):
-    from dashboard.execution import resources
+    from dashboard.execution.coordination import resources
     client, owner, root, job = resume_service
     lease = None
     if blocker == 'worker': owner.WORKERS[job['id']] = owner.Worker()

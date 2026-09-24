@@ -61,7 +61,7 @@ def test_http_delete_keeps_source_files_for_completed_consumer(tmp_path, monkeyp
 
 
 def test_temporary_retention_preserves_a_retained_reference(tmp_path):
-    from dashboard.execution import temporary
+    from dashboard.execution.coordination import temporary
     from datetime import datetime, timezone, timedelta
     now = datetime.now(timezone.utc)
     jobs = [{'id': f'{i:012x}', 'temporary_validation': True, 'status': 'completed',

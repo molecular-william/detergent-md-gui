@@ -14,7 +14,8 @@ from dashboard import files, paths
 from dashboard.analysis import observability, refinement, surfaces, targets, carbohydrate_validation, carbohydrate_geometry, transfer_free_energy, osmotic_pressure
 from dashboard.models import carbohydrates
 from dashboard.analysis import worker as analysis
-from . import resources, workflow
+from . import resources
+from .. import workflow
 
 
 class AnalysisCoordinator:

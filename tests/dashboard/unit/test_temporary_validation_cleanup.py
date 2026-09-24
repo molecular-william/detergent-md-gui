@@ -1,5 +1,5 @@
 from datetime import datetime, timezone, timedelta
-from dashboard.execution import temporary
+from dashboard.execution.coordination import temporary
 
 
 def test_cleanup_protects_latest_five_and_applies_age_cutoffs(tmp_path):

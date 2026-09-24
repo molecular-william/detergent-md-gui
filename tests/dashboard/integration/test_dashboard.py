@@ -1,5 +1,5 @@
 import os
-from dashboard.execution import coordinator as backend
+from dashboard.execution.coordination import coordinator as backend
 """Focused API, mapping and worker lifecycle acceptance tests."""
 import json
 from pathlib import Path

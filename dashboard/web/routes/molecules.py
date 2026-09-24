@@ -1,7 +1,8 @@
 """Molecules HTTP endpoints."""
 import json
 from flask import abort
-from dashboard.execution import aa_workflow, workflow
+from ...execution.adapters import aa
+from ...execution import workflow
 from dashboard.models import aa_molecules, mappings, mapping_context, compositions
 from dashboard.analysis import aa_references
 from flask import Blueprint, jsonify, request
@@ -36,7 +37,7 @@ def molecules_api():
 @blueprint.get('/api/defaults')
 def defaults_api():
     run_type=request.args.get('run_type')
-    if run_type=='aa_only':return jsonify(aa_workflow.stage_defaults())
+    if run_type=='aa_only':return jsonify(aa.stage_defaults())
     if run_type == 'cg_composition':
         result = workflow.stage_defaults(request.args.get('profile','draft-smoke'))
         result['values'].update({'cg_equil_ps': 10.0, 'cg_production_ps': 50.0})
@@ -44,8 +45,8 @@ def defaults_api():
     if run_type not in (None,'aa_cg'):abort(400,'Unknown run type')
     result=workflow.stage_defaults(request.args.get('profile','standard'))
     if run_type=='aa_cg':
-        result['values'].update(aa_workflow.DEFAULTS);result['values'].pop('aa_equil_ps',None)
-        result['sources']['AA']=aa_workflow.VERSION
+        result['values'].update(aa.DEFAULTS);result['values'].pop('aa_equil_ps',None)
+        result['sources']['AA']=aa.VERSION
     return jsonify(result)
 
 
@@ -54,12 +55,12 @@ def readiness_api():
     c = coordinator()
     run_type=request.args.get('run_type')
     if run_type == 'cg_composition':
-        from dashboard.execution.composition_workflow import readiness
+        from ...execution.adapters.composition import readiness
         composition_id = request.args.get('composition_id')
         if not composition_id: return jsonify(ready=False, checks=[], blockers=['Select a saved composition'])
         return jsonify(readiness(composition_id, c.ROOT))
     if run_type not in (None,'aa_only','aa_cg'):abort(400,'Unknown run type')
-    if run_type=='aa_only':return jsonify(aa_workflow.readiness(c.ROOT/'molecules',request.args.get('molecule_id')))
+    if run_type=='aa_only':return jsonify(aa.readiness(c.ROOT/'molecules',request.args.get('molecule_id')))
     molecule = None
     if 'molecule_id' in request.args:
         try: molecule = aa_molecules.inspect(c.ROOT/'molecules', request.args['molecule_id'])
@@ -85,7 +86,7 @@ def readiness_api():
                 selected=aa_molecules.selection(c.ROOT/'molecules',request.args.get('molecule_id'))
                 aa_references.resolve(c.RUNS,request.args['reference_run_id'],molecule_snapshot=selected)
             else:
-                aa_ready=aa_workflow.readiness(c.ROOT/'molecules',request.args.get('molecule_id'))
+                aa_ready=aa.readiness(c.ROOT/'molecules',request.args.get('molecule_id'))
                 ready.setdefault('blockers',[]).extend(aa_ready['blockers'])
         except (OSError,ValueError) as exc:ready.setdefault('blockers',[]).append(str(exc))
         ready['ready']=ready.get('ready',False) and not ready.get('blockers')

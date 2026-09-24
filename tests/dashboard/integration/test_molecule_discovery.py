@@ -7,7 +7,7 @@ import pytest
 
 from dashboard import files
 from dashboard.analysis import aa_references
-from dashboard.execution import aa_workflow
+from dashboard.execution.adapters import aa
 from dashboard.models import aa_molecules
 from tests.dashboard.fixtures import PROJECT_ROOT
 
@@ -83,8 +83,8 @@ def test_pdb_preparation_hashes_source_and_conversion_without_mutating_source(so
     selected = aa_molecules.selection(source.parent, source.name, run_type='aa_only')
     before = files.hashes(source)
     run = tmp_path/'run'; run.mkdir()
-    monkeypatch.setattr(aa_workflow, 'tool_metadata', lambda: {})
-    aa_workflow.prepare_run(run, source.parent, selected)
+    monkeypatch.setattr(aa, 'tool_metadata', lambda: {})
+    aa.prepare_run(run, source.parent, selected)
     prepared = run/'inputs/common/molecule'
     assert files.hashes(source) == before
     assert not (source/'molecule.gro').exists()

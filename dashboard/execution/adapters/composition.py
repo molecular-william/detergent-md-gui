@@ -5,9 +5,9 @@ import json
 import shutil
 from pathlib import Path
 
-from .. import files, paths
-from ..models import compositions
-from .stages import Stage, stage_tables
+from ... import files, paths
+from ...models import compositions
+from ..stages import Stage, stage_tables
 
 STAGE_DEFS = (
     Stage('CG simulation', '1_CG-simulation/cg_simulation.sh',

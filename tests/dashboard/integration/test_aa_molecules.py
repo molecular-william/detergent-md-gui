@@ -1,4 +1,4 @@
-from dashboard.execution import coordinator as backend
+from dashboard.execution.coordination import coordinator as backend
 """Molecule directory admission: bad inputs never become runnable DDM jobs."""
 from tests.dashboard.fixtures import PROJECT_ROOT
 import json
@@ -84,7 +84,7 @@ class MoleculeDirectoryTests(unittest.TestCase):
             return {'ready': True, 'checks': [], 'blockers': []}
 
         with patch.object(backend.workflow, 'readiness', side_effect=readiness), \
-             patch.object(backend.aa_workflow, 'readiness', return_value={'ready': True, 'blockers': []}):
+             patch.object(backend.aa, 'readiness', return_value={'ready': True, 'blockers': []}):
             mappings_response = self.client.get('/api/mappings?view=summary&molecule_id=Maltose')
             response = self.client.get(
                 '/api/readiness?run_type=aa_cg&molecule_id=Maltose&detergent=Maltose'

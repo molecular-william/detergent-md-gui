@@ -1,5 +1,5 @@
 import os
-from dashboard.execution import coordinator as backend
+from dashboard.execution.coordination import coordinator as backend
 """Recovery, concurrency, immutable analysis, and resume acceptance."""
 import json
 from pathlib import Path
@@ -15,7 +15,7 @@ import pytest
 from dashboard.app import default_coordinator as web
 from dashboard import files
 from dashboard.execution import workflow
-from dashboard.execution import resources
+from dashboard.execution.coordination import resources
 from dashboard import store
 
 
