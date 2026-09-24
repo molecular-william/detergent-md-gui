@@ -25,20 +25,7 @@ from functools import wraps
 from .worker import Worker
 from .analysis_coordinator import AnalysisCoordinator
 from .manifest import ManifestCache, stage_log_path as resolve_stage_log
-
-
-_VISIBLE_FIELDS = frozenset((
-    'id','label','detergent','molecule_name','molecule_id','method','profile',
-    'status','stage','created','started_at','ended_at','error',
-    'artifact_revision','run_type',
-))
-_HIDDEN_FIELDS = frozenset((
-    'pid','gromacs_eta','gromacs_remaining_seconds','eta_minutes','stage_estimate_minutes',
-))
-_ANALYSIS_SUMMARY_FIELDS = frozenset((
-    'id','kind','status','created_at','started_at','ended_at','error','directory',
-))
-_STAGE_SUMMARY_FIELDS = frozenset(('name','status','started_at','ended_at'))
+from ...web import views
 
 
 def application_context(function):
@@ -253,143 +240,28 @@ class Coordinator:
 
 
     def tail(self, path, limit=65536):
-        if not path.is_file():
-            return ''
-        with path.open('rb') as fp:
-            fp.seek(max(0, path.stat().st_size - limit))
-            return fp.read(limit).decode('utf-8', errors='replace')
+        return views.tail(path, limit)
 
 
     def parse_gromacs_eta(self, text):
-        # Only consider estimates after the latest mdrun start/end marker.
-        text = re.split(r'(?:starting mdrun|Finished mdrun)', text, flags=re.I)[-1]
-        matches = list(re.finditer(r'remaining wall clock time:\s*([0-9]+(?:\.[0-9]+)?)\s*s|will finish\s+([^\r\n]+)', text, re.I))
-        if not matches:
-            return {}
-        latest = matches[-1]
-        data = {'eta_source': 'GROMACS console output'}
-        if latest.group(1):
-            data['gromacs_remaining_seconds'] = float(latest.group(1))
-        else:
-            data['gromacs_eta'] = latest.group(2).strip()
-        return data
+        return views.parse_gromacs_eta(text)
 
 
     def _ownership_flags(self, job):
-        """Return can_cancel / can_retry / can_delete for a locally owned job.
-
-        External worker ownership is applied separately by public_job.
-        """
-        active_analysis = any(key[0] == job['id'] for key in list(self.ANALYSIS_WORKERS))
-        return {
-            'can_cancel': (job['id'] in self.WORKERS and job['status'] in ('queued','running')) or job['status']=='waiting',
-            'can_retry': job['status'] == 'failed',
-            'can_delete': job['status'] in ('completed','failed','cancelled','blocked') and job['id'] not in self.WORKERS and not active_analysis,
-        }
-
-
-    def _analysis_view(self, job, summary):
-        """Public analysis records; summary drops the heavy 'outputs' list."""
-        result = []
-        for task in job.get('analyses', []):
-            if summary:
-                result.append({k: v for k, v in task.items() if k in _ANALYSIS_SUMMARY_FIELDS})
-            else:
-                result.append({k: v for k, v in task.items() if k in _ANALYSIS_SUMMARY_FIELDS or k == 'outputs'})
-        return result
-
-
-    def _elapsed(self, job):
-        """Return (elapsed_seconds, warnings); (None, []) when no started_at."""
-        start = job.get('started_at')
-        if not start:
-            return None, []
-        try:
-            began = datetime.fromisoformat(start)
-            ended = datetime.fromisoformat(job['ended_at']) if job.get('ended_at') else datetime.now(began.tzinfo)
-            return max(0, (ended - began).total_seconds()), []
-        except (ValueError, TypeError):
-            return None, ['Invalid persisted timestamp; elapsed time unavailable']
-
-
-    def _eta(self, job, stages):
-        """GROMACS ETA parsed from the most recent log of the running stage."""
-        if job['status'] != 'running':
-            return {}
-        current = next((s for s in reversed(stages) if s.get('status') == 'running'), None)
-        if not current:
-            return {}
-        stage_dir = next((Path(rel).parent for name, rel in workflow.stage_definitions(job)[0] if name == current['name']), None)
-        attempt = None
-        if job.get('resume_in_place') and job.get('resume_count'):
-            try:
-                attempt = int(job['resume_count']) or None
-            except (TypeError, ValueError):
-                attempt = None
-        candidates = []
-        if current.get('log'):
-            recorded = self.stage_log_path(job, current['log'])
-            if recorded is not None:
-                candidates.append(recorded)
-        if stage_dir:
-            # The recorded path first, then the location this run would have written.
-            # While resuming, the console log is not a fallback: its tail belongs to
-            # the attempt being resumed from, so an ETA read from it would report
-            # progress the current attempt has not made.
-            encoded = resolve_stage_log(self.run_path(job), name=stage_dir.name, resume_count=attempt)
-            if encoded is not None:
-                candidates.append(encoded)
-        if not attempt:
-            candidates.append(self.log_path(job))
-        for candidate in candidates:
-            if candidate.is_file():
-                eta = self.parse_gromacs_eta(self.tail(candidate))
-                if eta:
-                    return eta
-        return {}
-
-
-    def _stage_view(self, job, metadata):
-        """Return (stages, workflow_stages) with defensive type checks."""
-        stages = metadata.get('stages', []) if metadata else []
-        if not isinstance(stages, list) or any(not isinstance(stage, dict) for stage in stages):
-            stages = []
-        workflow_stages = metadata.get('stage_plan') or job.get('stage_plan') or [name for name, _ in cg.STAGES]
-        return stages, workflow_stages
+        """can_cancel / can_retry / can_delete for a run one of this instance's workers holds."""
+        return views.ownership_flags(job, active=job['id'] in self.WORKERS,
+                                     analysis_active=any(key[0] == job['id'] for key in list(self.ANALYSIS_WORKERS)))
 
 
     def public_job(self, job, summary=False):
-        result = {k: v for k, v in job.items()
-                  if k not in _HIDDEN_FIELDS and (not summary or k in _VISIBLE_FIELDS)}
-        result['metadata_warnings'] = []
-        if not isinstance(job.get('id'),str) or not re.fullmatch(r'[a-f0-9]{12}',job['id']):
-            return result | {'status':'failed','error':'Invalid persisted run ID; repair the metadata before using this record','can_cancel':False,'can_delete':False,'can_retry':False,'stages':[],'workflow_stages':[name for name,_ in cg.STAGES],'elapsed_seconds':None,'analyses':[]}
-        result.update(self._ownership_flags(job))
-        result['analyses'] = self._analysis_view(job, summary)
-        manifest = self.run_path(job) / 'manifest.json'
-        metadata = self.MANIFEST_CACHE.read(manifest)
-        stages, workflow_stages = self._stage_view(job, metadata)
-        result['stages'] = stages
-        result['workflow_stages'] = workflow_stages
-        result['resume_stages'] = workflow.resumable_stages(self.run_path(job), metadata=metadata) if job['status'] in ('failed','cancelled','completed') else []
-        if self.externally_busy(job):
-            result['can_delete'] = False
-            result['resume_stages'] = []
-            result['metadata_warnings'].append('An external worker still holds this run; reuse and deletion are blocked until it exits')
-        if manifest.is_file() and not metadata:
-            result['metadata_warnings'].append('Manifest is unreadable; inspect the original artifact')
-        elapsed, warnings = self._elapsed(job)
-        result['elapsed_seconds'] = elapsed
-        result['metadata_warnings'].extend(warnings)
-        result.update(self._eta(job, stages))
-        for task in result['analyses']:
-            if task['status'] == 'running':
-                try: task['progress'] = json.loads((self.run_path(job)/task['directory']/'progress.json').read_text())['phase']
-                except (OSError, ValueError): pass
-        if summary:
-            result['stages'] = [{k:v for k,v in stage.items() if k in _STAGE_SUMMARY_FIELDS} for stage in stages]
-            result['detail_revision'] = hashlib.sha256(json.dumps(metadata, sort_keys=True).encode()).hexdigest()
-        return result
+        """The browser's view of a run. The view itself lives in dashboard/web/views.py."""
+        run_dir = self.run_path(job) if views.usable_run_id(job) else None
+        if run_dir is None:
+            return views.run_view(job, summary=summary)
+        return views.run_view(job, run_dir=run_dir,
+                              manifest=self.MANIFEST_CACHE.read(run_dir / 'manifest.json'),
+                              ownership=self._ownership_flags(job), busy=self.externally_busy(job),
+                              console_log=self.log_path(job), summary=summary)
 
 
     @application_context
