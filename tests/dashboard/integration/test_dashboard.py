@@ -14,6 +14,7 @@ from dashboard import files
 from dashboard.models.mappings import store as mapping_store
 from dashboard.models import mappings
 from dashboard.execution import workflow
+from dashboard.execution.adapters import cg
 
 
 class DashboardTests(unittest.TestCase):
@@ -108,7 +109,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('mdps', data['sources']['AA'])
 
     def test_new_run_rejects_invalid_stage_setting(self):
-        with patch.object(workflow, 'readiness', return_value={'ready': True}):
+        with patch.object(cg, 'readiness', return_value={'ready': True}):
             response = self.client.post('/', json={'detergent': 'DDM', 'method': 'fast_forward', 'temperature_k': 100})
         self.assertEqual(response.status_code, 400)
 
@@ -164,7 +165,7 @@ class DashboardTests(unittest.TestCase):
     def test_retry_creates_new_id_and_preserves_failed_record(self):
         web.update_job(self.job['id'], status='failed', error='Original failure')
         before = web.lookup(self.job['id'])
-        with patch.object(workflow, 'readiness', return_value={'ready': True}), patch.object(threading.Thread, 'start'):
+        with patch.object(cg, 'readiness', return_value={'ready': True}), patch.object(threading.Thread, 'start'):
             response = self.client.post('/retry/123456abcdef')
         self.assertEqual(response.status_code, 201)
         self.assertNotEqual(response.get_json()['id'], self.job['id'])

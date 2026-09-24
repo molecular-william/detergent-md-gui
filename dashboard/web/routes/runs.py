@@ -10,6 +10,7 @@ import zipfile
 from flask import abort
 from dashboard import files
 from ...execution.adapters import aa
+from ...execution.adapters import cg
 from ...execution.coordination import admission
 from ...execution import workflow
 from ...execution.adapters.micelle import run_micelle_job
@@ -48,7 +49,7 @@ def queue():
         except ValueError as exc: abort(400, str(exc))
     intent=data.get('bonded_intent','fit_and_simulate')
     if intent not in ('fit_and_simulate','fit_only','reuse_state'): abort(400,'Unknown bonded run intent')
-    specs=set(aa.SETTING_SPECS) if data.get('run_type')=='aa_only' else set(workflow.SETTING_SPECS)|set(aa.SETTING_SPECS)
+    specs=set(aa.SETTING_SPECS) if data.get('run_type')=='aa_only' else set(cg.SETTING_SPECS)|set(aa.SETTING_SPECS)
     job = c.create_job(data.get('detergent') or data.get('molecule_id') or data.get('composition_id'), data.get('method'), data.get('label', ''), profile=data.get('profile', 'standard'), settings={k: data.get(k) for k in specs if data.get(k) not in (None, '')}, reference_run_id=data.get('reference_run_id') or None, mapping_candidate=data.get('mapping_candidate'), bonded_state_id=data.get('bonded_state_id') or None, bonded_intent=intent, temporary_validation=str(data.get('temporary_validation','')).lower() in ('1','true','yes'), molecule_id=data.get('molecule_id'),run_type=data.get('run_type'), composition_id=data.get('composition_id'))
     return jsonify(c.public_job(job)), 201
 

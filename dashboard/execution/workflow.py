@@ -5,15 +5,7 @@ from .. import files, paths
 from .environment import environment, execution_root
 from .adapters import cg
 from .adapters.cg_names import CGNames
-from .stages import Stage, stage_tables
-from .adapters.cg import (STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS, SETTING_SPECS,
-    stage_defaults, normalize_settings,
-    tool_metadata, _mdp_value, draft_model, FORCE_FIELD, TUTORIAL_TEMPLATE, AA_TEMPLATE, ROOT)
-
-def readiness(detergent, method, profile='standard', mapping_candidate=None, molecule_root=None):
-    """Re-export DDM readiness, forwarding an optional molecule root."""
-    from .adapters.cg import readiness as _readiness
-    return _readiness(detergent, method, profile, mapping_candidate, molecule_root=molecule_root)
+from .stages import Stage
 
 def stage_command(name, script):
     command = ['bash', '-e', '-o', 'pipefail', str(script)]
@@ -53,7 +45,7 @@ def declared_output_hashes(directory, patterns, recorded=None):
 
 
 def validate_stage_inputs(name, directory, required=None):
-    missing = missing_files(directory, (REQUIRED_INPUTS if required is None else required).get(name, ()))
+    missing = missing_files(directory, (cg.REQUIRED_INPUTS if required is None else required).get(name, ()))
     if name == 'AA reference' and (directory / 'system_EMPTY.top').is_file():
         includes = re.findall(r'^\s*#include\s+"([^"]+)"', (directory / 'system_EMPTY.top').read_text(), re.M)
         missing += missing_files(directory, includes)
@@ -131,7 +123,7 @@ def prepare_resume(run_dir, source, from_stage):
     if old.get('run_type')=='aa_only':
         from .adapters import aa
         tools=aa.tool_metadata()
-    else:tools=tool_metadata()
+    else:tools=cg.tool_metadata()
     metadata.update(tools=tools, environment={k:environment()[k] for k in ('PATH','OMP_NUM_THREADS','MPLBACKEND')}, source_manifest_sha256=files.sha256(source/'manifest.json'), stages=[], resume_of=source.name, resume_from=from_stage, reference_reused=old.get('reference_reused',False))
     plan, _, required_outputs = stage_definitions(old)
     for name, relative in plan:

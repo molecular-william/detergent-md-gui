@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 from dashboard.models import mappings
 from dashboard.execution import workflow
+from dashboard.execution.adapters import cg
 from dashboard.models.molecules import draft as draft_model
 from dashboard.models import bonded
 from dashboard.models.mappings import store as mapping_store
@@ -63,5 +64,5 @@ def test_manual_connectivity_must_stay_connected():
 
 
 def test_seed_is_validated():
-    assert workflow.normalize_settings({'cg_seed': 123})['cg_seed'] == 123
-    with pytest.raises(ValueError): workflow.normalize_settings({'cg_seed': 1.5})
+    assert cg.normalize_settings({'cg_seed': 123})['cg_seed'] == 123
+    with pytest.raises(ValueError): cg.normalize_settings({'cg_seed': 1.5})

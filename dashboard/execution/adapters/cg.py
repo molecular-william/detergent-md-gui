@@ -13,13 +13,15 @@ from ... import files, paths
 from ...models.molecules import aa as aa_molecules, draft as draft_model
 from ...models import mappings, bonded
 from .cg_names import CGNames, require_script_compatibility
+from .. import protocol
 from ..environment import ROOT, TUTORIAL_TEMPLATE, AA_TEMPLATE, FORCE_FIELD, environment, probe_tool, update_mdp, execution_root
 from ..stages import Stage, stage_tables
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
-# SCRIPTS and every other module-level name below are public API: preparation
-# copies the scripts into each run's stages/ tree, and the analysis coordinator
-# hashes adapter and analysis sources into run manifests. A rename here is a
-# compatibility change, not an internal detail.
+# What this module offers to the rest of the application: PROTOCOL (the run-type
+# surface at the end of this file), stage_contract() for a naming context, and
+# SCRIPTS for run preparation. The stage tables, settings bounds and tool report
+# in between are read through those three; a name is not part of the interface
+# merely because it is importable.
 
 STAGE_DEFS = (
     Stage('AA reference', '1_AA-reference/aa_reference.sh',
@@ -292,3 +294,38 @@ def readiness(molecule_id, method, profile='standard', mapping_candidate=None, m
     return {'ready': not blockers, 'checks': checks, 'blockers': blockers, 'profile': profile,
             'scientific_gate': {'scientifically_validated': False, 'production_allowed': False,
                                 'reason': 'No scientifically validated CG model is registered; reviewer approval of a mapping alone cannot authorize production.'}}
+
+
+def _protocol_stage_contract(metadata):
+    """Resolve a naming context from the metadata a caller holds."""
+    snapshot = metadata.get('molecule_snapshot')
+    names = CGNames.for_snapshot(snapshot) if snapshot else metadata.get('names')
+    return stage_contract(names)
+
+
+def _protocol_readiness(metadata):
+    molecule_id = metadata.get('molecule_id')
+    if not molecule_id:
+        return protocol.blocked('molecule_id is required to check an AA to CG run')
+    return readiness(molecule_id, metadata.get('method') or 'gromacs',
+                     metadata.get('profile') or 'standard',
+                     metadata.get('mapping_candidate'), metadata.get('molecule_root'))
+
+
+def _protocol_prepare(run_dir, metadata):
+    keys = ('structure', 'detergent', 'profile', 'settings', 'mapping_candidate',
+            'bonded_state_snapshot', 'bonded_intent', 'shared_reference',
+            'reference_root', 'molecule_snapshot', 'molecule_root')
+    prepare(run_dir, **{key: metadata[key] for key in keys if key in metadata})
+
+
+PROTOCOL = protocol.Protocol(
+    name='aa_cg',
+    stage_contract=_protocol_stage_contract,
+    settings_specs=lambda: SETTING_SPECS,
+    stage_defaults=lambda: stage_defaults(),
+    normalize_settings=lambda settings=None: normalize_settings(settings),
+    readiness=_protocol_readiness,
+    prepare=_protocol_prepare,
+    tool_report=tool_metadata,
+)

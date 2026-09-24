@@ -15,6 +15,7 @@ import pytest
 from dashboard.app import default_coordinator as web
 from dashboard import files
 from dashboard.execution import workflow
+from dashboard.execution.adapters import cg
 from dashboard.execution.coordination import resources
 from dashboard import store
 
@@ -65,7 +66,7 @@ class OperationsTests(unittest.TestCase):
         web.update_job(self.job['id'],started_at='bad timestamp')
         job=self.client.get('/api/jobs').get_json()[0]
         self.assertIsNone(job['elapsed_seconds']); self.assertTrue(job['metadata_warnings'])
-        self.assertEqual(job['workflow_stages'],[name for name,_ in workflow.STAGES])
+        self.assertEqual(job['workflow_stages'],[name for name,_ in cg.STAGES])
 
     def test_paginated_poll_does_not_scan_artifacts_and_supports_etag(self):
         jobs=[dict(self.job,id=f'{i:012x}',status='failed' if i%2 else 'completed',label=f'Run {i}') for i in range(35)]
@@ -153,7 +154,7 @@ class OperationsTests(unittest.TestCase):
             self.assertEqual(self.client.get('/api/jobs?page=1').status_code,409)
 
     def test_clone_keeps_settings_and_production_gate(self):
-        with patch.object(workflow,'readiness',return_value={'ready':True}), patch.object(threading.Thread,'start'):
+        with patch.object(cg,'readiness',return_value={'ready':True}), patch.object(threading.Thread,'start'):
             response=self.client.post('/api/jobs/'+self.job['id']+'/clone',json={'settings':{'temperature_k':310},'label':'new settings'})
             self.assertEqual(response.status_code,201)
             self.assertEqual(response.get_json()['settings']['temperature_k'],310)
@@ -189,7 +190,7 @@ class OperationsTests(unittest.TestCase):
             stage=root/'stages/mini'; stage.mkdir(parents=True)
             (stage/'run.sh').write_text('echo stage-output; echo result > result.txt')
             files.atomic_json(root/'manifest.json',{'stages':[],'stage_plan':['mini']})
-        with patch.object(workflow,'readiness',return_value={'ready':True}), patch.object(workflow,'prepare_run',prepare), patch.object(workflow,'STAGES',[('mini','mini/run.sh')]), patch.object(workflow,'REQUIRED_OUTPUTS',{'mini':('result.txt',)}):
+        with patch.object(cg,'readiness',return_value={'ready':True}), patch.object(workflow,'prepare_run',prepare), patch.object(workflow,'stage_definitions',lambda metadata: ([('mini','mini/run.sh')], {}, {'mini':('result.txt',)})):
             web.run_job(job['id'])
         job=web.lookup(job['id']); self.assertEqual(job['status'],'completed',job.get('error'))
         manifest=json.loads((web.run_path(job)/'manifest.json').read_text())
@@ -223,7 +224,11 @@ class ResumeTests(unittest.TestCase):
     pytestmark = pytest.mark.slow
 
     def test_resume_reuses_verified_stage_and_keeps_old_attempt(self):
-        with tempfile.TemporaryDirectory() as temp, patch.object(workflow,'STAGES',[('first','first/run.sh'),('second','second/run.sh')]), patch.object(workflow,'REQUIRED_OUTPUTS',{'first':('result.txt',),'second':('result.txt',)}):
+        # The resume path records tool versions, so the probe is stubbed: the
+        # vendored Fast_Forward package is not installed in this checkout, and
+        # the subject here is resume bookkeeping. The stage plan comes from the
+        # runner's own seam (stage_definitions), which is what run() iterates.
+        with tempfile.TemporaryDirectory() as temp, patch.object(workflow,'stage_definitions',lambda metadata: ([('first','first/run.sh'),('second','second/run.sh')], {}, {'first':('result.txt',),'second':('result.txt',)})), patch.object(cg,'tool_metadata',return_value={'gmx':{'path':'stub'}}):
             root=Path(temp); source=root/'source'; source.mkdir(); stages=source/'stages'; stages.mkdir()
             for name in ('first','second'):
                 (stages/name).mkdir(); (stages/name/'run.sh').write_text('echo ran > result.txt\n'+('exit 3\n' if name=='second' else ''))

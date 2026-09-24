@@ -77,36 +77,7 @@ def _aa_protocol() -> Protocol:
 
 def _cg_protocol() -> Protocol:
     from .adapters import cg
-
-    def stage_contract(metadata: Mapping) -> tuple:
-        snapshot = metadata.get('molecule_snapshot')
-        names = cg.CGNames.for_snapshot(snapshot) if snapshot else metadata.get('names')
-        return cg.stage_contract(names)
-
-    def readiness(metadata: Mapping) -> dict:
-        molecule_id = metadata.get('molecule_id')
-        if not molecule_id:
-            return blocked('molecule_id is required to check an AA to CG run')
-        return cg.readiness(molecule_id, metadata.get('method') or 'gromacs',
-                            metadata.get('profile') or 'standard',
-                            metadata.get('mapping_candidate'), metadata.get('molecule_root'))
-
-    def prepare(run_dir, metadata: Mapping) -> None:
-        keys = ('structure', 'detergent', 'profile', 'settings', 'mapping_candidate',
-                'bonded_state_snapshot', 'bonded_intent', 'shared_reference',
-                'reference_root', 'molecule_snapshot', 'molecule_root')
-        cg.prepare(run_dir, **{key: metadata[key] for key in keys if key in metadata})
-
-    return Protocol(
-        name='aa_cg',
-        stage_contract=stage_contract,
-        settings_specs=lambda: cg.SETTING_SPECS,
-        stage_defaults=lambda: cg.stage_defaults(),
-        normalize_settings=lambda settings=None: cg.normalize_settings(settings),
-        readiness=readiness,
-        prepare=prepare,
-        tool_report=cg.tool_metadata,
-    )
+    return cg.PROTOCOL
 
 
 def _composition_protocol() -> Protocol:

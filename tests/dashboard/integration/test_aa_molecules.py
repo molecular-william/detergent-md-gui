@@ -1,4 +1,5 @@
 from dashboard.execution.coordination import coordinator as backend
+from dashboard.execution.adapters import cg
 """Molecule directory admission: bad inputs never become runnable DDM jobs."""
 from tests.dashboard.fixtures import PROJECT_ROOT
 import json
@@ -66,7 +67,7 @@ class MoleculeDirectoryTests(unittest.TestCase):
 
     def test_readiness_reports_a_missing_molecule_directory(self):
         # The isolated workspace has no packaged DDM; the readiness endpoint must
-        # report the missing-molecule branch through workflow.readiness.
+        # report the missing-molecule branch through cg.readiness.
         response=self.client.get('/api/readiness?molecule_id=example&detergent=example&method=fast_forward&run_type=aa_cg').get_json()
         self.assertFalse(response['ready'])
         self.assertTrue(response['blockers'])
@@ -83,7 +84,7 @@ class MoleculeDirectoryTests(unittest.TestCase):
             seen['candidate'] = args[3]
             return {'ready': True, 'checks': [], 'blockers': []}
 
-        with patch.object(backend.workflow, 'readiness', side_effect=readiness), \
+        with patch.object(cg, 'readiness', side_effect=readiness), \
              patch.object(backend.aa, 'readiness', return_value={'ready': True, 'blockers': []}):
             mappings_response = self.client.get('/api/mappings?view=summary&molecule_id=Maltose')
             response = self.client.get(
@@ -102,7 +103,7 @@ class MoleculeDirectoryTests(unittest.TestCase):
         shutil.copytree(PROJECT_ROOT/'molecules/DDM',self.root/'molecules/DDM')
 
     def queue_ddm(self):
-        with patch.object(backend.workflow,'readiness',return_value={'ready':True}), patch.object(backend.threading.Thread,'start'):
+        with patch.object(cg,'readiness',return_value={'ready':True}), patch.object(backend.threading.Thread,'start'):
             response=self.client.post('/',json={'detergent':'DDM','method':'fast_forward','profile':'draft-smoke','molecule_id':'DDM'})
         self.assertEqual(response.status_code,201,response.get_json())
         return web.load()[0]
@@ -146,7 +147,7 @@ class MoleculeDirectoryTests(unittest.TestCase):
             aa=directory/'stages/1_AA-reference'; aa.mkdir(parents=True)
             (aa/'molecule.pdb').write_text('wrong source')
             files.atomic_json(directory/'manifest.json',{'stages':[]})
-        with patch.object(backend.workflow,'readiness',return_value={'ready':True}), patch.object(backend.workflow,'prepare_run',prepare):
+        with patch.object(cg,'readiness',return_value={'ready':True}), patch.object(backend.workflow,'prepare_run',prepare):
             web.run_job(job['id'],web.WORKERS[job['id']])
         manifest=json.loads((web.RUNS/job['id']/'manifest.json').read_text())
         self.assertEqual(manifest['status'],'failed')

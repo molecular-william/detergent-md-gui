@@ -10,6 +10,7 @@ from playwright.sync_api import sync_playwright, expect
 from werkzeug.serving import make_server
 from dashboard.app import default_coordinator as web
 from dashboard.execution import workflow
+from dashboard.execution.adapters import cg
 from tests.dashboard.fixtures import QuietHandler
 
 
@@ -18,7 +19,7 @@ def test_directory_selection_supports_generic_aa_and_ddm_cg_pair(tmp_path):
     shutil.copytree(root/'molecules/DDM',tmp_path/'molecules/DDM')
     missing=tmp_path/'molecules/Incomplete'; missing.mkdir()
     shutil.copytree(root/'molecules/DDM',tmp_path/'molecules/Other')
-    with patch.object(web,'ROOT',tmp_path), patch.object(web,'DATA',tmp_path/'jobs.sqlite3'), patch.object(web,'RUNS',tmp_path/'runs'), patch.object(web,'WORKERS',{}), patch.object(web,'ANALYSIS_WORKERS',{}), patch.dict(web.app.config,DISABLE_COORDINATOR=True), patch.object(workflow,'readiness',return_value={'ready':True,'checks':[],'blockers':[]}), patch.object(web,'run_job',lambda *args: None):
+    with patch.object(web,'ROOT',tmp_path), patch.object(web,'DATA',tmp_path/'jobs.sqlite3'), patch.object(web,'RUNS',tmp_path/'runs'), patch.object(web,'WORKERS',{}), patch.object(web,'ANALYSIS_WORKERS',{}), patch.dict(web.app.config,DISABLE_COORDINATOR=True), patch.object(cg,'readiness',return_value={'ready':True,'checks':[],'blockers':[]}), patch.object(web,'run_job',lambda *args: None):
         web.save([])
         server=make_server('127.0.0.1',0,web.app,request_handler=QuietHandler)
         thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
@@ -74,12 +75,12 @@ def test_directory_selection_supports_generic_aa_and_ddm_cg_pair(tmp_path):
                 assert response.value.status==201, response.value.text()
                 jobs=[job for job in web.load() if job['id']!=generic['id']]
                 assert len(jobs)==2
-                cg=next(job for job in jobs if job['run_type']=='aa_cg')
-                aa=next(job for job in jobs if job['run_type']=='aa_only')
-                assert cg['reference_run_id']==aa['id'] and cg['status']=='waiting'
-                assert aa['molecule_id']==cg['molecule_id']=='DDM'
-                assert set(aa['molecule_snapshot']['sha256'])=={'results/MMFF/lig1.pdb','results/MMFF/lig1.itp','metadata.json'}
-                assert cg['label']=='Directory selection test'
+                cg_job=next(job for job in jobs if job['run_type']=='aa_cg')
+                aa_job=next(job for job in jobs if job['run_type']=='aa_only')
+                assert cg_job['reference_run_id']==aa_job['id'] and cg_job['status']=='waiting'
+                assert aa_job['molecule_id']==cg_job['molecule_id']=='DDM'
+                assert set(aa_job['molecule_snapshot']['sha256'])=={'results/MMFF/lig1.pdb','results/MMFF/lig1.itp','metadata.json'}
+                assert cg_job['label']=='Directory selection test'
                 assert not errors, errors
                 browser.close()
         finally:

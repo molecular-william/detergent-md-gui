@@ -9,6 +9,7 @@ from dashboard.models import mappings
 from dashboard.models.bonded import states as bonded_states
 from dashboard.models.mappings import context as mapping_context
 from dashboard.execution import workflow
+from dashboard.execution.adapters import cg
 from tests.dashboard.fixtures import QuietHandler, physical_mapping
 
 
@@ -18,7 +19,7 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(isolated_workspace, monke
     candidate.update(molecule_id='DDM', molecule_snapshot=context['snapshot'])
     saved = mappings.save_draft(candidate)
     bonded_states.create(saved, 'Test state')
-    monkeypatch.setattr(workflow, 'readiness', lambda *a, **k: {'ready': False, 'checks': [], 'blockers': ['Test only']})
+    monkeypatch.setattr(cg, 'readiness', lambda *a, **k: {'ready': False, 'checks': [], 'blockers': ['Test only']})
     app = create_app(isolated_workspace, {'TESTING': True, 'DISABLE_COORDINATOR': True})
     owner = app.extensions['dashboard_coordinator']
     owner.database().insert({'id':'123456abcdef','status':'completed','detergent':'DDM'})

@@ -2,6 +2,7 @@
 import json
 from flask import abort
 from ...execution.adapters import aa
+from ...execution.adapters import cg
 from ...execution import workflow
 from ...models.molecules import aa as aa_molecules
 from ...models import mappings, compositions
@@ -41,11 +42,11 @@ def defaults_api():
     run_type=request.args.get('run_type')
     if run_type=='aa_only':return jsonify(aa.stage_defaults())
     if run_type == 'cg_composition':
-        result = workflow.stage_defaults(request.args.get('profile','draft-smoke'))
+        result = cg.stage_defaults(request.args.get('profile','draft-smoke'))
         result['values'].update({'cg_equil_ps': 10.0, 'cg_production_ps': 50.0})
         return jsonify(result)
     if run_type not in (None,'aa_cg'):abort(400,'Unknown run type')
-    result=workflow.stage_defaults(request.args.get('profile','standard'))
+    result=cg.stage_defaults(request.args.get('profile','standard'))
     if run_type=='aa_cg':
         result['values'].update(aa.DEFAULTS);result['values'].pop('aa_equil_ps',None)
         result['sources']['AA']=aa.VERSION
@@ -77,7 +78,7 @@ def readiness_api():
     except FileNotFoundError: abort(400, 'Selected mapping is unavailable')
     except (OSError, ValueError) as exc: abort(400, str(exc))
     c = coordinator()
-    ready = workflow.readiness(request.args.get('molecule_id') or request.args.get('detergent', 'DDM'),
+    ready = cg.readiness(request.args.get('molecule_id') or request.args.get('detergent', 'DDM'),
                                request.args.get('method', 'fast_forward'),
                                request.args.get('profile', 'standard'),
                                candidate,

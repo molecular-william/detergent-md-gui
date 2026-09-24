@@ -12,6 +12,7 @@ import fcntl
 from flask import abort
 from dashboard import files, store, paths
 from ..adapters import aa
+from ..adapters import cg
 from .. import workflow
 from . import resources, temporary
 from ...models.molecules import aa as aa_molecules
@@ -352,7 +353,7 @@ class Coordinator:
         stages = metadata.get('stages', []) if metadata else []
         if not isinstance(stages, list) or any(not isinstance(stage, dict) for stage in stages):
             stages = []
-        workflow_stages = metadata.get('stage_plan') or job.get('stage_plan') or [name for name, _ in workflow.STAGES]
+        workflow_stages = metadata.get('stage_plan') or job.get('stage_plan') or [name for name, _ in cg.STAGES]
         return stages, workflow_stages
 
 
@@ -361,7 +362,7 @@ class Coordinator:
                   if k not in _HIDDEN_FIELDS and (not summary or k in _VISIBLE_FIELDS)}
         result['metadata_warnings'] = []
         if not isinstance(job.get('id'),str) or not re.fullmatch(r'[a-f0-9]{12}',job['id']):
-            return result | {'status':'failed','error':'Invalid persisted run ID; repair the metadata before using this record','can_cancel':False,'can_delete':False,'can_retry':False,'stages':[],'workflow_stages':[name for name,_ in workflow.STAGES],'elapsed_seconds':None,'analyses':[]}
+            return result | {'status':'failed','error':'Invalid persisted run ID; repair the metadata before using this record','can_cancel':False,'can_delete':False,'can_retry':False,'stages':[],'workflow_stages':[name for name,_ in cg.STAGES],'elapsed_seconds':None,'analyses':[]}
         result.update(self._ownership_flags(job))
         result['analyses'] = self._analysis_view(job, summary)
         manifest = self.run_path(job) / 'manifest.json'
@@ -425,7 +426,7 @@ class Coordinator:
                 from ..adapters.composition import readiness as composition_readiness
                 readiness = composition_readiness(job['composition_id'], self.ROOT) if not resuming else {'ready': True}
             else:
-                readiness = (aa.readiness(self.ROOT/'molecules',job['molecule_id']) if not resuming else {'ready':True}) if aa_only else workflow.readiness(job.get('molecule_id') or job['detergent'], job['method'], job.get('profile', 'standard'), job.get('mapping_snapshot'), molecule_root=self.ROOT / 'molecules')
+                readiness = (aa.readiness(self.ROOT/'molecules',job['molecule_id']) if not resuming else {'ready':True}) if aa_only else cg.readiness(job.get('molecule_id') or job['detergent'], job['method'], job.get('profile', 'standard'), job.get('mapping_snapshot'), molecule_root=self.ROOT / 'molecules')
             if not readiness['ready']:
                 raise ValueError('; '.join(readiness['blockers']))
             source_id = None if in_place else (job.get('resume_of') or job.get('reference_run_id'))
@@ -438,7 +439,7 @@ class Coordinator:
                 elif not in_place and composition_only:
                     workflow.prepare_run(work, composition_id=job['composition_id'], settings=job.get('settings'))
                 elif not in_place:
-                    kwargs=dict(detergent=job['detergent'],profile=job.get('profile','standard'),settings={k:v for k,v in job.get('settings',{}).items() if k in workflow.SETTING_SPECS},mapping_candidate=job.get('mapping_snapshot'),bonded_state_snapshot=job.get('bonded_state_snapshot'),bonded_intent=job.get('bonded_intent','fit_and_simulate'),molecule_snapshot=job.get('molecule_snapshot'),molecule_root=self.ROOT / 'molecules')
+                    kwargs=dict(detergent=job['detergent'],profile=job.get('profile','standard'),settings={k:v for k,v in job.get('settings',{}).items() if k in cg.SETTING_SPECS},mapping_candidate=job.get('mapping_snapshot'),bonded_state_snapshot=job.get('bonded_state_snapshot'),bonded_intent=job.get('bonded_intent','fit_and_simulate'),molecule_snapshot=job.get('molecule_snapshot'),molecule_root=self.ROOT / 'molecules')
                     if job.get('shared_reference'):kwargs.update(shared_reference=job['shared_reference'],reference_root=self.RUNS)
                     workflow.prepare_run(work, **kwargs)
             finally:
@@ -540,13 +541,13 @@ class Coordinator:
         if method not in self.ALLOWED_METHODS:
             abort(400, 'Unsupported method')
         if mapping_snapshot is not None:
-            mapping_snapshot = workflow.draft_model.load(mapping_snapshot, molecule_root=self.ROOT / 'molecules')
+            mapping_snapshot = cg.draft_model.load(mapping_snapshot, molecule_root=self.ROOT / 'molecules')
         elif mapping_candidate:
             if not isinstance(mapping_candidate, str): abort(400, 'Mapping candidate must be a saved filename')
             try:
                 context = (mapping_context.build_context(self.ROOT / 'molecules', molecule_snapshot['id'])
                            if molecule_snapshot else None)
-                mapping_snapshot = workflow.draft_model.load(
+                mapping_snapshot = cg.draft_model.load(
                     mappings.get(mapping_candidate, context=context),
                     molecule_root=self.ROOT / 'molecules',
                 )
@@ -562,12 +563,12 @@ class Coordinator:
             abort(409, 'Reuse state intent requires a complete bonded state')
         if shared:
             supplied=settings or {}
-            unknown=set(supplied)-set(aa.SETTING_SPECS)-set(workflow.SETTING_SPECS)
+            unknown=set(supplied)-set(aa.SETTING_SPECS)-set(cg.SETTING_SPECS)
             if unknown:abort(400,'Unknown run settings: '+', '.join(sorted(unknown)))
             aa_settings=aa.normalize_settings({k:v for k,v in supplied.items() if k in aa.SETTING_SPECS})
-            legacy_settings=workflow.normalize_settings({k:v for k,v in supplied.items() if k in workflow.SETTING_SPECS} | {'aa_equil_ps':aa_settings['aa_nvt_ps']+aa_settings['aa_npt_ps'],'aa_production_ps':aa_settings['aa_production_ps'],'temperature_k':aa_settings['temperature_k'],'output_interval_ps':aa_settings['output_interval_ps']},profile)
+            legacy_settings=cg.normalize_settings({k:v for k,v in supplied.items() if k in cg.SETTING_SPECS} | {'aa_equil_ps':aa_settings['aa_nvt_ps']+aa_settings['aa_npt_ps'],'aa_production_ps':aa_settings['aa_production_ps'],'temperature_k':aa_settings['temperature_k'],'output_interval_ps':aa_settings['output_interval_ps']},profile)
             settings=legacy_settings|aa_settings
-        else:settings = workflow.normalize_settings(settings, profile)
+        else:settings = cg.normalize_settings(settings, profile)
         reference_snapshot=None
         if reference_run_id and shared:
             try:
@@ -576,7 +577,7 @@ class Coordinator:
             except (OSError,ValueError) as exc:abort(409,str(exc))
         elif reference_run_id:
             abort(409, 'CG runs require a shared AA reference')
-        ready = workflow.readiness(molecule_id or detergent, method, profile, mapping_snapshot, molecule_root=self.ROOT / 'molecules')
+        ready = cg.readiness(molecule_id or detergent, method, profile, mapping_snapshot, molecule_root=self.ROOT / 'molecules')
         if not ready['ready']:
             abort(409, '; '.join(ready['blockers']))
         job = {'id': uuid.uuid4().hex[:12], 'detergent': detergent, 'method': method, 'label': str(label)[:160],
@@ -588,7 +589,7 @@ class Coordinator:
         if molecule_snapshot is not None:
             job.update(molecule_id=molecule_snapshot['id'], molecule_snapshot=molecule_snapshot)
         job.update(layout_version=2, resume_of=resume_of, resume_from=resume_from)
-        job.update(run_type='aa_cg',workflow_version='aa-cg-v2',stage_plan=[name for name,_ in workflow.STAGES])
+        job.update(run_type='aa_cg',workflow_version='aa-cg-v2',stage_plan=[name for name,_ in cg.STAGES])
         if shared:
             if reference_snapshot:
                 job['shared_reference']={'source_run_id':reference_run_id,'sha256':reference_snapshot['sha256']}

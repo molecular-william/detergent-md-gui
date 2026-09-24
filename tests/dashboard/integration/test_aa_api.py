@@ -6,7 +6,7 @@ from pathlib import Path
 import shutil
 import pytest
 from dashboard.app import default_coordinator as web
-from dashboard.execution.adapters import aa
+from dashboard.execution.adapters import aa, cg
 from dashboard.models.molecules import aa as aa_molecules
 from dashboard.analysis.runs import references as aa_references
 from dashboard import files
@@ -40,7 +40,7 @@ def reference_fixture():
 
 def test_aa_launch_and_clone_do_not_require_cg_tools(service,monkeypatch):
     def forbidden(*a,**k):raise AssertionError('AA touched the CG workflow')
-    monkeypatch.setattr(backend.workflow,'readiness',forbidden)
+    monkeypatch.setattr(cg,'readiness',forbidden)
     response=service.post('/',json={'run_type':'aa_only','molecule_id':'DDM','aa_nvt_ps':5})
     assert response.status_code==201,response.get_json()
     job=response.get_json();assert job['method']=='gromacs' and len(job['workflow_stages'])==7
@@ -62,7 +62,7 @@ def test_reference_filter_and_hash_tampering(service):
 
 
 def test_new_aa_cg_pair_waits_without_taking_second_slot(service,monkeypatch):
-    monkeypatch.setattr(backend.workflow,'readiness',lambda *a,**k:{'ready':True})
+    monkeypatch.setattr(cg,'readiness',lambda *a,**k:{'ready':True})
     with web.app.test_request_context():
         child=web.create_job('DDM','fast_forward',profile='draft-smoke',run_type='aa_cg',molecule_id='DDM',mapping_snapshot=mappings.automatic_candidate(mappings.molecule(), 'DDM'))
     parent=web.lookup(child['reference_run_id'])
@@ -74,7 +74,7 @@ def test_new_aa_cg_pair_waits_without_taking_second_slot(service,monkeypatch):
 
 def test_two_completed_consumers_share_source_and_prevent_deletion(service,monkeypatch):
     source=reference_fixture()
-    monkeypatch.setattr(backend.workflow,'readiness',lambda *a,**k:{'ready':True})
+    monkeypatch.setattr(cg,'readiness',lambda *a,**k:{'ready':True})
     consumers=[]
     for _ in range(2):
         with web.app.test_request_context():
@@ -87,7 +87,7 @@ def test_two_completed_consumers_share_source_and_prevent_deletion(service,monke
 
 def test_cg_worker_does_not_pass_reference_run_id_to_preparation(service, monkeypatch):
     source = reference_fixture()
-    monkeypatch.setattr(backend.workflow, 'readiness', lambda *a, **k: {'ready': True})
+    monkeypatch.setattr(cg, 'readiness', lambda *a, **k: {'ready': True})
     captured = {}
 
     def prepare(root, *, detergent, profile, settings, mapping_candidate,
@@ -137,7 +137,7 @@ def test_aa_retry_rejects_changed_canonical_inputs(service):
 @pytest.mark.parametrize('run_type', ['aa_only', 'aa_cg'])
 @pytest.mark.parametrize('action', ['clone', 'retry', 'resume'])
 def test_new_attempt_preserves_run_type_and_shared_source(service, monkeypatch, run_type, action):
-    monkeypatch.setattr(backend.workflow, 'readiness', lambda *a, **k: {'ready': True})
+    monkeypatch.setattr(cg, 'readiness', lambda *a, **k: {'ready': True})
     if run_type == 'aa_only':
         job = service.post('/', json={'run_type': run_type, 'molecule_id': 'DDM'}).get_json()
     else:
@@ -187,7 +187,7 @@ def test_new_attempt_preserves_run_type_and_shared_source(service, monkeypatch, 
 
 def test_shared_source_rejects_changed_inherited_temperature(service, monkeypatch):
     source = reference_fixture()
-    monkeypatch.setattr(backend.workflow, 'readiness', lambda *a, **k: {'ready': True})
+    monkeypatch.setattr(cg, 'readiness', lambda *a, **k: {'ready': True})
     response = service.post('/', json={
         'run_type': 'aa_cg', 'molecule_id': 'DDM', 'profile': 'draft-smoke',
         'method': 'fast_forward', 'reference_run_id': source['id'], 'temperature_k': 310})
