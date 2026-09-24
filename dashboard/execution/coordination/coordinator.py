@@ -249,7 +249,7 @@ class Coordinator:
 
     def stage_log_path(self, job, recorded):
         """Resolve captured log provenance within this run after workspace moves."""
-        return resolve_stage_log(self.run_path(job), recorded)
+        return resolve_stage_log(self.run_path(job), recorded=recorded)
 
 
     def tail(self, path, limit=65536):
@@ -320,26 +320,26 @@ class Coordinator:
         if not current:
             return {}
         stage_dir = next((Path(rel).parent for name, rel in workflow.stage_definitions(job)[0] if name == current['name']), None)
-        candidates = []
-        resume_logs = None
+        attempt = None
         if job.get('resume_in_place') and job.get('resume_count'):
             try:
-                attempt = int(job['resume_count'])
-                if attempt > 0:
-                    resume_logs = self.run_path(job) / 'logs' / f'resume-{attempt:04d}'
+                attempt = int(job['resume_count']) or None
             except (TypeError, ValueError):
-                pass
+                attempt = None
+        candidates = []
         if current.get('log'):
             recorded = self.stage_log_path(job, current['log'])
-            if recorded and (resume_logs is None or recorded.resolve().is_relative_to(resume_logs.resolve())):
+            if recorded is not None:
                 candidates.append(recorded)
-        if resume_logs and stage_dir:
-            candidates.append(resume_logs / f'{stage_dir.name}.log')
-        elif stage_dir:
-            candidates.append(self.run_path(job) / 'stages' / stage_dir / f'{stage_dir.name}.log')
-            candidates.append(self.run_path(job) / 'logs' / f'{stage_dir.name}.log')
-            candidates.append(self.log_path(job))
-        elif not resume_logs:
+        if stage_dir:
+            # The recorded path first, then the location this run would have written.
+            # While resuming, the console log is not a fallback: its tail belongs to
+            # the attempt being resumed from, so an ETA read from it would report
+            # progress the current attempt has not made.
+            encoded = resolve_stage_log(self.run_path(job), name=stage_dir.name, resume_count=attempt)
+            if encoded is not None:
+                candidates.append(encoded)
+        if not attempt:
             candidates.append(self.log_path(job))
         for candidate in candidates:
             if candidate.is_file():

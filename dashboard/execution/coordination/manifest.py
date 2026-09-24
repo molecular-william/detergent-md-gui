@@ -47,8 +47,26 @@ def read_manifest(run_dir: Path) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def stage_log_path(run_dir: Path, recorded: str) -> Path | None:
+def stage_log_path(run_dir: Path, *, name: str | None = None, recorded: str | None = None,
+                   resume_count=None) -> Path | None:
+    """The one place a stage log's location is encoded and decoded.
+
+    Writing: ``name`` is the stage's own directory, and ``resume_count`` puts a
+    resumed attempt in ``logs/resume-NNNN/`` beside the earlier attempts.
+
+    Reading: ``recorded`` is what the manifest holds. An absolute path is anchored
+    on the run (so a moved workspace still resolves its own logs), and a path that
+    leaves the run, is a symlink, or is not a file resolves to None rather than to
+    something else's log.
+    """
     run_dir = Path(run_dir)
+    if recorded is None:
+        if name is None:
+            return None
+        directory = run_dir / 'logs'
+        if resume_count:
+            directory = directory / f'resume-{int(resume_count):04d}'
+        return directory / f'{Path(name).name}.log'
     path = Path(recorded)
     if path.is_absolute():
         parts = path.parts

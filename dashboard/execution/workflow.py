@@ -6,6 +6,7 @@ from .environment import environment, execution_root
 from .adapters import cg
 from .adapters.cg_names import CGNames
 from .stages import Stage
+from .coordination.manifest import stage_log_path
 from . import protocol
 
 def stage_command(name, script):
@@ -258,10 +259,9 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
             entry['inputs_sha256'] = files.hashes(script.parent)
             entry['dependency_sha256'] = {str(p.relative_to(stage_root)): files.sha256(p) for pattern in required_inputs.get(name,()) for p in script.parent.glob(pattern) if p.is_file() and not p.is_symlink() and p.resolve().is_relative_to(stage_root.resolve())}
             data['stages'].append(entry); files.atomic_json(manifest, data)
-            if log.parent.name == 'logs' and data.get('resume_count'):
-                stage_log = log.parent / f"resume-{data['resume_count']:04d}" / (script.parent.name + '.log')
-            else:
-                stage_log = log.parent / (script.parent.name + '.log') if log.parent.name == 'logs' else log
+            stage_log = stage_log_path(run_dir, name=script.parent.name, resume_count=data.get('resume_count'))
+            if stage_log is None:
+                raise ValueError(f'No log location for stage {name}')
             entry['log'] = str(stage_log)
             tick = __import__('time').monotonic()
             try:
