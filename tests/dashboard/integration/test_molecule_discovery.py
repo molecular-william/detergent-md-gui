@@ -6,7 +6,7 @@ import shutil
 import pytest
 
 from dashboard import files
-from dashboard.analysis import aa_references
+from dashboard.analysis.runs import references as aa_references
 from dashboard.execution.adapters import aa
 from dashboard.models.molecules import aa as aa_molecules
 from tests.dashboard.fixtures import PROJECT_ROOT

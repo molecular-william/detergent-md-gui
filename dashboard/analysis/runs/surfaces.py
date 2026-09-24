@@ -10,8 +10,8 @@ import shutil
 import subprocess
 import os
 import numpy as np
-from ..models import sugars as carbohydrates
-from .. import files
+from ...models import sugars as carbohydrates
+from ... import files
 
 AA_RADII = {'H':.109,'C':.175,'N':.161,'O':.156,'F':.144,'P':.180,'S':.179,'Cl':.174,'Br':.185,'I':.200}
 PROBE = .191

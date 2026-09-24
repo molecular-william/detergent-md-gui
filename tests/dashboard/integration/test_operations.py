@@ -199,7 +199,7 @@ class OperationsTests(unittest.TestCase):
     def test_observables_parse_bond_atom_columns_and_undirected_paths(self):
         import MDAnalysis as mda
         import numpy as np
-        from dashboard.analysis import observability
+        from dashboard.analysis.runs import observability
         mapping=self.run/'2_mapping'; mapping.mkdir()
         topology=self.run/'3_initial_CG'; topology.mkdir()
         u=mda.Universe.empty(4,trajectory=True)

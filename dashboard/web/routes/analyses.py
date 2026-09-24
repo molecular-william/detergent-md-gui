@@ -3,8 +3,8 @@ from pathlib import Path
 import json
 from flask import abort
 from dashboard.execution import workflow
-from dashboard.analysis import targets
-from dashboard.analysis import carbohydrate_targets
+from ...analysis.validation import targets
+from ...analysis.validation import carbohydrate_targets
 from dashboard.models import mappings
 from flask import Blueprint, jsonify, request
 from .common import coordinator

@@ -1,6 +1,6 @@
 import pytest
 
-from dashboard.analysis.carbohydrate_geometry import block_summary, run
+from dashboard.analysis.validation.geometry import block_summary, run
 
 
 def test_block_summary_is_finite_and_deterministic():

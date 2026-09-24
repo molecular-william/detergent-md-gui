@@ -50,10 +50,12 @@ RETIRED = (
 
 NEW_MODULES = (
     'dashboard.models.mappings.schema', 'dashboard.models.mappings.store',
-    'dashboard.models.mappings.context', 'dashboard.models.compositions.model',
-    'dashboard.models.bonded.states', 'dashboard.models.sugars.coords',
-    'dashboard.models.molecules.aa', 'dashboard.execution.adapters.aa',
-    'dashboard.execution.adapters.cg', 'dashboard.execution.coordination.coordinator',
+    'dashboard.models.mappings.context', 'dashboard.models.compositions',
+    'dashboard.models.compositions.topology', 'dashboard.models.bonded.states',
+    'dashboard.models.sugars.coords', 'dashboard.models.molecules.aa',
+    'dashboard.models.repository', 'dashboard.models.catalog',
+    'dashboard.execution.adapters.aa', 'dashboard.execution.adapters.cg',
+    'dashboard.execution.coordination.coordinator', 'dashboard.execution.environment',
     'dashboard.analysis.validation.report', 'dashboard.analysis.runs.references',
 )
 

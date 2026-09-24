@@ -84,7 +84,7 @@ def test_figures_use_index_and_explicit_refresh():
     client = web.app.test_client()
     first = client.get('/api/jobs/'+job['id']+'/figures').json
     assert [x['path'] for x in first['artifacts']] == ['figure.svg']
-    from dashboard.analysis import observability
+    from dashboard.analysis.runs import observability
     with patch.object(observability, 'artifacts', side_effect=AssertionError('rescanned')):
         assert client.get('/api/jobs/'+job['id']+'/figures').status_code == 200
     (run/'new.png').write_bytes(b'png')

@@ -257,7 +257,7 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
     shared=initial.get('shared_reference')
     shared_path=None
     if shared:
-        from ..analysis import aa_references
+        from ..analysis.runs import references as aa_references
         shared_path,_=aa_references.resolve(run_dir.parent,shared['source_run_id'],shared['sha256'])
     with log.open('a') as fp:
         for name, relative in plan:

@@ -6,7 +6,7 @@ from ...execution import workflow
 from ...models.molecules import aa as aa_molecules
 from ...models import mappings, compositions
 from ...models.mappings import context as mapping_context
-from dashboard.analysis import aa_references
+from ...analysis.runs import references as aa_references
 from flask import Blueprint, jsonify, request
 from .common import coordinator
 

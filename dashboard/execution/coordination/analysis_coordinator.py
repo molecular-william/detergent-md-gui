@@ -11,7 +11,8 @@ import threading
 import uuid
 
 from dashboard import files, paths
-from dashboard.analysis import observability, refinement, surfaces, targets, carbohydrate_validation, carbohydrate_geometry, transfer_free_energy, osmotic_pressure
+from ...analysis.runs import observability, refinement, surfaces
+from ...analysis.validation import targets, report as carbohydrate_validation, geometry as carbohydrate_geometry, transfer as transfer_free_energy, osmotic as osmotic_pressure
 from ...models import sugars as carbohydrates
 from dashboard.analysis import worker as analysis
 from . import resources

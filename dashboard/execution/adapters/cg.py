@@ -123,7 +123,7 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     aa = run_dir / '1_AA-reference'
     aa.mkdir()
     reference_source = None
-    from ...analysis import aa_references
+    from ...analysis.runs import references as aa_references
     aa_references.resolve(reference_root, shared_reference['source_run_id'], shared_reference['sha256'])
 
     shutil.copytree(FORCE_FIELD, run_dir / FORCE_FIELD.name)

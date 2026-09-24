@@ -12,7 +12,9 @@ import time
 
 from .. import files
 from ..execution import workflow
-from . import observability, targets, refinement, metadata as analysis_metadata, aa_references, carbohydrate_validation
+from .runs import observability, refinement, references as aa_references
+from .validation import targets, report as carbohydrate_validation
+from . import metadata as analysis_metadata
 
 KINDS = {'plots', 'snapshots', 'surfaces', 'observables', 'stability', 'refinement-score', 'targets', 'carbohydrate-validation'}
 PATTERNS = {

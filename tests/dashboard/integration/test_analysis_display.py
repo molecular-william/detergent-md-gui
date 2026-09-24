@@ -1,7 +1,7 @@
 """Analysis artifact metadata stays attached to indexed figures."""
 import json
 
-from dashboard.analysis import observability
+from dashboard.analysis.runs import observability
 
 
 def test_artifact_index_attaches_nearest_analysis_metadata(tmp_path):

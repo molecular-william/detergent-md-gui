@@ -18,7 +18,7 @@ from ...models.molecules import aa as aa_molecules
 from ...models import mappings, compositions
 from ...models.bonded import states as bonded_states
 from ...models.mappings import context as mapping_context
-from dashboard.analysis import aa_references, observability
+from ...analysis.runs import references as aa_references, observability
 from functools import wraps
 from .worker import Worker
 from .analysis_coordinator import AnalysisCoordinator

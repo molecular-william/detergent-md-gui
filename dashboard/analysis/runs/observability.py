@@ -5,7 +5,7 @@ import json
 import re
 import subprocess
 import os, shutil
-from .. import files
+from ... import files
 
 try:
     import MDAnalysis as mda

@@ -31,7 +31,7 @@ def run(work_dir, representation, protocol):
         return {'status': 'insufficient_data', 'passed': False, 'diagnostic_only': diagnostic_only,
                 'representation_mode': representation.get('representation_mode', 'tc4'),
                 'missing': [str(path.relative_to(work_dir)) for path in (aa, cg) if not path.is_file()]}
-    from . import surfaces
+    from ..runs import surfaces
     report = surfaces.generate(work_dir)
     return {'status': 'diagnostic_only' if diagnostic_only else 'complete',
             'passed': not diagnostic_only, 'diagnostic_only': diagnostic_only,

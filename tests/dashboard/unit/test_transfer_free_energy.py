@@ -1,6 +1,6 @@
 import pytest
 
-from dashboard.analysis.transfer_free_energy import build_protocol, lambda_windows, parse_bar, run
+from dashboard.analysis.validation.transfer import build_protocol, lambda_windows, parse_bar, run
 
 
 def test_lambda_windows_has_nineteen_ordered_values():

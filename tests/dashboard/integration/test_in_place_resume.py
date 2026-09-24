@@ -106,7 +106,7 @@ def resume_service(tmp_path, monkeypatch):
 
 
 def test_resume_queues_same_id_and_worker_completes_without_repreparing(resume_service, monkeypatch):
-    from dashboard.analysis import aa_references
+    from dashboard.analysis.runs import references as aa_references
     client, owner, root, job = resume_service
     upstream = files.hashes(root/'stages/first')
     inputs = files.hashes(root/'inputs')

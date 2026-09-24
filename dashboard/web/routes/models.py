@@ -11,7 +11,7 @@ from ...models.bonded import states as bonded_states, generation as bonded_gener
 from ...models.molecules import registry as model_registry, evidence
 from ...models.mappings import depiction, context as mapping_context_model, references as mapping_references, suggestions as mapping_suggestions
 from ...models.repository import JsonRepository
-from dashboard.analysis import carbohydrate_targets
+from ...analysis.validation import carbohydrate_targets
 from flask import Blueprint, Response, jsonify, request, send_file
 from .common import coordinator
 

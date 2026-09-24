@@ -6,8 +6,8 @@ import math
 import re
 import sys
 try:
-    from .. import files
-    from ..models.molecules import aa as aa_molecules
+    from ... import files
+    from ...models.molecules import aa as aa_molecules
 except ImportError:
     import files, aa_molecules
 

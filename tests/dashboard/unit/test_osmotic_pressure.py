@@ -1,6 +1,6 @@
 import pytest
 
-from dashboard.analysis.osmotic_pressure import pressure_from_force, validate_series
+from dashboard.analysis.validation.osmotic import pressure_from_force, validate_series
 
 
 def test_pressure_from_force_uses_area_and_finite_units():

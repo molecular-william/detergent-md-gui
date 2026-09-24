@@ -1,4 +1,4 @@
-from dashboard.analysis.carbohydrate_validation import run
+from dashboard.analysis.validation.report import run
 
 
 def test_validation_report_keeps_three_evidence_sections_and_provenance(tmp_path):
