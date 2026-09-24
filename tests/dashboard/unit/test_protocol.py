@@ -66,7 +66,7 @@ def test_readiness_without_metadata_reports_a_blocker_instead_of_raising(run_typ
     assert report['blockers'], 'a missing input must appear as a blocker'
 
 
-@pytest.mark.parametrize('run_type, adapter_name', [('aa_only', 'aa'), ('aa_cg', 'cg')])
+@pytest.mark.parametrize('run_type, adapter_name', [('aa_only', 'aa'), ('aa_cg', 'cg'), ('cg_composition', 'composition')])
 def test_adapter_for_returns_the_adapters_own_protocol(run_type, adapter_name):
     """The interface lives with the adapter that implements it."""
     adapter = importlib.import_module(f'dashboard.execution.adapters.{adapter_name}')

@@ -65,11 +65,6 @@ def blocked(*reasons: str) -> dict:
     return {'ready': False, 'checks': [], 'blockers': [reason for reason in reasons if reason]}
 
 
-def _composition_stage_contract(metadata: Mapping) -> tuple:
-    from .adapters import composition
-    return composition.STAGES, composition.REQUIRED_INPUTS, composition.REQUIRED_OUTPUTS
-
-
 def _aa_protocol() -> Protocol:
     from .adapters import aa
     return aa.PROTOCOL
@@ -82,26 +77,7 @@ def _cg_protocol() -> Protocol:
 
 def _composition_protocol() -> Protocol:
     from .adapters import composition
-
-    def readiness(metadata: Mapping) -> dict:
-        composition_id = metadata.get('composition_id')
-        if not composition_id:
-            return blocked('composition_id is required to check a composition run')
-        return composition.readiness(composition_id, metadata.get('root'))
-
-    def prepare(run_dir, metadata: Mapping) -> None:
-        composition.prepare_run(run_dir, metadata['composition_id'], metadata.get('settings'))
-
-    return Protocol(
-        name='cg_composition',
-        stage_contract=_composition_stage_contract,
-        settings_specs=dict,  # no configurable setting yet; Task 2.4 makes this explicit
-        stage_defaults=dict,
-        normalize_settings=lambda settings=None: dict(settings or {}),
-        readiness=readiness,
-        prepare=prepare,
-        tool_report=dict,  # screening runs no external tool; Task 2.4 makes this explicit
-    )
+    return composition.PROTOCOL
 
 
 _BUILDERS: dict[str, Callable[[], Protocol]] = {

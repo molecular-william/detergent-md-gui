@@ -1,12 +1,23 @@
-"""Explicit CG-only workflow for immutable molecule compositions."""
+"""Explicit CG-only workflow for immutable molecule compositions.
+
+What this module offers the rest of the application: PROTOCOL (the run-type
+surface at the end of this file), the STAGE_DEFS/STAGES stage tables, and
+readiness()/prepare_run() -- the two operations the protocol forwards. Two facts
+are stated here rather than left to be inferred from absent attributes: a
+composition screening run configures no setting (SETTING_SPECS is empty), and it
+calls no external executable, so its tool report records the Python interpreter
+alone.
+"""
 from __future__ import annotations
 
 import json
 import shutil
+import sys
 from pathlib import Path
 
 from ... import files, paths
 from ...models import compositions
+from .. import protocol
 from ..stages import Stage, stage_tables
 
 STAGE_DEFS = (
@@ -60,3 +71,67 @@ def prepare_run(run_dir: Path, composition_id: str, settings=None) -> None:
                 'composition_identity': record['identity'], 'scientifically_validated': False,
                 'stage_plan': [name for name, _ in STAGES], 'settings': settings or {}}
     files.atomic_json(Path(run_dir) / 'manifest.json', metadata)
+
+
+SETTING_SPECS: dict = {}
+"""Composition screening runs expose no configurable setting.
+
+The prepared scripts fix their own durations, so there is no bound to check and
+nothing a caller could tune. The mapping is empty and declared, not missing.
+"""
+
+
+def stage_defaults() -> dict:
+    """No settings means no defaults: an empty mapping, not an absent hook."""
+    return {}
+
+
+def normalize_settings(settings=None) -> dict:
+    """Accept an object of settings and pass it through unchanged.
+
+    Nothing here is range-checked, because no setting affects a composition run.
+    The type check keeps the failure mode the same as the other adapters'.
+    """
+    if settings is not None and not isinstance(settings, dict):
+        raise ValueError('Composition settings must be an object')
+    return dict(settings or {})
+
+
+def tool_metadata() -> dict:
+    """Record the interpreter, the only tool a composition run executes.
+
+    The prepared scripts copy immutable artifacts and write screening JSON with
+    shell builtins, so there is no external executable to report. Reporting the
+    Python interpreter keeps the record's shape the same as the other run types
+    without inventing a tool this run never calls.
+    """
+    executable = sys.executable
+    return {'python': {'path': executable, 'version_output': sys.version, 'sha256': files.sha256(executable)}}
+
+
+def _protocol_stage_contract(metadata):
+    """Composition stages carry no run-specific placeholders."""
+    return STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS
+
+
+def _protocol_readiness(metadata):
+    composition_id = metadata.get('composition_id')
+    if not composition_id:
+        return protocol.blocked('composition_id is required to check a composition run')
+    return readiness(composition_id, metadata.get('root'))
+
+
+def _protocol_prepare(run_dir, metadata):
+    prepare_run(run_dir, metadata['composition_id'], metadata.get('settings'))
+
+
+PROTOCOL = protocol.Protocol(
+    name='cg_composition',
+    stage_contract=_protocol_stage_contract,
+    settings_specs=lambda: SETTING_SPECS,
+    stage_defaults=stage_defaults,
+    normalize_settings=lambda settings=None: normalize_settings(settings),
+    readiness=_protocol_readiness,
+    prepare=_protocol_prepare,
+    tool_report=tool_metadata,
+)
