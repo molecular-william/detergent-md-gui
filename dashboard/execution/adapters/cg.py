@@ -16,7 +16,7 @@ from .cg_names import CGNames, require_script_compatibility
 from . import aa
 from .. import tools
 from .. import protocol
-from ..environment import ROOT, TUTORIAL_TEMPLATE, AA_TEMPLATE, FORCE_FIELD, environment, probe_tool, update_mdp, execution_root
+from ..environment import ROOT, TUTORIAL_TEMPLATE, AA_TEMPLATE, FORCE_FIELD, environment, probe_tool, update_mdp, execution_root, recorded_environment
 from ..stages import Stage, stage_tables
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 # What this module offers to the rest of the application: PROTOCOL (the run-type
@@ -253,7 +253,7 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     metadata['force_field'] = {'name': FORCE_FIELD.name, 'source': str(FORCE_FIELD.relative_to(ROOT)), 'staged_path': FORCE_FIELD.name,
         'sha256': {str(p.relative_to(FORCE_FIELD)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(FORCE_FIELD.rglob('*')) if p.is_file()}}
     metadata['inputs_sha256'] = {str(p.relative_to(run_dir)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(run_dir.rglob('*')) if p.is_file() and p != manifest}
-    metadata['environment'] = {k: environment()[k] for k in ('PATH','MPLBACKEND','OMP_NUM_THREADS')}
+    metadata['environment'] = recorded_environment()
     if profile == 'draft-smoke':
         metadata['analysis_topology'] = 'GRO atom/residue order + explicit ITP interactions; MDAnalysis 2.10 does not support GROMACS 2026 TPR 138. Trajectories made whole with gmx trjconv.'
         metadata['limitations'] = ['Draft mapping and nonbonded bead types, not scientifically validated', f'AA production {settings["aa_production_ps"]} ps; CG production {settings["cg_production_ps"]} ps; pure water', 'Bonded parameters fit to the recorded AA reference; no convergence or thermodynamic validation']

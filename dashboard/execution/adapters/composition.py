@@ -18,6 +18,7 @@ from pathlib import Path
 from ... import files, paths
 from ...models import compositions
 from .. import protocol
+from ..environment import recorded_environment
 from ..stages import Stage, stage_tables
 
 STAGE_DEFS = (
@@ -83,7 +84,8 @@ def prepare_run(run_dir: Path, composition_id: str, settings=None) -> None:
                 'composition_id': composition_id, 'composition_snapshot_sha256': record['snapshot_hash'],
                 'composition_identity': record['identity'], 'scientifically_validated': False,
                 'settings': settings or {}}
-    protocol.write_prepared_manifest(Path(run_dir), metadata, tools={}, plan=[name for name, _ in STAGES])
+    protocol.write_prepared_manifest(Path(run_dir), metadata, tools={}, plan=[name for name, _ in STAGES],
+                                     environment=recorded_environment())
 
 
 SETTING_SPECS: dict = {}

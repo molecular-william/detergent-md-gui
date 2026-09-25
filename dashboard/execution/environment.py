@@ -25,6 +25,26 @@ def environment():
     return env
 
 
+#: The keys a manifest records for a stage environment, in the order they are written.
+RECORDED_KEYS = ('PATH', 'MPLBACKEND', 'OMP_NUM_THREADS')
+
+
+def stage_environment(extras=None):
+    """The environment a stage runs in.
+
+    The composed PATH (Task 2.7) plus the two fixed settings. One function so a manifest
+    cannot record a different environment from the one the stage ran with, and so `extras`
+    has one place to be merged.
+    """
+    env = environment()
+    return {**{key: env[key] for key in RECORDED_KEYS}, **(extras or {})}
+
+
+def recorded_environment(extras=None):
+    """The subset of the stage environment a manifest records."""
+    return {key: value for key, value in stage_environment(extras).items() if key in RECORDED_KEYS}
+
+
 @lru_cache(maxsize=8)
 def probe_tool(executable):
     try:

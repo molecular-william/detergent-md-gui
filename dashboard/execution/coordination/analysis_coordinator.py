@@ -18,6 +18,7 @@ from dashboard.analysis import worker as analysis
 from . import resources
 from .errors import CapacityFull, InvalidRequest, RunBusy, RunNotFound
 from .. import workflow
+from ..environment import recorded_environment
 
 
 class AnalysisCoordinator:
@@ -124,7 +125,7 @@ class AnalysisCoordinator:
                            'dependencies': self.dependencies(job)}
                 files.atomic_json(attempt / 'request.json', request)
                 self.update(jid, aid, status='running', started_at=owner.now(), command=command,
-                            environment={key: environment[key] for key in ('PATH', 'OMP_NUM_THREADS', 'MPLBACKEND')},
+                            environment=recorded_environment(),
                             log=task['directory'] + '/console.log')
                 with (attempt / 'console.log').open('w') as output:
                     worker.execute(command, cwd=paths.PACKAGE_ROOT.parent, env=environment,

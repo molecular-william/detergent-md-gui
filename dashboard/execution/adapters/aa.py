@@ -8,7 +8,7 @@ import subprocess
 from ...models.molecules import aa as aa_molecules
 from ... import files
 from ...analysis.runs import references as aa_references
-from ..environment import FORCE_FIELD, environment, probe_tool
+from ..environment import FORCE_FIELD, environment, probe_tool, recorded_environment
 from .. import tools
 from ..stages import Stage, stage_tables
 from .. import protocol
@@ -217,7 +217,7 @@ python ../common/aa_references.py publish ..
     protocol.write_prepared_manifest(
         run_dir, dict(context, run_type='aa_only', workflow_version=VERSION), tools=tool_metadata(),
         plan=[name for name,_ in STAGES],
-        environment={k:environment()[k] for k in ('PATH','MPLBACKEND','OMP_NUM_THREADS')})
+        environment=recorded_environment())
 
 
 def _protocol_stage_contract(metadata):

@@ -2,7 +2,7 @@
 from pathlib import Path, PurePosixPath
 import os, shutil, subprocess, json, datetime, fnmatch, re, shlex, hashlib
 from .. import files, paths
-from .environment import environment, execution_root
+from .environment import environment, execution_root, recorded_environment
 from .adapters import cg
 from .adapters.cg_names import CGNames
 from .stages import Stage
@@ -114,7 +114,7 @@ def prepare_resume(run_dir, source, from_stage):
         from .adapters import aa
         tools=aa.tool_metadata()
     else:tools=cg.tool_metadata()
-    metadata.update(tools=tools, environment={k:environment()[k] for k in ('PATH','OMP_NUM_THREADS','MPLBACKEND')}, source_manifest_sha256=files.sha256(source/'manifest.json'), stages=[], resume_of=source.name, resume_from=from_stage, reference_reused=old.get('reference_reused',False))
+    metadata.update(tools=tools, environment=recorded_environment(), source_manifest_sha256=files.sha256(source/'manifest.json'), stages=[], resume_of=source.name, resume_from=from_stage, reference_reused=old.get('reference_reused',False))
     plan, _, required_outputs = stage_definitions(old)
     for name, relative in plan:
         if name == from_stage: break
@@ -255,7 +255,7 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
                     continue
                 raise ValueError('This stage already has an attempt; reset it through resume preparation before running again')
             started = datetime.datetime.now(datetime.timezone.utc).isoformat()
-            entry = {'inputs': list(required_inputs.get(name, ())), 'outputs': list(required_outputs.get(name, ())), 'cwd': str(script.parent), 'environment': {k: environment()[k] for k in ('PATH','MPLBACKEND','OMP_NUM_THREADS')}, 'name': name, 'command': stage_command(name, script), 'started_at': started, 'status': 'running', 'log': str(log), 'exit_code': None}
+            entry = {'inputs': list(required_inputs.get(name, ())), 'outputs': list(required_outputs.get(name, ())), 'cwd': str(script.parent), 'environment': recorded_environment(), 'name': name, 'command': stage_command(name, script), 'started_at': started, 'status': 'running', 'log': str(log), 'exit_code': None}
             entry['inputs_sha256'] = files.hashes(script.parent)
             entry['dependency_sha256'] = {str(p.relative_to(stage_root)): files.sha256(p) for pattern in required_inputs.get(name,()) for p in script.parent.glob(pattern) if p.is_file() and not p.is_symlink() and p.resolve().is_relative_to(stage_root.resolve())}
             data['stages'].append(entry); files.atomic_json(manifest, data)
