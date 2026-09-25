@@ -12,8 +12,10 @@ blueprint = Blueprint('bonded', __name__)
 @blueprint.get('/api/bonded-states')
 def bonded_state_list():
     mapping_hash = request.args.get('mapping_hash')
+    content_hash = request.args.get('content_hash')
     states = bonded_states.all_states()
-    if mapping_hash: states = [s for s in states if s.get('mapping_hash') == mapping_hash]
+    if mapping_hash or content_hash:
+        states = [s for s in states if bonded_states.matches(s, candidate_hash=mapping_hash, content_hash=content_hash)]
     if request.args.get('view') == 'summary':
         states = [{k:s.get(k) for k in ('state_id','name','revision','mapping_hash')} |
                   {'current': {k:s.get('current',{}).get(k) for k in ('status','origin')}} for s in states]

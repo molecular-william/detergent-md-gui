@@ -191,8 +191,14 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
     updateControls();
   }
 
-  async function loadStates(hash, token) {
-    const response = hash ? await cachedApi('/api/bonded-states?' + new URLSearchParams({view: 'summary', mapping_hash: hash}), {maxAge: 10000}) : {states: []};
+  async function loadStates(mapping, token) {
+    // Both hashes: the candidate identity says which saved file this is, the content identity says
+    // which chemistry -- so a candidate that was renamed still shows the states fitted for it.
+    const query = {view: 'summary'};
+    if (mapping?.mapping_hash) query.mapping_hash = mapping.mapping_hash;
+    if (mapping?.mapping_content_hash) query.content_hash = mapping.mapping_content_hash;
+    const response = (query.mapping_hash || query.content_hash)
+      ? await cachedApi('/api/bonded-states?' + new URLSearchParams(query), {maxAge: 10000}) : {states: []};
     if (token !== generation) return;
     states = response.states || [];
     const selected = stateSelect.value;
@@ -223,7 +229,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       const mapping = await loadMapping(mappingSelect.value);
       if (token !== generation || !mapping) return;
       selectedMapping = mapping;
-      await loadStates(mapping.mapping_hash || '', token);
+      await loadStates(mapping, token);
       if (token !== generation) return;
       await draw(states.find(state => state.state_id === stateSelect.value), mapping, token);
     } catch (error) { if (token === generation) { notice(error.message); terms = []; renderState(); } }

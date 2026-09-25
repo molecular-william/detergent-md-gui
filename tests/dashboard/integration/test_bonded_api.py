@@ -58,6 +58,30 @@ def test_term_state_creation_and_save_as_new_function_edit(dashboard):
     assert stale.status_code == 409
 
 
+def test_the_selector_lists_a_renamed_candidates_states(dashboard):
+    """The browser sends both hashes; the chemistry one is what survives a rename.
+
+    This is the user-visible half of the identity fix: the server already judged compatibility by
+    chemistry, but the state list filtered on the candidate hash alone, so renaming a saved candidate
+    hid the states fitted for it.
+    """
+    from dashboard.models import mappings
+    client = dashboard.client
+    mapping = physical_mapping()
+    state = client.post('/api/bonded-states', json={
+        'mapping': mapping, 'name': 'Fitted', 'interactions': [
+            {'kind': 'bonds', 'beads': [bead['name'] for bead in mapping['beads'][:2]],
+             'function': 1, 'parameters': ['0.30', '100']}],
+    }).json
+    content = mappings.content_identity(mapping)
+
+    listed = client.get('/api/bonded-states', query_string={'view': 'summary', 'content_hash': content})
+
+    assert [s['state_id'] for s in listed.json['states']] == [state['state_id']]
+    other = client.get('/api/bonded-states', query_string={'view': 'summary', 'content_hash': '0' * 64})
+    assert other.json['states'] == [], 'a different chemistry lists nothing'
+
+
 def test_plotly_asset_is_local_and_fixed_path(dashboard):
     response = dashboard.client.get('/api/assets/plotly.min.js')
 

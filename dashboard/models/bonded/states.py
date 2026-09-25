@@ -75,6 +75,19 @@ def _validate_revision_payload(record, payload):
         raise ValueError('A reusable bonded state needs a complete ITP topology')
 
 
+def matches(state_or_record, *, candidate_hash=None, content_hash=None):
+    """Whether a state belongs to a mapping named only by its hashes.
+
+    The workspace selector has hashes, not a mapping: the browser was told which candidate it is
+    looking at. Same two questions as `belongs_to` -- the candidate identity first, then the
+    chemistry -- so both callers ask one rule rather than two that can drift apart.
+    """
+    record = state_or_record.get('current', state_or_record)
+    if candidate_hash and record.get('mapping_hash') == candidate_hash:
+        return True
+    return bool(content_hash) and record.get('mapping_content_hash') == content_hash
+
+
 def belongs_to(state_or_record, mapping):
     """Whether a bonded state was fitted for this mapping.
 
@@ -86,11 +99,8 @@ def belongs_to(state_or_record, mapping):
     A state records the content hash when it is created. One written before that field existed has
     none, and then only the candidate identity can answer.
     """
-    record = state_or_record.get('current', state_or_record)
-    if record.get('mapping_hash') == mappings.candidate_identity(mapping):
-        return True
-    content = record.get('mapping_content_hash')
-    return bool(content) and content == mappings.content_identity(mapping)
+    return matches(state_or_record, candidate_hash=mappings.candidate_identity(mapping),
+                   content_hash=mappings.content_identity(mapping))
 
 
 def create(mapping, name, kind='mapping-only', source=None, topology=None, status='incomplete'):

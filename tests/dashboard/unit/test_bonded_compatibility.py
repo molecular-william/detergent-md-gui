@@ -15,6 +15,24 @@ from dashboard.models import bonded, mappings
 from dashboard.models.bonded import states as bonded_states
 
 
+def test_the_selector_rule_answers_from_hashes_alone():
+    """The workspace selector holds hashes, not a mapping, so the rule has to work from those.
+
+    Same two questions as belongs_to: the candidate identity first, the chemistry second. This is what
+    keeps a renamed candidate's states listed -- the rename changes the first hash and not the second.
+    """
+    fitted = {'name': 'DDM candidate', 'beads': [{'name': 'B01'}], 'rings': [], 'connections': []}
+    state = bonded_states.create(fitted, 'Fitted', 'mapping-only', status='incomplete')
+    candidate, content = mappings.candidate_identity(fitted), mappings.content_identity(fitted)
+
+    assert bonded_states.matches(state, candidate_hash=candidate, content_hash=content)
+    assert bonded_states.matches(state, content_hash=content), 'the chemistry is enough'
+    assert bonded_states.matches(state, candidate_hash=candidate), 'the candidate identity is enough'
+    assert not bonded_states.matches(state, candidate_hash='0' * 64)
+    assert not bonded_states.matches(state, content_hash='0' * 64)
+    assert not bonded_states.matches(state), 'asked with nothing, it matches nothing'
+
+
 def test_a_renamed_candidate_no_longer_orphans_its_fitted_state():
     fitted = {'name': 'DDM candidate', 'beads': [{'name': 'B01'}], 'rings': [], 'connections': []}
     state = bonded_states.create(fitted, 'Fitted', 'fast-forward-fit',
