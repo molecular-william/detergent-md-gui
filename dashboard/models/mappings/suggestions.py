@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 from copy import deepcopy
-import hashlib
-import json
 
 from .. import sugars as carbohydrates
 from . import schema
 from .context import as_structure
+
 
 def _candidate_types(index, atom_count):
     size = "R" if atom_count >= 4 else "S" if atom_count == 3 else "T"

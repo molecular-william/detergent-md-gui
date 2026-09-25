@@ -1,12 +1,13 @@
 """RDKit 2D structure with draft bead overlays; no generated chemistry."""
-from functools import lru_cache
 import hashlib
 import math
 import xml.etree.ElementTree as ET
+from functools import lru_cache
 
 from rdkit import Chem
 from rdkit.Chem import rdDepictor
 from rdkit.Chem.Draw import rdMolDraw2D
+
 from .. import mappings
 
 COLORS = ['#2864b5', '#169186', '#aa6920', '#8762b6', '#ba4775', '#347844',

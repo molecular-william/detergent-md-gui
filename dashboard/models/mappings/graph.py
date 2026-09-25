@@ -2,9 +2,9 @@
 from collections import Counter
 
 from .. import sugars as carbohydrates
-from .context import as_structure
 from ..molecules.packaged import molecule
 from . import verdict
+from .context import as_structure
 from .schema import SIZES, check_schema
 
 

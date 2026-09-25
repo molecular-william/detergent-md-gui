@@ -4,7 +4,6 @@ from copy import deepcopy
 
 from ..mappings.identity import candidate_identity
 
-
 PHYSICAL_ONLY = 'physical_only_ring_constrained'
 TC4 = 'tc4'
 TRANSFORMATION = 'remove_tc4_retain_ring_constraints@1'

@@ -4,13 +4,17 @@ import zipfile
 
 from flask import Blueprint, Response, abort, jsonify, request, send_file
 
+from ...analysis.validation import carbohydrate_targets
 from ...models import mappings
 from ...models.mappings import (
     depiction,
+)
+from ...models.mappings import (
     references as mapping_references,
+)
+from ...models.mappings import (
     suggestions as mapping_suggestions,
 )
-from ...analysis.validation import carbohydrate_targets
 from .common import coordinator, json_object, payload_context, query_context
 
 blueprint = Blueprint('mappings', __name__)

@@ -3,8 +3,10 @@ import itertools
 import json
 import math
 from pathlib import Path
+
 from ... import paths
-from .. import sugars as carbohydrates, mappings
+from .. import mappings
+from .. import sugars as carbohydrates
 from ..mappings import verdict
 from ..mappings.context import as_structure, build_context
 from .packaged import bead_types

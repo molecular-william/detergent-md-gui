@@ -1,9 +1,8 @@
 """Water-to-octanol transfer free-energy protocol and BAR parsing."""
 
-from pathlib import Path
 import math
 import re
-
+from pathlib import Path
 
 _WINDOWS = (0.0, 0.005, 0.01, 0.02, 0.04, 0.08, 0.16, 0.24, 0.32,
             0.40, 0.50, 0.60, 0.68, 0.76, 0.84, 0.92, 0.96, 0.98, 1.0)

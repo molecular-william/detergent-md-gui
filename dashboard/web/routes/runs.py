@@ -1,5 +1,4 @@
 """Runs HTTP endpoints."""
-from pathlib import Path
 import codecs
 import hashlib
 import json
@@ -7,17 +6,17 @@ import os
 import tempfile
 import uuid
 import zipfile
-from flask import abort
+
+from flask import Blueprint, Response, abort, jsonify, render_template, request, send_file
+
 from dashboard import files
-from ...execution.adapters import aa
-from ...execution.adapters import cg
-from ...execution.coordination import admission
-from ...execution import workflow
+
+from ...execution.adapters import aa, cg
 from ...execution.adapters.micelle import run_micelle_job
+from ...execution.coordination import admission
 from ...models.molecules import aa as aa_molecules
-from flask import Blueprint, Response, jsonify, render_template, request, send_file
-from .common import coordinator, json_object, pagination
 from .. import views
+from .common import coordinator, json_object, pagination
 
 blueprint = Blueprint('runs', __name__)
 

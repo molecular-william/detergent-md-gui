@@ -5,10 +5,9 @@ packaged SwissParam reference for DDM (the smoke test, the sugar-first
 candidate builder, the mapping exports' README) import these symbols
 explicitly instead of relying on a module-level default.
 """
+import re
 from copy import deepcopy
 from functools import lru_cache
-from pathlib import Path
-import re
 
 from ... import paths
 

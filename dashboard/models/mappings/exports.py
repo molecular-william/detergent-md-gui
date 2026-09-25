@@ -1,12 +1,12 @@
 """Mapping exports: NDX, MAP, GRO, model.json and bundle README."""
-from pathlib import Path
 import hashlib
 import json
+from pathlib import Path
 
 from .. import sugars as carbohydrates
-from .context import as_structure
 from ..molecules.packaged import ROOT, SOURCE, molecule
 from . import verdict
+from .context import as_structure
 from .graph import require_usable, validate
 
 

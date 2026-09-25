@@ -6,16 +6,13 @@ normalized context instead of the historical DDM singleton.
 """
 from __future__ import annotations
 
-from pathlib import Path
 import hashlib
-import json
 import math
 import re
-
-from .identity import canonical_sha256
+from pathlib import Path
 
 from ..molecules import aa as aa_molecules
-
+from .identity import canonical_sha256
 
 _SECTION_RE = re.compile(r"^\s*\[\s*([^]]+)\s*\]")
 

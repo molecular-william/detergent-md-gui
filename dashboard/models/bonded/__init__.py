@@ -6,8 +6,8 @@ Only flexible interactions are replaced; paper constraints and sites are immutab
 import itertools
 import math
 from pathlib import Path
-import numpy as np
 
+import numpy as np
 
 SECTION_WIDTHS = {'bonds': 2, 'constraints': 2, 'angles': 3, 'dihedrals': 4}
 FUNCTION_SPECS = {

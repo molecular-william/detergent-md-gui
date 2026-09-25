@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from ...models.molecules.aa import cg_residue_name
 
+from ...models.molecules.aa import cg_residue_name
 
 # Set to True once the six shipped shell scripts consume MOLECULE_TYPE,
 # INITIAL_ITP, FINAL_ITP and AA_REFERENCE_DIR. Flip by running the shipped

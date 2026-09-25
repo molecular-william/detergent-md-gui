@@ -1,10 +1,9 @@
 """Run artifact indexing and coordinate snapshots for the local dashboard."""
-from datetime import datetime, timezone
-from pathlib import Path
 import json
 import re
 import subprocess
-import os, shutil
+from datetime import datetime, timezone
+
 from ... import files
 from ...execution import tools
 
@@ -130,8 +129,9 @@ def sasa_plot(run_dir):
     """Plot measured total SASA from GROMACS XVG files, preserving source data."""
     import hashlib
     import math
-    from matplotlib.figure import Figure
+
     from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
 
     root = run_dir.resolve()
     sources = []
@@ -198,9 +198,9 @@ def sasa_plot(run_dir):
 
 def unparameterized_observables(run_dir):
     """Summarize mapped-trajectory observables absent from the fitted ITP."""
-    import hashlib
     import itertools
     import math
+
     import numpy as np
     if mda is None:
         raise RuntimeError('MDAnalysis is not installed; cannot analyze observables')
@@ -266,7 +266,6 @@ def connolly_surfaces(run_dir):
 
 def numerical_stability(run_dir):
     """Collect reproducible numerical stability signals from logs and trajectories."""
-    import hashlib
     logs = [p for p in files.safe_files(run_dir) if p.suffix == '.log']
     lincs = []
     for path in logs:

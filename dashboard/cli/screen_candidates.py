@@ -6,11 +6,11 @@ after a client interruption. Stop on failure or cancellation; never auto-retry M
 """
 import fcntl
 import json
-from pathlib import Path
 import sys
 import time
-from urllib.request import Request, urlopen
+from pathlib import Path
 from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 
 def api(route, payload=None):

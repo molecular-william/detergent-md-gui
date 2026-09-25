@@ -1,8 +1,9 @@
 """Mechanical validation of a short draft run, not scientific model approval."""
 import json
 import os
-from pathlib import Path
 import re
+from pathlib import Path
+
 import MDAnalysis as mda
 import numpy as np
 

@@ -1,6 +1,7 @@
 """Thin dashboard adapter: the micelle package remains the scientific owner."""
-from pathlib import Path
-import subprocess,sys
+import subprocess
+import sys
+
 
 def run_micelle_job(payload,run_dir):
  if not isinstance(payload,dict): raise ValueError('micelle payload must be an object')

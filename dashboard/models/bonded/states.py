@@ -6,13 +6,13 @@ atomic replacement. Simulation jobs retain their own state snapshots.
 Topology parsing and rewriting live in bonded.py; this module re-exports them
 so historical callers using bonded_states.parse_interactions keep working.
 """
-from ... import files, paths
-import json
 import re
 import uuid
+
+from ... import files, paths
 from .. import mappings
 from ..repository import JsonRepository
-from . import parse_interactions, apply_interaction_edits, apply_interaction_parameters  # noqa: F401  (façade re-export)
+from . import apply_interaction_edits, apply_interaction_parameters, parse_interactions  # noqa: F401  (façade re-export)
 
 ROOT = paths.DEFAULT.project_root
 

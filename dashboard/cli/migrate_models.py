@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Create a hash-aware legacy inventory; deletion requires a reviewed report."""
-import argparse, json
+import argparse
+import json
 from pathlib import Path
+
 from dashboard.cli import migration
+
 
 def main():
     parser=argparse.ArgumentParser(description='Inventory dashboard/reference artifacts without deleting them')

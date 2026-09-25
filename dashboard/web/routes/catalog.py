@@ -3,9 +3,11 @@ from pathlib import Path
 
 from flask import Blueprint, abort, jsonify, request, send_file
 
-from ...models import compositions, catalog as cg_models
-from ...models.molecules import registry as model_registry, evidence
+from ...models import catalog as cg_models
+from ...models import compositions
 from ...models.mappings import references as mapping_references
+from ...models.molecules import evidence
+from ...models.molecules import registry as model_registry
 from .common import coordinator, json_object
 
 blueprint = Blueprint('catalog', __name__)

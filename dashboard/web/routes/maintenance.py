@@ -1,9 +1,11 @@
 """Maintenance HTTP endpoints."""
-from flask import abort, current_app
 import time
-from ...execution.coordination import temporary
+
+from flask import Blueprint, abort, current_app, jsonify, request
+
 from dashboard.cli import migration
-from flask import Blueprint, jsonify, request
+
+from ...execution.coordination import temporary
 from .common import coordinator, json_object
 
 blueprint = Blueprint('maintenance', __name__)

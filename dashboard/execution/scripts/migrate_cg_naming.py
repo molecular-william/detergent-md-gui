@@ -13,7 +13,6 @@ import shutil
 import sys
 from pathlib import Path
 
-
 SCRIPTS = (
     'aa_reference.sh',
     'map_trajectory.sh',

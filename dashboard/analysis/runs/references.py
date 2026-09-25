@@ -1,15 +1,17 @@
 """Technical AA reference publication and immutable shared-source resolution."""
-from pathlib import Path
 import hashlib
 import json
 import math
 import re
 import sys
+from pathlib import Path
+
 try:
     from ... import files
     from ...models.molecules import aa as aa_molecules
 except ImportError:
-    import files, aa_molecules
+    import aa_molecules
+    import files
 
 
 def identity(snapshot):

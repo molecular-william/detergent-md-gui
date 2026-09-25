@@ -1,21 +1,22 @@
 """Isolated analysis subprocess: sources are copied, outputs never replace them."""
-from pathlib import Path
 import fnmatch
 import hashlib
+import importlib.metadata
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
-import importlib.metadata
-import subprocess
 import time
+from pathlib import Path
 
 from .. import files
-from ..execution import workflow
-from ..execution import tools
-from .runs import observability, refinement, references as aa_references
-from .validation import targets, report as carbohydrate_validation
+from ..execution import tools, workflow
 from . import metadata as analysis_metadata
+from .runs import observability, refinement
+from .runs import references as aa_references
+from .validation import report as carbohydrate_validation
+from .validation import targets
 
 KINDS = {'plots', 'snapshots', 'surfaces', 'observables', 'stability', 'refinement-score', 'targets', 'carbohydrate-validation'}
 PATTERNS = {

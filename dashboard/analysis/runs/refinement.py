@@ -1,6 +1,7 @@
 """Diagnostic aggregation for mapping refinement evidence."""
-from pathlib import Path
 import json
+from pathlib import Path
+
 
 def score(run_dir):
     root = Path(run_dir); metrics = []

@@ -1,13 +1,22 @@
 """Shared stage execution, provenance, and resumable workflow state."""
+import datetime
+import fnmatch
+import json
+import os
+import re
+import shlex
+import shutil
+import subprocess
 from pathlib import Path, PurePosixPath
-import os, shutil, subprocess, json, datetime, fnmatch, re, shlex, hashlib
-from .. import files, paths
-from .environment import environment, execution_root, recorded_environment
+
+from .. import files
+from . import protocol
 from .adapters import cg
 from .adapters.cg_names import CGNames
-from .stages import Stage
 from .coordination.manifest import stage_log_path
-from . import protocol
+from .environment import environment, execution_root, recorded_environment
+from .stages import Stage
+
 
 def stage_command(name, script):
     command = ['bash', '-e', '-o', 'pipefail', str(script)]

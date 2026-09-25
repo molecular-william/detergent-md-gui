@@ -1,10 +1,10 @@
 """Application paths: canonical inputs and one explicitly selected writable workspace."""
+import json
+import os
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
-import json
-import os
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = Path(__file__).resolve().parent

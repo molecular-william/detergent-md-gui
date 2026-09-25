@@ -1,9 +1,10 @@
 """Immutable fragment compositions and attachment-map validation."""
-from ... import files, paths
 import json
+import re
 import uuid
 from pathlib import Path
-import re
+
+from ... import files, paths
 from ..molecules import registry as model_registry
 from ..repository import JsonRepository
 from . import topology as composition_topology

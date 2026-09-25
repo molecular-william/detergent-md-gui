@@ -7,6 +7,7 @@ metadata; coordinates must pass an independent heavy-atom COG comparison.
 import json
 import os
 from pathlib import Path
+
 import MDAnalysis as mda
 import numpy as np
 

@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+
 source = Path('../2_mapping/ring_targets.json')
 if source.exists():
     targets = {tuple(x['atoms']):x['target_nm'] for x in json.loads(source.read_text())['constraints']}

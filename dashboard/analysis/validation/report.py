@@ -3,7 +3,9 @@
 from pathlib import Path
 
 from ...models.sugars.validation import derive_representation
-from . import geometry as carbohydrate_geometry, osmotic as osmotic_pressure, transfer as transfer_free_energy
+from . import geometry as carbohydrate_geometry
+from . import osmotic as osmotic_pressure
+from . import transfer as transfer_free_energy
 
 
 def _insufficient(message):

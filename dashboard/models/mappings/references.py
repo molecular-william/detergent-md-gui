@@ -1,14 +1,12 @@
 """Read-only Martini fragment reference index for mapping suggestions."""
 from __future__ import annotations
 
-from pathlib import Path
 import hashlib
-import json
 import re
+from pathlib import Path
 
 from ... import files
 from .identity import canonical_sha256
-
 
 TYPE_RE = re.compile(r"(?<![A-Za-z0-9])([STR]?[PQNCX][1-6][a-z]?)(?![A-Za-z0-9])")
 

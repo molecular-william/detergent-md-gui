@@ -1,9 +1,9 @@
 """Immutable reference and fragment registry for Martini detergent models."""
-from ... import files, paths
-import json
-from pathlib import Path
 import re
 import uuid
+from pathlib import Path
+
+from ... import files, paths
 from ..repository import JsonRepository
 
 ROOT = paths.DEFAULT.project_root

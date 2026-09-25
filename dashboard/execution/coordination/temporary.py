@@ -5,9 +5,9 @@ checks retained dependencies under the DB lock before the files and the record c
 and both callers -- the startup sweep and the maintenance route -- now pass the same kind
 of object, so they cannot drift apart.
 """
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
 import shutil
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 
 def cleanup(jobs, runs_root, store, *, now=None):

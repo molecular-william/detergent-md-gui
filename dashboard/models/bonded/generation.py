@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
-from copy import deepcopy
 import hashlib
 import itertools
-import json
 import math
+from collections import Counter, defaultdict
+from copy import deepcopy
 from pathlib import Path
 
-from . import FUNCTIONS
 from ... import files
 from ..mappings.identity import canonical_sha256
+from . import FUNCTIONS
 
 #: One-entry memo for reference_bond_index, keyed on the source stamp. See files.memo.
 _BOND_INDEX_CACHE = {}

@@ -1,8 +1,8 @@
 """Bounded manifest reads and run-contained stage log resolution."""
 from __future__ import annotations
 
-from collections import OrderedDict
 import json
+from collections import OrderedDict
 from pathlib import Path
 
 

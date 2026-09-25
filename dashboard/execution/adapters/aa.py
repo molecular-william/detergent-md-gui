@@ -1,17 +1,15 @@
 """Versioned single-solute CHARMM AA protocol, independent of CG tooling."""
-from pathlib import Path
-import datetime
-import json
 import math
 import shutil
 import subprocess
-from ...models.molecules import aa as aa_molecules
+from pathlib import Path
+
 from ... import files
 from ...analysis.runs import references as aa_references
+from ...models.molecules import aa as aa_molecules
+from .. import protocol, tools
 from ..environment import FORCE_FIELD, environment, probe_tool, recorded_environment
-from .. import tools
 from ..stages import Stage, stage_tables
-from .. import protocol
 
 # Modules copied into every run's common/ directory. The names are part of the
 # run contract, not a detail: the generated stage scripts invoke
@@ -188,7 +186,7 @@ def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
     scripts=[f'''gmx editconf -f ../common/molecule/molecule.gro -d {settings['box_padding_nm']:g} -c -bt dodecahedron -o boxed.gro
 gmx grompp -f run.mdp -c boxed.gro -p system.top -o input-check.tpr
 gmx solvate -cp boxed.gro -cs spc216.gro -p system.top -o system.gro
-''',f'''cp ../01_solvation/system.top system.top
+''','''cp ../01_solvation/system.top system.top
 cp ../01_solvation/system.gro system.gro
 gmx grompp -f run.mdp -c system.gro -p system.top -o ions.tpr
 ''']

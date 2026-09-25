@@ -1,14 +1,13 @@
 """Molecules HTTP endpoints."""
 import json
-from flask import abort
-from ...execution.adapters import aa
-from ...execution.adapters import cg
-from ...execution import workflow
-from ...models.molecules import aa as aa_molecules
-from ...models import mappings, compositions
-from ...models.mappings import context as mapping_context
+
+from flask import Blueprint, abort, jsonify, request
+
 from ...analysis.runs import references as aa_references
-from flask import Blueprint, jsonify, request
+from ...execution.adapters import aa, cg
+from ...models import mappings
+from ...models.mappings import context as mapping_context
+from ...models.molecules import aa as aa_molecules
 from .common import coordinator
 
 blueprint = Blueprint('molecules', __name__)

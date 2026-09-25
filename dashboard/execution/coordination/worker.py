@@ -4,8 +4,10 @@ import signal
 import subprocess
 import threading
 import time
-from . import resources
+
 from .. import workflow
+from . import resources
+
 
 class Worker:
     """Signals only subprocess groups created by this worker, never stored PIDs."""

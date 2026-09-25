@@ -6,9 +6,11 @@ is a design target; neither comparison alone establishes physical validation.
 import json
 import os
 from pathlib import Path
-import numpy as np
+
 import MDAnalysis as mda
+import numpy as np
 from scipy.stats import wasserstein_distance
+
 
 def write_matrix_plot(result, path):
     """Write a physical-pair Wasserstein matrix; virtual-site pairs are masked."""

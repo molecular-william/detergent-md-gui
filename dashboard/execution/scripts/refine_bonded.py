@@ -1,14 +1,16 @@
 """Post-fit correction; preserve the original FF topology and exact provenance."""
 import hashlib
 import json
-from pathlib import Path
-import bonded
 import os
+from pathlib import Path
+
+import bonded
 
 model_path = Path('../2_mapping/model.json')
 model = json.loads(model_path.read_text())
 # Read the temperature passed to ff_inter, recorded in its generated ITP header.
 import re
+
 path = Path(os.environ.get('FINAL_ITP', 'DDM.itp'))
 original = path.read_text()
 match = re.search(r'-temperature\s+([\d.]+)', original)

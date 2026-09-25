@@ -1,12 +1,13 @@
 """Analyses HTTP endpoints."""
-from pathlib import Path
 import json
-from flask import abort
+from pathlib import Path
+
+from flask import Blueprint, abort, jsonify, request
+
 from dashboard.execution import workflow
-from ...analysis.validation import targets
-from ...analysis.validation import carbohydrate_targets
 from dashboard.models import mappings
-from flask import Blueprint, jsonify, request
+
+from ...analysis.validation import carbohydrate_targets, targets
 from .common import coordinator, json_object
 
 blueprint = Blueprint('analyses', __name__)

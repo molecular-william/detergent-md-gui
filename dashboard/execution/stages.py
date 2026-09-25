@@ -7,8 +7,8 @@ considered complete. Adapters assemble a Stage tuple and publish the legacy
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)

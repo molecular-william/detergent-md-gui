@@ -7,17 +7,22 @@ coordinator-attached shared reference. The packaged SwissParam source under
 molecules/DDM is used only when a caller invokes the adapter without a
 snapshot (historical smoke-test paths).
 """
+import hashlib
+import json
+import shutil
+import subprocess
 from pathlib import Path
-import os, shutil, subprocess, json, datetime, re, shlex, hashlib
+
 from ... import files, paths
-from ...models.molecules import aa as aa_molecules, draft as draft_model
-from ...models import mappings, bonded
-from .cg_names import CGNames, require_script_compatibility
-from . import aa
-from .. import tools
-from .. import protocol
-from ..environment import ROOT, TUTORIAL_TEMPLATE, AA_TEMPLATE, FORCE_FIELD, environment, probe_tool, update_mdp, execution_root, recorded_environment
+from ...models import bonded, mappings
+from ...models.molecules import aa as aa_molecules
+from ...models.molecules import draft as draft_model
+from .. import protocol, tools
+from ..environment import AA_TEMPLATE, FORCE_FIELD, ROOT, TUTORIAL_TEMPLATE, environment, probe_tool, recorded_environment, update_mdp
 from ..stages import Stage, stage_tables
+from . import aa
+from .cg_names import CGNames, require_script_compatibility
+
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 # What this module offers to the rest of the application: PROTOCOL (the run-type
 # surface at the end of this file), stage_contract() for a naming context, and

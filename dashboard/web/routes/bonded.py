@@ -2,7 +2,8 @@
 from flask import Blueprint, abort, jsonify, request
 
 from ...models import mappings
-from ...models.bonded import states as bonded_states, generation as bonded_generation
+from ...models.bonded import generation as bonded_generation
+from ...models.bonded import states as bonded_states
 from .common import coordinator, json_object, payload_context
 
 blueprint = Blueprint('bonded', __name__)

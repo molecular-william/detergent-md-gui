@@ -1,7 +1,8 @@
 """Hash-aware legacy inventory and explicitly approved obsolete deletion."""
-import hashlib, json, os
-from pathlib import Path
+import hashlib
 from datetime import datetime, timezone
+from pathlib import Path
+
 
 def _hash(path):
     h=hashlib.sha256()

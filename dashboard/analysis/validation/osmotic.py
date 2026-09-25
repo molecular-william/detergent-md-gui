@@ -2,7 +2,6 @@
 
 import math
 
-
 REQUIRED_MOLAL = (0.0, 0.5, 1.0, 1.5, 2.0, 2.5)
 
 

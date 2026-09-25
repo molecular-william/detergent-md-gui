@@ -7,13 +7,11 @@ second source of topology truth.
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 import re
 from pathlib import Path
 
 from ..mappings.identity import canonical_sha256
-
 
 SUGAR_RESIDUES = (
     "GLC", "MAN", "GAL", "FRUF", "LFUC", "LRHA", "RIBF", "XYL",
@@ -209,8 +207,6 @@ def build_preview(payload: dict, project_root: Path) -> dict:
         atoms.append({"index": offset + index, "type": bead["type"], "residue": residue,
                       "name": bead["name"], "bead": bead["name"], "charge": bead["charge"], "mass": bead["mass"]})
     bead_names = [atom["name"] for atom in atoms]
-    bonds = [{"a": atom["name"], "b": atom["name"], "function": 1, "length": term["length"]}
-             for term in []]
     bonds = [{"a": sugar["atoms"][term["a"] - 1]["name"], "b": sugar["atoms"][term["b"] - 1]["name"],
               "function": term["function"], "length": term["length"]} for term in sugar["constraints"]]
     bonds.extend({"a": term["a"], "b": term["b"], "function": term["function"], "length": term["length"]} for term in tail["bonds"])

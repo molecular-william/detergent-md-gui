@@ -8,8 +8,9 @@ import itertools
 import json
 import os
 from pathlib import Path
-import numpy as np
+
 import MDAnalysis as mda
+import numpy as np
 
 
 def coordinates(data, positions, atom_ids=None, scaled=False):

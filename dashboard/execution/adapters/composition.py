@@ -10,12 +10,11 @@ alone.
 """
 from __future__ import annotations
 
-import json
 import shutil
 import sys
 from pathlib import Path
 
-from ... import files, paths
+from ... import files
 from ...models import compositions
 from .. import protocol
 from ..environment import recorded_environment

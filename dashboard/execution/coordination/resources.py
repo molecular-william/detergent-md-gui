@@ -1,10 +1,9 @@
 """Local disk admission limits and reporting; no automatic deletion."""
-from pathlib import Path
 import json
-import shutil
 import os
+import shutil
 from datetime import datetime, timezone
-from ... import files
+from pathlib import Path
 
 DEFAULTS = {'max_concurrent_runs': 1, 'max_concurrent_analyses': 2,
             'min_free_bytes': 1073741824, 'max_run_bytes': 21474836480,

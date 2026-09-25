@@ -1,21 +1,20 @@
 """Candidate persistence: storage root, listing, save, review and variants."""
+import hashlib
+import json
+import re
+import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
 from functools import lru_cache
-import hashlib
-import json
-from pathlib import Path
-import re
-import uuid
 
 from ... import paths
-from .context import as_structure
 from ..molecules.packaged import SOURCE, molecule
+from ..repository import JsonRepository
 from . import verdict
-from .graph import require_usable, validate
+from .context import as_structure
+from .graph import validate
 from .identity import candidate_identity, content_identity
 from .schema import check_schema
-from ..repository import JsonRepository
 
 
 def storage_root():

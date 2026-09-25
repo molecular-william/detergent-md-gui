@@ -3,7 +3,6 @@
 import json
 from pathlib import Path
 
-
 REGISTRY = Path('resources/validation/carbohydrates/targets-v1.json')
 
 
