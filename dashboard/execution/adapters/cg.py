@@ -157,13 +157,11 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     if molecule_snapshot is None or not shared_reference:
         raise ValueError('CG preparation requires a molecule snapshot and shared AA reference')
     names = CGNames.for_snapshot(molecule_snapshot)
-    detergent = molecule_snapshot['id']
     require_script_compatibility(names)
     stage_plan, _, _ = stage_contract(names)
 
     aa_dir = run_dir / '1_AA-reference'
     aa_dir.mkdir()
-    reference_source = None
     from ...analysis.runs import references as aa_references
     aa_references.resolve(reference_root, shared_reference['source_run_id'], shared_reference['sha256'])
 

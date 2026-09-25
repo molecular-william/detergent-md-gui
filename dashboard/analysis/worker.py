@@ -62,9 +62,6 @@ def execute(request_path):
     def progress(phase):
         files.atomic_json(attempt/'progress.json', {'phase': phase})
     progress('Copying and hashing sources')
-    patterns = list(PATTERNS[kind])
-    if kind == 'snapshots' and not (root/'1_AA-reference/prod/lig.xtc').is_file():
-        patterns = ['1_AA-reference/3-run.xtc', '1_AA-reference/3-run.tpr']
     versions = {'python':sys.version,'executable':sys.executable}
     for package in ('MDAnalysis','numpy','matplotlib','plotly','scikit-image','scipy'):
         try: versions[package] = importlib.metadata.version(package)

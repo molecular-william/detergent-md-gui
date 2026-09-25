@@ -206,7 +206,6 @@ def build_preview(payload: dict, project_root: Path) -> dict:
     for index, bead in enumerate(tail["beads"], start=1):
         atoms.append({"index": offset + index, "type": bead["type"], "residue": residue,
                       "name": bead["name"], "bead": bead["name"], "charge": bead["charge"], "mass": bead["mass"]})
-    bead_names = [atom["name"] for atom in atoms]
     bonds = [{"a": sugar["atoms"][term["a"] - 1]["name"], "b": sugar["atoms"][term["b"] - 1]["name"],
               "function": term["function"], "length": term["length"]} for term in sugar["constraints"]]
     bonds.extend({"a": term["a"], "b": term["b"], "function": term["function"], "length": term["length"]} for term in tail["bonds"])
