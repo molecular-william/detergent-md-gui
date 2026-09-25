@@ -6,7 +6,6 @@ script now records the range so that instruction is actionable instead of aspira
 
 Called directly rather than through the whole comparison, which needs real AA and CG trajectories.
 """
-import json
 import sys
 from pathlib import Path
 

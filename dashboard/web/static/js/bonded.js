@@ -192,13 +192,19 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
   }
 
   async function loadStates(mapping, token) {
-    // Both hashes: the candidate identity says which saved file this is, the content identity says
-    // which chemistry -- so a candidate that was renamed still shows the states fitted for it.
-    const query = {view: 'summary'};
-    if (mapping?.mapping_hash) query.mapping_hash = mapping.mapping_hash;
-    if (mapping?.mapping_content_hash) query.content_hash = mapping.mapping_content_hash;
-    const response = (query.mapping_hash || query.content_hash)
-      ? await cachedApi('/api/bonded-states?' + new URLSearchParams(query), {maxAge: 10000}) : {states: []};
+    // The candidate identity first: it names the saved file these states were fitted from, so
+    // distinct candidates stay distinct even when their chemistry is identical. Only if that finds
+    // nothing does it ask by chemistry -- a renamed candidate changes that hash and nothing else, and
+    // this is what keeps its fitted work listed.
+    const ask = async (params) => (params.mapping_hash || params.content_hash)
+      ? await cachedApi('/api/bonded-states?' + new URLSearchParams({view: 'summary', ...params}), {maxAge: 10000})
+      : {states: []};
+    let response = await ask({mapping_hash: mapping?.mapping_hash});
+    if (token !== generation) return;
+    if (!(response.states || []).length && mapping?.mapping_content_hash) {
+      response = await ask({content_hash: mapping.mapping_content_hash});
+      if (token !== generation) return;
+    }
     if (token !== generation) return;
     states = response.states || [];
     const selected = stateSelect.value;

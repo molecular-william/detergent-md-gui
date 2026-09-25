@@ -11,7 +11,7 @@ chemistry decides whether a state belongs to a mapping.
 """
 import json
 
-from dashboard.models import bonded, mappings
+from dashboard.models import mappings
 from dashboard.models.bonded import states as bonded_states
 
 
