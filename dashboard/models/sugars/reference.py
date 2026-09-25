@@ -34,6 +34,99 @@ def sha256(root=None):
     return hashlib.sha256(reference_path(root).read_bytes()).hexdigest()
 
 
+def _sections(text):
+    """Named sections of a GROMACS topology as field lists."""
+    current, table = None, {}
+    for line in text.splitlines():
+        clean = line.split(';', 1)[0].strip()
+        if clean.startswith('['):
+            current = clean.strip('[] ').lower()
+            table.setdefault(current, [])
+        elif clean and current:
+            table[current].append(clean.split())
+    return table
+
+
+def conform(data, entry_name):
+    """Where a generated candidate departs from the reference entry's mapping.
+
+    Only mapping facts are checked -- residues, bead letters and types, each ring's site parents, and the
+    inter-residue links. Equilibrium numbers are not part of conformance; see `parameter_delta` and the
+    plan's decision D1. An empty list means the mapping reproduces the reference.
+    """
+    expected_signature = signature(entry(entry_name))
+    beads = data.get('beads') or []
+    by_residue = {}
+    for bead in beads:
+        by_residue.setdefault(bead.get('residue', 1), []).append(bead)
+    issues = []
+    if set(by_residue) != set(expected_signature['residues']):
+        issues.append(f'residues {sorted(by_residue)} do not match the reference '
+                      f'{sorted(expected_signature["residues"])}')
+    for number in sorted(set(by_residue) | set(expected_signature['residues'])):
+        expected_beads = expected_signature['residues'].get(number, [])
+        actual_beads = by_residue.get(number, [])
+        actual_letters = [bead.get('letter') or bead['name'] for bead in actual_beads]
+        if actual_letters != [bead['name'] for bead in expected_beads]:
+            issues.append(f'residue {number}: beads {actual_letters} do not match the reference '
+                          f'{[bead["name"] for bead in expected_beads]}')
+            continue
+        for bead, expected_bead in zip(actual_beads, expected_beads):
+            if bead['type'] != expected_bead['type']:
+                issues.append(f'residue {number} bead {bead["name"]}: type {bead["type"]} where the '
+                              f'reference has {expected_bead["type"]}')
+        sites = [bead for bead in actual_beads if bead.get('virtual_site')]
+        physical = [bead['name'] for bead in actual_beads if not bead.get('virtual_site')]
+        if len(sites) != len(expected_signature['virtual_sites'].get(number, [])):
+            issues.append(f'residue {number}: {len(sites)} ring sites where the reference has '
+                          f'{len(expected_signature["virtual_sites"].get(number, []))}')
+        elif sites and sorted(sites[0]['virtual_site']['parents']) != sorted(physical):
+            issues.append(f'residue {number}: the ring site is not built from its own '
+                          f'{len(physical)} physical beads')
+
+    currency = {bead['name']: (bead.get('residue', 1), bead.get('letter') or bead['name'])
+                for bead in beads}
+    actual_links = set()
+    for edge in data.get('connections') or []:
+        if edge[0] in currency and edge[1] in currency and currency[edge[0]][0] != currency[edge[1]][0]:
+            actual_links.add(frozenset((currency[edge[0]], currency[edge[1]])))
+    expected_links = {frozenset((tuple(link['a']), tuple(link['b'])))
+                      for link in expected_signature['links']}
+    if actual_links != expected_links:
+        issues.append('inter-residue links '
+                      f'{sorted(sorted(pair) for pair in actual_links)} do not match the reference '
+                      f'{sorted(sorted(pair) for pair in expected_links)}')
+    return issues
+
+
+def parameter_delta(topology_text, entry_name):
+    """Generated constraint lengths beside the reference's published values, per residue and bead letter.
+
+    The generated topology is what a run would consume, so this compares the numbers as they are written
+    rather than recomputing them. Both are reported: reproducing the mapping is not the same claim as
+    reproducing the published equilibrium distances.
+    """
+    sections = _sections(topology_text)
+    currency = {int(row[0]): (int(row[2]), row[4]) for row in sections.get('atoms', [])}
+    generated = {}
+    for row in sections.get('constraints', []):
+        first, second = int(row[0]), int(row[1])
+        if first in currency and second in currency:
+            generated[frozenset((currency[first], currency[second]))] = float(row[3])
+    reference_entry = entry(entry_name)
+    reference_atoms = {atom['index']: (atom['residue'], atom['name']) for atom in reference_entry['atoms']}
+    delta = []
+    for item in reference_entry['constraints']:
+        pair = frozenset((reference_atoms[item['i']], reference_atoms[item['j']]))
+        names = sorted(pair, key=lambda name: (name[0], name[1]))
+        value = generated.get(pair)
+        delta.append({'residue': names[0][0], 'pair': [name[1] for name in names],
+                      'reference': item['length'], 'generated': value,
+                      'difference': None if value is None else round(value - item['length'], 4),
+                      'relative': None if value is None else round((value - item['length']) / item['length'], 4)})
+    return delta
+
+
 def entries(root=None):
     """Every moleculetype in the reference, keyed by name."""
     return _entries(reference_path(root).read_text(), str(reference_path(root)))
