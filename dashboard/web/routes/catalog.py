@@ -50,12 +50,6 @@ def composition_list():
     return jsonify(compositions=compositions.all_compositions())
 
 
-@blueprint.post('/api/compositions')
-def composition_create():
-    try: return jsonify(compositions.create(json_object())), 201
-    except (ValueError, OSError) as exc: abort(400, str(exc))
-
-
 @blueprint.get('/api/cg-models')
 def cg_model_list_api():
     return jsonify(models=cg_models.list_models(request.args.get('view', 'summary')))

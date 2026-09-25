@@ -147,6 +147,14 @@ def validate(payload):
 
 
 def create(payload):
+    """Write a composition record without artifacts; the root-free validation entry point.
+
+    Tests that exercise fragment and attachment validation use this, because they need no
+    molecule workspace. It writes a record with no composition.itp, composition.gro,
+    mapping.json or bonded-state.json, so nothing that resolves a composition's artifacts can
+    consume it: `create_composition` is the one the API and the catalog use, and the route
+    that called this was unreachable code until Task 6.6 deleted it.
+    """
     validate(payload)
     body = json.loads(json.dumps(payload, sort_keys=True))
     record = {'id': _id(), 'kind': 'composition', 'created_at': files.now_iso(), 'snapshot_hash': files.json_sha256(body), 'validation': validate(body), 'snapshot': body}
