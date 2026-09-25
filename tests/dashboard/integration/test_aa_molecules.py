@@ -9,8 +9,19 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import pytest
+
 from dashboard import paths
-from dashboard.app import default_coordinator as web
+
+
+@pytest.fixture(autouse=True)
+def application(request, dashboard):
+    """A unittest instance cannot name a fixture, so it is handed the test's own application.
+
+    Fixture setup runs before unittest's setUp, which is where the instance looks for it.
+    """
+    if request.instance is not None:
+        request.instance.dashboard = dashboard
 
 
 class MoleculeDirectoryTests(unittest.TestCase):
@@ -21,10 +32,9 @@ class MoleculeDirectoryTests(unittest.TestCase):
         (self.folder/'metadata.json').write_text(json.dumps({'name': 'Example', 'force_field': 'example-ff', 'water_model': 'example-water', 'molecule_type': 'EX', 'net_charge': 0}))
         (self.folder/'molecule.itp').write_text('[ moleculetype ]\nEX 3\n[ atoms ]\n1 C 1 EX C1 1 0 12\n2 C 1 EX C2 2 0 12\n[ bonds ]\n1 2 1 0.15 1000\n')
         (self.folder/'molecule.gro').write_text('Example\n2\n' + ''.join(f'{1:5d}{"EX":<5}{name:>5}{i:5d}{x:8.3f}{0:8.3f}{0:8.3f}\n' for i,name,x in [(1,'C1',0),(2,'C2',.15)]) + '1 1 1\n')
-        for name, value in [('ROOT',self.root),('DATA',self.root/'jobs.sqlite3'),('RUNS',self.root/'runs'),('WORKERS',{}),('ANALYSIS_WORKERS',{})]:
-            p=patch.object(web,name,value); p.start(); self.addCleanup(p.stop)
-        p=patch.dict(web.app.config,DISABLE_COORDINATOR=True); p.start(); self.addCleanup(p.stop)
-        web.database().replace([]); self.client=web.app.test_client()
+        for name, value in [('ROOT',self.root),('DATA',self.root/'jobs.sqlite3'),('RUNS',self.root/'runs')]:
+            p=patch.object(self.dashboard.coordinator,name,value); p.start(); self.addCleanup(p.stop)
+        self.dashboard.coordinator.database().replace([]); self.client=self.dashboard.client
 
     def catalogue(self):
         result=self.client.get('/api/molecules')
@@ -40,7 +50,7 @@ class MoleculeDirectoryTests(unittest.TestCase):
         # An unsupported method is rejected at admission time.
         response=self.client.post('/',json={'detergent':'example','method':'unsupported','molecule_id':'example'})
         self.assertEqual(response.status_code,400)
-        self.assertEqual(web.database().all(),[])
+        self.assertEqual(self.dashboard.coordinator.database().all(),[])
 
     def test_aa_only_rejects_a_cg_parameterizer(self):
         response = self.client.post('/', json={'run_type': 'aa_only', 'detergent': 'DDM', 'method': 'fast_forward'})
@@ -63,7 +73,7 @@ class MoleculeDirectoryTests(unittest.TestCase):
         for value in ('../example','/tmp/example','',{},['example']):
             response=self.client.post('/',json={'detergent':'DDM','method':'fast_forward','molecule_id':value})
             self.assertEqual(response.status_code,400,value)
-        self.assertEqual(web.database().all(),[])
+        self.assertEqual(self.dashboard.coordinator.database().all(),[])
 
     def test_readiness_reports_a_missing_molecule_directory(self):
         # The isolated workspace has no packaged DDM; the readiness endpoint must
@@ -111,18 +121,18 @@ class MoleculeDirectoryTests(unittest.TestCase):
         with patch.object(cg,'readiness',return_value={'ready':True}), patch.object(backend.threading.Thread,'start'):
             response=self.client.post('/',json={'detergent':'DDM','method':'fast_forward','profile':'draft-smoke','molecule_id':'DDM'})
         self.assertEqual(response.status_code,201,response.get_json())
-        return web.database().all()[0]
+        return self.dashboard.coordinator.database().all()[0]
 
     def test_queued_job_fails_if_molecule_files_change(self):
         self.install_ddm(); job=self.queue_ddm()
         path=self.root/'molecules/DDM/metadata.json'
         data=json.loads(path.read_text()); data['name']='Changed after queue';path.write_text(json.dumps(data))
-        web.run_job(job['id'],web.WORKERS[job['id']])
-        finished=web.lookup(job['id'])
+        self.dashboard.coordinator.run_job(job['id'],self.dashboard.coordinator.WORKERS[job['id']])
+        finished=self.dashboard.coordinator.lookup(job['id'])
         self.assertEqual(finished['status'],'failed')
         self.assertIn('changed',finished['error'])
-        self.assertFalse((web.RUNS/job['id']/'stages').exists())
-        manifest=json.loads((web.RUNS/job['id']/'manifest.json').read_text())
+        self.assertFalse((self.dashboard.coordinator.RUNS/job['id']/'stages').exists())
+        manifest=json.loads((self.dashboard.coordinator.RUNS/job['id']/'manifest.json').read_text())
         self.assertEqual(manifest['molecule_snapshot'],job['molecule_snapshot'])
 
     def test_modified_ddm_remains_valid_and_executable_but_loses_packaged_provenance(self):
@@ -139,11 +149,11 @@ class MoleculeDirectoryTests(unittest.TestCase):
         self.assertNotIn('adapter_sources', entry)
 
     def test_cloning_ignores_a_missing_molecule_selection(self):
-        self.install_ddm(); job=self.queue_ddm(); web.WORKERS.clear()
+        self.install_ddm(); job=self.queue_ddm(); self.dashboard.coordinator.WORKERS.clear()
         response=self.client.post('/api/jobs/'+job['id']+'/clone',json={'molecule_id':'nonexistent'})
         # Nonexistent molecule id is rejected as a bad request.
         self.assertEqual(response.status_code,409)
-        self.assertEqual(len(web.database().all()),1)
+        self.assertEqual(len(self.dashboard.coordinator.database().all()),1)
 
     def test_mismatched_prepared_source_fails_and_keeps_selection_provenance(self):
         from dashboard import files
@@ -153,7 +163,7 @@ class MoleculeDirectoryTests(unittest.TestCase):
             (aa/'molecule.pdb').write_text('wrong source')
             files.atomic_json(directory/'manifest.json',{'stages':[]})
         with patch.object(cg,'readiness',return_value={'ready':True}), patch.object(backend.workflow,'prepare_run',prepare):
-            web.run_job(job['id'],web.WORKERS[job['id']])
-        manifest=json.loads((web.RUNS/job['id']/'manifest.json').read_text())
+            self.dashboard.coordinator.run_job(job['id'],self.dashboard.coordinator.WORKERS[job['id']])
+        manifest=json.loads((self.dashboard.coordinator.RUNS/job['id']/'manifest.json').read_text())
         self.assertEqual(manifest['status'],'failed')
         self.assertEqual(manifest.get('molecule_snapshot'),job['molecule_snapshot'])

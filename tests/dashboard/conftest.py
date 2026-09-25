@@ -10,8 +10,15 @@ from tests.dashboard.fixtures import PROJECT_ROOT
 
 @pytest.fixture
 def dashboard(tmp_path):
-    """An application the test owns, with no shared module state; see tests/dashboard/factory.py."""
-    return factory.build(tmp_path)
+    """An application the test owns, with no shared module state; see tests/dashboard/factory.py.
+
+    Module-level path resolution is pointed at the same workspace for the duration, which is the
+    part of the old autouse fixture a built application cannot do for itself: stores that resolve
+    their root from `paths` must see the test's workspace, not the default one.
+    """
+    built = factory.build(tmp_path)
+    with paths.use(built.paths):
+        yield built
 
 
 @pytest.fixture(autouse=True)

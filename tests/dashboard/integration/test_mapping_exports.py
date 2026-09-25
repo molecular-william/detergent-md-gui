@@ -13,7 +13,6 @@ import zipfile
 import numpy as np
 import pytest
 from rdkit import Chem
-from dashboard.app import default_coordinator as web
 from dashboard.models.mappings import depiction
 from dashboard.models import mappings
 from dashboard.execution import workflow
@@ -22,9 +21,12 @@ from tests.dashboard.tool_paths import fast_forward_source
 
 
 class MappingExportTests(unittest.TestCase):
+    @pytest.fixture(autouse=True)
+    def _application(self, dashboard):
+        """The application this test owns; it is built with its coordinator already disabled."""
+        self.dashboard = dashboard
+
     def setUp(self):
-        from unittest.mock import patch
-        guard=patch.dict(web.app.config,DISABLE_COORDINATOR=True);guard.start();self.addCleanup(guard.stop)
         self.data = physical_mapping()
 
     def test_fast_forward_parser_reads_names_and_order(self):
@@ -78,7 +80,7 @@ class MappingExportTests(unittest.TestCase):
         self.assertIn('unvalidated', root.find(f'{{{depiction.NS}}}title').text)
 
     def test_bundle_and_svg_endpoints(self):
-        with web.app.test_client() as client:
+        with self.dashboard.client as client:
             response = client.post('/api/mappings/export/bundle', json=self.data)
             self.assertEqual(response.status_code, 200)
             with zipfile.ZipFile(io.BytesIO(response.data)) as archive:

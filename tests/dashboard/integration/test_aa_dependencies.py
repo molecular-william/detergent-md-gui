@@ -44,18 +44,12 @@ def test_cleanup_failure_retains_record_for_retry(tmp_path):
     assert store.get('111111111111') is not None
 
 
-def test_http_delete_keeps_source_files_for_completed_consumer(tmp_path, monkeypatch):
-    from dashboard.app import default_coordinator as web
-    monkeypatch.setattr(web, 'DATA', tmp_path/'jobs.sqlite3')
-    monkeypatch.setattr(web, 'RUNS', tmp_path/'runs')
-    monkeypatch.setattr(web, 'WORKERS', {})
-    monkeypatch.setattr(web, 'ANALYSIS_WORKERS', {})
-    monkeypatch.setitem(web.app.config, 'DISABLE_COORDINATOR', True)
+def test_http_delete_keeps_source_files_for_completed_consumer(dashboard):
     source = {'id': '111111111111', 'status': 'completed', 'layout_version': 2}
-    web.database().insert_many([source, {'id': '222222222222', 'status': 'completed', 'reference_run_id': source['id']}])
-    artifact = web.RUNS/source['id']/'trajectory.xtc'
+    dashboard.coordinator.database().insert_many([source, {'id': '222222222222', 'status': 'completed', 'reference_run_id': source['id']}])
+    artifact = dashboard.coordinator.RUNS/source['id']/'trajectory.xtc'
     artifact.parent.mkdir(parents=True); artifact.write_bytes(b'source')
-    response = web.app.test_client().delete('/api/jobs/'+source['id'])
+    response = dashboard.client.delete('/api/jobs/'+source['id'])
     assert response.status_code == 409
     assert artifact.read_bytes() == b'source'
 

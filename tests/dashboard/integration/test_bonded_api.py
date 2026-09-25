@@ -1,14 +1,13 @@
 from copy import deepcopy
 
-from dashboard.app import default_coordinator as web
 from dashboard.models.bonded import states as bonded_states
 from dashboard.models import mappings
 from tests.dashboard.fixtures import physical_mapping
 
 
-def test_automatic_bonded_draft_is_nonpersistent_and_snapshot_bound():
+def test_automatic_bonded_draft_is_nonpersistent_and_snapshot_bound(dashboard):
     mapping = physical_mapping()
-    client = web.app.test_client()
+    client = dashboard.client
 
     response = client.post('/api/bonded-states/automatic', json={'mapping': mapping})
 
@@ -24,10 +23,10 @@ def test_automatic_bonded_draft_is_nonpersistent_and_snapshot_bound():
     assert client.post('/api/bonded-states/automatic', json={'mapping': changed}).status_code == 400
 
 
-def test_term_state_creation_and_save_as_new_function_edit():
+def test_term_state_creation_and_save_as_new_function_edit(dashboard):
     mapping = physical_mapping()
     first, second = [bead['name'] for bead in mapping['beads'][:2]]
-    client = web.app.test_client()
+    client = dashboard.client
     response = client.post('/api/bonded-states', json={
         'mapping': mapping,
         'name': 'Manual terms',
@@ -60,8 +59,8 @@ def test_term_state_creation_and_save_as_new_function_edit():
     assert stale.status_code == 409
 
 
-def test_plotly_asset_is_local_and_fixed_path():
-    response = web.app.test_client().get('/api/assets/plotly.min.js')
+def test_plotly_asset_is_local_and_fixed_path(dashboard):
+    response = dashboard.client.get('/api/assets/plotly.min.js')
 
     assert response.status_code == 200
     assert response.mimetype == 'application/javascript'
