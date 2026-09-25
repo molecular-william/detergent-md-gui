@@ -67,8 +67,13 @@ class MoleculeDirectoryTests(unittest.TestCase):
 
     def test_readiness_reports_a_missing_molecule_directory(self):
         # The isolated workspace has no packaged DDM; the readiness endpoint must
-        # report the missing-molecule branch through cg.readiness.
-        response=self.client.get('/api/readiness?molecule_id=example&detergent=example&method=fast_forward&run_type=aa_cg').get_json()
+        # report the missing-molecule branch through cg.readiness. The tool probes are
+        # stubbed to their miss: what is under test is the missing-molecule branch, and
+        # really running `gmx -h`, `ff_map`, `ff_inter` and `ff_assess` costs 5.9 s here
+        # to reach the same ready=False with the same business-rule blockers.
+        with patch.object(backend.aa, 'probe_tool', return_value=(False, 'not installed')), \
+             patch.object(cg, 'probe_tool', return_value=(False, 'not installed')):
+            response=self.client.get('/api/readiness?molecule_id=example&detergent=example&method=fast_forward&run_type=aa_cg').get_json()
         self.assertFalse(response['ready'])
         self.assertTrue(response['blockers'])
 

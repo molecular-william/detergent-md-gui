@@ -40,6 +40,7 @@ def test_every_adapter_exposes_the_same_surface(run_type):
     assert callable(adapter.normalize_settings) and callable(adapter.prepare)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize('run_type', RUN_TYPES)
 def test_tool_report_returns_a_mapping_or_fails_loudly(run_type):
     """A tool that cannot be reported must fail the report, not be left out of it.
