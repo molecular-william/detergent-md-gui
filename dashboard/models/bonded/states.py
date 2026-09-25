@@ -31,6 +31,10 @@ def _validate_id(state_id):
     return state_id
 
 
+#: A composition names its bonded state with this prefix; see get().
+COMPOSITION_PREFIX = 'composition:'
+
+
 def _repository():
     return JsonRepository(storage_root(), '{id}.json', _validate_id)
 
@@ -45,6 +49,14 @@ def all_states():
 
 
 def get(state_id, revision=None):
+    if isinstance(state_id, str) and state_id.startswith(COMPOSITION_PREFIX):
+        # One reader for both id shapes: a namespaced id belongs to the composition that
+        # minted it, and no revision applies to it. The import is deferred because the
+        # compositions package asks this module how state ids are validated.
+        if not re.fullmatch(r'[a-f0-9]{12,64}', state_id[len(COMPOSITION_PREFIX):]):
+            raise ValueError('Invalid composition state ID')
+        from .. import compositions
+        return compositions.bonded_state(state_id)
     record = _repository().get(state_id)
     if revision is None or revision == record.get('revision'): return record
     for item in record.get('revisions',[]):
