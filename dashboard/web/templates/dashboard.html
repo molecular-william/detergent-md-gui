@@ -110,14 +110,21 @@
     <div class="section-heading"><div><h3 id="molecule-mapping-title">Molecule-scoped bead editor</h3><p class="hint">Select heavy atoms on the molecule, group them into beads, and save a new mapping draft when the structure is ready.</p></div></div>
     <p id="mapping-editor-status" class="hint" role="status">Choose molecule.</p>
     <div class="mapping-editor-layout">
-      <div id="mapping-editor-diagram" class="mapping-editor-diagram" aria-label="2D molecule structure"></div>
-      <div class="mapping-editor-controls">
-        <div class="form-grid"><label>Molecule<select id="mapping-molecule" aria-label="Molecule"></select></label><label>Candidate<select id="mapping-candidate-filter" aria-label="Candidate"><option value="">New local draft</option></select></label></div>
-        <p id="mapping-selection-count" role="status">0 heavy atoms selected</p>
-        <div class="toolbar">
-          <button type="button" id="group-into-bead">Group into bead</button>
-          <button type="button" class="secondary" id="clear-all-mapping">Clear all</button>
+      <div class="mapping-editor-diagram-column">
+        <div class="mapping-selectors">
+          <label>Molecule<select id="mapping-molecule" aria-label="Molecule"></select></label>
+          <label>Candidate<select id="mapping-candidate-filter" aria-label="Candidate"><option value="">New local draft</option></select></label>
         </div>
+        <div class="mapping-selection-row">
+          <p id="mapping-selection-count" role="status">0 heavy atoms selected</p>
+          <div class="toolbar">
+            <button type="button" id="group-into-bead">Group into bead</button>
+            <button type="button" class="secondary" id="clear-all-mapping">Clear all</button>
+          </div>
+        </div>
+        <div id="mapping-editor-diagram" class="mapping-editor-diagram" aria-label="2D molecule structure"></div>
+      </div>
+      <div class="mapping-editor-controls">
         <label>Candidate name<input id="mapping-editor-name" maxlength="160" value="New mapping"></label>
         <div class="table-scroll"><table><caption>Bead assignments · heavy atom indices</caption><thead><tr><th>Bead</th><th>Size</th><th>Type</th><th>Atoms</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="mapping-bead-rows"></tbody></table></div>
         <section class="validation" aria-live="polite"><h3>Checks</h3><p id="mapping-validation-summary" class="validation-summary"></p><ul id="mapping-validation-issues" class="validation-issues"></ul></section>

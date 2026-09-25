@@ -99,6 +99,34 @@ def test_delete_mapping_removes_the_saved_candidate(dashboard, live_page):
     assert errors == []
 
 
+def test_the_selectors_sit_above_the_diagram_side_by_side(live_page):
+    """Both comboboxes, and the selection controls, moved into the diagram's column above the drawing.
+
+    Measured rather than asserted from markup: a layout change is only real if the boxes moved.
+    """
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#mappings')
+    page.get_by_role('tab', name='CG mappings', exact=True).click()
+    expect(page.locator('#mapping-editor-diagram')).to_be_visible()
+
+    molecule = page.locator('#mapping-molecule').bounding_box()
+    candidate = page.locator('#mapping-candidate-filter').bounding_box()
+    count = page.locator('#mapping-selection-count').bounding_box()
+    group = page.locator('#group-into-bead').bounding_box()
+    diagram = page.locator('#mapping-editor-diagram').bounding_box()
+
+    assert abs(molecule['y'] - candidate['y']) < 4, 'the two comboboxes share a row'
+    assert molecule['x'] < candidate['x'], 'Molecule then Candidate, left to right'
+    assert molecule['width'] <= 0.55 * diagram['width'], 'and each is narrower than the column'
+    for label, box in (('molecule', molecule), ('candidate', candidate),
+                       ('count', count), ('Group into bead', group)):
+        assert box['y'] < diagram['y'], f'{label} sits above the diagram'
+    # The count and its buttons share the row; the button box starts a little higher because of its
+    # padding, so compare with a tolerance rather than ordering their tops.
+    assert abs(count['y'] - group['y']) < 24, 'the count and its buttons share a row'
+    assert errors == []
+
+
 def test_mapping_editor_clear_all_removes_local_assignments(live_page):
     page = live_page.page
     page.goto(f'{live_page.base_url}/#mappings')

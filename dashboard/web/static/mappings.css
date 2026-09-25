@@ -7,6 +7,13 @@
 .mapping-editor-diagram .atom.assigned circle{stroke:#2864b5}
 .mapping-editor-diagram .bead-overlay{fill:#2864b5;fill-opacity:.1;stroke:#2864b5;stroke-width:2;pointer-events:none}
 .mapping-editor-controls{display:grid;gap:.75rem;min-width:0}
+/* The selectors and the selection controls live above the diagram, in its own column: choosing a
+   molecule and a candidate is the first thing a reader does, and the diagram is what reacts. */
+.mapping-editor-diagram-column{display:grid;gap:.75rem;min-width:0}
+.mapping-selectors{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,16rem),1fr));gap:12px;max-width:44rem}
+.mapping-selection-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;max-width:44rem}
+.mapping-selection-row p{margin:0}
+.mapping-selection-row .toolbar{margin:0}
 .mapping-editor-controls .form-grid{grid-template-columns:1fr}
 .mapping-editor-controls .table-scroll{max-height:34rem;overflow:auto;border:1px solid var(--line);border-radius:8px}
 .mapping-editor-controls table{margin:0;table-layout:fixed;min-width:31rem}
