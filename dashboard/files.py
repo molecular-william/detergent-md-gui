@@ -54,6 +54,36 @@ def json_sha256(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
+def stamp(paths):
+    """A key that changes when any of these files does: (path, mtime, size) per file.
+
+    The key is what makes a memo content-keyed rather than time-keyed: an unchanged corpus
+    is not re-parsed, and a changed one cannot be answered from the old value.
+    """
+    entries = []
+    for path in paths:
+        try:
+            stat = Path(path).stat()
+        except OSError:
+            continue
+        entries.append((str(path), stat.st_mtime_ns, stat.st_size))
+    return tuple(entries)
+
+
+def memo(store, key, build):
+    """One-entry memo keyed on a stamp: rebuild only when the key changes.
+
+    ``store`` is a plain dict the caller owns, so each collaborator keeps its own entry and
+    the cache dies with it.
+    """
+    cached = store.get('entry')
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    value = build()
+    store['entry'] = (key, value)
+    return value
+
+
 def safe_files(root):
     root = Path(root)
     if not root.is_dir() or root.is_symlink(): return

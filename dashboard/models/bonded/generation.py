@@ -11,7 +11,11 @@ import math
 from pathlib import Path
 
 from . import FUNCTIONS
+from ... import files
 from ..mappings.identity import canonical_sha256
+
+#: One-entry memo for reference_bond_index, keyed on the source stamp. See files.memo.
+_BOND_INDEX_CACHE = {}
 
 
 _MASSES = {'R': 72, 'S': 54, 'T': 36}
@@ -122,19 +126,32 @@ def _parse_reference(path: Path, root: Path, diagnostics: list[str]):
     return rows
 
 
-def reference_bond_index(project_root: Path) -> dict:
-    """Index CG bonded terms from reference ITPs without mutating them."""
-    root = Path(project_root)
+def _reference_paths(root):
+    """Every reference ITP the bonded index reads; AA directories are excluded."""
     reference_root = root / 'references'
+    if not reference_root.is_dir() or reference_root.is_symlink():
+        return []
+    return sorted(path for path in reference_root.rglob('*.itp')
+                  if path.is_file() and not path.is_symlink()
+                  and '/aa/' not in path.relative_to(root).as_posix().lower())
+
+
+def reference_bond_index(project_root: Path) -> dict:
+    """Index CG bonded terms from reference ITPs without mutating them.
+
+    Cached on the source stamp: otherwise every generate re-walks the reference tree and
+    re-hashes each ITP. Treat the returned index as read-only: it is shared.
+    """
+    root = Path(project_root)
+    return files.memo(_BOND_INDEX_CACHE, files.stamp(_reference_paths(root)), lambda: _build_bond_index(root))
+
+
+def _build_bond_index(root: Path) -> dict:
+    """Walk, hash and parse the reference ITPs. Called through the memo above."""
     diagnostics = []
     sources = []
     grouped = {kind: defaultdict(list) for kind in ('bonds', 'angles', 'dihedrals')}
-    if reference_root.is_dir() and not reference_root.is_symlink():
-        paths = sorted(path for path in reference_root.rglob('*.itp')
-                       if path.is_file() and not path.is_symlink()
-                       and '/aa/' not in path.relative_to(root).as_posix().lower())
-    else:
-        paths = []
+    paths = _reference_paths(root)
     for path in paths:
         relative = path.relative_to(root).as_posix()
         source_hash = _sha256(path)

@@ -6,10 +6,14 @@ import hashlib
 import json
 import re
 
+from ... import files
 from .identity import canonical_sha256
 
 
 TYPE_RE = re.compile(r"(?<![A-Za-z0-9])([STR]?[PQNCX][1-6][a-z]?)(?![A-Za-z0-9])")
+
+#: One-entry memo for load_index, keyed on the source stamp. See files.memo.
+_INDEX_CACHE = {}
 
 
 def _sha(path: Path) -> str:
@@ -77,9 +81,30 @@ def _parse_bible(path: Path):
     return records, []
 
 
+def _source_paths(root):
+    """The reference files the index reads, in the rank order it reads them."""
+    paths = sorted(path for path in (root / 'references').glob('martini_*_sugars_*.itp')
+                   if path.is_file() and not path.is_symlink())
+    for candidate in (root / 'references' / 'M3-Small-Molecules' / 'models' / 'martini_v3.0.0_small_molecules_v1.itp',
+                      root / 'references' / 'M3-Bible' / 'src' / 'MartiniCGSmilesDB_v6.xlsx'):
+        paths.append(candidate)
+    return paths
+
+
 def load_index(project_root: Path) -> dict:
-    """Index known reference files without copying or mutating them."""
-    root = Path(project_root); records = []; sources = []; diagnostics = []
+    """Index known reference files without copying or mutating them.
+
+    Cached on the source stamp -- every source path with its mtime and size -- so a repeat
+    request does not re-hash and re-parse the corpus, and a changed source cannot be
+    answered from an older index. Treat the returned index as read-only: it is shared.
+    """
+    root = Path(project_root)
+    return files.memo(_INDEX_CACHE, files.stamp(_source_paths(root)), lambda: _build_index(root))
+
+
+def _build_index(root: Path) -> dict:
+    """Hash and parse every reference source. Called through load_index's memo."""
+    root = Path(root); records = []; sources = []; diagnostics = []
     sugar_paths = sorted((root / "references").glob("martini_*_sugars_*.itp"))
     for path in sugar_paths:
         if path.is_symlink() or not path.is_file():
