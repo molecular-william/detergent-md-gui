@@ -273,7 +273,32 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
                 raise ValueError(f'No log location for stage {name}')
             entry['log'] = str(stage_log)
             tick = __import__('time').monotonic()
-            try:
+
+            def write_stage(record, **fields):
+                """How this site writes: into the stage entry, and a terminal status into the run.
+
+                Two things the shared lifecycle cannot know about a stage. The reuse path records
+                `reused` and leaves the loop, which the manager sees as a successful block and would
+                overwrite with `completed` -- so a record that already reached a terminal status keeps
+                it. And a terminal status is also the run's, with the failure line in the stage log,
+                where it has always been written.
+                """
+                if record.get('status') in ('reused', 'failed', 'cancelled') and fields.get('status') == 'completed':
+                    return
+                record.update(fields)
+                if record.get('status') in ('failed', 'cancelled'):
+                    data['status'] = record['status']; data['error'] = record['error']
+                    fp.write(f'\n{name} failed: {record["error"]}\n'); fp.flush()
+
+            def finish_stage(record):
+                record['resource_usage'] = {'wall_seconds': __import__('time').monotonic()-tick, 'openmp_threads': 8, 'output_bytes': sum(p.stat().st_size for p in files.safe_files(script.parent))}
+                record['ended_at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                files.atomic_json(manifest, data)
+
+            # Imported at call time because the lifecycle module imports this one for Cancelled;
+            # a module-level import would be circular.
+            from .coordination.attempt import attempt as managed_attempt
+            with managed_attempt(entry, update=write_stage, on_exit=finish_stage):
                 stage_env=environment()
                 if shared_path:
                     aa_references.resolve(run_dir.parent,shared['source_run_id'],shared['sha256'])
@@ -310,16 +335,6 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
                     raise RuntimeError(f'{name}: command exited successfully but required outputs are missing or empty: {", ".join(missing)}')
                 entry['status'] = 'completed'; entry['exit_code'] = 0
                 entry['outputs_sha256'] = declared_output_hashes(script.parent, required_outputs.get(name, ()))
-            except Exception as exc:
-                entry['status'] = 'cancelled' if isinstance(exc, Cancelled) else 'failed'; entry['error'] = str(exc)
-                if isinstance(exc, subprocess.CalledProcessError): entry['exit_code'] = exc.returncode
-                data['status'] = entry['status']; data['error'] = str(exc)
-                fp.write(f'\n{name} failed: {exc}\n'); fp.flush()
-                raise
-            finally:
-                entry['resource_usage'] = {'wall_seconds': __import__('time').monotonic()-tick, 'openmp_threads': 8, 'output_bytes': sum(p.stat().st_size for p in files.safe_files(script.parent))}
-                entry['ended_at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-                files.atomic_json(manifest, data)
             if stop_after == name:
                 break
         data = json.loads((run_dir/'manifest.json').read_text())
