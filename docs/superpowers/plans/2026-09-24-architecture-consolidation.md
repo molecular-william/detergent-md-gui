@@ -1444,8 +1444,8 @@ Expected: no test changes required for pure lint fixes; any fix that changes beh
 - Modify: `docs/DDM_CALIBRATION.md` ("Code-inspected gaps" list)
 - Modify: `docs/PROJECT_GUIDE.md` (mapping exports, bonded workflow sections if paths changed)
 
-- [ ] **Step 1:** Re-check each of the six documented gaps against the code and mark what the 2026-09-22 bonded-generation work already closed (the automatic reference-consensus generator and save-as-new states exist; virtual-site parent parsing, the mapping-identity filter and stale-preview protection are the ones worth re-verifying).
-- [ ] **Step 2:** For anything still open, keep the item and add the file:line where it lives now; for anything closed, say which commit closed it.
+- [x] **Step 1:** Re-check each of the six documented gaps against the code and mark what the 2026-09-22 bonded-generation work already closed — done against the current tree, not the commits: three closed, three partly open, each with file:line and the closing commit. (the automatic reference-consensus generator and save-as-new states exist; virtual-site parent parsing, the mapping-identity filter and stale-preview protection are the ones worth re-verifying).
+- [x] **Step 2:** For anything still open, keep the item and add the file:line where it lives now; for anything closed, say which commit closed it. — done. Nine claims the document made are now demonstrably false and were replaced; the residue that is really still open names the file:line (the name-in-hash identity, the pre-`kind` JSON classification, per-run colour limits, two untested paths, and JSON storage as a recorded decision). One residue was a live defect rather than a doc error and was fixed: the bonded ITP preview panel no script ever wrote.
 - [ ] **Step 3:** Commit:
 
 ```bash
