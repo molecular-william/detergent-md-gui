@@ -436,7 +436,7 @@ class Coordinator:
         if bonded_state_id:
             try: bonded_snapshot = bonded_states.get(bonded_state_id)
             except (KeyError, OSError, ValueError): raise InvalidRequest('Selected bonded state is unavailable')
-            if mapping_snapshot is None or bonded_snapshot.get('mapping_hash') != mappings.candidate_identity(mapping_snapshot):
+            if mapping_snapshot is None or not bonded_states.belongs_to(bonded_snapshot, mapping_snapshot):
                 raise RunConflict('Bonded state does not belong to the selected mapping')
             if bonded_snapshot.get('current',{}).get('status') != 'complete': raise RunConflict('Selected bonded state is incomplete; fit it before reuse')
         if bonded_intent == 'reuse_state' and bonded_snapshot is None:

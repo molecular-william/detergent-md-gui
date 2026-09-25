@@ -114,12 +114,15 @@ code has since contradicted; every verdict quotes the file:line that supports it
    matching are in place: `routes/bonded.py:14-16` filters states by `mapping_hash` (the JS sends it,
    `bonded.js:195`), and the topology's labels are the mapping's bead names (`generation.py:333-336`),
    which is what the diagram is keyed by (`bonded.js:81-91`) -- the `B01/B02` form survives only as a
-   Fast_Forward torsion data-file label (`bonded/__init__.py:288`). Still open: the mapping identity
-   hashes the candidate *name* (`identity.py:45`) and compatibility compares that identity
-   (`states.py:69,94`, `coordinator.py:439`), so renaming a candidate makes its states vanish from the
-   selector and fails `reuse_state` -- the same beads under names A and B hash to `8e4ca355...` and
-   `2a38cc56...`. The name-free `content_identity` (`identity.py:54-56`) is used for duplicate
-   detection only (`store.py:57`, `routes/mappings.py:78-80`).
+   Fast_Forward torsion data-file label (`bonded/__init__.py:288`). Partly open: the mapping
+   identity hashes the candidate *name* (`identity.py:45`), which is right for provenance and wrong
+   for compatibility. The state side is now fixed: a state records the name-free content identity as
+   well, compatibility asks `bonded_states.belongs_to(...)`, and run admission uses it
+   (`coordinator.py:439`), so a renamed candidate keeps its fitted states and `reuse_state` no longer
+   fails. What remains is the *selector*: `routes/bonded.py:14-16` filters states by the candidate
+   hash the browser sends, so after a rename they stay hidden from the list until the candidate list
+   publishes a content identity for the browser to send. Name-free `content_identity` is otherwise
+   used for duplicate detection (`store.py:57`, `routes/mappings.py:78-80`).
 3. **Virtual-site parsing: closed.** `bonded/__init__.py:107-126` parses `virtual_sitesn` into
    `parents=[...]` with `parameters=[]`, resolving `parent_beads` from `[ atoms ]`; asserted verbatim
    by `tests/dashboard/unit/test_bonded_states.py:20-32`. The UI keeps them read-only (`bonded.js:36`,

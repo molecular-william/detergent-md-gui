@@ -75,14 +75,34 @@ def _validate_revision_payload(record, payload):
         raise ValueError('A reusable bonded state needs a complete ITP topology')
 
 
+def belongs_to(state_or_record, mapping):
+    """Whether a bonded state was fitted for this mapping.
+
+    Two questions, two identities. The candidate identity answers *provenance* -- which saved
+    candidate produced this state -- and it hashes the candidate's name, as it must. Compatibility is
+    the chemistry, and `content_identity` ignores the name, so a renamed candidate keeps its fitted
+    states instead of orphaning them.
+
+    A state records the content hash when it is created. One written before that field existed has
+    none, and then only the candidate identity can answer.
+    """
+    record = state_or_record.get('current', state_or_record)
+    if record.get('mapping_hash') == mappings.candidate_identity(mapping):
+        return True
+    content = record.get('mapping_content_hash')
+    return bool(content) and content == mappings.content_identity(mapping)
+
+
 def create(mapping, name, kind='mapping-only', source=None, topology=None, status='incomplete'):
     if kind not in ('mapping-only','fast-forward-fit','manual-edit','legacy','short-validation'):
         raise ValueError('Unknown bonded state origin')
     mapping_hash = mappings.candidate_identity(mapping)
+    content_hash = mappings.content_identity(mapping)
     state_id=uuid.uuid4().hex[:16]
-    payload={'mapping_hash':mapping_hash,'topology':topology,'status':status,'origin':kind,'source':source or {},'name':name}
+    payload={'mapping_hash':mapping_hash,'mapping_content_hash':content_hash,'topology':topology,'status':status,'origin':kind,'source':source or {},'name':name}
     _validate_revision_payload({'mapping_hash': mapping_hash}, payload)
     record={'state_id':state_id,'name':name or f'Bonded state {state_id[:6]}','mapping_hash':mapping_hash,
+            'mapping_content_hash':content_hash,
             'revision':1,'created_at':files.now_iso(),'updated_at':files.now_iso(),'current':payload,
             'revisions':[{'revision':1,'created_at':files.now_iso(),**payload}]}
     _write(_path(state_id),record); return record
@@ -109,6 +129,7 @@ def revise(state_id, patch, expected_revision=None, in_place=False):
         current['name'] = name
         item = {'revision': 1, 'created_at': now, **current}
         created = {'state_id': new_id, 'name': name, 'mapping_hash': record['mapping_hash'],
+                   'mapping_content_hash': record.get('mapping_content_hash'),
                    'revision': 1, 'created_at': now, 'updated_at': now,
                    'parent_state_id': state_id, 'parent_revision': record['revision'],
                    'current': current, 'revisions': [item]}
