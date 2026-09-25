@@ -64,7 +64,7 @@ class OperationsTests(unittest.TestCase):
 
     def test_metadata_corruption_and_default_stage_plan_are_visible(self):
         web.database().update(self.job['id'],started_at='bad timestamp')
-        job=self.client.get('/api/jobs').get_json()[0]
+        job=self.client.get('/api/jobs').get_json()['jobs'][0]
         self.assertIsNone(job['elapsed_seconds']); self.assertTrue(job['metadata_warnings'])
         self.assertEqual(job['workflow_stages'],[name for name,_ in cg.STAGES])
 

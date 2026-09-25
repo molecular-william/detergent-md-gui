@@ -43,7 +43,7 @@ class DashboardTests(unittest.TestCase):
         with patch.object(os, 'killpg') as signal:
             self.assertEqual(self.client.post('/control/123456abcdef/cancel').status_code, 409)
             signal.assert_not_called()
-        self.assertFalse(self.client.get('/api/jobs').get_json()[0]['can_cancel'])
+        self.assertFalse(self.client.get('/api/jobs').get_json()['jobs'][0]['can_cancel'])
 
     def test_console_cursor_download_and_unknown_run(self):
         path = web.log_path(self.job); path.write_text('first\n')
@@ -63,7 +63,7 @@ class DashboardTests(unittest.TestCase):
         (run_dir / 'manifest.json').write_text('{}')
         (run_dir / 'result.gro').write_text('coordinates')
         result = self.client.get('/api/jobs/123456abcdef/artifacts').get_json()
-        self.assertEqual([item['path'] for item in result], ['manifest.json', 'result.gro'])
+        self.assertEqual([item['path'] for item in result['artifacts']], ['manifest.json', 'result.gro'])
         self.assertEqual(self.client.get('/api/jobs/123456abcdef/artifacts/../jobs.sqlite3').status_code, 404)
         snapshot = self.client.post('/api/jobs/123456abcdef/snapshots', json={'stage': '1_AA-reference'})
         self.assertEqual(snapshot.status_code, 409)
@@ -161,7 +161,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(parse('remaining wall clock time: 300 s\nwill finish Fri Sep 11 09:00:00 2026')['gromacs_eta'], 'Fri Sep 11 09:00:00 2026')
         self.assertEqual(parse('remaining wall clock time: 300 s\nFinished mdrun'), {})
         web.database().update(self.job['id'], status='failed', gromacs_eta='stale')
-        self.assertNotIn('gromacs_eta', self.client.get('/api/jobs').get_json()[0])
+        self.assertNotIn('gromacs_eta', self.client.get('/api/jobs').get_json()['jobs'][0])
 
     def test_resumed_eta_does_not_fall_back_to_previous_attempt_log(self):
         job = dict(self.job, layout_version=2, run_type='aa_only', resume_in_place=True, resume_count=1)

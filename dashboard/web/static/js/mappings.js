@@ -196,7 +196,7 @@ export function createMappings() {
     const [catalogue, targets, jobs] = await Promise.all([
       cachedApi('/api/mappings/representations', {maxAge: 10000}),
       cachedApi('/api/mappings/validation-targets?molecule_id=' + encodeURIComponent(moleculeId), {maxAge: 10000}).catch(() => ({datasets: []})),
-      cachedApi('/api/jobs?view=summary', {maxAge: 5000}).catch(() => []),
+      cachedApi('/api/jobs?view=summary&limit=100', {maxAge: 5000}).catch(() => ({jobs: []})),
     ]);
     validationModes = catalogue.representations || [];
     representation.replaceChildren(...validationModes.map(item => new Option(item.label, item.id)));
@@ -204,7 +204,7 @@ export function createMappings() {
     validationTargets = targets.datasets || [];
     target.replaceChildren(...validationTargets.map(item => new Option(`${item.id} · ${item.availability || 'available'}`, item.id)));
     source.replaceChildren(new Option('Choose completed source run', ''));
-    for (const job of Array.isArray(jobs) ? jobs : []) {
+    for (const job of jobs.jobs || []) {
       if (job.status === 'completed' && (job.molecule_id === moleculeId || job.detergent === moleculeId)) source.append(new Option(`${job.label || job.id} · ${job.id}`, job.id));
     }
     const launch = $('#launch-carbohydrate-validation');

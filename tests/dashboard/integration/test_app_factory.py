@@ -17,8 +17,8 @@ def test_two_applications_isolate_jobs_models_and_workers(tmp_path):
         mapping = mappings.save_draft(physical_mapping())
         state = bonded_states.create(mapping, 'Only first workspace')
     clients = [app.test_client() for app in apps]
-    assert len(clients[0].get('/api/jobs').json) == 1
-    assert clients[1].get('/api/jobs').json == []
+    assert len(clients[0].get('/api/jobs').json['jobs']) == 1
+    assert clients[1].get('/api/jobs').json['jobs'] == []
     assert second.WORKERS == {} and second.ANALYSIS_WORKERS == {}
     assert len(clients[0].get('/api/bonded-states').json['states']) == 1
     assert clients[1].get('/api/bonded-states').json['states'] == []

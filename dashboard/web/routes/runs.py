@@ -42,9 +42,13 @@ def index():
 
 @blueprint.get('/api/jobs')
 def jobs_api():
+    """One shape for every request form: an object that names the page it answered.
+
+    The bare array this used to return when `page` was absent gave one endpoint two
+    response shapes, and every client had to defend against both.
+    """
     c = coordinator()
     summary = request.args.get('view') == 'summary'
-    if 'page' not in request.args: return jsonify([view_of(c, j, summary=summary) for j in c.database().all()])
     page, limit = pagination()
     rows, total = c.database().page(page, limit, request.args.get('status',''), request.args.get('search','')[:160])
     payload = {'jobs': [view_of(c, j, summary=summary) | {'revision': revision} for j,revision in rows], 'total': total, 'page': page, 'limit': limit}
@@ -191,11 +195,11 @@ def resume_job(jid):
 
 @blueprint.get('/api/jobs/<jid>/artifacts')
 def artifacts_api(jid):
+    """One shape for every request form, as /api/jobs answers: an object naming the page."""
     c = coordinator()
     # Refresh when figures are requested so newly generated diagnostics become visible
     # without waiting for a job-state transition or process restart.
     entries = c.artifact_index(c.lookup(jid), refresh=request.args.get('media') == '1')
-    if 'page' not in request.args: return jsonify(entries)
     page, limit = pagination(); search = request.args.get('search','').lower()
     entries = [e for e in entries if search in e['path'].lower()]
     if request.args.get('media') == '1': entries = [e for e in entries if e['path'].endswith(('.png','.svg','surface-comparison.html'))]
