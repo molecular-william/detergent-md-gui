@@ -95,16 +95,66 @@ Present in code:
 - Bonded-state JSON store, revision API, legacy-fit indexing, confirmation/dependency checks for deletion, fit-only/reuse run intents, short-validation launcher, topology parser, and read-only interaction table/ITP preview.
 - Manual bonded overrides remain available through the advanced JSON editor in CG Bead Assignment and are applied after fitting. `dashboard/models/bonded/` (the interaction library in `__init__.py`) supports circular-harmonic fitting and one override per flexible term.
 
-Code-inspected gaps to address before claiming the full approved bonded workspace is complete:
+Code-inspected gaps, re-checked against the code on 2026-09-25 (Task 8.3 of the architecture
+consolidation). Three of the six are closed and three remain partly open. This section was written
+on 2026-09-21 and is being revised for the first time here, so the text below replaces claims the
+code has since contradicted; every verdict quotes the file:line that supports it.
 
-1. **Interactive editing is unfinished.** CG Bond Interactions has no parameter editing/save-as-new controls. Creating a state produces an incomplete record with no topology. Backend `revise()` appends revisions but does not implement distinct `in_place` semantics. The approved [design](superpowers/specs/2026-09-15-cg-bonded-workspace-design.md) and [plan](superpowers/plans/2026-09-15-cg-bonded-workspace.md) are a backlog, not completion evidence.
-2. **Mapping/state matching and overlay identities:** the workspace state selector lists all states without filtering by mapping identity. Parsed topology labels are B01/B02/etc., while diagram centers are keyed by S1A/S1B/etc.; existing-state term overlays/highlighting need an explicit index-to-mapping translation. Mapping hashes include the candidate name, making renaming relevant to compatibility.
-3. **Virtual-site parsing:** `virtual_sitesn` parents currently appear in generic parameter fields instead of participating bead indices. Fix that before visualizing parent links or exposing editing.
-4. **Preview/load behavior:** the preview updates only when a state is passed to `draw()`. Mapping-only selection can retain stale preview contents. Provisional `[ mapping-only preview ]` / `[ connections ]` text is explanatory, not a GROMACS-ready ITP. Add stale-response protection and explicit async errors.
-5. **Scoring display:** old JSON fallbacks can misclassify constrained pairs; missing expanded values can be rendered as zero in the current JS. Captions must reflect actual reference and metric. Matrix color limits vary with each run's maximum; compare numbers, not color alone. The generic native-matrix caption still oversimplifies the modified score.
-6. **State safety:** payload/topology validation, revision concurrency, and mapping compatibility need stronger tests before exposing general editing. Current storage is JSON, not the SQLite state tables envisaged by the plan. Do not trust a `complete` status alone as scientific validation.
+1. **Interactive editing: closed.** Parameter editing and save-as-new exist -- `bonded.js:159-176`
+   renders a number input per editable term, and the save-as-new button (`dashboard.html:179`) POSTs
+   `interactions`, which `routes/bonded.py:37-41` turns into a real topology with `status='complete'`.
+   A complete state cannot be stored without a topology: `states.py:83-88` rejects `status='complete'`
+   unless `[ moleculetype ]` and `[ atoms ]` are present, pinned by
+   `tests/dashboard/integration/test_bonded_api.py:36-39`. `in_place` is now distinct: `states.py:118-129`
+   copies to a new id carrying `parent_state_id`/`parent_revision`, while `:130-132` appends a revision
+   to the same id. Closed across `479f619`, `b0504e6`, `b5ed4c7`, `967e9ac`. By design,
+   `routes/bonded.py:30-41` still permits a `mapping-only` record (`topology=None`,
+   `status='incomplete'`) when no `interactions` key is sent; no UI path does that.
+2. **Mapping/state matching and overlay identities: partly closed.** The filter and the label
+   matching are in place: `routes/bonded.py:14-16` filters states by `mapping_hash` (the JS sends it,
+   `bonded.js:195`), and the topology's labels are the mapping's bead names (`generation.py:333-336`),
+   which is what the diagram is keyed by (`bonded.js:81-91`) -- the `B01/B02` form survives only as a
+   Fast_Forward torsion data-file label (`bonded/__init__.py:288`). Still open: the mapping identity
+   hashes the candidate *name* (`identity.py:45`) and compatibility compares that identity
+   (`states.py:69,94`, `coordinator.py:439`), so renaming a candidate makes its states vanish from the
+   selector and fails `reuse_state` -- the same beads under names A and B hash to `8e4ca355...` and
+   `2a38cc56...`. The name-free `content_identity` (`identity.py:54-56`) is used for duplicate
+   detection only (`store.py:57`, `routes/mappings.py:78-80`).
+3. **Virtual-site parsing: closed.** `bonded/__init__.py:107-126` parses `virtual_sitesn` into
+   `parents=[...]` with `parameters=[]`, resolving `parent_beads` from `[ atoms ]`; asserted verbatim
+   by `tests/dashboard/unit/test_bonded_states.py:20-32`. The UI keeps them read-only (`bonded.js:36`,
+   `dashboard.html:176`).
+4. **Preview/load behaviour: closed, with one dead element removed.** A mapping-only selection
+   redraws -- `bonded.js:204-218`, reached from `refreshMapping` and the state selector -- stale
+   responses are guarded by a monotonic generation token (`:194-202, 208-210, 224-228, 276`), and
+   async plot errors surface (`bonded-plot.js:16-19,89`). The `[ mapping-only preview ]` text was
+   removed by `b0504e6`. The template's "Generated ITP preview" panel promised a provisional
+   connectivity preview that no script ever wrote, so it displayed "No bonded state loaded." for the
+   life of the page; it was removed with this reconciliation. Residue: `bonded.js:224` returns
+   without clearing the preview when `loadMapping` resolves falsy.
+5. **Scoring display: partly closed.** Captions prefer recorded artifact metadata (`figures.js:63-68`,
+   written by `analysis/worker.py:101` and `analysis/metadata.py:20`, attached at
+   `analysis/runs/observability.py:44-52`; closed by `ac39797`), with the generic legacy caption left
+   as a fallback. Missing values are **not** rendered as zero: `runs-diagnostics.js:21-29` maps
+   `null`/`undefined`/`''` to `'n/a'`. Still open: a diagnostics JSON written before `kind` existed
+   would show a constrained pair as a physical bead, because the route prefers
+   `distance_diagnostics_stratified.json` and falls back to the unstratified file
+   (`routes/analyses.py:75-76`) while the JS defaults an unknown `kind` and infers from a `/VS$/i`
+   name test (`runs-diagnostics.js:18,50-52`); and colour limits remain per-run
+   (`distance_diagnostics.py:30`), so compare numbers rather than colour.
+6. **State safety: partly closed.** Tests now cover in-place versus save-as-new
+   (`test_bonded_states.py:109-121`), a stale `expected_revision` returning 409 (`:137`,
+   `integration/test_bonded_api.py:59`), mapping identity held within a revision (`:105-106`),
+   virtual-site parsing (`:20`), delete-with-references (`:145`), and eleven `topology_from_terms`
+   cases (`test_bonded_generation.py`); the focused bonded suite is 33 passed. Still open: nothing
+   covers `RunConflict`'s "Bonded state does not belong to the selected mapping"
+   (`coordinator.py:439-440`) or `validate_payload`'s complete-topology rejection (`states.py:73-74`),
+   and there is no multi-writer concurrency test beyond stale revisions. Storage remains JSON
+   (`states.py:38-39`, `paths.py:37`): the SQLite state tables the plan envisaged are a recorded
+   decision, not an omission.
 
-These are documented observations, not fixed by this documentation-only handoff. Avoid propagating earlier “implemented” claims beyond what the code and browser demonstrate.
+A `complete` status is an execution fact and never scientific validation; none of the closed items
+above should be read as endorsing a model.
 
 ## Operation, verification, and file ownership
 

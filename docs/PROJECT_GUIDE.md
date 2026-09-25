@@ -280,7 +280,7 @@ dashboard/.venv/bin/python -m pytest \
   tests/dashboard/unit/test_bonded.py \
   tests/dashboard/unit/test_bonded_states.py \
   tests/dashboard/integration/test_mapping_exports.py \
-  tests/dashboard/integration/test_draft_execution.py \
+  tests/dashboard/integration/test_mapping_workspace_api.py \
   -q
 node --check dashboard/web/static/js/main.js
 ```
