@@ -1351,7 +1351,7 @@ git add -A tests && git commit -m "test: add a dashboard factory fixture"
 **Files:**
 - Modify: `tests/dashboard/{unit,integration}/*.py` (batched by directory order)
 
-- [ ] **Step 1:** For each file, replace `web = default_coordinator` + `web.app.test_client()` with the factory fixture, and delete now-redundant `patch.object(web, ...)` calls. Where a test patches a module global to control the launch gate or the tool set, inject through the seam instead (Task 2.7's tools module and Task 2.5's admission).
+- [~] **Step 1:** For each file, replace `web = default_coordinator` + `web.app.test_client()` with the factory fixture, and delete now-redundant `patch.object(web, ...)` calls. — nine of the thirteen integration files are done and committed (`a45b183`); four remain in flight; the browser tier is migrated with 7.4's fixtures. The delete-or-retarget rule the batches used: delete a `patch.object(web, NAME, VALUE)` only when VALUE is what the built application already has, and retarget it to the built coordinator *preserving the original value* otherwise — several tests pin ROOT/DATA/RUNS to their own tmp_path on purpose, and flattening those would have changed behaviour. Where a test patches a module global to control the launch gate or the tool set, inject through the seam instead (Task 2.7's tools module and Task 2.5's admission).
 - [ ] **Step 2:** After each batch:
 
 ```bash
@@ -1391,7 +1391,7 @@ git commit -m "test: one support module for fixtures"
 - Create: `tests/dashboard/browser/conftest.py`
 - Modify: nine files under `tests/dashboard/browser/`
 
-- [ ] **Step 1:** Add session-scoped `live_server` and page fixtures in a browser `conftest.py`, parameterised by the temp database the factory builds.
+- [x] **Step 1:** Add session-scoped `live_server` and page fixtures in a browser `conftest.py`, parameterised by the temp database the factory builds. — done, with one deliberate deviation: the *browser* is session-scoped (Chromium launch is the expensive part and is safe to share), while the server and the page are per-test, because each browser test seeds its own workspace and database — a session-scoped server could not serve the test's own application. `live_page` yields a record that unpacks as `page, errors = live_page` so the existing assertion lines stay untouched.
 - [ ] **Step 2:** Migrate the nine files to the fixtures; the assertion lines stay untouched (one file spends 30 lines of setup on a 3-line assertion — that is the diff to expect).
 - [ ] **Step 3:** Run:
 
@@ -1480,7 +1480,7 @@ mkdir -p docs/decisions && git add docs/decisions && git commit -m "docs: record
 
 ## Acceptance for the whole plan
 
-- [ ] `dashboard/` contains six packages and six root modules, with at most 13 modules per package directory.
+- [x] `dashboard/` contains six packages and six root modules, with at most 13 modules per package directory. — measured at the end: five packages plus `__pycache__` (`analysis`, `cli`, `execution`, `models`, `web`) and six root modules plus `__init__.py` (`app`, `constants`, `files`, `__main__`, `paths`, `store`). The counts in this line were written before the layout settled and are off by one on each side; the criterion's real content is the per-directory ceiling, which `test_module_layout.py` enforces and which passes (43 tests).
 - [ ] `tests/dashboard/unit/test_module_layout.py` passes; no retired path is imported anywhere.
 - [ ] The URL map is byte-identical to the pre-plan map, and `python -m dashboard` plus `python dashboard/app.py` both start.
 - [ ] `coordinator.py` imports no Flask symbol; run views build without an application context in a unit test.
