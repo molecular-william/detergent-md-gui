@@ -13,18 +13,21 @@ import hashlib
 from functools import lru_cache
 from pathlib import Path
 
-from ... import paths
-
 REFERENCE_NAME = 'martini_v3.0.0_sugars_v2.itp'
 PROVENANCE_NAME = 'martini_v3.0.0_sugars_v2.source.json'
 
+# Resolved from this file rather than from dashboard.paths: the sugar package is also shipped whole into
+# the mapping export bundle, where no dashboard package exists above it. `.parents[3]` is the repository
+# root when it runs from the dashboard.
+ROOT = Path(__file__).resolve().parents[3]
+
 
 def reference_path(root=None):
-    return Path(root or paths.DEFAULT.project_root) / 'references' / REFERENCE_NAME
+    return Path(root or ROOT) / 'references' / REFERENCE_NAME
 
 
 def provenance_path(root=None):
-    return Path(root or paths.DEFAULT.project_root) / 'references' / PROVENANCE_NAME
+    return Path(root or ROOT) / 'references' / PROVENANCE_NAME
 
 
 def sha256(root=None):

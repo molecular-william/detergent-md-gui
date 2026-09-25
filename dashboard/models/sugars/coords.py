@@ -1,12 +1,31 @@
 """Sugar-first mapping candidate, coordinate construction and CG edge topology."""
 import itertools
 
-from .recognition import graph, identify_hexoses
+from .identification import identify
+from .recognition import graph, identify_furanoses, identify_hexoses
+
+
+def _ordered_rings(structure, found):
+    """Recognized rings in the order the reference's residues place them.
+
+    The reference's bead letters and its own bond list are expressed in its residue order, so a structure
+    that is unambiguously identified as a whole reference entry is numbered that way. Anything else keeps
+    the recognizers' order, so no candidate outside a reference match changes because of this.
+    """
+    rings = identify_hexoses(structure) + identify_furanoses(structure)
+    if not (found and found.get('entry') and found.get('unambiguous') and found.get('covers_whole_molecule')):
+        return rings
+    by_atoms = {frozenset(ring['atoms']): ring for ring in rings}
+    ordered = [by_atoms.get(frozenset(residue['atoms'])) for residue in found['residues']]
+    if None in ordered or len(ordered) != len(rings):
+        return rings
+    return ordered
 
 
 def candidate(structure, name):
     atoms, adj = graph(structure)
-    sugars = identify_hexoses(structure)
+    found = identify(structure)
+    sugars = _ordered_rings(structure, found)
     if not sugars: return None
     # Each exocyclic O belongs to the higher chemical carbon index; e.g. C4
     # rather than donor C1. A sugar-alkyl ether remains in the sugar A fragment.
@@ -57,12 +76,18 @@ def candidate(structure, name):
         beads.append({'name':f'TAIL{sum(b["name"].startswith("TAIL") for b in beads)+1}',
                       'size':size,'type':typ,'atoms':sorted(group)})
     connections = [[beads[a-1]['name'],beads[b-1]['name']] for a,b in physical_edges({'beads':beads}, structure)]
+    reference_record = None if not found else {
+        'entry': found['entry'], 'stereochemistry': found['stereochemistry'],
+        'unambiguous': found['unambiguous'], 'order_basis': found['order_basis'],
+        'covers_whole_molecule': found['covers_whole_molecule'],
+        'outside_atoms': found['outside_atoms'], 'basis': found['basis']}
     return {'name':f'{name} carbohydrate paper draft', 'beads':beads,'rings':ring_records,
             'connections':connections,'schema_version':2,'source_structure':structure.get('source',''),
             'status':'candidate-unvalidated','martini_version':'3',
-            'algorithm':'Recognized hexopyranose rings; canonical C1→C6 fragments; diols first; higher-carbon bridge ownership; sugar first, then remaining graph.',
+            'reference':reference_record,
+            'algorithm':'Recognized pyranose and furanose rings, numbered in the reference residue order when the connectivity identifies a reference entry; canonical fragment pairs; diols first; higher-carbon bridge ownership; sugar first, then remaining graph.',
             'provenance':{'paper_doi':'10.1021/acs.jctc.2c00757','sugar_topology':'references/martini_v3.0.0_sugars_v2.itp'},
-            'limitations':['Hexopyranose template only; other sugars use the generic draft fallback',
+            'limitations':['Templates cover hexopyranoses and hydroxymethyl furanoses; other carbohydrate classes are refused rather than drafted',
                             'Glycosidic stereochemistry and sugar–alkyl linkage require AA bonded fitting',
                             'SP1r sugar–alkyl ether assignment is a transferability hypothesis; validate partitioning']}
 
