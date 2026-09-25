@@ -22,6 +22,71 @@ def _ordered_rings(structure, found):
     return ordered
 
 
+def _walk(atoms, adjacency, component):
+    """Component atoms in connectivity order, starting from an endpoint when one exists."""
+    if len(component) == 1:
+        return [next(iter(component))]
+    endpoints = sorted(node for node in component if len(adjacency[node] & component) <= 1)
+    order = [endpoints[0] if endpoints else min(component)]
+    seen = {order[0]}
+    while len(order) < len(component):
+        following = sorted((adjacency[order[-1]] & component) - seen)
+        if not following: break
+        order.append(following[0]); seen.add(following[0])
+    return order + sorted(component - seen)
+
+
+def _balanced(order):
+    """Split a component into ceil(n/4) groups as equal in size as possible."""
+    count = max(1, -(-len(order) // 4))
+    base, extra = divmod(len(order), count)
+    groups, start = [], 0
+    for index in range(count):
+        size = base + (1 if index < extra else 0)
+        groups.append(order[start:start + size]); start += size
+    return groups
+
+
+def remainder_beads(atoms, adjacency, assigned):
+    """Beads for the heavy atoms no ring claimed, named for the chemistry they actually carry.
+
+    A pure-carbon acyclic component is an alkyl TAIL, a component carrying a heteroatom is a LINK, a
+    component containing a ring is a RING the templates did not cover, and a single isolated atom is
+    reported as itself. Each component is divided into as few beads as the four-heavy-atom convention
+    allows and the division is balanced, so a chain never ends in a one-atom bead -- which is what
+    produced a lone oxygen named TAIL3 for sucrose. Returns the beads and the notes the candidate must
+    carry, because a RING here is an admission rather than a result.
+    """
+    remaining = set(atoms) - set(assigned)
+    beads, notes, counts = [], [], {}
+    while remaining:
+        seed = min(remaining)
+        component = {seed}; frontier = [seed]
+        while frontier:
+            node = frontier.pop()
+            for neighbour in sorted(adjacency[node] & remaining):
+                if neighbour not in component:
+                    component.add(neighbour); frontier.append(neighbour)
+        remaining -= component
+        edges = sum(len(adjacency[node] & component) for node in component) // 2
+        prefix = ('RING' if edges >= len(component)
+                  else 'LINK' if any(atoms[node]['element'] != 'C' for node in component) else 'TAIL')
+        for group in _balanced(_walk(atoms, adjacency, component)):
+            counts[prefix] = counts.get(prefix, 0) + 1
+            size = 'R' if len(group) >= 4 else 'S' if len(group) == 3 else 'T'
+            apolar = all(atoms[node]['element'] == 'C' for node in group)
+            beads.append({'name': f'{prefix}{counts[prefix]}', 'size': size,
+                          'type': ('' if size == 'R' else size) + ('C1' if apolar else 'P1'),
+                          'atoms': sorted(group)})
+        if prefix == 'RING':
+            notes.append(f'{len(component)} heavy atoms form a ring the templates do not cover; it is '
+                         f'drafted as {prefix}{counts[prefix]} and needs a verified template')
+        elif len(component) == 1:
+            notes.append(f'a single heavy atom is not a fragment: {prefix}{counts[prefix]} holds atom '
+                         f'{sorted(component)[0]} alone and needs review')
+    return beads, notes
+
+
 def candidate(structure, name):
     atoms, adj = graph(structure)
     found = identify(structure)
@@ -61,20 +126,8 @@ def candidate(structure, name):
         ring_records.append({'beads':names,'virtual_site':vs,'carbons':r['carbons'],
                              'ring_oxygen':r['oxygen'],'scale':1.15})
     # Remaining components are handled only after sugar/linker ownership is fixed.
-    remaining = set(atoms) - assigned
-    while remaining:
-        endpoints = [a for a in remaining if len(adj[a] & remaining) <= 1]
-        seed = min(endpoints or remaining)
-        group = {seed}; remaining.remove(seed)
-        while len(group) < 4:
-            frontier = set().union(*(adj[a] for a in group)) & remaining
-            if not frontier: break
-            nxt = min(frontier); group.add(nxt); remaining.remove(nxt)
-        size = 'R' if len(group) >= 4 else 'S' if len(group) == 3 else 'T'
-        apolar = all(atoms[a]['element'] == 'C' for a in group)
-        typ = ('' if size == 'R' else size) + ('C1' if apolar else 'P1')
-        beads.append({'name':f'TAIL{sum(b["name"].startswith("TAIL") for b in beads)+1}',
-                      'size':size,'type':typ,'atoms':sorted(group)})
+    remaining_beads, remainder_notes = remainder_beads(atoms, adj, assigned)
+    beads.extend(remaining_beads)
     connections = [[beads[a-1]['name'],beads[b-1]['name']] for a,b in physical_edges({'beads':beads}, structure)]
     reference_record = None if not found else {
         'entry': found['entry'], 'stereochemistry': found['stereochemistry'],
@@ -89,7 +142,7 @@ def candidate(structure, name):
             'provenance':{'paper_doi':'10.1021/acs.jctc.2c00757','sugar_topology':'references/martini_v3.0.0_sugars_v2.itp'},
             'limitations':['Templates cover hexopyranoses and hydroxymethyl furanoses; other carbohydrate classes are refused rather than drafted',
                             'Glycosidic stereochemistry and sugar–alkyl linkage require AA bonded fitting',
-                            'SP1r sugar–alkyl ether assignment is a transferability hypothesis; validate partitioning']}
+                            'SP1r sugar–alkyl ether assignment is a transferability hypothesis; validate partitioning'] + remainder_notes}
 
 
 def coordinates(data, positions, atom_ids=None, scaled=False, representation_mode=None):
