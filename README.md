@@ -39,6 +39,33 @@ testing.
 ## Roadmap
 The following work is documented but not yet implemented.
 
+### Open engineering items after the 2026-09-24 consolidation
+The consolidation plan (docs/superpowers/plans/2026-09-24-architecture-consolidation.md) is complete
+except for one task, and its acceptance checklist is answered with measurements. What is still open,
+and where the evidence for each one lives:
+
+- **Attempt lifecycle not yet adopted.** `dashboard/execution/coordination/attempt.py` is implemented
+  and tested, but `workflow.run`, `Coordinator.run_job` and `AnalysisCoordinator.run` still keep their
+  own write policies (a manifest entry, a database row, and deferred locals written in a `finally`).
+  The obstacle at each site is recorded at Task 6.3 of the plan. Adopt `AnalysisCoordinator.run`
+  first, or delete the module and record that the three loops differ in substance.
+- **Mapping identity includes the candidate name**, and run admission compares that identity, so
+  renaming a candidate orphans its fitted bonded states. The name-free `content_identity` exists and
+  is used only for duplicate detection. See item 2 of the reconciled gaps in DDM_CALIBRATION.md; the
+  state side is fixed (a state records both hashes and compatibility asks the chemistry), the
+  selector's filter still matches on the candidate hash and needs the candidate list to publish a
+  content identity for the browser to send.
+- **Legacy diagnostics rendering.** A diagnostics JSON written before `kind` existed would show a
+  constrained pair as a physical bead, and matrix colour limits remain per-run. See item 5 of the
+  same section.
+- **Two run paths are declared, not implemented:** `cg_composition` runs are a screening stub
+  (they declare `execution_kind`), and the Sucrose mapping path is provisional with a one-ring
+  recognizer. Both are documented as such rather than presented as finished.
+- **Browser tier timing.** The one reproducible flake is fixed -- a 5 s expectation used as a load
+  wait -- and the reason is recorded in tests/dashboard/browser/conftest.py. The fix is verified, but
+  the failure needed a busy machine to appear, so treat a future failure in
+  `test_dashboard_browser.py` as the same class until proven otherwise.
+
 ### Iterative mapping refinement panel
 A fourth dashboard panel that manages candidate generation and evidence without changing immutable runs or silently selecting a model. It is a review queue linking a mapping candidate, its source structure/reference model, execution settings, analysis artifacts, and reviewer decision.
 
