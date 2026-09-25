@@ -13,7 +13,7 @@ target-version = "py312"
 # entry is ~380 characters). 160 is a ceiling the majority of the code already meets, which keeps
 # the E501 signal meaningful instead of drowning every other finding.
 line-length = 160
-exclude = ["dashboard/.venv", "archive", "references", "resources", "tools", "workspace"]
+exclude = [".venv", "dashboard/.venv", "archive", "references", "resources", "tools", "workspace"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
