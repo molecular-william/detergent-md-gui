@@ -266,6 +266,59 @@ def render_itp(result: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def preview_geometry(result: dict) -> dict:
+    """Per-fragment CG bead positions for the combined-geometry panel.
+
+    The tail's positions are the recipe's own (`tail['coordinates']`, which `render_gro` writes too).
+    The head's are a *layout* from its bead set: the composition catalog does not carry the sugar's
+    reference positions, so drawing them would be inventing a structure. The joined view translates the
+    tail so its endpoint sits beside the head's, which is a preview arrangement -- nothing is minimised,
+    and this is the mapped CG molecule, not the atomistic one.
+    """
+    import math
+    tail = result["tail"]
+    mapping_beads = result["mapping"]["beads"]
+    tail_names = [bead["name"] for bead in tail["beads"]]
+    by_name = {bead["name"]: bead for bead in mapping_beads}
+    head_names = [bead["name"] for bead in mapping_beads
+                  if bead["name"] not in tail_names and not bead.get("virtual_site")]
+    head_beads = []
+    for index, bead_name in enumerate(head_names):
+        angle = 2 * math.pi * index / max(1, len(head_names))
+        head_beads.append({"name": bead_name, "type": by_name[bead_name].get("type"),
+                           "size": by_name[bead_name].get("size"),
+                           "position": [round(0.35 * math.cos(angle), 3), round(0.35 * math.sin(angle), 3), 0.0]})
+    tail_beads = [{"name": bead["name"], "type": bead["type"],
+                   "size": "R" if bead.get("mass", 0) >= 50 else "S",
+                   "position": [float(value) for value in coordinate]}
+                  for bead, coordinate in zip(tail["beads"], tail["coordinates"])]
+
+    def edges_within(names):
+        wanted = set(names)
+        return [[term["a"], term["b"]] for term in result["topology"]["bonds"]
+                if term["a"] in wanted and term["b"] in wanted]
+
+    head_set, tail_set = set(head_names), set(tail_names)
+    link = next(([term["a"], term["b"]] for term in result["topology"]["bonds"]
+                 if (term["a"] in head_set and term["b"] in tail_set)
+                 or (term["b"] in head_set and term["a"] in tail_set)), [])
+    offset = [0.0, 0.0, 0.0]
+    if link:
+        head_at = next((bead["position"] for bead in head_beads if bead["name"] == link[0]), [0.0, 0.0, 0.0])
+        tail_at = next((bead["position"] for bead in tail_beads if bead["name"] == link[1]), [0.0, 0.0, 0.0])
+        offset = [head_at[index] + (0.47 if index == 0 else 0.0) - tail_at[index] for index in range(3)]
+    joined = head_beads + [{**bead, "position": [round(bead["position"][index] + offset[index], 3)
+                                                 for index in range(3)]} for bead in tail_beads]
+    return {
+        "head": {"beads": head_beads, "edges": edges_within(head_names)},
+        "tail": {"beads": tail_beads, "edges": edges_within(tail_names)},
+        "joined": {"beads": joined, "edges": edges_within(head_names + tail_names), "link": link},
+        "link": {"head_bead": link[0] if link else "", "tail_bead": link[1] if link else ""},
+        "basis": ("Head positions are a layout from its bead set; tail positions come from the recipe. "
+                  "Nothing is minimised, and this is the mapped CG molecule rather than the atomistic one."),
+    }
+
+
 def render_gro(result: dict) -> str:
     atoms = result["topology"]["atoms"]
     tail_coordinates = result["tail"]["coordinates"]

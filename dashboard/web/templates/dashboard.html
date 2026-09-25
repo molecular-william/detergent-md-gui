@@ -157,7 +157,12 @@
     </section>
     <section class="card composition-preview" aria-labelledby="composition-preview-title">
       <h3 id="composition-preview-title">Combined geometry</h3>
-      <div id="composition-plot" class="composition-plot" role="img" aria-label="Combined CG bead preview"></div>
+      <div class="composition-plots">
+        <div id="composition-plot-head" class="composition-plot" role="img" aria-label="CG sugar headgroup beads"></div>
+        <div id="composition-plot-tail" class="composition-plot" role="img" aria-label="CG tail beads"></div>
+      </div>
+      <div id="composition-plot-joined" class="composition-plot composition-plot-joined" role="img" aria-label="Joined CG beads with the linkage highlighted"></div>
+      <p id="composition-geometry-basis" class="hint"></p>
       <div id="composition-diagnostics" class="composition-diagnostics" aria-live="polite">Choose the fragments and preview the candidate.</div>
     </section>
     <aside class="card composition-provenance" aria-labelledby="composition-provenance-title">

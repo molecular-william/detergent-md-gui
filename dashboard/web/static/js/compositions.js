@@ -1,4 +1,5 @@
 import { $, cachedApi, post, setText, storage } from './shared.js';
+import { mountBondedPlot } from './bonded-plot.js';
 
 export function createCompositions({ openBondedModel, openCompositionRun }) {
   const host = $('#compositions');
@@ -8,6 +9,39 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
   const name = $('#composition-display-name'), previewButton = $('#composition-preview');
   const saveButton = $('#composition-save'), openBonded = $('#composition-open-bonded'), startRun = $('#composition-start-run');
   let catalog = null, lastPreview = null, saved = null, generation = 0, mounted = false;
+  const plots = {};
+
+  function plotFor(key) {
+    // Created on first paint: this tab is hidden at load, and Plotly sizes itself to its element.
+    if (!plots[key]) plots[key] = mountBondedPlot($('#composition-plot-' + key), {
+      onBeadSelection: names => chooseEndpoint(key, names),
+    });
+    return plots[key];
+  }
+
+  function chooseEndpoint(which, names) {
+    // Clicking a bead in either fragment panel picks the bead the linkage attaches to, which is what
+    // the two endpoint dropdowns already mean -- so the choice is a click rather than a lookup.
+    if (which === 'joined') return;
+    const name = names[names.length - 1];
+    const select = $(which === 'head' ? '#composition-head-endpoint' : '#composition-tail-endpoint');
+    if (!name || !select || ![...select.options].some(option => option.value === name)) return;
+    select.value = name;
+    paint(lastPreview);
+  }
+
+  function paint(result) {
+    const basis = $('#composition-geometry-basis');
+    const geometry = result?.geometry;
+    for (const key of ('head', 'tail', 'joined')) plotFor(key).render({});
+    if (!geometry) { if (basis) basis.textContent = 'Preview geometry appears here.'; return; }
+    const link = [geometry.link.head_bead, geometry.link.tail_bead];
+    // The two linkage beads are painted red by the plotter's selection colour, in both panel and join.
+    plotFor('head').render({beads: geometry.head.beads, edges: geometry.head.edges, selectedBeads: [geometry.link.head_bead]});
+    plotFor('tail').render({beads: geometry.tail.beads, edges: geometry.tail.edges, selectedBeads: [geometry.link.tail_bead]});
+    plotFor('joined').render({beads: geometry.joined.beads, edges: geometry.joined.edges, selectedBeads: link});
+    if (basis) basis.textContent = geometry.basis;
+  }
   const selectedSugar = () => catalog?.sugars.find(item => item.id === sugar.value);
   function options(select, values, label = x => x.name || x.id) {
     select.replaceChildren(...values.map(item => new Option(label(item), item.id)));
@@ -25,11 +59,7 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
       source_sha256: selectedSugar()?.source_sha256};
   }
   function renderPlot(result) {
-    const host = $('#composition-plot'); host.replaceChildren();
-    const beads = result?.mapping?.beads || [];
-    if (!beads.length) { host.textContent = 'Preview geometry appears here.'; return; }
-    const points = beads.map((bead, index) => `<span class="composition-bead composition-${bead.name.startsWith('C') ? 'tail' : 'head'}" style="left:${12 + (index % 7) * 12}%;top:${25 + Math.floor(index / 7) * 28}%" title="${bead.name} · ${bead.type}">${bead.name}</span>`).join('');
-    host.innerHTML = `<div class="composition-canvas" aria-label="${beads.length} coarse-grained beads">${points}</div>`;
+    paint(result);
   }
   function renderDiagnostics(result) {
     const target = $('#composition-diagnostics');

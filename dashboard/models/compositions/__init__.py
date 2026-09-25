@@ -58,6 +58,7 @@ def catalog(project_root=None):
 def preview(payload, project_root=None):
     result = composition_topology.build_preview(payload, Path(project_root or ROOT))
     composition_topology.validate_preview(result)
+    result['geometry'] = composition_topology.preview_geometry(result)
     return result
 
 
