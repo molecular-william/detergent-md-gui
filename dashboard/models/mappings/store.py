@@ -11,6 +11,7 @@ import uuid
 from ... import paths
 from .context import as_structure
 from ..molecules.packaged import SOURCE, molecule
+from . import verdict
 from .graph import require_usable, validate
 from .schema import check_schema, mapping_identity, mapping_content_identity
 from ..repository import JsonRepository
@@ -77,7 +78,7 @@ def list_candidates(summary=False, *, context=None):
 def save_draft(data, *, context=None):
     validation = validate(data, context=context, allow_partial=bool(data.get('schema_version') == 3))
     if data.get('schema_version') == 3 and not validation['can_save']:
-        raise ValueError('Cannot save malformed mapping: ' + '; '.join(item['message'] for item in validation['issues'] if item['code'] in {'duplicate', 'unknown', 'hydrogen', 'name', 'virtual_ring'}))
+        raise ValueError('Cannot save malformed mapping: ' + '; '.join(item['message'] for item in verdict.blocking(validation['issues'], 'can_save')))
     draft = {k: data[k] for k in ('name', 'beads', 'rings', 'connections', 'bonded_options', 'bonded_overrides', 'schema_version', 'provenance', 'limitations', 'molecule_id', 'molecule_snapshot') if k in data}
     if isinstance(data.get('algorithm'), str): draft['algorithm'] = data['algorithm'][:2000]
     draft.update(status='candidate-unvalidated', martini_version='3',
@@ -116,8 +117,8 @@ def record_review(data, state, reviewer='', notes='', *, context=None):
     if state not in ('draft', 'needs-review', 'approved', 'rejected'):
         raise ValueError('Invalid review state')
     check_schema(data, allow_empty=bool(data.get('schema_version') == 3)); validation = validate(data, context=context, allow_partial=bool(data.get('schema_version') == 3))
-    if state == 'approved' and not validation['checks_passed']:
-        raise ValueError('Cannot approve mapping: ' + '; '.join(item['message'] for item in validation['issues']))
+    if state == 'approved' and not validation['can_approve']:
+        raise ValueError('Cannot approve mapping: ' + '; '.join(item['message'] for item in verdict.blocking(validation['issues'], 'can_approve')))
     source = data.get('file', data.get('name', 'candidate'))
     safe = re.sub(r'[^A-Za-z0-9_.-]', '_', str(source))[:120]
     storage_root().mkdir(parents=True, exist_ok=True)

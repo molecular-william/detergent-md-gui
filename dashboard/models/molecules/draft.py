@@ -5,6 +5,7 @@ import math
 from pathlib import Path
 from ... import paths
 from .. import sugars as carbohydrates, mappings
+from ..mappings import verdict
 from ..mappings.context import as_structure, build_context
 
 CANDIDATE = mappings.SOURCE / 'mapping_candidate_smoke.json'
@@ -28,15 +29,10 @@ def load(data=None, *, molecule_root=None):
     selected = data is not None
     data = json.loads(json.dumps(data)) if selected else json.loads(CANDIDATE.read_text())
     validation = mappings.validate(data, structure=_structure_for(data, molecule_root))
-    # Bead-size and nominal-representation checks describe Martini's coarse
-    # mass convention. They are useful review warnings, but do not make a
-    # structurally complete mapping unrunnable (for example, removing ring
-    # virtual sites changes the nominal count by design). Missing, duplicate,
-    # disconnected, unknown, hydrogen, and topology-consistency issues remain
-    # execution blockers.
-    advisory = {'size', 'mismatch'}
-    blockers = [x['message'] for x in validation['issues']
-                if x['code'] not in advisory and (selected or x['code'] != 'size')]
+    # Which findings block a run is the verdict's decision, not this loader's: an advisory
+    # describes Martini's coarse mass convention (removing ring virtual sites changes the
+    # nominal count by design), while the rest mark a graph that cannot run.
+    blockers = [item['message'] for item in verdict.blocking(validation['issues'], 'can_reuse')]
     force_field = mappings.ROOT / 'resources/templates/small_mols_fast_forward/3_initial_CG/martini_v3.0.0.itp'
     section = ''
     types = set()

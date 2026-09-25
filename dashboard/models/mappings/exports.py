@@ -6,6 +6,7 @@ import json
 from .. import sugars as carbohydrates
 from .context import as_structure
 from ..molecules.packaged import ROOT, SOURCE, molecule
+from . import verdict
 from .graph import require_usable, validate
 
 
@@ -54,8 +55,7 @@ def export_files(data, *, context=None):
                 'model.json': json.dumps(record, indent=2), 'README.txt': readme}
     structure = molecule()
     validation = validate(data, structure)
-    blockers = [item['message'] for item in validation['issues']
-                if item['code'] in {'missing', 'duplicate', 'unknown', 'hydrogen', 'empty', 'name', 'virtual_ring', 'connections', 'sugar_fragment'}]
+    blockers = [item['message'] for item in verdict.blocking(validation['issues'], 'can_export')]
     if blockers:
         raise ValueError('Cannot export ambiguous assignments: ' + '; '.join(blockers))
     atoms = {a['id']: a for a in structure['atoms']}
