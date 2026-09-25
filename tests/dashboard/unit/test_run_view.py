@@ -148,3 +148,13 @@ def test_tail_returns_the_end_of_a_log_and_nothing_for_a_missing_one(tmp_path):
     log.write_text('a' * 100 + 'END')
     assert views.tail(log, limit=3) == 'END'
     assert views.tail(tmp_path / 'absent.log') == ''
+
+
+def test_a_screening_stub_says_so_in_the_view(tmp_path):
+    """The Runs tab must not present a stub as a completed simulation."""
+    from dashboard.web import views
+    job = {'id': 'a' * 12, 'status': 'completed', 'run_type': 'cg_composition',
+           'execution_kind': 'screening-stub'}
+    assert views.run_view(job, run_dir=tmp_path, summary=True)['execution_note'] == 'screening stub — no MD executed'
+    plain = views.run_view({**job, 'execution_kind': None}, run_dir=tmp_path, summary=True)
+    assert 'execution_note' not in plain, 'only a run that declares itself a stub says so'

@@ -92,6 +92,10 @@ export function createRuns({ onClone, onDeleted }) {
       setText($('.job-status', card), job.status === 'cancelling' ? 'Cancelling…' : job.status);
       $('.job-status', card).dataset.status = job.status;
       setText($('.job-stage', card), job.stage || 'Queued');
+      // A run that declared itself a stub says so on the card, next to the status it
+      // would otherwise share with a run that really executed the stage.
+      const note = $('.execution-note', card);
+      note.hidden = !job.execution_note; setText(note, job.execution_note || '');
       setText($('.job-elapsed', card), duration(job.elapsed_seconds));
       const eta = job.status !== 'running' ? '—' : job.gromacs_eta ? `GROMACS: ${job.gromacs_eta}` : job.gromacs_remaining_seconds !== undefined ? `GROMACS: ${duration(job.gromacs_remaining_seconds)} remaining` : 'Waiting for GROMACS estimate';
       setText($('.job-eta', card), eta);

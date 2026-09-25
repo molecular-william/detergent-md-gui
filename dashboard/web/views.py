@@ -24,7 +24,7 @@ from ..execution.coordination.manifest import stage_log_path as resolve_stage_lo
 VISIBLE_FIELDS = frozenset((
     'id','label','detergent','molecule_name','molecule_id','method','profile',
     'status','stage','created','started_at','ended_at','error',
-    'artifact_revision','run_type',
+    'artifact_revision','run_type','execution_kind',
 ))
 HIDDEN_FIELDS = frozenset((
     'pid','gromacs_eta','gromacs_remaining_seconds','eta_minutes','stage_estimate_minutes',
@@ -159,6 +159,9 @@ def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, co
     manifest = manifest or {}
     result.update(ownership or {})
     result['analyses'] = analysis_view(job, summary)
+    if result.get('execution_kind') == 'screening-stub':
+        # A stub must not be read as a completed simulation anywhere it is displayed.
+        result['execution_note'] = 'screening stub — no MD executed'
     stages, workflow_stages = stage_view(job, manifest)
     result['stages'] = stages
     result['workflow_stages'] = workflow_stages

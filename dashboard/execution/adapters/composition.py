@@ -22,11 +22,11 @@ from ..stages import Stage, stage_tables
 
 STAGE_DEFS = (
     Stage('CG simulation', '1_CG-simulation/cg_simulation.sh',
-          ('../composition.gro', '../composition.itp'), ('cg.gro', 'cg.xtc')),
+          ('../composition.gro', '../composition.itp'), ('cg.gro', 'screening.json')),
     Stage('CG assessment', '2_CG-assessment/assess.sh',
           ('../1_CG-simulation/cg.gro', '../composition.itp'), ('validation.json',)),
     Stage('CG SASA', '3_CG-SASA/sasa.sh',
-          ('../1_CG-simulation/cg.gro',), ('sasa.xvg',)),
+          ('../1_CG-simulation/cg.gro',), ('sasa.json',)),
 )
 STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS = stage_tables(STAGE_DEFS)
 VERSION = 'cg-composition-v1'
@@ -58,15 +58,24 @@ def prepare_run(run_dir: Path, composition_id: str, settings=None) -> None:
         script = stages / relative
         script.parent.mkdir(parents=True, exist_ok=True)
         if name == 'CG simulation':
-            script.write_text('#!/usr/bin/env bash\nset -euo pipefail\ncp ../composition.gro cg.gro\nprintf "composition CG screening\\n" > cg.xtc\n')
+            script.write_text('#!/usr/bin/env bash\nset -euo pipefail\n'
+                              '# Screening stub: the prepared geometry is copied and nothing integrates it.\n'
+                              'cp ../composition.gro cg.gro\n'
+                              'printf \'{"stage":"CG simulation","executed":false,"execution_kind":"screening-stub"}\\n\' > screening.json\n')
         elif name == 'CG assessment':
-            script.write_text('#!/usr/bin/env bash\nset -euo pipefail\nprintf \'{"status":"screened","scientifically_validated":false}\\n\' > validation.json\n')
+            script.write_text('#!/usr/bin/env bash\nset -euo pipefail\n'
+                              'printf \'{"status":"screened","executed":false,"execution_kind":"screening-stub","scientifically_validated":false}\\n\' > validation.json\n')
         else:
-            script.write_text('#!/usr/bin/env bash\nset -euo pipefail\nprintf "# composition CG SASA screening\\n" > sasa.xvg\n')
+            script.write_text('#!/usr/bin/env bash\nset -euo pipefail\n'
+                              'printf \'{"stage":"CG SASA","executed":false,"execution_kind":"screening-stub"}\\n\' > sasa.json\n')
         script.chmod(0o755)
     for name in ('composition.gro', 'composition.itp', 'mapping.json', 'bonded-state.json'):
         shutil.copy2(artifact_root / name, stages / name)
     metadata = {'run_type': 'cg_composition', 'workflow_version': VERSION,
+                'execution_kind': 'screening-stub',
+                'limitations': ['Composition screening is a stub: the prepared scripts copy the '
+                                'composition geometry and write declaration files. No GROMACS MD, '
+                                'assessment or SASA was executed, and no trajectory or plot exists.'],
                 'composition_id': composition_id, 'composition_snapshot_sha256': record['snapshot_hash'],
                 'composition_identity': record['identity'], 'scientifically_validated': False,
                 'stage_plan': [name for name, _ in STAGES], 'settings': settings or {}}
