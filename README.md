@@ -62,9 +62,11 @@ and where the evidence for each one lives:
   (they declare `execution_kind`), and the Sucrose mapping path is provisional with a one-ring
   recognizer. Both are documented as such rather than presented as finished.
 - **Browser tier timing.** The one reproducible flake is fixed -- a 5 s expectation used as a load
-  wait -- and the reason is recorded in tests/dashboard/browser/conftest.py. The fix is verified, but
-  the failure needed a busy machine to appear, so treat a future failure in
-  `test_dashboard_browser.py` as the same class until proven otherwise.
+  wait -- and the reason is recorded in tests/dashboard/browser/conftest.py. The tally: before, three
+  failures in about seventeen tier runs; after, twenty-one consecutive clean runs (one from the loop
+  that was still in flight when the fix landed was the last failure). That is a rate no longer
+  observable, not a proof, so treat a future failure in `test_dashboard_browser.py` as this class
+  until shown otherwise.
 
 ### Iterative mapping refinement panel
 A fourth dashboard panel that manages candidate generation and evidence without changing immutable runs or silently selecting a model. It is a review queue linking a mapping candidate, its source structure/reference model, execution settings, analysis artifacts, and reviewer decision.
