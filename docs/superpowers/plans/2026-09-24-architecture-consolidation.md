@@ -1196,9 +1196,16 @@ git add -A dashboard tests && git commit -m "fix: composition state ids resolve 
 - Modify: `dashboard/execution/workflow.py:253-337`, `coordination/coordinator.py:388-491`, `coordination/analysis_coordinator.py:108-146`
 - Test: `tests/dashboard/unit/test_attempt.py`
 
-- [ ] **Step 1:** Write the failing test: `attempt()` yields a record, writes `status='running'` on entry, converts an exception into `status='failed'` with the message, converts `Cancelled` into `status='cancelled'`, and always calls the `finally` hook exactly once.
-- [ ] **Step 2:** Run it. Expected: FAIL.
+- [x] **Step 1:** Write the failing test: `attempt()` yields a record, writes `status='running'` on entry, converts an exception into `status='failed'` with the message, converts `Cancelled` into `status='cancelled'`, and always calls the `finally` hook exactly once.
+- [x] **Step 2:** Run it. Expected: FAIL. — Done: `tests/dashboard/unit/test_attempt.py`, 6 tests, RED then GREEN.
 - [ ] **Step 3:** Implement the context manager, then adopt it in all three call sites, keeping each site's existing fields and ordering of writes (manifests are evidence; do not reorder key writes without checking the resume tests).
+
+  `dashboard/execution/coordination/attempt.py` is implemented and tested (`attempt(record, *, update, running=None, on_exit=None)`), but **not yet adopted** — the three sites are not interchangeable, and each needs its write policy translated explicitly:
+
+  - `analysis_coordinator.run` (adopt first; the closest fit): its entry write carries `started_at`/`command`/`environment`/`log` (`running=`), its failure write carries `ended_at`/`error`/`exit_code`, and its success write carries `exit_code=0`/`outputs`/**`result` — values computed inside the body, so the site needs a small holder the body fills before the manager's success write.
+  - `workflow.run`: the reuse path sets `status='reused'` and `continue`s, which a context manager sees as a *successful* block and would overwrite with `completed`. Translate by having the site's `update` keep a record that already reached a terminal status, and keep the run-level `data['status']`/`data['error']` writes and the `fp.write` failure line in that same function.
+  - `coordinator.run_job`: keeps `status`/`error` locals, writes them once in the `finally`, and overrides them there from `worker.limit_error`. Its `update` must therefore write the locals and leave the single terminal write to `on_exit`, or the limit-error override will land after the record was already written.
+
 - [ ] **Step 4:** Run:
 
 ```bash
