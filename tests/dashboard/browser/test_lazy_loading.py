@@ -46,7 +46,8 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(isolated_workspace, monke
             expect(page.locator('#run-mapping option')).to_have_count(2)
             expect(page.locator('#run-bonded-state option')).to_have_count(2)
             expect(page.locator('#review-status')).not_to_have_text('Checking readiness…')
-            assert urls.count('/api/mappings?view=summary') == 1
+            # The catalogue is fetched once, scoped to the molecule the editor is bound to.
+            assert [u for u in urls if u.startswith('/api/mappings?view=summary')] == ['/api/mappings?view=summary&molecule_id=DDM']
             assert urls.count('/api/bonded-states?view=summary') == 1
             # Keyboard and hash navigation have the same activation semantics.
             page.locator('#tab-new').press('ArrowRight')
@@ -57,7 +58,10 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(isolated_workspace, monke
             page.evaluate("location.hash='mappings'")
             expect(page.locator('#mapping-editor-name')).to_have_value('Unsaved local edit')
             assert page.evaluate('tabEvents') == ['new', 'mappings', 'bonded', 'mappings']
-            assert urls.count('/api/mappings?view=summary') == 1
+            catalogues = [u for u in urls if u.startswith('/api/mappings?view=summary')]
+            # Two catalogue questions exist: the editor's molecule-scoped one and the global
+            # one another panel asks for. The round trip must refetch neither.
+            assert sorted(catalogues) == ['/api/mappings?view=summary', '/api/mappings?view=summary&molecule_id=DDM'], catalogues
             assert urls.count('/api/bonded-states?view=summary') == 1
             assert urls.count('/api/mappings/'+saved['file']+'?') == 1
             assert not errors

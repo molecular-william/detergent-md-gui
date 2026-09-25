@@ -123,7 +123,11 @@ class OperationsTests(unittest.TestCase):
                     time.sleep(.025)
                 began=time.monotonic()
                 self.assertEqual(self.client.get('/api/jobs?page=1').status_code,200)
-                self.assertLess(time.monotonic()-began,1)
+                # The worker holds the job lock while its command runs, and that command is
+                # a 60 s sleep, so the read either does not wait for the lock or waits a
+                # minute. A bound of 30 s says that without the 1 s knife edge that made
+                # this a load-dependent failure.
+                self.assertLess(time.monotonic()-began,30,'the read waited for the analysis worker lock')
                 other=dict(self.job,id='abcdef123456',status='running'); web.database().insert(other)
                 worker=web.Worker(); web.WORKERS[other['id']]=worker
                 self.assertEqual(self.client.post('/control/'+other['id']+'/cancel').status_code,202)
