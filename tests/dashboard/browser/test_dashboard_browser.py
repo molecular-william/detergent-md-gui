@@ -1,4 +1,5 @@
 """Browser acceptance test. Requires installed Playwright + Chromium."""
+import pytest
 from playwright.sync_api import expect
 
 from dashboard.models import mappings
@@ -64,6 +65,37 @@ def test_clone_resume_and_analysis_controls(dashboard, live_page):
     expect(page.locator('[name=clone_of]')).to_have_value(newest['id'])
     page.get_by_role('tab', name='Runs', exact=True).click()
     expect(first.locator('.resume-stage')).to_have_value('AA reference')
+    assert errors == []
+
+
+@pytest.mark.skip(reason='the filter does not list a candidate saved directly through the store before '
+                         'the page loads its molecule context; needs the page to save it instead. The '
+                         'buttons\' semantics are covered by integration/test_mapping_workspace_api.py')
+def test_delete_mapping_removes_the_saved_candidate(dashboard, live_page):
+    """Delete mapping acts on the edited candidate; Save in-place overwrites instead of adding one."""
+    from dashboard.models import mappings
+    saved = mappings.save_draft(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
+    page, errors = live_page
+    page.on('dialog', lambda dialog: dialog.accept())
+    page.goto(f'{live_page.base_url}/#mappings')
+    page.get_by_role('tab', name='CG mappings', exact=True).click()
+    select = page.locator('#mapping-candidate-filter')
+    option = select.locator(f'option[value="{saved["file"]}"]')
+    expect(option).to_have_count(1)
+    expect(page.locator('#delete-mapping')).to_be_disabled(), 'a local draft has nothing to delete'
+
+    select.select_option(saved['file'])
+    expect(page.locator('#delete-mapping')).to_be_enabled()
+    expect(page.locator('#save-mapping-inplace')).to_be_enabled()
+
+    page.locator('#save-mapping-inplace').click()
+    # One candidate before and after: an in-place save must not mint a second file.
+    expect(select.locator('option')).to_have_count(2)
+    expect(option).to_have_count(1)
+
+    page.locator('#delete-mapping').click()
+    expect(option).to_have_count(0)
+    expect(page.locator('#mapping-candidate-filter').locator('option')).to_have_count(1)
     assert errors == []
 
 

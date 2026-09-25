@@ -112,7 +112,7 @@ def mapping_ring_site_preview():
 def mapping_save():
     payload = json_object()
     context = payload_context(payload)
-    return jsonify(mappings.save_draft(payload, context=context)), 201
+    return jsonify(mappings.save_draft(payload, context=context, in_place=bool(payload.get('in_place')))), 201
 
 
 @blueprint.post('/api/mappings/review')

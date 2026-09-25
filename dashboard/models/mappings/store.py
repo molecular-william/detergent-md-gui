@@ -80,7 +80,7 @@ def list_candidates(summary=False, *, context=None):
     return result
 
 
-def save_draft(data, *, context=None):
+def save_draft(data, *, context=None, in_place=False):
     validation = validate(data, context=context, allow_partial=bool(data.get('schema_version') == 3))
     if data.get('schema_version') == 3 and not validation['can_save']:
         raise ValueError('Cannot save malformed mapping: ' + '; '.join(item['message'] for item in verdict.blocking(validation['issues'], 'can_save')))
@@ -91,6 +91,15 @@ def save_draft(data, *, context=None):
                  parent=data.get('file') if data.get('file') in candidate_paths() else None,
                  validation=validation)
     storage_root().mkdir(parents=True, exist_ok=True)
+    if in_place:
+        # Overwrite the named candidate rather than minting a new one. The file keeps its identity and
+        # only its content changes, so bonded states fitted for the old content stop matching it --
+        # which is why the button warns before offering this.
+        filename = data.get('file')
+        if not filename or not (storage_root() / filename).is_file():
+            raise ValueError('In-place save needs an existing candidate to overwrite')
+        _repository().write(filename, draft, replace=True)
+        return get(filename, context=context)
     filename = f'mapping_candidate_{uuid.uuid4().hex}.json'
     _repository().write(filename, draft, replace=False)
     path = storage_root() / filename

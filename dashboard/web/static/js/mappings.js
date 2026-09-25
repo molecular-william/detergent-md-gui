@@ -115,6 +115,11 @@ export function createMappings() {
     if (!moleculeEditor) return;
     $('#mapping-editor-name').value = moleculeEditor.candidate.name || 'New mapping';
     renderBeadRows(); editorSelection(); updateDiagram();
+    // A local draft has nothing to overwrite or delete; both buttons act on a saved candidate.
+    const saved = !!moleculeEditor.candidate.file;
+    for (const id of ['#delete-mapping', '#save-mapping-inplace']) {
+      const button = $(id); if (button) button.disabled = !saved;
+    }
     persistEditor();
     validateEditor();
   }
@@ -198,6 +203,26 @@ export function createMappings() {
     $('#clear-all-mapping').onclick = () => {
       if (!moleculeEditor || !window.confirm('Remove every bead assignment from this local draft?')) return;
       clearMapping(moleculeEditor); renderEditor(); editorMessage('All bead assignments cleared from the local draft.');
+    };
+    $('#delete-mapping').onclick = async () => {
+      const file = moleculeEditor?.candidate?.file;
+      if (!file) return editorMessage('This is a local draft; there is no saved mapping to delete.');
+      if (!window.confirm(`Delete ${file}? Its bonded states are not deleted and will no longer match a mapping.`)) return;
+      try {
+        await api('/api/mappings/drafts/' + encodeURIComponent(file), {method: 'DELETE'});
+        invalidateResource('/api/mappings'); invalidateResource('/api/bonded-states');
+        await loadMoleculeEditor(moleculeSelect.value);
+        notice('Mapping deleted.');
+      } catch (error) { editorMessage(error.message); }
+    };
+    $('#save-mapping-inplace').onclick = async () => {
+      if (!moleculeEditor) return;
+      try {
+        const result = await post('/api/mappings/drafts', {...moleculeEditor.candidate, in_place: true});
+        invalidateResource('/api/mappings');
+        await loadMoleculeEditor(moleculeSelect.value);
+        notice(`Mapping saved in place as ${result.file}.`);
+      } catch (error) { editorMessage(error.message); }
     };
     $('#group-into-bead').onclick = () => {
       if (!moleculeEditor?.selectedAtoms.size) return editorMessage('Select one or more heavy atoms first.');

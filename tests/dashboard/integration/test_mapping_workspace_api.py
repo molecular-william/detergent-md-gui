@@ -35,6 +35,32 @@ def test_validation_queue_rejects_unknown_representation(dashboard):
     assert response.status_code == 400
 
 
+def test_an_in_place_save_overwrites_its_candidate(dashboard):
+    """In-place keeps the file; a save as new always mints another one.
+
+    The two differ in a way a user notices: an in-place edit changes the mapping the fitted states were
+    measured against, so the UI warns before offering it.
+    """
+    client = dashboard.client
+    from dashboard.models import mappings
+    candidate = mappings.automatic_candidate(mappings.molecule(), 'DDM')
+    candidate['name'] = 'In-place'
+    first = client.post('/api/mappings/drafts', json=candidate).json
+
+    updated = client.post('/api/mappings/drafts', json={**candidate, 'name': 'In-place renamed',
+                                                         'file': first['file'], 'in_place': True})
+
+    assert updated.status_code == 201
+    assert updated.json['file'] == first['file'], 'the same file, not a new one'
+    listed = client.get('/api/mappings?view=summary').json['candidates']
+    assert [c['file'] for c in listed] == [first['file']], 'no second candidate appeared'
+
+    refused = client.post('/api/mappings/drafts', json={
+        'name': 'Nowhere', 'beads': [{'name': 'B01'}], 'in_place': True})
+    assert refused.status_code == 400, refused.json
+    assert len(client.get('/api/mappings?view=summary').json['candidates']) == 1
+
+
 def test_dashboard_no_longer_carries_the_validation_controls(dashboard):
     """The carbohydrate validation section was removed from CG Bead Assignment.
 
