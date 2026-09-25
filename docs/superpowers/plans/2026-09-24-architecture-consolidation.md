@@ -1313,7 +1313,7 @@ git add -A dashboard tests && git commit -m "fix: ship an importable sugar helpe
 - Modify: `tests/dashboard/conftest.py`
 - Modify: `dashboard/app.py` (expose `create_app(paths, config)` only — it already exists)
 
-- [ ] **Step 1:** Add the fixture:
+- [x] **Step 1:** Add the fixture: — done: tests/dashboard/factory.py (`Dashboard` record + `build(tmp_path, **config)`).
 
 ```python
 # tests/dashboard/factory.py
@@ -1336,8 +1336,8 @@ def build(tmp_path, **config):
     return Dashboard(app, app.test_client(), app.extensions['dashboard_coordinator'], selected)
 ```
 
-- [ ] **Step 2:** Expose it as a `dashboard` fixture in `conftest.py`; keep `isolated_workspace` for one commit as a deprecated alias so the suite keeps running while files migrate.
-- [ ] **Step 3:** Run the suite; expect the baseline.
+- [x] **Step 2:** Expose it as a `dashboard` fixture in `conftest.py`; keep `isolated_workspace` for one commit as a deprecated alias so the suite keeps running while files migrate. — done; the `dashboard` fixture also enters `paths.use(built.paths)`, which the singleton fixture used to do for module-level resolvers.
+- [x] **Step 3:** Run the suite; expect the baseline. — 465 passed (three of them pinning the fixture itself).
 - [ ] **Step 4:** Commit:
 
 ```bash
@@ -1417,8 +1417,8 @@ git add -A tests && git commit -m "test: one live-server fixture for browser tes
 **Files:**
 - Create: `pyproject.toml`
 
-- [ ] **Step 1:** Add `[tool.ruff]` (target-version py312, line-length, `exclude = ["dashboard/.venv", "archive", "references", "resources", "tools", "workspace"]`), `[tool.ruff.lint]` with `E,F,I` at minimum, and `[tool.pytest.ini_options]` mirroring `pytest.ini` so both entry points agree.
-- [ ] **Step 2:** Run the linter and record the current violation count in the commit message rather than fixing everything in this task:
+- [x] **Step 1:** Add `[tool.ruff]` (target-version py312, line-length, `exclude = ["dashboard/.venv", "archive", "references", "resources", "tools", "workspace"]`), `[tool.ruff.lint]` with `E,F,I` at minimum, and `[tool.pytest.ini_options]` mirroring `pytest.ini` so both entry points agree.
+- [x] **Step 2:** Run the linter and record the current violation count in the commit message rather than fixing everything in this task: — done; 1297 findings recorded in the commit, ruff walks 191 files with the venv excluded.
 
 ```bash
 dashboard/.venv/bin/python -m pip install ruff
@@ -1433,7 +1433,7 @@ git add pyproject.toml && git commit -m "chore: add ruff and pytest configuratio
 
 ### Task 8.2: Pay down the lint findings, module by module
 
-- [ ] **Step 1:** Fix findings per module, smallest first, one commit per module group; do not mix lint fixes with behaviour changes.
+- [x] **Step 1:** Fix findings per module, smallest first, one commit per module group; do not mix lint fixes with behaviour changes. — dashboard/ done in two commits (118 mechanical, then the six F841/F821 by hand; two of those were latent defects). tests/ deferred: the migration subagents held those files. E701/E702/E501 are not paid down, with the reason in docs/decisions/.
 - [ ] **Step 2:** After each group, run the fast suite.
 
 Expected: no test changes required for pure lint fixes; any fix that changes behaviour needs its own test.
@@ -1457,7 +1457,7 @@ git add docs && git commit -m "docs: reconcile the calibration handoff with the 
 **Files:**
 - Create: `docs/decisions/2026-09-24-architecture-decisions.md`
 
-- [ ] **Step 1:** Write one entry per rejected change, each with the reason a future reviewer needs:
+- [x] **Step 1:** Write one entry per rejected change, each with the reason a future reviewer needs: — done: docs/decisions/2026-09-24-architecture-decisions.md, the eight entries plus the decisions taken during this consolidation.
 
 | Rejected | Reason |
 |---|---|
