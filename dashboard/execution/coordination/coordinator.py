@@ -65,29 +65,20 @@ class Coordinator:
         self.SERVICES.clear()
 
     def now(self):
+        """The one timestamp format the records carry; every stage and record uses it."""
         return datetime.now(timezone.utc).isoformat()
 
 
     def database(self):
+        """The store this coordinator writes through: the runs directory decides where it lives."""
         return store.Store(self.DATA)
 
 
-    def load(self):
-        return self.database().all()
-
-
-    def save(self, jobs):
-        self.database().replace(jobs)
-
-
     def lookup(self, jid):
+        """The record for a run, or RunNotFound: an unknown run is a domain failure here."""
         job = self.database().get(jid)
         if job is None: raise RunNotFound('Unknown run')
         return job
-
-
-    def update_job(self, jid, **fields):
-        return self.database().update(jid, **fields)
 
 
     def resume_in_place(self, jid, stage):
@@ -102,9 +93,9 @@ class Coordinator:
             if self.externally_busy(job):
                 raise RunBusy('An external worker still holds this run')
             if any(other.get('reference_run_id') == jid or other.get('resume_of') == jid
-                   for other in self.load() if other.get('id') != jid):
+                   for other in self.database().all() if other.get('id') != jid):
                 raise DependencyRetained('The run has retained consumers; resume the consumers or clone this run')
-            if len(self.WORKERS) + sum(self.externally_busy(item) for item in self.load()) >= self.limits()['max_concurrent_runs']:
+            if len(self.WORKERS) + sum(self.externally_busy(item) for item in self.database().all()) >= self.limits()['max_concurrent_runs']:
                 raise CapacityFull('Simulation capacity is busy; wait for a run to stop')
             try:
                 resources.check_worker(self.run_path(job), self.RUNS, self.limits())
@@ -123,7 +114,7 @@ class Coordinator:
                 except (OSError, ValueError, KeyError) as exc:
                     raise RunConflict(str(exc))
                 try:
-                    updated = self.update_job(jid, status='queued', stage='queued', started_at=None, ended_at=None,
+                    updated = self.database().update(jid, status='queued', stage='queued', started_at=None, ended_at=None,
                                               error=None, command=None, resume_count=prepared['resume_count'],
                                               resume_from=stage, resume_requested_at=prepared['resume_requested_at'],
                                               resume_in_place=True, reference_eligible=False,
@@ -141,7 +132,7 @@ class Coordinator:
                 threading.Thread(target=self.run_job, args=(jid, worker), daemon=True).start()
             except Exception as exc:
                 self.WORKERS.pop(jid, None)
-                self.update_job(jid, status='failed', stage='queued', error=str(exc), ended_at=self.now())
+                self.database().update(jid, status='failed', stage='queued', error=str(exc), ended_at=self.now())
                 raise
             return updated
 
@@ -164,7 +155,7 @@ class Coordinator:
 
 
     def reconcile(self):
-        for job in self.load():
+        for job in self.database().all():
             updates = {}
             try:
                 workflow.recover_resume_journal(self.run_path(job), job)
@@ -190,7 +181,7 @@ class Coordinator:
                     if task.get('directory'):
                         attempt = self.run_path(job)/task['directory']
                         if attempt.is_dir(): files.atomic_json(attempt/'manifest.json',task)
-            if updates: self.update_job(job['id'], **updates)
+            if updates: self.database().update(job['id'], **updates)
 
 
     def ensure_service(self):
@@ -201,7 +192,7 @@ class Coordinator:
                 try: self.SERVICES[key] = self.lease(self.DATA.with_suffix('.service.lock'))
                 except ValueError: raise RunBusy('Another dashboard process owns this database; use one coordinator process')
                 self.reconcile()
-                temporary.cleanup(self.load(), self.RUNS, self.database())
+                temporary.cleanup(self.database().all(), self.RUNS, self.database())
             self.schedule_waiting()
 
 
@@ -210,7 +201,7 @@ class Coordinator:
 
 
     def storage_report(self):
-        return resources.report(self.RUNS, self.load(), self.limits())
+        return resources.report(self.RUNS, self.database().all(), self.limits())
 
 
     def artifact_index(self, job, refresh=False):
@@ -218,7 +209,7 @@ class Coordinator:
         if entries is None or refresh or (job['status'] in ('running','cancelling') and time.time()-updated > 15):
             entries = observability.artifacts(self.run_path(job))
             self.database().artifacts(job['id'], entries)
-            self.update_job(job['id'], artifact_revision=time.time())
+            self.database().update(job['id'], artifact_revision=time.time())
         return entries
 
 
@@ -287,7 +278,7 @@ class Coordinator:
         try:
             if worker.cancel.is_set():
                 raise workflow.Cancelled('Cancelled by user')
-            self.update_job(jid, status='running', stage='input', started_at=self.now(), log=str(log.relative_to(self.DATA.parent)))
+            self.database().update(jid, status='running', stage='input', started_at=self.now(), log=str(log.relative_to(self.DATA.parent)))
             if in_place:
                 if not work.is_dir(): raise FileNotFoundError(f'Existing run directory is missing: {work}')
                 created = True
@@ -343,13 +334,13 @@ class Coordinator:
             def stage_changed(name, entry):
                 if worker.cancel.is_set():
                     raise workflow.Cancelled('Cancelled by user')
-                self.update_job(jid, stage=name, command=' '.join(entry['command']))
+                self.database().update(jid, stage=name, command=' '.join(entry['command']))
             workflow.run(work, log, execute=worker.execute, on_stage=stage_changed, stop_after='CG topology (ff_inter)' if job.get('bonded_intent') == 'fit_only' else None)
             if aa_only:aa_references.verify(work,molecule_snapshot=job['molecule_snapshot'])
             if job.get('bonded_intent') == 'fit_only' and job.get('mapping_snapshot'):
                 topology = workflow.execution_root(work) / f"3_initial_CG/{prepared.get('cg_names', {}).get('final_itp', 'DDM.itp')}"
                 state = bonded_states.create(job['mapping_snapshot'], f"Fit from {jid}", 'fast-forward-fit', {'run_id': jid}, topology.read_text(), 'complete')
-                self.update_job(jid, bonded_state_id=state['state_id'], bonded_state_revision=state['revision'], bonded_state_snapshot=state['current'])
+                self.database().update(jid, bonded_state_id=state['state_id'], bonded_state_revision=state['revision'], bonded_state_snapshot=state['current'])
             status = 'completed'
         except workflow.Cancelled as exc:
             status, error = 'cancelled', str(exc)
@@ -373,7 +364,7 @@ class Coordinator:
                         files.atomic_json(manifest, data)
                     except (OSError, ValueError) as exc:
                         status,error='failed',f'Manifest finalization failed: {exc}'
-                self.update_job(jid,status=status,stage='complete' if status=='completed' else self.lookup(jid).get('stage','input'),ended_at=self.now(),error=error,
+                self.database().update(jid,status=status,stage='complete' if status=='completed' else self.lookup(jid).get('stage','input'),ended_at=self.now(),error=error,
                            reference_eligible=bool(status=='completed' and job.get('run_type')=='aa_only'))
                 self.artifact_index(self.lookup(jid), refresh=True)
             finally:
@@ -485,7 +476,7 @@ class Coordinator:
             return self.admit_jobs([parent,job],parent,result=job)
         worker = self.Worker()
         with self.JOBS_LOCK:
-            if len(self.WORKERS)+sum(self.externally_busy(j) for j in self.load()) >= self.limits()['max_concurrent_runs']: raise CapacityFull('Simulation capacity is busy; wait for a run to stop')
+            if len(self.WORKERS)+sum(self.externally_busy(j) for j in self.database().all()) >= self.limits()['max_concurrent_runs']: raise CapacityFull('Simulation capacity is busy; wait for a run to stop')
             source_id = resume_of or reference_run_id
             required = 2*resources.usage(self.RUNS/source_id) if source_id else 0
             if required > self.limits()['max_run_bytes']: raise CapacityFull('Source copies exceed the per-run storage limit')
@@ -514,7 +505,7 @@ class Coordinator:
 
     def admit_jobs(self, records,first,result=None):
         with self.JOBS_LOCK:
-            if len(self.WORKERS)+sum(self.externally_busy(j) for j in self.load())>=self.limits()['max_concurrent_runs']:raise CapacityFull('Simulation capacity is busy; wait for a run to stop')
+            if len(self.WORKERS)+sum(self.externally_busy(j) for j in self.database().all())>=self.limits()['max_concurrent_runs']:raise CapacityFull('Simulation capacity is busy; wait for a run to stop')
             copies=[]
             for job in records:
                 required=2*resources.usage(self.RUNS/job['resume_of']) if job.get('resume_of') else 0
@@ -530,40 +521,29 @@ class Coordinator:
     def schedule_waiting(self):
         """One fixed dependency: CG waits for its AA source without a worker slot."""
         with self.JOBS_LOCK:
-            for job in reversed(self.load()):
+            for job in reversed(self.database().all()):
                 if job.get('status')!='waiting':continue
                 source=self.database().get(job['reference_run_id'])
                 if not source or source['status'] in ('failed','blocked','cancelled'):
-                    self.update_job(job['id'],status='cancelled' if source and source['status']=='cancelled' else 'blocked',
+                    self.database().update(job['id'],status='cancelled' if source and source['status']=='cancelled' else 'blocked',
                                ended_at=self.now(),error='AA source did not complete; clone with a new source',stage='AA source unavailable')
                     continue
                 if source['status']!='completed':continue
-                if len(self.WORKERS)+sum(self.externally_busy(j) for j in self.load())>=self.limits()['max_concurrent_runs']:continue
+                if len(self.WORKERS)+sum(self.externally_busy(j) for j in self.database().all())>=self.limits()['max_concurrent_runs']:continue
                 try:
                     _,reference=aa_references.resolve(self.RUNS,source['id'],molecule_snapshot=job['molecule_snapshot'],settings=job['settings'])
                     resources.admit(self.storage_report(),len(self.WORKERS)+len(self.ANALYSIS_WORKERS))
                 except (ValueError,OSError) as exc:
-                    self.update_job(job['id'],status='blocked',error=str(exc),ended_at=self.now());continue
-                self.update_job(job['id'],status='queued',stage='queued',shared_reference={'source_run_id':source['id'],'sha256':reference['sha256']})
+                    self.database().update(job['id'],status='blocked',error=str(exc),ended_at=self.now());continue
+                self.database().update(job['id'],status='queued',stage='queued',shared_reference={'source_run_id':source['id'],'sha256':reference['sha256']})
                 worker=self.Worker();self.WORKERS[job['id']]=worker
                 threading.Thread(target=self.run_job,args=(job['id'],worker),daemon=True).start()
 
 
     def manifest_data(self, job):
+        """The run's manifest, read through the run's own path and the shared cache."""
         return self.MANIFEST_CACHE.read(self.run_path(job)/'manifest.json')
 
-
-    def update_analysis(self, jid, aid, **fields):
-        return self.analysis_coordinator.update(jid, aid, **fields)
-
-
-    def analysis_dependencies(self, job):
-        return self.analysis_coordinator.dependencies(job)
-
-
-    @application_context
-    def run_analysis(self, jid, aid, worker):
-        return self.analysis_coordinator.run(jid, aid, worker)
 
 
 
@@ -596,7 +576,7 @@ class Coordinator:
         with self.JOBS_LOCK:
             job = self.lookup(jid)
             if job['status']=='waiting':
-                self.update_job(jid,status='cancelled',ended_at=self.now(),error='Cancelled while waiting for AA source')
+                self.database().update(jid,status='cancelled',ended_at=self.now(),error='Cancelled while waiting for AA source')
                 return self.lookup(jid), 202
             if job['status'] in ('cancelled', 'cancelling'):
                 return job, 200
@@ -604,14 +584,6 @@ class Coordinator:
             if worker is None or job['status'] not in ('queued', 'running'):
                 raise RunBusy('This server does not own an active worker for this run')
             # Persist the request before acknowledgement by the worker.
-            self.update_job(jid, status='cancelling')
+            self.database().update(jid, status='cancelling')
             worker.cancel.set()
             return self.lookup(jid), 202
-
-
-    def cancel_analysis(self, jid, aid):
-        return self.analysis_coordinator.cancel(jid, aid)
-
-
-    def queue_analysis(self, jid, kind, payload):
-        return self.analysis_coordinator.queue(jid, kind, payload)

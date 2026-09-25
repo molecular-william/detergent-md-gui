@@ -41,7 +41,7 @@ class AnalysisCoordinator:
             tasks = owner.lookup(jid).get('analyses', [])
             task = next(task for task in tasks if task['id'] == aid)
             task.update(fields)
-            owner.update_job(jid, analyses=tasks)
+            owner.database().update(jid, analyses=tasks)
             attempt = owner.run_path(owner.lookup(jid)) / task['directory']
             if attempt.is_dir():
                 files.atomic_json(attempt / 'manifest.json', task)
@@ -87,7 +87,7 @@ class AnalysisCoordinator:
                     return task, 200 if task['status'] == 'completed' else 202
             if any(key[0] == jid for key in list(owner.ANALYSIS_WORKERS)):
                 raise RunBusy('An analysis is already active for this run')
-            if len(owner.ANALYSIS_WORKERS) + sum(owner.externally_busy(item) for item in owner.load()) >= owner.limits()['max_concurrent_analyses']:
+            if len(owner.ANALYSIS_WORKERS) + sum(owner.externally_busy(item) for item in owner.database().all()) >= owner.limits()['max_concurrent_analyses']:
                 raise CapacityFull('Analysis capacity is busy')
             with owner.lease(owner.run_path(job) / '.worker.lock'):
                 pass
@@ -100,7 +100,7 @@ class AnalysisCoordinator:
                     'status': 'queued', 'created_at': owner.now(),
                     'directory': f'analyses/{kind}/{signature}/{aid}'}
             tasks.append(task)
-            owner.update_job(jid, analyses=tasks)
+            owner.database().update(jid, analyses=tasks)
             worker = owner.Worker()
             owner.ANALYSIS_WORKERS[(jid, aid)] = worker
             threading.Thread(target=self.run, args=(jid, aid, worker), daemon=True).start()

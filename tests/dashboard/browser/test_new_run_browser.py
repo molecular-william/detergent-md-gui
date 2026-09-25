@@ -20,7 +20,7 @@ def test_directory_selection_supports_generic_aa_and_ddm_cg_pair(tmp_path):
     missing=tmp_path/'molecules/Incomplete'; missing.mkdir()
     shutil.copytree(root/'molecules/DDM',tmp_path/'molecules/Other')
     with patch.object(web,'ROOT',tmp_path), patch.object(web,'DATA',tmp_path/'jobs.sqlite3'), patch.object(web,'RUNS',tmp_path/'runs'), patch.object(web,'WORKERS',{}), patch.object(web,'ANALYSIS_WORKERS',{}), patch.dict(web.app.config,DISABLE_COORDINATOR=True), patch.object(cg,'readiness',return_value={'ready':True,'checks':[],'blockers':[]}), patch.object(web,'run_job',lambda *args: None):
-        web.save([])
+        web.database().replace([])
         server=make_server('127.0.0.1',0,web.app,request_handler=QuietHandler)
         thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
         try:
@@ -50,11 +50,11 @@ def test_directory_selection_supports_generic_aa_and_ddm_cg_pair(tmp_path):
                 with page.expect_response(lambda r: r.request.method=='POST' and r.url.endswith('/')) as response:
                     page.locator('#start-run').click()
                 assert response.value.status==201, response.value.text()
-                generic=web.load()[0]
+                generic=web.database().all()[0]
                 assert generic['run_type']=='aa_only' and generic['molecule_id']=='Other'
                 assert not generic.get('mapping_snapshot')
                 assert 'cg_production_ps' not in generic['settings']
-                web.update_job(generic['id'],status='completed')
+                web.database().update(generic['id'],status='completed')
                 web.WORKERS.clear()
                 page.locator('#tab-new').click()
                 page.locator('#run-type').select_option('aa_cg')
@@ -73,7 +73,7 @@ def test_directory_selection_supports_generic_aa_and_ddm_cg_pair(tmp_path):
                 with page.expect_response(lambda r: r.request.method=='POST' and r.url.endswith('/')) as response:
                     page.locator('#start-run').click()
                 assert response.value.status==201, response.value.text()
-                jobs=[job for job in web.load() if job['id']!=generic['id']]
+                jobs=[job for job in web.database().all() if job['id']!=generic['id']]
                 assert len(jobs)==2
                 cg_job=next(job for job in jobs if job['run_type']=='aa_cg')
                 aa_job=next(job for job in jobs if job['run_type']=='aa_only')

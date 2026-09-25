@@ -74,7 +74,7 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(isolated_workspace, monke
 
 def test_shared_cache_rejects_stale_refill_after_invalidation(tmp_path):
     with patch.object(web, 'DATA', tmp_path/'jobs.sqlite3'), patch.object(web, 'RUNS', tmp_path/'runs'), patch.dict(web.app.config, DISABLE_COORDINATOR=True):
-        web.save([])
+        web.database().replace([])
         server = make_server('127.0.0.1', 0, web.app, request_handler=QuietHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -107,7 +107,7 @@ def test_shared_cache_rejects_stale_refill_after_invalidation(tmp_path):
 
 def test_readiness_debounces_changes_and_ignores_cancelled_response(tmp_path):
     with patch.object(web, 'DATA', tmp_path/'jobs.sqlite3'), patch.object(web, 'RUNS', tmp_path/'runs'), patch.dict(web.app.config, DISABLE_COORDINATOR=True):
-        web.save([])
+        web.database().replace([])
         server = make_server('127.0.0.1', 0, web.app, request_handler=QuietHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()

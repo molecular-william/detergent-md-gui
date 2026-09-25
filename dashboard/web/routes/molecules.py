@@ -17,7 +17,7 @@ blueprint = Blueprint('molecules', __name__)
 def references_api():
     c = coordinator()
     references = []
-    for job in c.load():
+    for job in c.database().all():
         if job.get('status') != 'completed' or job.get('run_type')!='aa_only' or not job.get('reference_eligible'):
             continue
         molecule_id=request.args.get('molecule_id')

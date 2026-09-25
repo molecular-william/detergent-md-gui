@@ -23,7 +23,7 @@ class DashboardBrowserTests(unittest.TestCase):
             with patch.object(web, 'DATA', root/'dashboard/jobs.sqlite3'), patch.object(web, 'RUNS', root/'dashboard/runs'), patch.object(web, 'WORKERS', {}), patch.object(mappings, 'storage_root', return_value=root/'drafts'):
                 candidate = mappings.save_draft(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
                 job = {'id': '123456abcdef', 'detergent': 'DDM', 'method': 'fast_forward', 'status': 'failed', 'stage': 'AA reference', 'created': web.now(), 'error': 'Missing mapping'}
-                web.save([job])
+                web.database().replace([job])
                 server = make_server('127.0.0.1', 0, web.app, request_handler=QuietHandler)
                 thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
                 try:
@@ -38,7 +38,7 @@ class DashboardBrowserTests(unittest.TestCase):
                         page.get_by_role('tab', name='New run', exact=True).click()
                         page.locator('[name=label]').fill('My unsent run')
                         page.locator('#method').select_option('bartender')
-                        web.update_job(job['id'], error='Updated failure explanation')
+                        web.database().update(job['id'], error='Updated failure explanation')
                         page.get_by_role('tab', name='Runs', exact=True).click()
                         expect(page.locator('.job-error')).to_have_text('Updated failure explanation')
                         page.get_by_role('tab', name='New run', exact=True).click()
@@ -69,14 +69,14 @@ class DashboardBrowserTests(unittest.TestCase):
             root = Path(temp); (root/'dashboard/runs').mkdir(parents=True)
             with patch.object(web, 'ROOT', root), patch.object(web, 'DATA', root/'dashboard/jobs.sqlite3'), patch.object(web, 'RUNS', root/'dashboard/runs'), patch.object(web, 'WORKERS', {}), patch.object(web, 'ANALYSIS_WORKERS', {}):
                 jobs = [{'id': f'{i:012x}', 'label': f'Run {i}', 'detergent': 'DDM', 'method': 'fast_forward', 'profile': 'draft-smoke', 'status': 'completed', 'created': web.now(), 'settings': {'temperature_k': 310}} for i in range(22)]
-                web.save(jobs)
+                web.database().replace(jobs)
                 for job in jobs:
                     run = web.run_path(job); run.mkdir()
                     files.atomic_json(run/'manifest.json', {'stages': [], 'input_snapshot_sha256': {'input.txt': 'hash'}})
                     (run/'result.gro').write_text('artifact')
                 newest = jobs[-1]
                 worker = web.Worker(); web.ANALYSIS_WORKERS[(newest['id'], 'task')] = worker
-                web.update_job(newest['id'], analyses=[{'id': 'task', 'kind': 'stability', 'status': 'running', 'directory': 'analyses/stability/test'}])
+                web.database().update(newest['id'], analyses=[{'id': 'task', 'kind': 'stability', 'status': 'running', 'directory': 'analyses/stability/test'}])
                 server = make_server('127.0.0.1', 0, web.app, request_handler=QuietHandler)
                 thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
                 try:

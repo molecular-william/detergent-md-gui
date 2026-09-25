@@ -29,17 +29,17 @@ class DashboardTests(unittest.TestCase):
         workers = patch.object(web, 'ANALYSIS_WORKERS', {}); workers.start(); self.addCleanup(workers.stop)
         self.client = web.app.test_client()
         self.job = {'id': '123456abcdef', 'detergent': 'DDM', 'method': 'fast_forward', 'status': 'running', 'stage': 'input', 'created': web.now()}
-        web.save([self.job])
+        web.database().replace([self.job])
 
     def test_readiness_blocks_unconnected_run_before_creation(self):
         response = self.client.get('/api/readiness').get_json()
         self.assertFalse(response['ready'])
         self.assertTrue(response['blockers'])
         self.assertEqual(self.client.post('/', json={'detergent': 'DDM', 'method': 'fast_forward'}).status_code, 409)
-        self.assertEqual(len(web.load()), 1)
+        self.assertEqual(len(web.database().all()), 1)
 
     def test_never_signal_an_unowned_stored_pid(self):
-        web.update_job(self.job['id'], pid=1)
+        web.database().update(self.job['id'], pid=1)
         with patch.object(os, 'killpg') as signal:
             self.assertEqual(self.client.post('/control/123456abcdef/cancel').status_code, 409)
             signal.assert_not_called()
@@ -73,19 +73,19 @@ class DashboardTests(unittest.TestCase):
         run_dir = web.RUNS / self.job['id']; run_dir.mkdir(parents=True)
         (run_dir / 'artifact.dat').write_text('data')
         log = web.log_path(self.job); log.write_text('console')
-        web.update_job(self.job['id'], status='failed')
+        web.database().update(self.job['id'], status='failed')
         response = self.client.delete('/api/jobs/' + self.job['id'])
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(web.load(), [])
+        self.assertEqual(web.database().all(), [])
         self.assertFalse(run_dir.exists()); self.assertFalse(log.exists())
 
     def test_delete_keeps_record_when_file_cleanup_fails(self):
         run_dir = web.RUNS / self.job['id']; run_dir.mkdir(parents=True)
-        web.update_job(self.job['id'], status='failed')
+        web.database().update(self.job['id'], status='failed')
         with patch.object(backend.shutil, 'rmtree', side_effect=PermissionError('locked')):
             response = self.client.delete('/api/jobs/' + self.job['id'])
         self.assertEqual(response.status_code, 409)
-        self.assertEqual(len(web.load()), 1)
+        self.assertEqual(len(web.database().all()), 1)
         self.assertTrue(run_dir.exists())
 
     def test_delete_rejects_active_owned_run(self):
@@ -160,12 +160,12 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(parse('remaining wall clock time: 300 s\rremaining wall clock time: 22.5 s')['gromacs_remaining_seconds'], 22.5)
         self.assertEqual(parse('remaining wall clock time: 300 s\nwill finish Fri Sep 11 09:00:00 2026')['gromacs_eta'], 'Fri Sep 11 09:00:00 2026')
         self.assertEqual(parse('remaining wall clock time: 300 s\nFinished mdrun'), {})
-        web.update_job(self.job['id'], status='failed', gromacs_eta='stale')
+        web.database().update(self.job['id'], status='failed', gromacs_eta='stale')
         self.assertNotIn('gromacs_eta', self.client.get('/api/jobs').get_json()[0])
 
     def test_resumed_eta_does_not_fall_back_to_previous_attempt_log(self):
         job = dict(self.job, layout_version=2, run_type='aa_only', resume_in_place=True, resume_count=1)
-        web.update_job(job['id'], layout_version=2, run_type='aa_only', resume_in_place=True, resume_count=1)
+        web.database().update(job['id'], layout_version=2, run_type='aa_only', resume_in_place=True, resume_count=1)
         run = web.run_path(job)
         (run / 'stages/06_production').mkdir(parents=True)
         (run / 'logs').mkdir()
@@ -185,7 +185,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(response.get_json()['gromacs_eta'], 'CURRENT ATTEMPT')
 
     def test_retry_creates_new_id_and_preserves_failed_record(self):
-        web.update_job(self.job['id'], status='failed', error='Original failure')
+        web.database().update(self.job['id'], status='failed', error='Original failure')
         before = web.lookup(self.job['id'])
         with patch.object(cg, 'readiness', return_value={'ready': True}), patch.object(threading.Thread, 'start'):
             response = self.client.post('/retry/123456abcdef')

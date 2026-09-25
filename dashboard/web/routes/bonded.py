@@ -91,5 +91,5 @@ def bonded_state_delete(state_id):
     c = coordinator()
     if request.get_json(silent=True) is None or not request.get_json(silent=True).get('confirm'):
         abort(400,'Deletion requires confirmation')
-    try: return jsonify(deleted=bonded_states.delete(state_id,c.load()))
+    try: return jsonify(deleted=bonded_states.delete(state_id,c.database().all()))
     except (ValueError, KeyError, OSError) as exc: abort(409,str(exc))

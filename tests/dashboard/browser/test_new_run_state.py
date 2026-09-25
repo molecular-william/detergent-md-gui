@@ -15,7 +15,7 @@ class QuietHandler(WSGIRequestHandler):
 
 def test_new_run_recovers_deleted_clone_and_preserves_settings(tmp_path):
     with patch.object(web, 'DATA', tmp_path/'jobs.sqlite3'), patch.object(web, 'RUNS', tmp_path/'runs'), patch.dict(web.app.config, DISABLE_COORDINATOR=True):
-        web.save([])
+        web.database().replace([])
         server=make_server('127.0.0.1', 0, web.app, request_handler=QuietHandler)
         thread=threading.Thread(target=server.serve_forever, daemon=True); thread.start()
         try:

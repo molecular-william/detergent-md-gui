@@ -22,7 +22,7 @@ def test_run_figure_tabs_zoom_and_mapping_display(tmp_path):
         candidate.update(molecule_id='DDM', molecule_snapshot=context['snapshot'])
         mappings.save_draft(candidate)
         jobs=[{'id':jid,'label':f'Figure run {i}','detergent':'DDM','method':'fast_forward','status':'completed','stage':'complete','created':web.now()} for i,jid in enumerate(('abcdef123456','abcdef123457'))]
-        web.save(jobs)
+        web.database().replace(jobs)
         for job in jobs:
             directory=runs/job['id'];directory.mkdir()
             for name in ('alpha','beta'):
@@ -94,7 +94,7 @@ def test_analysis_display_preserves_missing_values_and_metadata(tmp_path):
     runs = tmp_path / 'runs'; runs.mkdir()
     with patch.object(web, 'DATA', tmp_path/'jobs.sqlite3'), patch.object(web, 'RUNS', runs), patch.object(web, 'WORKERS', {}), patch.object(web, 'ANALYSIS_WORKERS', {}), patch.dict(web.app.config, DISABLE_COORDINATOR=True):
         job = {'id': 'abcdef123458', 'label': 'Metadata run', 'detergent': 'DDM', 'method': 'fast_forward', 'status': 'completed', 'stage': 'complete', 'created': web.now()}
-        web.save([job])
+        web.database().replace([job])
         directory = runs / job['id']; directory.mkdir()
         assessment = directory / '5_assessment'; assessment.mkdir()
         (assessment / 'distance_diagnostics.json').write_text(json.dumps({'pairs': [

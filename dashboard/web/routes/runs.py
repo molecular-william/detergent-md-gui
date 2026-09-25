@@ -44,7 +44,7 @@ def index():
 def jobs_api():
     c = coordinator()
     summary = request.args.get('view') == 'summary'
-    if 'page' not in request.args: return jsonify([view_of(c, j, summary=summary) for j in c.load()])
+    if 'page' not in request.args: return jsonify([view_of(c, j, summary=summary) for j in c.database().all()])
     page, limit = pagination()
     rows, total = c.database().page(page, limit, request.args.get('status',''), request.args.get('search','')[:160])
     payload = {'jobs': [view_of(c, j, summary=summary) | {'revision': revision} for j,revision in rows], 'total': total, 'page': page, 'limit': limit}
@@ -85,9 +85,9 @@ def micelle_build_api():
         result = run_micelle_job(payload, directory)
         (directory/'logs').mkdir(exist_ok=True)
         (directory/'logs/console.log').write_text(result.get('stdout','') + result.get('stderr',''))
-        c.update_job(jid, status='completed' if result['status']=='completed' else 'failed', stage='complete' if result['status']=='completed' else 'micelle build', ended_at=c.now(), error=result.get('stderr') if result['status']!='completed' else None, command=' '.join(result['command']))
+        c.database().update(jid, status='completed' if result['status']=='completed' else 'failed', stage='complete' if result['status']=='completed' else 'micelle build', ended_at=c.now(), error=result.get('stderr') if result['status']!='completed' else None, command=' '.join(result['command']))
     except Exception as exc:
-        c.update_job(jid, status='failed', stage='micelle build', ended_at=c.now(), error=str(exc))
+        c.database().update(jid, status='failed', stage='micelle build', ended_at=c.now(), error=str(exc))
     return jsonify(view_of(c, c.lookup(jid))), 201
 
 

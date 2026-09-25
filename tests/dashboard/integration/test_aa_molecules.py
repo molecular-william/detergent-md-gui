@@ -24,7 +24,7 @@ class MoleculeDirectoryTests(unittest.TestCase):
         for name, value in [('ROOT',self.root),('DATA',self.root/'jobs.sqlite3'),('RUNS',self.root/'runs'),('WORKERS',{}),('ANALYSIS_WORKERS',{})]:
             p=patch.object(web,name,value); p.start(); self.addCleanup(p.stop)
         p=patch.dict(web.app.config,DISABLE_COORDINATOR=True); p.start(); self.addCleanup(p.stop)
-        web.save([]); self.client=web.app.test_client()
+        web.database().replace([]); self.client=web.app.test_client()
 
     def catalogue(self):
         result=self.client.get('/api/molecules')
@@ -40,7 +40,7 @@ class MoleculeDirectoryTests(unittest.TestCase):
         # An unsupported method is rejected at admission time.
         response=self.client.post('/',json={'detergent':'example','method':'unsupported','molecule_id':'example'})
         self.assertEqual(response.status_code,400)
-        self.assertEqual(web.load(),[])
+        self.assertEqual(web.database().all(),[])
 
     def test_aa_only_rejects_a_cg_parameterizer(self):
         response = self.client.post('/', json={'run_type': 'aa_only', 'detergent': 'DDM', 'method': 'fast_forward'})
@@ -63,7 +63,7 @@ class MoleculeDirectoryTests(unittest.TestCase):
         for value in ('../example','/tmp/example','',{},['example']):
             response=self.client.post('/',json={'detergent':'DDM','method':'fast_forward','molecule_id':value})
             self.assertEqual(response.status_code,400,value)
-        self.assertEqual(web.load(),[])
+        self.assertEqual(web.database().all(),[])
 
     def test_readiness_reports_a_missing_molecule_directory(self):
         # The isolated workspace has no packaged DDM; the readiness endpoint must
@@ -106,7 +106,7 @@ class MoleculeDirectoryTests(unittest.TestCase):
         with patch.object(cg,'readiness',return_value={'ready':True}), patch.object(backend.threading.Thread,'start'):
             response=self.client.post('/',json={'detergent':'DDM','method':'fast_forward','profile':'draft-smoke','molecule_id':'DDM'})
         self.assertEqual(response.status_code,201,response.get_json())
-        return web.load()[0]
+        return web.database().all()[0]
 
     def test_queued_job_fails_if_molecule_files_change(self):
         self.install_ddm(); job=self.queue_ddm()
@@ -138,7 +138,7 @@ class MoleculeDirectoryTests(unittest.TestCase):
         response=self.client.post('/api/jobs/'+job['id']+'/clone',json={'molecule_id':'nonexistent'})
         # Nonexistent molecule id is rejected as a bad request.
         self.assertEqual(response.status_code,409)
-        self.assertEqual(len(web.load()),1)
+        self.assertEqual(len(web.database().all()),1)
 
     def test_mismatched_prepared_source_fails_and_keeps_selection_provenance(self):
         from dashboard import files

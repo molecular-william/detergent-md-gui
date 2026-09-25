@@ -29,7 +29,7 @@ class OperationsTests(unittest.TestCase):
         p=patch.dict(web.app.config,DISABLE_COORDINATOR=True); p.start(); self.addCleanup(p.stop)
         self.client=web.app.test_client()
         self.job={'id':'123456abcdef','status':'completed','detergent':'DDM','method':'fast_forward','profile':'draft-smoke','created':web.now()}
-        web.save([self.job]); self.run=web.run_path(self.job); self.run.mkdir()
+        web.database().replace([self.job]); self.run=web.run_path(self.job); self.run.mkdir()
 
     def wait_task(self, aid, timeout=20):
         deadline=time.monotonic()+timeout
@@ -49,7 +49,7 @@ class OperationsTests(unittest.TestCase):
     def test_recovery_marks_orphans_without_touching_outputs_or_signalling(self):
         original=self.run/'trajectory.xtc'; original.write_bytes(b'original')
         files.atomic_json(self.run/'manifest.json', {'stages':[{'name':'AA reference','status':'running'}]})
-        web.update_job(self.job['id'],status='running',analyses=[{'id':'abc','status':'running'}])
+        web.database().update(self.job['id'],status='running',analyses=[{'id':'abc','status':'running'}])
         with patch.object(os,'killpg') as kill: web.reconcile(); kill.assert_not_called()
         recovered=web.lookup(self.job['id']); self.assertEqual(recovered['status'],'failed')
         self.assertEqual(recovered['analyses'][0]['status'],'failed')
@@ -63,14 +63,14 @@ class OperationsTests(unittest.TestCase):
         self.assertTrue(self.run.exists())
 
     def test_metadata_corruption_and_default_stage_plan_are_visible(self):
-        web.update_job(self.job['id'],started_at='bad timestamp')
+        web.database().update(self.job['id'],started_at='bad timestamp')
         job=self.client.get('/api/jobs').get_json()[0]
         self.assertIsNone(job['elapsed_seconds']); self.assertTrue(job['metadata_warnings'])
         self.assertEqual(job['workflow_stages'],[name for name,_ in cg.STAGES])
 
     def test_paginated_poll_does_not_scan_artifacts_and_supports_etag(self):
         jobs=[dict(self.job,id=f'{i:012x}',status='failed' if i%2 else 'completed',label=f'Run {i}') for i in range(35)]
-        web.save(jobs)
+        web.database().replace(jobs)
         with patch.object(backend.observability,'artifacts',side_effect=AssertionError('poll scanned files')):
             response=self.client.get('/api/jobs?page=1&limit=10&status=failed')
             self.assertEqual(response.get_json()['total'],17); self.assertEqual(len(response.get_json()['jobs']),10)
@@ -171,7 +171,7 @@ class OperationsTests(unittest.TestCase):
 
     def test_complete_log_archive_and_stage_cursor(self):
         import io,zipfile
-        web.update_job(self.job['id'],layout_version=2)
+        web.database().update(self.job['id'],layout_version=2)
         logs=self.run/'logs'; logs.mkdir()
         (logs/'console.log').write_text('summary')
         (logs/'aa.log').write_text('AA output')

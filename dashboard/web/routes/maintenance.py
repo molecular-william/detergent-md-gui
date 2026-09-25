@@ -23,7 +23,7 @@ def storage_api():
 def temporary_cleanup():
     c = coordinator()
     with c.JOBS_LOCK:
-        result=temporary.cleanup(c.load(), c.RUNS, c.database())
+        result=temporary.cleanup(c.database().all(), c.RUNS, c.database())
     return jsonify(results=result)
 
 

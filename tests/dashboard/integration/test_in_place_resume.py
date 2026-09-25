@@ -117,7 +117,7 @@ def test_resume_queues_same_id_and_worker_completes_without_repreparing(resume_s
     assert response.json['label'] == job['label']
     assert response.json['status'] == 'queued'
     assert response.json['error'] is None and response.json['ended_at'] is None
-    assert len(owner.load()) == 1
+    assert len(owner.database().all()) == 1
     assert client.post('/api/jobs/123456abcdef/resume', json={'stage': 'second'}).status_code == 409
     worker = owner.WORKERS[job['id']]
     assert worker is not None
@@ -136,7 +136,7 @@ def test_resume_queues_same_id_and_worker_completes_without_repreparing(resume_s
     assert response.status_code == 200
     assert response.json['resume_count'] == 2
     assert len(response.json['resume_history']) == 2
-    assert len(owner.load()) == 1
+    assert len(owner.database().all()) == 1
 
 
 def test_database_update_failure_rolls_back_prepared_resume(resume_service, monkeypatch):
@@ -147,7 +147,7 @@ def test_database_update_failure_rolls_back_prepared_resume(resume_service, monk
     def fail_update(*args, **kwargs):
         raise OSError('injected database failure')
 
-    monkeypatch.setattr(owner, 'update_job', fail_update)
+    monkeypatch.setattr(type(owner.database()), 'update', fail_update)
     with pytest.raises(OSError, match='injected database failure'):
         owner.resume_in_place(job['id'], 'second')
 
@@ -226,12 +226,12 @@ def test_resume_supersedes_analysis_but_retains_evidence(resume_service):
     evidence.write_text('old analysis')
     task = {'id': 'old', 'kind': 'stability', 'status': 'completed', 'directory': 'analyses/old',
             'outputs': ['analyses/old/numerical_stability.json']}
-    owner.update_job(job['id'], analyses=[task])
+    owner.database().update(job['id'], analyses=[task])
     response = client.post('/api/jobs/123456abcdef/resume', json={'stage': 'second'})
     assert response.status_code == 200, response.json
     updated = owner.lookup(job['id'])
     assert updated['analyses'][0]['status'] == 'superseded'
-    assert owner.analysis_dependencies(updated) == {}
+    assert owner.analysis_coordinator.dependencies(updated) == {}
     assert evidence.read_text() == 'old analysis'
     assert json.loads((root/'resume_history/0001/job.before.json').read_text())['analyses'] == [task]
 

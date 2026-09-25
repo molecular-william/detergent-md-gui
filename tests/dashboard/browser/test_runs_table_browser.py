@@ -19,7 +19,7 @@ def test_runs_views_checkpoints_and_inline_console(tmp_path):
                 ('Completed control', 'completed', 'complete'), ('Active screening', 'running', stages[3]),
                 ('Failed fit with a deliberately long descriptive run label', 'failed', stages[2])], 1)]
     with patch.object(web, 'DATA', tmp_path/'jobs.sqlite3'), patch.object(web, 'RUNS', runs), patch.object(web, 'WORKERS', {}), patch.object(web, 'ANALYSIS_WORKERS', {}), patch.dict(web.app.config, DISABLE_COORDINATOR=True):
-        web.save(jobs)
+        web.database().replace(jobs)
         for job in jobs:
             directory = runs/job['id']; (directory/'logs').mkdir(parents=True)
             (directory/'logs/console.log').write_text(''.join(f"{job['label']} line {i}\n" for i in range(100)))

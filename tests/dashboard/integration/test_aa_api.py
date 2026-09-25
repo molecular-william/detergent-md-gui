@@ -21,7 +21,7 @@ def service(tmp_path,monkeypatch):
     monkeypatch.setitem(web.app.config,'DISABLE_COORDINATOR',True)
     monkeypatch.setattr(backend.threading.Thread,'start',lambda self:None)
     monkeypatch.setattr(aa,'readiness',lambda *a,**k:{'ready':True,'checks':[],'blockers':[]})
-    web.save([])
+    web.database().replace([])
     return web.app.test_client()
 
 
@@ -85,7 +85,7 @@ def test_new_aa_cg_pair_waits_without_taking_second_slot(service,monkeypatch):
     parent=web.lookup(child['reference_run_id'])
     assert child['status']=='waiting' and parent['run_type']=='aa_only'
     assert list(web.WORKERS)==[parent['id']]
-    web.update_job(parent['id'],status='failed');web.WORKERS.clear();web.schedule_waiting()
+    web.database().update(parent['id'],status='failed');web.WORKERS.clear();web.schedule_waiting()
     assert web.lookup(child['id'])['status']=='blocked'
 
 
@@ -97,7 +97,7 @@ def test_two_completed_consumers_share_source_and_prevent_deletion(service,monke
         with web.app.test_request_context():
             job=web.create_job('DDM','fast_forward',profile='draft-smoke',run_type='aa_cg',molecule_id='DDM',reference_run_id=source['id'],mapping_snapshot=mappings.automatic_candidate(mappings.molecule(), 'DDM'))
         assert job['shared_reference']['source_run_id']==source['id']
-        consumers.append(job);web.update_job(job['id'],status='completed');web.WORKERS.clear()
+        consumers.append(job);web.database().update(job['id'],status='completed');web.WORKERS.clear()
     assert consumers[0]['shared_reference']==consumers[1]['shared_reference']
     assert service.delete('/api/jobs/'+source['id']).status_code==409
 
@@ -143,7 +143,7 @@ def test_waiting_consumer_starts_only_after_source_slot_is_released(service):
 
 def test_aa_retry_rejects_changed_canonical_inputs(service):
     response=service.post('/',json={'run_type':'aa_only','molecule_id':'DDM'})
-    job=response.get_json();web.update_job(job['id'],status='failed');web.WORKERS.clear()
+    job=response.get_json();web.database().update(job['id'],status='failed');web.WORKERS.clear()
     metadata=web.ROOT/'molecules/DDM/metadata.json'
     data=json.loads(metadata.read_text());data['name']='Changed';files.atomic_json(metadata,data)
     response=service.post('/retry/'+job['id'])
@@ -164,7 +164,7 @@ def test_new_attempt_preserves_run_type_and_shared_source(service, monkeypatch, 
                                  run_type=run_type, molecule_id='DDM',
                                  reference_run_id=source['id'],
                                  mapping_snapshot=mappings.automatic_candidate(mappings.molecule(), 'DDM'))
-    web.update_job(job['id'], status='failed')
+    web.database().update(job['id'], status='failed')
     web.WORKERS.clear()
     stage = job['stage_plan'][0]
     if action == 'resume':
@@ -196,7 +196,7 @@ def test_new_attempt_preserves_run_type_and_shared_source(service, monkeypatch, 
     if run_type == 'aa_cg':
         assert new['shared_reference'] == job['shared_reference']
         assert new['reference_run_id'] == source['id']
-        assert len([j for j in web.load() if j['run_type'] == 'aa_only']) == 1
+        assert len([j for j in web.database().all() if j['run_type'] == 'aa_only']) == 1
     else:
         assert new['reference_eligible'] is False
         assert not new.get('mapping_snapshot')
@@ -210,7 +210,7 @@ def test_shared_source_rejects_changed_inherited_temperature(service, monkeypatc
         'method': 'fast_forward', 'reference_run_id': source['id'], 'temperature_k': 310})
     assert response.status_code == 409
     assert 'temperature_k' in response.get_json()['error']
-    assert len(web.load()) == 1
+    assert len(web.database().all()) == 1
 
 
 def test_a_full_length_reference_cannot_serve_a_smoke_consumer(service, monkeypatch):
@@ -231,7 +231,7 @@ def test_a_full_length_reference_cannot_serve_a_smoke_consumer(service, monkeypa
 
 def test_cancelled_source_cancels_waiting_consumer(service):
     source = reference_fixture()
-    web.update_job(source['id'], status='cancelled')
+    web.database().update(source['id'], status='cancelled')
     child = {'id': '222222222222', 'run_type': 'aa_cg', 'status': 'waiting',
              'reference_run_id': source['id']}
     web.database().insert(child)

@@ -16,7 +16,7 @@ def test_aa_form_preserves_cg_choices_and_reference_settings(tmp_path):
     defaults = aa | dict(cg_equil_ps=10, cg_production_ps=50, sasa_probe_nm=.191, cg_seed=12345)
     inherited = aa | dict(temperature_k=310, aa_production_ps=500, output_interval_ps=5)
     with patch.object(web, 'DATA', tmp_path/'jobs.sqlite3'), patch.object(web, 'RUNS', tmp_path/'runs'), patch.dict(web.app.config, DISABLE_COORDINATOR=True):
-        web.save([])
+        web.database().replace([])
         server = make_server('127.0.0.1', 0, web.app, request_handler=QuietHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
         try:

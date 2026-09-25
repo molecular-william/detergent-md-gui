@@ -32,7 +32,7 @@ def queue_analysis(jid, kind):
         except (ValueError, OSError) as exc:
             abort(400, str(exc))
         payload = {**payload, 'molecule_id': molecule_id, 'target_dataset': dataset}
-    task, status = coordinator().queue_analysis(jid, kind, payload)
+    task, status = coordinator().analysis_coordinator.queue(jid, kind, payload)
     return jsonify(task), status
 
 
@@ -44,7 +44,7 @@ def carbohydrate_validation_api(jid):
 
 @blueprint.post('/api/jobs/<jid>/analyses/<aid>/cancel')
 def cancel_analysis(jid, aid):
-    return jsonify(coordinator().cancel_analysis(jid, aid)), 202
+    return jsonify(coordinator().analysis_coordinator.cancel(jid, aid)), 202
 
 
 @blueprint.get('/api/jobs/<jid>/analyses')
@@ -61,7 +61,7 @@ def analyses_api(jid):
 @blueprint.get('/api/jobs/<jid>/targets')
 def targets_get(jid):
     c = coordinator()
-    job = c.lookup(jid); path = c.analysis_dependencies(job).get('experimental_targets.json')
+    job = c.lookup(jid); path = c.analysis_coordinator.dependencies(job).get('experimental_targets.json')
     return jsonify(json.loads((c.run_path(job)/path).read_text()) if path else targets.read(workflow.execution_root(c.run_path(job))))
 
 
