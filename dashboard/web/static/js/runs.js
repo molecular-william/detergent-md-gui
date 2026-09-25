@@ -1,4 +1,4 @@
-import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResource } from './shared.js';
+import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResource, guarded, DROP } from './shared.js';
 import { createConsoleViewer } from './console.js';
 import { RunFigureViewer } from './figures.js';
 import { renderDistanceDiagnostics } from './runs-diagnostics.js';
@@ -172,6 +172,9 @@ export function createRuns({ onClone, onDeleted }) {
     const generation = (card.artifactGeneration || 0)+1; card.artifactGeneration = generation;
     if($('.job-artifacts',card).open) {
     const query = new URLSearchParams({page:card.artifactPage || 1, limit:25, search:$('.artifact-search',card).value});
+    // One refresh feeds both panels of a card -- the artifact list and the analysis figures --
+    // so this guard has to be per call, not per panel: sharing a generation between them drops
+    // the answer the other panel is waiting for. It stays a counter of its own for that reason.
     const result = await api(`/api/jobs/${job.id}/artifacts?${query}`);
     if (generation !== card.artifactGeneration) return;
     const list = $('.artifact-list',card); list.replaceChildren();
@@ -195,16 +198,19 @@ export function createRuns({ onClone, onDeleted }) {
     }
   }
   async function refreshJobs(conditional=false) {
-    const generation = ++jobsGeneration;
     const query = new URLSearchParams({view:'summary',page:runPage,limit:20,status:$('#run-status-filter').value,search:$('#run-search').value});
-    const response = await fetch('/api/jobs?'+query,{headers:conditional && jobsEtag ? {'If-None-Match':jobsEtag} : {},signal:AbortSignal.timeout(10000)});
-    if (response.status === 304) return;
-    if (!response.ok) throw new Error(`Run updates failed (${response.status})`);
-    const result = await response.json();
-    if (generation !== jobsGeneration) return;
-    jobsEtag = response.headers.get('etag') || ''; updateJobs(result.jobs);
-    setText($('#runs-page'),`Page ${result.page} · ${result.total} runs`);
-    $('#runs-prev').disabled = result.page <= 1; $('#runs-next').disabled = result.page*result.limit >= result.total;
+    // One loader for the table: a poll that lands after a newer one is dropped with its
+    // answer. A 304 is not an answer, and stays a no-op here.
+    const payload = await guarded('runs:jobs', async () => {
+      const response = await fetch('/api/jobs?'+query,{headers:conditional && jobsEtag ? {'If-None-Match':jobsEtag} : {},signal:AbortSignal.timeout(10000)});
+      if (response.status === 304) return null;
+      if (!response.ok) throw new Error(`Run updates failed (${response.status})`);
+      return {result: await response.json(), etag: response.headers.get('etag') || ''};
+    });
+    if (payload === DROP || payload === null) return;
+    jobsEtag = payload.etag; updateJobs(payload.result.jobs);
+    setText($('#runs-page'),`Page ${payload.result.page} · ${payload.result.total} runs`);
+    $('#runs-prev').disabled = payload.result.page <= 1; $('#runs-next').disabled = payload.result.page*payload.result.limit >= payload.result.total;
   }
   $('#runs-prev').onclick = () => { runPage--; jobsEtag=''; refreshJobs().catch(e=>notice(e.message)); };
   $('#runs-next').onclick = () => { runPage++; jobsEtag=''; refreshJobs().catch(e=>notice(e.message)); };

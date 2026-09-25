@@ -1,4 +1,4 @@
-import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResource } from './shared.js';
+import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResource, guarded, DROP } from './shared.js';
 
 // Owns the persisted run form, inherited settings, and readiness checks.
 export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
@@ -67,11 +67,11 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     }
   }
   async function loadMolecules() {
-    const generation=++moleculesGeneration, select=form.elements.molecule_id;
+    const select=form.elements.molecule_id;
     ++readinessGeneration; $('#start-run').disabled=true;
     const chosen=select.value || savedForm?.molecule_id || savedForm?.detergent || 'DDM';
-    const result=await cachedApi('/api/molecules',{maxAge:10000});
-    if(generation!==moleculesGeneration)return;
+    const result=await guarded('molecules', () => cachedApi('/api/molecules',{maxAge:10000}));
+    if(result===DROP)return;
     moleculeRecords=result.molecules;
     select.replaceChildren(new Option('Select a molecule directory',''));
     for(const record of moleculeRecords) select.append(new Option(`${record.name} · ${record.path}${record.valid?'':' · needs attention'}`,record.id));
@@ -139,11 +139,10 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     input?.addEventListener('change', syncRunSummary);
   }
   async function loadReferences() {
-    const generation=++referenceGeneration;
     const select = form.elements.reference_run_id;
     const chosen = select.value || (!referencesLoaded && savedForm?.reference_run_id) || '';
-    const result = await cachedApi('/api/references?'+new URLSearchParams({molecule_id:form.elements.molecule_id.value}),{maxAge:10000});
-    if(generation!==referenceGeneration)return;
+    const result = await guarded('references', () => cachedApi('/api/references?'+new URLSearchParams({molecule_id:form.elements.molecule_id.value}),{maxAge:10000}));
+    if(result===DROP)return;
     referencesLoaded=true; referenceRecords=result.references;
     select.replaceChildren(new Option('Run a new AA reference', ''));
     for (const reference of result.references) { const option=new Option(`${reference.label} · ${reference.settings?.aa_production_ps ?? 'unknown'} ps · ${reference.id}`, reference.id); option.dataset.settings=JSON.stringify(reference.settings||{}); select.append(option); }

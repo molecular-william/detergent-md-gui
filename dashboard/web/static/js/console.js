@@ -1,4 +1,4 @@
-import { $, storage, setText, api } from './shared.js';
+import { $, storage, setText, api, guarded, DROP } from './shared.js';
 
 // Console selection, byte offsets and pause state belong to this viewer.
 export function createConsoleViewer({ getCards }) {
@@ -35,14 +35,16 @@ export function createConsoleViewer({ getCards }) {
   };
   async function refreshConsole() {
     if (!selectedRun || consolePaused || $('#runs').hidden || !$('#console-panel').closest('details[open]')) return;
-    const id = selectedRun, generation = logGeneration;
+    const id = selectedRun;
     let result;
-    try { result = await api(`/api/jobs/${encodeURIComponent(id)}/log?offset=${logOffset}&source=${encodeURIComponent(logSource)}`); }
+    try { result = await guarded(`console:${id}`, () => api(`/api/jobs/${encodeURIComponent(id)}/log?offset=${logOffset}&source=${encodeURIComponent(logSource)}`)); }
     catch(error) {
-      if(error.status===404 && selectedRun===id && generation===logGeneration) { selectConsole(''); setText($('#console-status'),'Previously selected run is no longer available.'); return; }
+      if(error.status===404 && selectedRun===id) { selectConsole(''); setText($('#console-status'),'Previously selected run is no longer available.'); return; }
       throw error;
     }
-    if (selectedRun !== id || generation !== logGeneration || consolePaused) return;
+    // The key is the run, so switching runs supersedes this request; a pause is not a
+    // generation, and it is checked here.
+    if (result === DROP || selectedRun !== id || consolePaused) return;
     const atBottom = consoleOutput.scrollTop + consoleOutput.clientHeight >= consoleOutput.scrollHeight - 30;
     const oldTop = consoleOutput.scrollTop;
     if (result.reset) setText(consoleOutput, '');

@@ -36,9 +36,25 @@ function loadOnce(key, loader, {maxAge=Infinity}={}) {
   return entry.promise;
 }
 function cachedApi(path, options={}) { return loadOnce(path,()=>api(path),options); }
+// Latest-wins loader: one generation per key. A superseded answer comes back as DROP rather
+// than as a never-settling promise, because callers await these loaders -- the poll loops and
+// the tests do -- and a promise that never settles hangs them. A superseded failure is
+// dropped with it, instead of raising an error about an answer the caller has replaced.
+// Callers keep their own checks for conditions that are not generations (a paused console).
+const DROP = Symbol('superseded');
+const generations = new Map();
+function guarded(key, loader) {
+  const token = (generations.get(key) || 0) + 1;
+  generations.set(key, token);
+  const current = () => generations.get(key) === token;
+  return Promise.resolve().then(loader).then(
+    value => (current() ? value : DROP),
+    error => { if (current()) throw error; return DROP; }
+  );
+}
 function invalidateResource(prefix) {
   for(const key of resources.keys())if(key.startsWith(prefix))resources.delete(key);
   document.dispatchEvent(new CustomEvent('dashboard:resources-changed',{detail:{prefix}}));
 }
 
-export { loadOnce, cachedApi, invalidateResource, $,  $$, storage, setText, notice, api, post, downloadBlob };
+export { loadOnce, cachedApi, invalidateResource, guarded, DROP, $,  $$, storage, setText, notice, api, post, downloadBlob };

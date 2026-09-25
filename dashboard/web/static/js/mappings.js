@@ -1,4 +1,4 @@
-import { $, storage, setText, post, cachedApi, invalidateResource } from './shared.js';
+import { $, storage, setText, post, cachedApi, invalidateResource, guarded, DROP } from './shared.js';
 import { setupBondedWorkspace } from './bonded.js';
 import { createEditor, toggleAtom, clearSelection, clearMapping, groupAtoms, renameBead, removeBead } from './mapping-state.js';
 import { mountDiagram } from './mapping-diagram.js';
@@ -107,11 +107,12 @@ export function createMappings() {
 
   async function validateEditor() {
     if (!moleculeEditor) return;
-    const generation = ++validationGeneration;
     try {
-      const result = await post('/api/mappings/validate', moleculeEditor.candidate);
-      if (generation === validationGeneration) renderValidation(result);
-    } catch (error) { if (generation === validationGeneration) editorMessage(error.message); }
+      // One check per editor: a slower earlier answer is not rendered over a newer one.
+      const result = await guarded('mapping-validation', () => post('/api/mappings/validate', moleculeEditor.candidate));
+      if (result === DROP) return;
+      renderValidation(result);
+    } catch (error) { editorMessage(error.message); }
   }
 
   function renderEditor() {
@@ -124,15 +125,17 @@ export function createMappings() {
 
   async function loadMoleculeEditor(moleculeId) {
     if (!moleculeId) { editorMessage('Select a molecule to begin.'); return; }
-    const generation = (loadMoleculeEditor.generation || 0) + 1; loadMoleculeEditor.generation = generation;
     if (moleculeDiagram) moleculeDiagram.destroy(); moleculeDiagram = null; moleculeEditor = null;
     editorMessage(`Loading ${moleculeId}…`);
     try {
-      const [source, catalogue] = await Promise.all([
+      // Keyed by molecule: a switch supersedes the load in flight, so the state assignment
+      // below only happens for the molecule that is still selected.
+      const loaded = await guarded(`molecule-editor:${moleculeId}`, () => Promise.all([
         cachedApi('/api/mappings/context?molecule_id=' + encodeURIComponent(moleculeId), {maxAge: 10000}),
         cachedApi('/api/mappings?molecule_id=' + encodeURIComponent(moleculeId) + '&view=summary', {maxAge: 10000}),
-      ]);
-      if (generation !== loadMoleculeEditor.generation) return;
+      ]));
+      if (loaded === DROP) return;
+      const [source, catalogue] = loaded;
       if (!source?.context || !source?.scene) { editorMessage('Server did not return a mapping context; reload the page.'); return; }
       mappingData.candidates = catalogue.candidates || [];
       mappingData.bead_types = source.bead_types || catalogue.bead_types || [];
