@@ -50,15 +50,13 @@ and where the evidence for each one lives:
   whose single terminal write happens in the exit hook. Two hazards surfaced while adopting it, both
   now guarded and tested — a re-raised failure escaping a worker thread, and the job loop's
   `limit_error` override needing to land before its one write, not after.
-- **Mapping identity includes the candidate name**, and run admission compares that identity, so
-  renaming a candidate orphans its fitted bonded states. The name-free `content_identity` exists and
-  is used only for duplicate detection. See item 2 of the reconciled gaps in DDM_CALIBRATION.md; the
-  state side is fixed (a state records both hashes and compatibility asks the chemistry), the
-  selector's filter still matches on the candidate hash and needs the candidate list to publish a
-  content identity for the browser to send.
-- **Legacy diagnostics rendering.** A diagnostics JSON written before `kind` existed would show a
-  constrained pair as a physical bead, and matrix colour limits remain per-run. See item 5 of the
-  same section.
+- **Mapping identity: fixed at both ends.** A state records the name-free content identity as well as
+  the candidate identity, run admission judges compatibility by chemistry, and the workspace selector
+  sends both hashes, so renaming a saved candidate keeps the states fitted for it (listed and
+  reusable). `states.matches` is the one rule; `belongs_to` calls it.
+- **Legacy diagnostics rendering: fixed.** An artifact without per-pair `kind` is labelled
+  unclassified with its reason rather than guessed into 'Physical bead', and the script records the
+  per-run colour range it plotted so the panel can state it. See item 5 of the reconciled gaps.
 - **Two run paths are declared, not implemented:** `cg_composition` runs are a screening stub
   (they declare `execution_kind`), and the Sucrose mapping path is provisional with a one-ring
   recognizer. Both are documented as such rather than presented as finished.

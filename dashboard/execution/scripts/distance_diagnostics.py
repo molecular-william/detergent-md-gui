@@ -27,13 +27,16 @@ def write_matrix_plot(result, path):
         a,b=pair['beads']; value=pair['wasserstein_nm'].get('ring_expanded_AA', pair['wasserstein_nm']['raw_AA'])
         matrix[index[a],index[b]]=matrix[index[b],index[a]]=value
     fig, ax = plt.subplots(figsize=(7.2,6.2), constrained_layout=True)
-    masked=np.ma.masked_invalid(matrix); image=ax.imshow(masked, cmap='viridis', vmin=0, vmax=max(.1,float(np.nanmax(matrix))))
+    masked=np.ma.masked_invalid(matrix); scale=max(.1,float(np.nanmax(matrix))); image=ax.imshow(masked, cmap='viridis', vmin=0, vmax=scale)
     ax.set_xticks(range(len(names)),names,rotation=45,ha='right'); ax.set_yticks(range(len(names)),names)
     ax.set_title('Stratified physical distance matrix\nWasserstein distance (nm); lower is better')
     for i in range(len(names)):
         for j in range(len(names)):
             if np.isfinite(matrix[i,j]): ax.text(j,i,f'{matrix[i,j]:.3f}',ha='center',va='center',fontsize=7,color='white' if matrix[i,j]>.05 else 'black')
     fig.colorbar(image, ax=ax, label='Wasserstein distance (nm)')
+    # The colour scale is per run, so record the range this plot used: a reader comparing two
+    # matrices has to compare numbers, and this is what makes that instruction actionable.
+    result['colour_scale_nm'] = {'min': 0.0, 'max': round(scale, 3), 'per_run': True}
     fig.savefig(path,dpi=160); plt.close(fig); return True
 
 
@@ -85,8 +88,9 @@ def compare(root):
 
 if __name__=='__main__':
     result=compare(Path('..'))
+    # The plot records the colour range it used into `result`, so it runs before the JSON is written.
+    write_matrix_plot(result, Path(f"distance_matrix_stratified_{os.environ.get('MOLECULE_TYPE', 'DDM')}.png"))
     # Only the stratified name. The unstratified file used to be written with this same object,
     # byte for byte; the route reads it now as a fallback for runs written before this change, and
     # marks those `legacy` (see web/routes/analyses.py:distance_diagnostics_api).
     Path('distance_diagnostics_stratified.json').write_text(json.dumps(result,indent=2)+'\n')
-    write_matrix_plot(result, Path(f"distance_matrix_stratified_{os.environ.get('MOLECULE_TYPE', 'DDM')}.png"))

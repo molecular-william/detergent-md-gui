@@ -96,3 +96,28 @@ def test_analysis_display_preserves_missing_values_and_metadata(dashboard, live_
     expect(first.locator('.distance-pair-table')).to_contain_text('0.000 nm')
     expect(first.locator('.distance-pair-table')).to_contain_text('n/a')
     assert errors == []
+
+
+def test_an_unclassified_diagnostic_artifact_says_so(dashboard, live_page):
+    """A file written before per-pair `kind` must not have its pairs guessed into categories.
+
+    The renderer used to default an unknown kind to 'Physical bead' and infer from a /VS$/ name test,
+    which moved constrained pairs into the population that counts as evidence about the mapping. It
+    now says unclassified and why, and the response's `legacy` flag is what tells it so.
+    """
+    from dashboard.execution import workflow
+    runs = dashboard.coordinator.RUNS; runs.mkdir(parents=True, exist_ok=True)
+    job = {'id': 'abcdef123459', 'label': 'Legacy diagnostics', 'detergent': 'DDM',
+           'method': 'fast_forward', 'status': 'completed', 'stage': 'complete',
+           'created': dashboard.coordinator.now()}
+    dashboard.coordinator.database().replace([job])
+    assessment = workflow.execution_root(runs / job['id']) / '5_assessment'; assessment.mkdir(parents=True)
+    (assessment / 'distance_diagnostics.json').write_text(json.dumps({'pairs': [
+        {'beads': ['B01', 'B02'], 'wasserstein_nm': {'raw_AA': 0.2, 'ring_expanded_AA': 0.3}}]}))
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#runs')
+    first = page.locator('.job').first
+    first.locator('.job-analysis summary').click()
+    expect(first.locator('.distance-diagnostic')).to_contain_text('per-pair classification')
+    expect(first.locator('.distance-pair-table')).to_contain_text('Unclassified (legacy artifact)')
+    assert errors == []

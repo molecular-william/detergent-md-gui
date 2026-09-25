@@ -139,13 +139,14 @@ code has since contradicted; every verdict quotes the file:line that supports it
    written by `analysis/worker.py:101` and `analysis/metadata.py:20`, attached at
    `analysis/runs/observability.py:44-52`; closed by `ac39797`), with the generic legacy caption left
    as a fallback. Missing values are **not** rendered as zero: `runs-diagnostics.js:21-29` maps
-   `null`/`undefined`/`''` to `'n/a'`. Still open: a diagnostics JSON written before `kind` existed
-   would show a constrained pair as a physical bead, because the route prefers
-   `distance_diagnostics_stratified.json` and falls back to the unstratified file, which only runs
-   written before the writer stopped emitting that duplicate will have (`routes/analyses.py:75-82`;
-   the response marks those `legacy`) while the JS defaults an unknown `kind` and infers from a `/VS$/i`
-   name test (`runs-diagnostics.js:18,50-52`); and colour limits remain per-run
-   (`distance_diagnostics.py:30`), so compare numbers rather than colour.
+   `null`/`undefined`/`''` to `'n/a'`. **Closed** for the two things that were open here: an artifact
+   without per-pair `kind` is labelled `Unclassified (legacy artifact)` with its reason and the re-run,
+   instead of being guessed into "Physical bead" by a `/VS$/i` name test
+   (`runs-diagnostics.js`, driven by the response's `legacy` flag from `routes/analyses.py:75-82`); and
+   the per-run colour range is recorded by `write_matrix_plot` (`colour_scale_nm`) and stated by the
+   panel, so "compare numbers, not colour" is actionable. The scale itself stays per run by design --
+   a fixed scale across runs would have to pick a maximum, and that is a scientific choice, not a
+   rendering one.
 6. **State safety: partly closed.** Tests now cover in-place versus save-as-new
    (`test_bonded_states.py:109-121`), a stale `expected_revision` returning 409 (`:137`,
    `integration/test_bonded_api.py:59`), mapping identity held within a revision (`:105-106`),
