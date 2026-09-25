@@ -73,14 +73,19 @@ def distance_diagnostics_api(jid):
     job = c.lookup(jid)
     assessment = workflow.execution_root(c.run_path(job)) / '5_assessment'
     path = assessment / 'distance_diagnostics_stratified.json'
-    if not path.is_file(): path = assessment / 'distance_diagnostics.json'
+    legacy = False
+    if not path.is_file():
+        # Runs written before the writer stopped emitting the duplicate name. Their pairs may predate
+        # the per-pair `kind` classification, so the response says which file answered rather than
+        # letting a reader assume the stratified one did.
+        path = assessment / 'distance_diagnostics.json'; legacy = True
     if not path.is_file():
         abort(404, 'Distance diagnostics are not available for this run')
     try:
         data = json.loads(path.read_text())
     except (OSError, ValueError):
         abort(422, 'Distance diagnostics are invalid')
-    return jsonify(data=data, source=str(path.relative_to(c.run_path(job))))
+    return jsonify(data=data, source=str(path.relative_to(c.run_path(job))), legacy=legacy)
 
 
 @blueprint.get('/api/compare')

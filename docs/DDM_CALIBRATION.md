@@ -141,8 +141,9 @@ code has since contradicted; every verdict quotes the file:line that supports it
    as a fallback. Missing values are **not** rendered as zero: `runs-diagnostics.js:21-29` maps
    `null`/`undefined`/`''` to `'n/a'`. Still open: a diagnostics JSON written before `kind` existed
    would show a constrained pair as a physical bead, because the route prefers
-   `distance_diagnostics_stratified.json` and falls back to the unstratified file
-   (`routes/analyses.py:75-76`) while the JS defaults an unknown `kind` and infers from a `/VS$/i`
+   `distance_diagnostics_stratified.json` and falls back to the unstratified file, which only runs
+   written before the writer stopped emitting that duplicate will have (`routes/analyses.py:75-82`;
+   the response marks those `legacy`) while the JS defaults an unknown `kind` and infers from a `/VS$/i`
    name test (`runs-diagnostics.js:18,50-52`); and colour limits remain per-run
    (`distance_diagnostics.py:30`), so compare numbers rather than colour.
 6. **State safety: partly closed.** Tests now cover in-place versus save-as-new

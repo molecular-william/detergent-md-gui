@@ -85,6 +85,8 @@ def compare(root):
 
 if __name__=='__main__':
     result=compare(Path('..'))
-    Path('distance_diagnostics.json').write_text(json.dumps(result,indent=2)+'\n')
+    # Only the stratified name. The unstratified file used to be written with this same object,
+    # byte for byte; the route reads it now as a fallback for runs written before this change, and
+    # marks those `legacy` (see web/routes/analyses.py:distance_diagnostics_api).
     Path('distance_diagnostics_stratified.json').write_text(json.dumps(result,indent=2)+'\n')
     write_matrix_plot(result, Path(f"distance_matrix_stratified_{os.environ.get('MOLECULE_TYPE', 'DDM')}.png"))
