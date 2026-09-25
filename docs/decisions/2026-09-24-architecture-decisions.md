@@ -1,0 +1,31 @@
+# Architecture decisions: what was considered and rejected
+
+Companion to `docs/superpowers/plans/2026-09-24-architecture-consolidation.md` (Tasks 8.4 and
+8.2). Each entry is a change that was proposed, examined and deliberately not made, with the
+reason a future reviewer would otherwise have to rediscover — including the ones examined during
+the consolidation itself and the ones re-confirmed while paying down lint findings.
+
+## Not changed, and why
+
+| Rejected | Reason |
+|---|---|
+| Caching `candidates/store._validation` differently | Its `lru_cache` is keyed on file content and structure, so a workspace change cannot return a stale verdict — verified during the consolidation, no change needed. |
+| Splitting `Coordinator` into five classes | The view extraction (Phase 3) holds the leverage; further splitting moves complexity across classes instead of concentrating it. The coordinator went 736 → 608 → 589 lines by removing what did not belong to it, not by dividing what did. |
+| A plugin/registry framework for run types | The protocol interface plus three adapters is the whole requirement; a registry is a seam with nothing varying across it. `admission.validate_run_type` owns the matrix, and a fourth run type would be a fourth adapter, not a registration. |
+| Renaming HTTP URLs or `ddm.*` browser keys | Documented as stable through reorganizations; the browser and any bookmarked link depend on them. The URL map was asserted byte-identical to the pre-plan map as an acceptance criterion. |
+| Moving `dashboard/.venv` out of the package | Launchers embed absolute interpreter paths; exclude it in tool configs instead (Task 8.1 — `exclude` in `[tool.ruff]` takes ruff from ~20 000 vendored files to 191). |
+| Deleting the `cg_composition` run type | It answers a real question (CG-only screening of a saved composition); Task 6.1 fixes its honesty rather than removing it — the run now declares `execution_kind: screening-stub` and a limitation instead of presenting JSON placeholders as a completed simulation. |
+| Moving bonded states to SQLite tables | The JSON store is atomic and adequate; revisit only if concurrent writers appear. The `complete` status it records is an execution fact, never scientific validation. |
+| Keeping the `mappings` facade as a passthrough module | The package boundary is the interface — the facade becomes `candidates/__init__.py` (now `models/mappings/__init__.py`), it does not stay as a second name. |
+
+## Decisions taken during the consolidation
+
+| Decision | Reason |
+|---|---|
+| A superseded guarded load resolves to a `DROP` sentinel instead of a never-settling promise (Task 5.3) | The plan's snippet timed out four browser tests: callers `await` these loaders and `page.evaluate('window.refreshJobs()')` waits on them. A dropped call must let its caller return, and a superseded *failure* is dropped the same way. |
+| `refreshArtifactViews` keeps its own per-call counter (Task 5.3) | It feeds both panels of a run card from one call; a shared generation dropped the figure panel. Recorded in the code rather than in this table only. |
+| The screening stub declares itself rather than executing MD (Task 6.1) | Writing a real CG variant is a scientific change with its own calibration question. The honest state of the code is the declaration: `screening.json`, `sasa.json`, `execution_kind`, `limitations`, and a badge on the run card. |
+| The export bundle ships the whole `sugars/` package rather than one concatenated helper (Task 6.7) | The old bundle wrote the package facade as `carbohydrates.py` — relative imports naming modules the bundle did not carry — so nothing could import it. The package's modules are a closed closure except `validation.py`, which `__init__` never imports, so the package imports wherever it lands. |
+| The attempt lifecycle is pinned with tests before its three call sites adopt it (Task 6.3) | The three loops are not three spellings of one thing: they keep three different write policies, and adopting one or two would leave stages, jobs and analyses writing evidence through different code. The obstacles per site are recorded in the plan. |
+| `E501` (line length) is set to 160 and `E701`/`E702` are not paid down (Task 8.2) | The codebase writes long single-line stage dictionaries deliberately, and the E701/E702 bulk is dense one-line style rather than defects. Chasing them would rewrite hundreds of working lines — a large diff with no behavioural gain and real risk to manifest-writing code. The findings that *are* defects (the undefined names and the unused left-overs) were fixed; two of them hid a comprehension that could not run and a duplicated pattern fallback. |
+| The lint fixes were scoped to `dashboard/` in one pass (Task 8.2) | The integration test files were being migrated concurrently; a `--fix` sweeping `tests/` would have collided with that work. Tests are a separate group. |
