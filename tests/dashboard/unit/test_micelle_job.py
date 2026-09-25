@@ -1,5 +1,8 @@
 from unittest.mock import patch
+
 from dashboard.execution.adapters.micelle import run_micelle_job
+
+
 def test_adapter_requires_seed(tmp_path):
  try: run_micelle_job({'template':'x','aggregation_number':2},tmp_path)
  except ValueError as e: assert 'seed' in str(e)

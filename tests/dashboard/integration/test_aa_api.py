@@ -1,15 +1,17 @@
 from dashboard.execution.coordination import coordinator as backend
+
 """Run-type admission and the fixed AA-source/CG-consumer lifecycle."""
-from tests.dashboard.support import PROJECT_ROOT
 import json
-from pathlib import Path
 import shutil
+
 import pytest
-from dashboard.execution.adapters import aa, cg
-from dashboard.models.molecules import aa as aa_molecules
-from dashboard.analysis.runs import references as aa_references
+
 from dashboard import files
+from dashboard.analysis.runs import references as aa_references
+from dashboard.execution.adapters import aa, cg
 from dashboard.models import mappings
+from dashboard.models.molecules import aa as aa_molecules
+from tests.dashboard.support import PROJECT_ROOT
 
 
 @pytest.fixture

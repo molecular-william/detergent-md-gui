@@ -15,6 +15,7 @@ def test_composition_screening_is_declared(tmp_path, monkeypatch):
     trajectory- or plot-shaped file that nothing produced.
     """
     import json
+
     from dashboard.execution.adapters import composition
     from dashboard.models import compositions
 

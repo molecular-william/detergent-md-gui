@@ -1,22 +1,24 @@
 import os
+
 from dashboard.execution.coordination import coordinator as backend
+
 """Recovery, concurrency, immutable analysis, and resume acceptance."""
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
+
 import pytest
 
 from dashboard import files
 from dashboard.execution import workflow
 from dashboard.execution.adapters import cg
 from dashboard.execution.coordination import resources
-from dashboard import store
 
 
 class OperationsTests(unittest.TestCase):
@@ -177,7 +179,8 @@ class OperationsTests(unittest.TestCase):
         self.assertTrue(response.get_json()['jobs'][0]['metadata_warnings'])
 
     def test_complete_log_archive_and_stage_cursor(self):
-        import io,zipfile
+        import io
+        import zipfile
         self.dashboard.coordinator.database().update(self.job['id'],layout_version=2)
         logs=self.run/'logs'; logs.mkdir()
         (logs/'console.log').write_text('summary')
@@ -207,6 +210,7 @@ class OperationsTests(unittest.TestCase):
     def test_observables_parse_bond_atom_columns_and_undirected_paths(self):
         import MDAnalysis as mda
         import numpy as np
+
         from dashboard.analysis.runs import observability
         mapping=self.run/'2_mapping'; mapping.mkdir()
         topology=self.run/'3_initial_CG'; topology.mkdir()

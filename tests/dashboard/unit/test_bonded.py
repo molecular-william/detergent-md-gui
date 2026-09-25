@@ -1,12 +1,12 @@
 import json
+
 import numpy as np
 import pytest
-from dashboard.models import mappings
-from dashboard.execution import workflow
+
 from dashboard.execution.adapters import cg
-from dashboard.models.molecules import draft as draft_model
-from dashboard.models import bonded
+from dashboard.models import bonded, mappings
 from dashboard.models.mappings import store as mapping_store
+from dashboard.models.molecules import draft as draft_model
 
 
 def test_circular_fit_handles_seam_and_gromacs_harmonic_minimum():

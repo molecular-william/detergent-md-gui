@@ -55,7 +55,10 @@ def test_automatic_preview_has_no_saved_candidate(dashboard):
 def test_stale_mapping_context_is_rejected(dashboard):
     client = dashboard.client
     context = client.get('/api/mappings/context?molecule_id=DDM').json['context']
-    response = client.post('/api/mappings/automatic/preview', json={'molecule_id': 'DDM', 'molecule_snapshot': {'snapshot_sha256': 'stale'}})
+    # A well-formed snapshot carrying the wrong hash: the refusal has to be about staleness,
+    # not about a payload the endpoint could reject as malformed.
+    stale = {**context['snapshot'], 'snapshot_sha256': 'stale'}
+    response = client.post('/api/mappings/automatic/preview', json={'molecule_id': 'DDM', 'molecule_snapshot': stale})
     assert response.status_code == 409
 
 

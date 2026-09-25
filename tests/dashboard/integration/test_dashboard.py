@@ -1,20 +1,21 @@
 import os
+
 from dashboard.execution.coordination import coordinator as backend
+
 """Focused API, mapping and worker lifecycle acceptance tests."""
 import json
-from pathlib import Path
 import tempfile
 import threading
-import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 from dashboard import files
-from dashboard.models.mappings import store as mapping_store
-from dashboard.models import mappings
-from dashboard.execution import workflow
 from dashboard.execution.adapters import aa, cg
+from dashboard.models import mappings
+from dashboard.models.mappings import store as mapping_store
 
 
 class DashboardTests(unittest.TestCase):

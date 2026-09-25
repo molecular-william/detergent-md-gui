@@ -1,8 +1,12 @@
 from pathlib import Path
+
 import pytest
 
 from dashboard.models.compositions.topology import (
-    build_preview, composition_identity, expand_tail, load_sugar_catalog,
+    build_preview,
+    composition_identity,
+    expand_tail,
+    load_sugar_catalog,
 )
 
 ROOT = Path(__file__).resolve().parents[3]

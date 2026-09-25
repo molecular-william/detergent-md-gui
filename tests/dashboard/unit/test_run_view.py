@@ -6,7 +6,6 @@ manifest and the ownership flags as arguments -- so it can be tested without a F
 app, and so a request cannot be aborted from inside it.
 """
 import json
-from pathlib import Path
 
 from dashboard.web import views
 

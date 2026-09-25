@@ -1,5 +1,7 @@
 import json
+
 import pytest
+
 from dashboard.cli import screen_candidates as screen
 
 

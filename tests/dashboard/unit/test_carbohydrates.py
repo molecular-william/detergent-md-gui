@@ -1,17 +1,16 @@
 """Chemical grouping, virtual-site geometry and topology invariants."""
 import copy
-import itertools
 import json
-import tempfile
 from pathlib import Path
+
 import numpy as np
 import pytest
-from dashboard.models import sugars
+
 from dashboard.execution import tools
-from dashboard.models import mappings
-from dashboard.models.molecules import draft as draft_model
+from dashboard.models import mappings, sugars
 from dashboard.models.mappings import depiction
 from dashboard.models.mappings import store as mapping_store
+from dashboard.models.molecules import draft as draft_model
 from tests.dashboard.support import fast_forward_source
 
 
@@ -54,8 +53,8 @@ def test_scaled_geometry_preserves_links_and_virtual_cog():
 
 
 def test_topology_is_parseable_and_has_rigid_rings_and_link_torsion():
-    from vermouth.gmx import read_itp
     from vermouth.forcefield import ForceField
+    from vermouth.gmx import read_itp
     c=mappings.automatic_candidate(mappings.molecule(), 'DDM'); ff=ForceField('check');read_itp(draft_model.initial_topology(c).splitlines(),ff)
     b=ff.blocks['DDM']
     assert len(b.interactions['constraints'])==6
@@ -90,7 +89,7 @@ def test_save_export_retains_architecture(tmp_path,monkeypatch):
 
 
 def test_surface_envelope_is_radius_and_probe_consistent():
-    from dashboard.analysis.runs.surfaces import envelope, PROBE
+    from dashboard.analysis.runs.surfaces import PROBE, envelope
     v,f=envelope(np.array([[0.,0.,0.]]),[.230],spacing=.015)
     radii=np.linalg.norm(v,axis=1)
     assert np.max(np.abs(radii-(.230+PROBE)))<.002
@@ -170,8 +169,8 @@ def test_the_vendored_source_is_at_the_revision_the_configuration_pins():
 
 
 def test_three_repeat_units_get_additional_orientation_torsion():
-    from vermouth.gmx import read_itp
     from vermouth.forcefield import ForceField
+    from vermouth.gmx import read_itp
     source=mappings.molecule(); ids=set(range(20,32)); atoms=[];bonds=[]
     for repeat in range(3):
         for a in source['atoms']:

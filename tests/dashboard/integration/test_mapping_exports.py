@@ -2,10 +2,6 @@
 import importlib.util
 import io
 import json
-from pathlib import Path
-import shutil
-import subprocess
-import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 import zipfile
@@ -13,11 +9,10 @@ import zipfile
 import numpy as np
 import pytest
 from rdkit import Chem
-from dashboard.models.mappings import depiction
+
 from dashboard.models import mappings
-from dashboard.execution import workflow
-from tests.dashboard.support import physical_mapping
-from tests.dashboard.support import fast_forward_source
+from dashboard.models.mappings import depiction
+from tests.dashboard.support import fast_forward_source, physical_mapping
 
 
 class MappingExportTests(unittest.TestCase):

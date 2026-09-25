@@ -1,17 +1,18 @@
-from dashboard.execution.coordination import coordinator as backend
 from dashboard.execution.adapters import cg
+from dashboard.execution.coordination import coordinator as backend
+
 """Molecule directory admission: bad inputs never become runnable DDM jobs."""
-from tests.dashboard.support import PROJECT_ROOT
 import json
-from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from dashboard import paths
+from tests.dashboard.support import PROJECT_ROOT
 
 
 @pytest.fixture(autouse=True)

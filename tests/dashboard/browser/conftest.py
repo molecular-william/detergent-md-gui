@@ -18,8 +18,8 @@ Usage:
 `live_page` is a `LivePage` record rather than a bare page: the assertion lines in these tests
 already refer to a local `errors` list, and unpacking keeps them untouched.
 """
-from dataclasses import dataclass, field
 import threading
+from dataclasses import dataclass, field
 
 import pytest
 from playwright.sync_api import sync_playwright

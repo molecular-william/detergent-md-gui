@@ -1,7 +1,6 @@
 from copy import deepcopy
 
 from dashboard.models.bonded import states as bonded_states
-from dashboard.models import mappings
 from tests.dashboard.support import physical_mapping
 
 

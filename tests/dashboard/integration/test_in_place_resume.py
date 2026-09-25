@@ -69,8 +69,8 @@ def test_in_place_preparation_ignores_changed_inputs_and_outputs(tmp_path, monke
 @pytest.fixture
 def resume_service(tmp_path, monkeypatch):
     from dashboard.app import create_app
-    from dashboard.paths import Paths
     from dashboard.execution.adapters import aa
+    from dashboard.paths import Paths
     app = create_app(Paths(workspace=tmp_path), {'TESTING': True, 'DISABLE_COORDINATOR': True})
     owner = app.extensions['dashboard_coordinator']
     job = {'id': '123456abcdef', 'status': 'failed', 'run_type': 'aa_only',

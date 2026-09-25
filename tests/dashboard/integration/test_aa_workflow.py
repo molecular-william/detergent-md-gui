@@ -1,10 +1,12 @@
-from tests.dashboard.support import PROJECT_ROOT
 import json
 import shutil
-import pytest
 from pathlib import Path
-from dashboard.models.molecules import aa as aa_molecules
+
+import pytest
+
 from dashboard.execution import workflow
+from dashboard.models.molecules import aa as aa_molecules
+from tests.dashboard.support import PROJECT_ROOT
 
 
 def test_generic_input_dependencies_and_aa_capability(tmp_path):
@@ -56,9 +58,10 @@ def test_aa_settings_do_not_require_cg_duration():
 
 
 def test_aa_resume_uses_server_stages_and_rejects_changed_upstream(tmp_path,monkeypatch):
-    from dashboard.execution.adapters import aa
-    from dashboard import files
     import subprocess
+
+    from dashboard import files
+    from dashboard.execution.adapters import aa
     root=tmp_path/'source';root.mkdir();(root/'logs').mkdir()
     molecules=PROJECT_ROOT/'molecules'
     selected=aa_molecules.selection(molecules,'DDM',run_type='aa_only')

@@ -1,5 +1,6 @@
 """Every test gets isolated job, mapping, registry and bonded-state storage."""
 from pathlib import Path
+
 import pytest
 
 from dashboard import paths

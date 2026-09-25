@@ -16,7 +16,18 @@ line-length = 160
 exclude = [".venv", "dashboard/.venv", "archive", "references", "resources", "tools", "workspace"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
+# The default selection is the *gate*: rules whose findings are defects or mechanical
+# correctness problems -- F (pyflakes: undefined names, unused imports and locals), E9
+# (syntax/IO errors) and I (import order, which is safe to fix automatically). It is meant to
+# exit 0 on this repository, so that a non-zero exit is a signal rather than noise.
+#
+# Style rules are deliberately NOT in the gate. This codebase writes dense single-line
+# dictionaries and long lines on purpose (workflow.run's per-stage attempt entry is ~380
+# characters), and 1000+ E501/E701/E702 findings would drown every real finding. Review them
+# on demand instead:
+#   dashboard/.venv/bin/python -m ruff check dashboard tests --select E,W
+# See docs/decisions/2026-09-24-architecture-decisions.md for why this split was chosen.
+select = ["F", "E9", "I"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/dashboard"]

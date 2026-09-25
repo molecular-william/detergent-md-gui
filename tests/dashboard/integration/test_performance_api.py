@@ -1,9 +1,10 @@
 """Compact views preserve details while avoiding repeated calculations/scans."""
 import json
 from unittest.mock import patch
+
+from dashboard import files
 from dashboard.models import mappings
 from dashboard.models.bonded import states as bonded_states
-from dashboard import files
 from tests.dashboard.support import physical_mapping
 
 

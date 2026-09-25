@@ -149,8 +149,8 @@ def test_module_level_path_constants_point_at_real_locations():
 
 def test_run_preparation_scripts_are_present():
     """cg.py copies these into each run directory; the adapter owns the list."""
-    from dashboard.execution.adapters import cg
     from dashboard.execution import environment
+    from dashboard.execution.adapters import cg
 
     assert cg.SCRIPTS.is_dir(), f'{cg.SCRIPTS} is not a directory'
     assert cg.SCRIPTS == Path(environment.ROOT / 'dashboard/execution/scripts')

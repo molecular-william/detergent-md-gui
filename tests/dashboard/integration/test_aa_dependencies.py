@@ -1,5 +1,6 @@
 """AA sources cannot disappear underneath retained CG consumers."""
 import pytest
+
 from dashboard.store import Store
 
 
@@ -66,8 +67,9 @@ class Deletions:
 
 
 def test_temporary_retention_preserves_a_retained_reference(tmp_path):
+    from datetime import datetime, timedelta, timezone
+
     from dashboard.execution.coordination import temporary
-    from datetime import datetime, timezone, timedelta
     now = datetime.now(timezone.utc)
     jobs = [{'id': f'{i:012x}', 'temporary_validation': True, 'status': 'completed',
              'ended_at': (now-timedelta(days=8+i)).isoformat()} for i in range(6)]

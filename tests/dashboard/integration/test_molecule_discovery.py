@@ -1,7 +1,7 @@
 """Discovery, generated metadata and immutable run-local PDB conversion."""
-from concurrent.futures import ThreadPoolExecutor
 import json
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 

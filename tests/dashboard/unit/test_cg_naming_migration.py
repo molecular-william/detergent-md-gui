@@ -1,9 +1,7 @@
 """Migration script correctness: idempotent, safe, reports manual lines."""
 import importlib.util
-from pathlib import Path
 
 from tests.dashboard.support import PROJECT_ROOT
-
 
 MODULE_PATH = PROJECT_ROOT / 'dashboard/execution/scripts/migrate_cg_naming.py'
 
