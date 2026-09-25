@@ -35,12 +35,18 @@ def test_validation_queue_rejects_unknown_representation(dashboard):
     assert response.status_code == 400
 
 
-def test_dashboard_contains_validation_controls(dashboard):
-    html = dashboard.client.get('/').get_data(as_text=True)
-    assert 'id="validation-representation"' in html
-    assert 'id="validation-tier"' in html
-    assert 'id="launch-carbohydrate-validation"' in html
+def test_dashboard_no_longer_carries_the_validation_controls(dashboard):
+    """The carbohydrate validation section was removed from CG Bead Assignment.
 
+    The analysis itself is unchanged -- the endpoints and the worker tests above still exercise it --
+    so this pins the UI removal rather than the feature: no control, and no placeholder left behind.
+    """
+    html = dashboard.client.get('/').get_data(as_text=True)
+    for removed in ('validation-representation', 'validation-tier', 'validation-target',
+                    'validation-source-run', 'launch-carbohydrate-validation',
+                    'carbohydrate-validation-reports'):
+        assert f'id="{removed}"' not in html, removed
+    assert 'Carbohydrate validation' not in html
 
 def test_automatic_preview_has_no_saved_candidate(dashboard):
     client = dashboard.client
