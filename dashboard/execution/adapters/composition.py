@@ -71,6 +71,10 @@ def prepare_run(run_dir: Path, composition_id: str, settings=None) -> None:
         script.chmod(0o755)
     for name in ('composition.gro', 'composition.itp', 'mapping.json', 'bonded-state.json'):
         shutil.copy2(artifact_root / name, stages / name)
+    inputs = Path(run_dir) / 'inputs'
+    inputs.mkdir(parents=True, exist_ok=True)
+    for name in ('composition.gro', 'composition.itp', 'mapping.json', 'bonded-state.json'):
+        shutil.copy2(artifact_root / name, inputs / name)
     metadata = {'run_type': 'cg_composition', 'workflow_version': VERSION,
                 'execution_kind': 'screening-stub',
                 'limitations': ['Composition screening is a stub: the prepared scripts copy the '
@@ -78,8 +82,8 @@ def prepare_run(run_dir: Path, composition_id: str, settings=None) -> None:
                                 'assessment or SASA was executed, and no trajectory or plot exists.'],
                 'composition_id': composition_id, 'composition_snapshot_sha256': record['snapshot_hash'],
                 'composition_identity': record['identity'], 'scientifically_validated': False,
-                'stage_plan': [name for name, _ in STAGES], 'settings': settings or {}}
-    files.atomic_json(Path(run_dir) / 'manifest.json', metadata)
+                'settings': settings or {}}
+    protocol.write_prepared_manifest(Path(run_dir), metadata, tools={}, plan=[name for name, _ in STAGES])
 
 
 SETTING_SPECS: dict = {}

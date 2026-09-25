@@ -35,9 +35,35 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable
 
+from .. import files
+
 RUN_TYPES = ('aa_only', 'aa_cg', 'cg_composition')
+
+
+def write_prepared_manifest(run_dir, metadata, *, tools, plan, environment=None):
+    """Write the manifest every prepared run carries, so all three run types agree.
+
+    Four modules used to emit this document and they disagreed: the AA adapter and the CG
+    path wrote an input snapshot, the composition adapter wrote none, and only the AA
+    adapter recorded the environment. The keys here are the ones the resume path verifies
+    against -- `input_snapshot_sha256` above all -- so a run type that omits them is a run
+    type the resume path cannot check.
+
+    `metadata` carries what is specific to the run; this adds what every prepared run
+    records. `inputs/` must exist before the call, because this hashes it.
+    """
+    document = dict(metadata)
+    document.update(layout_version=2, stage_plan=list(plan), stages=[], tools=tools,
+                    input_snapshot_sha256=files.hashes(Path(run_dir) / 'inputs'),
+                    prepared_at=datetime.now(timezone.utc).isoformat())
+    if environment is not None:
+        document['environment'] = environment
+    files.atomic_json(Path(run_dir) / 'manifest.json', document)
+    return document
 
 
 @dataclass(frozen=True)

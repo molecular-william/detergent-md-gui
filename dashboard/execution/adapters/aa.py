@@ -214,10 +214,10 @@ python ../common/aa_references.py publish ..
         if i<6:(target.parent/'run.mdp').write_text(mdp(settings,('ions','ions','em','nvt','npt','production')[i]))
     (stages/'01_solvation/system.top').write_text(top)
     shutil.copytree(stages,run_dir/'inputs')
-    files.atomic_json(run_dir/'manifest.json',dict(context,run_type='aa_only',workflow_version=VERSION,layout_version=2,
-        stage_plan=[name for name,_ in STAGES],stages=[],input_snapshot_sha256=files.hashes(run_dir/'inputs'),
-        tools=tool_metadata(),prepared_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        environment={k:environment()[k] for k in ('PATH','MPLBACKEND','OMP_NUM_THREADS')}))
+    protocol.write_prepared_manifest(
+        run_dir, dict(context, run_type='aa_only', workflow_version=VERSION), tools=tool_metadata(),
+        plan=[name for name,_ in STAGES],
+        environment={k:environment()[k] for k in ('PATH','MPLBACKEND','OMP_NUM_THREADS')})
 
 
 def _protocol_stage_contract(metadata):

@@ -81,9 +81,9 @@ def prepare_run(run_dir, **kwargs):
     metadata = json.loads((stages / 'manifest.json').read_text())
     (stages / 'manifest.json').unlink()
     shutil.copytree(stages, run_dir / 'inputs')
-    metadata.update(layout_version=2, input_snapshot_sha256=files.hashes(run_dir / 'inputs'),
-                    prepared_at=datetime.datetime.now(datetime.timezone.utc).isoformat())
-    files.atomic_json(run_dir / 'manifest.json', metadata)
+    protocol.write_prepared_manifest(run_dir, metadata, tools=metadata.get('tools', {}),
+                                     plan=metadata.get('stage_plan') or [name for name, _ in cg.STAGES],
+                                     environment=metadata.get('environment'))
 
 
 def resumable_stages(run_dir, metadata=None):

@@ -31,6 +31,11 @@ def test_composition_screening_is_declared(tmp_path, monkeypatch):
     assert metadata['execution_kind'] == 'screening-stub'
     assert metadata['limitations'], 'a stub must state its limitation'
     assert metadata['scientifically_validated'] is False
+    # The keys every prepared run carries, including the one resume verifies against.
+    from dashboard import files
+    assert (run / 'inputs' / 'composition.gro').is_file(), 'a prepared run has its inputs/'
+    assert metadata['input_snapshot_sha256'] == files.hashes(run / 'inputs')
+    assert metadata['layout_version'] == 2 and metadata['stage_plan'] == [name for name, _ in composition.STAGES]
 
     stages = run / 'stages'
     for name, relative in composition.STAGES:
