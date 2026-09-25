@@ -15,7 +15,7 @@ const newRun = createNewRun({
 });
 const compositions = createCompositions({
   selectTab,
-  openBondedModel: model => { selectTab('bonded'); document.dispatchEvent(new CustomEvent('dashboard:composition-selected', {detail: model})); },
+  openBondedModel: model => { selectTab('bonded'); return mappings.openBondedModel(model); },
   openCompositionRun: model => newRun.openComposition(model.id),
 });
 const mappings=createMappings();

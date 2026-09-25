@@ -366,5 +366,13 @@ export function createMappings() {
       setText(id === 'bonded' ? $('.bonded-panel-message') : $('#mapping-editor-status'), `Could not load mappings: ${error.message}`);
     } finally { section.setAttribute('aria-busy', 'false'); }
   }
-  return {mount};
+
+  async function openBondedModel(model) {
+    // Hand a saved composition to the CG Bond Interactions tab. It is the same catalog the
+    // tab's own selector reads, so the model is selected rather than a second copy injected.
+    if (!model || model.id === undefined) return false;
+    await mount('bonded');
+    return bondedWorkspace ? bondedWorkspace.select(`composition:${model.id}`) : false;
+  }
+  return {mount, openBondedModel};
 }

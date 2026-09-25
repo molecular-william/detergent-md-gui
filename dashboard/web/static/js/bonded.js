@@ -302,5 +302,13 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
     if (!mappingSelect.value && mappingSelect.options.length) mappingSelect.selectedIndex = 0;
     await refreshMapping();
   }
-  return {mount};
+  async function select(file) {
+    // The catalog path, driven by whoever is handing a model over instead of by a click:
+    // selecting the option is what a user picking it from the list does.
+    if (![...mappingSelect.options].some(option => option.value === file)) return false;
+    mappingSelect.value = file;
+    await refreshMapping();
+    return true;
+  }
+  return {mount, select};
 }

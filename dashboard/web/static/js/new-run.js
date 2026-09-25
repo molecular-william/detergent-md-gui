@@ -10,6 +10,16 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
   function saveForm() { storage.set('form',formValues()); }
   let referenceRecords = [], referenceGeneration = 0, lockedReference = null;
   let referencesLoaded=false, mappingsLoaded=false, statesLoaded=false, mounted=false, mounting=null;
+  // The shared cache drops a resource when something changes it elsewhere; these flags
+  // remember that this module already fetched it, so they have to drop with it. Saving a
+  // bonded state in the CG Bond Interactions tab was the case that bit: the New-run
+  // dropdown kept offering the list it had fetched before the save.
+  document.addEventListener('dashboard:resources-changed', event => {
+    const prefix = event.detail?.prefix || '';
+    if (prefix.startsWith('/api/bonded-states')) statesLoaded = false;
+    if (prefix.startsWith('/api/references')) { referencesLoaded = false; referenceRecords = []; }
+    if (prefix.startsWith('/api/mappings')) mappingsLoaded = false;
+  });
   let manualAA = storage.get('manual-aa-settings', {});
   let restoreManualAA=!!storage.get('form',{}).reference_run_id;
   function setCloneSource(id, message='') {
