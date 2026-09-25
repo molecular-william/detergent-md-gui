@@ -23,6 +23,7 @@ from ...models import sugars as carbohydrates
 from .. import workflow
 from ..environment import recorded_environment
 from . import resources
+from .attempt import attempt as managed_attempt
 from .errors import CapacityFull, InvalidRequest, RunBusy, RunNotFound
 
 
@@ -118,32 +119,20 @@ class AnalysisCoordinator:
             job = owner.lookup(jid)
             task = next(task for task in job['analyses'] if task['id'] == aid)
             attempt = owner.run_path(job) / task['directory']
-            try:
-                worker.run_dir = owner.run_path(job)
-                worker.lease_file = owner.lease(owner.run_path(job) / '.worker.lock')
-                attempt.mkdir(parents=True, exist_ok=False)
-                environment = workflow.environment()
-                command = [shutil.which('python', path=environment['PATH']) or sys.executable,
-                           '-m', 'dashboard.analysis', str(attempt / 'request.json')]
-                request = {'run': str(owner.run_path(job).resolve()), 'kind': task['kind'],
-                           'payload': task['payload'], 'code_signature': task['signature'],
-                           'dependencies': self.dependencies(job)}
-                files.atomic_json(attempt / 'request.json', request)
-                self.update(jid, aid, status='running', started_at=owner.now(), command=command,
-                            environment=recorded_environment(),
-                            log=task['directory'] + '/console.log')
-                with (attempt / 'console.log').open('w') as output:
-                    worker.execute(command, cwd=paths.PACKAGE_ROOT.parent, env=environment,
-                                   stdout=output, stderr=subprocess.STDOUT)
-                result = json.loads((attempt / 'result.json').read_text())
-                outputs = [str((attempt / result.get('output_directory', 'output') / relative).relative_to(owner.run_path(job)))
-                           for relative in result['outputs_sha256']]
-                self.update(jid, aid, status='completed', ended_at=owner.now(), exit_code=0,
-                            outputs=outputs, **result)
-            except Exception as exc:
-                self.update(jid, aid, status='cancelled' if isinstance(exc, workflow.Cancelled) else 'failed',
-                            ended_at=owner.now(), error=str(exc), exit_code=getattr(exc, 'returncode', None))
-            finally:
+            extras = {}
+
+            def write(_record, **fields):
+                """How this site writes: straight onto the analysis record.
+
+                The values the success transition carries -- exit code, outputs and the analysis
+                result -- are computed by the body, so it leaves them in `extras` for this to merge.
+                `ended_at` belongs to every terminal status, as it always did.
+                """
+                if fields.get('status') in ('completed', 'failed', 'cancelled'):
+                    fields.setdefault('ended_at', owner.now())
+                self.update(jid, aid, **fields, **extras)
+
+            def finish(_record):
                 try:
                     owner.artifact_index(owner.lookup(jid), refresh=True)
                 finally:
@@ -151,3 +140,36 @@ class AnalysisCoordinator:
                         worker.lease_file.close()
                     with owner.JOBS_LOCK:
                         owner.ANALYSIS_WORKERS.pop((jid, aid), None)
+
+            worker.run_dir = owner.run_path(job)
+            worker.lease_file = owner.lease(owner.run_path(job) / '.worker.lock')
+            environment = workflow.environment()
+            command = [shutil.which('python', path=environment['PATH']) or sys.executable,
+                        '-m', 'dashboard.analysis', str(attempt / 'request.json')]
+            request = {'run': str(owner.run_path(job).resolve()), 'kind': task['kind'],
+                        'payload': task['payload'], 'code_signature': task['signature'],
+                        'dependencies': self.dependencies(job)}
+            # The attempt directory and the request file are prepared inside the managed region, so a
+            # failure there is recorded as a failure of this attempt rather than escaping unrecorded.
+            # That moves the running write ahead of the preparation; the terminal state is unchanged.
+            try:
+                with managed_attempt(None, update=write,
+                                     running={'started_at': owner.now(), 'command': command,
+                                              'environment': recorded_environment(),
+                                              'log': task['directory'] + '/console.log'},
+                                     on_exit=finish):
+                    attempt.mkdir(parents=True, exist_ok=False)
+                    files.atomic_json(attempt / 'request.json', request)
+                    with (attempt / 'console.log').open('w') as output:
+                        worker.execute(command, cwd=paths.PACKAGE_ROOT.parent, env=environment,
+                                       stdout=output, stderr=subprocess.STDOUT)
+                    result = json.loads((attempt / 'result.json').read_text())
+                    outputs = [str((attempt / result.get('output_directory', 'output') / relative).relative_to(owner.run_path(job)))
+                               for relative in result['outputs_sha256']]
+                    extras.update(exit_code=0, outputs=outputs, **result)
+            except Exception:
+                # managed_attempt re-raises so its caller can decide what happens next. This caller is
+                # a worker thread whose record already carries the failure; letting it escape would
+                # only print a traceback from a thread nobody is watching, which is not what this
+                # site did before and not what it should start doing.
+                pass
