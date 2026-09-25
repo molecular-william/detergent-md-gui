@@ -17,6 +17,13 @@ Usage:
 
 `live_page` is a `LivePage` record rather than a bare page: the assertion lines in these tests
 already refer to a local `errors` list, and unpacking keeps them untouched.
+
+Waiting: most of these tests click a control and then assert on something a fetch fills in.
+Playwright's default expectation timeout is 5 s, which is not enough for that when `-n 2` has the
+machine busy -- the tier's one reproducible flake was `expect(locator).not_to_have_count(0)`
+sampling an empty table 14 times and giving up. Asserting "not empty" is not a wait; where a test
+waits for content to appear it calls `locator.first.wait_for(timeout=30000)` first and keeps its
+assertion after that.
 """
 import threading
 from dataclasses import dataclass, field

@@ -54,6 +54,7 @@ def test_bonded_workspace_filters_states_and_creates_a_new_state_from_two_beads(
     for name in (names[0], names[3]):
         plot.evaluate('(el, bead) => el.emit("plotly_click", {points: [{data: {meta: "bead"}, customdata: bead}]})', name)
     page.get_by_role('button', name='Create interaction').click()
+    page.locator('.bonded-interaction-table tbody tr').first.wait_for(timeout=30000)
     expect(page.locator('.bonded-interaction-table tbody tr')).not_to_have_count(0)
     page.get_by_role('button', name='Save as new state').click()
     expect(page.locator('.bonded-state-select option')).to_have_count(3)
@@ -64,9 +65,11 @@ def test_bonded_workspace_filters_states_and_creates_a_new_state_from_two_beads(
     )
     assert new_state_id
     state_select.select_option(new_state_id)
+    page.locator('.bonded-interaction-table tbody tr').first.wait_for(timeout=30000)
     expect(page.locator('.bonded-interaction-table tbody tr')).not_to_have_count(0)
     expect(page.locator('.bonded-interaction-table select[aria-label^="bonds "]')).to_have_count(0)
     expect(page.locator('.bonded-interaction-table input[aria-label*="length (nm)"]')).to_have_count(0)
+    page.locator('.bonded-interaction-table .bonded-readonly-parameter').first.wait_for(timeout=30000)
     expect(page.locator('.bonded-interaction-table .bonded-readonly-parameter')).not_to_have_count(0)
     parameter = page.locator('.bonded-interaction-table input[type=number]').first
     parameter.fill('0.31')

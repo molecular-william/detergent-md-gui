@@ -59,6 +59,7 @@ def test_run_figure_tabs_zoom_and_mapping_display(dashboard, live_page):
     page.get_by_role('tab',name='CG mappings',exact=True).click()
     editor=page.locator('#mappings')
     expect(editor.locator('#mapping-editor-name')).to_be_visible()
+    editor.locator('#mapping-bead-rows tr').first.wait_for(timeout=30000)
     expect(editor.locator('#mapping-bead-rows tr')).not_to_have_count(0)
     expect(editor.locator('#save-mapping-editor')).to_be_disabled()
     expect(editor.locator('button', has_text='Export JSON')).to_have_count(0)
