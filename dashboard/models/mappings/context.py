@@ -144,12 +144,19 @@ def as_structure(context: dict) -> dict:
     Consumers that predate this module (mappings.validate, mapping_suggestions,
     carbohydrates.candidate) expect simple integer tuples for bonds rather than
     the richer {'a','b','order',...} records produced by build_context.
+
+    `molecule_id` and `snapshot` are carried through on purpose: they are how this project tells a
+    context structure, whose coordinates are nanometres, from a packaged SwissParam reference, whose
+    coordinates are angstroms. Dropping them made every downstream coordinate consumer guess, and the
+    sugar topology writer and the mapping export guessed angstroms.
     """
     return {
         'atoms': context.get('atoms', []),
         'bonds': [[edge['a'], edge['b']] for edge in context.get('bonds', [])],
         'source': context.get('path', ''),
         'bond_source': context.get('path', ''),
+        'molecule_id': context.get('molecule_id', ''),
+        'snapshot': context.get('snapshot'),
     }
 
 

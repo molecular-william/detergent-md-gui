@@ -11,6 +11,7 @@ from pathlib import Path
 
 from ... import files
 from ..mappings.identity import canonical_sha256
+from ..sugars import angstrom_factor
 from . import FUNCTIONS
 
 #: One-entry memo for reference_bond_index, keyed on the source stamp. See files.memo.
@@ -216,8 +217,7 @@ def _structure_parts(structure):
 
 def _coordinates_nm(structure):
     atoms, _ = _structure_parts(structure)
-    legacy_angstrom = not structure.get('molecule_id') and not structure.get('snapshot')
-    factor = 0.1 if legacy_angstrom else 1.0
+    factor = angstrom_factor(structure)
     return {atom_id: tuple(float(value) * factor for value in atom.get('xyz', (0, 0, 0)))
             for atom_id, atom in atoms.items()}
 

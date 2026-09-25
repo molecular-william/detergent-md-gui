@@ -24,7 +24,7 @@ def _export_beads(data):
     return [{**bead, 'export_name': f'B{i+1:02d}'} for i, bead in enumerate(data['beads'])]
 
 
-def _bead_centres(beads, atoms):
+def _bead_centres(beads, atoms, factor):
     """Each bead's own heavy-atom centre of geometry in nm; a virtual site uses its parents."""
     centres = []
     for bead in beads:
@@ -32,7 +32,7 @@ def _bead_centres(beads, atoms):
         if bead.get('virtual_site'):
             parents = {p: next((b for b in beads if b['name'] == p), None) for p in bead['virtual_site'].get('parents', [])}
             owned = [atoms[a]['xyz'] for parent in parents.values() if parent for a in parent.get('atoms', []) if a in atoms]
-        centres.append([sum(point[d] for point in owned) / len(owned) / 10 for d in range(3)] if owned else [0.0, 0.0, 0.0])
+        centres.append([sum(point[d] for point in owned) / len(owned) * factor for d in range(3)] if owned else [0.0, 0.0, 0.0])
     return centres
 
 
@@ -71,7 +71,8 @@ def export_files(data, *, context=None):
             from .context import build_context
             context = build_context(ROOT / 'molecules', data.get('molecule_id', ''))
         validation = require_usable(data, context, operation='export')
-        atoms = _atoms_by_id(as_structure(context))
+        structure = as_structure(context)
+        atoms = _atoms_by_id(structure)
         beads = _export_beads(data)
         molecule_name = str(context.get('name') or context.get('molecule_id') or 'molecule')
         record = {'name': data['name'], 'status': 'candidate-unvalidated', 'martini_version': '3',
@@ -82,7 +83,8 @@ def export_files(data, *, context=None):
             if key in data: record[key] = data[key]
         readme = f'{molecule_name} mapping export — candidate, not a fitted CG force field\n\n'
         readme += 'mapping.ndx uses canonical one-based atom indices. mapping.map uses the selected molecule source. mapped.gro is a heavy-atom COG frame in nm. Virtual sites are described in model.json and require downstream construction.\n'
-        return _emit(molecule_name=molecule_name, atoms=atoms, beads=beads, centres=_bead_centres(beads, atoms),
+        return _emit(molecule_name=molecule_name, atoms=atoms, beads=beads,
+                     centres=_bead_centres(beads, atoms, carbohydrates.angstrom_factor(structure)),
                      record=record, readme=readme)
     structure = molecule()
     validation = validate(data, structure)
@@ -91,7 +93,8 @@ def export_files(data, *, context=None):
         raise ValueError('Cannot export ambiguous assignments: ' + '; '.join(blockers))
     atoms = _atoms_by_id(structure)
     beads = _export_beads(data)
-    coords = carbohydrates.coordinates(data, [a['xyz'] for a in atoms.values()], list(atoms)) / 10
+    coords = carbohydrates.coordinates(data, [a['xyz'] for a in atoms.values()], list(atoms)) \
+        * carbohydrates.angstrom_factor(structure)
     record = {'name': data['name'], 'status': 'candidate-unvalidated', 'martini_version': '3',
               'mapping_mode': 'COG', 'hydrogens': 'excluded', 'beads': beads, 'validation': validation,
               'source': structure['source'],

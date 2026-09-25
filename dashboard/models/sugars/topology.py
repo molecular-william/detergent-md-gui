@@ -7,6 +7,7 @@ intergroup separation.
 import itertools
 
 from .coords import coordinates, physical_edges, ring_pairs
+from .units import angstrom_factor
 
 
 def topology(data, structure, *, residue_name='DDM', representation_mode=None):
@@ -17,7 +18,7 @@ def topology(data, structure, *, residue_name='DDM', representation_mode=None):
         raise ValueError(f'Unknown carbohydrate representation: {representation_mode}')
     beads = data['beads']; names = {b['name']:i+1 for i,b in enumerate(beads)}
     xyz = coordinates(data, [a['xyz'] for a in structure['atoms']], [a['id'] for a in structure['atoms']],
-                      representation_mode=representation_mode)/10
+                      representation_mode=representation_mode) * angstrom_factor(structure)
     pairs = ring_pairs(data)
     if data.get('connections'):
         edges = sorted(set(tuple(sorted((names[a], names[b]))) for a,b in data['connections']) | set(pairs))
