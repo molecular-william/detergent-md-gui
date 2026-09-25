@@ -1,0 +1,32 @@
+# Tool configuration. pytest.ini stays in place because the documented commands rely on it;
+# the settings below mirror it exactly so `pytest` and `python -m pytest` behave the same
+# whichever file pytest discovers first (pytest.ini wins, and it must keep winning: the two
+# files are meant to agree, not to differ).
+#
+# dashboard/.venv lives *inside* the package directory, so any tool that globs `dashboard/**`
+# walks roughly 20 000 vendored files unless it is excluded here. That is the reason this file
+# exists at all (see the plan's Task 8.1); the repository had no tool config before it.
+
+[tool.ruff]
+target-version = "py312"
+# The codebase writes long single-line stage dictionaries on purpose (workflow.run's per-stage
+# entry is ~380 characters). 160 is a ceiling the majority of the code already meets, which keeps
+# the E501 signal meaningful instead of drowning every other finding.
+line-length = 160
+exclude = ["dashboard/.venv", "archive", "references", "resources", "tools", "workspace"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/dashboard"]
+# Measured on this checkout: the whole suite 79.3 s serial / 19.6 s with these flags
+# (loadfile, not load: plain -n interleaves the OpenMP probe subprocesses with Chromium
+# page loads and only reaches 51.7 s). Every test keeps its own tmp_path workspace and
+# binds port 0, so workers cannot collide; the browser tier was verified at -n 2..64.
+# Serial runs (debugging, or the slow tier) take -n 0.
+addopts = "-n 8 --dist loadfile --strict-markers"
+markers = [
+    "browser: rendered dashboard interaction tests (requires installed Playwright and Chrome)",
+    "slow: subprocess, GROMACS, or long-lived worker checks (optional fast-loop exclusion)",
+]
