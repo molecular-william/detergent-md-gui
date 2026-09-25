@@ -7,13 +7,13 @@ from ...analysis.validation import targets
 from ...analysis.validation import carbohydrate_targets
 from dashboard.models import mappings
 from flask import Blueprint, jsonify, request
-from .common import coordinator
+from .common import coordinator, json_object
 
 blueprint = Blueprint('analyses', __name__)
 
 @blueprint.post('/api/jobs/<jid>/<kind>')
 def queue_analysis(jid, kind):
-    payload = request.get_json() or {}
+    payload = json_object(optional=True)
     if kind == 'carbohydrate-validation':
         c = coordinator(); job = c.lookup(jid)
         if job.get('status') != 'completed': abort(409, 'Carbohydrate validation requires a completed source run')

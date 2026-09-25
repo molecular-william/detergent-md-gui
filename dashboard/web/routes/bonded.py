@@ -89,7 +89,7 @@ def bonded_state_patch(state_id):
 @blueprint.delete('/api/bonded-states/<state_id>')
 def bonded_state_delete(state_id):
     c = coordinator()
-    if request.get_json(silent=True) is None or not request.get_json(silent=True).get('confirm'):
+    if not json_object(optional=True).get('confirm'):
         abort(400,'Deletion requires confirmation')
     try: return jsonify(deleted=bonded_states.delete(state_id,c.database().all()))
     except (ValueError, KeyError, OSError) as exc: abort(409,str(exc))

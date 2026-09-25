@@ -46,10 +46,17 @@ def pagination():
     return page, limit
 
 
-def json_object():
-    """Return the request body as an object, or abort 400."""
+def json_object(*, optional=False):
+    """Return the request body as an object, or abort 400.
+
+    ``optional`` keeps a route that used to tolerate a missing or malformed body: it gets an
+    empty object instead of an abort, which is what the `request.get_json() or {}` it
+    replaces did.
+    """
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
+        if optional:
+            return {}
         abort(400, 'Expected an object')
     return payload
 

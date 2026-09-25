@@ -16,7 +16,7 @@ from ...execution import workflow
 from ...execution.adapters.micelle import run_micelle_job
 from ...models.molecules import aa as aa_molecules
 from flask import Blueprint, Response, jsonify, render_template, request, send_file
-from .common import coordinator, pagination
+from .common import coordinator, json_object, pagination
 from .. import views
 
 blueprint = Blueprint('runs', __name__)
@@ -56,8 +56,7 @@ def jobs_api():
 @blueprint.post('/')
 def queue():
     c = coordinator()
-    data = request.get_json(silent=True) or request.form
-    if not hasattr(data,'get'): abort(400, 'Expected an object')
+    data = json_object(optional=True) or request.form
     admission.validate_run_type(data)
     if 'molecule_id' in data:
         try: aa_molecules.validate_id(data['molecule_id'])
@@ -73,8 +72,7 @@ def queue():
 def micelle_build_api():
     """Thin adapter for the native micelle CLI; reports are ordinary run artifacts."""
     c = coordinator()
-    payload = request.get_json(silent=True)
-    if not isinstance(payload, dict): abort(400, 'Expected a micelle build object')
+    payload = json_object()
     jid = uuid.uuid4().hex[:12]
     job = {'id': jid, 'label': payload.get('label') or 'Micelle build', 'detergent': payload.get('detergent','DDM'),
            'method': 'micelle', 'status': 'running', 'stage': 'micelle build', 'created': c.now(), 'profile': 'micelle', 'settings': payload}
@@ -169,8 +167,7 @@ def job_detail(jid):
 @blueprint.post('/api/jobs/<jid>/clone')
 def clone_job(jid):
     c = coordinator()
-    source = c.lookup(jid); data = request.get_json() or {}
-    if not isinstance(data, dict): abort(400, 'Expected an object')
+    source = c.lookup(jid); data = json_object(optional=True)
     effective_type=data.get('run_type',source.get('run_type'))
     admission.validate_run_type(dict(data,run_type=effective_type))
     if 'molecule_id' in data:
@@ -187,8 +184,7 @@ def clone_job(jid):
 @blueprint.post('/api/jobs/<jid>/resume')
 def resume_job(jid):
     c = coordinator()
-    data = request.get_json() or {}
-    if not isinstance(data, dict): abort(400, 'Expected an object')
+    data = json_object(optional=True)
     job = c.resume_in_place(jid, data.get('stage'))
     return jsonify(view_of(c, job)), 200
 

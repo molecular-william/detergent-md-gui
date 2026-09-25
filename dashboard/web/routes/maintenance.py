@@ -4,7 +4,7 @@ import time
 from ...execution.coordination import temporary
 from dashboard.cli import migration
 from flask import Blueprint, jsonify, request
-from .common import coordinator
+from .common import coordinator, json_object
 
 blueprint = Blueprint('maintenance', __name__)
 
@@ -29,7 +29,7 @@ def temporary_cleanup():
 
 @blueprint.post('/api/migration/inventory')
 def migration_inventory():
-    data=request.get_json() or {}; root=data.get('root')
+    data=json_object(optional=True); root=data.get('root')
     if not isinstance(root, str): abort(400, 'root is required')
     try: return jsonify(migration.inventory(root))
     except (OSError, ValueError) as exc: abort(400, str(exc))
@@ -37,7 +37,7 @@ def migration_inventory():
 
 @blueprint.post('/api/migration/delete-obsolete')
 def migration_delete_obsolete():
-    data=request.get_json() or {}
+    data=json_object(optional=True)
     try: return jsonify(migration.delete_approved(data.get('report') or {}, data.get('root'), bool(data.get('confirm'))))
     except (OSError, ValueError) as exc: abort(409, str(exc))
 
