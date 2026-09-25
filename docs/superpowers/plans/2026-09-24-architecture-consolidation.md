@@ -1373,9 +1373,9 @@ git add tests && git commit -m "test: migrate <batch> to the factory fixture"
 - Create: `tests/dashboard/support.py`
 - Delete: `tests/dashboard/fixtures.py`, `tests/dashboard/mapping_fixtures.py` (after migration)
 
-- [ ] **Step 1:** Fold the four modules into one `support.py` exporting `PROJECT_ROOT`, `physical_mapping()`, `write_aa_fixture()`, `QuietHandler`, `fast_forward_source()` (from Task 0.3's `tool_paths.py`) and the dashboard factory.
-- [ ] **Step 2:** Keep `tests/dashboard/fixtures.py` as a one-line re-export shim for exactly one commit, then delete it and update the 12 importing files.
-- [ ] **Step 3:** Run the fast suite in parallel. Expected: baseline.
+- [x] **Step 1:** Fold the four modules into one `support.py` exporting `PROJECT_ROOT`, `physical_mapping()`, `write_aa_fixture()`, `QuietHandler`, `fast_forward_source()` (from Task 0.3's `tool_paths.py`) and the dashboard factory. — done (`90fb8e3`). Two details carried over deliberately: `physical_mapping()`'s mappings import moved inside the function, so collecting the suite no longer imports the mappings package, and the "unprovisioned sources must skip, never fail" rationale travelled with `fast_forward_source`.
+- [x] **Step 2:** Keep `tests/dashboard/fixtures.py` as a one-line re-export shim for exactly one commit, then delete it and update the 12 importing files. — done in two commits (the shims in `90fb8e3`, the sweep and deletion in 7.3b). There were twenty importing files, not twelve, because `fixtures.PROJECT_ROOT` was reached for by nearly every file that needs the repository root.
+- [x] **Step 3:** Run the fast suite in parallel. Expected: baseline. — 443 passed, plus the slow tier (7) and the browser tier (15), because three browser files were among the importers.
 - [ ] **Step 4:** Commit:
 
 ```bash
