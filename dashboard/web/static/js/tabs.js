@@ -1,7 +1,14 @@
 import { $, $$, storage } from './shared.js';
 
+// The document is the tab list: the buttons carry role=tab and data-tab, so a tab that is
+// added to dashboard.html works without a second list to keep in step.
+function tabIds() {
+  return $$('[role=tab][data-tab]').map(tab => tab.dataset.tab);
+}
+
 export function selectTab(id) {
-  if (!['runs', 'new', 'mappings', 'bonded', 'compositions'].includes(id)) id = 'runs';
+  const ids = tabIds();
+  if (!ids.includes(id)) id = ids[0] || 'runs';
   $$('[role=tab][data-tab]').forEach(tab => {
     const active = tab.dataset.tab === id;
     tab.setAttribute('aria-selected', String(active)); tab.tabIndex = active ? 0 : -1;
