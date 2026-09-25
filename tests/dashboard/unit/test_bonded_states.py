@@ -10,6 +10,32 @@ def mapping():
     return {'name':'DDM','beads':[{'name':'B01'}],'rings':[],'connections':[]}
 
 
+def test_a_state_claimed_complete_must_carry_a_reusable_topology():
+    """`complete` is what run admission trusts when it reuses a state, so it has to mean an ITP.
+
+    The rule is enforced by the revision validator that create() sends every payload through: a
+    state whose status says complete but whose topology is absent, or is not a moleculetype/atoms
+    pair, would be offered as reusable while carrying nothing to reuse. The module's other
+    validator, validate_payload, duplicated this rule and had no callers; it was removed while
+    writing this test.
+    """
+    candidate = mapping()
+    for topology in (None, '[ atoms ]\n', '[ moleculetype ]\nLIG 1\n'):
+        with pytest.raises(ValueError, match='complete ITP topology'):
+            bonded_states.create(candidate, 'Claims complete', 'fast-forward-fit',
+                                 topology=topology, status='complete')
+    assert bonded_states.all_states() == [], 'a refused state is not written'
+
+    # Both sides of the boundary: mapping-only drafts are the designed path, complete ones need
+    # a topology that can actually be shipped to ff_inter.
+    draft = bonded_states.create(candidate, 'Draft', 'mapping-only', topology=None, status='incomplete')
+    complete = bonded_states.create(candidate, 'Complete', 'fast-forward-fit',
+                                    topology='[ moleculetype ]\nLIG 1\n[ atoms ]\n1 X 1 LIG B01 1 X 0\n',
+                                    status='complete')
+    assert draft['current']['status'] == 'incomplete'
+    assert complete['current']['status'] == 'complete'
+
+
 def test_candidate_identity_covers_virtual_site_definition():
     candidate = mappings.automatic_candidate(mappings.molecule(), 'DDM')
     first = mappings.candidate_identity(candidate)

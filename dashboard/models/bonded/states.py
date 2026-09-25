@@ -64,19 +64,6 @@ def get(state_id, revision=None):
     raise KeyError(f'Unknown bonded state revision: {state_id}/{revision}')
 
 
-def validate_payload(mapping, payload, complete=False):
-    if not isinstance(payload, dict): raise ValueError('Bonded state payload must be an object')
-    mapping_hash = mappings.candidate_identity(mapping)
-    if payload.get('mapping_hash') != mapping_hash:
-        raise ValueError('Bonded state belongs to a different bead mapping')
-    topology = payload.get('topology')
-    if complete and (not isinstance(topology,str) or '[ moleculetype ]' not in topology or '[ atoms ]' not in topology):
-        raise ValueError('A reusable bonded state needs a complete ITP topology')
-    if payload.get('status') in ('failed','incomplete') and complete:
-        raise ValueError('Failed or incomplete bonded states cannot be reused')
-    return mapping_hash
-
-
 def _validate_revision_payload(record, payload):
     if payload.get('mapping_hash') != record['mapping_hash']:
         raise ValueError('Bonded state mapping identity cannot change')
