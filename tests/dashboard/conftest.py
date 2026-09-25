@@ -5,7 +5,7 @@ import pytest
 from dashboard import paths
 from dashboard.app import default_coordinator
 from tests.dashboard import factory
-from tests.dashboard.fixtures import PROJECT_ROOT
+from tests.dashboard.support import PROJECT_ROOT
 
 
 @pytest.fixture

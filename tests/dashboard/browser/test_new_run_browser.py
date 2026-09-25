@@ -4,7 +4,7 @@ import shutil
 from playwright.sync_api import expect
 
 from dashboard.execution.adapters import cg
-from tests.dashboard.fixtures import PROJECT_ROOT
+from tests.dashboard.support import PROJECT_ROOT
 
 
 def test_directory_selection_supports_generic_aa_and_ddm_cg_pair(dashboard, live_page, monkeypatch, tmp_path):

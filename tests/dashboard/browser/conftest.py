@@ -25,7 +25,7 @@ import pytest
 from playwright.sync_api import sync_playwright
 from werkzeug.serving import make_server
 
-from tests.dashboard.fixtures import QuietHandler
+from tests.dashboard.support import QuietHandler
 
 
 @dataclass

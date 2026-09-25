@@ -4,7 +4,7 @@ from unittest.mock import patch
 from dashboard.models import mappings
 from dashboard.models.bonded import states as bonded_states
 from dashboard import files
-from tests.dashboard.fixtures import physical_mapping
+from tests.dashboard.support import physical_mapping
 
 
 def test_mapping_summary_and_cache_follow_content_changes(dashboard):

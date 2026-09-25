@@ -7,7 +7,7 @@ from dashboard.execution.adapters import cg
 from dashboard.models import mappings
 from dashboard.models.bonded import states as bonded_states
 from dashboard.models.mappings import context as mapping_context
-from tests.dashboard.fixtures import physical_mapping
+from tests.dashboard.support import physical_mapping
 
 
 def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_page, monkeypatch):

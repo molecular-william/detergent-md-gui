@@ -2,7 +2,7 @@ import pytest
 import json
 from dashboard.models import bonded, mappings
 from dashboard.models.bonded import states as bonded_states
-from tests.dashboard.fixtures import physical_mapping
+from tests.dashboard.support import physical_mapping
 
 
 def mapping():

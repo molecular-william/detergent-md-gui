@@ -1,5 +1,5 @@
 from dashboard.models.mappings.references import load_index
-from tests.dashboard.fixtures import PROJECT_ROOT
+from tests.dashboard.support import PROJECT_ROOT
 
 
 def test_real_reference_records_have_verifiable_origins():

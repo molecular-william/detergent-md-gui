@@ -3,7 +3,7 @@ from dashboard.app import create_app
 from dashboard.paths import Paths
 from dashboard.models.bonded import states as bonded_states
 from dashboard.models import mappings
-from tests.dashboard.fixtures import physical_mapping
+from tests.dashboard.support import physical_mapping
 from dashboard import files
 
 

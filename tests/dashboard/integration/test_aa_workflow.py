@@ -1,4 +1,4 @@
-from tests.dashboard.fixtures import PROJECT_ROOT
+from tests.dashboard.support import PROJECT_ROOT
 import json
 import shutil
 import pytest

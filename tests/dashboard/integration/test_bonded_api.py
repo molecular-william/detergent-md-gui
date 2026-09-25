@@ -2,7 +2,7 @@ from copy import deepcopy
 
 from dashboard.models.bonded import states as bonded_states
 from dashboard.models import mappings
-from tests.dashboard.fixtures import physical_mapping
+from tests.dashboard.support import physical_mapping
 
 
 def test_automatic_bonded_draft_is_nonpersistent_and_snapshot_bound(dashboard):

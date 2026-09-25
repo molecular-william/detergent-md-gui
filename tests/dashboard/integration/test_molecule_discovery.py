@@ -9,7 +9,7 @@ from dashboard import files
 from dashboard.analysis.runs import references as aa_references
 from dashboard.execution.adapters import aa
 from dashboard.models.molecules import aa as aa_molecules
-from tests.dashboard.fixtures import PROJECT_ROOT
+from tests.dashboard.support import PROJECT_ROOT
 
 
 @pytest.fixture

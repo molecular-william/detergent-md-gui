@@ -1,6 +1,6 @@
 from dashboard.execution.coordination import coordinator as backend
 """Run-type admission and the fixed AA-source/CG-consumer lifecycle."""
-from tests.dashboard.fixtures import PROJECT_ROOT
+from tests.dashboard.support import PROJECT_ROOT
 import json
 from pathlib import Path
 import shutil

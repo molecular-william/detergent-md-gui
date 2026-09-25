@@ -16,8 +16,8 @@ from rdkit import Chem
 from dashboard.models.mappings import depiction
 from dashboard.models import mappings
 from dashboard.execution import workflow
-from tests.dashboard.fixtures import physical_mapping
-from tests.dashboard.tool_paths import fast_forward_source
+from tests.dashboard.support import physical_mapping
+from tests.dashboard.support import fast_forward_source
 
 
 class MappingExportTests(unittest.TestCase):

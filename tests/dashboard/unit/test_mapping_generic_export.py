@@ -1,6 +1,6 @@
 from dashboard.models import mappings
 from dashboard.models.mappings.context import build_context
-from tests.dashboard.mapping_fixtures import write_aa_fixture
+from tests.dashboard.support import write_aa_fixture
 
 
 def test_export_uses_selected_molecule_and_keeps_snapshot(tmp_path):

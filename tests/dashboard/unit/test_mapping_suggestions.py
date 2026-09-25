@@ -3,7 +3,7 @@ from copy import deepcopy
 from dashboard.models.mappings.context import build_context
 from dashboard.models.mappings.references import load_index
 from dashboard.models.mappings.suggestions import generate_baseline, suggest_bead
-from tests.dashboard.fixtures import PROJECT_ROOT
+from tests.dashboard.support import PROJECT_ROOT
 
 
 def test_ddm_baseline_is_deterministic_and_keeps_inputs():
