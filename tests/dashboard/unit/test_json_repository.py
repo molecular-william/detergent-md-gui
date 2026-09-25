@@ -38,3 +38,14 @@ def test_symlink_root_is_rejected(tmp_path):
     alias.symlink_to(target, target_is_directory=True)
     with pytest.raises(ValueError, match='symbolic link'):
         repository(alias).list()
+
+
+def test_a_name_the_validator_refuses_is_not_listed(tmp_path):
+    """A file the writer could never have created is not a record: listing it would hand
+    the caller an id nothing else in the store can address."""
+    repo = repository(tmp_path / 'records')
+    repo.write('a1', {'ok': True})
+    (tmp_path / 'records' / 'with space.json').write_text('{"ghost": true}')
+    with pytest.raises(ValueError):
+        repo.list()
+    assert repo.list(skip_invalid=True) == [{'ok': True}]

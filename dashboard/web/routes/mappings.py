@@ -1,6 +1,5 @@
 """Mapping workspace endpoints: candidates, drafts, review, exports, diagrams."""
 import io
-import re
 import zipfile
 
 from flask import Blueprint, Response, abort, jsonify, request, send_file
@@ -128,11 +127,12 @@ def mapping_review():
 
 @blueprint.delete('/api/mappings/drafts/<name>')
 def mapping_delete_draft(name):
-    if not re.fullmatch(r'mapping_candidate_[A-Za-z0-9_.-]+\.json', name):
+    try:
+        return jsonify(deleted=mappings.delete_draft(name))
+    except KeyError:
+        abort(404, 'Unknown draft candidate')
+    except ValueError:
         abort(400, 'Invalid draft candidate name')
-    path = mappings.storage_root() / name
-    if not path.is_file(): abort(404, 'Unknown draft candidate')
-    path.unlink(); return jsonify(deleted=name)
 
 
 @blueprint.post('/api/mappings/diagram')

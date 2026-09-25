@@ -82,3 +82,24 @@ def test_suggestion_and_ring_site_endpoints(isolated_workspace):
     ring = client.post('/api/mappings/ring-site/preview', json={'molecule_id': 'DDM', 'molecule_snapshot': context['snapshot'], 'mapping': {'beads': [{'name': 'A', 'size': 'S', 'atoms': [1]}, {'name': 'B', 'size': 'S', 'atoms': [2]}, {'name': 'C', 'size': 'S', 'atoms': [3]}]}, 'parents': ['A', 'B', 'C']})
     assert ring.status_code == 200
     assert ring.json['bead']['type'] == 'TC4'
+
+
+def test_the_draft_delete_route_defers_to_the_store(isolated_workspace):
+    """The store's validator decides what may be unlinked, not a route-level pattern.
+
+    A name that escapes the drafts root comes back as a refusal either way -- Werkzeug may
+    not even route an encoded slash to this endpoint -- so the assertion is that nothing
+    outside the root is touched, and the store-level refusal is pinned in
+    tests/dashboard/unit/test_draft_storage_layout.py.
+    """
+    from urllib.parse import quote
+    client = web.app.test_client()
+    root = mappings.storage_root(); root.mkdir(parents=True, exist_ok=True)
+    outside = root.parent / 'outside.json'; outside.write_text('outside')
+    draft = root / 'mapping_candidate_route.json'; draft.write_text('{}')
+    assert client.delete('/api/mappings/drafts/mapping_candidate_route.json').status_code == 200
+    assert not draft.exists()
+    assert client.delete('/api/mappings/drafts/mapping_candidate_route.json').status_code == 404
+    refused = client.delete('/api/mappings/drafts/' + quote('../outside.json', safe=''))
+    assert refused.status_code in (400, 404)
+    assert outside.read_text() == 'outside'

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Callable
 
@@ -42,6 +43,18 @@ class JsonRepository:
             raise ValueError(f'JSON record must be an object: {record_id}')
         return value
 
+    def record_id(self, path: Path) -> str:
+        """The record id a file name carries, through this repository's validator.
+
+        Inverting the pattern is the store's job, not the reader's: a reader that accepts a
+        name the writer would refuse hands out records nothing else can address.
+        """
+        expression = re.escape(self.pattern).replace(re.escape('{id}'), '(.+)')
+        match = re.fullmatch(expression, path.name)
+        if match is None:
+            raise ValueError(f'Invalid JSON record path: {path.name}')
+        return self.validate_id(match.group(1))
+
     def list(self, *, skip_invalid: bool = False) -> list[dict]:
         root = self._root()
         result = []
@@ -50,6 +63,12 @@ class JsonRepository:
                 if skip_invalid:
                     continue
                 raise ValueError(f'Invalid JSON record path: {path.name}')
+            try:
+                self.record_id(path)
+            except ValueError as exc:
+                if skip_invalid:
+                    continue
+                raise ValueError(f'Invalid JSON record name: {path.name}') from exc
             try:
                 value = json.loads(path.read_text())
                 if not isinstance(value, dict):

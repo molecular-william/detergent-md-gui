@@ -16,8 +16,8 @@ from .schema import (
 from ..sugars.validation import derive_representation, validate_representation, representation_modes
 from .graph import validate, require_usable, ring_site_preview
 from .store import (
-    storage_root, candidate_paths, get, list_candidates,
-    save_draft, generate_variants, record_review,
+    storage_root, reviews_root, candidate_paths, get, list_candidates,
+    save_draft, delete_draft, list_reviews, generate_variants, record_review,
 )
 from .exports import export_files
 from ..molecules.packaged import ROOT, SOURCE, molecule, bead_types
@@ -27,8 +27,8 @@ __all__ = [
     'candidate_identity', 'content_identity', 'canonical_sha256', 'check_schema', 'new_draft', 'automatic_candidate',
     'derive_representation', 'validate_representation', 'representation_modes',
     'validate', 'require_usable', 'ring_site_preview',
-    'storage_root', 'candidate_paths', 'get', 'list_candidates',
-    'save_draft', 'generate_variants', 'record_review',
+    'storage_root', 'reviews_root', 'candidate_paths', 'get', 'list_candidates',
+    'save_draft', 'delete_draft', 'list_reviews', 'generate_variants', 'record_review',
     'export_files',
     'ROOT', 'SOURCE', 'molecule', 'bead_types',
 ]

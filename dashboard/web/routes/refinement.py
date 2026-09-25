@@ -2,7 +2,6 @@
 from flask import Blueprint, jsonify
 
 from ...models import mappings
-from ...models.repository import JsonRepository
 from .common import json_object
 
 blueprint = Blueprint('refinement', __name__)
@@ -10,9 +9,7 @@ blueprint = Blueprint('refinement', __name__)
 
 @blueprint.get('/api/refinement/reviews')
 def refinement_reviews():
-    directory = mappings.storage_root() / 'reviews'
-    records = JsonRepository(directory, '{id}.json', lambda value: value).list(skip_invalid=True) if directory.is_dir() else []
-    return jsonify(reviews=records)
+    return jsonify(reviews=mappings.list_reviews())
 
 
 @blueprint.post('/api/refinement/variants')
