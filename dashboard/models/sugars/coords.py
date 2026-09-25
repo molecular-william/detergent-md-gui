@@ -118,11 +118,11 @@ def candidate(structure, name):
             elif len(group) == 3 and len(oxy) == 1: typ = 'SN6'
             else: raise ValueError(f'Unsupported carbohydrate fragment {n}; review substitution chemistry')
             beads.append({'name':n,'size':'S','type':typ,'atoms':sorted(group),
-                          'fragment':'hexopyranose-'+letter, 'residue':ri})
+                          'fragment':'hexopyranose-'+letter, 'residue':ri, 'letter':letter})
             assigned |= group
         vs = f'S{ri}VS'
         beads.append({'name':vs,'size':'T','type':'TC4','atoms':[],
-                      'virtual_site':{'parents':names,'function':1},'residue':ri})
+                      'virtual_site':{'parents':names,'function':1},'residue':ri,'letter':'VS'})
         ring_records.append({'beads':names,'virtual_site':vs,'carbons':r['carbons'],
                              'ring_oxygen':r['oxygen'],'scale':1.15})
     # Remaining components are handled only after sugar/linker ownership is fixed.

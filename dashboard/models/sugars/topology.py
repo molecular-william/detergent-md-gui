@@ -30,7 +30,11 @@ def topology(data, structure, *, residue_name='DDM', representation_mode=None):
              '[ moleculetype ]', f'{residue_name} 1', '', '[ atoms ]']
     for i,b in enumerate(beads,1):
         mass = 0 if b.get('virtual_site') else {'R':72,'S':54,'T':36}[b['size']]
-        lines.append(f'{i} {b["type"]} 1 {residue_name} B{i:02d} {i} {b.get("charge",0)} {mass}')
+        # The reference names its beads A/B/C/VS within each residue, so a two-residue model reads like
+        # the published entry instead of one residue numbered B01..B08. Leftover fragments are not
+        # reference residues and keep a positional name.
+        lines.append(f'{i} {b["type"]} {b.get("residue",1)} {residue_name} {b.get("letter") or f"B{i:02d}"} '
+                     f'{i} {b.get("charge",0)} {mass}')
     lines += ['', '[ constraints ]']
     for (a,b),scale in pairs.items():
         # No inline comment: bundled FF retains uncommented constraints unchanged.

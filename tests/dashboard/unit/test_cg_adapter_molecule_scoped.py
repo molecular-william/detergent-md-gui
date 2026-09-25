@@ -52,7 +52,8 @@ def test_maltose_mapping_validation_uses_its_bound_molecule():
     assert '[ moleculetype ]' in topology
     assert topology.count('\n[ atoms ]') == 1
     assert '\nLIG1 1\n' in topology
-    assert ' 1 LIG1 B01 ' in topology
+    assert ' 1 LIG1 A ' in topology, 'atom names follow the reference per-residue letters'
+    assert ' 2 LIG1 A ' in topology, 'the second residue repeats the letters under its own number'
     assert ' DDM ' not in topology
 
 
