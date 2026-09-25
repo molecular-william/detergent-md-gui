@@ -1,1 +1,8 @@
-{"gromacs":"/usr/local/gromacs/2026.3/bin/gmx","fast_forward":"ff_map","fast_forward_source":"resources/parameterizers/fast_forward","fast_forward_commit":"61e407e60ffa0153fb2b5a028b065383619c2586","bartender":"tools/parameterizers/bartender/bartender","xtb":"tools/parameterizers/bartender/xtb-6.4.1/bin/xtb"}
+{
+  "gromacs": "/usr/local/gromacs/2026.3/bin/gmx",
+  "fast_forward": "ff_map",
+  "fast_forward_source": "resources/parameterizers/fast_forward",
+  "fast_forward_commit": "61e407e60ffa0153fb2b5a028b065383619c2586",
+  "bartender": "tools/bartender/m3_bartender/bartender",
+  "xtb": "tools/bartender/m3_bartender/xtb-6.7.1/bin/xtb"
+}
