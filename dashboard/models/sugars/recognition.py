@@ -1,7 +1,8 @@
-"""AA-graph-based hexopyranose ring detection.
+"""AA-graph-based pyranose and furanose ring detection.
 
 Chemical numbering is derived from connectivity, never SwissParam index order
-or screen orientation. Other sugar classes require their own verified templates.
+or screen orientation. Ring classes without a verified template here (ribose,
+deoxy, uronic, N-acetyl, inositol) are rejected rather than guessed at.
 """
 import itertools
 
@@ -56,7 +57,7 @@ def identify_hexoses(structure):
         if any(len(adj[c] - members) != 1 or atoms[next(iter(adj[c] - members))]['element'] != 'O' for c in order[:4]):
             continue  # substituted/deoxy sugar needs an explicit template
         rings.append({'carbons': order + [c6], 'oxygen': oxygen, 'o6': o6,
-                      'atoms': members})
+                      'atoms': members, 'ring_size': 6})
     if any(a['atoms'] & b['atoms'] for a, b in itertools.combinations(rings, 2)):
         raise ValueError('Overlapping sugar rings require a verified fused-ring template')
     # Chemical direction: acceptor (higher connecting carbon) first, then donor.
@@ -70,3 +71,60 @@ def identify_hexoses(structure):
                 if other is not r and (adj[o] & other['atoms']): return 1 + depth(other, seen)
         return 0
     return sorted(rings, key=lambda r: (depth(r), r['carbons'][0]))
+
+
+def hydroxymethyl(adjacency, atoms, ring, carbon):
+    """The exocyclic hydroxymethyl carbon attached to a ring carbon, if it has one."""
+    for candidate in sorted(adjacency[carbon] - ring):
+        if atoms[candidate]['element'] != 'C':
+            continue
+        if any(atoms[other]['element'] == 'O' for other in adjacency[candidate]):
+            return candidate
+    return None
+
+
+def identify_furanoses(structure):
+    """Find O+C4 furanose rings that carry a hydroxymethyl on the anomeric carbon.
+
+    Slots follow the fragment convention the pyranose template established, so the partition code stays
+    shared: `carbons[0:2]` become the A fragment, `[2:4]` B, and `[4:6]` C together with the ring
+    oxygen. A pyranose fills them with C1,C2 / C3,C4 / C5,C6. A ketofuranose's anomeric carbon is C2, so
+    slot 0 is its exocyclic hydroxymethyl C1, slot 1 is C2, and the C pair is C5 with its C6. Chemical
+    numbering therefore differs between the two ring sizes; fragment order does not.
+
+    Rings whose anomeric carbon carries no hydroxymethyl (ribofuranose and its relatives) are skipped
+    rather than guessed at: they need their own verified template.
+    """
+    import networkx as nx
+    atoms, adj = graph(structure)
+    g = nx.Graph(adj)
+    rings = []
+    for cycle in nx.minimum_cycle_basis(g):
+        if len(cycle) != 5: continue
+        oxy = [i for i in cycle if atoms[i]['element'] == 'O']
+        if len(oxy) != 1 or any(atoms[i]['element'] not in ('C', 'O') for i in cycle): continue
+        members = set(cycle); oxygen = oxy[0]
+        if len(adj[oxygen] & members) != 2: continue
+        neighbours = sorted(adj[oxygen] & members)
+        anomeric_candidates = [c for c in neighbours
+                               if any(atoms[o]['element'] == 'O' for o in adj[c] - members)]
+        if len(anomeric_candidates) != 1: continue
+        anomeric = anomeric_candidates[0]
+        other = next(c for c in neighbours if c != anomeric)
+        first = hydroxymethyl(adj, atoms, members, anomeric)
+        last = hydroxymethyl(adj, atoms, members, other)
+        if first is None or last is None: continue
+        order = [anomeric]; previous = oxygen
+        while order[-1] != other:
+            following = (adj[order[-1]] & members) - {previous, oxygen}
+            if len(following) != 1: break
+            previous, current = order[-1], next(iter(following))
+            if current in order: break
+            order.append(current)
+        if len(order) != 4: continue
+        rings.append({'carbons': [first] + order + [last], 'oxygen': oxygen,
+                      'o6': next(o for o in adj[last] if atoms[o]['element'] == 'O'),
+                      'atoms': members, 'ring_size': 5})
+    if any(a['atoms'] & b['atoms'] for a, b in itertools.combinations(rings, 2)):
+        raise ValueError('Overlapping sugar rings require a verified fused-ring template')
+    return rings
