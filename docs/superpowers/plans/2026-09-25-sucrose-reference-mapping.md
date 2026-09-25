@@ -231,3 +231,32 @@ dashboard/.venv/bin/python -m ruff check dashboard tests --select F,E9,I
 ```
 
 Baselines before Task 1: fast tier **464 passed**; lint clean.
+
+## Status 2026-09-25
+
+All eight tasks executed, one commit per task: reference parser (`bb1b4d7`), furanose recognition
+(`fa19941`), identification (`a7791fb`), reference-driven candidate (`39ee6ca`), role-based naming
+(`fed512f`), reference-layout topology (`d1299a6`), coordinate units (`6589cc7`), conformance and
+parameter delta (`1ee595a`), and the documentation commit that carries this paragraph.
+
+Measured outcome for sucrose: the candidate reproduces the `SUCR` mapping with no conformance issues, and
+the ring constraint lengths derived here by the paper's own method agree with the published values to
+within about 15%.
+
+**A defect this plan did not anticipate, found by Task 7's diagnostic.** The units change is not
+formatting: the sugar topology writer and the mapping export divided coordinates by ten unconditionally
+while context structures are already in nanometres, so every generated constraint length and exported
+coordinate for a molecule chosen in the dashboard was a factor of ten too small -- a CG ring of 0.03 nm
+against the reference's 0.3. Nothing in the suite pinned absolute magnitudes, so no test failed; the
+parameter delta made it visible in a single run. The rule now lives in `dashboard/models/sugars/units.py`,
+and it works only because `mappings.context.as_structure` was made to carry the `molecule_id`/`snapshot`
+markers it had been dropping.
+
+**Deliberately not done:** stereochemistry perception; templates for ribose, deoxy, uronic, N-acetyl and
+inositol sugars (decision D1); renaming the internal bead-name convention (decision D3).
+
+**Deviation from D4 as written.** D4 said an unmappable ring should refuse the candidate. What was built
+names the component `RING`, keeps it out of any plausible-looking tail, and records the admission in the
+candidate's own limitations, so a user can still see what was recognized. The wording in the workflow note
+and the README was corrected to match the behaviour rather than the other way round, because a hard
+refusal would also hide the sugar that *was* recognized.

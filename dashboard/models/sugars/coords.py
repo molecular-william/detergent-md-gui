@@ -140,7 +140,7 @@ def candidate(structure, name):
             'reference':reference_record,
             'algorithm':'Recognized pyranose and furanose rings, numbered in the reference residue order when the connectivity identifies a reference entry; canonical fragment pairs; diols first; higher-carbon bridge ownership; sugar first, then remaining graph.',
             'provenance':{'paper_doi':'10.1021/acs.jctc.2c00757','sugar_topology':'references/martini_v3.0.0_sugars_v2.itp'},
-            'limitations':['Templates cover hexopyranoses and hydroxymethyl furanoses; other carbohydrate classes are refused rather than drafted',
+            'limitations':['Templates cover hexopyranoses and hydroxymethyl furanoses; a component holding a ring they do not cover is named RING and recorded here rather than chunked into plausible beads',
                             'Glycosidic stereochemistry and sugar–alkyl linkage require AA bonded fitting',
                             'SP1r sugar–alkyl ether assignment is a transferability hypothesis; validate partitioning'] + remainder_notes}
 

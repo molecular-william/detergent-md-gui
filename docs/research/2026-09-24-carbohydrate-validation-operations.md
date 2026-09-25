@@ -56,10 +56,30 @@ stale process can serve the dashboard while returning empty validation
 controls even though the source files and routes are present.
 
 In **CG Bead Assignment**, select **Sucrose** and use **Generate automatic
-candidate**. The current sugar recognizer covers one hexopyranose ring and
-keeps the remaining sucrose graph as a provisional connected draft. Its
-limitations are stored in the candidate provenance; it is suitable for a
-diagnostic execution check, not an official Martini sucrose parameterization.
+candidate**. The recognizer covers hexopyranose and hydroxymethyl furanose rings
+and numbers them in the reference residue order, so the sucrose candidate
+reproduces the `SUCR` entry of `references/martini_v3.0.0_sugars_v2.itp`: two
+residues of three physical beads plus a massless TC4 ring site, typed
+SP1r/SP4r/SP1r then SN6/SP4r/SP1r, with the bridge oxygen on residue 1 and one
+linkage bond between the two glycosidic beads.
+`tests/dashboard/integration/test_sucrose_reference_mapping.py` drives the
+candidate route end to end, and `reference.conform` states the verdict in the
+candidate's provenance rather than leaving it to a reader.
+
+The mapping conforms; the equilibrium numbers do not come from the reference.
+Ring constraint lengths are the mean all-atom COG distances scaled by 1.15, as
+the paper derives them, computed from this repository's atomistic source, and
+`reference.parameter_delta` reports each one beside the published value. On
+2026-09-25 they agreed to within about 15%: 0.318-0.427 nm against
+0.305-0.468 nm. Reproducing a mapping is not the same claim as reproducing the
+published force field, and stereochemistry is never perceived from a bond graph,
+so the candidate records `stereochemistry: unresolved`.
+
+Coordinate units are decided in one place (`dashboard/models/sugars/units.py`):
+a structure built from the molecule context holds nanometres and the packaged
+SwissParam reference holds angstroms. The sugar topology writer and the mapping
+export previously divided by ten unconditionally, which made every generated
+constraint length and exported coordinate a factor of ten too small.
 
 For a reproducible short AA-to-CG diagnostic, select the saved sucrose mapping
 in **New Run**, choose `draft-smoke`, and start an AA-CG run. The coordinator
@@ -111,8 +131,9 @@ When continuing this work:
 
 1. Confirm the dashboard process is fresh and the representation and target
    endpoints return data for the selected molecule.
-2. Confirm the mapping provenance says `provisional` before using an automatic
-   Sucrose candidate.
+2. Confirm the candidate's `reference` block names the entry it follows (`SUCR` for sucrose) and that
+   `reference.conform` returns no issues before using an automatic Sucrose candidate. Its
+   `stereochemistry` stays `unresolved`: connectivity does not determine it.
 3. Inspect the source run manifest and stage logs for the resolved GROMACS
    executable, GPU flags, input hashes, and exact commands.
 4. Treat `metadata_only`, `insufficient_data`, and `diagnostic_only` statuses

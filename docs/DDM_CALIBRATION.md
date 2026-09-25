@@ -23,10 +23,10 @@ No further MD was launched during this documentation handoff. All three named CG
 
 | Export names | Mapping names | Role |
 |---|---|---|
-| B01 / B02 / B03 | S1A / S1B / S1C | First sugar physical sites |
-| B04 | S1VS | First sugar virtual site |
-| B05 / B06 / B07 | S2A / S2B / S2C | Second sugar physical sites |
-| B08 | S2VS | Second sugar virtual site |
+| A / B / C | S1A / S1B / S1C | First sugar physical sites. The exported topology names them A, B, C under residue 1, as the reference entry does. |
+| VS | S1VS | First sugar virtual site |
+| A / B / C | S2A / S2B / S2C | Second sugar physical sites, repeated under residue 2 |
+| VS | S2VS | Second sugar virtual site |
 | B09 / B10 / B11 | TAIL1 / TAIL2 / TAIL3 | Alkyl chain |
 
 The carbohydrate architecture is included at the end of this document; the pinned paper/topologies are in `references/`. Sugar–alkyl bead chemistry remains provisional. Keep the paper's bridge-oxygen ownership rule based on chemical carbon numbering; changing fragments arbitrarily is not an established remedy for the residual torsion mismatch.

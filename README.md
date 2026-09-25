@@ -58,8 +58,16 @@ and where the evidence for each one lives:
   unclassified with its reason rather than guessed into 'Physical bead', and the script records the
   per-run colour range it plotted so the panel can state it. See item 5 of the reconciled gaps.
 - **Two run paths are declared, not implemented:** `cg_composition` runs are a screening stub
-  (they declare `execution_kind`), and the Sucrose mapping path is provisional with a one-ring
-  recognizer. Both are documented as such rather than presented as finished.
+  (they declare `execution_kind`). Both are documented as such rather than presented as finished.
+- **The sucrose mapping now reproduces the reference entry.** The recognizer covers hexopyranose and
+  hydroxymethyl furanose rings, the reference topology is parsed as a hash-pinned oracle, and a
+  conformance check states whether a generated candidate reproduces the `SUCR` entry's mapping. Ring
+  constraint lengths are still derived here by the paper's method rather than copied, and are reported
+  as deltas against the published values; stereochemistry is not perceived from the graph. See
+  `docs/superpowers/plans/2026-09-25-sucrose-reference-mapping.md`. The reference contains residues this
+  recognizer cannot map (ribose, deoxy, uronic, N-acetyl, inositol): a component containing such a ring is
+  named `RING` and recorded in the candidate's limitations rather than being chunked into plausible-looking
+  beads, and each class would need its own verified template.
 - **Browser tier timing.** The one reproducible flake is fixed -- a 5 s expectation used as a load
   wait -- and the reason is recorded in tests/dashboard/browser/conftest.py. The tally: before, three
   failures in about seventeen tier runs; after, twenty-one consecutive clean runs (one from the loop
