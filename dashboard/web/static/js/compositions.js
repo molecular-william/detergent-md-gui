@@ -33,8 +33,15 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
   function paint(result) {
     const basis = $('#composition-geometry-basis');
     const geometry = result?.geometry;
-    for (const key of ('head', 'tail', 'joined')) plotFor(key).render({});
-    if (!geometry) { if (basis) basis.textContent = 'Preview geometry appears here.'; return; }
+    for (const key of ['head', 'tail', 'joined']) plotFor(key).render({});
+    if (!geometry) {
+      // A result without geometry means this dashboard process predates the panel: say so instead of
+      // leaving three empty rectangles, which is exactly how a server running old code looked.
+      if (basis) basis.textContent = result
+        ? 'This dashboard process returned no bead geometry. Restart it, then preview again.'
+        : 'Preview geometry appears here.';
+      return;
+    }
     const link = [geometry.link.head_bead, geometry.link.tail_bead];
     // The two linkage beads are painted red by the plotter's selection colour, in both panel and join.
     plotFor('head').render({beads: geometry.head.beads, edges: geometry.head.edges, selectedBeads: [geometry.link.head_bead]});
@@ -57,9 +64,6 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
       carbon_count: Number(carbon.value), head_endpoint: {bead: head.value}, tail_endpoint: {bead: tail.value},
       linkage_profile_id: profile.value, display_name: name.value.trim() || undefined,
       source_sha256: selectedSugar()?.source_sha256};
-  }
-  function renderPlot(result) {
-    paint(result);
   }
   function renderDiagnostics(result) {
     const target = $('#composition-diagnostics');
@@ -85,7 +89,7 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
     try {
       const result = await post('/api/compositions/preview', payload());
       if (token !== generation) return result;
-      lastPreview = result; syncEndpoints(); renderPlot(result); renderDiagnostics(result); updateActions();
+      lastPreview = result; syncEndpoints(); paint(result); renderDiagnostics(result); updateActions();
       setText($('#composition-panel-status'), 'Preview ready. Review provenance before saving.'); return result;
     } catch (error) { setText($('#composition-panel-status'), error.message); renderDiagnostics(null); throw error; }
   }
