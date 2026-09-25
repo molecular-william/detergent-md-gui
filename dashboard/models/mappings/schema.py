@@ -78,6 +78,31 @@ def new_draft(context, name='New mapping'):
             'status': 'candidate-unvalidated', 'martini_version': '3'}
 
 
+def fragment_groups(structure):
+    """Heavy atoms grouped into connected fragments of at most four, lowest id first.
+
+    The single grouping. A molecule with no verified template is grouped the same way
+    wherever the question is asked: the automatic candidate and the mapping suggestions
+    both fall back to this.
+    """
+    heavy = [a['id'] for a in structure['atoms'] if a['heavy']]
+    adjacency = {atom_id: set() for atom_id in heavy}
+    for a, b in structure['bonds']:
+        if a in adjacency and b in adjacency:
+            adjacency[a].add(b); adjacency[b].add(a)
+    unassigned = set(heavy); groups = []
+    while unassigned:
+        seed = min(unassigned); group = {seed}; unassigned.remove(seed)
+        frontier = set(adjacency[seed]) & unassigned
+        while frontier and len(group) < 4:
+            atom = min(frontier); frontier.discard(atom)
+            if atom not in unassigned: continue
+            group.add(atom); unassigned.remove(atom)
+            frontier |= (adjacency[atom] & unassigned)
+        unassigned -= group; groups.append(sorted(group))
+    return groups
+
+
 def automatic_candidate(structure, molecule_name):
     """Build a graph-local starting mapping for any supported molecule.
 
@@ -96,23 +121,9 @@ def automatic_candidate(structure, molecule_name):
     sugar = carbohydrates.candidate(structure, molecule_name)
     if sugar is not None:
         return sugar
-    adj = {a: set() for a in heavy}
-    for a, b in structure['bonds']:
-        if a in adj and b in adj:
-            adj[a].add(b); adj[b].add(a)
-    unassigned = set(heavy); groups = []
-    while unassigned:
-        seed = min(unassigned); group = {seed}; unassigned.remove(seed)
-        frontier = set(adj[seed]) & unassigned
-        while frontier and len(group) < 4:
-            atom = min(frontier); frontier.discard(atom)
-            if atom not in unassigned: continue
-            group.add(atom); unassigned.remove(atom)
-            frontier |= (adj[atom] & unassigned)
-        unassigned -= group; groups.append(sorted(group))
     atoms_by_id = {a['id']: a for a in structure['atoms']}
     beads = []
-    for i, atoms in enumerate(groups, 1):
+    for i, atoms in enumerate(fragment_groups(structure), 1):
         size = 'R' if len(atoms) >= 4 else ('S' if len(atoms) >= 3 else 'T')
         oxy = sum(atoms_by_id[a]['name'].upper().startswith('O') for a in atoms)
         bead_type = 'P1' if oxy >= 2 else ('P2' if oxy == 1 else 'C1')

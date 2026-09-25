@@ -7,6 +7,7 @@ from ... import paths
 from .. import sugars as carbohydrates, mappings
 from ..mappings import verdict
 from ..mappings.context import as_structure, build_context
+from .packaged import bead_types
 
 CANDIDATE = mappings.SOURCE / 'mapping_candidate_smoke.json'
 
@@ -33,13 +34,7 @@ def load(data=None, *, molecule_root=None):
     # describes Martini's coarse mass convention (removing ring virtual sites changes the
     # nominal count by design), while the rest mark a graph that cannot run.
     blockers = [item['message'] for item in verdict.blocking(validation['issues'], 'can_reuse')]
-    force_field = mappings.ROOT / 'resources/templates/small_mols_fast_forward/3_initial_CG/martini_v3.0.0.itp'
-    section = ''
-    types = set()
-    for line in force_field.read_text().splitlines():
-        raw = line.split(';', 1)[0].strip()
-        if raw.startswith('['): section = raw.strip('[] ')
-        elif section == 'atomtypes' and raw: types.add(raw.split()[0])
+    types = {entry['type'] for entry in bead_types()}
     for bead in data['beads']:
         if bead.get('type') not in types:
             blockers.append(f'{bead["name"]}: assign a supported Martini bead type before running')

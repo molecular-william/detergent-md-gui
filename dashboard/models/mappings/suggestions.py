@@ -6,6 +6,7 @@ import hashlib
 import json
 
 from .. import sugars as carbohydrates
+from . import schema
 from .context import as_structure
 
 def _candidate_types(index, atom_count):
@@ -43,23 +44,6 @@ def suggest_bead(context: dict, atom_ids: list[int], index: dict) -> dict:
     return {"suggestions": suggestions, "warnings": warnings}
 
 
-def _connected_groups(context):
-    atoms = {atom["id"]: atom for atom in context.get("atoms", []) if atom.get("heavy")}
-    adjacency = {atom_id: set() for atom_id in atoms}
-    for edge in context.get("bonds", []):
-        if edge["a"] in adjacency and edge["b"] in adjacency:
-            adjacency[edge["a"]].add(edge["b"]); adjacency[edge["b"]].add(edge["a"])
-    remaining = set(atoms); groups = []
-    while remaining:
-        seed = min(remaining); group = {seed}; remaining.remove(seed); frontier = set(adjacency[seed]) & remaining
-        while frontier and len(group) < 4:
-            atom_id = min(frontier); frontier.discard(atom_id)
-            if atom_id not in remaining: continue
-            group.add(atom_id); remaining.remove(atom_id); frontier |= adjacency[atom_id] & remaining
-        groups.append(sorted(group))
-    return groups
-
-
 def generate_baseline(context: dict, index: dict) -> dict:
     """Generate one deterministic preview; never writes a candidate file."""
     if not context.get("capabilities", {}).get("automatic", {}).get("available"):
@@ -71,7 +55,7 @@ def generate_baseline(context: dict, index: dict) -> dict:
     except (ValueError, KeyError) as exc:
         return {"available": False, "candidate": None, "reasons": [str(exc)]}
     if candidate is None:
-        groups = _connected_groups(context)
+        groups = schema.fragment_groups(structure)
         beads = []
         for index_number, group in enumerate(groups, 1):
             suggestion = suggest_bead(context, group, index)["suggestions"][0]
