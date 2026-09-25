@@ -1,16 +1,15 @@
 """Compact views preserve details while avoiding repeated calculations/scans."""
 import json
 from unittest.mock import patch
-from dashboard.app import default_coordinator as web
 from dashboard.models import mappings
 from dashboard.models.bonded import states as bonded_states
 from dashboard import files
 from tests.dashboard.fixtures import physical_mapping
 
 
-def test_mapping_summary_and_cache_follow_content_changes():
+def test_mapping_summary_and_cache_follow_content_changes(dashboard):
     saved = mappings.save_draft(physical_mapping())
-    client = web.app.test_client()
+    client = dashboard.client
     with patch.object(mappings, 'validate', wraps=mappings.validate) as validate:
         first = client.get('/api/mappings?view=summary').json
         second = client.get('/api/mappings?view=summary').json
@@ -29,19 +28,19 @@ def test_mapping_summary_and_cache_follow_content_changes():
     assert 'bead_types' in client.get('/api/mappings/context').json
 
 
-def test_bonded_summary_omits_topology_and_history():
+def test_bonded_summary_omits_topology_and_history(dashboard):
     state = bonded_states.create(physical_mapping(), 'state', topology='large topology')
-    client = web.app.test_client()
+    client = dashboard.client
     row = client.get('/api/bonded-states?view=summary').json['states'][0]
     assert row['state_id'] == state['state_id']
     assert 'revisions' not in row and 'topology' not in row['current']
     assert client.get('/api/bonded-states/'+state['state_id']).json['current']['topology'] == 'large topology'
 
 
-def test_bonded_patch_modes_and_stale_revision_conflict():
+def test_bonded_patch_modes_and_stale_revision_conflict(dashboard):
     mapping = physical_mapping()
     state = bonded_states.create(mapping, 'state', topology='[ moleculetype ]\n[ atoms ]', status='complete')
-    client = web.app.test_client()
+    client = dashboard.client
     copy = client.patch('/api/bonded-states/'+state['state_id'], json={
         'patch': {'name': 'copy'}, 'expected_revision': 1,
     })
@@ -59,14 +58,14 @@ def test_bonded_patch_modes_and_stale_revision_conflict():
     assert stale.status_code == 409
 
 
-def test_compact_runs_preserve_checkpoints_and_full_detail():
+def test_compact_runs_preserve_checkpoints_and_full_detail(dashboard):
     job = {'id': '123456abcdef', 'status': 'completed', 'detergent': 'DDM',
            'mapping_snapshot': {'large': 'x'*10000}}
-    web.database().insert(job)
-    run = web.run_path(job); run.mkdir(parents=True)
+    dashboard.coordinator.database().insert(job)
+    run = dashboard.coordinator.run_path(job); run.mkdir(parents=True)
     files.atomic_json(run/'manifest.json', {'stages': [{'name': 'AA reference', 'status': 'completed',
                       'command': ['gmx'], 'outputs_sha256': {'a': 'abc'}, 'ended_at': 'now'}]})
-    client = web.app.test_client()
+    client = dashboard.client
     response = client.get('/api/jobs?page=1&view=summary')
     summary = response.json['jobs'][0]
     assert 'mapping_snapshot' not in summary
@@ -77,11 +76,11 @@ def test_compact_runs_preserve_checkpoints_and_full_detail():
     assert client.get('/api/jobs?page=1&view=summary', headers={'If-None-Match': response.headers['ETag']}).status_code == 304
 
 
-def test_figures_use_index_and_explicit_refresh():
-    job = {'id': '123456abcdef', 'status': 'completed'}; web.database().insert(job)
-    run = web.run_path(job); run.mkdir(parents=True)
+def test_figures_use_index_and_explicit_refresh(dashboard):
+    job = {'id': '123456abcdef', 'status': 'completed'}; dashboard.coordinator.database().insert(job)
+    run = dashboard.coordinator.run_path(job); run.mkdir(parents=True)
     (run/'figure.svg').write_text('<svg/>'); (run/'data.txt').write_text('data')
-    client = web.app.test_client()
+    client = dashboard.client
     first = client.get('/api/jobs/'+job['id']+'/figures').json
     assert [x['path'] for x in first['artifacts']] == ['figure.svg']
     from dashboard.analysis.runs import observability
@@ -91,10 +90,10 @@ def test_figures_use_index_and_explicit_refresh():
     assert len(client.get('/api/jobs/'+job['id']+'/figures?refresh=1').json['artifacts']) == 2
 
 
-def test_display_storage_cache_does_not_cache_admission():
-    client = web.app.test_client()
-    with patch.object(web, 'storage_report', return_value={'run_bytes': 123}) as report:
+def test_display_storage_cache_does_not_cache_admission(dashboard):
+    client = dashboard.client
+    with patch.object(dashboard.coordinator, 'storage_report', return_value={'run_bytes': 123}) as report:
         assert client.get('/api/storage').json['run_bytes'] == 123
         client.get('/api/storage'); assert report.call_count == 1
         client.get('/api/storage?refresh=1'); assert report.call_count == 2
-        web.storage_report(); assert report.call_count == 3
+        dashboard.coordinator.storage_report(); assert report.call_count == 3

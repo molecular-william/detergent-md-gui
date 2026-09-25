@@ -12,7 +12,6 @@ import unittest
 from unittest.mock import patch
 import pytest
 
-from dashboard.app import default_coordinator as web
 from dashboard import files
 from dashboard.execution import workflow
 from dashboard.execution.adapters import cg
@@ -21,56 +20,60 @@ from dashboard import store
 
 
 class OperationsTests(unittest.TestCase):
+    @pytest.fixture(autouse=True)
+    def _application(self, dashboard):
+        """The application this test owns; its coordinator is the object the test inspects."""
+        self.dashboard = dashboard
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name); (self.root/'dashboard/runs').mkdir(parents=True)
-        for name,value in [('ROOT',self.root),('DATA',self.root/'dashboard/jobs.sqlite3'),('RUNS',self.root/'dashboard/runs'),('WORKERS',{}),('ANALYSIS_WORKERS',{})]:
-            p = patch.object(web,name,value); p.start(); self.addCleanup(p.stop)
-        p=patch.dict(web.app.config,DISABLE_COORDINATOR=True); p.start(); self.addCleanup(p.stop)
-        self.client=web.app.test_client()
-        self.job={'id':'123456abcdef','status':'completed','detergent':'DDM','method':'fast_forward','profile':'draft-smoke','created':web.now()}
-        web.database().replace([self.job]); self.run=web.run_path(self.job); self.run.mkdir()
+        for name,value in [('ROOT',self.root),('DATA',self.root/'dashboard/jobs.sqlite3'),('RUNS',self.root/'dashboard/runs')]:
+            p = patch.object(self.dashboard.coordinator,name,value); p.start(); self.addCleanup(p.stop)
+        self.client=self.dashboard.client
+        self.job={'id':'123456abcdef','status':'completed','detergent':'DDM','method':'fast_forward','profile':'draft-smoke','created':self.dashboard.coordinator.now()}
+        self.dashboard.coordinator.database().replace([self.job]); self.run=self.dashboard.coordinator.run_path(self.job); self.run.mkdir()
 
     def wait_task(self, aid, timeout=20):
         deadline=time.monotonic()+timeout
-        while (self.job['id'],aid) in web.ANALYSIS_WORKERS and time.monotonic()<deadline:
+        while (self.job['id'],aid) in self.dashboard.coordinator.ANALYSIS_WORKERS and time.monotonic()<deadline:
             time.sleep(.05)
-        self.assertNotIn((self.job['id'],aid),web.ANALYSIS_WORKERS)
-        return next(t for t in web.lookup(self.job['id'])['analyses'] if t['id']==aid)
+        self.assertNotIn((self.job['id'],aid),self.dashboard.coordinator.ANALYSIS_WORKERS)
+        return next(t for t in self.dashboard.coordinator.lookup(self.job['id'])['analyses'] if t['id']==aid)
 
     def test_sqlite_cross_process_field_updates_are_not_lost(self):
         commands=[]
         for n in range(4):
             script='from dashboard.store import Store; import sys; Store(sys.argv[1]).update("123456abcdef", **{sys.argv[2]:sys.argv[2]})'
-            commands.append(subprocess.Popen([sys.executable,'-c',script,str(web.DATA),f'field{n}']))
+            commands.append(subprocess.Popen([sys.executable,'-c',script,str(self.dashboard.coordinator.DATA),f'field{n}']))
         self.assertTrue(all(p.wait(timeout=10)==0 for p in commands))
-        self.assertTrue(all(f'field{n}' in web.lookup(self.job['id']) for n in range(4)))
+        self.assertTrue(all(f'field{n}' in self.dashboard.coordinator.lookup(self.job['id']) for n in range(4)))
 
     def test_recovery_marks_orphans_without_touching_outputs_or_signalling(self):
         original=self.run/'trajectory.xtc'; original.write_bytes(b'original')
         files.atomic_json(self.run/'manifest.json', {'stages':[{'name':'AA reference','status':'running'}]})
-        web.database().update(self.job['id'],status='running',analyses=[{'id':'abc','status':'running'}])
-        with patch.object(os,'killpg') as kill: web.reconcile(); kill.assert_not_called()
-        recovered=web.lookup(self.job['id']); self.assertEqual(recovered['status'],'failed')
+        self.dashboard.coordinator.database().update(self.job['id'],status='running',analyses=[{'id':'abc','status':'running'}])
+        with patch.object(os,'killpg') as kill: self.dashboard.coordinator.reconcile(); kill.assert_not_called()
+        recovered=self.dashboard.coordinator.lookup(self.job['id']); self.assertEqual(recovered['status'],'failed')
         self.assertEqual(recovered['analyses'][0]['status'],'failed')
         self.assertEqual(original.read_bytes(),b'original')
         self.assertEqual(json.loads((self.run/'manifest.json').read_text())['stages'][0]['status'],'failed')
 
     def test_an_orphan_lease_blocks_deletion_and_analysis(self):
-        with web.lease(self.run/'.worker.lock'):
+        with self.dashboard.coordinator.lease(self.run/'.worker.lock'):
             self.assertIn(self.client.delete('/api/jobs/'+self.job['id']).status_code,(400,409))
             self.assertIn(self.client.post('/api/jobs/'+self.job['id']+'/targets',json={'targets':[]}).status_code,(400,409))
         self.assertTrue(self.run.exists())
 
     def test_metadata_corruption_and_default_stage_plan_are_visible(self):
-        web.database().update(self.job['id'],started_at='bad timestamp')
+        self.dashboard.coordinator.database().update(self.job['id'],started_at='bad timestamp')
         job=self.client.get('/api/jobs').get_json()['jobs'][0]
         self.assertIsNone(job['elapsed_seconds']); self.assertTrue(job['metadata_warnings'])
         self.assertEqual(job['workflow_stages'],[name for name,_ in cg.STAGES])
 
     def test_paginated_poll_does_not_scan_artifacts_and_supports_etag(self):
         jobs=[dict(self.job,id=f'{i:012x}',status='failed' if i%2 else 'completed',label=f'Run {i}') for i in range(35)]
-        web.database().replace(jobs)
+        self.dashboard.coordinator.database().replace(jobs)
         with patch.object(backend.observability,'artifacts',side_effect=AssertionError('poll scanned files')):
             response=self.client.get('/api/jobs?page=1&limit=10&status=failed')
             self.assertEqual(response.get_json()['total'],17); self.assertEqual(len(response.get_json()['jobs']),10)
@@ -118,7 +121,7 @@ class OperationsTests(unittest.TestCase):
             try:
                 deadline=time.monotonic()+5
                 while time.monotonic()<deadline:
-                    task=web.lookup(self.job['id'])['analyses'][0]
+                    task=self.dashboard.coordinator.lookup(self.job['id'])['analyses'][0]
                     if task['status']=='running': break
                     time.sleep(.025)
                 began=time.monotonic()
@@ -128,13 +131,13 @@ class OperationsTests(unittest.TestCase):
                 # minute. A bound of 30 s says that without the 1 s knife edge that made
                 # this a load-dependent failure.
                 self.assertLess(time.monotonic()-began,30,'the read waited for the analysis worker lock')
-                other=dict(self.job,id='abcdef123456',status='running'); web.database().insert(other)
-                worker=web.Worker(); web.WORKERS[other['id']]=worker
+                other=dict(self.job,id='abcdef123456',status='running'); self.dashboard.coordinator.database().insert(other)
+                worker=self.dashboard.coordinator.Worker(); self.dashboard.coordinator.WORKERS[other['id']]=worker
                 self.assertEqual(self.client.post('/control/'+other['id']+'/cancel').status_code,202)
-                self.assertTrue(worker.cancel.is_set()); web.WORKERS.pop(other['id'])
+                self.assertTrue(worker.cancel.is_set()); self.dashboard.coordinator.WORKERS.pop(other['id'])
                 self.assertEqual(self.client.post(f'/api/jobs/{self.job["id"]}/analyses/{aid}/cancel').status_code,202)
             finally:
-                for worker in web.ANALYSIS_WORKERS.values(): worker.cancel.set()
+                for worker in self.dashboard.coordinator.ANALYSIS_WORKERS.values(): worker.cancel.set()
                 task=self.wait_task(aid)
         self.assertEqual(task['status'],'cancelled')
 
@@ -143,18 +146,18 @@ class OperationsTests(unittest.TestCase):
         task=self.wait_task(response.get_json()['id']); self.assertEqual(task['status'],'completed',task.get('error'))
         target=self.client.get('/api/jobs/'+self.job['id']+'/targets').get_json()['targets'][0]
         self.assertNotIn('measured',target)
-        second=dict(self.job,id='abcdef123456'); web.database().insert(second)
+        second=dict(self.job,id='abcdef123456'); self.dashboard.coordinator.database().insert(second)
         result=self.client.get('/api/compare?ids=123456abcdef,abcdef123456').get_json()
         self.assertEqual(result['runs'][1]['sasa'],{})
         self.assertFalse(result['runs'][0]['scientifically_validated'])
 
     def test_storage_refuses_overcommit_and_never_deletes(self):
-        report=web.storage_report(); report['disk_free_bytes']=0
+        report=self.dashboard.coordinator.storage_report(); report['disk_free_bytes']=0
         with self.assertRaises(ValueError): resources.admit(report)
         self.assertTrue(self.run.exists())
 
     def test_second_coordinator_is_refused(self):
-        with patch.dict(web.app.config,DISABLE_COORDINATOR=False), web.lease(web.DATA.with_suffix('.service.lock')):
+        with patch.dict(self.dashboard.app.config,DISABLE_COORDINATOR=False), self.dashboard.coordinator.lease(self.dashboard.coordinator.DATA.with_suffix('.service.lock')):
             self.assertEqual(self.client.get('/api/jobs?page=1').status_code,409)
 
     def test_clone_keeps_settings_and_production_gate(self):
@@ -175,7 +178,7 @@ class OperationsTests(unittest.TestCase):
 
     def test_complete_log_archive_and_stage_cursor(self):
         import io,zipfile
-        web.database().update(self.job['id'],layout_version=2)
+        self.dashboard.coordinator.database().update(self.job['id'],layout_version=2)
         logs=self.run/'logs'; logs.mkdir()
         (logs/'console.log').write_text('summary')
         (logs/'aa.log').write_text('AA output')
@@ -189,17 +192,17 @@ class OperationsTests(unittest.TestCase):
     @pytest.mark.slow
     def test_new_layout_worker_records_stage_outputs_and_logs(self):
         job=dict(self.job,id='abcdef123456',status='queued',layout_version=2)
-        web.database().insert(job)
+        self.dashboard.coordinator.database().insert(job)
         def prepare(root,**kwargs):
             stage=root/'stages/mini'; stage.mkdir(parents=True)
             (stage/'run.sh').write_text('echo stage-output; echo result > result.txt')
             files.atomic_json(root/'manifest.json',{'stages':[],'stage_plan':['mini']})
         with patch.object(cg,'readiness',return_value={'ready':True}), patch.object(workflow,'prepare_run',prepare), patch.object(workflow,'stage_definitions',lambda metadata: ([('mini','mini/run.sh')], {}, {'mini':('result.txt',)})):
-            web.run_job(job['id'])
-        job=web.lookup(job['id']); self.assertEqual(job['status'],'completed',job.get('error'))
-        manifest=json.loads((web.run_path(job)/'manifest.json').read_text())
+            self.dashboard.coordinator.run_job(job['id'])
+        job=self.dashboard.coordinator.lookup(job['id']); self.assertEqual(job['status'],'completed',job.get('error'))
+        manifest=json.loads((self.dashboard.coordinator.run_path(job)/'manifest.json').read_text())
         self.assertTrue(manifest['stages'][0]['outputs_sha256'])
-        self.assertIn('stage-output',(web.run_path(job)/'logs/mini.log').read_text())
+        self.assertIn('stage-output',(self.dashboard.coordinator.run_path(job)/'logs/mini.log').read_text())
 
     def test_observables_parse_bond_atom_columns_and_undirected_paths(self):
         import MDAnalysis as mda
@@ -219,9 +222,9 @@ class OperationsTests(unittest.TestCase):
 
     def test_worker_checks_total_quota_even_below_individual_limit(self):
         rule=dict(resources.DEFAULTS, min_free_bytes=1)
-        with patch.object(resources,'usage',side_effect=lambda path: rule['max_total_bytes']+1 if path == web.RUNS else 1):
+        with patch.object(resources,'usage',side_effect=lambda path: rule['max_total_bytes']+1 if path == self.dashboard.coordinator.RUNS else 1):
             with self.assertRaisesRegex(ValueError,'total storage quota'):
-                resources.check_worker(self.run,web.RUNS,rule)
+                resources.check_worker(self.run,self.dashboard.coordinator.RUNS,rule)
 
 
 class ResumeTests(unittest.TestCase):
