@@ -9,8 +9,9 @@ default structure. The package boundary is the interface: callers that want a
 single name import this package, and callers that need one concern import the
 sub-module that owns it.
 """
+from .identity import canonical_sha256, candidate_identity, content_identity
 from .schema import (
-    SIZES, LABELS, mapping_identity, mapping_content_identity, check_schema, new_draft, automatic_candidate,
+    SIZES, LABELS, check_schema, new_draft, automatic_candidate,
 )
 from ..sugars.validation import derive_representation, validate_representation, representation_modes
 from .graph import validate, require_usable, ring_site_preview
@@ -23,7 +24,7 @@ from ..molecules.packaged import ROOT, SOURCE, molecule, bead_types
 
 __all__ = [
     'SIZES', 'LABELS',
-    'mapping_identity', 'mapping_content_identity', 'check_schema', 'new_draft', 'automatic_candidate',
+    'candidate_identity', 'content_identity', 'canonical_sha256', 'check_schema', 'new_draft', 'automatic_candidate',
     'derive_representation', 'validate_representation', 'representation_modes',
     'validate', 'require_usable', 'ring_site_preview',
     'storage_root', 'candidate_paths', 'get', 'list_candidates',

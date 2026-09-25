@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 
-from ..mappings.schema import mapping_identity
+from ..mappings.identity import candidate_identity
 
 
 PHYSICAL_ONLY = 'physical_only_ring_constrained'
@@ -57,7 +57,7 @@ def derive_representation(mapping, mode):
     for ring in result.get('rings', []):
         ring.pop('virtual_site', None)
     result['representation_mode'] = PHYSICAL_ONLY
-    result['source_mapping_hash'] = mapping_identity(mapping)
+    result['source_mapping_hash'] = candidate_identity(mapping)
     result['transformation'] = TRANSFORMATION
     validate_representation(result, PHYSICAL_ONLY)
     return result

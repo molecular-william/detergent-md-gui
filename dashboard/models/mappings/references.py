@@ -6,6 +6,8 @@ import hashlib
 import json
 import re
 
+from .identity import canonical_sha256
+
 
 TYPE_RE = re.compile(r"(?<![A-Za-z0-9])([STR]?[PQNCX][1-6][a-z]?)(?![A-Za-z0-9])")
 
@@ -96,5 +98,4 @@ def load_index(project_root: Path) -> dict:
         records.extend(bible_records); diagnostics.extend(bible_diagnostics)
     records.sort(key=lambda item: (item["source_rank"], item["fragment_id"]))
     index_payload = {"sources": sources, "records": records, "diagnostics": diagnostics}
-    return index_payload | {"index_sha256": hashlib.sha256(
-        json.dumps(index_payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()}
+    return index_payload | {"index_sha256": canonical_sha256(index_payload)}

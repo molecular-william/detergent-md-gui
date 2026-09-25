@@ -13,7 +13,8 @@ from .context import as_structure
 from ..molecules.packaged import SOURCE, molecule
 from . import verdict
 from .graph import require_usable, validate
-from .schema import check_schema, mapping_identity, mapping_content_identity
+from .identity import candidate_identity, content_identity
+from .schema import check_schema
 from ..repository import JsonRepository
 
 
@@ -48,8 +49,8 @@ def _read_candidate(path, name, structure):
     data = json.loads(raw)
     data['file'] = name
     data['sha256'] = hashlib.sha256(raw.encode()).hexdigest()
-    data['mapping_hash'] = mapping_identity(data)
-    data['mapping_content_hash'] = mapping_content_identity(data)
+    data['mapping_hash'] = candidate_identity(data)
+    data['mapping_content_hash'] = content_identity(data)
     data['validation'] = deepcopy(_validation(raw, structure, bool(data.get('schema_version') == 3)))
     return data
 

@@ -1,33 +1,16 @@
-"""Mapping document schema, size constants and stable identity.
+"""Mapping document schema, size constants and blueprint builders.
 
 Pure functions; no filesystem access. Structural validation is separated from
 graph-based validation in mapping_graph.py. automatic_candidate takes an
-explicit structure so no molecule is privileged.
+explicit structure so no molecule is privileged. Candidate identity lives in
+``identity.py``, which this module no longer restates.
 """
 from copy import deepcopy
-import hashlib
-import json
 
 from .. import bonded
 
 SIZES = {'R': 4, 'S': 3, 'T': 2}
 LABELS = {'d', 'a', 'e', 'v'}
-
-
-def mapping_identity(mapping):
-    """Return stable identity for bead assignments and bonded connectivity."""
-    payload = {key: mapping.get(key) for key in ('name', 'beads', 'rings', 'connections')}
-    if mapping.get('schema_version') == 3:
-        payload.update(identity_version=3, molecule_id=mapping.get('molecule_id'),
-                       molecule_snapshot=mapping.get('molecule_snapshot'))
-    if 'representation_mode' in mapping:
-        payload['representation_mode'] = mapping.get('representation_mode')
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-
-
-def mapping_content_identity(mapping):
-    """Return the mapping identity without the user-facing candidate name."""
-    return mapping_identity({**mapping, 'name': ''})
 
 
 def check_schema(data, *, allow_empty=False, representation_mode=None):

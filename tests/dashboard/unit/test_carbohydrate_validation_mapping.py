@@ -13,7 +13,7 @@ def test_physical_only_removes_tc4_but_preserves_physical_ring_data():
     assert all(not bead.get('virtual_site') for bead in physical['beads'])
     assert [ring['beads'] for ring in physical['rings']] == [ring['beads'] for ring in source['rings']]
     assert all(ring['scale'] == 1.15 for ring in physical['rings'])
-    assert physical['source_mapping_hash'] == mappings.mapping_identity(source)
+    assert physical['source_mapping_hash'] == mappings.candidate_identity(source)
     assert physical['transformation'] == 'remove_tc4_retain_ring_constraints@1'
 
 
@@ -49,7 +49,7 @@ def test_physical_only_mapping_passes_structural_validation():
     assert result['can_export'] is True
 
 
-def test_legacy_mapping_identity_does_not_change():
+def test_legacy_candidate_identity_does_not_change():
     source = mappings.automatic_candidate(mappings.molecule(), 'DDM')
     clone = copy.deepcopy(source)
-    assert mappings.mapping_identity(source) == mappings.mapping_identity(clone)
+    assert mappings.candidate_identity(source) == mappings.candidate_identity(clone)

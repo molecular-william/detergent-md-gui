@@ -72,7 +72,7 @@ def mapping_validate():
     payload = json_object()
     context = payload_context(payload)
     result = mappings.validate(payload, context=context, allow_partial=bool(payload.get('schema_version') == 3))
-    identity = mappings.mapping_content_identity(payload)
+    identity = mappings.content_identity(payload)
     duplicates = [item for item in mappings.list_candidates(summary=True, context=context)
                   if item.get('mapping_content_hash') == identity]
     result['mapping_content_hash'] = identity

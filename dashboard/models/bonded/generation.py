@@ -11,6 +11,7 @@ import math
 from pathlib import Path
 
 from . import FUNCTIONS
+from ..mappings.identity import canonical_sha256
 
 
 _MASSES = {'R': 72, 'S': 54, 'T': 36}
@@ -179,8 +180,7 @@ def reference_bond_index(project_root: Path) -> dict:
         'version': 2, 'sources': sources, 'bonds': bonds,
         'angles': angles, 'dihedrals': dihedrals, 'diagnostics': diagnostics,
     }
-    payload['index_sha256'] = hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    payload['index_sha256'] = canonical_sha256(payload)
     return payload
 
 

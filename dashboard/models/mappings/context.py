@@ -12,6 +12,8 @@ import json
 import math
 import re
 
+from .identity import canonical_sha256
+
 from ..molecules import aa as aa_molecules
 
 
@@ -20,11 +22,6 @@ _SECTION_RE = re.compile(r"^\s*\[\s*([^]]+)\s*\]")
 
 def _sha256(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
-
-
-def _canonical_sha256(value) -> str:
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
-    return _sha256(encoded)
 
 
 def _element(name: str) -> str | None:
@@ -197,9 +194,9 @@ def build_context(root: Path, molecule_id: str) -> dict:
     files.update(chemical)
     file_hashes = {name: _sha256(value) for name, value in sorted(files.items())}
     atom_order = [{key: atom[key] for key in ("id", "name", "residue", "element", "heavy")} for atom in atoms]
-    atom_order_hash = _canonical_sha256(atom_order)
+    atom_order_hash = canonical_sha256(atom_order)
     snapshot = {"files": file_hashes, "atom_order_sha256": atom_order_hash}
-    snapshot["snapshot_sha256"] = _canonical_sha256(snapshot)
+    snapshot["snapshot_sha256"] = canonical_sha256(snapshot)
     projection = _chemical_projection(chemical, atoms)
     if projection:
         positions, orders, source = projection

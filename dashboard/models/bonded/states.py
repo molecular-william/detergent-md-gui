@@ -54,7 +54,7 @@ def get(state_id, revision=None):
 
 def validate_payload(mapping, payload, complete=False):
     if not isinstance(payload, dict): raise ValueError('Bonded state payload must be an object')
-    mapping_hash = mappings.mapping_identity(mapping)
+    mapping_hash = mappings.candidate_identity(mapping)
     if payload.get('mapping_hash') != mapping_hash:
         raise ValueError('Bonded state belongs to a different bead mapping')
     topology = payload.get('topology')
@@ -79,7 +79,7 @@ def _validate_revision_payload(record, payload):
 def create(mapping, name, kind='mapping-only', source=None, topology=None, status='incomplete'):
     if kind not in ('mapping-only','fast-forward-fit','manual-edit','legacy','short-validation'):
         raise ValueError('Unknown bonded state origin')
-    mapping_hash = mappings.mapping_identity(mapping)
+    mapping_hash = mappings.candidate_identity(mapping)
     state_id=uuid.uuid4().hex[:16]
     payload={'mapping_hash':mapping_hash,'topology':topology,'status':status,'origin':kind,'source':source or {},'name':name}
     _validate_revision_payload({'mapping_hash': mapping_hash}, payload)

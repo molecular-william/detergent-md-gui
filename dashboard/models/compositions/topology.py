@@ -12,6 +12,8 @@ import math
 import re
 from pathlib import Path
 
+from ..mappings.identity import canonical_sha256
+
 
 SUGAR_RESIDUES = (
     "GLC", "MAN", "GAL", "FRUF", "LFUC", "LRHA", "RIBF", "XYL",
@@ -249,7 +251,7 @@ def composition_identity(result: dict) -> str:
     payload = {"mapping": result.get("mapping", {}), "topology": result.get("topology", {}),
                "tail": result.get("tail", {}), "profile": result.get("profile", {}).get("id")}
     payload["mapping"] = {key: value for key, value in payload["mapping"].items() if key not in ("name", "display_name")}
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return canonical_sha256(payload)
 
 
 def render_itp(result: dict) -> str:
