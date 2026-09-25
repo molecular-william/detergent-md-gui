@@ -22,6 +22,7 @@ from .. import protocol, workflow
 from ..adapters import aa, cg
 from . import admission, resources, temporary
 from .analysis_coordinator import AnalysisCoordinator
+from .attempt import attempt as managed_attempt
 from .errors import CapacityFull, DependencyRetained, InvalidRequest, InvalidRunId, RunBusy, RunConflict, RunNotFound, SourceUnavailable
 from .manifest import ManifestCache
 from .manifest import stage_log_path as resolve_stage_log
@@ -273,82 +274,23 @@ class Coordinator:
         job = self.lookup(jid)
         work, log = self.run_path(job), self.log_path(job)
         in_place = bool(job.get('resume_in_place'))
-        status, error, created = 'failed', None, False
-        try:
-            if worker.cancel.is_set():
-                raise workflow.Cancelled('Cancelled by user')
-            self.database().update(jid, status='running', stage='input', started_at=self.now(), log=str(log.relative_to(self.DATA.parent)))
-            if in_place:
-                if not work.is_dir(): raise FileNotFoundError(f'Existing run directory is missing: {work}')
-                created = True
-            else:
-                work.mkdir(parents=True, exist_ok=False)
-                created = True
-            if job.get('layout_version') == 2: (work/'logs').mkdir(exist_ok=True)
-            worker.run_dir = work
-            worker.lease_file = self.lease(work/'.worker.lock')
-            if not in_place:
-                files.atomic_json(work/'manifest.json', {'id': jid, 'status': 'running', 'stages': [], **{k:job[k] for k in ('run_type','workflow_version','protocol_version','stage_plan','reference_run_id','shared_reference','molecule_id','molecule_snapshot','composition_id','composition_snapshot_sha256') if k in job}})
-            if job.get('molecule_snapshot') and not (job.get('resume_of') or in_place):
-                aa_molecules.verify_selection(self.ROOT/'molecules', job['molecule_snapshot'])
-            aa_only=job.get('run_type')=='aa_only'
-            composition_only=job.get('run_type')=='cg_composition'
-            resuming = in_place or bool(job.get('resume_of'))
-            if resuming:
-                readiness = {'ready': True}
-            else:
-                readiness = protocol.adapter_for(job.get('run_type') or 'aa_cg').readiness({
-                    'molecule_id': job.get('molecule_id') or job.get('detergent'),
-                    'molecule_root': self.ROOT / 'molecules', 'method': job.get('method'),
-                    'profile': job.get('profile', 'standard'), 'mapping_candidate': job.get('mapping_snapshot'),
-                    'composition_id': job.get('composition_id'), 'root': self.ROOT})
-            if not readiness['ready']:
-                raise ValueError('; '.join(readiness['blockers']))
-            source_id = None if in_place else (job.get('resume_of') or job.get('reference_run_id'))
-            source_lease = self.lease(self.RUNS/source_id/'.worker.lock') if source_id else None
-            try:
-                if job.get('resume_of'):
-                    workflow.prepare_resume(work, self.RUNS/job['resume_of'], job['resume_from'])
-                elif not in_place and (aa_only or composition_only):
-                    protocol.adapter_for(job.get('run_type')).prepare(
-                        work, {'molecule_root': self.ROOT/'molecules', 'molecule_snapshot': job.get('molecule_snapshot'),
-                               'composition_id': job.get('composition_id'), 'settings': job.get('settings')})
-                elif not in_place:
-                    kwargs=dict(detergent=job['detergent'],profile=job.get('profile','standard'),settings={k:v for k,v in job.get('settings',{}).items() if k in cg.SETTING_SPECS},mapping_candidate=job.get('mapping_snapshot'),bonded_state_snapshot=job.get('bonded_state_snapshot'),bonded_intent=job.get('bonded_intent','fit_and_simulate'),molecule_snapshot=job.get('molecule_snapshot'),molecule_root=self.ROOT / 'molecules')
-                    if job.get('shared_reference'):kwargs.update(shared_reference=job['shared_reference'],reference_root=self.RUNS)
-                    workflow.prepare_run(work, **kwargs)
-            finally:
-                if source_lease: source_lease.close()
-            prepared = json.loads((work/'manifest.json').read_text())
-            if job.get('molecule_snapshot'):
-                if aa_only:files.verify(workflow.execution_root(work)/'common/molecule',job['molecule_snapshot']['sha256'])
-                elif not job.get('shared_reference'):
-                    raise ValueError('CG run is missing its shared AA reference')
-                prepared.update(molecule_id=job['molecule_id'], molecule_snapshot=job['molecule_snapshot'])
-            if composition_only:
-                prepared.update(composition_id=job['composition_id'], composition_snapshot_sha256=job['composition_snapshot_sha256'])
-            prepared.update(id=jid, status='running', started_at=self.now(),run_type=job.get('run_type','aa_cg'),workflow_version=job.get('workflow_version','aa-cg-v2'))
-            if job.get('shared_reference'):prepared['settings']=job['settings']
-            files.atomic_json(work/'manifest.json', prepared)
-            def stage_changed(name, entry):
-                if worker.cancel.is_set():
-                    raise workflow.Cancelled('Cancelled by user')
-                self.database().update(jid, stage=name, command=' '.join(entry['command']))
-            workflow.run(work, log, execute=worker.execute, on_stage=stage_changed, stop_after='CG topology (ff_inter)' if job.get('bonded_intent') == 'fit_only' else None)
-            if aa_only:aa_references.verify(work,molecule_snapshot=job['molecule_snapshot'])
-            if job.get('bonded_intent') == 'fit_only' and job.get('mapping_snapshot'):
-                topology = workflow.execution_root(work) / f"3_initial_CG/{prepared.get('cg_names', {}).get('final_itp', 'DDM.itp')}"
-                state = bonded_states.create(job['mapping_snapshot'], f"Fit from {jid}", 'fast-forward-fit', {'run_id': jid}, topology.read_text(), 'complete')
-                self.database().update(jid, bonded_state_id=state['state_id'], bonded_state_revision=state['revision'], bonded_state_snapshot=state['current'])
-            status = 'completed'
-        except workflow.Cancelled as exc:
-            status, error = 'cancelled', str(exc)
-        except Exception as exc:
-            error = str(exc)
-            if created:
-                with log.open('a') as fp:
-                    fp.write(f'\nRun failed: {error}\n')
-        finally:
+        created = False
+        record = {'status': 'failed', 'error': None}
+
+        def write_job(rec, **fields):
+            """How this site writes: the entry transition goes to the database at once.
+
+            The terminal status stays local, because the exit hook below must be able to override it
+            from `worker.limit_error` before anything is written. A terminal write here would land
+            before that override and record the wrong thing for a run the worker killed.
+            """
+            if fields.get('status') == 'running':
+                self.database().update(jid, **fields)
+            rec.update(fields)
+
+        def finish_job(rec):
+            """The one terminal write: the manifest, then the job row, then the artifact index."""
+            status, error = rec['status'], rec['error']
             try:
                 if worker.cancel.is_set():
                     status, error = ('failed', worker.limit_error) if worker.limit_error else ('cancelled', 'Cancelled by user')
@@ -370,6 +312,82 @@ class Coordinator:
                 if worker.lease_file: worker.lease_file.close()
                 with self.JOBS_LOCK: self.WORKERS.pop(jid, None)
                 self.schedule_waiting()
+            rec['status'], rec['error'] = status, error
+
+        try:
+            with managed_attempt(record, update=write_job,
+                                 running={'stage': 'input', 'started_at': self.now(),
+                                          'log': str(log.relative_to(self.DATA.parent))},
+                                 on_exit=finish_job):
+                if worker.cancel.is_set():
+                    raise workflow.Cancelled('Cancelled by user')
+                if in_place:
+                    if not work.is_dir(): raise FileNotFoundError(f'Existing run directory is missing: {work}')
+                    created = True
+                else:
+                    work.mkdir(parents=True, exist_ok=False)
+                    created = True
+                if job.get('layout_version') == 2: (work/'logs').mkdir(exist_ok=True)
+                worker.run_dir = work
+                worker.lease_file = self.lease(work/'.worker.lock')
+                if not in_place:
+                    files.atomic_json(work/'manifest.json', {'id': jid, 'status': 'running', 'stages': [], **{k:job[k] for k in ('run_type','workflow_version','protocol_version','stage_plan','reference_run_id','shared_reference','molecule_id','molecule_snapshot','composition_id','composition_snapshot_sha256') if k in job}})
+                if job.get('molecule_snapshot') and not (job.get('resume_of') or in_place):
+                    aa_molecules.verify_selection(self.ROOT/'molecules', job['molecule_snapshot'])
+                aa_only=job.get('run_type')=='aa_only'
+                composition_only=job.get('run_type')=='cg_composition'
+                resuming = in_place or bool(job.get('resume_of'))
+                if resuming:
+                    readiness = {'ready': True}
+                else:
+                    readiness = protocol.adapter_for(job.get('run_type') or 'aa_cg').readiness({
+                        'molecule_id': job.get('molecule_id') or job.get('detergent'),
+                        'molecule_root': self.ROOT / 'molecules', 'method': job.get('method'),
+                        'profile': job.get('profile', 'standard'), 'mapping_candidate': job.get('mapping_snapshot'),
+                        'composition_id': job.get('composition_id'), 'root': self.ROOT})
+                if not readiness['ready']:
+                    raise ValueError('; '.join(readiness['blockers']))
+                source_id = None if in_place else (job.get('resume_of') or job.get('reference_run_id'))
+                source_lease = self.lease(self.RUNS/source_id/'.worker.lock') if source_id else None
+                try:
+                    if job.get('resume_of'):
+                        workflow.prepare_resume(work, self.RUNS/job['resume_of'], job['resume_from'])
+                    elif not in_place and (aa_only or composition_only):
+                        protocol.adapter_for(job.get('run_type')).prepare(
+                            work, {'molecule_root': self.ROOT/'molecules', 'molecule_snapshot': job.get('molecule_snapshot'),
+                                   'composition_id': job.get('composition_id'), 'settings': job.get('settings')})
+                    elif not in_place:
+                        kwargs=dict(detergent=job['detergent'],profile=job.get('profile','standard'),settings={k:v for k,v in job.get('settings',{}).items() if k in cg.SETTING_SPECS},mapping_candidate=job.get('mapping_snapshot'),bonded_state_snapshot=job.get('bonded_state_snapshot'),bonded_intent=job.get('bonded_intent','fit_and_simulate'),molecule_snapshot=job.get('molecule_snapshot'),molecule_root=self.ROOT / 'molecules')
+                        if job.get('shared_reference'):kwargs.update(shared_reference=job['shared_reference'],reference_root=self.RUNS)
+                        workflow.prepare_run(work, **kwargs)
+                finally:
+                    if source_lease: source_lease.close()
+                prepared = json.loads((work/'manifest.json').read_text())
+                if job.get('molecule_snapshot'):
+                    if aa_only:files.verify(workflow.execution_root(work)/'common/molecule',job['molecule_snapshot']['sha256'])
+                    elif not job.get('shared_reference'):
+                        raise ValueError('CG run is missing its shared AA reference')
+                    prepared.update(molecule_id=job['molecule_id'], molecule_snapshot=job['molecule_snapshot'])
+                if composition_only:
+                    prepared.update(composition_id=job['composition_id'], composition_snapshot_sha256=job['composition_snapshot_sha256'])
+                prepared.update(id=jid, status='running', started_at=self.now(),run_type=job.get('run_type','aa_cg'),workflow_version=job.get('workflow_version','aa-cg-v2'))
+                if job.get('shared_reference'):prepared['settings']=job['settings']
+                files.atomic_json(work/'manifest.json', prepared)
+                def stage_changed(name, entry):
+                    if worker.cancel.is_set():
+                        raise workflow.Cancelled('Cancelled by user')
+                    self.database().update(jid, stage=name, command=' '.join(entry['command']))
+                workflow.run(work, log, execute=worker.execute, on_stage=stage_changed, stop_after='CG topology (ff_inter)' if job.get('bonded_intent') == 'fit_only' else None)
+                if aa_only:aa_references.verify(work,molecule_snapshot=job['molecule_snapshot'])
+                if job.get('bonded_intent') == 'fit_only' and job.get('mapping_snapshot'):
+                    topology = workflow.execution_root(work) / f"3_initial_CG/{prepared.get('cg_names', {}).get('final_itp', 'DDM.itp')}"
+                    state = bonded_states.create(job['mapping_snapshot'], f"Fit from {jid}", 'fast-forward-fit', {'run_id': jid}, topology.read_text(), 'complete')
+                    self.database().update(jid, bonded_state_id=state['state_id'], bonded_state_revision=state['revision'], bonded_state_snapshot=state['current'])
+        except Exception as exc:
+            # The lifecycle has already recorded the failure; the run log line is this site's own.
+            if created:
+                with log.open('a') as fp:
+                    fp.write(f'\nRun failed: {exc}\n')
 
 
     def create_job(self, detergent, method, label='', retry_of=None, profile='standard', settings=None, reference_run_id=None, resume_of=None, resume_from=None, mapping_candidate=None, mapping_snapshot=None, bonded_state_id=None, bonded_intent='fit_and_simulate', temporary_validation=False, molecule_id=None, molecule_snapshot=None, run_type=None, composition_id=None):

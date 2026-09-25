@@ -44,12 +44,12 @@ The consolidation plan (docs/superpowers/plans/2026-09-24-architecture-consolida
 except for one task, and its acceptance checklist is answered with measurements. What is still open,
 and where the evidence for each one lives:
 
-- **Attempt lifecycle adopted for analyses; two sites to go.** `AnalysisCoordinator.run` runs under
-  `coordination/attempt.attempt()` now (one commit, mutation-checked, with the leaked-thread-exception
-  it exposed fixed and tested). `workflow.run` and `Coordinator.run_job` still keep their own write
-  policies — the obstacle at each is recorded at Task 6.3 of the plan: the stage loop's reuse path
-  sets `reused` and continues, and the job loop's single terminal write must move to the exit hook or
-  its `limit_error` override lands after the record is written.
+- **Attempt lifecycle: adopted at all three sites.** `AnalysisCoordinator.run`, `workflow.run` and
+  `Coordinator.run_job` now run under `coordination/attempt.attempt()`, each supplying only its own
+  write policy: a record written straight through, a stage entry plus the run's status, and locals
+  whose single terminal write happens in the exit hook. Two hazards surfaced while adopting it, both
+  now guarded and tested — a re-raised failure escaping a worker thread, and the job loop's
+  `limit_error` override needing to land before its one write, not after.
 - **Mapping identity includes the candidate name**, and run admission compares that identity, so
   renaming a candidate orphans its fitted bonded states. The name-free `content_identity` exists and
   is used only for duplicate detection. See item 2 of the reconciled gaps in DDM_CALIBRATION.md; the
