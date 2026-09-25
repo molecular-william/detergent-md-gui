@@ -24,5 +24,7 @@ def isolated_workspace(tmp_path, monkeypatch):
 
 def pytest_collection_modifyitems(items):
     for item in items:
-        if 'browser' in Path(item.path).parts or 'browser' in item.name:
+        # Only the directory decides: a name heuristic here would silently pull a future
+        # "*_browser*" unit test into the tier that needs Playwright and Chrome.
+        if 'browser' in Path(item.path).parts:
             item.add_marker(pytest.mark.browser)
