@@ -1,17 +1,7 @@
-"""Self-contained mapping inputs for tests; never depend on saved user drafts."""
-from werkzeug.serving import WSGIRequestHandler
-from pathlib import Path
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-from dashboard.models import mappings
+"""Re-export shim: the fixtures moved to tests/dashboard/support.py. Import from there.
 
+Kept for exactly one commit so the importing files can move over in a single sweep; see Task 7.3.
+"""
+from tests.dashboard.support import PROJECT_ROOT, QuietHandler, physical_mapping
 
-def physical_mapping():
-    """COG format fixture without virtual sites, for the basic FF mapper tests."""
-    generated=mappings.automatic_candidate(mappings.molecule(), 'DDM')
-    return {'name':'Physical COG format fixture','beads':[b for b in generated['beads'] if not b.get('virtual_site')]}
-
-
-class QuietHandler(WSGIRequestHandler):
-    """Suppress routine loopback HTTP request logging in browser tests."""
-    def log_request(self, *args):
-        pass
+__all__ = ['PROJECT_ROOT', 'QuietHandler', 'physical_mapping']

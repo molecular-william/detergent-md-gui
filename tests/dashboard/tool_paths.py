@@ -1,18 +1,9 @@
-"""Locate vendored third-party sources; unprovisioned sources skip, never fail.
+"""Re-export shim: these moved to tests/dashboard/support.py. Import from there.
 
-The Fast_Forward Python source tree under ``resources/parameterizers`` is not
-part of this checkout. Tests that load it must resolve it through this module
-and skip with a reason, so a missing vendor tree never masquerades as a defect
-in the code under test.
+Kept for exactly one commit so its importing files can move over; see Task 7.3. The docstring that
+belongs with fast_forward_source -- unprovisioned sources must skip, never fail, so a missing
+vendor tree cannot masquerade as a defect -- is on the function in support.py.
 """
-from pathlib import Path
+from tests.dashboard.support import FAST_FORWARD_ROOT, fast_forward_source
 
-from tests.dashboard.fixtures import PROJECT_ROOT
-
-FAST_FORWARD_ROOT = PROJECT_ROOT / 'resources/parameterizers/fast_forward/fast_forward'
-
-
-def fast_forward_source(*parts):
-    """Return a Fast_Forward Python source file, or None when unprovisioned."""
-    candidate = FAST_FORWARD_ROOT.joinpath(*parts)
-    return candidate if candidate.is_file() else None
+__all__ = ['FAST_FORWARD_ROOT', 'fast_forward_source']
