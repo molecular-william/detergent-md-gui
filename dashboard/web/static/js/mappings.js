@@ -124,10 +124,19 @@ export function createMappings() {
     if (!moleculeEditor) return;
     $('#mapping-editor-name').value = moleculeEditor.candidate.name || 'New mapping';
     renderBeadRows(); editorSelection(); updateDiagram();
-    // A local draft has nothing to overwrite or delete; both buttons act on a saved candidate.
+    // A local draft has nothing to overwrite or delete; both buttons act on a saved candidate. Saying so costs one
+    // attribute and saves the report this panel keeps producing: a control that does nothing when pressed, with no
+    // reason anywhere on the page. A saved candidate has to be scoped to this molecule and built from this snapshot
+    // before it is offered at all, so "no candidate" is a normal state, not a broken one.
     const saved = !!moleculeEditor.candidate.file;
     for (const id of ['#delete-mapping', '#save-mapping-inplace']) {
       const button = $(id); if (button) button.disabled = !saved;
+    }
+    const remove = $('#delete-mapping');
+    if (remove) {
+      remove.title = saved
+        ? `Delete the saved candidate ${moleculeEditor.candidate.file}`
+        : 'Nothing to delete yet: the editor holds a local draft. Save it as a new candidate first.';
     }
     persistEditor();
     validateEditor();
@@ -163,7 +172,12 @@ export function createMappings() {
       
       editorMessage(`${source.context.name || moleculeId} loaded · ${source.context.atoms.length} atoms · ${source.context.source_quality.bond_order} bond graph`);
       const filter = $('#mapping-candidate-filter');
-      filter.replaceChildren(new Option('New local draft', ''));
+      // A molecule with no saved candidate is a normal state, not a broken one: a candidate is offered only when it
+      // is scoped to this molecule and built from this snapshot. Say so here, where the choice is made, instead of
+      // leaving a bare "New local draft" that looks like the list failed to load.
+      filter.replaceChildren(new Option(catalogue.candidates?.length
+        ? 'New local draft'
+        : 'New local draft — no saved mapping for this molecule yet', ''));
       for (const item of catalogue.candidates || []) filter.append(new Option(item.name, item.file));
       if (candidate?.file) filter.value = candidate.file;
     } catch (error) { editorMessage(error.message); }
