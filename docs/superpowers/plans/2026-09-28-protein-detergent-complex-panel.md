@@ -220,9 +220,40 @@ element.)
 
 ---
 
-## Phase C — sampling and assessment
+## Phase B2 — wiring (added after Phase B: the plan's B tasks produced builders, not runnable stages)
 
-Phase C needs open decision 1 (the micelle criterion) and 3 (the retry policy) from the specification.
+Tasks B1–B6 produced the pipeline's decisions as tested functions: the contract, the box rules, the CG protein
+command, the placement, the solvent and ion commands, and the viewer's writer. None of them is a *stage*. A `pdc`
+job therefore cannot be created and run yet, and this phase is what closes that:
+
+### Task B7: prepare a pdc run
+
+**Objective:** a `pdc.prepare(stages_root, **kwargs)` that writes the stage directories and the shell scripts a run
+executes, mirroring `cg.prepare`.
+
+**Files:**
+- Modify: `dashboard/execution/adapters/pdc.py` (`prepare`)
+- Modify: `dashboard/execution/workflow.py` (dispatch on run type where it currently always calls `cg.prepare`)
+- Test: `tests/dashboard/unit/test_pdc_prepare.py` (stage directories and script contents), plus an integration test
+  that `POST /api/runs` with `run_type: pdc` creates a job whose plan names the pdc stages.
+
+**Steps:** the scripts call the tested builders rather than restating them — box and placement through a small
+`python -m` entry point that the stage runs, martinize2 as the command `pdc_protein` builds, solvate and genion as
+`pdc_solvation` builds (with its group selection piped in), and the mdrun stages through `aa.mdrun_command_flags`
+with the GPU bracket the CG launcher's tests pin. Every script must be assertable by reading it, in the style of
+`test_aa_gromacs_invocation.py`: no `-ntmpi`, the elastic network's flags present, the margin and radius values
+present.
+
+### Task B8: dispatch the run to the pdc pipeline
+
+**Objective:** a created pdc job runs its own stages rather than the CG ones.
+
+**Files:** `dashboard/execution/coordination/coordinator.py` (or wherever the run type selects the stage plan),
+test `tests/dashboard/integration/test_pdc_run.py`.
+
+---
+
+Phase C implements the decisions the user already took: the contact-graph criterion and the retry policy.
 
 ### Task C1: the assessment-phase stage
 
