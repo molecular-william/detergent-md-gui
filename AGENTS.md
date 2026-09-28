@@ -123,7 +123,7 @@ locations, and the paper-scale evidence requirements. The stable workflow is:
    code so the process loads current validation endpoints.
 2. In **CG Bead Assignment**, generate and save a molecule-scoped candidate;
    preserve its provenance and limitations.
-3. In **New Run**, launch the saved mapping with the `draft-smoke` profile and
+3. In **Single Molecule Simulations**, launch the saved mapping with the `draft-smoke` profile and
    wait for the AA source and CG consumer to complete.
 4. Queue a validation attempt against the completed source run through
    `POST /api/jobs/<run-id>/carbohydrate-validation` with a supported
