@@ -17,6 +17,24 @@ def test_the_workflow_is_named_for_single_molecules(dashboard, live_page):
     assert errors == []
 
 
+def test_the_run_form_accepts_the_temperatures_the_force_fields_use(dashboard, live_page):
+    """The panel's own constraints must admit the values the server defaults to.
+
+    Each force field is run at the temperature its parameterisation assumes, and two of them are not whole or
+    tenths of a degree: 303.15 K is a stepMismatch against `step="0.1"`. HTML5 validation then blocks the form's
+    submit event, so the click does nothing, nothing is reported, and the only visible symptom is an empty notice.
+    """
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#new')
+    page.get_by_role('tab', name='Single Molecule Simulations', exact=True).click()
+    # Wait for the server's default to reach the field, which is this claim's precondition. The submit button is
+    # deliberately not waited on: readiness may hold it disabled in a bare fixture, and that is a different claim.
+    page.wait_for_function("() => document.querySelector('[name=temperature_k]').value === '303.15'", timeout=30000)
+    assert page.evaluate("document.querySelector('#run-form').checkValidity()") is True, \
+        'the form is invalid before anyone touches it, so no submit can ever fire'
+    assert errors == []
+
+
 def test_directory_selection_supports_generic_aa_and_ddm_cg_pair(dashboard, live_page, monkeypatch, tmp_path):
     root=PROJECT_ROOT
     shutil.copytree(root/'molecules/DDM',tmp_path/'molecules/DDM')
