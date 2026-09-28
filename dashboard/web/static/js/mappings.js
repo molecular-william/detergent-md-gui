@@ -1,4 +1,4 @@
-import { $, storage, setText, post, cachedApi, invalidateResource, guarded, DROP } from './shared.js';
+import { $, storage, setText, post, cachedApi, invalidateResource, guarded, DROP, api, notice } from './shared.js';
 import { setupBondedWorkspace } from './bonded.js';
 import { createEditor, toggleAtom, clearSelection, clearMapping, groupAtoms, renameBead, removeBead } from './mapping-state.js';
 import { mountDiagram } from './mapping-diagram.js';
