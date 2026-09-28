@@ -203,12 +203,29 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     select.value=chosen;setText($('#bonded-run-help'),chosen?'This run will reuse the selected immutable bonded-state revision.':'No state selected: fit bonded parameters during this run.');
   }
   let stageDefaults;
+  // The force fields come from the registry, so the panel offers what the server can actually run rather than a
+  // copy of the list held here. Choosing one moves the temperature to the value that entry's parameterisation
+  // assumes: the temperature belongs to the force field, and the field stays editable afterwards.
+  function fillForceFields(entries) {
+    const select = form.elements.force_field;
+    if (!select || !Array.isArray(entries) || !entries.length) return;
+    const chosen = select.value || stageDefaults?.values?.force_field;
+    select.replaceChildren(...entries.map(entry =>
+      new Option(`${entry.label} · ${entry.temperature_k} K · ${String(entry.water).toUpperCase()}`, entry.name)));
+    select.value = entries.some(entry => entry.name === chosen) ? chosen : entries[0].name;
+    select.onchange = () => {
+      const entry = entries.find(candidate => candidate.name === select.value);
+      if (entry) form.elements.temperature_k.value = entry.temperature_k;
+      syncRunSummary(); refreshReadiness(); storage.set('form', formValues());
+    };
+  }
   async function loadStageDefaults() {
     const profile = form.elements.profile.value;
     const run_type=form.elements.run_type.value;
     const result=await cachedApi('/api/defaults?' + new URLSearchParams({profile,run_type}));
     if(run_type!==form.elements.run_type.value || profile!==form.elements.profile.value)return;
     stageDefaults = result;
+    fillForceFields(result.force_fields);
     for (const [field, value] of Object.entries(stageDefaults.values)) {
       const input = form.elements[field];
       if (input && !input.value) { input.value = value; input.dataset.defaultProfile = profile; }

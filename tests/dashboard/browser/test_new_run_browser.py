@@ -17,6 +17,32 @@ def test_the_workflow_is_named_for_single_molecules(dashboard, live_page):
     assert errors == []
 
 
+def test_the_force_field_selector_is_the_registry(dashboard, live_page):
+    """The panel offers what the server can run, each entry with its own temperature and water.
+
+    The list is not held in the template: adding a registry entry must be enough for the panel to offer it, which
+    is only true if the options come from the endpoint. Choosing an entry moves the temperature field to the value
+    that entry's parameterisation assumes, and the form has to stay valid afterwards.
+    """
+    from dashboard.execution import forcefields
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#new')
+    page.get_by_role('tab', name='Single Molecule Simulations', exact=True).click()
+    page.wait_for_function("() => document.querySelectorAll('#force-field option').length > 1", timeout=30000)
+    options = page.evaluate("Array.from(document.querySelectorAll('#force-field option')).map(o => [o.value, o.textContent])")
+    assert [value for value, _ in options] == list(forcefields.names())
+    for value, text in options:
+        entry = forcefields.entry(value)
+        assert entry.label in text, f'{value} is offered without its label'
+        assert f'{entry.temperature_k} K' in text, f'{value} is offered without its temperature'
+        assert entry.water_file[: -len('.itp')].upper() in text.upper()
+    page.locator('#force-field').select_option('charmm36-jul2022')
+    page.wait_for_timeout(300)
+    assert page.evaluate("document.querySelector('[name=temperature_k]').value") == '303.15'
+    assert page.evaluate("document.querySelector('#run-form').checkValidity()") is True
+    assert errors == []
+
+
 def test_the_run_form_accepts_the_temperatures_the_force_fields_use(dashboard, live_page):
     """The panel's own constraints must admit the values the server defaults to.
 

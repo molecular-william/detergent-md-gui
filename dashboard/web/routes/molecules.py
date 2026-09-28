@@ -49,11 +49,11 @@ def _requested_profile(default='standard'):
 @blueprint.get('/api/defaults')
 def defaults_api():
     run_type=request.args.get('run_type')
-    if run_type=='aa_only':return jsonify(aa.stage_defaults(_requested_profile()))
+    if run_type=='aa_only':return jsonify(_with_force_fields(aa.stage_defaults(_requested_profile())))
     if run_type == 'cg_composition':
         result = cg.stage_defaults(_requested_profile('draft-smoke'))
         result['values'].update({'cg_equil_ps': 10.0, 'cg_production_ps': 50.0})
-        return jsonify(result)
+        return jsonify(_with_force_fields(result))
     if run_type not in (None,'aa_cg'):abort(400,'Unknown run type')
     result=cg.stage_defaults(_requested_profile())
     if run_type=='aa_cg':
@@ -61,7 +61,20 @@ def defaults_api():
         # derived from the two AA equilibration durations, so the form shows those.
         result['values'].update(aa.stage_defaults(_requested_profile())['values']);result['values'].pop('aa_equil_ps',None)
         result['sources']['AA']=aa.VERSION
-    return jsonify(result)
+    return jsonify(_with_force_fields(result))
+
+
+def _with_force_fields(result):
+    """The force fields a run may choose, beside the defaults they imply.
+
+    The list comes from the registry rather than from a copy held in the template, so adding an entry there is
+    enough for the panel to offer it, and the temperature shown is the one that entry's parameterisation assumes.
+    """
+    from ...execution import forcefields
+    result['force_fields']=[{'name':entry.name,'label':entry.label,'temperature_k':entry.temperature_k,
+                             'water':entry.water_file[:-len('.itp')]} for entry in
+                            (forcefields.entry(name) for name in forcefields.names())]
+    return result
 
 
 @blueprint.get('/api/readiness')

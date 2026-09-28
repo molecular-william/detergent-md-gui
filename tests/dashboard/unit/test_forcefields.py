@@ -80,6 +80,27 @@ def test_the_temperature_is_the_one_the_parameterisation_assumes(name):
     assert forcefields.entry(name).temperature_k == 303.15
 
 
+def test_every_entry_carries_a_label_a_temperature_and_a_water_model():
+    """The panel renders these, so an entry without them would appear as a nameless or nonsensical option."""
+    for name in forcefields.names():
+        ff = forcefields.entry(name)
+        assert ff.label.strip(), f'{name} has no label for the panel to show'
+        assert isinstance(ff.temperature_k, float)
+        assert ff.water_file.endswith('.itp')
+
+
+def test_the_defaults_endpoint_offers_what_the_registry_holds():
+    """The panel's options come from the endpoint, so the endpoint must agree with the registry exactly."""
+    from dashboard.web.routes.molecules import _with_force_fields
+    offered = _with_force_fields({})['force_fields']
+    assert [entry['name'] for entry in offered] == list(forcefields.names())
+    for entry in offered:
+        registered = forcefields.entry(entry['name'])
+        assert entry['label'] == registered.label
+        assert entry['temperature_k'] == registered.temperature_k
+        assert entry['water'] == registered.water_file[: -len('.itp')]
+
+
 def test_the_newer_port_records_where_it_came_from():
     ff = forcefields.entry('charmm36-feb2026_cgenff-4.6')
     assert ff.source.startswith('http://mackerell.umaryland.edu/')

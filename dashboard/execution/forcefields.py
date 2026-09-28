@@ -38,6 +38,7 @@ class ForceField:
     """What one force field implies. Data only; every accessor below reads it and nothing derives from a name."""
 
     name: str
+    label: str
     directory: str
     water_file: str
     water_molecule: str
@@ -60,6 +61,7 @@ ENTRIES = {
     # warns the CGenFF file version must match the version that generated a solute's topology.
     'charmm36-feb2026_cgenff-4.6': ForceField(
         name='charmm36-feb2026_cgenff-4.6',
+        label='CHARMM36m (Feb 2026, CGenFF 4.6)',
         directory='charmm36-feb2026_cgenff-4.6.ff',
         water_file='tip3p.itp', water_molecule='SOL', cation='SOD', anion='CLA',
         temperature_k=303.15, constraints='all-bonds', manual_constraints='h-bonds',
@@ -72,6 +74,7 @@ ENTRIES = {
     # still resolve to a real entry rather than to an error.
     'charmm36-jul2022': ForceField(
         name='charmm36-jul2022',
+        label='CHARMM36 (Jul 2022)',
         directory='charmm36-jul2022.ff',
         water_file='tip3p.itp', water_molecule='SOL', cation='SOD', anion='CLA',
         temperature_k=303.15, constraints='all-bonds', manual_constraints='h-bonds',
