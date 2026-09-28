@@ -1,0 +1,14 @@
+{
+  "asset": "ngl.js",
+  "package": "ngl",
+  "version": "2.3.1",
+  "url": "https://cdn.jsdelivr.net/npm/ngl@2.3.1/dist/ngl.js",
+  "sha256": "0e8fea984b0e306d948d675f30e10f5a275ab5b4ce2135191a6787ec1b29dc5d",
+  "bytes": 1283924,
+  "fetched": "2026-09-28",
+  "tracked": true,
+  "why": "The Molecule Combination panel renders the composite with NGL instead of plotly. Plotly's only advantage in that panel was clicking a bead to choose a linkage endpoint, and the head and tail endpoint comboboxes now cover that, so the picker and the plotly scenes both go.",
+  "path_choice": "Vendored rather than served from a python package. Plotly can be served out of its installed package -- routes/catalog.py reads plotly/package_data/plotly.min.js -- but NGL has no browser package (nglview's javascript is a Jupyter widget bundle) and py3Dmol 2.5.5 ships no javascript at all, fetching 3Dmol from a CDN at runtime. So neither viewer can follow the plotly pattern.",
+  "refresh": "curl -sL https://cdn.jsdelivr.net/npm/ngl@2.3.1/dist/ngl.js -o dashboard/web/static/vendor/ngl.js && printf '%s  %s\\n' '0e8fea984b0e306d948d675f30e10f5a275ab5b4ce2135191a6787ec1b29dc5d' dashboard/web/static/vendor/ngl.js | sha256sum -c -",
+  "note": "Tracked on purpose so a fresh clone stays offline. This is a UMD bundle: a plain script tag loads it, there is no build step, and the file is already minified -- jsdelivr's ngl.min.js only adds a notice saying so."
+}
