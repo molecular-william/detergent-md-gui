@@ -7,7 +7,57 @@ intergroup separation.
 import itertools
 
 from .coords import coordinates, physical_edges, ring_pairs
+from .reference import entry as reference_entry
+from .reference import signature as reference_signature
 from .units import angstrom_factor
+
+
+def linkage_seed(data):
+    """The reference's own inter-residue bond for the entry this candidate follows, if there is one.
+
+    The stiffness is the part worth adopting: it is what sets how freely two sugar units move against each
+    other, and the reference encodes it per disaccharide -- 6200 for sucrose, 9000 for trehalose, 11250 for
+    lactose -- where this writer would otherwise give every linkage the same 5000, the sugar-to-alkyl link
+    and the bonds along a detergent tail included.
+
+    The length stays derived from the mapped geometry, exactly as the ring constraints are, because a
+    published length paired with local coordinates would start a run by pulling the system onto someone
+    else's structure. The reference's length is recorded beside it in the topology and reported by
+    parameter_delta, so the comparison is visible without being silently imposed.
+    """
+    record = data.get('reference') or {}
+    name = record.get('entry')
+    # Coverage does not matter here: a sugar carrying a chain still has a reference-matched linkage between
+    # its two rings, and that bond is the one the paper fixes a stiffness for. Which edges count as the
+    # linkage is decided by linkage_edge, in the reference's own currency.
+    if not name or not record.get('unambiguous'):
+        return None
+    try:
+        links = reference_signature(reference_entry(name))['links']
+    except KeyError:
+        return None
+    if len(links) != 1 or links[0].get('force') is None:
+        return None
+    link = links[0]
+    return {'entry': name, 'force': link['force'], 'length': link['length'],
+            'ends': frozenset((tuple(link['a']), tuple(link['b'])))}
+
+
+def linkage_edge(beads, seed, a, b):
+    """True when this edge is the reference's inter-residue bond, in the reference's own currency."""
+    if not seed:
+        return False
+
+    def currency(index):
+        bead = beads[index - 1]
+        if bead.get('virtual_site'):
+            return None
+        return (bead.get('residue', 1), bead.get('letter') or bead['name'])
+
+    first, second = currency(a), currency(b)
+    if not first or not second or first[0] == second[0]:
+        return False
+    return frozenset((first, second)) == seed['ends']
 
 
 def topology(data, structure, *, residue_name='DDM', representation_mode=None):
@@ -41,10 +91,17 @@ def topology(data, structure, *, residue_name='DDM', representation_mode=None):
         # No inline comment: bundled FF retains uncommented constraints unchanged.
         lines.append(f'{a} {b} 1 {np.linalg.norm(xyz[a-1]-xyz[b-1])*scale:.6f}')
     lines += ['', '[ bonds ]']
+    seed = linkage_seed(data)
     for a,b in edges:
         adj[a].add(b); adj[b].add(a)
         if (a,b) not in pairs:
-            lines.append(f'{a} {b} 1 {np.linalg.norm(xyz[a-1]-xyz[b-1]):.6f} 5000 ; B{a:02d}_B{b:02d}')
+            length = np.linalg.norm(xyz[a-1]-xyz[b-1])
+            if linkage_edge(beads, seed, a, b):
+                lines.append(f'{a} {b} 1 {length:.6f} {seed["force"]} ; linkage of {seed["entry"]}: '
+                             f'reference force {seed["force"]}, reference length {seed["length"]:.3f} nm, '
+                             f'length derived here')
+            else:
+                lines.append(f'{a} {b} 1 {length:.6f} 5000 ; B{a:02d}_B{b:02d}')
     lines += ['', '[ angles ]']
     for b, neighbors in adj.items():
         for a,c in itertools.combinations(sorted(neighbors),2):

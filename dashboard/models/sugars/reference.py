@@ -113,10 +113,16 @@ def parameter_delta(topology_text, entry_name):
         first, second = int(row[0]), int(row[1])
         if first in currency and second in currency:
             generated[frozenset((currency[first], currency[second]))] = float(row[3])
-    reference_entry = entry(entry_name)
-    reference_atoms = {atom['index']: (atom['residue'], atom['name']) for atom in reference_entry['atoms']}
+    reference_entry_record = entry(entry_name)
+    reference_atoms = {atom['index']: (atom['residue'], atom['name'])
+                       for atom in reference_entry_record['atoms']}
+    bonds = {}
+    for row in sections.get('bonds', []):
+        first, second = int(row[0]), int(row[1])
+        if first in currency and second in currency:
+            bonds[frozenset((currency[first], currency[second]))] = (float(row[3]), float(row[4]))
     delta = []
-    for item in reference_entry['constraints']:
+    for item in reference_entry_record['constraints']:
         pair = frozenset((reference_atoms[item['i']], reference_atoms[item['j']]))
         names = sorted(pair, key=lambda name: (name[0], name[1]))
         value = generated.get(pair)
@@ -124,6 +130,19 @@ def parameter_delta(topology_text, entry_name):
                       'reference': item['length'], 'generated': value,
                       'difference': None if value is None else round(value - item['length'], 4),
                       'relative': None if value is None else round((value - item['length']) / item['length'], 4)})
+    # The inter-residue bond is reported on the same footing: its length is derived here while the
+    # reference fixes one per disaccharide, and its stiffness is the part adopted from the reference.
+    for link in signature(reference_entry_record)['links']:
+        pair = frozenset((tuple(link['a']), tuple(link['b'])))
+        names = sorted(pair, key=lambda name: (name[0], name[1]))
+        generated_bond = bonds.get(pair)
+        value = None if generated_bond is None else generated_bond[0]
+        delta.append({'residue': 'link', 'pair': [name[1] for name in names],
+                      'reference': link['length'], 'generated': value,
+                      'difference': None if value is None else round(value - link['length'], 4),
+                      'relative': None if value is None else round((value - link['length']) / link['length'], 4),
+                      'reference_force': link.get('force'),
+                      'generated_force': None if generated_bond is None else generated_bond[1]})
     return delta
 
 

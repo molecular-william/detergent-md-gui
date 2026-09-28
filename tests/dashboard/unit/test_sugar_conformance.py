@@ -67,7 +67,8 @@ def test_the_parameter_delta_reports_every_reference_constraint(candidate_data, 
     rows = reference.parameter_delta(topology(candidate_data, sucrose, residue_name='SUCR'), 'SUCR')
     assert [(row['residue'], row['pair']) for row in rows] == [
         (1, ['A', 'B']), (1, ['A', 'C']), (1, ['B', 'C']),
-        (2, ['A', 'B']), (2, ['A', 'C']), (2, ['B', 'C'])]
+        (2, ['A', 'B']), (2, ['A', 'C']), (2, ['B', 'C']),
+        ('link', ['A', 'A'])]
     assert all(row['generated'] is not None for row in rows)
 
 
