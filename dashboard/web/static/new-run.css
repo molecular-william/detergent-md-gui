@@ -5,10 +5,15 @@
 #run-form .run-settings{min-width:0;padding:14px}
 /* The stage settings are a form to scan, not a field to fill: narrower inputs inside each column, and
    tighter rows so the whole set reads as one block. */
-#run-form .settings-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px}
+/* Three columns: the inputs are narrow enough now to fit them, so each cell stacks its caption above a
+   control row of the input plus a compact Default button. */
+#run-form .settings-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 10px}
+#run-form .settings-grid > label{display:flex;flex-direction:column;gap:2px}
 #run-form .setting-control{min-width:0}
-#run-form .setting-control input,#run-form .setting-control select{min-width:0;width:100%;max-width:9rem}
-#run-form .use-default{padding:7px 9px;font-size:12px}
+#run-form .setting-control input,#run-form .setting-control select{min-width:0;width:100%;max-width:6.5rem}
+/* The run-configuration pairs share a row so the card uses its width instead of stacking one per line. */
+#run-form .run-config-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px}
+#run-form .use-default{padding:4px 7px;font-size:11px}
 #run-form .hint,#run-form dd{overflow-wrap:anywhere}
 #molecule-details{margin-top:16px;padding:12px;background:#f7f9fc;border:1px solid var(--line);border-radius:8px;font-size:13px;overflow-wrap:anywhere}
 #molecule-details ul{padding-left:20px;margin-bottom:0}
@@ -17,6 +22,7 @@
 #run-input-summary{display:grid;grid-template-columns:100px minmax(0,1fr);gap:8px 12px}
 #run-input-summary dd{margin:0;font-size:13px}
 @media(max-width:900px){#run-form.new-run-layout{grid-template-columns:1fr}}
+@media(max-width:1100px){#run-form .settings-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:520px){#run-form .settings-grid{grid-template-columns:1fr}}
 /* Compact launch review: key choices stay visible; provenance expands on demand. */
 #run-form .cg-only.hidden,#run-form .cg-setting.hidden{display:none}

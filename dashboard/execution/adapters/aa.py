@@ -93,7 +93,8 @@ STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS = stage_tables(STAGE_DEFS)
 
 
 DEFAULTS=dict(aa_nvt_ps=100,aa_npt_ps=1000,aa_production_ps=10000,temperature_k=300,
-              pressure_bar=1,output_interval_ps=10,box_padding_nm=1.5,aa_seed=20260917)
+              pressure_bar=1,output_interval_ps=10,box_padding_nm=1.5,aa_seed=20260917,
+              mdrun_ntomp=8,mdrun_ranks=1)
 # One shape across every run type: (label, lo, hi). The label is what a caller renders.
 SETTING_SPECS={'aa_nvt_ps':('AA NVT duration',1,1000000),'aa_npt_ps':('AA NPT duration',1,1000000),
                'aa_production_ps':('AA production duration',1,1000000),

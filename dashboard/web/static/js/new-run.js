@@ -3,7 +3,7 @@ import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResour
 // Owns the persisted run form, inherited settings, and readiness checks.
 export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
   const form = $('#run-form');
-  const AA_FIELDS = ['aa_nvt_ps','aa_npt_ps','aa_production_ps','temperature_k','pressure_bar','output_interval_ps','box_padding_nm','aa_seed'];
+  const AA_FIELDS = ['aa_nvt_ps','aa_npt_ps','aa_production_ps','temperature_k','pressure_bar','output_interval_ps','box_padding_nm','aa_seed','mdrun_ntomp','mdrun_ranks'];
   const CG_FIELDS = ['cg_equil_ps','cg_production_ps','sasa_probe_nm','cg_seed'];
   // Persist all controls, including disabled values inherited from a reference.
   function formValues() { return Object.fromEntries([...form.elements].filter(el=>el.name).map(el=>[el.name,el.value])); }
