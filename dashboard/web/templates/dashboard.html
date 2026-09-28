@@ -149,6 +149,7 @@
 <section id="compositions" role="tabpanel" aria-labelledby="tab-compositions" hidden>
   <div class="section-heading"><div><h2>Molecule Combination</h2><p>Attach a reference-backed mapped headgroup to a deterministic Martini carbon tail.</p></div></div>
   <div class="composition-workspace">
+    <div class="composition-sidebar">
     <section class="card composition-controls" aria-labelledby="composition-controls-title">
       <h3 id="composition-controls-title">Build a candidate</h3>
       <p class="hint">Sources are immutable. A saved composition is a candidate-unvalidated CG model.</p>
@@ -162,6 +163,12 @@
       <div class="toolbar"><button type="button" id="composition-preview">Preview composition</button><button type="button" class="secondary" id="composition-save" disabled>Save composition</button></div>
       <p id="composition-panel-status" class="hint" role="status"></p>
     </section>
+    <aside class="card composition-provenance" aria-labelledby="composition-provenance-title">
+      <h3 id="composition-provenance-title">Provenance</h3>
+      <dl id="composition-provenance-list"><dt>Head source</dt><dd>—</dd><dt>Tail</dt><dd>—</dd><dt>Linkage</dt><dd>—</dd><dt>Status</dt><dd>candidate-unvalidated</dd></dl>
+      <div class="toolbar"><button type="button" class="secondary" id="composition-open-bonded" disabled>Open CG Bond Interactions</button><button type="button" class="secondary" id="composition-start-run" disabled>Start CG-only run</button></div>
+    </aside>
+    </div>
     <section class="card composition-preview" aria-labelledby="composition-preview-title">
       <h3 id="composition-preview-title">Combined geometry</h3>
       <div class="composition-plots">
@@ -172,11 +179,6 @@
       <p id="composition-geometry-basis" class="hint"></p>
       <div id="composition-diagnostics" class="composition-diagnostics" aria-live="polite">Choose the fragments and preview the candidate.</div>
     </section>
-    <aside class="card composition-provenance" aria-labelledby="composition-provenance-title">
-      <h3 id="composition-provenance-title">Provenance</h3>
-      <dl id="composition-provenance-list"><dt>Head source</dt><dd>—</dd><dt>Tail</dt><dd>—</dd><dt>Linkage</dt><dd>—</dd><dt>Status</dt><dd>candidate-unvalidated</dd></dl>
-      <div class="toolbar"><button type="button" class="secondary" id="composition-open-bonded" disabled>Open CG Bond Interactions</button><button type="button" class="secondary" id="composition-start-run" disabled>Start CG-only run</button></div>
-    </aside>
   </div>
 </section>
 <section id="bonded" role="tabpanel" aria-labelledby="tab-bonded" hidden>
