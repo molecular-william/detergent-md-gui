@@ -39,6 +39,32 @@ MDRUN_GPU_NONBONDED_FLAGS='-gpu_id 0 -nb gpu -pin on'
 MDRUN_GPU_PME_FLAGS=f'{MDRUN_GPU_NONBONDED_FLAGS} -pme gpu -pmefft gpu'
 
 
+def mdrun_launch(settings):
+    """The mdrun launcher and its thread flags, from the stage settings.
+
+    Two levers, and on this host only one of them is the second one people expect. `-ntomp` sets OpenMP
+    threads per rank and is valid for every build. `-ntmpi` sets thread-MPI ranks and is invalid here:
+    /usr/local/gromacs/2026.3/bin/gmx is a symlink to gmx_mpi, so mdrun aborts with "Setting the number of
+    thread-MPI ranks is only supported with thread-MPI". The equivalent lever for an MPI build is the
+    number of ranks under mpirun, which is what `mdrun_ranks` sets; ranks and threads multiply, so the two
+    together are the CPU budget and are checked against the machine rather than left to mdrun to discover.
+
+    Sizes are honest about scale: a small solute box saturates well before a machine of this size, so more
+    ranks is not automatically faster. The settings exist so the number can be measured rather than assumed.
+    """
+    import os
+    cores = os.cpu_count() or 1
+    ranks = int(settings.get('mdrun_ranks') or 1)
+    threads = int(settings.get('mdrun_ntomp') or 8)
+    if ranks < 1 or threads < 1:
+        raise ValueError('mdrun ranks and threads must be positive')
+    if ranks * threads > cores:
+        raise ValueError(f'mdrun would use {ranks * threads} CPU slots for {cores} cores; '
+                         'lower mdrun_ranks or mdrun_ntomp')
+    prefix = f'mpirun -np {ranks} ' if ranks > 1 else ''
+    return prefix, f'-ntomp {threads}'
+
+
 STAGE_DEFS = (
     Stage('AA solvation', '01_solvation/run.sh',
           ('../common/molecule/molecule.gro', 'system.top'),
@@ -71,6 +97,8 @@ DEFAULTS=dict(aa_nvt_ps=100,aa_npt_ps=1000,aa_production_ps=10000,temperature_k=
 # One shape across every run type: (label, lo, hi). The label is what a caller renders.
 SETTING_SPECS={'aa_nvt_ps':('AA NVT duration',1,1000000),'aa_npt_ps':('AA NPT duration',1,1000000),
                'aa_production_ps':('AA production duration',1,1000000),
+               'mdrun_ntomp':('mdrun OpenMP threads per rank',1,72),
+               'mdrun_ranks':('mdrun MPI ranks',1,72),
                'temperature_k':('Temperature',200,500),'pressure_bar':('Pressure',.1,100),
                'output_interval_ps':('Trajectory output interval',.002,100000),
                'box_padding_nm':('Box padding',1.3,10),'aa_seed':('AA random seed',1,2147483646)}
@@ -205,15 +233,15 @@ mv neutral.gro system.gro
         prev=Path(STAGES[i-1][1]).parent.as_posix(); coord='system.gro' if i==2 else 'run.gro'
         checkpoint=f' -t ../{prev}/run.cpt' if i>=4 else ''
         gpu_flags = MDRUN_GPU_NONBONDED_FLAGS if kind == 'em' else MDRUN_GPU_PME_FLAGS
+        launcher, thread_flags = mdrun_launch(settings)
         # No -ntmpi here. This host's GROMACS is an MPI build only -- /usr/local/gromacs/2026.3/bin/gmx is
         # a symlink to gmx_mpi -- and -ntmpi is a thread-MPI option, so mdrun aborts with "Setting the
         # number of thread-MPI ranks is only supported with thread-MPI and GROMACS was compiled without
         # thread-MPI". That killed every run on this machine before the first minimization step, which is
-        # why runs/ was empty. -ntomp is valid for both builds, and an MPI build run without mpirun uses a
-        # single rank, so this is correct in either case. The proper fix is capability-aware command
-        # construction: probe the build once in the tool resolver, emit -ntmpi for a thread-MPI build, and
-        # wrap in mpirun for an MPI one, recording the flavour in the run manifest.
-        scripts.append(f'cp ../{prev}/system.top system.top\ngmx grompp -f run.mdp -c ../{prev}/{coord}{checkpoint} -p system.top -o run.tpr\ngmx mdrun -deffnm run -ntomp 8 {gpu_flags} -v\n')
+        # why runs/ was empty. The CPU budget is mdrun_ranks x mdrun_ntomp instead, checked against the
+        # machine by mdrun_launch; a capability-aware probe that offers -ntmpi on a thread-MPI build is the
+        # remaining piece.
+        scripts.append(f'cp ../{prev}/system.top system.top\ngmx grompp -f run.mdp -c ../{prev}/{coord}{checkpoint} -p system.top -o run.tpr\n{launcher}gmx mdrun -deffnm run {thread_flags} {gpu_flags} -v\n')
     scripts.append('''printf 'Solute\\nSolute\\n' | gmx trjconv -f ../06_production/run.xtc -s ../06_production/run.tpr -n ../common/solute.ndx -pbc mol -center -o lig.xtc
 printf 'Solute\\n' | gmx trjconv -f ../06_production/run.xtc -s ../06_production/run.tpr -n ../common/solute.ndx -dump 0 -o lig.gro
 printf 'Solute\\n' | gmx convert-tpr -s ../06_production/run.tpr -n ../common/solute.ndx -o lig.tpr
