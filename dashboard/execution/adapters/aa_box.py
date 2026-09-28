@@ -9,7 +9,14 @@ that makes the box and the check that vets it cannot disagree.
 from pathlib import Path
 
 #: The edge of the cube the reference protocol uses, in nanometres.
-DEFAULT_EDGE_NM = 2.4
+#:
+#: The protocol states a 2.4 nm cube and, in the same breath, the GROMACS-recommended run settings for the force
+#: field it used. Those two cannot both hold: CHARMM36's block asks for `rlist = rvdw = rcoulomb = 1.2 nm`, and
+#: GROMACS requires the cut-off to be **strictly** less than half the shortest box vector -- half of 2.4 is exactly
+#: 1.2, so `grompp` refuses the system outright. The box is raised by one tenth of a nanometre, which is a 13%
+#: volume change for a single solute in water, rather than shrinking a force field's published cut-offs, which is a
+#: change to the physics. `check_cutoffs` makes the requirement explicit so it cannot be rediscovered as an error.
+DEFAULT_EDGE_NM = 2.5
 
 
 def editconf_arguments(edge_nm):
@@ -47,6 +54,19 @@ def extent_nm(coordinates):
         raise ValueError('no coordinates to measure')
     return [max(point[axis] for point in coordinates) - min(point[axis] for point in coordinates)
             for axis in range(3)]
+
+
+def check_cutoffs(edge_nm, rlist_nm):
+    """Refuse a box whose half-edge cannot contain the neighbour-list cut-off.
+
+    GROMACS requires the cut-off to be strictly shorter than half of the shortest box vector, so a box of exactly
+    twice the cut-off fails in `grompp` -- not with a warning about the box, but with an error a reader has to
+    interpret. This is the same arithmetic the neighbour list uses, checked where the box is chosen.
+    """
+    if rlist_nm >= edge_nm / 2:
+        raise ValueError(f'a {edge_nm:g} nm box cannot hold a {rlist_nm:g} nm cut-off: the neighbour list has to '
+                         f'be shorter than half the box, so the edge has to exceed {rlist_nm * 2:g} nm')
+    return edge_nm
 
 
 def check_fit(name, coordinates, edge_nm):

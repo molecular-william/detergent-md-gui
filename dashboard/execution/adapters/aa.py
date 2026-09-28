@@ -319,6 +319,9 @@ def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
     # solute interacting with its own periodic image three stages later.
     aa_box.check_fit(molecule_snapshot['metadata']['name'], aa_box.read_coordinates(molecule/'molecule.gro'),
                      settings['box_nm'])
+    # The box also has to be big enough for the force field's own neighbour-list cut-off, which is a different
+    # requirement from holding the solute: the two failures look nothing alike and only one of them is obvious.
+    aa_box.check_cutoffs(settings['box_nm'], float(forcefields.entry(settings['force_field']).mdp['rlist']))
     ff=forcefields.entry(settings['force_field']); tree=ff.tree()
     if any(p.is_symlink() for p in tree.rglob('*')):raise ValueError('Force-field symlinks are unsupported')
     shutil.copytree(tree,common/tree.name)

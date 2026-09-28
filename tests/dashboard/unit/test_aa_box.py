@@ -23,8 +23,15 @@ def gro(tmp_path, points, name='molecule.gro', count=None, truncate=None):
     return path
 
 
-def test_the_default_edge_is_the_protocols():
-    assert aa_box.DEFAULT_EDGE_NM == 2.4
+def test_the_default_edge_is_the_smallest_cube_the_cutoff_allows():
+    """The protocol says 2.4 nm and the force field's cut-offs need more than that.
+
+    CHARMM36's block asks for a 1.2 nm neighbour list, which has to be strictly inside half the box: half of 2.4
+    is exactly 1.2, so the protocol's own box cannot hold the protocol's own run settings. The default is the
+    smallest cube that can.
+    """
+    assert aa_box.DEFAULT_EDGE_NM == 2.5
+    aa_box.check_cutoffs(aa_box.DEFAULT_EDGE_NM, 1.2)
 
 
 def test_the_command_is_a_centred_cube_of_the_requested_edge():
@@ -73,3 +80,18 @@ def test_exactly_half_the_edge_is_accepted_because_the_images_stay_clear():
 
 def test_a_larger_box_admits_the_solute_that_the_default_refused():
     assert aa_box.check_fit('wider', [[0.0, 0.0, 0.0], [1.3, 0.0, 0.0]], 3.0) == 1.3
+
+
+def test_a_box_of_exactly_twice_the_cutoff_is_refused():
+    """The failure that started this: a 2.4 nm cube with CHARMM36's 1.2 nm cut-off, refused by grompp."""
+    with pytest.raises(ValueError, match='cannot hold a 1.2 nm cut-off'):
+        aa_box.check_cutoffs(2.4, 1.2)
+
+
+def test_a_longer_cutoff_needs_a_proportionally_longer_edge():
+    with pytest.raises(ValueError, match='edge has to exceed 2.6 nm'):
+        aa_box.check_cutoffs(2.5, 1.3)
+
+
+def test_a_cutoff_comfortably_inside_the_box_is_accepted():
+    assert aa_box.check_cutoffs(2.5, 1.0) == 2.5
