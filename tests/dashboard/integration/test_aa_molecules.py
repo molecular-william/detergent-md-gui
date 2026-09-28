@@ -1,5 +1,7 @@
 from dashboard.execution.adapters import cg
 from dashboard.execution.coordination import coordinator as backend
+from dashboard.models import mappings
+from dashboard.models.mappings import context as mapping_context
 
 """Molecule directory admission: bad inputs never become runnable DDM jobs."""
 import json
@@ -89,11 +91,28 @@ class MoleculeDirectoryTests(unittest.TestCase):
         self.assertTrue(response['blockers'])
 
     def test_new_run_readiness_validates_mapping_against_selected_molecule(self):
+        """The mapping validated here is built in the test, not read out of the developer's workspace.
+
+        It used to copy a candidate from the live drafts directory by filename, so it passed only while that file
+        happened to exist and turned red the moment it did not. A test that depends on a developer's data is not
+        testing this code.
+
+        The candidate is built from the same context the panel builds one from, and carries that context's snapshot,
+        because a candidate is offered to a molecule only when it names that molecule *and* was made against that
+        molecule's current source files. Building it from the default structure and leaving the snapshot out is what
+        made the list endpoint rightly refuse it.
+        """
         shutil.copytree(PROJECT_ROOT / 'molecules/Maltose', self.root / 'molecules/Maltose')
-        source = PROJECT_ROOT / 'workspace/dashboard/mapping_drafts/mapping_candidate_75a9442a2f88484d91c3b397b386d5fb.json'
-        candidate_name = source.name
+        context = self.client.get('/api/mappings/context?molecule_id=Maltose').get_json()['context']
+        # automatic_candidate predates the richer context and takes the adapter built for its consumers, whose
+        # bonds are pairs rather than the records the context itself carries.
+        candidate = mappings.automatic_candidate(mapping_context.as_structure(context), 'Maltose')
+        candidate['molecule_id'] = 'Maltose'
+        candidate['molecule_snapshot'] = context['snapshot']
         paths.current().mapping_drafts.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, paths.current().mapping_drafts / candidate_name)
+        saved = self.client.post('/api/mappings/drafts', json=candidate)
+        self.assertEqual(saved.status_code, 201, saved.get_json())      # a new candidate is a created resource
+        candidate_name = saved.get_json()['file']
         seen = {}
 
         def readiness(*args, **kwargs):
