@@ -25,7 +25,7 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
   // carries the calibration: NGL's van der Waals radii for C/N/H are 1.70/1.55/1.20 A, and
   // 1.70x0.75x2 = 2.55 A against the 2.64 nm-class target, 1.55 -> 2.33 against 2.30, 1.20 -> 1.80 against
   // 1.91. Within a few percent of every class, which is why the element stand-ins are C/N/H and not C/N/O.
-  const BEAD_RADIUS_SCALE = 0.75;
+  const BEAD_RADIUS_SCALE = 3.75;
   const BEAD_ASPECT_RATIO = 2;
 
   // One colour per bead type, so a bead keeps its colour in every view. The map is explicit and the fallback is
@@ -37,6 +37,9 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
   };
   const BEAD_COLOUR_FALLBACK = 0x718096;
   const LINKAGE_COLOUR = 0xdf203d;
+  // The bond-only representation is deliberately colourless: it carries connectivity, not identity, and the beads
+  // above it are the ones that say which type a bead is.
+  const BOND_COLOUR = 0x555555;
   const beadColour = type => BEAD_COLOURS[String(type || '')] ?? BEAD_COLOUR_FALLBACK;
 
   function represent(key, pdb, beads, selected) {
@@ -70,6 +73,12 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
         item.addRepresentation('ball+stick', {sele: selected.map(at).join(' or '), color: LINKAGE_COLOUR,
           radiusScale: BEAD_RADIUS_SCALE, aspectRatio: BEAD_ASPECT_RATIO});
       }
+      // NGL draws a stick only between two atoms inside one representation, so a scheme that gives each bead type
+      // its own representation also cuts the bonds that cross between types: the sugar's ring beads A and B share
+      // a colour and get a stick, while C -- alone in its colour -- keeps its two ring bonds in the file and is
+      // drawn as an orphan. One bond-only representation over every bead the panel owns restores the connectivity
+      // without touching the colouring, which is the part that is deliberate.
+      item.addRepresentation('line', {sele: beads.map(bead => at(bead.name)).join(' or '), color: BOND_COLOUR});
       // Frame the structure, not a selection: this is the form that measurably moves the camera.
       item.autoView();
     });

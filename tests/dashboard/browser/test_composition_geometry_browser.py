@@ -59,6 +59,9 @@ CAMERA = """(el, key) => {
 
 # The colour the panel gives the linkage beads, which is what marks those representations out.
 LINKAGE_COLOUR = 0xDF203D
+# The bond-only representation is colourless: it carries connectivity rather than identity, so it is excluded
+# wherever the question is which beads a panel draws in their type colours.
+BOND_COLOUR = 0x555555
 
 
 # The drawn ball radius, as NGL computes it: atomRadius x radiusScale x aspectRatio.
@@ -148,7 +151,8 @@ def test_preview_waits_for_the_catalogue_instead_of_posting_an_empty_fragment(da
 
 def _drawn(page, key):
     """The beads the panel draws in their own type colour."""
-    return [name for rep in _reps(page, key) if rep['colour'] != LINKAGE_COLOUR for name in rep['names']]
+    ignore = (LINKAGE_COLOUR, BOND_COLOUR)
+    return [name for rep in _reps(page, key) if rep['colour'] not in ignore for name in rep['names']]
 
 
 def _highlight(page, key):
@@ -161,7 +165,7 @@ def _colours(page, keys):
     colours = {}
     for key in keys:
         for rep in _reps(page, key):
-            if rep['colour'] == LINKAGE_COLOUR: continue
+            if rep['colour'] in (LINKAGE_COLOUR, BOND_COLOUR): continue
             for name in rep['names']:
                 colours.setdefault(name, set()).add(rep['colour'])
     return colours
@@ -292,9 +296,40 @@ def test_the_drawn_bead_radii_match_what_the_size_classes_mean(dashboard, live_p
     radii = page.locator(HOST).evaluate(DRAWN_RADII, 'joined')
     assert radii, 'the viewer reported no radii'
     # Martini's molecular-volume classes are 2.64 / 2.30 / 1.91 A for R / S / T, which the writer maps to C / N.
-    for residue, target in (('SUG', 2.30), ('TAI', 2.64)):
+    # The panel draws them larger than life -- at the physical size the beads are hard to tell apart at panel scale
+    # -- and the multiplier is asserted here rather than absorbed into the target, so that neither the classes nor
+    # the display size can drift without this test saying so.
+    DISPLAY_SCALE = 5
+    for residue, class_radius in (('SUG', 2.30), ('TAI', 2.64)):
+        target = class_radius * DISPLAY_SCALE
         drawn = radii.get(residue)
         assert drawn, (residue, radii)
         for value in drawn:
             assert abs(value - target) / target < 0.15, (residue, target, value)
+    assert errors == []
+
+
+def test_every_panel_draws_the_bonds_that_cross_between_bead_types(dashboard, live_page):
+    """NGL draws a stick only between two atoms inside one representation.
+
+    The panel gives each bead type its own representation so that a bead keeps its colour in every view. That split
+    also cut every bond crossing between types: the sugar ring's A and B share a colour and were drawn bonded, while
+    C -- alone in its colour -- kept both of its ring bonds in the PDB and appeared as an orphan. The file was
+    always right; the connectivity was a rendering artefact, which is why "not all particles are connected" could
+    not be fixed in the writer. One bond-only representation over every bead a panel owns is the fix, and the
+    property to hold is that each panel has a representation covering all of the beads it claims.
+    """
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#compositions')
+    _preview(page)
+    _mounted(page)
+
+    for key, selector, residue in (('head', HEAD, 'SUG'), ('tail', TAIL, 'TAI'), ('joined', JOINED, None)):
+        fatoms = _beads(page, selector, key)
+        beads = {atom['name'] for atom in fatoms if residue is None or atom['residue'] == residue}
+        assert beads, (key, fatoms)
+        covered = [set(rep['names']) for rep in _reps(page, key)]
+        assert covered, f'{key} asked for no representations'
+        assert any(beads <= names for names in covered), \
+            f'{key} draws its beads only in separate representations, so the bonds between them are cut: {covered}'
     assert errors == []
