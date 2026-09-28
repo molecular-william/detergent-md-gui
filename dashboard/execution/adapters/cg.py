@@ -142,10 +142,10 @@ def normalize_settings(settings=None, profile='standard'):
     if settings is not None and not isinstance(settings, dict):
         raise ValueError('Run settings must be an object')
     supplied = dict(settings or {})
-    unknown = set(supplied) - set(SETTING_SPECS) - set(aa.SETTING_SPECS)
+    unknown = set(supplied) - set(SETTING_SPECS) - set(aa.SETTING_SPECS) - set(aa.CHOICE_SPECS)
     if unknown:
         raise ValueError('Unknown run settings: ' + ', '.join(sorted(unknown)))
-    aa_settings = aa.normalize_settings({key: value for key, value in supplied.items() if key in aa.SETTING_SPECS}, profile)
+    aa_settings = aa.normalize_settings({key: value for key, value in supplied.items() if key in aa.SETTING_SPECS or key in aa.CHOICE_SPECS}, profile)
     cg_settings = _normalize_cg_settings(
         {key: value for key, value in supplied.items() if key in SETTING_SPECS} | mirror_aa_settings(aa_settings),
         profile)

@@ -102,7 +102,12 @@ def verify(run_dir,expected=None,molecule_snapshot=None,settings=None):
     if molecule_snapshot is not None and identity(molecule_snapshot)!=data['molecule_identity']:raise ValueError('AA reference molecule/topology does not match')
     if settings:
         for key,value in data['settings'].items():
-            if key in settings and abs(float(settings[key])-float(value))>1e-6:raise ValueError('AA protocol settings must match the shared reference: '+key)
+            if key not in settings:continue
+            # Scheme choices travel as strings ('auto', 'gpu', 'cpu'), so a shared reference matches them by
+            # equality; the numeric settings keep their tolerance.
+            try:same=abs(float(settings[key])-float(value))<=1e-6
+            except (TypeError,ValueError):same=str(settings[key])==str(value)
+            if not same:raise ValueError('AA protocol settings must match the shared reference: '+key)
     return dict(data,sha256=hashes)
 
 

@@ -62,7 +62,19 @@ def mdrun_launch(settings):
         raise ValueError(f'mdrun would use {ranks * threads} CPU slots for {cores} cores; '
                          'lower mdrun_ranks or mdrun_ntomp')
     prefix = f'mpirun -np {ranks} ' if ranks > 1 else ''
-    return prefix, f'-ntomp {threads}'
+    # 'auto' emits nothing, so a run that does not touch these settings produces exactly the command it
+    # produced before they existed, and a GPU execution profile keeps its own flags.
+    scheme = ''
+    for key, flag in (('mdrun_nb', '-nb'), ('mdrun_pme', '-pme')):
+        choice = str(settings.get(key) or 'auto')
+        if choice not in CHOICE_SPECS[key][1]:
+            raise ValueError(f'{key} must be one of {", ".join(CHOICE_SPECS[key][1])}')
+        if key == 'mdrun_pme' and choice == 'gpu' and str(settings.get('mdrun_nb') or 'auto') != 'gpu':
+            raise ValueError('mdrun_pme gpu needs mdrun_nb gpu: GROMACS runs PME on the GPU only when the '
+                             'nonbonded scheme is on the GPU too')
+        if choice != 'auto':
+            scheme += f' {flag} {choice}' + (' -pmefft gpu' if key == 'mdrun_pme' and choice == 'gpu' else '')
+    return prefix, f'-ntomp {threads}{scheme}'
 
 
 STAGE_DEFS = (
@@ -94,7 +106,11 @@ STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS = stage_tables(STAGE_DEFS)
 
 DEFAULTS=dict(aa_nvt_ps=100,aa_npt_ps=1000,aa_production_ps=10000,temperature_k=300,
               pressure_bar=1,output_interval_ps=10,box_padding_nm=1.5,aa_seed=20260917,
-              mdrun_ntomp=8,mdrun_ranks=1)
+              mdrun_ntomp=8,mdrun_ranks=1,mdrun_nb='auto',mdrun_pme='auto')
+# Choices are a separate shape rather than a third element of the numeric tuple, which unpacks as (label, lo,
+# hi). 'auto' means the execution profile decides, which is what every run did before these settings existed.
+CHOICE_SPECS={'mdrun_nb':('Nonbonded scheme',('auto','cpu','gpu')),
+              'mdrun_pme':('PME scheme',('auto','cpu','gpu'))}
 # One shape across every run type: (label, lo, hi). The label is what a caller renders.
 SETTING_SPECS={'aa_nvt_ps':('AA NVT duration',1,1000000),'aa_npt_ps':('AA NPT duration',1,1000000),
                'aa_production_ps':('AA production duration',1,1000000),
@@ -124,6 +140,12 @@ def normalize_settings(settings=None, profile='standard'):
     if settings is not None and not isinstance(settings,dict):raise ValueError('AA settings must be an object')
     result=dict(stage_defaults(profile)['values'])
     for key,value in (settings or {}).items():
+        if key in CHOICE_SPECS:
+            label,options=CHOICE_SPECS[key]
+            if not isinstance(value,str) or value not in options:
+                raise ValueError(f'{key} must be one of {", ".join(options)}')
+            result[key]=value
+            continue
         if key not in SETTING_SPECS:raise ValueError('Unknown AA setting: '+key)
         if isinstance(value,bool):raise ValueError('AA settings must be numeric')
         try:value=float(value)
