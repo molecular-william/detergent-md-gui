@@ -78,3 +78,29 @@ def bead_spheres(context, beads):
                         "centre": [round(value, 4) for value in centre],
                         "radius": round(max(floor, spread + PADDING_ANGSTROM), 4)})
     return spheres
+
+
+def bead_pdb_text(context, beads):
+    """A PDB with one atom per bead, at the centre of the atoms it maps, for the viewer's overlay.
+
+    A bead is not an atom, so this is a purpose-built file. Two choices in it are load-bearing:
+
+    The residue name is the bead's size class, so a viewer can draw one representation per class and give each its
+    own radius -- a representation's radius is a single scale factor, and beads of different sizes need different
+    ones. The class goes in the residue column because that is the column a selection can name: a bare word in this
+    viewer's selection language is parsed as a residue name, which is measured rather than assumed.
+
+    The serial is the bead's position in the sphere list, which is how a click on a sphere is turned back into the
+    bead it belongs to. Both come from bead_spheres, so a sphere cannot drift from the atoms it covers and the
+    sphere list and this file cannot disagree about their order.
+    """
+    spheres = bead_spheres(context, beads)
+    lines = ["REMARK 900 bead centres for the 3D overlay; one atom per bead, residued by its size class",
+             "REMARK 900 coordinates in angstroms, through the same conversion the molecule's PDB uses"]
+    for index, sphere in enumerate(spheres, start=1):
+        x, y, z = sphere["centre"]
+        size = str(sphere.get("size") or "T").upper()[:1] or "T"
+        lines.append(f"HETATM{index:5d} {'BE':<4s} {size:>3s} A{1:4d}    "
+                     f"{x:8.3f}{y:8.3f}{z:8.3f}{1.0:6.2f}{0.0:6.2f}          {'C':>2s}")
+    lines.append("END")
+    return "\n".join(lines) + "\n"

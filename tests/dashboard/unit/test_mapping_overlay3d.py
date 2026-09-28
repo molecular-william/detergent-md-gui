@@ -65,3 +65,29 @@ def test_a_bead_with_no_mapped_atoms_is_skipped_rather_than_drawn_at_the_origin(
                                                {"name": "B01", "size": "T", "atoms": [1]},
                                                {"name": "B02", "size": "T", "atoms": [99]}])
     assert [sphere["name"] for sphere in spheres] == ["B01"], spheres
+
+
+def test_the_bead_file_puts_one_atom_per_bead_at_its_centre_and_names_its_size_class():
+    """The overlay's own file: a viewer draws each atom as a sphere whose radius comes from the class.
+
+    A representation has one radius scale, so beads of different sizes need different representations; putting each
+    bead's class in the residue column is what lets the client group them. The serial is the bead's position, which
+    is how a clicked sphere is turned back into the bead.
+    """
+    context = context_of([atom(1, [0.0, 0.0, 0.0]), atom(2, [0.2, 0.0, 0.0])])
+    beads = [{"name": "B01", "size": "S", "atoms": [1, 2]}, {"name": "B02", "size": "R", "atoms": [1]}]
+    text = overlay3d.bead_pdb_text(context, beads)
+    rows = [row for row in text.splitlines() if row.startswith("HETATM")]
+    # The class lives in the residue column: a bare word in the viewer's selection language is a residue name.
+    assert [row[17:20].strip() for row in rows] == ["S", "R"], rows
+    assert [int(row[6:11]) for row in rows] == [1, 2], rows
+    assert f"{1.0:8.3f}" in rows[0], rows[0]        # the centre of (0, 0, 0) and (0.2, 0, 0) nm is 1 A on x
+    # One row per bead that has atoms, taken from the same call the file is written from.
+    assert text.count("HETATM") == len(overlay3d.bead_spheres(context, beads)), text
+
+
+def test_a_virtual_site_has_no_row_in_the_bead_file_either():
+    """Otherwise a viewer would draw a sphere at the origin for a bead that has no atoms."""
+    context = context_of([atom(1, [0.0, 0.0, 0.0])])
+    text = overlay3d.bead_pdb_text(context, [{"name": "VS1", "size": "T", "atoms": []}])
+    assert "HETATM" not in text, text

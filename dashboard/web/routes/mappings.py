@@ -61,7 +61,8 @@ def mapping_overlay3d():
         abort(400, 'beads must be a list')
     if len(beads or []) > 2000:
         abort(400, 'Too many beads for one overlay')
-    return jsonify(pdb=overlay3d.pdb_text(context), spheres=overlay3d.bead_spheres(context, beads or []))
+    return jsonify(pdb=overlay3d.pdb_text(context), bead_pdb=overlay3d.bead_pdb_text(context, beads or []),
+                   spheres=overlay3d.bead_spheres(context, beads or []))
 
 
 @blueprint.get('/api/mappings/representations')
