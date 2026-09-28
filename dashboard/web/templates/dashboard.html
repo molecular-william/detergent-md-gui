@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='new-run.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='mappings.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='compositions.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='pdc.css') }}">
   <script src="{{ url_for('catalog.plotly_asset') }}"></script>
   <script src="{{ url_for('static', filename='vendor/ngl.js') }}"></script>
   <script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
@@ -21,6 +22,7 @@
   <button role="tab" id="tab-mappings" aria-label="CG mappings" aria-controls="mappings" data-tab="mappings">CG Bead Assignment</button>
   <button role="tab" id="tab-bonded" aria-controls="bonded" data-tab="bonded">CG Bond Interactions</button>
   <button role="tab" id="tab-compositions" aria-controls="compositions" data-tab="compositions">Molecule Combination</button>
+  <button role="tab" id="tab-pdc" aria-controls="pdc" data-tab="pdc">Protein-Detergent Complex Simulations</button>
 </nav>
 <p id="notice" role="status" class="notice" hidden></p>
 <section id="runs" role="tabpanel" aria-labelledby="tab-runs">
@@ -181,6 +183,25 @@
       <div id="composition-plot-joined" class="composition-plot composition-plot-joined" role="img" aria-label="Joined CG beads with the linkage highlighted"></div>
       <p id="composition-geometry-basis" class="hint"></p>
       <div id="composition-diagnostics" class="composition-diagnostics" aria-live="polite">Choose the fragments and preview the candidate.</div>
+    </section>
+  </div>
+</section>
+<section id="pdc" role="tabpanel" aria-labelledby="tab-pdc" hidden>
+  <div class="section-heading"><div><h2>Protein-Detergent Complex Simulations</h2><p>Place a membrane protein in a box, build a detergent belt around it, sample it, and assess whether a micelle formed.</p></div></div>
+  <div class="pdc-workspace">
+    <section class="card pdc-setup" aria-labelledby="pdc-setup-title">
+      <h3 id="pdc-setup-title">Build a complex</h3>
+      <p class="hint">The setup controls arrive with the pipeline behind them; nothing is launched from here yet.</p>
+      <p id="pdc-panel-status" class="hint" role="status"></p>
+    </section>
+    <section class="card pdc-view" aria-labelledby="pdc-view-title">
+      <h3 id="pdc-view-title">System view</h3>
+      <div id="pdc-viewer" class="pdc-viewer" role="img" aria-label="Coarse-grained system as set up"></div>
+      <p id="pdc-view-basis" class="hint">The built system appears here once setup produces one.</p>
+    </section>
+    <section class="card pdc-status" aria-labelledby="pdc-status-title">
+      <h3 id="pdc-status-title">Status</h3>
+      <div id="pdc-diagnostics" class="pdc-diagnostics" aria-live="polite">No build yet.</div>
     </section>
   </div>
 </section>

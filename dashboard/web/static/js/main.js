@@ -3,6 +3,7 @@ import { createRuns } from './runs.js';
 import { createNewRun } from './new-run.js';
 import { createMappings } from './mappings.js';
 import { createCompositions } from './compositions.js';
+import { createPdc } from './pdc.js';
 
 const runs = createRuns({
   onClone: source => newRun.cloneRun(source),
@@ -18,10 +19,11 @@ const compositions = createCompositions({
   openBondedModel: model => { selectTab('bonded'); return mappings.openBondedModel(model); },
   openCompositionRun: model => newRun.openComposition(model.id),
 });
+const pdc = createPdc();
 const mappings=createMappings();
 document.addEventListener('dashboard:tab', event=>{
   const id=event.detail.id;
-  const loading=id==='runs'?runs.mount():id==='new'?newRun.mount():id==='compositions'?compositions.mount():mappings.mount(id);
+  const loading=id==='runs'?runs.mount():id==='new'?newRun.mount():id==='compositions'?compositions.mount():id==='pdc'?pdc.mount():mappings.mount(id);
   Promise.resolve(loading).catch(error=>{
     const target=document.querySelector(id==='new'?'#launch-blocker':'#notice');
     target.textContent=error.message;target.hidden=false;
