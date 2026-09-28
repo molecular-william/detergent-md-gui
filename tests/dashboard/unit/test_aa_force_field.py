@@ -90,12 +90,12 @@ def test_the_mdp_restrains_every_bond_as_the_paper_does(prepare):
 def test_the_mdp_fits_inside_the_protocols_small_box(prepare):
     """A box of 2.5 nm leaves no room for GROMACS's automatic Verlet buffer, which is added to rlist.
 
-    Disabling the buffer is what makes the protocol's box usable at all, and it has a cost that is paid explicitly:
-    the neighbour list is rebuilt twice as often, because without a buffer a stale list is a missing interaction.
+    Disabling the buffer is what makes the protocol's box usable at all. `nstlist` stays at 20: GROMACS documents
+    it as a performance knob with no accuracy effect under the Verlet scheme, and prescribes at least 20 with GPUs.
     """
     text = (prepare() / 'stages/04_nvt/run.mdp').read_text()
     assert 'verlet-buffer-tolerance = -1' in text
-    assert 'nstlist = 10' in text
+    assert 'nstlist = 20' in text
     assert 'rlist = 1.2' in text
 
 

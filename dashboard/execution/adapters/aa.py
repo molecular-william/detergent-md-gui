@@ -274,10 +274,18 @@ def mdp(settings,kind,ff=None):
     # The protocol's box is small -- 2.5 nm, as close to the paper's stated 2.4 as its own 1.2 nm cut-off allows --
     # and GROMACS's automatic Verlet buffer does not fit inside it. The buffer is *added* to rlist, and the result
     # has to stay strictly inside half the box; with half a box of 1.25 nm and a cut-off of 1.2 nm there is no room
-    # for even a small one. The buffer is therefore disabled and rlist used exactly as written -- which is what a
-    # box this size requires of any GROMACS -- and the neighbour list is rebuilt twice as often to compensate for
-    # having no buffer at all.
-    common={'nstlist':10,'pbc':'xyz','constraint-algorithm':'lincs','verlet-buffer-tolerance':-1,
+    # for even a small one, so the buffer is disabled and rlist used exactly as written. GROMACS's own note about
+    # this configuration is worth keeping in view: the cluster pair list still buffers a little, rlist raises no
+    # accuracy problem, and the cost is that a larger rlist might be wanted for energy conservation -- which the
+    # box does not allow, so that caveat is accepted knowingly rather than overlooked.
+    #
+    # nstlist is left at 20 because GROMACS says it is a performance knob and not an accuracy one ("with the
+    # Verlet scheme, nstlist has no effect on the accuracy"), and that with GPUs the optimal value is at least 20.
+    # The manual's other recommendation for this configuration -- `mts = yes`, the PME mesh every second step,
+    # for GPUs with the integration on the CPU -- is accepted by grompp here and is being measured before it is
+    # offered as a setting: it is a numerical approximation, and the protocol this project reproduces did not use
+    # it, so it should come with numbers rather than with an assumption.
+    common={'nstlist':20,'pbc':'xyz','constraint-algorithm':'lincs','verlet-buffer-tolerance':-1,
             **ff.mdp,'constraints':ff.constraints}
 
     if kind in ('em','ions'):
