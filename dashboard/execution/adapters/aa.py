@@ -7,8 +7,8 @@ from pathlib import Path
 from ... import files
 from ...analysis.runs import references as aa_references
 from ...models.molecules import aa as aa_molecules
-from .. import protocol, tools
-from ..environment import FORCE_FIELD, environment, probe_tool, recorded_environment
+from .. import forcefields, protocol, tools
+from ..environment import environment, probe_tool, recorded_environment
 from ..stages import Stage, stage_tables
 
 # Modules copied into every run's common/ directory. The names are part of the
@@ -20,7 +20,9 @@ RUN_HELPERS = (('aa_references.py', aa_references),
                ('aa_molecules.py', aa_molecules),
                ('files.py', files))
 
-VERSION='charmm36-single-solute-v1'
+# The ruleset, not the force field: which force field a run used is recorded beside it, because two runs at one
+# ruleset with different force fields are exactly the comparison this version keeps straight.
+VERSION='aa-single-solute-v2'
 # One vocabulary of execution profiles, owned here because it decides AA durations.
 # 'draft-smoke-reference' is the exception: it keeps a full-length AA reference and
 # shortens only the CG half, for a run whose reference is meant to be reused.
@@ -157,13 +159,18 @@ STAGE_DEFS = (
 STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS = stage_tables(STAGE_DEFS)
 
 
-DEFAULTS=dict(aa_nvt_ps=100,aa_npt_ps=1000,aa_production_ps=10000,temperature_k=300,
+DEFAULTS=dict(aa_nvt_ps=100,aa_npt_ps=1000,aa_production_ps=10000,
+              temperature_k=forcefields.entry().temperature_k,
               pressure_bar=1,output_interval_ps=10,box_padding_nm=1.5,aa_seed=20260917,
-              mdrun_ntomp=8,mdrun_ranks=1,mdrun_nb='auto',mdrun_pme='auto')
+              mdrun_ntomp=8,mdrun_ranks=1,mdrun_nb='auto',mdrun_pme='auto',
+              force_field=forcefields.DEFAULT)
 # Choices are a separate shape rather than a third element of the numeric tuple, which unpacks as (label, lo,
 # hi). 'auto' means the execution profile decides, which is what every run did before these settings existed.
+# The force field is a choice as well, and its options are the registry's entries: a name the registry does not
+# offer cannot reach a run.
 CHOICE_SPECS={'mdrun_nb':('Nonbonded scheme',('auto','cpu','gpu')),
-              'mdrun_pme':('PME scheme',('auto','cpu','gpu'))}
+              'mdrun_pme':('PME scheme',('auto','cpu','gpu')),
+              'force_field':('Force field',forcefields.names())}
 # One shape across every run type: (label, lo, hi). The label is what a caller renders.
 SETTING_SPECS={'aa_nvt_ps':('AA NVT duration',1,1000000),'aa_npt_ps':('AA NPT duration',1,1000000),
                'aa_production_ps':('AA production duration',1,1000000),
@@ -186,13 +193,16 @@ def stage_defaults(profile='standard'):
     values = dict(DEFAULTS)
     values.update(DRAFT_DURATIONS.get(profile, {}))
     values.update(LONG_DURATIONS.get(profile, {}))
-    return {'values': values, 'sources': {'AA': VERSION + ' · CHARMM36 July 2022 / CHARMM TIP3P'}, 'profile': VERSION}
+    default = forcefields.entry(values['force_field'])
+    return {'values': values, 'sources': {'AA': f'{VERSION} · {default.name} / {default.water_molecule}'},
+            'profile': VERSION}
 
 
 def normalize_settings(settings=None, profile='standard'):
     if settings is not None and not isinstance(settings,dict):raise ValueError('AA settings must be an object')
+    supplied=settings or {}
     result=dict(stage_defaults(profile)['values'])
-    for key,value in (settings or {}).items():
+    for key,value in supplied.items():
         if key in CHOICE_SPECS:
             label,options=CHOICE_SPECS[key]
             if not isinstance(value,str) or value not in options:
@@ -209,6 +219,11 @@ def normalize_settings(settings=None, profile='standard'):
     if int(result['aa_seed'])!=result['aa_seed']:raise ValueError('AA seed must be an integer')
     result['aa_seed']=int(result['aa_seed'])
     if result['output_interval_ps']>result['aa_production_ps']:raise ValueError('Output interval exceeds AA production duration')
+    # The temperature a run starts from belongs to the force field: each parameterisation assumes one, and the
+    # reference protocol this project reproduces runs each force field at its own. A caller who names a
+    # temperature still wins, because they may be testing the assumption.
+    if 'temperature_k' not in supplied:
+        result['temperature_k']=forcefields.entry(result['force_field']).temperature_k
     return result
 
 
@@ -229,16 +244,28 @@ def readiness(molecule_root,molecule_id):
     ok,detail=probe_tool(executable) if executable else (False,'Executable not found')
     checks.append({'label':'GROMACS','path':executable or 'gmx','ready':ok,'detail':detail})
     if not ok:blockers.append('GROMACS: '+detail)
-    if not (FORCE_FIELD/'forcefield.itp').is_file():blockers.append('CHARMM36 force field is missing')
+    available=[forcefields.entry(name) for name in forcefields.names()]
+    missing=[ff.name for ff in available if not (ff.tree()/'forcefield.itp').is_file()]
+    checks.append({'label':'Force fields','path':str(available[0].tree().parent),'ready':not missing,
+                   'detail':('Available: '+', '.join(ff.name for ff in available)) if not missing
+                             else 'Missing a force-field tree: '+', '.join(missing)})
+    if missing:blockers.append('Force-field tree missing: '+', '.join(missing))
+
     declared_checks,declared_blockers=tools.declared_tool_checks()
     checks.extend(declared_checks);blockers.extend(declared_blockers)
     return {'ready':not blockers,'checks':checks,'blockers':blockers,'scientifically_validated':False}
 
 
-def mdp(settings,kind):
-    common={'cutoff-scheme':'Verlet','nstlist':20,'rlist':1.2,'coulombtype':'PME','rcoulomb':1.2,
-            'vdwtype':'Cut-off','vdw-modifier':'Force-switch','rvdw-switch':1.0,'rvdw':1.2,
-            'DispCorr':'no','pbc':'xyz','constraints':'h-bonds','constraint-algorithm':'lincs'}
+def mdp(settings,kind,ff=None):
+    """One stage's mdp, with the force field's settings read rather than restated.
+
+    The registry holds the block GROMACS prescribes for the force field, so a change follows the reference
+    instead of a duplicated literal, and the constraints choice is the entry's. What is not the force field's
+    business -- the neighbour-list update, the integrator, the durations, the coupling -- stays here.
+    """
+    ff=ff or forcefields.entry(settings.get('force_field'))
+    common={'nstlist':20,'pbc':'xyz','constraint-algorithm':'lincs',**ff.mdp,'constraints':ff.constraints}
+
     if kind in ('em','ions'):
         common.update(integrator='steep',nsteps=20000,emtol=1000,emstep=.01)
         if kind=='ions':common.update(coulombtype='Cut-off',nsteps=0)
@@ -281,17 +308,21 @@ def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
         else:
             shutil.copy2(original,molecule/'molecule.gro')
     preparation['prepared_gro_sha256']=files.sha256(molecule/'molecule.gro')
-    if any(p.is_symlink() for p in FORCE_FIELD.rglob('*')):raise ValueError('Force-field symlinks are unsupported')
-    shutil.copytree(FORCE_FIELD,common/FORCE_FIELD.name)
+    ff=forcefields.entry(settings['force_field']); tree=ff.tree()
+    if any(p.is_symlink() for p in tree.rglob('*')):raise ValueError('Force-field symlinks are unsupported')
+    shutil.copytree(tree,common/tree.name)
     for name,module in RUN_HELPERS:
         shutil.copy2(Path(module.__file__), common/name)
     context={'protocol_version':VERSION,'settings':settings,'molecule_snapshot':molecule_snapshot,
-             'input_preparation':preparation, 'force_field_sha256':files.hashes(common/FORCE_FIELD.name),'scientifically_validated':False}
+             'input_preparation':preparation,'force_field':ff.name,'force_field_directory':tree.name,
+             'force_field_sha256':files.hashes(common/tree.name),'scientifically_validated':False}
     files.atomic_json(common/'context.json',context)
     n=molecule_snapshot['atom_count'];charge=round(molecule_snapshot['metadata']['net_charge'])
     from ...analysis.runs.references import index_group
     (common/'solute.ndx').write_text(index_group('Solute',1,n+1))
-    top='#include "../common/charmm36-jul2022.ff/forcefield.itp"\n#include "../common/molecule/molecule.itp"\n#include "../common/charmm36-jul2022.ff/tip3p.itp"\n#include "../common/charmm36-jul2022.ff/ions.itp"\n\n[ system ]\nSingle solute in water\n[ molecules ]\n'+molecule_snapshot['metadata']['molecule_type']+' 1\n'
+    top=(f'#include "../common/{tree.name}/forcefield.itp"\n#include "../common/molecule/molecule.itp"\n'
+         f'#include "../common/{tree.name}/{ff.water_file}"\n#include "../common/{tree.name}/ions.itp"\n\n'
+         f'[ system ]\nSingle solute in water\n[ molecules ]\n{molecule_snapshot["metadata"]["molecule_type"]} 1\n')
     scripts=[f'''gmx editconf -f ../common/molecule/molecule.gro -d {settings['box_padding_nm']:g} -c -bt dodecahedron -o boxed.gro
 gmx grompp -f run.mdp -c boxed.gro -p system.top -o input-check.tpr
 gmx solvate -cp boxed.gro -cs spc216.gro -p system.top -o system.gro
@@ -301,7 +332,7 @@ gmx grompp -f run.mdp -c system.gro -p system.top -o ions.tpr
 ''']
     if charge:
         scripts[1]+=f'''python ../common/aa_references.py solvent-index system.gro {n}
-printf 'SOL\\n' | gmx genion -s ions.tpr -o neutral.gro -p system.top -n solvent.ndx -pname SOD -nname CLA -neutral -seed {settings['aa_seed']}
+printf '{ff.water_molecule}\\n' | gmx genion -s ions.tpr -o neutral.gro -p system.top -n solvent.ndx -pname {ff.cation} -nname {ff.anion} -neutral -seed {settings['aa_seed']}
 mv neutral.gro system.gro
 '''
     scripts[1]+='python ../common/aa_references.py counts system.top ../common/context.json\n'
@@ -325,7 +356,7 @@ python ../common/aa_references.py publish ..
 ''')
     for i,((_,relative),script) in enumerate(zip(STAGES,scripts)):
         target=stages/relative;target.parent.mkdir();target.write_text('#!/bin/bash\nset -euxo pipefail\n'+script)
-        if i<6:(target.parent/'run.mdp').write_text(mdp(settings,('ions','ions','em','nvt','npt','production')[i]))
+        if i<6:(target.parent/'run.mdp').write_text(mdp(settings,('ions','ions','em','nvt','npt','production')[i],ff))
     (stages/'01_solvation/system.top').write_text(top)
     shutil.copytree(stages,run_dir/'inputs')
     protocol.write_prepared_manifest(
