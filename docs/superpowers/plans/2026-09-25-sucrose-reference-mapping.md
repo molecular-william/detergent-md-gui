@@ -255,8 +255,37 @@ markers it had been dropping.
 **Deliberately not done:** stereochemistry perception; templates for ribose, deoxy, uronic, N-acetyl and
 inositol sugars (decision D1); renaming the internal bead-name convention (decision D3).
 
-**Deviation from D4 as written.** D4 said an unmappable ring should refuse the candidate. What was built
-names the component `RING`, keeps it out of any plausible-looking tail, and records the admission in the
-candidate's own limitations, so a user can still see what was recognized. The wording in the workflow note
-and the README was corrected to match the behaviour rather than the other way round, because a hard
-refusal would also hide the sugar that *was* recognized.
+**Deviation from D4 as written.** D4 said an unmappable ring should refuse the candidate. The user's answer
+was the better one and is what was built: a ring no template covers is still mapped, with the paper's own
+general rules, and the candidate carries a warning that its types may need manual correction. Refusal would
+have hidden the sugar that *was* recognized, and a warned candidate is more useful to a chemist than no
+candidate -- provided the warning is visible, which is why `warnings` exists as its own key and the mapping
+editor shows it.
+
+## Added after the four review answers (2026-09-28)
+
+**The paper's method, in its own words**, from the pinned PDF: the constraint length is "derived by mapping
+the center of geometry (COG) of the atomistic reference structure", and "a uniform scaling of 15% over the
+COG mapped distances" was chosen because unscaled COG mapping underestimates molecular volume by about 8%.
+The atomistic simulations behind the SASA comparison -- the evidence for the 15% -- used GLYCAM06h,
+CHARMM36 and GROMOS. So the derivation here matches the method, and the residual ~15% disagreement belongs
+to the reference *structure*, not to a force-field choice: this repository's sucrose declares
+`charmm36-jul2022.ff`, one of the three the paper names. Copying the published numbers would import their
+reference structure as if it were a property of sucrose.
+
+**Rings no template covers are mapped, not refused** (`generic_ring_beads`), following the paper's stated
+conventions: A includes the anomeric carbon, the ether oxygen sits in the last ring bead, fragments are
+about four heavy atoms, every ring gets a massless TC4 site, and unmatched fragments are typed by size and
+polarity with a warning the interface shows.
+
+**One more unit defect, found by looking after the user suspected it:** the bead-crowding figure converted
+radii to angstroms while comparing nanometre distances, so every pair of beads counted as overlapping
+(0.947 crowding for sucrose, 15 of 15 pairs). Fixed, with the invariance test as the lock.
+
+**Records deleted:** the preserved sucrose diagnostic records the workflow note cited do not exist in this
+checkout; the note now says so and warns against reusing any copy, because a CG topology generated before
+the unit fix is a factor of ten out.
+
+**Tool lesson, repeated twice in this project and worth remembering:** inserting a test *before* an existing
+one must never anchor on the existing `def` line alone. Two such patches consumed the following test's
+definition and orphaned its body; anchor on the whole definition, or rewrite the file.

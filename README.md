@@ -64,10 +64,12 @@ and where the evidence for each one lives:
   conformance check states whether a generated candidate reproduces the `SUCR` entry's mapping. Ring
   constraint lengths are still derived here by the paper's method rather than copied, and are reported
   as deltas against the published values; stereochemistry is not perceived from the graph. See
-  `docs/superpowers/plans/2026-09-25-sucrose-reference-mapping.md`. The reference contains residues this
-  recognizer cannot map (ribose, deoxy, uronic, N-acetyl, inositol): a component containing such a ring is
-  named `RING` and recorded in the candidate's limitations rather than being chunked into plausible-looking
-  beads, and each class would need its own verified template.
+  `docs/superpowers/plans/2026-09-25-sucrose-reference-mapping.md`. Residues this recognizer cannot map
+  (ribose, deoxy, uronic, N-acetyl, inositol) still produce a candidate: a ring neither template claims is
+  mapped with the paper's general fragment rules -- beads A, B, C from the anomeric carbon, the ether
+  oxygen in the last ring bead, a massless TC4 site per ring -- and the candidate carries a warning, shown
+  in the mapping editor, that its types may need manual correction. None of those classes has a verified
+  template in the reference.
 - **Browser tier timing.** The one reproducible flake is fixed -- a 5 s expectation used as a load
   wait -- and the reason is recorded in tests/dashboard/browser/conftest.py. The tally: before, three
   failures in about seventeen tier runs; after, twenty-one consecutive clean runs (one from the loop

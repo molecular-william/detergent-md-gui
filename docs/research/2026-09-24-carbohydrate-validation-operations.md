@@ -79,7 +79,21 @@ Coordinate units are decided in one place (`dashboard/models/sugars/units.py`):
 a structure built from the molecule context holds nanometres and the packaged
 SwissParam reference holds angstroms. The sugar topology writer and the mapping
 export previously divided by ten unconditionally, which made every generated
-constraint length and exported coordinate a factor of ten too small.
+constraint length and exported coordinate a factor of ten too small. The same
+mistake made the bead-crowding figure meaningless in the other direction: the
+radii were converted to angstroms while the distances stayed nanometres, so
+every pair of beads counted as overlapping.
+
+A carbohydrate whose ring no template covers -- ribose, a deoxy sugar, a uronic
+acid, an N-acetyl sugar, inositol -- still produces a candidate. The ring is
+mapped with the general rules the paper states for its own residues: beads named
+A, B, C from the anomeric carbon, the ether oxygen in the last ring bead, about
+four heavy atoms per bead, and a massless TC4 site per ring. Its types come from
+the same chemistry rules the templates use, and where a fragment matches none of
+them the candidate says so: the mapping editor shows a warning that the types
+may need manual correction, and the candidate's `warnings` list carries the same
+text. Those classes are unvalidated by construction, which is why the candidate
+is still produced rather than refused.
 
 For a reproducible short AA-to-CG diagnostic, select the saved sucrose mapping
 in **New Run**, choose `draft-smoke`, and start an AA-CG run. The coordinator
@@ -97,6 +111,14 @@ sampling, 19-window transfer calculations, and 500 ns osmotic-pressure series
 remain required before an evidence run can be complete.
 
 ## Completed Sucrose hand-off
+
+**Status 2026-09-28: none of these records is present in this checkout.** An inventory taken for this
+note found `runs/` holding only `.gitkeep`, the `jobs` table in `workspace/dashboard/jobs.sqlite3` with no
+rows, and none of the four IDs below anywhere on disk. The IDs are kept as a record of what was run; the
+data they name is gone. If a copy exists elsewhere, do not treat it as evidence: a CG topology generated
+for a ringed mapping before the coordinate-unit fix described above has bead distances a factor of ten too
+small, so a run of that vintage is misleading rather than historical. Regenerate the mapping and the run
+from current code instead.
 
 The first reproducible diagnostic run used the following preserved records:
 
