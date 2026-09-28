@@ -23,7 +23,7 @@ def validate_run_type(data):
     if not hasattr(data, 'get'):
         raise ValueError('Expected an object')
     kind = data.get('run_type')
-    if kind not in (None, 'aa_only', 'aa_cg', 'cg_composition'):
+    if kind not in (None, 'aa_only', 'aa_cg', 'cg_composition', 'pdc'):
         raise ValueError('Unknown run type')
     if kind == 'cg_composition':
         if not data.get('composition_id'):

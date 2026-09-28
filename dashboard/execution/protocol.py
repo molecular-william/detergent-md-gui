@@ -41,7 +41,7 @@ from typing import Callable
 
 from .. import files
 
-RUN_TYPES = ('aa_only', 'aa_cg', 'cg_composition')
+RUN_TYPES = ('aa_only', 'aa_cg', 'cg_composition', 'pdc')
 
 
 def write_prepared_manifest(run_dir, metadata, *, tools, plan, environment=None):
