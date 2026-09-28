@@ -258,8 +258,23 @@ def inspect(root, molecule_id, *, generate_metadata=True):
         result['cg_residue_name'] = cg_residue_name(result)
     aa_blockers=list(result['issues'])
     if result['valid']:
-        if metadata['force_field']!='charmm36-jul2022.ff' or metadata['water_model']!='tip3p':
-            aa_blockers.append('AA-only supports CHARMM36 July 2022 with CHARMM TIP3P only')
+        # Which force fields a molecule may be run with is the registry's answer rather than a literal, and the
+        # metadata names the tree the molecule's own topology was parameterised against. A run then selects one
+        # of the entries; whether the pairing is sound is the entry's business (the CGenFF version rule), not
+        # something this gate can judge from a directory name.
+        from ...execution import forcefields
+        trees={forcefields.entry(name).directory for name in forcefields.names()}
+        waters={forcefields.entry(name).water_file for name in forcefields.names()}
+        if metadata['force_field'] not in trees:
+            aa_blockers.append('AA-only supports these force-field trees: '+', '.join(sorted(trees)))
+        # The metadata names a water model rather than a file ('tip3p'), so it is compared with the file names
+        # the entries use by adding the extension once, not by assuming which of the two forms it holds.
+        water=str(metadata['water_model'])
+        if not water.endswith('.itp'):
+            water+='.itp'
+        if water not in waters:
+            aa_blockers.append('AA-only supports these water models: '
+                               +', '.join(sorted(name[:-4] for name in waters)))
         if abs(metadata['net_charge']-round(metadata['net_charge']))>1e-4:
             aa_blockers.append('Net charge must be integral for monovalent counterion neutralization')
         if not re.fullmatch(r'[A-Za-z0-9_+-]{1,80}',metadata['molecule_type']):
