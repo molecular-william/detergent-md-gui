@@ -44,3 +44,28 @@ def test_the_setup_lists_what_can_be_built_and_what_it_is_worth(dashboard, live_
     # An empty micelle is in scope, so the protein list offers the absence of a protein.
     expect(page.locator('#pdc-protein option').first).to_contain_text('No protein')
     assert errors == []
+
+
+def test_the_viewer_says_when_there_is_no_system_and_renders_one_when_there_is(dashboard, live_page):
+    """Both halves of the viewer's contract, against the real route and then against a stubbed built system.
+
+    The failure half is the real thing: asking for a run that has no built system must explain that rather than draw
+    an empty box. The success half is stubbed, because a built system needs a stage that Phase B's wiring task has not
+    run yet -- the point here is that the viewer renders what the route returns.
+    """
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#pdc')
+
+    # A run with no built system: an honest line rather than a blank canvas.
+    page.evaluate("window.pdcSetRun('000000000000')")
+    expect(page.locator('#pdc-view-basis')).to_contain_text('No built system to show yet')
+
+    # And a system, stubbed at the route, rendering into the stage.
+    stub = ('HETATM    1  BB  PRO A   1      10.000  20.000  30.000  1.00  0.00           C\n'
+            'HETATM    2  C1  DET A   1      40.000  50.000  60.000  1.00  0.00           C\n'
+            'END\n')
+    page.route('**/api/pdc/*/system.pdb', lambda route: route.fulfill(status=200, content_type='text/plain', body=stub))
+    page.evaluate("window.pdcSetRun('abcdef123456')")
+    page.wait_for_function("() => document.querySelector('#pdc-viewer').pdcStage?.compList.length > 0", timeout=30000)
+    expect(page.locator('#pdc-view-basis')).to_contain_text('Showing 2 beads')
+    assert errors == []

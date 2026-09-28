@@ -38,4 +38,5 @@ Object.assign(window, {
   refreshConsole: runs.refreshConsole,
   setCloneSource: newRun.setCloneSource,
   selectTab,
+  pdcSetRun: pdc.setRun,
 });

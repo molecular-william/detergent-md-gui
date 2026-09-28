@@ -3,7 +3,8 @@ import { $, cachedApi } from './shared.js';
 export function createPdc() {
   const template = $('#pdc-template'), protein = $('#pdc-protein');
   const status = $('#pdc-panel-status'), limitation = $('#pdc-template-limitation');
-  let catalog = null;
+  const viewer = $('#pdc-viewer'), viewerBasis = $('#pdc-view-basis');
+  let catalog = null, currentRun = null;
 
   function fill(select, values, label) {
     select.replaceChildren(...values.map(item => new Option(label(item), item.id)));
@@ -29,5 +30,36 @@ export function createPdc() {
   }
 
   template?.addEventListener('change', describe);
-  return { mount: async () => { await load(); return $('#pdc'); } };
+  template?.addEventListener('change', loadSystem);
+  protein?.addEventListener('change', loadSystem);
+
+  function stage() {
+    // Created on first use: NGL sizes itself to its host element, and the host is sized for it in pdc.css.
+    if (!viewer) return null;
+    if (!viewer.pdcStage) viewer.pdcStage = new NGL.Stage(viewer, {backgroundColor: 'white'});
+    return viewer.pdcStage;
+  }
+
+  async function loadSystem() {
+    // The viewer shows the system a stage actually wrote. Until one exists the route says so, and the panel repeats
+    // it rather than drawing an empty box.
+    if (!viewer) return;
+    const run = currentRun?.id;
+    if (!run) { if (viewerBasis) viewerBasis.textContent = 'The built system appears here once a build has run.'; return; }
+    const response = await fetch(`/api/pdc/${run}/system.pdb`);
+    if (!response.ok) { if (viewerBasis) viewerBasis.textContent = 'No built system to show yet.'; return; }
+    const stageRef = stage();
+    stageRef.removeAllComponents();
+    const component = stageRef.loadFile(new Blob([await response.text()], {type: 'text/plain'}), {ext: 'pdb'});
+    component.then(item => {
+      item.addRepresentation('ball+stick', {radiusScale: 0.75, aspectRatio: 2});
+      item.autoView();
+      if (viewerBasis) viewerBasis.textContent = `Showing ${item.structure.atomCount} beads from the built system; water and ions are omitted.`;
+    });
+  }
+
+  return { mount: async () => { await load(); return $('#pdc'); }, loadSystem,
+           // The build flow will call this when a stage has produced a system; a test calls it to exercise the
+           // viewer without waiting for a run.
+           setRun: (id) => { currentRun = id ? {id} : null; return loadSystem(); } };
 }
