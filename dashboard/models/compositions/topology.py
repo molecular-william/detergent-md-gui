@@ -324,6 +324,42 @@ def preview_geometry(result: dict) -> dict:
     }
 
 
+def render_pdb(result: dict) -> str:
+    """The composite as a PDB, for a molecular viewer (NGL, 3Dmol, Mol*).
+
+    One HETATM per bead, at the positions `preview_geometry` gives, so the file shows the joined preview
+    arrangement the panel draws: a layout convention, not a minimised structure. Coordinates are written in
+    Angstrom because the format is, while the CG positions are nanometres.
+
+    The element is a *radius stand-in* chosen from the bead's size class (R/S/T -> C/N/O) so that a viewer's
+    per-element sphere radii come out in the right proportion. It says nothing about chemistry, and virtual
+    sites are left out: a massless site is not an atom, and it would render as one.
+    """
+    geometry = preview_geometry(result)
+    head_names = {bead["name"] for bead in geometry["head"]["beads"]}
+    elements = {"R": "C", "S": "N", "T": "O"}
+    serials: dict[str, int] = {}
+    lines = []
+    for serial, bead in enumerate(geometry["joined"]["beads"], start=1):
+        name = str(bead["name"])[:4]
+        serials[name] = serial
+        position = [round(float(value) * 10.0, 3) for value in bead["position"]]
+        element = elements.get(str(bead.get("size") or ""), "C")
+        residue = "SUG" if name in head_names else "TAI"
+        lines.append(f"HETATM{serial:5d} {name:<4s}{residue:>3s} A{1:4d}    "
+                     f"{position[0]:8.3f}{position[1]:8.3f}{position[2]:8.3f}"
+                     f"{1.0:6.2f}{0.0:6.2f}          {element:>2s}")
+    pairs = [list(edge) for edge in geometry["joined"]["edges"]]
+    link = geometry["joined"]["link"]
+    if link:
+        pairs.append(list(link))
+    for first, second in dict.fromkeys((pair[0], pair[1]) for pair in pairs):
+        if first in serials and second in serials:
+            lines.append(f"CONECT{serials[first]:5d}{serials[second]:5d}")
+    lines.append("END")
+    return "\n".join(lines) + "\n"
+
+
 def render_gro(result: dict) -> str:
     atoms = result["topology"]["atoms"]
     tail_coordinates = result["tail"]["coordinates"]
