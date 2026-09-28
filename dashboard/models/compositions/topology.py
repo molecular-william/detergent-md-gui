@@ -99,9 +99,12 @@ def load_sugar_catalog(source: Path) -> dict[str, dict]:
             section = name
             if section == "atoms":
                 for parts in _tokens(rows, 8):
+                    # parts[2] is the residue number and parts[3] its name. A two-residue sugar names its beads
+                    # A/B/C/VS inside each residue and lets the number tell the copies apart, so the number is
+                    # kept: it is the only thing distinguishing the second ring's A from the first's.
                     current["atoms"].append({"index": int(parts[0]), "type": parts[1],
-                        "residue": parts[3], "name": parts[4], "charge": float(parts[6]),
-                        "mass": float(parts[7])})
+                        "residue": parts[3], "residue_number": int(parts[2]), "name": parts[4],
+                        "charge": float(parts[6]), "mass": float(parts[7]), "virtual": False})
             elif section in ("bonds", "constraints"):
                 target = current[section]
                 for parts in _tokens(rows, 4):
@@ -123,6 +126,24 @@ def load_sugar_catalog(source: Path) -> dict[str, dict]:
     for residue, item in catalog.items():
         if not item["atoms"]:
             raise ValueError(f"Sugar residue {residue} has no atoms")
+        # A two-residue sugar -- sucrose, lactose, trehalose -- repeats the bead names A/B/C/VS inside each of its
+        # residues, exactly as the reference does, and relies on the residue number to tell the copies apart.
+        # Everything downstream of this loader keys beads by name: the catalogue's bead and endpoint lists, the
+        # panel's endpoint selections, the PDB writer's serial map and the viewer's index lookup. With a name
+        # repeated, every one of them silently addresses the first residue's atoms -- sucrose drew as one ring
+        # with the other ring's bonds pointing into it -- so the name is where the identity has to be unique.
+        # Where a name occurs more than once, each occurrence carries its residue number; the single-residue
+        # sugars keep the reference's own names.
+        if len({atom["name"] for atom in item["atoms"]}) != len(item["atoms"]):
+            for atom in item["atoms"]:
+                atom["name"] = f'{atom["name"]}{atom["residue_number"]}'
+        # Which beads are virtual sites is a property of the file, not of their names: the sites a moleculetype
+        # declares in its virtual_sitesn section are the ones that are not physical beads. Readers that recognised
+        # them by the name 'VS' stopped recognising them the moment a repeated name had to be disambiguated, and
+        # the failure was silent in both directions -- a virtual site offered as a linkage endpoint, and a virtual
+        # site with no coordinates drawn as if it were a bead.
+        for site in item["virtual_sites"]:
+            item["atoms"][site["site"] - 1]["virtual"] = True
         item["source_sha256"] = _sha256(source)
         item["source_path"] = str(source)
         item["bead_names"] = [atom["name"] for atom in item["atoms"]]
@@ -193,12 +214,11 @@ def build_preview(payload: dict, project_root: Path) -> dict:
     profile = _profile(str(payload.get("linkage_profile_id", "")))
     head_endpoint = (payload.get("head_endpoint") or {}).get("bead")
     tail_endpoint = (payload.get("tail_endpoint") or {}).get("bead") or tail["beads"][0]["name"]
-    head_names = set(sugar["bead_names"])
-    if head_endpoint not in head_names or head_endpoint == "VS":
+    head_atom = next((atom for atom in sugar["atoms"] if atom["name"] == head_endpoint), None)
+    if head_atom is None or head_atom["virtual"]:
         raise ValueError("Head endpoint must be a physical sugar bead")
     if tail_endpoint not in {item["name"] for item in tail["beads"]}:
         raise ValueError("Tail endpoint must be a generated tail bead")
-    head_atom = next(atom for atom in sugar["atoms"] if atom["name"] == head_endpoint)
     if head_atom["type"] not in profile["head_types"]:
         raise ValueError(f"Linkage profile does not support head bead {head_endpoint}")
     tail_atom = next(item for item in tail["beads"] if item["name"] == tail_endpoint)
@@ -217,7 +237,7 @@ def build_preview(payload: dict, project_root: Path) -> dict:
                       "parents": [sugar["atoms"][index - 1]["name"] for index in item["parents"]]}
                      for item in sugar["virtual_sites"]]
     mapping_beads = [{"name": atom["name"], "type": atom["type"], "atoms": [atom["index"]],
-                      "size": "R" if atom["mass"] >= 50 else "S", "virtual_site": atom["name"] == "VS"}
+                      "size": "R" if atom["mass"] >= 50 else "S", "virtual_site": bool(atom.get("virtual"))}
                      for atom in atoms]
     mapping = {"schema_version": 3, "name": payload.get("display_name") or f"{residue} C{payload.get('carbon_count')}",
                "residue_name": payload.get("residue_name") or residue, "beads": mapping_beads,

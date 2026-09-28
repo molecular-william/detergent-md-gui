@@ -48,7 +48,7 @@ def catalog(project_root=None):
     return {
         'sugars': [{'id': key, 'name': key, 'source_sha256': value['source_sha256'],
                     'beads': value['bead_names'],
-                    'endpoints': [atom['name'] for atom in value['atoms'] if atom['name'] != 'VS']}
+                    'endpoints': [atom['name'] for atom in value['atoms'] if not atom['virtual']]}
                    for key, value in sugars.items()],
         'tail_recipes': composition_topology.tail_recipe_catalog(),
         'linkage_profiles': composition_topology.linkage_profile_catalog(),
