@@ -80,15 +80,20 @@ def validate(data, structure=None, *, context=None, allow_partial=False):
         issue('mismatch', f'Nominal representation is {represented} atoms for {len(heavy)} heavy atoms (difference {mismatch:+}); exceeds ±1 per 10 atoms.')
     centers = []
     atom_lookup = {a['id']:a for a in structure['atoms']}
+    # Both sides of the comparison are nanometres: the distances come from the structure, whose units the
+    # one rule in sugars/units.py decides, and RADII_NM is already nanometres. Scaling the radii by ten
+    # rather than scaling the distances made every pair of beads "overlap" for any molecule chosen in the
+    # dashboard -- sucrose measured 15 of 15 pairs and a crowding of 0.947.
+    factor = carbohydrates.angstrom_factor(structure)
     for bead in data['beads']:
         pts = [atom_lookup[a]['xyz'] for a in bead['atoms'] if a in atom_lookup]
         if pts:
             centers.append(([sum(p[d] for p in pts)/len(pts) for d in range(3)], bead['size']))
-    radii = {size:radius*10 for size,radius in carbohydrates.RADII_NM.items()}
+    radii = {size: radius for size, radius in carbohydrates.RADII_NM.items()}
     overlap = 0.0; pairs = 0
     for i, (a, sa) in enumerate(centers):
         for b, sb in centers[i+1:]:
-            dist = sum((a[d]-b[d])**2 for d in (0,1))**0.5
+            dist = sum((a[d]-b[d])**2 for d in range(3))**0.5 * factor
             threshold = radii[sa] + radii[sb]
             if dist < threshold:
                 overlap += (threshold-dist)/threshold; pairs += 1
