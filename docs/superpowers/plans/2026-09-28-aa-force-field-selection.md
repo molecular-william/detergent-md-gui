@@ -80,31 +80,36 @@ F3 the adapter reads the registry (behaviour-equivalence test: identical topolog
 for the current force field).
 F4 the fixed-cube box option with the fits check.
 F5 per-force-field water and ions end-to-end through the solvation and neutralization stages.
-F6 the newer CHARMM36 (feb2026) as a second declared entry, named distinctly so an older parameterisation can
-never silently pair with it.
+F6 the feb2026 entry becomes the default, with `charmm36-jul2022` kept as a second entry; a test pins which one
+`DEFAULT` resolves to and that both entries render valid topologies.
 F7 the UI: a force-field combobox in **Single Molecule Simulations**, populated from the registry, showing the
 temperature and water each entry implies; the choice is recorded in the run's settings.
-F8 GROMOS54a7 end-to-end for sucrose — **blocked on D3**.
+F8 GROMOS54a7 end-to-end for sucrose — **dropped** (D3): no solute route without ATB, and a wrong pair would
+be worse than an absent option.
 F9 GLYCAM06 — **blocked on D1**.
 F10 the per-force-field comparison: re-run the AA reference for each available entry and report the ring
 constraint table per force field, reusing `dashboard/analysis/sugar_ensemble.py`. This is the scientific
 payoff and the acceptance evidence for the whole phase.
 F11 documentation, written last.
 
-## Decisions needed
+## Decisions taken (2026-09-28)
 
-D1 **GLYCAM06 route**: (a) install AmberTools and `acpype` (~1-2 GB) to run the paper's exact chain;
-(b) you fetch GROMACS-format GLYCAM06 files from Glycam-Web under your own account and we skip the conversion;
-(c) defer GLYCAM06 and ship the other two first.
-D2 **CHARMM36 version**: keep `jul2022` as the default (its CGenFF version is what our SwissParam solutes were
-made against) and add feb2026 as a second entry, or switch the default to feb2026 and re-parameterise the
-solutes. The MacKerell page warns the CGenFF file version must match the tool version that made the solute.
-D3 **GROMOS54a7 solute topology**: the ATB route the paper used (web service, needs your account), the local
-MATCH output (mixed provenance, draft only), or hand-porting GROMOS hexopyranose parameters.
-D4 **Box**: adopt the paper's 2.4 nm cube for replication runs specifically, or make it the default for all
-single-solute runs.
-D5 **Order**: GROMOS54a7 first (the force field whose numbers the published sucrose entry came from), or
-CHARMM36m first (closest to the parameters we already have).
+D1 **GLYCAM06 — install AmberTools.** AmberTools and `acpype` go in as a dedicated conda environment so they
+cannot disturb the interpreters already on this host, and the paper's chain is run as published. The one step
+no tool of ours can do is the Glycam-Web half: that topology comes from the site under the user's own account.
+D2 **CHARMM36 — feb2026, as the default.** The **CGenFF 4.6** variant is vendored, not the 5.0 one, because
+the MacKerell Lab warns the CGenFF file version must match the version that generated a solute's topology, and
+our solutes are CGenFF-4.x era. `charmm36-jul2022` stays as a second entry so the existing run stays
+interpretable.
+D3 **GROMOS54a7 — skipped.** SwissParam cannot serve it: its output is CHARMM/CGenFF-typed, so the atom types
+are absent from `gromos54a7.ff/atomtypes.atp`, and pairing them would mix two force fields whose charges and LJ
+parameters were never calibrated together — a simulation that runs and means nothing. The ATB route the paper
+used is a web service behind an account. Deferred rather than approximated.
+D4 **Box — the 2.4 nm cube becomes the default**, with a fits check that refuses rather than truncating.
+D5 **Order — CHARMM36m first**, then GLYCAM06.
+D6 **Constraints — all bonds with LINCS**, as the paper states, rather than the GROMACS manual's
+`constraints = h-bonds` for CHARMM36. A deliberate deviation from the manual's block, recorded per entry, and
+the protocol version moves with it.
 
 ## Verification
 
