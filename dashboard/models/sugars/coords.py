@@ -2,7 +2,87 @@
 import itertools
 
 from .identification import identify
-from .recognition import graph, identify_furanoses, identify_hexoses
+from .recognition import graph, identify_furanoses, identify_hexoses, identify_rings
+
+RING_LETTERS = 'ABCDEFGH'
+
+
+def ring_carbon_order(adjacency, atoms, ring):
+    """The ring's carbons in walk order, starting from the anomeric carbon.
+
+    The paper's naming puts the anomeric carbon in the A-bead and the ether oxygen in the C-bead, so the
+    walk has to start at the anomeric carbon. That is the ring carbon bonded to the ring oxygen which also
+    carries an exocyclic oxygen; a ring without one (a carbocycle, or substitution that hides it) falls back
+    to the carbon bonded to the ring oxygen and then to the lowest-numbered carbon, so the order is always
+    defined rather than guessed at silently.
+    """
+    carbons = [atom for atom in ring['atoms'] if atoms[atom]['element'] == 'C']
+    oxygen = ring['oxygen']
+    anomeric = None
+    if oxygen is not None:
+        neighbours = sorted(adjacency[oxygen] & ring['atoms'])
+        with_oxygen = [atom for atom in neighbours
+                       if any(atoms[other]['element'] == 'O'
+                              for other in adjacency[atom] - ring['atoms'])]
+        anomeric = with_oxygen[0] if len(with_oxygen) == 1 else (neighbours[0] if neighbours else None)
+    order = [anomeric if anomeric is not None else min(carbons)]
+    previous = oxygen
+    while len(order) < len(carbons):
+        following = sorted((adjacency[order[-1]] & ring['atoms']) - {previous, oxygen})
+        if not following: break
+        previous, current = order[-1], following[0]
+        if current in order: break
+        order.append(current)
+    return order + sorted(set(carbons) - set(order))
+
+
+def generic_ring_beads(atoms, adjacency, ring, residue_number):
+    """Beads for a ring the templates do not cover, following the paper's general rules.
+
+    The paper names ring beads A, B and C with the anomeric carbon in A and the ether oxygen in C, maps
+    about four heavy atoms per bead, and gives every ring a massless TC4 site. This walks the ring from its
+    anomeric carbon, takes the carbons two at a time, gives each ring carbon's exocyclic atoms to its own
+    bead, and puts the ring oxygen in the bead holding its non-anomeric neighbour -- the rule the templates
+    already use. Types come from the same chemistry rules the templates use; a fragment those rules do not
+    describe is typed by size and polarity instead, and the caller carries a warning, because the reference
+    has no verified type for it. Returns the beads and that warning.
+    """
+    order = ring_carbon_order(adjacency, atoms, ring)
+    groups = [set(pair) for pair in (order[index:index + 2] for index in range(0, len(order), 2))]
+    if ring['oxygen'] is not None:
+        neighbours = adjacency[ring['oxygen']] & ring['atoms']
+        anchor = next((atom for atom in order[1:] if atom in neighbours), None)
+        anchor = anchor if anchor is not None else next((atom for atom in order if atom in neighbours), None)
+        next((group for group in groups if anchor in group), groups[-1]).add(ring['oxygen'])
+    for group in groups:
+        for carbon in list(group):
+            group.update(other for other in adjacency[carbon] - ring['atoms']
+                         if atoms[other]['element'] in ('C', 'O'))
+        # An exocyclic carbon keeps its own oxygens, the way the templates keep a CH2OH's O with its carbon.
+        for carbon in [item for item in list(group)
+                       if atoms[item]['element'] == 'C' and item not in ring['atoms']]:
+            group.update(other for other in adjacency[carbon] if atoms[other]['element'] == 'O')
+    beads = []
+    for letter, group in zip(RING_LETTERS, groups):
+        size = 'R' if len(group) >= 5 else 'T' if len(group) <= 2 else 'S'
+        hydroxyls = [item for item in group if atoms[item]['element'] == 'O' and len(adjacency[item]) == 1]
+        oxygens = [item for item in group if atoms[item]['element'] == 'O']
+        if len(group) == 4 and len(hydroxyls) == 2: kind = 'SP4r'
+        elif len(group) == 4 and len(oxygens) == 2: kind = 'SP1r'
+        elif len(group) == 3 and len(oxygens) == 1: kind = 'SN6'
+        else:
+            apolar = all(atoms[item]['element'] == 'C' for item in group)
+            kind = ('' if size == 'R' else size) + ('C1' if apolar else 'P1')
+        beads.append({'name': f'R{residue_number}{letter}', 'letter': letter, 'size': size, 'type': kind,
+                      'atoms': sorted(group), 'residue': residue_number,
+                      'fragment': f'unvalidated-ring-{letter}'})
+    beads.append({'name': f'R{residue_number}VS', 'letter': 'VS', 'size': 'T', 'type': 'TC4', 'atoms': [],
+                  'residue': residue_number,
+                  'virtual_site': {'parents': [bead['name'] for bead in beads], 'function': 1}})
+    warning = (f'a {ring["ring_size"]}-membered ring of {len(ring["atoms"])} heavy atoms is not covered by the '
+               f'templates; it is mapped with the general fragment rules as residue {residue_number} and the '
+               f'types may need manual correction')
+    return beads, warning
 
 
 def _ordered_rings(structure, found):
@@ -91,7 +171,8 @@ def candidate(structure, name):
     atoms, adj = graph(structure)
     found = identify(structure)
     sugars = _ordered_rings(structure, found)
-    if not sugars: return None
+    unclaimed = [ring for ring in identify_rings(structure) if not ring['claimed']]
+    if not sugars and not unclaimed: return None
     # Each exocyclic O belongs to the higher chemical carbon index; e.g. C4
     # rather than donor C1. A sugar-alkyl ether remains in the sugar A fragment.
     position = {c: (ri, k+1) for ri, r in enumerate(sugars) for k, c in enumerate(r['carbons'])}
@@ -125,6 +206,19 @@ def candidate(structure, name):
                       'virtual_site':{'parents':names,'function':1},'residue':ri,'letter':'VS'})
         ring_records.append({'beads':names,'virtual_site':vs,'carbons':r['carbons'],
                              'ring_oxygen':r['oxygen'],'scale':1.15})
+    # Rings the templates do not cover are still mapped, by the paper's general rules, and the candidate
+    # carries a warning rather than leaving those atoms to the remainder chunker.
+    warnings = []
+    residue_number = len(sugars)
+    for ring in unclaimed:
+        residue_number += 1
+        ring_beads, warning = generic_ring_beads(atoms, adj, ring, residue_number)
+        beads.extend(ring_beads)
+        assigned |= {atom for bead in ring_beads for atom in bead['atoms']}
+        ring_records.append({'beads': [bead['name'] for bead in ring_beads if not bead.get('virtual_site')],
+                             'virtual_site': ring_beads[-1]['name'], 'carbons': ring['carbons'],
+                             'ring_oxygen': ring['oxygen'], 'scale': 1.15})
+        warnings.append(warning)
     # Remaining components are handled only after sugar/linker ownership is fixed.
     remaining_beads, remainder_notes = remainder_beads(atoms, adj, assigned)
     beads.extend(remaining_beads)
@@ -140,9 +234,12 @@ def candidate(structure, name):
             'reference':reference_record,
             'algorithm':'Recognized pyranose and furanose rings, numbered in the reference residue order when the connectivity identifies a reference entry; canonical fragment pairs; diols first; higher-carbon bridge ownership; sugar first, then remaining graph.',
             'provenance':{'paper_doi':'10.1021/acs.jctc.2c00757','sugar_topology':'references/martini_v3.0.0_sugars_v2.itp'},
-            'limitations':['Templates cover hexopyranoses and hydroxymethyl furanoses; a component holding a ring they do not cover is named RING and recorded here rather than chunked into plausible beads',
+            'limitations':['Templates cover hexopyranoses and hydroxymethyl furanoses; a ring neither claims is mapped with the paper general fragment rules and flagged in these limitations',
                             'Glycosidic stereochemistry and sugar–alkyl linkage require AA bonded fitting',
-                            'SP1r sugar–alkyl ether assignment is a transferability hypothesis; validate partitioning'] + remainder_notes}
+                            'SP1r sugar–alkyl ether assignment is a transferability hypothesis; validate partitioning'] + remainder_notes + warnings,
+            # The per-candidate warnings alone, for the interface to show: a ring no template covers is
+            # mapped, but the user has to be told that its types may need correcting.
+            'warnings': remainder_notes + warnings}
 
 
 def coordinates(data, positions, atom_ids=None, scaled=False, representation_mode=None):

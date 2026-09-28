@@ -5,12 +5,12 @@ Re-exports the recognition (sugar_recognition), mapping/coordinate
 using `carbohydrates.X` continue to resolve without changes.
 """
 from .coords import candidate, coordinates, physical_edges, ring_pairs
-from .recognition import PAPER, RADII_NM, graph, identify_furanoses, identify_hexoses
+from .recognition import PAPER, RADII_NM, graph, identify_furanoses, identify_hexoses, identify_rings
 from .topology import topology
 from .units import angstrom_factor
 
 __all__ = [
-    'PAPER', 'RADII_NM', 'graph', 'identify_furanoses', 'identify_hexoses',
+    'PAPER', 'RADII_NM', 'graph', 'identify_furanoses', 'identify_hexoses', 'identify_rings',
     'candidate', 'coordinates', 'ring_pairs', 'physical_edges',
     'topology', 'angstrom_factor',
 ]

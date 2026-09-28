@@ -52,6 +52,15 @@ def sugar_atoms(structure, ring_records):
         owned |= ring['atoms'] | set(ring['carbons'])
         for carbon in ring['carbons']:
             owned |= {oxygen for oxygen in adjacency[carbon] if atoms[oxygen]['element'] == 'O'}
+    # A ring no template claims is still sugar: it is mapped by the general fragment rules, so its atoms
+    # belong to the sugar part of the molecule rather than counting as something outside it.
+    for ring in recognition.identify_rings(structure):
+        if ring['claimed']:
+            continue
+        owned |= ring['atoms']
+        for atom in ring['atoms']:
+            owned |= {other for other in adjacency[atom] - ring['atoms']
+                      if atoms[other]['element'] in ('C', 'O')}
     return owned
 
 

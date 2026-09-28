@@ -73,6 +73,32 @@ def identify_hexoses(structure):
     return sorted(rings, key=lambda r: (depth(r), r['carbons'][0]))
 
 
+def identify_rings(structure):
+    """Every five- or six-membered C/O ring, whether or not a template claims it.
+
+    The two templates above skip rings whose substitution they do not understand. This reports what is
+    actually there so a caller can map it with the paper's general rules instead of dropping it into the
+    remainder chunker, and marks each ring `claimed` so the templates keep priority where they apply.
+    """
+    import networkx as nx
+    atoms, adj = graph(structure)
+    g = nx.Graph(adj)
+    claimed = {frozenset(ring['atoms']) for ring in identify_hexoses(structure)}
+    claimed |= {frozenset(ring['atoms']) for ring in identify_furanoses(structure)}
+    found = []
+    for cycle in nx.minimum_cycle_basis(g):
+        if len(cycle) not in (5, 6): continue
+        if any(atoms[i]['element'] not in ('C', 'O') for i in cycle): continue
+        oxy = [i for i in cycle if atoms[i]['element'] == 'O']
+        if len(oxy) > 1: continue
+        members = set(cycle)
+        if oxy and len(adj[oxy[0]] & members) != 2: continue
+        found.append({'atoms': members, 'oxygen': oxy[0] if oxy else None, 'ring_size': len(cycle),
+                      'carbons': [atom for atom in cycle if atoms[atom]['element'] == 'C'],
+                      'claimed': frozenset(members) in claimed})
+    return found
+
+
 def hydroxymethyl(adjacency, atoms, ring, carbon):
     """The exocyclic hydroxymethyl carbon attached to a ring carbon, if it has one."""
     for candidate in sorted(adjacency[carbon] - ring):

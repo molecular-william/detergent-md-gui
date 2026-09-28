@@ -99,6 +99,17 @@ def test_delete_mapping_removes_the_saved_candidate(dashboard, live_page):
     assert errors == []
 
 
+def test_the_candidate_warning_line_stays_hidden_when_nothing_needs_correcting(live_page):
+    """The warning element exists for every candidate and only shows when the candidate carries one."""
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#mappings')
+    expect(page.locator('#mapping-editor-warnings')).to_have_count(1)
+    expect(page.locator('#mapping-editor-warnings')).to_be_hidden()
+    page.locator('#generate-automatic').click()
+    expect(page.locator('#mapping-editor-warnings')).to_be_hidden()
+    assert errors == []
+
+
 def test_the_selectors_sit_above_the_diagram_side_by_side(live_page):
     """Both comboboxes, and the selection controls, moved into the diagram's column above the drawing.
 

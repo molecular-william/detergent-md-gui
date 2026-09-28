@@ -32,7 +32,16 @@ export function createMappings() {
 
   let bondedWorkspace;
 
-  function editorMessage(message) { setText($('#mapping-editor-status'), message); }
+  function renderWarnings() {
+    // A candidate can be mapped and still be an admission -- a ring the templates do not cover, or a
+    // fragment that could not be typed by chemistry. The interface says so instead of leaving it in JSON.
+    const target = $('#mapping-editor-warnings');
+    if (!target) return;
+    const warnings = moleculeEditor?.candidate?.warnings || [];
+    target.textContent = warnings.length ? `Unvalidated mapping: ${warnings.join(' ')}` : '';
+    target.hidden = !warnings.length;
+  }
+  function editorMessage(message) { setText($('#mapping-editor-status'), message); renderWarnings(); }
   function editorSelection() { setText($('#mapping-selection-count'), `${moleculeEditor?.selectedAtoms.size || 0} heavy atoms selected`); }
 
   function updateDiagram() {
@@ -268,6 +277,7 @@ export function createMappings() {
         const result = await post('/api/mappings/automatic/preview', {molecule_id: moleculeEditor.context.molecule_id, molecule_snapshot: moleculeEditor.context.snapshot});
         if (!result.available) throw new Error(`Automatic candidate unavailable: ${(result.reasons || []).join(' ')}`);
         moleculeEditor.candidate = result.candidate;
+        renderWarnings();
         clearSelection(moleculeEditor); renderEditor();
         editorMessage('Generated an automatic candidate for local review.');
       } catch (error) { editorMessage(error.message); }
