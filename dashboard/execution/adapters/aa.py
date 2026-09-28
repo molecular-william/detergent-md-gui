@@ -271,7 +271,14 @@ def mdp(settings,kind,ff=None):
     business -- the neighbour-list update, the integrator, the durations, the coupling -- stays here.
     """
     ff=ff or forcefields.entry(settings.get('force_field'))
-    common={'nstlist':20,'pbc':'xyz','constraint-algorithm':'lincs',**ff.mdp,'constraints':ff.constraints}
+    # The protocol's box is small -- 2.5 nm, as close to the paper's stated 2.4 as its own 1.2 nm cut-off allows --
+    # and GROMACS's automatic Verlet buffer does not fit inside it. The buffer is *added* to rlist, and the result
+    # has to stay strictly inside half the box; with half a box of 1.25 nm and a cut-off of 1.2 nm there is no room
+    # for even a small one. The buffer is therefore disabled and rlist used exactly as written -- which is what a
+    # box this size requires of any GROMACS -- and the neighbour list is rebuilt twice as often to compensate for
+    # having no buffer at all.
+    common={'nstlist':10,'pbc':'xyz','constraint-algorithm':'lincs','verlet-buffer-tolerance':-1,
+            **ff.mdp,'constraints':ff.constraints}
 
     if kind in ('em','ions'):
         common.update(integrator='steep',nsteps=20000,emtol=1000,emstep=.01)

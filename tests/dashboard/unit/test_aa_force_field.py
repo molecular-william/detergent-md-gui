@@ -87,6 +87,18 @@ def test_the_mdp_restrains_every_bond_as_the_paper_does(prepare):
         assert line in text, f'{line!r} is missing from the mdp'
 
 
+def test_the_mdp_fits_inside_the_protocols_small_box(prepare):
+    """A box of 2.5 nm leaves no room for GROMACS's automatic Verlet buffer, which is added to rlist.
+
+    Disabling the buffer is what makes the protocol's box usable at all, and it has a cost that is paid explicitly:
+    the neighbour list is rebuilt twice as often, because without a buffer a stale list is a missing interaction.
+    """
+    text = (prepare() / 'stages/04_nvt/run.mdp').read_text()
+    assert 'verlet-buffer-tolerance = -1' in text
+    assert 'nstlist = 10' in text
+    assert 'rlist = 1.2' in text
+
+
 def test_a_solutes_caveats_travel_with_the_run_and_are_stated_in_readiness(molecule_root, prepare):
     """The SwissParam version caveat belongs to the solute, so it rides on the run rather than in a comment.
 
