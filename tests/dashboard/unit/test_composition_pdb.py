@@ -72,7 +72,19 @@ def test_the_bonds_are_written_once_each_and_reference_real_serials():
 
 
 def test_the_file_is_terminated_and_holds_nothing_but_its_records():
+    geometry = preview_geometry(_preview())
     pdb = render_pdb(_preview())
     assert pdb.endswith("END\n")
-    assert all(line.startswith(("HETATM", "CONECT", "END")) for line in pdb.splitlines())
-    assert len(pdb.splitlines()) == 5 + 4 + 1
+    assert all(line.startswith(("REMARK", "HETATM", "CONECT", "END")) for line in pdb.splitlines())
+    # Two header remarks, plus a remark and an atom for each bead, the bonds, the terminator.
+    assert len(pdb.splitlines()) == 2 + 2 * len(geometry["joined"]["beads"]) + 4 + 1
+
+
+def test_every_bead_carries_its_type_in_a_remark():
+    geometry = preview_geometry(_preview())
+    beads = geometry["joined"]["beads"]
+    remarks = {fields[3]: (fields[4], fields[5]) for fields in
+               (line.split() for line in render_pdb(_preview()).splitlines() if line.startswith("REMARK 950 BEAD"))}
+    assert len(remarks) == len(beads) == 5
+    for bead in beads:
+        assert remarks[bead["name"]] == (str(bead["type"]), str(bead["size"])), bead
