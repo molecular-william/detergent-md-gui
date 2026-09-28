@@ -180,7 +180,7 @@ The .map header is [ molecule ] LIG1 <molecule_name>, as required by Fast_Forwar
 
 RDKit, already present in the local environment, draws the 2D structure from SwissParam MOL2 after checking atom names/order and bonds against PDB and ITP. Circle radii represent the 2D extent of assigned atoms, not Martini physical radii. Diagrams update with mapping edits and export as self-contained SVG.
 
-The carbohydrate validation controls in this workspace are separate from mapping approval. They offer the published `tc4` representation and a deterministic `physical_only_ring_constrained` derivative, which removes TC4 sites while retaining physical bead ownership and 1.15-scaled ring constraints. A setup check is diagnostic-only. An evidence run requires cited targets and paper-aligned sampling before it can report `evidence_complete`.
+Carbohydrate validation is separate from mapping approval and is queued through the API rather than from a dashboard panel: `POST /api/jobs/<id>/carbohydrate-validation` takes the published `tc4` representation or the deterministic `physical_only_ring_constrained` derivative, which removes TC4 sites while retaining physical bead ownership and 1.15-scaled ring constraints. The controls that used to offer this from CG Bead Assignment were removed; the analysis, the queue route and the report endpoints are unchanged. A setup check is diagnostic-only. An evidence run requires cited targets and paper-aligned sampling before it can report `evidence_complete`.
 
 See FAST_FORWARD_ALIGNMENT.md for the tutorial comparison, compatibility decisions, and scientific validation still required.
 

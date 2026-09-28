@@ -72,8 +72,10 @@ backup, reset, and recovery. See [DDM calibration](../docs/DDM_CALIBRATION.md)
 for scientific status and limits. Historical reports live under `reports/`, and
 UI prototypes under `docs/design/prototypes/`.
 
-Carbohydrate validation is launched from CG Bead Assignment for a completed
-source run. The server derives either the TC4 mapping or the physical-only
+Carbohydrate validation is queued through the API for a completed source run
+(`POST /api/jobs/<id>/carbohydrate-validation`); the dashboard controls that used
+to launch it from CG Bead Assignment were removed. The server derives either the
+TC4 mapping or the physical-only
 ring-constrained mapping, then publishes an immutable analysis attempt. Geometry,
 water-to-octanol transfer free energy, and concentration-dependent osmotic
 pressure are reported independently. A setup check is diagnostic-only; an

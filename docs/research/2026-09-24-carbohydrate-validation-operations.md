@@ -99,9 +99,9 @@ For a reproducible short AA-to-CG diagnostic, select the saved sucrose mapping
 in **New Run**, choose `draft-smoke`, and start an AA-CG run. The coordinator
 creates the AA source and waiting CG child together. The run records the
 molecule snapshot, mapping snapshot, seeds, GPU-enabled GROMACS commands, and
-all stage logs. Once the child completes, select the completed source run in
-the carbohydrate validation controls and run a `Setup check` with the
-`sucrose-martini3-paper-v1` target.
+all stage logs. Once the child completes, queue a validation attempt for the completed source run
+through `POST /api/jobs/<id>/carbohydrate-validation` and run a `Setup check` with
+the `sucrose-martini3-paper-v1` target.
 
 The validation attempt can publish the existing immutable
 `analysis/surfaces/surface-comparison.html` Plotly artifact and SASA statistics
@@ -119,6 +119,12 @@ data they name is gone. If a copy exists elsewhere, do not treat it as evidence:
 for a ringed mapping before the coordinate-unit fix described above has bead distances a factor of ten too
 small, so a run of that vintage is misleading rather than historical. Regenerate the mapping and the run
 from current code instead.
+
+The workspace also held a stale pre-fix sucrose mapping draft, `mapping_candidate_49a51b28f7504bef887a3880a114c201.json`
+(sha256 `000c1572724b65c5529dc850c4062505a6863237dfdbfd2db238a834c86c6d51`, eight beads of which four were
+named TAIL1 to TAIL4 -- the artifact that showed the fructose ring shredded). It was deleted at the user's
+request. The two Maltose drafts and the DDM draft were kept: the validation note cites the Maltose variants
+by name, and the DDM draft is the packaged reference example.
 
 The first reproducible diagnostic run used the following preserved records:
 

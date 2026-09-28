@@ -116,8 +116,11 @@ locations, and the paper-scale evidence requirements. The stable workflow is:
    preserve its provenance and limitations.
 3. In **New Run**, launch the saved mapping with the `draft-smoke` profile and
    wait for the AA source and CG consumer to complete.
-4. In the validation controls, select the completed source run, a supported
-   representation, and a target dataset, then run `Setup check`.
+4. Queue a validation attempt against the completed source run through
+   `POST /api/jobs/<run-id>/carbohydrate-validation` with a supported
+   representation and a cited target dataset, running `Setup check` first. The
+   dashboard controls that used to offer this were removed; the analysis, its
+   queue route and its report endpoints remain.
 5. Open generated figures through the run artifact route
    `/api/jobs/<run-id>/artifacts/<relative-path>?inline=1`. Use the artifact
    path returned by `/api/jobs/<run-id>/artifacts`; do not construct a URL from

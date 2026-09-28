@@ -67,15 +67,20 @@ Legacy reports may lack pair categories. Missing fields are **unknown**, not zer
 
 ## Dashboard implementation status and remaining gaps
 
-### Carbohydrate validation controls
+### Carbohydrate validation
 
-CG Bead Assignment now exposes two representation choices for a selected
-carbohydrate mapping: the published TC4 model and a controlled physical-only
-variant that removes TC4 sites but keeps physical bead ownership, ring parents,
-and 1.15-scaled ring constraints. The controls also distinguish a setup check
-from an evidence run and require a cited target dataset. Attempts are immutable
-analysis records attached to a completed source run, and their status does not
-approve a mapping or authorize production.
+Queue a validation attempt through `POST /api/jobs/<id>/carbohydrate-validation`
+for a completed source run. Two representations are offered: the published TC4
+model and a controlled physical-only variant that removes TC4 sites but keeps
+physical bead ownership, ring parents, and 1.15-scaled ring constraints. A setup
+check is diagnostic-only; an evidence run requires a cited target dataset.
+Attempts are immutable analysis records attached to the source run, and their
+status does not approve a mapping or authorize production.
+
+The dashboard controls that used to offer this from **CG Bead Assignment** were
+removed. The analysis, its queue route and its report endpoints are unchanged, so
+an attempt is still possible through the API, which is what the hand-off below
+now describes.
 
 The evidence profile has three required keys: mapped geometry and molecular
 volume, water-to-octanol transfer free energy, and concentration-dependent
