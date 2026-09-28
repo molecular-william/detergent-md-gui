@@ -21,7 +21,14 @@ function serials(pdb) {
 }
 
 export function mountOverlay3d(host, context, onAtom) {
+  // NGL appends its canvas to the host and dispose() does not take it away again, so the container is emptied
+  // here and in destroy(). Without that, switching molecules leaves one canvas per mount behind.
+  host.replaceChildren();
   const stage = new NGL.Stage(host, {backgroundColor: 'white'});
+  // The stage lives in this closure, so the container carries it for the test seam, as the composition panel's
+  // workspace carries its own stages. A browser test can then ask the viewer what it actually holds rather than
+  // what the code intended to hand it.
+  host.overlayStage = stage;
   let signature = null;          // the bead assignment currently drawn, so an unchanged one costs no request
   let atomIds = [];              // structure index -> mapping atom id
   let beads = [];                // the spheres as the server described them, in file order
@@ -59,17 +66,26 @@ export function mountOverlay3d(host, context, onAtom) {
     stage.removeAllComponents();
     atomIds = serials(payload.pdb);
     beads = payload.spheres || [];
-    const molecule = await stage.loadFile(new Blob([payload.pdb], {type: 'text/plain'}), {ext: 'pdb'});
-    const beadFile = await stage.loadFile(new Blob([payload.bead_pdb], {type: 'text/plain'}), {ext: 'pdb'});
-    molecule.addRepresentation('ball+stick', {sele: 'all', colorScheme: 'element', radiusScale: 0.2});
-    // One representation per size class: a representation has a single radius scale, so beads of different sizes
-    // cannot share one. The class is the residue name, which is the form this build's selections resolve.
-    for (const [size, radius] of Object.entries(SIZE_RADII)) {
-      if (!beadFile.structure.getAtomIndices(new NGL.Selection(size)).length) continue;
-      beadFile.addRepresentation('spacefill', {sele: size, color: BEAD_COLOURS[size], opacity: BEAD_OPACITY,
-                                               radiusScale: radius / VDW_CARBON});
+    try {
+      const molecule = await stage.loadFile(new Blob([payload.pdb], {type: 'text/plain'}), {ext: 'pdb'});
+      const beadFile = await stage.loadFile(new Blob([payload.bead_pdb], {type: 'text/plain'}), {ext: 'pdb'});
+      if (molecule && molecule.structure) {
+        molecule.addRepresentation('ball+stick', {sele: 'all', colorScheme: 'element', radiusScale: 0.2});
+      }
+      // One representation per size class: a representation has a single radius scale, so beads of different sizes
+      // cannot share one. The class is the residue name, which is the form this build's selections resolve.
+      const beadStructure = beadFile && beadFile.structure;
+      if (beadStructure && beadStructure.atomCount) {
+        for (const [size, radius] of Object.entries(SIZE_RADII)) {
+          if (!beadStructure.getAtomIndices(new NGL.Selection(size)).length) continue;
+          beadFile.addRepresentation('spacefill', {sele: size, color: BEAD_COLOURS[size], opacity: BEAD_OPACITY,
+                                                   radiusScale: radius / VDW_CARBON});
+        }
+      }
+      stage.autoView();
+    } catch (error) {
+      note(`Could not draw the overlay: ${error.message}`);
     }
-    stage.autoView();
     if (!atomIds.length) note('This molecule has no heavy atoms to draw.');
   }
 
@@ -79,27 +95,35 @@ export function mountOverlay3d(host, context, onAtom) {
     return stage.pickingControls.pick(event.clientX - rect.left, event.clientY - rect.top);
   }
 
+  // The listeners capture: the viewer handles these same events on its own canvas, and a listener on an ancestor
+  // never sees them if the viewer stops them there -- which is why a click on a sphere did nothing at all.
   let pressed = null;
-  host.addEventListener('mousedown', event => { pressed = {x: event.clientX, y: event.clientY}; });
+  host.addEventListener('mousedown', event => { pressed = {x: event.clientX, y: event.clientY}; }, true);
   host.addEventListener('click', event => {
     // A click that moved is a rotation, not a selection.
     if (pressed && (Math.abs(event.clientX - pressed.x) > 4 || Math.abs(event.clientY - pressed.y) > 4)) return;
     const pick = pickAt(event);
     if (!pick || !pick.atom) return;
     const beadAtom = ['R', 'S', 'T'].includes(String(pick.atom.resname || '').trim());
+    // The picked atom carries its own index. This build's pick object has no atomIndex, so looking the sphere up by
+    // that name found nothing and a click on a sphere selected nothing -- measured, not assumed.
+    const index = pick.atom.index ?? pick.atomIndex;
     if (beadAtom) {
       // A sphere covers its atoms: clicking it is clicking the bead, which selects every atom it maps.
-      const sphere = beads[pick.atomIndex];
+      const sphere = beads[index];
       if (sphere) for (const atomId of sphere.atoms) onAtom(atomId);
       return;
     }
-    const atomId = atomIds[pick.atomIndex];
+    const atomId = atomIds[index];
     if (atomId) onAtom(atomId);
-  });
-  host.addEventListener('mouseleave', () => { pressed = null; });
+  }, true);
+  host.addEventListener('mouseleave', () => { pressed = null; }, true);
 
   return {
     update,
-    destroy() { try { stage.dispose(); } catch (error) { /* a disposed stage is not an error worth showing */ } },
+    destroy() {
+      try { stage.dispose(); } catch (error) { /* a disposed stage is not an error worth showing */ }
+      host.replaceChildren();
+    },
   };
 }
