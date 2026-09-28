@@ -111,6 +111,35 @@ D6 **Constraints — all bonds with LINCS**, as the paper states, rather than th
 `constraints = h-bonds` for CHARMM36. A deliberate deviation from the manual's block, recorded per entry, and
 the protocol version moves with it.
 
+## What the mdrun performance page produced, measured
+
+The manual's guidance was read and then tested on the real system (1527 atoms, RTX 2080 Ti, 500 ps of production
+each, `-nb gpu -pme gpu -pmefft gpu` unless stated):
+
+| threads | scheme | ns/day | note |
+| --- | --- | --- | --- |
+| 4 | full GPU offload | 1595 | |
+| 8 | full GPU offload | 1589 / 1568 | the pipeline's existing default, and the optimum |
+| 8 | `mts = yes` | 1476 | the manual's recommendation for this configuration; it does not pay |
+| 16 | full GPU offload | 1484 | |
+| 32 | full GPU offload | 1100 | 30% worse than 8 |
+| 16 | GPU nonbonded, CPU PME | 954 | my own prediction, wrong by 55% |
+| 16 | CPU only | 826 | |
+
+Three conclusions, each replacing an assumption:
+
+- **More threads are worse here.** The manual's own vendor guidance ("scales well for up to 12-24 threads on
+  Intel") is borne out at the small end: for a 1527-atom system even 8 is past the knee and 32 costs 30%.
+- **`mts` does not pay.** The manual recommends it for "GPUs but integration on the CPU" without noting that it only
+  helps when PME is *also* on the CPU. Ours is on the GPU, so there is nothing to save and the extra work costs 7%.
+  It is accepted by `grompp` (measured), and deliberately not offered as a setting.
+- **The dodecahedron loses.** Asked for the half-width the equivalent cube gives -- the smallest it may be while
+  holding the cut-off -- it holds 919 waters against 494 and runs 12% slower.
+
+The remaining structural limitation is that this GROMACS is an MPI-only build, so the thread-MPI path the manual
+treats as the default single-node mode is unavailable; the manual notes that external MPI "runs more slowly than
+the thread-MPI version" on one node.
+
 ## Verification
 
 Per task, the fast tier and ruff. For F3, a byte-equivalence assertion, not a reading. For F5/F8, a real run
