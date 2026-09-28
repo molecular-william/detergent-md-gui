@@ -77,6 +77,26 @@ def mdrun_launch(settings):
     return prefix, f'-ntomp {threads}{scheme}'
 
 
+def mdrun_command_flags(settings, stage):
+    """The launcher and the whole flag set for one mdrun command.
+
+    One place decides the budget and the schemes, so a generated command and a stage script cannot disagree.
+    A minimisation keeps PME on the CPU and every other stage may put it on the GPU, which is the bracket the AA
+    stages have always used.
+
+    A stage setting *replaces* the bracket flag it names rather than being appended after it: emitting both would
+    leave GROMACS to use whichever came last, which would not be what the setting says. With both on 'auto' the
+    result is byte-for-byte the command these stages produced before the settings existed.
+    """
+    launcher, thread_flags = mdrun_launch(settings)
+    bracket = MDRUN_GPU_NONBONDED_FLAGS if stage == 'em' else MDRUN_GPU_PME_FLAGS
+    for key, flag in (('mdrun_nb', '-nb'), ('mdrun_pme', '-pme')):
+        if str(settings.get(key) or 'auto') == 'auto': continue
+        bracket = ' '.join(part for part in bracket.split()
+                           if part != flag and not part.startswith(flag + 'fft'))
+    return launcher, f'{thread_flags} {bracket}'.strip()
+
+
 STAGE_DEFS = (
     Stage('AA solvation', '01_solvation/run.sh',
           ('../common/molecule/molecule.gro', 'system.top'),
@@ -255,8 +275,7 @@ mv neutral.gro system.gro
     for i,kind in enumerate(('em','nvt','npt','production'),2):
         prev=Path(STAGES[i-1][1]).parent.as_posix(); coord='system.gro' if i==2 else 'run.gro'
         checkpoint=f' -t ../{prev}/run.cpt' if i>=4 else ''
-        gpu_flags = MDRUN_GPU_NONBONDED_FLAGS if kind == 'em' else MDRUN_GPU_PME_FLAGS
-        launcher, thread_flags = mdrun_launch(settings)
+        launcher, mdrun_flags = mdrun_command_flags(settings, kind)
         # No -ntmpi here. This host's GROMACS is an MPI build only -- /usr/local/gromacs/2026.3/bin/gmx is
         # a symlink to gmx_mpi -- and -ntmpi is a thread-MPI option, so mdrun aborts with "Setting the
         # number of thread-MPI ranks is only supported with thread-MPI and GROMACS was compiled without
@@ -264,7 +283,7 @@ mv neutral.gro system.gro
         # why runs/ was empty. The CPU budget is mdrun_ranks x mdrun_ntomp instead, checked against the
         # machine by mdrun_launch; a capability-aware probe that offers -ntmpi on a thread-MPI build is the
         # remaining piece.
-        scripts.append(f'cp ../{prev}/system.top system.top\ngmx grompp -f run.mdp -c ../{prev}/{coord}{checkpoint} -p system.top -o run.tpr\n{launcher}gmx mdrun -deffnm run {thread_flags} {gpu_flags} -v\n')
+        scripts.append(f'cp ../{prev}/system.top system.top\ngmx grompp -f run.mdp -c ../{prev}/{coord}{checkpoint} -p system.top -o run.tpr\n{launcher}gmx mdrun -deffnm run {mdrun_flags} -v\n')
     scripts.append('''printf 'Solute\\nSolute\\n' | gmx trjconv -f ../06_production/run.xtc -s ../06_production/run.tpr -n ../common/solute.ndx -pbc mol -center -o lig.xtc
 printf 'Solute\\n' | gmx trjconv -f ../06_production/run.xtc -s ../06_production/run.tpr -n ../common/solute.ndx -dump 0 -o lig.gro
 printf 'Solute\\n' | gmx convert-tpr -s ../06_production/run.tpr -n ../common/solute.ndx -o lig.tpr

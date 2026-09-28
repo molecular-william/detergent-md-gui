@@ -14,7 +14,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from dashboard.execution.adapters.aa import mdrun_launch, normalize_settings  # noqa: E402
+from dashboard.execution.adapters.aa import mdrun_command_flags, mdrun_launch, normalize_settings  # noqa: E402
 
 
 def flags(settings):
@@ -49,6 +49,26 @@ def test_an_unknown_scheme_is_refused_rather_than_passed_through():
         flags({'mdrun_nb': 'cuda'})
     with pytest.raises(ValueError, match='must be one of'):
         normalize_settings({'mdrun_pme': 'both'})
+
+
+def test_the_shared_flag_helper_replaces_the_gpu_bracket_rather_than_stacking_on_it():
+    """A generated command and a stage script read the same flags, so the bracket and the settings must agree.
+
+    The bracket is what these stages have always run: GPU nonbonded, PME on the GPU except in minimisation. A
+    setting replaces the flag it names -- emitting both would leave GROMACS to take the last one -- and with
+    everything on 'auto' the result is the command these stages produced before the settings existed.
+    """
+    # A setting replaces the bracket flag it names, so no value appears twice and none contradicts it.
+    assert mdrun_command_flags({}, 'em') == ('', '-ntomp 8 -gpu_id 0 -nb gpu -pin on')
+    assert mdrun_command_flags({}, 'production') == (
+        '', '-ntomp 8 -gpu_id 0 -nb gpu -pin on -pme gpu -pmefft gpu')
+    cpu_nb = mdrun_command_flags({'mdrun_nb': 'cpu'}, 'production')[1].split()
+    assert cpu_nb.count('-nb') == 1 and cpu_nb[cpu_nb.index('-nb') + 1] == 'cpu'
+    cpu_pme = mdrun_command_flags({'mdrun_nb': 'gpu', 'mdrun_pme': 'cpu'}, 'production')[1].split()
+    assert cpu_pme.count('-pme') == 1 and cpu_pme[cpu_pme.index('-pme') + 1] == 'cpu'
+    assert '-pmefft' not in cpu_pme  # the FFT flag belongs to a GPU PME and goes with it
+    launcher, flags = mdrun_command_flags({'mdrun_ranks': 2, 'mdrun_ntomp': 4}, 'production')
+    assert launcher == 'mpirun -np 2 ' and flags.startswith('-ntomp 4 ')
 
 
 def test_a_choice_survives_normalization_and_the_numeric_ranges_still_apply():

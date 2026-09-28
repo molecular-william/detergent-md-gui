@@ -3,7 +3,9 @@ from tests.dashboard.support import PROJECT_ROOT
 
 def _mdrun_lines(name):
     text = (PROJECT_ROOT / 'dashboard/execution/scripts' / name).read_text()
-    return [line for line in text.splitlines() if line.startswith('gmx mdrun')]
+    # The command may carry a launcher prefix (`${MDRUN_LAUNCHER:-}gmx mdrun`), so match the command itself
+    # rather than the start of the line.
+    return [line for line in text.splitlines() if 'gmx mdrun' in line]
 
 
 def test_cg_launchers_only_offload_supported_nonbonded_work():
