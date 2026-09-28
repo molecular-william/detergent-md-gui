@@ -1,0 +1,9 @@
+{
+  "url": "http://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-feb2026_cgenff-4.6.ff.tgz",
+  "retrieved": "2026-09-28",
+  "bytes": 1107448,
+  "sha256": "7041529806f849b7f2f0b68b0be211a7d93103e38f0b4f2d2b6168e84c9cc6a9",
+  "archive_root": "charmm36-feb2026_cgenff-4.6.ff/",
+  "cgenff_version": "4.6",
+  "note": "The CGenFF 4.6 variant of the February 2026 CHARMM36 port, chosen over the CGenFF 5.0 variant so it can be paired with solute topologies generated against CGenFF 4.x. The MacKerell Lab states the CGenFF parameter file version must match the version of the CGenFF program that generated the small-molecule topology; pairing this tree with a CGenFF 5.0 solute would silently change its parameters. The tree carries the CHARMM36m protein revision by default (define USE_OLD_C36 selects the older C36 set) and provides TIP3P as moleculetype SOL and SOD/CLA ions."
+}
