@@ -40,10 +40,11 @@ def test_the_command_is_a_centred_cube_of_the_requested_edge():
 
 
 def test_the_dodecahedron_is_asked_for_the_same_governing_half_width():
-    """One number, two shapes. `-d` is the half-width a cube gets from its edge, so the same cut-off fits either.
+    """One number, two shapes: `-d` is the half-width a cube gets from its edge, and both hold the same cut-off.
 
-    That equality is the whole point of the setting: choosing the shape must change how much water the clearance
-    costs and nothing else, or the two runs would not be comparable.
+    Measured, that is the *smallest* a dodecahedron may be with this protocol's cut-off -- and it still costs more
+    water than the cube (919 against 494) and runs slower. The test pins the equivalence the setting claims, not a
+    performance promise: the two commands differ only in the shape they ask for.
     """
     assert aa_box.editconf_arguments(2.5, 'dodecahedron') == '-bt dodecahedron -d 1.25 -c'
     assert aa_box.DEFAULT_SHAPE == 'cubic'

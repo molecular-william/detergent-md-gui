@@ -172,8 +172,9 @@ DEFAULTS=dict(aa_nvt_ps=100,aa_npt_ps=1000,aa_production_ps=10000,
 # offer cannot reach a run.
 CHOICE_SPECS={'mdrun_nb':('Nonbonded scheme',('auto','cpu','gpu')),
               'mdrun_pme':('PME scheme',('auto','cpu','gpu')),
-              # The cube is the protocol's own shape and stays the default; the dodecahedron holds the same
-              # clearance in about 29% less water, which the manual recommends for a spherical solute.
+              # The cube is the protocol's own shape and stays the default. The dodecahedron was added on the
+              # manual's recommendation for a spherical solute and measured: it holds this cut-off in more water,
+              # not less, and runs 12% slower here. Available because it was worth testing; not the faster option.
               'box_shape':('Box shape',aa_box.SHAPES),
               'force_field':('Force field',forcefields.names())}
 # One shape across every run type: (label, lo, hi). The label is what a caller renders.

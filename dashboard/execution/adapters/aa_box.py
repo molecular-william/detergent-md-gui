@@ -19,10 +19,15 @@ from pathlib import Path
 DEFAULT_EDGE_NM = 2.5
 
 
-#: The unit cells a run may be solvated in. Both are specified by the same number, the protocol's cube edge, whose
-#: half is the length that governs the neighbour list. A rhombic dodecahedron's `-d` *is* that governing length, so
-#: the two shapes hold the same cut-off and the dodecahedron holds it in about 29% less water -- which is why
-#: GROMACS recommends this shape for an approximately spherical solute, and what the protocol's cube costs.
+#: The unit cells a run may be solvated in.
+#:
+#: The dodecahedron was added on the GROMACS manual's recommendation for an approximately spherical solute, and then
+#: measured on the real system rather than assumed. It loses: asked for the half-width a cube of the same edge
+#: gives -- which is the smallest a dodecahedron may be and still hold this protocol's 1.2 nm cut-off -- it holds
+#: **919 waters against the cube's 494** and runs 12% slower (1404 against 1589 ns/day, 500 ps each on this host).
+#: A dodecahedron's `-d` and a cube's half-edge are not the same quantity, and at this size there is no room to
+#: shrink `-d` far enough to pay for the difference. The shape stays available because the measurement is the
+#: reason it exists, but the cube is both the protocol's shape and the faster one here.
 SHAPES = ('cubic', 'dodecahedron')
 DEFAULT_SHAPE = 'cubic'
 
@@ -30,9 +35,10 @@ DEFAULT_SHAPE = 'cubic'
 def editconf_arguments(box_nm, shape=DEFAULT_SHAPE):
     """The `editconf` arguments that build `box_nm`'s clearance in the requested shape.
 
-    `box_nm` stays the cube's edge, which is the protocol's own currency and what every existing setting means; the
-    governing length is half of it. A rhombic dodecahedron is asked for that half-width directly, so choosing the
-    shape changes how much water the same clearance costs and changes nothing else.
+    `box_nm` stays the cube's edge, which is the protocol's own currency and what every existing setting means. For
+    a dodecahedron the governing length is passed as `-d`, which is the same number's half -- measured, that is the
+    *smallest* a dodecahedron may be while still holding the cut-off, and it costs more water than the cube rather
+    than less (see SHAPES). The setting exists so the comparison can be made, not because it is the faster option.
     """
     if shape not in SHAPES:
         raise ValueError(f'unknown box shape {shape!r}; known: {", ".join(SHAPES)}')
