@@ -19,9 +19,26 @@ from pathlib import Path
 DEFAULT_EDGE_NM = 2.5
 
 
-def editconf_arguments(edge_nm):
-    """The `editconf` arguments that produce a centred cube of this edge."""
-    return f'-box {edge_nm:g} {edge_nm:g} {edge_nm:g} -c'
+#: The unit cells a run may be solvated in. Both are specified by the same number, the protocol's cube edge, whose
+#: half is the length that governs the neighbour list. A rhombic dodecahedron's `-d` *is* that governing length, so
+#: the two shapes hold the same cut-off and the dodecahedron holds it in about 29% less water -- which is why
+#: GROMACS recommends this shape for an approximately spherical solute, and what the protocol's cube costs.
+SHAPES = ('cubic', 'dodecahedron')
+DEFAULT_SHAPE = 'cubic'
+
+
+def editconf_arguments(box_nm, shape=DEFAULT_SHAPE):
+    """The `editconf` arguments that build `box_nm`'s clearance in the requested shape.
+
+    `box_nm` stays the cube's edge, which is the protocol's own currency and what every existing setting means; the
+    governing length is half of it. A rhombic dodecahedron is asked for that half-width directly, so choosing the
+    shape changes how much water the same clearance costs and changes nothing else.
+    """
+    if shape not in SHAPES:
+        raise ValueError(f'unknown box shape {shape!r}; known: {", ".join(SHAPES)}')
+    if shape == 'cubic':
+        return f'-box {box_nm:g} {box_nm:g} {box_nm:g} -c'
+    return f'-bt dodecahedron -d {box_nm / 2:g} -c'
 
 
 def read_coordinates(path):

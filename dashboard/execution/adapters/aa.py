@@ -164,6 +164,7 @@ DEFAULTS=dict(aa_nvt_ps=100,aa_npt_ps=1000,aa_production_ps=10000,
               temperature_k=forcefields.entry().temperature_k,
               pressure_bar=1,output_interval_ps=10,box_nm=aa_box.DEFAULT_EDGE_NM,aa_seed=20260917,
               mdrun_ntomp=8,mdrun_ranks=1,mdrun_nb='auto',mdrun_pme='auto',
+              box_shape=aa_box.DEFAULT_SHAPE,
               force_field=forcefields.DEFAULT)
 # Choices are a separate shape rather than a third element of the numeric tuple, which unpacks as (label, lo,
 # hi). 'auto' means the execution profile decides, which is what every run did before these settings existed.
@@ -171,6 +172,9 @@ DEFAULTS=dict(aa_nvt_ps=100,aa_npt_ps=1000,aa_production_ps=10000,
 # offer cannot reach a run.
 CHOICE_SPECS={'mdrun_nb':('Nonbonded scheme',('auto','cpu','gpu')),
               'mdrun_pme':('PME scheme',('auto','cpu','gpu')),
+              # The cube is the protocol's own shape and stays the default; the dodecahedron holds the same
+              # clearance in about 29% less water, which the manual recommends for a spherical solute.
+              'box_shape':('Box shape',aa_box.SHAPES),
               'force_field':('Force field',forcefields.names())}
 # One shape across every run type: (label, lo, hi). The label is what a caller renders.
 SETTING_SPECS={'aa_nvt_ps':('AA NVT duration',1,1000000),'aa_npt_ps':('AA NPT duration',1,1000000),
@@ -354,7 +358,7 @@ def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
     top=(f'#include "../common/{tree.name}/forcefield.itp"\n#include "../common/molecule/molecule.itp"\n'
          f'#include "../common/{tree.name}/{ff.water_file}"\n#include "../common/{tree.name}/ions.itp"\n\n'
          f'[ system ]\nSingle solute in water\n[ molecules ]\n{molecule_snapshot["metadata"]["molecule_type"]} 1\n')
-    scripts=[f'''gmx editconf -f ../common/molecule/molecule.gro {aa_box.editconf_arguments(settings['box_nm'])} -o boxed.gro
+    scripts=[f'''gmx editconf -f ../common/molecule/molecule.gro {aa_box.editconf_arguments(settings['box_nm'], settings.get('box_shape', aa_box.DEFAULT_SHAPE))} -o boxed.gro
 gmx grompp -f run.mdp -c boxed.gro -p system.top -o input-check.tpr
 gmx solvate -cp boxed.gro -cs spc216.gro -p system.top -o system.gro
 ''','''cp ../01_solvation/system.top system.top

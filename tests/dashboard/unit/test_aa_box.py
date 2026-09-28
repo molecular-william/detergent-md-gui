@@ -39,6 +39,21 @@ def test_the_command_is_a_centred_cube_of_the_requested_edge():
     assert aa_box.editconf_arguments(3) == '-box 3 3 3 -c'
 
 
+def test_the_dodecahedron_is_asked_for_the_same_governing_half_width():
+    """One number, two shapes. `-d` is the half-width a cube gets from its edge, so the same cut-off fits either.
+
+    That equality is the whole point of the setting: choosing the shape must change how much water the clearance
+    costs and nothing else, or the two runs would not be comparable.
+    """
+    assert aa_box.editconf_arguments(2.5, 'dodecahedron') == '-bt dodecahedron -d 1.25 -c'
+    assert aa_box.DEFAULT_SHAPE == 'cubic'
+
+
+def test_an_unknown_box_shape_is_refused_rather_than_defaulted():
+    with pytest.raises(ValueError, match='unknown box shape'):
+        aa_box.editconf_arguments(2.5, 'octahedron')
+
+
 def test_the_extent_is_the_span_along_each_axis():
     assert aa_box.extent_nm([[0.0, 0.0, 0.0], [1.0, 2.0, 0.5]]) == [1.0, 2.0, 0.5]
 

@@ -99,6 +99,14 @@ def test_the_mdp_fits_inside_the_protocols_small_box(prepare):
     assert 'rlist = 1.2' in text
 
 
+def test_the_box_shape_reaches_the_editconf_command(prepare):
+    """The shape is a setting, so it must change the command rather than be recorded and ignored."""
+    script = (prepare({'box_shape': 'dodecahedron'}) / 'stages/01_solvation/run.sh').read_text()
+    assert '-bt dodecahedron -d 1.25' in script, 'the governing half-width must be asked for directly'
+    cubic = (prepare({'box_shape': 'cubic'}, 'cube-run') / 'stages/01_solvation/run.sh').read_text()
+    assert '-box 2.5 2.5 2.5' in cubic and 'dodecahedron' not in cubic
+
+
 def test_a_solutes_caveats_travel_with_the_run_and_are_stated_in_readiness(molecule_root, prepare):
     """The SwissParam version caveat belongs to the solute, so it rides on the run rather than in a comment.
 
