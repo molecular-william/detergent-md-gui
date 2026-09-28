@@ -1,6 +1,8 @@
 #!/bin/bash
 AA_REFERENCE_DIR="${AA_REFERENCE_DIR:-../1_AA-reference/prod}"
 set -euxo pipefail
+# No -ntmpi in the mdrun lines below: /usr/local/gromacs/2026.3/bin/gmx is a symlink to gmx_mpi, an MPI build
+# with no thread-MPI, where that flag aborts mdrun before the first step. -ntomp is valid for both builds.
 # Fitted output is copied forward; the seed topology and reference stay immutable.
 cp ../3_initial_CG/$FINAL_ITP $FINAL_ITP
 # ff_inter can fit numerically extreme bond force constants that make the
@@ -33,11 +35,11 @@ if [ -f ../2_mapping/mapped_scaled.gro ]; then CG_START=../2_mapping/mapped_scal
 gmx editconf -f "$CG_START" -c -d 1.5 -bt dodecahedron -o boxed.gro
 gmx solvate -cp boxed.gro -cs inputs/water.gro -p system.top -radius 0.21 -o solvated.gro
 gmx grompp -f inputs/minimization.mdp -p system.top -c solvated.gro -o min.tpr
-gmx mdrun -deffnm min -ntmpi 1 -ntomp 8 -gpu_id 0 -nb gpu -pin on -v
+gmx mdrun -deffnm min -ntomp 8 -gpu_id 0 -nb gpu -pin on -v
 gmx grompp -f inputs/eq.mdp -p system.top -c min.gro -o eq.tpr -maxwarn 1
-gmx mdrun -deffnm eq -ntmpi 1 -ntomp 8 -gpu_id 0 -nb gpu -pin on -v
+gmx mdrun -deffnm eq -ntomp 8 -gpu_id 0 -nb gpu -pin on -v
 gmx grompp -f inputs/md.mdp -p system.top -c eq.gro -t eq.cpt -o md.tpr -maxwarn 1
-gmx mdrun -deffnm md -ntmpi 1 -ntomp 8 -gpu_id 0 -nb gpu -pin on -v
+gmx mdrun -deffnm md -ntomp 8 -gpu_id 0 -nb gpu -pin on -v
 mkdir prod
 printf "$MOLECULE_TYPE\n$MOLECULE_TYPE\n" | gmx trjconv -f md.xtc -s md.tpr -pbc mol -center -o prod/lig_CG.xtc
 printf "$MOLECULE_TYPE\n" | gmx convert-tpr -s md.tpr -o prod/lig_CG.tpr

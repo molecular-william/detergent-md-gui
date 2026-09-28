@@ -10,6 +10,23 @@ import subprocess
 from dashboard.execution.adapters import aa
 
 
+def test_no_mdrun_command_in_the_project_passes_a_thread_mpi_only_flag():
+    """The generated commands are not the only ones that can run here.
+
+    The legacy launchers under `execution/scripts/` are kept and have their own tests, so a thread-MPI flag
+    there is exactly as fatal as one in a generated command -- and it fails on the one machine that matters, at
+    the first mdrun, which is how the runs directory stayed empty.
+    """
+    from pathlib import Path
+
+    scripts = sorted((Path(aa.__file__).parents[1] / 'scripts').glob('*.sh'))
+    sources = [Path(aa.__file__), *scripts]
+    commands = [(path.name, line) for path in sources
+                for line in path.read_text().splitlines() if 'gmx mdrun' in line]
+    assert commands, 'mdrun commands were found to check'
+    assert [name for name, line in commands if '-ntmpi' in line] == [], 'thread-MPI flag in an mdrun command'
+
+
 def test_no_generated_mdrun_command_passes_a_thread_mpi_only_flag():
     """-ntmpi is only valid for a thread-MPI build; this host has none. Checked against the mdrun command
     lines rather than the whole file, because the file's own comment names the flag it must not pass. What

@@ -9,7 +9,6 @@
     "bonded": "gpu",
     "update": "gpu",
     "pin": "on",
-    "ntmpi": 1,
     "ntomp": 8,
     "nstlist": 100
   },
