@@ -87,6 +87,28 @@ def test_the_mdp_restrains_every_bond_as_the_paper_does(prepare):
         assert line in text, f'{line!r} is missing from the mdp'
 
 
+def test_a_solutes_caveats_travel_with_the_run_and_are_stated_in_readiness(molecule_root, prepare):
+    """The SwissParam version caveat belongs to the solute, so it rides on the run rather than in a comment.
+
+    It is not a blocker -- the pairing may well be sound -- but a reader deciding whether to trust a result needs
+    it beside the verdict, and the manifest is the record that outlives the conversation.
+    """
+    metadata = json.loads((molecule_root / 'Fixture/metadata.json').read_text())
+    metadata['parameterization_version'] = 'unrecorded'
+    metadata['caveats'] = ['Parameterised by SwissParam, which does not record the CGenFF version it derives from.']
+    (molecule_root / 'Fixture/metadata.json').write_text(json.dumps(metadata))
+
+    run = prepare()
+    context = json.loads((run / 'stages/common/context.json').read_text())
+    assert context['caveats'] == metadata['caveats']
+    assert json.loads((run / 'manifest.json').read_text())['caveats'] == metadata['caveats']
+
+    report = aa.readiness(molecule_root, 'Fixture')
+    detail = next(check['detail'] for check in report['checks'] if check['label'] == 'AA molecule')
+    assert 'SwissParam' in detail
+    assert report['blockers'] == [], 'a caveat is a caveat, not a blocker'
+
+
 def test_the_ion_names_come_from_the_entry(tmp_path, molecule_root, monkeypatch):
     """A charged solute's counterions are named by the force field, not by a literal.
 

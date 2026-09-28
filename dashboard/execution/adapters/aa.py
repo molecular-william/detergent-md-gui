@@ -239,7 +239,13 @@ def readiness(molecule_root,molecule_id):
     checks=[];blockers=[]
     try:
         selected=aa_molecules.selection(molecule_root,molecule_id,run_type='aa_only')
-        checks.append({'label':'AA molecule','path':selected['path'],'ready':True,'detail':'Input consistency checked; GROMACS verifies parameter resolution before MD.'})
+        selected_metadata=selected['metadata']
+        caveats=[str(caveat) for caveat in (selected_metadata.get('caveats') or [])] if isinstance(selected_metadata,dict) else []
+        detail='Input consistency checked; GROMACS verifies parameter resolution before MD.'
+        # A caveat is stated where the run is configured rather than buried in a comment: it does not block the
+        # run, and a reader deciding whether to trust the result needs to see it beside the readiness verdict.
+        if caveats:detail+=' Caveat: '+' '.join(caveats)
+        checks.append({'label':'AA molecule','path':selected['path'],'ready':True,'detail':detail})
     except (ValueError,OSError) as exc:blockers.append(str(exc))
     executable=tools.tool_path('gmx')
     ok,detail=probe_tool(executable) if executable else (False,'Executable not found')
@@ -318,8 +324,10 @@ def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
     shutil.copytree(tree,common/tree.name)
     for name,module in RUN_HELPERS:
         shutil.copy2(Path(module.__file__), common/name)
+    caveats=[str(caveat) for caveat in (molecule_snapshot['metadata'].get('caveats') or [])]
     context={'protocol_version':VERSION,'settings':settings,'molecule_snapshot':molecule_snapshot,
              'input_preparation':preparation,'force_field':ff.name,'force_field_directory':tree.name,
+             'caveats':caveats,
              'force_field_sha256':files.hashes(common/tree.name),'scientifically_validated':False}
     files.atomic_json(common/'context.json',context)
     n=molecule_snapshot['atom_count'];charge=round(molecule_snapshot['metadata']['net_charge'])
