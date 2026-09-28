@@ -27,3 +27,20 @@ def test_the_complex_tab_opens_an_empty_panel_that_says_so(dashboard, live_page)
     box = page.locator('#pdc-viewer').bounding_box()
     assert box and box['height'] >= 360 and box['width'] >= 300, box
     assert errors == []
+
+
+def test_the_setup_lists_what_can_be_built_and_what_it_is_worth(dashboard, live_page):
+    """The selectors come from the catalogue, and the panel repeats the catalogue's own judgement of the template.
+
+    The shipped DDM template is a skeleton, and the option text says what kind of entry it is rather than
+    presenting it as a ready detergent.
+    """
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#pdc')
+
+    expect(page.locator('#pdc-template option').first).to_contain_text('registered-template')
+    expect(page.locator('#pdc-template')).to_have_value('DDM:DDM')
+    expect(page.locator('#pdc-template-limitation')).not_to_have_text('')
+    # An empty micelle is in scope, so the protein list offers the absence of a protein.
+    expect(page.locator('#pdc-protein option').first).to_contain_text('No protein')
+    assert errors == []
