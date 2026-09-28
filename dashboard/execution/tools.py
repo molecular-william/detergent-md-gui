@@ -27,7 +27,7 @@ IDENTITIES = {'gmx': 'gromacs', 'ff_map': 'fast_forward', 'ff_inter': 'fast_forw
 # Declarations that name a tool the run types resolve, in the order they are reported.
 # Other keys in the same file describe where a tool came from and which revision it
 # should be at -- provenance, not something to resolve or put on PATH.
-TOOL_KEYS = ('gromacs', 'fast_forward', 'bartender', 'xtb')
+TOOL_KEYS = ('gromacs', 'fast_forward', 'bartender', 'xtb', 'acpype', 'antechamber')
 # Declarations that answer for more than one command: the declared entry point
 # locates the others, which sit beside it in the same install. A one-to-one
 # identity (gromacs, whose command is gmx) is not a family.

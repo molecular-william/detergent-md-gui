@@ -149,3 +149,19 @@ def test_the_real_configuration_resolves_the_toolchain_it_declares():
     """The checked-in config must name tools that exist on this machine."""
     assert tools.tool_path('gmx'), 'config/tools.json must name an executable GROMACS'
     assert tools.tool_path('ff_map') and tools.tool_path('ff_inter') and tools.tool_path('ff_assess')
+
+
+def test_the_ambertools_declarations_are_declarations_the_resolver_honours():
+    """A declaration the resolver ignores is worse than none: it reads as verified and is not.
+
+    `TOOL_KEYS` is an allow-list, everything else in the file being provenance that must not reach the search
+    path. Adding a tool's declaration without adding its key therefore leaves the tool unresolvable inside a
+    stage while the file claims it is declared -- which is exactly what happened when the AmberTools tools the
+    GLYCAM06 route converts with were first declared.
+    """
+    for key in ('acpype', 'antechamber'):
+        path = tools.tool_path(key)
+        assert path, f'{key} must resolve to the executable config/tools.json declares'
+        assert str(Path(path).parent) in tools.search_path(), f'{key} is not on the stage search path'
+        assert f'Declared tool: {key}' in {check['label'] for check in tools.declared_tool_checks()[0]}
+
