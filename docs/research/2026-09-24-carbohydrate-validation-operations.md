@@ -153,6 +153,22 @@ Observed SASA means for this short diagnostic were approximately 5.847 nm²
 (simulated CG). The simulated CG segment covered only 50 ps, so these values
 are execution evidence and visualization inputs, not convergence evidence.
 
+## Bead identity in a two-residue sugar
+
+Sucrose, lactose and trehalose are each one moleculetype with two residues, and the reference names every residue's
+beads A/B/C/VS -- sucrose's fructofuranose donates the glycosidic bond and its glucose receives it, and the residue
+number is what tells the copies apart. GROMACS addresses atoms by index, so that is legal; but everything downstream
+of the catalogue keys beads by name, including the endpoint selections the panel sends, the PDB writer's serial map
+and the viewer's index lookup. A repeated name therefore resolved to the first residue every time, and sucrose
+rendered as one ring with the second ring's bonds pointing into it, with no error anywhere.
+
+`models/compositions/topology.py` now keeps each atom's residue number and, where a name occurs more than once,
+suffixes every occurrence with it, so the catalogue offers `A1`, `A2`, `B1`, `B2`, … and the single-residue sugars
+keep the reference's own names. Whether a bead is a virtual site is a property of the file -- the sites a
+moleculetype declares -- and is no longer recognised by the name `VS`, which stopped matching as soon as a name was
+suffixed: the endpoint lists had begun to offer `VS1` and `VS2` as linkage beads, and a site with no coordinates
+would have been drawn as one.
+
 ## Handoff checklist
 
 When continuing this work:

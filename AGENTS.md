@@ -64,6 +64,11 @@ dashboard.
   molecule-specific measurements and uncertainties are supplied. `setup`
   analyses and short trajectories are diagnostic execution checks; they do
   not authorize a model or establish scientific validation.
+- The CG Bead Assignment editor shows one assignment two ways from one source: a 2D depiction
+  with bead circles at the mean of their atoms, and a 3D NGL overlay drawing the heavy atoms
+  with each bead as a translucent sphere at that same centre. `POST /api/mappings/overlay3d`
+  serves both files from `models/mappings/overlay3d.py`, and both read the assignment being
+  edited, including an unsaved local draft.
 - The current Sucrose path is provisional: the automatic recognizer handles
   one hexopyranose ring and preserves the remaining connected graph as a
   draft. Treat generated Sucrose mappings as diagnostic inputs, not official
@@ -103,6 +108,10 @@ exit code, and log path. Runs terminate as `complete`, `failed`, `cancelled`,
 or `blocked`.
 
 ## Do not
+
+- Exercise a destructive control against the live workspace to see what it does. Point it at
+  a test fixture, or inspect what the client would send instead of sending it; two saved
+  mapping candidates were destroyed by clicking Delete against real data to watch the request.
 
 - Treat notebooks as production orchestration without extracting and testing
   their behavior.
