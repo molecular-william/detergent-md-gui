@@ -31,11 +31,31 @@ ATOMS = """(el, key) => {
   return atoms;
 }"""
 
-# Every representation the panel asked for, with the selection and the colour it carries.
-REPS = """(el, key) => (el.compositionStages?.[key]?.compList?.[0]?.reprList ?? []).map(repr => {
-  const parameters = repr.parameters ?? repr.params ?? {};
-  return {sele: parameters.sele, colour: parameters.color};
-}).filter(repr => typeof repr.sele === 'string')"""
+# Every representation the panel asked for, with the selection and the colour it carries -- and, the part that
+# matters, the bead names the viewer actually matched for that selection. Reading the request alone is what let
+# three blank panels pass these tests: the selections named beads in a syntax this NGL build does not resolve, so
+# every representation drew nothing while every assertion about the requested text held.
+REPS = """(el, key) => {
+  const component = el.compositionStages?.[key]?.compList?.[0];
+  const structure = component?.structure;
+  return (component?.reprList ?? []).map(repr => {
+    const parameters = repr.parameters ?? repr.params ?? {};
+    const indices = (typeof parameters.sele === 'string' && structure?.getAtomIndices && window.NGL?.Selection)
+      ? Array.from(structure.getAtomIndices(new window.NGL.Selection(parameters.sele))) : [];
+    return {sele: parameters.sele, colour: parameters.color,
+            names: indices.map(index => structure.getAtomProxy(index).atomname)};
+  }).filter(repr => typeof repr.sele === 'string');
+}"""
+
+# Where the camera sits, and how far in it is zoomed. NGL opens at (0, 0, -10) with zoom 1, which is also where
+# an autoView resolves to when the selection it was handed matched nothing -- so this pair is the difference
+# between a framed structure and an empty rectangle.
+CAMERA = """(el, key) => {
+  const camera = el.compositionStages?.[key]?.viewer?.camera;
+  if (!camera) return null;
+  return {position: camera.position.toArray().map(value => Math.round(value * 100) / 100),
+          zoom: Math.round(camera.zoom * 1000) / 1000};
+}"""
 
 # The colour the panel gives the linkage beads, which is what marks those representations out.
 LINKAGE_COLOUR = 0xDF203D
@@ -128,12 +148,12 @@ def test_preview_waits_for_the_catalogue_instead_of_posting_an_empty_fragment(da
 
 def _drawn(page, key):
     """The beads the panel draws in their own type colour."""
-    return [name for rep in _reps(page, key) if rep['colour'] != LINKAGE_COLOUR for name in _names(rep['sele'])]
+    return [name for rep in _reps(page, key) if rep['colour'] != LINKAGE_COLOUR for name in rep['names']]
 
 
 def _highlight(page, key):
     """The beads the panel draws in the linkage colour. The join asks for both at once, as one selection."""
-    return [name for rep in _reps(page, key) if rep['colour'] == LINKAGE_COLOUR for name in _names(rep['sele'])]
+    return [name for rep in _reps(page, key) if rep['colour'] == LINKAGE_COLOUR for name in rep['names']]
 
 
 def _colours(page, keys):
@@ -142,9 +162,35 @@ def _colours(page, keys):
     for key in keys:
         for rep in _reps(page, key):
             if rep['colour'] == LINKAGE_COLOUR: continue
-            for name in _names(rep['sele']):
+            for name in rep['names']:
                 colours.setdefault(name, set()).add(rep['colour'])
     return colours
+
+
+def test_every_representation_matches_beads_and_the_view_is_framed(dashboard, live_page):
+    """Blank panels with every part apparently in place: the selections matched nothing, and autoView framed it.
+
+    This build parses a bare word as a residue name, so selections built from bead names (`A or B`, `C01`)
+    resolved to no atoms. Each representation therefore drew nothing, and autoView(selection) asked for the centre
+    and zoom of a selection that had no atoms -- which is the camera's own starting place, so the view never moved
+    off the origin. Nothing threw and nothing logged, and the tests above passed throughout, because they asserted
+    the selections the panel asked for rather than the beads the viewer matched. Both, plus the camera, are the
+    regression.
+    """
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#compositions')
+    _preview(page)
+    _mounted(page)
+
+    for key in ('head', 'tail', 'joined'):
+        reps = _reps(page, key)
+        assert reps, f'{key} asked for no representations'
+        for rep in reps:
+            assert rep['names'], f"{key} representation {rep['sele']!r} matches no bead"
+        camera = page.locator(HOST).evaluate(CAMERA, key)
+        assert camera and (camera['position'] != [0, 0, -10] or camera['zoom'] != 1), \
+            f'{key} is still at the camera NGL opens with: {camera}'
+    assert errors == []
 
 
 def test_the_panel_mounts_both_fragments_and_the_join_with_the_linkage_beads_highlighted(dashboard, live_page):

@@ -46,22 +46,32 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
     const stage = stageFor(key);
     stage.removeAllComponents();
     const component = stage.loadFile(new Blob([pdb], {type: 'text/plain'}), {ext: 'pdb'});
+    // Beads are addressed by their position in the file, not by name. This NGL build parses a bare word as a
+    // residue name, so a selection built from bead names matches nothing -- the representations then draw
+    // nothing, and autoView(selection) asks for the centre and zoom of a selection it could not resolve, which
+    // is the camera's own starting place. Three blank panels, with nothing thrown and nothing logged. The order
+    // is read back out of the PDB text the viewer is handed, so the indices cannot drift from the structure NGL
+    // loaded -- and every panel loads the whole file, so a panel-relative index would address another panel's
+    // beads. `@0` is the first atom.
+    const order = [...pdb.matchAll(/^HETATM.{6}(.{4})/gm)].map(match => match[1].trim());
+    const at = bead => '@' + order.indexOf(bead);
     const groups = new Map();
     for (const bead of beads) {
       const colour = beadColour(bead.type);
       if (!groups.has(colour)) groups.set(colour, []);
-      groups.get(colour).push(bead.name);
+      groups.get(colour).push(at(bead.name));
     }
     component.then(item => {
-      for (const [colour, names] of groups) {
-        item.addRepresentation('ball+stick', {sele: names.join(' or '), color: colour,
+      for (const [colour, selection] of groups) {
+        item.addRepresentation('ball+stick', {sele: selection.join(' or '), color: colour,
           radiusScale: BEAD_RADIUS_SCALE, aspectRatio: BEAD_ASPECT_RATIO});
       }
       if (selected.length) {
-        item.addRepresentation('ball+stick', {sele: selected.join(' or '), color: LINKAGE_COLOUR,
+        item.addRepresentation('ball+stick', {sele: selected.map(at).join(' or '), color: LINKAGE_COLOUR,
           radiusScale: BEAD_RADIUS_SCALE, aspectRatio: BEAD_ASPECT_RATIO});
       }
-      item.autoView(beads.map(bead => bead.name).join(' or '));
+      // Frame the structure, not a selection: this is the form that measurably moves the camera.
+      item.autoView();
     });
     return component;
   }
