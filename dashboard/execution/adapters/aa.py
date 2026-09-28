@@ -10,6 +10,7 @@ from ...models.molecules import aa as aa_molecules
 from .. import forcefields, protocol, tools
 from ..environment import environment, probe_tool, recorded_environment
 from ..stages import Stage, stage_tables
+from . import aa_box
 
 # Modules copied into every run's common/ directory. The names are part of the
 # run contract, not a detail: the generated stage scripts invoke
@@ -161,7 +162,7 @@ STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS = stage_tables(STAGE_DEFS)
 
 DEFAULTS=dict(aa_nvt_ps=100,aa_npt_ps=1000,aa_production_ps=10000,
               temperature_k=forcefields.entry().temperature_k,
-              pressure_bar=1,output_interval_ps=10,box_padding_nm=1.5,aa_seed=20260917,
+              pressure_bar=1,output_interval_ps=10,box_nm=aa_box.DEFAULT_EDGE_NM,aa_seed=20260917,
               mdrun_ntomp=8,mdrun_ranks=1,mdrun_nb='auto',mdrun_pme='auto',
               force_field=forcefields.DEFAULT)
 # Choices are a separate shape rather than a third element of the numeric tuple, which unpacks as (label, lo,
@@ -178,7 +179,7 @@ SETTING_SPECS={'aa_nvt_ps':('AA NVT duration',1,1000000),'aa_npt_ps':('AA NPT du
                'mdrun_ranks':('mdrun MPI ranks',1,72),
                'temperature_k':('Temperature',200,500),'pressure_bar':('Pressure',.1,100),
                'output_interval_ps':('Trajectory output interval',.002,100000),
-               'box_padding_nm':('Box padding',1.3,10),'aa_seed':('AA random seed',1,2147483646)}
+               'box_nm':('Box edge',1.0,20),'aa_seed':('AA random seed',1,2147483646)}
 
 
 def stage_defaults(profile='standard'):
@@ -308,6 +309,10 @@ def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
         else:
             shutil.copy2(original,molecule/'molecule.gro')
     preparation['prepared_gro_sha256']=files.sha256(molecule/'molecule.gro')
+    # A box that cannot hold the solute is refused here, before any stage is written, rather than discovered as a
+    # solute interacting with its own periodic image three stages later.
+    aa_box.check_fit(molecule_snapshot['metadata']['name'], aa_box.read_coordinates(molecule/'molecule.gro'),
+                     settings['box_nm'])
     ff=forcefields.entry(settings['force_field']); tree=ff.tree()
     if any(p.is_symlink() for p in tree.rglob('*')):raise ValueError('Force-field symlinks are unsupported')
     shutil.copytree(tree,common/tree.name)
@@ -323,7 +328,7 @@ def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
     top=(f'#include "../common/{tree.name}/forcefield.itp"\n#include "../common/molecule/molecule.itp"\n'
          f'#include "../common/{tree.name}/{ff.water_file}"\n#include "../common/{tree.name}/ions.itp"\n\n'
          f'[ system ]\nSingle solute in water\n[ molecules ]\n{molecule_snapshot["metadata"]["molecule_type"]} 1\n')
-    scripts=[f'''gmx editconf -f ../common/molecule/molecule.gro -d {settings['box_padding_nm']:g} -c -bt dodecahedron -o boxed.gro
+    scripts=[f'''gmx editconf -f ../common/molecule/molecule.gro {aa_box.editconf_arguments(settings['box_nm'])} -o boxed.gro
 gmx grompp -f run.mdp -c boxed.gro -p system.top -o input-check.tpr
 gmx solvate -cp boxed.gro -cs spc216.gro -p system.top -o system.gro
 ''','''cp ../01_solvation/system.top system.top

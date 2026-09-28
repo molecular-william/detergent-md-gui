@@ -66,6 +66,7 @@
     <div class="run-config-trio">
     <label>Run type<select name="run_type" id="run-type"><option value="aa_cg">AA–CG run</option><option value="aa_only">AA run only</option><option value="cg_composition">CG composition screening</option></select></label>
     <label class="cg-setting">Method<select name="method" id="method"><option value="fast_forward">Fast_Forward</option><option value="bartender">Bartender</option></select></label>
+    <label>Force field<select name="force_field" id="force-field"><option value="charmm36-feb2026_cgenff-4.6">CHARMM36m (Feb 2026, CGenFF 4.6)</option><option value="charmm36-jul2022">CHARMM36 (Jul 2022)</option></select></label>
     <label class="cg-setting">Execution<select name="profile"><option value="standard">Standard parameterization (reviewed model required)</option><option value="draft-smoke">Candidate screening · configurable CG durations</option><option value="draft-smoke-reference">Candidate screening · reuse full AA reference</option></select></label>
     </div>
     <input type="hidden" name="clone_of"><p id="clone-notice" class="hint" role="status"></p><button id="leave-clone" type="button" class="secondary" hidden>Use settings for a new run</button>
@@ -96,7 +97,7 @@
         <label class="cg-setting">CG production (ps)<span class="setting-control"><input name="cg_production_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="cg_production_ps">Default</button></span></label>
         <label>Temperature (K)<span class="setting-control"><input name="temperature_k" type="number" min="200" max="500" step="0.1"><button type="button" class="secondary use-default" data-field="temperature_k">Default</button></span></label>
         <label>Pressure (bar)<span class="setting-control"><input name="pressure_bar" type="number" min="0.1" max="100" step="0.1"><button type="button" class="secondary use-default" data-field="pressure_bar">Default</button></span></label>
-        <label>Box padding (nm)<span class="setting-control"><input name="box_padding_nm" type="number" min="1.3" max="10" step="0.1"><button type="button" class="secondary use-default" data-field="box_padding_nm">Default</button></span></label>
+        <label>Box edge (nm)<span class="setting-control"><input name="box_nm" type="number" min="1" max="20" step="0.1"><button type="button" class="secondary use-default" data-field="box_nm">Default</button></span></label>
         <label>mdrun threads<span class="setting-control"><input name="mdrun_ntomp" type="number" min="1" max="72" step="1"><button type="button" class="secondary use-default" data-field="mdrun_ntomp">Default</button></span></label>
         <label>mdrun ranks<span class="setting-control"><input name="mdrun_ranks" type="number" min="1" max="72" step="1"><button type="button" class="secondary use-default" data-field="mdrun_ranks">Default</button></span></label>
         <label>Nonbonded scheme<span class="setting-control"><select name="mdrun_nb"><option value="auto">auto · profile decides</option><option value="cpu">CPU</option><option value="gpu">GPU</option></select><button type="button" class="secondary use-default" data-field="mdrun_nb">Default</button></span></label>

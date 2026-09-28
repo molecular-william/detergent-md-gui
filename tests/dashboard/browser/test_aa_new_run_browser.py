@@ -7,7 +7,7 @@ from playwright.sync_api import expect
 def test_aa_form_preserves_cg_choices_and_reference_settings(dashboard, live_page):
     aa = dict(aa_nvt_ps=100, aa_npt_ps=1000, aa_production_ps=10000,
               temperature_k=300, pressure_bar=1, output_interval_ps=10,
-              box_padding_nm=1.5, aa_seed=12345)
+              box_nm=2.4, aa_seed=12345)
     defaults = aa | dict(cg_equil_ps=10, cg_production_ps=50, sasa_probe_nm=.191, cg_seed=12345)
     inherited = aa | dict(temperature_k=310, aa_production_ps=500, output_interval_ps=5)
     dashboard.coordinator.database().replace([])

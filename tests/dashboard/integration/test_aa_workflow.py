@@ -29,7 +29,7 @@ def test_aa_preparation_has_only_aa_stages_and_consistent_temperature(tmp_path,m
     molecule_root=PROJECT_ROOT/'molecules'
     selected=aa_molecules.selection(molecule_root,'DDM',run_type='aa_only')
     monkeypatch.setattr(aa,'tool_metadata',lambda:{'gmx':{'path':'gmx','version_output':'test'}})
-    aa.prepare_run(tmp_path,molecule_root,selected,{'temperature_k':315,'aa_nvt_ps':1,'aa_npt_ps':1,'aa_production_ps':2,'output_interval_ps':1})
+    aa.prepare_run(tmp_path,molecule_root,selected,{'temperature_k':315,'aa_nvt_ps':1,'aa_npt_ps':1,'aa_production_ps':2,'output_interval_ps':1,'box_nm':4.0})
     data=json.loads((tmp_path/'manifest.json').read_text())
     assert data['run_type']=='aa_only'
     assert len(data['stage_plan'])==7
@@ -54,7 +54,7 @@ def test_aa_settings_do_not_require_cg_duration():
     settings=aa.normalize_settings({'aa_production_ps':100,'output_interval_ps':50})
     assert settings['output_interval_ps']==50
     with pytest.raises(ValueError):aa.normalize_settings({'cg_production_ps':1})
-    with pytest.raises(ValueError):aa.normalize_settings({'box_padding_nm':1})
+    with pytest.raises(ValueError):aa.normalize_settings({'box_nm':0.5})
 
 
 def test_aa_resume_uses_server_stages_and_rejects_changed_upstream(tmp_path,monkeypatch):
@@ -66,7 +66,7 @@ def test_aa_resume_uses_server_stages_and_rejects_changed_upstream(tmp_path,monk
     molecules=PROJECT_ROOT/'molecules'
     selected=aa_molecules.selection(molecules,'DDM',run_type='aa_only')
     monkeypatch.setattr(aa,'tool_metadata',lambda:{})
-    aa.prepare_run(root,molecules,selected)
+    aa.prepare_run(root,molecules,selected,{'box_nm':4.0})
     data=json.loads((root/'manifest.json').read_text());data['stage_plan']=['untrusted script path']
     files.atomic_json(root/'manifest.json',data)
     def execute(command,**kwargs):
