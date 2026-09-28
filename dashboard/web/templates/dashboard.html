@@ -60,12 +60,12 @@
     <section class="card" aria-labelledby="execution-title">
     <span class="eyebrow">RUN CONFIGURATION</span><h3 id="execution-title">Execution and CG inputs</h3>
     <p class="hint" id="run-type-help">Choose the workflow before selecting CG-specific inputs.</p>
-    <div class="run-config-pair">
+    <div class="run-config-trio">
     <label>Run type<select name="run_type" id="run-type"><option value="aa_cg">AA–CG run</option><option value="aa_only">AA run only</option><option value="cg_composition">CG composition screening</option></select></label>
     <label class="cg-setting">Method<select name="method" id="method"><option value="fast_forward">Fast_Forward</option><option value="bartender">Bartender</option></select></label>
+    <label class="cg-setting">Execution<select name="profile"><option value="standard">Standard parameterization (reviewed model required)</option><option value="draft-smoke">Candidate screening · configurable CG durations</option><option value="draft-smoke-reference">Candidate screening · reuse full AA reference</option></select></label>
     </div>
     <input type="hidden" name="clone_of"><p id="clone-notice" class="hint" role="status"></p><button id="leave-clone" type="button" class="secondary" hidden>Use settings for a new run</button>
-    <label class="cg-setting">Execution<select name="profile"><option value="standard">Standard parameterization (reviewed model required)</option><option value="draft-smoke">Candidate screening · configurable CG durations</option><option value="draft-smoke-reference">Candidate screening · reuse full AA reference</option></select></label>
     <p class="hint cg-setting">Candidate screening checks mapping, fitting and comparison using uncalibrated bead types. It does not validate a scientific model.</p>
     <div class="cg-only" id="cg-inputs">
     <label>CG mapping<select name="mapping_candidate" id="run-mapping"><option value="">Select a saved mapping</option></select></label>

@@ -13,6 +13,9 @@
 #run-form .setting-control input,#run-form .setting-control select{min-width:0;width:100%;max-width:6.5rem}
 /* The run-configuration pairs share a row so the card uses its width instead of stacking one per line. */
 #run-form .run-config-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px}
+/* Run type, Method and Execution read as one choice: what to run, with what, and at which execution
+   profile. Three columns, because Method and Execution are the same kind of decision. */
+#run-form .run-config-trio{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 10px}
 #run-form .use-default{padding:4px 7px;font-size:11px}
 #run-form .hint,#run-form dd{overflow-wrap:anywhere}
 #molecule-details{margin-top:16px;padding:12px;background:#f7f9fc;border:1px solid var(--line);border-radius:8px;font-size:13px;overflow-wrap:anywhere}
@@ -23,6 +26,7 @@
 #run-input-summary dd{margin:0;font-size:13px}
 @media(max-width:900px){#run-form.new-run-layout{grid-template-columns:1fr}}
 @media(max-width:1100px){#run-form .settings-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){#run-form .run-config-pair,#run-form .run-config-trio{grid-template-columns:1fr}}
 @media(max-width:520px){#run-form .settings-grid{grid-template-columns:1fr}}
 /* Compact launch review: key choices stay visible; provenance expands on demand. */
 #run-form .cg-only.hidden,#run-form .cg-setting.hidden{display:none}
