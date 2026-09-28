@@ -2,10 +2,12 @@
 #run-form.new-run-layout{max-width:none;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:20px;align-items:start}
 .new-run-inputs,.new-run-settings{min-width:0}
 #run-form .card{margin:0 0 16px}
-#run-form .run-settings{min-width:0;padding:20px}
-#run-form .settings-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+#run-form .run-settings{min-width:0;padding:14px}
+/* The stage settings are a form to scan, not a field to fill: narrower inputs inside each column, and
+   tighter rows so the whole set reads as one block. */
+#run-form .settings-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px}
 #run-form .setting-control{min-width:0}
-#run-form .setting-control input{min-width:0;width:100%}
+#run-form .setting-control input,#run-form .setting-control select{min-width:0;width:100%;max-width:9rem}
 #run-form .use-default{padding:7px 9px;font-size:12px}
 #run-form .hint,#run-form dd{overflow-wrap:anywhere}
 #molecule-details{margin-top:16px;padding:12px;background:#f7f9fc;border:1px solid var(--line);border-radius:8px;font-size:13px;overflow-wrap:anywhere}
