@@ -138,9 +138,9 @@ def test_the_initial_box_uses_a_two_nanometre_margin_in_x_and_y_and_six_in_z():
     assert box == [8.0, 6.0, 6.0]          # extent + 2 x margin, and z exactly as asked
 
 def test_the_box_is_extended_in_z_so_every_face_is_two_nanometres_away():
-    box = pdc_box.extended_box([0, 0, 0], [[-1.0, -1.0, -0.5], [1.0, 1.0, 2.5]], margin_nm=2.0)
+    box = pdc_box.extended_box([8.0, 6.0], [[-1.0, -1.0, -0.5], [1.0, 1.0, 2.5]], margin_nm=2.0)
     assert box[2] == 2.0 * 2.0 + 3.0        # max_z - min_z + 2 x margin
-    assert box[0] == box[1] == 6.0          # x/y untouched by the extension
+    assert box[:2] == [8.0, 6.0]            # x/y pass through: widening them would change the placed density
 ```
 
 **Step 2: run, expect ImportError.** **Step 3: implement both functions, protein centred in the box.**
@@ -157,12 +157,18 @@ def test_the_box_is_extended_in_z_so_every_face_is_two_nanometres_away():
 **Step 1: failing test**
 
 ```python
-def test_the_elastic_network_is_between_ca_pairs_within_one_nanometre_at_the_requested_force_constant():
-    command = pdc_protein.martinize_command('protein.pdb', out_dir='.', force_field='martini3')
-    assert command[:1] == ['martinize2']
-    assert '-elastic' in command and command[command.index('-ef') + 1] == '1000'
-    assert command[command.index('-el') + 1] == '10'      # 10 A = 1.0 nm
+def test_the_elastic_network_is_the_requested_one(tmp_path):
+    (tmp_path / 'protein.pdb').write_text('ATOM\n')
+    command = pdc_protein.martinize_command(tmp_path / 'protein.pdb', tmp_path)
+    assert '-elastic' in command
+    assert command[command.index('-ef') + 1] == '1000'    # kJ/mol/nm^2, the force constant asked for
+    assert command[command.index('-eu') + 1] == '1.0'     # 10 A, in the nanometres the tool documents
+    assert '-el' not in command    # -el is the lower bound, where the force is constant; the request is a cutoff
 ```
+
+Verified against `martinize2 -h` rather than assumed: `-ef` is in kJ/mol/nm^2, `-el` and `-eu` are the lower and
+upper cutoffs in nanometres, and the upper bound defaults to 0.9 nm. The request's "within 10 A" is therefore
+`-eu 1.0`, and the bead selection stays with the force field, which is one backbone bead per residue.
 
 **Step 2: run, expect ImportError.** **Step 3: implement (resolve the executable through
 `execution/tools.py`, so a missing `martinize2` is a clear error rather than an empty command).**
