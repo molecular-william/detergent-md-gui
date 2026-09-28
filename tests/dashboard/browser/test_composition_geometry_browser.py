@@ -42,6 +42,22 @@ HIGHLIGHT = """(el, key) => (el.compositionStages?.[key]?.compList?.[0]?.reprLis
   .filter(sele => typeof sele === 'string' && sele !== 'SUG' && sele !== 'TAI' && sele !== '*')"""
 
 
+# The drawn ball radius, as NGL computes it: atomRadius x radiusScale x aspectRatio.
+DRAWN_RADII = """(el, key) => {
+  const component = el.compositionStages?.[key]?.compList?.[0];
+  const structure = component?.structure;
+  const params = component?.reprList?.[0]?.parameters ?? {};
+  if (!structure || !params.radiusScale) return null;
+  const radii = {};
+  for (let index = 0; index < structure.atomCount; index += 1) {
+    const atom = structure.getAtomProxy(index);
+    const residue = String(atom.resname).slice(0, 3).trim();
+    (radii[residue] ??= []).push(atom.vdw * params.radiusScale * params.aspectRatio);
+  }
+  return radii;
+}"""
+
+
 def _preview(page):
     page.locator('#composition-preview').click()
     expect(page.locator('#composition-panel-status')).to_contain_text('Preview ready', timeout=30000)
@@ -121,4 +137,28 @@ def test_choosing_another_endpoint_moves_the_highlight_in_every_view(dashboard, 
 
     assert _highlight(page, HEAD, 'head') == [second]
     assert second in _highlight(page, JOINED, 'joined')
+    assert errors == []
+
+
+def test_the_drawn_bead_radii_match_what_the_size_classes_mean(dashboard, live_page):
+    """The plan for this panel said to measure the drawn radii rather than assume them.
+
+    NGL draws a ball at atomRadius x radiusScale x aspectRatio, and the first scale shipped here was a guess that
+    ignored aspectRatio, which drew every bead twice its intended size. This reads the product back out of the
+    viewer, so a drifting default or a changed scale fails here. Only R and S appear in the default composition;
+    the T class needs another tail recipe.
+    """
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#compositions')
+    _preview(page)
+    _mounted(page)
+
+    radii = page.locator(HOST).evaluate(DRAWN_RADII, 'joined')
+    assert radii, 'the viewer reported no radii'
+    # Martini's molecular-volume classes are 2.64 / 2.30 / 1.91 A for R / S / T, which the writer maps to C / N.
+    for residue, target in (('SUG', 2.30), ('TAI', 2.64)):
+        drawn = radii.get(residue)
+        assert drawn, (residue, radii)
+        for value in drawn:
+            assert abs(value - target) / target < 0.15, (residue, target, value)
     assert errors == []

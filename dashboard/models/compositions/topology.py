@@ -331,13 +331,15 @@ def render_pdb(result: dict) -> str:
     arrangement the panel draws: a layout convention, not a minimised structure. Coordinates are written in
     Angstrom because the format is, while the CG positions are nanometres.
 
-    The element is a *radius stand-in* chosen from the bead's size class (R/S/T -> C/N/O) so that a viewer's
-    per-element sphere radii come out in the right proportion. It says nothing about chemistry, and virtual
-    sites are left out: a massless site is not an atom, and it would render as one.
+    The element is a *radius stand-in* chosen from the bead's size class (R/S/T -> C/N/H) so that a viewer's
+    per-element radii come out in proportion to 0.264/0.230/0.191 nm. C/N/H are the stand-ins whose van der
+    Waals radii divide by the same factor into those three targets, which lets one radius scale serve every
+    class. It says nothing about chemistry, and virtual sites are left out: a massless site is not an atom, and
+    it would render as one.
     """
     geometry = preview_geometry(result)
     head_names = {bead["name"] for bead in geometry["head"]["beads"]}
-    elements = {"R": "C", "S": "N", "T": "O"}
+    elements = {"R": "C", "S": "N", "T": "H"}
     serials: dict[str, int] = {}
     remarks = ["REMARK 950 CG COMPOSITION AS A PDB: ONE ATOM PER BEAD, A LAID-OUT ARRANGEMENT, NOT A MINIMISED STRUCTURE",
                "REMARK 950 COLOUR BY TYPE USING THE BEAD LINES BELOW; THE ELEMENT FIELD ONLY CARRIES A RADIUS STAND-IN"]

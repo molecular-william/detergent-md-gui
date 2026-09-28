@@ -21,6 +21,13 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
     return plots[key];
   }
 
+  // NGL draws a ball at atomRadius x radiusScale x aspectRatio (ballandstick-representation.js), so the scale
+  // carries the calibration: NGL's van der Waals radii for C/N/H are 1.70/1.55/1.20 A, and
+  // 1.70x0.75x2 = 2.55 A against the 2.64 nm-class target, 1.55 -> 2.33 against 2.30, 1.20 -> 1.80 against
+  // 1.91. Within a few percent of every class, which is why the element stand-ins are C/N/H and not C/N/O.
+  const BEAD_RADIUS_SCALE = 0.75;
+  const BEAD_ASPECT_RATIO = 2;
+
   function represent(key, pdb, sele, selected) {
     // One structure, three views: the file holds both fragments under SUG and TAI, so a selection is what
     // separates the panels. The linkage bead is a second representation, in the colour that marks a choice.
@@ -28,8 +35,8 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
     stage.removeAllComponents();
     const component = stage.loadFile(new Blob([pdb], {type: 'text/plain'}), {ext: 'pdb'});
     component.then(item => {
-      item.addRepresentation('ball+stick', {sele, radiusScale: 1.55});
-      if (selected.length) item.addRepresentation('ball+stick', {sele: selected.join(' or '), color: 0xdf203d, radiusScale: 1.55});
+      item.addRepresentation('ball+stick', {sele, radiusScale: BEAD_RADIUS_SCALE, aspectRatio: BEAD_ASPECT_RATIO});
+      if (selected.length) item.addRepresentation('ball+stick', {sele: selected.join(' or '), color: 0xdf203d, radiusScale: BEAD_RADIUS_SCALE, aspectRatio: BEAD_ASPECT_RATIO});
       item.autoView(sele);
     });
     return component;

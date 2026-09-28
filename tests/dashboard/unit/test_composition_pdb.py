@@ -58,7 +58,7 @@ def test_the_element_is_a_radius_stand_in_and_never_a_virtual_site():
     assert elements["A"] == "N", elements  # head beads are size S
     assert elements["C01"] == "C", elements  # a mass-54 tail bead is size R
     assert "VS" not in elements
-    assert all(value in {"C", "N", "O"} for value in elements.values()), elements
+    assert all(value in {"C", "N", "H"} for value in elements.values()), elements
 
 
 def test_the_bonds_are_written_once_each_and_reference_real_serials():
