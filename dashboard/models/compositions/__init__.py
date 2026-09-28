@@ -59,6 +59,10 @@ def preview(payload, project_root=None):
     result = composition_topology.build_preview(payload, Path(project_root or ROOT))
     composition_topology.validate_preview(result)
     result['geometry'] = composition_topology.preview_geometry(result)
+    # The panel hands this straight to the NGL viewer, so the browser needs no second request and no route of
+    # its own. It is derived, like `geometry`: composition_identity hashes mapping/topology/tail/profile, so a
+    # rendering convenience cannot change a composition's identity.
+    result['pdb'] = composition_topology.render_pdb(result)
     return result
 
 
