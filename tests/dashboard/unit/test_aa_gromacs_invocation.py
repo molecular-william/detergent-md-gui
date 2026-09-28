@@ -71,3 +71,21 @@ def test_both_settings_are_offered_to_the_run_panel_with_bounds():
     """The panel renders SETTING_SPECS, so a setting that is not in here cannot be chosen."""
     assert aa.SETTING_SPECS['mdrun_ntomp'] == ('mdrun OpenMP threads per rank', 1, 72)
     assert aa.SETTING_SPECS['mdrun_ranks'] == ('mdrun MPI ranks', 1, 72)
+
+
+def test_a_thread_mpi_build_takes_its_ranks_inside_one_process():
+    """The other build's answer to the same question, so the launcher is not a one-way assumption.
+
+    A thread-MPI build has no mpirun to call; its ranks are threads inside one process, which is what -ntmpi
+    sets. This host is not that build, which is why the flag must not appear here -- but the adapter should be
+    right about both, not right by accident about one.
+    """
+    assert aa.mdrun_launch({'mdrun_ranks': 2, 'mdrun_ntomp': 4}, flavour='thread-mpi') == ('', '-ntmpi 2 -ntomp 4')
+    assert aa.mdrun_launch({'mdrun_ranks': 2, 'mdrun_ntomp': 4}, flavour='mpi') == ('mpirun -np 2 ', '-ntomp 4')
+    assert aa.mdrun_launch({'mdrun_ranks': 1}, flavour='thread-mpi') == ('', '-ntomp 8')
+
+
+def test_the_flavour_probe_asks_the_binary():
+    flavour = aa.gromacs_flavour()
+    assert flavour in ('mpi', 'thread-mpi', 'unknown'), flavour
+    assert flavour != 'thread-mpi', 'this host is documented as an MPI build; if that changed, -ntmpi is valid'

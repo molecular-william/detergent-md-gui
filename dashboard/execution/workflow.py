@@ -298,10 +298,11 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
             # The CG launchers offload nonbonded work only -- PME stays on the CPU there, which the GPU launcher
             # tests pin -- so they take the minimisation bracket. A stage setting that names a scheme still
             # overrides it, because the bracket only fills the choices left on 'auto'.
-            mdrun_launcher, mdrun_flags = aa_adapter.mdrun_command_flags(stage_settings, 'em')
+            gromacs_flavour = aa_adapter.gromacs_flavour()
+            mdrun_launcher, mdrun_flags = aa_adapter.mdrun_command_flags(stage_settings, 'em', gromacs_flavour)
 
             def finish_stage(record):
-                record['resource_usage'] = {'wall_seconds': __import__('time').monotonic()-tick, 'openmp_threads': int(stage_settings.get('mdrun_ntomp') or 8), 'mpi_ranks': int(stage_settings.get('mdrun_ranks') or 1), 'output_bytes': sum(p.stat().st_size for p in files.safe_files(script.parent))}
+                record['resource_usage'] = {'wall_seconds': __import__('time').monotonic()-tick, 'openmp_threads': int(stage_settings.get('mdrun_ntomp') or 8), 'mpi_ranks': int(stage_settings.get('mdrun_ranks') or 1), 'gromacs_flavour': gromacs_flavour, 'output_bytes': sum(p.stat().st_size for p in files.safe_files(script.parent))}
                 record['ended_at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
                 files.atomic_json(manifest, data)
 

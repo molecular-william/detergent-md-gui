@@ -39,7 +39,30 @@ MDRUN_GPU_NONBONDED_FLAGS='-gpu_id 0 -nb gpu -pin on'
 MDRUN_GPU_PME_FLAGS=f'{MDRUN_GPU_NONBONDED_FLAGS} -pme gpu -pmefft gpu'
 
 
-def mdrun_launch(settings):
+def gromacs_flavour(binary=None):
+    """Which mdrun this build is: 'mpi', 'thread-mpi' or 'unknown'.
+
+    GROMACS prints its own configuration, so this asks the binary rather than assuming from the host: an MPI
+    build takes ranks as separate processes under mpirun, a thread-MPI build takes them inside one process with
+    -ntmpi -- and passing -ntmpi to an MPI build aborts mdrun before the first step. Costs one subprocess; stage
+    preparation calls it per stage, which is cheap beside grompp.
+    """
+    import shutil
+    import subprocess
+
+    resolved = binary or shutil.which('gmx') or '/usr/local/gromacs/2026.3/bin/gmx'
+    try:
+        report = subprocess.run([resolved, '--version'], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return 'unknown'
+    text = report.stdout + report.stderr
+    # An MPI build links an MPI library and may still mention thread-MPI (as being off), so the library is the
+    # discriminator and the mention only breaks a tie the library left open.
+    if 'MPI library' in text: return 'mpi'
+    return 'thread-mpi' if 'thread MPI' in text else 'unknown'
+
+
+def mdrun_launch(settings, flavour=None):
     """The mdrun launcher and its thread flags, from the stage settings.
 
     Two levers, and on this host only one of them is the second one people expect. `-ntomp` sets OpenMP
@@ -61,7 +84,17 @@ def mdrun_launch(settings):
     if ranks * threads > cores:
         raise ValueError(f'mdrun would use {ranks * threads} CPU slots for {cores} cores; '
                          'lower mdrun_ranks or mdrun_ntomp')
-    prefix = f'mpirun -np {ranks} ' if ranks > 1 else ''
+    build = flavour or gromacs_flavour()
+    if ranks > 1:
+        if build == 'thread-mpi':
+            # Ranks live inside one process here, so -ntmpi is the flag and mpirun does not exist to use.
+            prefix, rank_flags = '', f'-ntmpi {ranks} '
+        else:
+            # An MPI build (and an unprobed one, which is what this adapter always assumed) takes the ranks as
+            # separate processes. 'unknown' keeps that behaviour and shows up in the manifest.
+            prefix, rank_flags = f'mpirun -np {ranks} ', ''
+    else:
+        prefix, rank_flags = '', ''
     # 'auto' emits nothing, so a run that does not touch these settings produces exactly the command it
     # produced before they existed, and a GPU execution profile keeps its own flags.
     scheme = ''
@@ -74,10 +107,10 @@ def mdrun_launch(settings):
                              'nonbonded scheme is on the GPU too')
         if choice != 'auto':
             scheme += f' {flag} {choice}' + (' -pmefft gpu' if key == 'mdrun_pme' and choice == 'gpu' else '')
-    return prefix, f'-ntomp {threads}{scheme}'
+    return prefix, f'{rank_flags}-ntomp {threads}{scheme}'
 
 
-def mdrun_command_flags(settings, stage):
+def mdrun_command_flags(settings, stage, flavour=None):
     """The launcher and the whole flag set for one mdrun command.
 
     One place decides the budget and the schemes, so a generated command and a stage script cannot disagree.
@@ -88,7 +121,7 @@ def mdrun_command_flags(settings, stage):
     leave GROMACS to use whichever came last, which would not be what the setting says. With both on 'auto' the
     result is byte-for-byte the command these stages produced before the settings existed.
     """
-    launcher, thread_flags = mdrun_launch(settings)
+    launcher, thread_flags = mdrun_launch(settings, flavour)
     bracket = MDRUN_GPU_NONBONDED_FLAGS if stage == 'em' else MDRUN_GPU_PME_FLAGS
     for key, flag in (('mdrun_nb', '-nb'), ('mdrun_pme', '-pme')):
         if str(settings.get(key) or 'auto') == 'auto': continue
