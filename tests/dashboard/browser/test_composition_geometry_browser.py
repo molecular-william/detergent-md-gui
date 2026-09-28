@@ -1,29 +1,45 @@
-"""Browser proof that the Molecule Combination panel draws the CG geometry as 3D scenes.
+"""Browser proof that the Molecule Combination panel mounts the CG geometry in NGL.
 
-The panel used to draw a grid of bead labels positioned by index arithmetic, so nothing on screen
-reflected the molecule. These tests read the Plotly traces the panel actually produced, which means a
-server or a code path that stops sending geometry fails here instead of leaving three empty rectangles.
+The panel used to draw three plotly scenes, whose one interactive advantage -- clicking a bead to choose the
+linkage endpoint -- the two endpoint comboboxes now cover, so the picker and the renderer both went. It mounts
+NGL stages instead: one structure per panel, separated by the residue the writer gives each fragment. These
+tests read what the viewer actually loaded, not what the panel intended to load.
 
-The plots are read from `el.data` rather than from pixels: a 3D scene is a WebGL canvas, and the data
-is what decides whether the beads are on screen at all.
+NGL stages live in the panel's closure, so the panel publishes them on the workspace element as its test seam
+(`compositionStages`). The claims are the ones the plotly tests made: each fragment panel shows its own beads,
+the linkage bead is highlighted in every view, and no virtual site is drawn as an atom. The bond count is not
+re-proved here -- what a viewer draws bonds from is the CONECT records, and that is pinned in the unit test on
+the writer, where the file is produced.
 """
 from playwright.sync_api import expect
 
 HEAD = '#composition-plot-head'
 TAIL = '#composition-plot-tail'
 JOINED = '#composition-plot-joined'
-RED = '#df203d'
+# The panel publishes its NGL stages on the workspace element, so this is where the seam is read.
+HOST = '#compositions'
 
-BEAD_NAMES = """(el, colour) => el.data
-  .filter(trace => trace.meta === 'bead')
-  .flatMap(trace => {
-    const colours = [].concat(trace.marker?.color ?? []);
-    return colours.map((colourAt, index) => [colourAt, trace.text[index]])
-      .filter(([colourAt, name]) => !colour || String(colourAt).toLowerCase() === colour)
-      .map(([, name]) => name);
-  })"""
+# One entry per bead, from the structure NGL is actually holding.
+ATOMS = """(el, key) => {
+  const structure = el.compositionStages?.[key]?.compList?.[0]?.structure;
+  if (!structure) return null;
+  const atoms = [];
+  for (let index = 0; index < structure.atomCount; index += 1) {
+    const atom = structure.getAtomProxy(index);
+    atoms.push({name: atom.atomname, residue: atom.resname});
+  }
+  return atoms;
+}"""
 
-EDGE_POINTS = "(el, meta) => el.data.filter(trace => trace.meta === meta).reduce((total, trace) => total + (trace.x || []).length, 0)"
+# The representation that carries the panel's own fragment selection: the first one added.
+BASE = """(el, key) => (el.compositionStages?.[key]?.compList?.[0]?.reprList ?? [])
+  .map(repr => (repr.parameters ?? repr.params)?.sele)
+  .filter(sele => typeof sele === 'string')[0] ?? null"""
+
+# The selections the panel asked NGL to highlight: everything except the panel's own fragment selection.
+HIGHLIGHT = """(el, key) => (el.compositionStages?.[key]?.compList?.[0]?.reprList ?? [])
+  .map(repr => (repr.parameters ?? repr.params)?.sele)
+  .filter(sele => typeof sele === 'string' && sele !== 'SUG' && sele !== 'TAI' && sele !== '*')"""
 
 
 def _preview(page):
@@ -31,69 +47,78 @@ def _preview(page):
     expect(page.locator('#composition-panel-status')).to_contain_text('Preview ready', timeout=30000)
 
 
-def test_the_panel_draws_both_fragments_and_the_join_with_the_linkage_beads_in_red(dashboard, live_page):
+def _mounted(page):
+    """Every panel's stage has loaded a structure, which is asynchronous in NGL."""
+    page.wait_for_function(
+        """selector => {
+             const stages = document.querySelector(selector)?.compositionStages;
+             return !!stages && Object.values(stages).length === 3
+               && Object.values(stages).every(stage => stage.compList.length > 0
+                    && stage.compList.every(comp => comp.reprList.length >= 2));
+           }""",
+        arg='#compositions', timeout=30000)
+
+
+def _beads(page, selector, key):
+    beads = page.locator(HOST).evaluate(ATOMS, key)
+    assert beads, f'{selector} mounted no structure'
+    return beads
+
+
+def _highlight(page, selector, key):
+    """The highlighted bead names. The join asks for both at once, as one NGL selection."""
+    selections = page.locator(HOST).evaluate(HIGHLIGHT, key)
+    return [name for selection in selections for name in selection.split(' or ')]
+
+
+def test_the_panel_mounts_both_fragments_and_the_join_with_the_linkage_beads_highlighted(dashboard, live_page):
     page, errors = live_page
     page.goto(f'{live_page.base_url}/#compositions')
     _preview(page)
+    _mounted(page)
 
-    head, tail, joined = (page.locator(selector) for selector in (HEAD, TAIL, JOINED))
-    for plot in (head, tail, joined):
-        expect(plot.locator('.plotly')).to_be_visible()
+    for selector in (HEAD, TAIL, JOINED):
+        expect(page.locator(selector).locator('canvas')).to_be_visible()
 
-    head_beads = head.evaluate(BEAD_NAMES, None)
-    tail_beads = tail.evaluate(BEAD_NAMES, None)
-    joined_beads = joined.evaluate(BEAD_NAMES, None)
-    assert len(head_beads) == 3, head_beads
-    assert len(tail_beads) == 3, tail_beads
-    assert set(joined_beads) == set(head_beads) | set(tail_beads)
+    head = _beads(page, HEAD, 'head')
+    tail = _beads(page, TAIL, 'tail')
+    joined = _beads(page, JOINED, 'joined')
 
-    # Virtual sites are not drawn: the sugar fragment has one and the head panel does not show it.
-    assert 'VS' not in head_beads
+    # One structure per panel, holding every bead; what separates the views is each representation's
+    # selection, which is why the fragment split is asserted here and not as an atom count.
+    assert (len(head), len(tail), len(joined)) == (6, 6, 6), (head, tail, joined)
+    residues = {atom['name']: atom['residue'] for atom in joined}
+    assert sorted(residues.values()) == ['SUG', 'SUG', 'SUG', 'TAI', 'TAI', 'TAI'], residues
+    assert 'VS' not in residues
+    assert page.locator(HOST).evaluate(BASE, 'head') == 'SUG'
+    assert page.locator(HOST).evaluate(BASE, 'tail') == 'TAI'
+    assert page.locator(HOST).evaluate(BASE, 'joined') == '*'
 
-    # Each fragment has exactly one red bead, and it is the endpoint the linkage currently attaches to.
+    # Each fragment highlights exactly the endpoint the linkage currently attaches to, and the join both.
     head_endpoint = page.locator('#composition-head-endpoint').input_value()
     tail_endpoint = page.locator('#composition-tail-endpoint').input_value()
-    assert head.evaluate(BEAD_NAMES, RED) == [head_endpoint]
-    assert tail.evaluate(BEAD_NAMES, RED) == [tail_endpoint]
-    assert sorted(joined.evaluate(BEAD_NAMES, RED)) == sorted([head_endpoint, tail_endpoint])
-
-    # Bonds are drawn: three head bonds, two tail bonds, plus the link between the fragments.
-    assert head.evaluate(EDGE_POINTS, 'edge') == 3 * 3
-    assert tail.evaluate(EDGE_POINTS, 'edge') == 2 * 3
-    assert joined.evaluate(EDGE_POINTS, 'edge') == 6 * 3
+    assert _highlight(page, HEAD, 'head') == [head_endpoint]
+    assert _highlight(page, TAIL, 'tail') == [tail_endpoint]
+    assert sorted(_highlight(page, JOINED, 'joined')) == sorted([head_endpoint, tail_endpoint])
 
     caption = page.locator('#composition-geometry-basis').text_content()
     assert 'layout' in caption and 'minimised' in caption and 'CG' in caption
     assert errors == []
 
 
-def test_choosing_another_endpoint_moves_the_red_bead_in_every_view(dashboard, live_page):
+def test_choosing_another_endpoint_moves_the_highlight_in_every_view(dashboard, live_page):
     page, errors = live_page
     page.goto(f'{live_page.base_url}/#compositions')
     _preview(page)
+    _mounted(page)
 
-    head = page.locator(HEAD)
     first = page.locator('#composition-head-endpoint').input_value()
-    second = [value for value in head.evaluate(BEAD_NAMES, None) if value != first][0]
+    second = [atom['name'] for atom in _beads(page, HEAD, 'head') if atom['name'] != first][0]
 
     page.locator('#composition-head-endpoint').select_option(second)
     _preview(page)
-    assert head.evaluate(BEAD_NAMES, RED) == [second]
-    assert second in page.locator(JOINED).evaluate(BEAD_NAMES, RED)
-    assert errors == []
+    _mounted(page)
 
-
-def test_clicking_a_bead_picks_it_as_the_endpoint(dashboard, live_page):
-    page, errors = live_page
-    page.goto(f'{live_page.base_url}/#compositions')
-    _preview(page)
-
-    head = page.locator(HEAD)
-    current = page.locator('#composition-head-endpoint').input_value()
-    target = [value for value in head.evaluate(BEAD_NAMES, None) if value != current][0]
-    head.evaluate(
-        '(el, name) => el.emit("plotly_click", {points: [{data: {meta: "bead"}, customdata: [name, "R"]}]})',
-        target,
-    )
-    expect(page.locator('#composition-head-endpoint')).to_have_value(target)
+    assert _highlight(page, HEAD, 'head') == [second]
+    assert second in _highlight(page, JOINED, 'joined')
     assert errors == []

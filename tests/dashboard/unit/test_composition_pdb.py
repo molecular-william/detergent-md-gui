@@ -71,6 +71,24 @@ def test_the_bonds_are_written_once_each_and_reference_real_serials():
     assert all(first in serials.values() and second in serials.values() for first, second in pairs)
 
 
+def test_the_records_place_the_residue_and_chain_in_their_columns():
+    """The fragment selection depends on this: read one character off and SUG matches nothing.
+
+    Columns are the PDB's, 1-based: name 13-16, altLoc 17, resName 18-20, iCode 21, chainID 22, resSeq 23-26.
+    A viewer that misreads the residue name silently ignores the selection built from it, which is how a
+    one-character slip turned the head panel into the whole molecule.
+    """
+    records = _records(render_pdb(_preview()))
+    residues = {}
+    for record in records:
+        assert record[16] == ' ', f'altLoc must be blank: {record!r}'
+        assert record[20] == ' ', f'iCode must be blank: {record!r}'
+        assert record[21] == 'A', f'chainID: {record!r}'
+        assert record[22:26].strip() == '1', f'resSeq: {record!r}'
+        residues[record[12:16].strip()] = record[17:20].strip()
+    assert residues['A'] == 'SUG' and residues['C01'] == 'TAI', residues
+
+
 def test_the_file_is_terminated_and_holds_nothing_but_its_records():
     geometry = preview_geometry(_preview())
     pdb = render_pdb(_preview())

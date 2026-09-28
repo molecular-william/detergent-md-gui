@@ -351,7 +351,7 @@ def render_pdb(result: dict) -> str:
         element = elements.get(size, "C")
         residue = "SUG" if name in head_names else "TAI"
         remarks.append(f"REMARK 950 BEAD {name} {bead_type} {size} {residue}")
-        atoms.append(f"HETATM{serial:5d} {name:<4s}{residue:>3s} A{1:4d}    "
+        atoms.append(f"HETATM{serial:5d} {name:<4s} {residue:>3s} A{1:4d}    "
                      f"{position[0]:8.3f}{position[1]:8.3f}{position[2]:8.3f}"
                      f"{1.0:6.2f}{0.0:6.2f}          {element:>2s}")
     lines = remarks + atoms

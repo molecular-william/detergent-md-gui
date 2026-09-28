@@ -1,5 +1,4 @@
 import { $, cachedApi, post, setText, storage } from './shared.js';
-import { mountBondedPlot } from './bonded-plot.js';
 
 export function createCompositions({ openBondedModel, openCompositionRun }) {
   const host = $('#compositions');
@@ -11,29 +10,35 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
   let catalog = null, lastPreview = null, saved = null, generation = 0, mounted = false;
   const plots = {};
 
-  function plotFor(key) {
-    // Created on first paint: this tab is hidden at load, and Plotly sizes itself to its element.
-    if (!plots[key]) plots[key] = mountBondedPlot($('#composition-plot-' + key), {
-      onBeadSelection: names => chooseEndpoint(key, names),
-    });
+  function stageFor(key) {
+    // Created on first paint: this tab is hidden at load, and a viewer sizes itself to its element.
+    if (!plots[key]) {
+      plots[key] = new NGL.Stage($('#composition-plot-' + key), {backgroundColor: 'white'});
+      // This panel's test seam. NGL stages live in this closure, and a browser test has to be able to ask
+      // what was mounted without reaching into the viewer.
+      if (host) host.compositionStages = plots;
+    }
     return plots[key];
   }
 
-  function chooseEndpoint(which, names) {
-    // Clicking a bead in either fragment panel picks the bead the linkage attaches to, which is what
-    // the two endpoint dropdowns already mean -- so the choice is a click rather than a lookup.
-    if (which === 'joined') return;
-    const name = names[names.length - 1];
-    const select = $(which === 'head' ? '#composition-head-endpoint' : '#composition-tail-endpoint');
-    if (!name || !select || ![...select.options].some(option => option.value === name)) return;
-    select.value = name;
-    paint(lastPreview);
+  function represent(key, pdb, sele, selected) {
+    // One structure, three views: the file holds both fragments under SUG and TAI, so a selection is what
+    // separates the panels. The linkage bead is a second representation, in the colour that marks a choice.
+    const stage = stageFor(key);
+    stage.removeAllComponents();
+    const component = stage.loadFile(new Blob([pdb], {type: 'text/plain'}), {ext: 'pdb'});
+    component.then(item => {
+      item.addRepresentation('ball+stick', {sele, radiusScale: 1.55});
+      if (selected.length) item.addRepresentation('ball+stick', {sele: selected.join(' or '), color: 0xdf203d, radiusScale: 1.55});
+      item.autoView(sele);
+    });
+    return component;
   }
 
   function paint(result) {
     const basis = $('#composition-geometry-basis');
     const geometry = result?.geometry;
-    for (const key of ['head', 'tail', 'joined']) plotFor(key).render({});
+    for (const key of ['head', 'tail', 'joined']) stageFor(key);
     if (!geometry) {
       // A result without geometry means this dashboard process predates the panel: say so instead of
       // leaving three empty rectangles, which is exactly how a server running old code looked.
@@ -43,10 +48,11 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
       return;
     }
     const link = [geometry.link.head_bead, geometry.link.tail_bead];
-    // The two linkage beads are painted red by the plotter's selection colour, in both panel and join.
-    plotFor('head').render({beads: geometry.head.beads, edges: geometry.head.edges, selectedBeads: [geometry.link.head_bead]});
-    plotFor('tail').render({beads: geometry.tail.beads, edges: geometry.tail.edges, selectedBeads: [geometry.link.tail_bead]});
-    plotFor('joined').render({beads: geometry.joined.beads, edges: geometry.joined.edges, selectedBeads: link});
+    if (result.pdb) {
+      represent('head', result.pdb, 'SUG', [geometry.link.head_bead]);
+      represent('tail', result.pdb, 'TAI', [geometry.link.tail_bead]);
+      represent('joined', result.pdb, '*', link);
+    }
     if (basis) basis.textContent = geometry.basis;
   }
   const selectedSugar = () => catalog?.sugars.find(item => item.id === sugar.value);
