@@ -18,6 +18,14 @@ The protein-detergent micelle builder is paused. Its design lives under
 implementation exists under `micelle/` and is not a validated scientific
 model.
 
+The protein-detergent *panel* is a second workflow, not a profile of the single
+molecule one. It is specified in
+`docs/superpowers/specs/2026-09-28-protein-detergent-complex-panel-design.md`,
+with its task breakdown in the matching plan under `docs/superpowers/plans/`.
+It reuses `micelle/` for detergent placement and the existing executor for
+stages; no part of it is implemented yet, and its back-mapping stage is blocked
+on a tool that is not installed on this host.
+
 ## Goal
 
 Build a reproducible local workflow for membrane-protein detergent
