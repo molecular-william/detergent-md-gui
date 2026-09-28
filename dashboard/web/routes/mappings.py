@@ -8,6 +8,7 @@ from ...analysis.validation import carbohydrate_targets
 from ...models import mappings
 from ...models.mappings import (
     depiction,
+    overlay3d,
 )
 from ...models.mappings import (
     references as mapping_references,
@@ -38,6 +39,29 @@ def mapping_context():
         scene = depiction.build_scene(context)
         return jsonify(context=context, scene=scene, molecule=context, bead_types=mappings.bead_types())
     return jsonify(molecule=mappings.molecule(), bead_types=mappings.bead_types())
+
+
+@blueprint.post('/api/mappings/overlay3d')
+def mapping_overlay3d():
+    """The molecule and the beads that are on screen, in three dimensions, for the NGL view.
+
+    The beads come from the request rather than from a saved candidate, because what the view must show is the
+    assignment being edited: a local draft has beads too, and they are the thing the user is working on. The atom
+    ids a bead names are filtered against the context by overlay3d, so an id no atom carries cannot place a sphere;
+    the bead count is capped because it is the only part of this payload without a natural bound.
+    """
+    body = json_object()
+    # query_context answers 400 for an unknown molecule and None for a missing one; a 3D overlay cannot be drawn
+    # without knowing which molecule it is drawing, so the missing case is refused rather than defaulted.
+    context = query_context(body.get('molecule_id'))
+    if context is None:
+        abort(400, 'A molecule is required')
+    beads = body.get('beads')
+    if beads is not None and not isinstance(beads, list):
+        abort(400, 'beads must be a list')
+    if len(beads or []) > 2000:
+        abort(400, 'Too many beads for one overlay')
+    return jsonify(pdb=overlay3d.pdb_text(context), spheres=overlay3d.bead_spheres(context, beads or []))
 
 
 @blueprint.get('/api/mappings/representations')

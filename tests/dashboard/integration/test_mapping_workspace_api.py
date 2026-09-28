@@ -10,6 +10,48 @@ def test_mapping_context_lists_valid_molecule_and_scene(dashboard):
     assert response.json['context']['atoms']
 
 
+def test_the_overlay_serves_the_molecule_and_the_beads_being_edited(dashboard):
+    """The 3D view's payload: a PDB whose serials are mapping atom ids, and a sphere per bead.
+
+    The beads travel with the request because a local draft has beads too, and the assignment being edited is what
+    the view must show. The claim worth testing is the one the picture makes: each sphere sits at the mean of the
+    atoms its bead names, in angstroms, over the same atoms the PDB writes.
+    """
+    client = dashboard.client
+    context = client.get('/api/mappings/context?molecule_id=DDM').json['context']
+    heavy = [atom for atom in context['atoms'] if atom['heavy']]
+    serials = {atom['id'] for atom in heavy}
+    first, second = heavy[0]['id'], heavy[1]['id']
+
+    response = client.post('/api/mappings/overlay3d', json={
+        'molecule_id': 'DDM', 'beads': [{'name': 'B01', 'size': 'S', 'type': 'C1', 'atoms': [first, second]}]})
+    assert response.status_code == 200
+    pdb, spheres = response.json['pdb'], response.json['spheres']
+    assert pdb.count('HETATM') == len(heavy)
+    assert pdb.count('CONECT') == sum(1 for bond in context['bonds']
+                                      if {bond['a'], bond['b']} <= serials)
+    written = [int(row[6:11]) for row in pdb.splitlines() if row.startswith('HETATM')]
+    assert first in written and second in written
+
+    assert len(spheres) == 1
+    expected = [round(sum(atom['xyz'][axis] for atom in (heavy[0], heavy[1])) / 2 * 10, 4) for axis in range(3)]
+    assert spheres[0]['centre'] == expected, spheres[0]
+    assert spheres[0]['radius'] >= 2.30, spheres[0]
+
+
+def test_the_overlay_refuses_a_bead_list_that_is_not_a_list_and_an_unknown_molecule(dashboard):
+    """Both refusals follow the workspace's own convention: a bad request is a 400.
+
+    query_context answers an unknown molecule with 400, and the app turns any escaping ValueError into 400 too, so
+    matching that is one behaviour instead of two for the same condition. A missing molecule is refused rather than
+    defaulted, because the overlay cannot know which structure it was asked to draw.
+    """
+    client = dashboard.client
+    assert client.post('/api/mappings/overlay3d', json={'molecule_id': 'DDM', 'beads': 'nope'}).status_code == 400
+    assert client.post('/api/mappings/overlay3d', json={'molecule_id': 'nowhere'}).status_code == 400
+    assert client.post('/api/mappings/overlay3d', json={'beads': []}).status_code == 400
+
+
 def test_validation_catalog_exposes_modes_tiers_and_cited_targets(dashboard):
     client = dashboard.client
     representations = client.get('/api/mappings/representations')
