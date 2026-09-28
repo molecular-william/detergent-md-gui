@@ -100,7 +100,7 @@ Publication retains full-system GRO/TPR/XTC/CPT/EDR/log outputs and solute GRO/T
 Completion, technical reference eligibility, and scientific validation are separate. The short AA adapter acceptance report demonstrates execution and sharing; it does not validate a molecular model.
 
 ## DDM draft execution test
-In New run, choose DDM draft smoke test under Execution. This explicit option uses the run-local mapping_candidate_smoke.json: a connected 11-bead draft, covering all 35 heavy atoms with one documented S-bead size exception. C1 tail beads follow the local dodecane reference; polar bead assignments are uncalibrated chemical guesses. These are software test inputs, not a validated DDM model. Standard parameterization retains its reviewed-model gate.
+In Single Molecule Simulations, choose DDM draft smoke test under Execution. This explicit option uses the run-local mapping_candidate_smoke.json: a connected 11-bead draft, covering all 35 heavy atoms with one documented S-bead size exception. C1 tail beads follow the local dodecane reference; polar bead assignments are uncalibrated chemical guesses. These are software test inputs, not a validated DDM model. Standard parameterization retains its reviewed-model gate.
 
 The profile runs 10 ps NVT equilibration and 50 ps NVT production for both AA and CG, in pure water at 300 K. The profile sets durations only; the thread budget comes from the stage settings, whose defaults are one MPI rank and eight OpenMP threads. It runs AA → ff_map → ff_inter → CG → ff_assess → SASA with checks at each handoff. Every run is new; retry preserves the draft profile and original data.
 

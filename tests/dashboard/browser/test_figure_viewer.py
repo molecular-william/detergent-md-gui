@@ -46,7 +46,7 @@ def test_run_figure_tabs_zoom_and_mapping_display(dashboard, live_page):
     second.locator('.job-analysis summary').click()
     expect(second.locator('.figure-zoom-level')).to_have_text('100%')
     # Workspace navigation must ignore the nested figure tabs.
-    page.get_by_role('tab',name='New run',exact=True).click();expect(page.locator('#new')).to_be_visible()
+    page.get_by_role('tab',name='Single Molecule Simulations',exact=True).click();expect(page.locator('#new')).to_be_visible()
     page.get_by_role('tab',name='Runs',exact=True).click();expect(first.locator('.figure-zoom-level')).to_have_text('125%')
     page.reload();first=page.locator('.job[data-id=abcdef123456]')
     expect(first.locator('.figure-zoom-level')).to_have_text('125%')

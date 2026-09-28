@@ -17,14 +17,14 @@
 <main>
 <nav role="tablist" aria-label="Workspace">
   <button role="tab" id="tab-runs" aria-controls="runs" data-tab="runs">Runs</button>
-  <button role="tab" id="tab-new" aria-controls="new" data-tab="new">New run</button>
+  <button role="tab" id="tab-new" aria-controls="new" data-tab="new">Single Molecule Simulations</button>
   <button role="tab" id="tab-mappings" aria-label="CG mappings" aria-controls="mappings" data-tab="mappings">CG Bead Assignment</button>
   <button role="tab" id="tab-bonded" aria-controls="bonded" data-tab="bonded">CG Bond Interactions</button>
   <button role="tab" id="tab-compositions" aria-controls="compositions" data-tab="compositions">Molecule Combination</button>
 </nav>
 <p id="notice" role="status" class="notice" hidden></p>
 <section id="runs" role="tabpanel" aria-labelledby="tab-runs">
-  <div class="section-heading"><div><h2>Run activity</h2><p>Status updates in the background. Your workspace stays in place.</p></div><button data-go="new">New run</button></div>
+  <div class="section-heading"><div><h2>Run activity</h2><p>Status updates in the background. Your workspace stays in place.</p></div><button data-go="new">New molecule run</button></div>
   <div class="card"><div class="toolbar">
     <label>Filter status<select id="run-status-filter"><option value="">All statuses</option><option>waiting</option><option>queued</option><option>running</option><option>completed</option><option>failed</option><option>blocked</option><option>cancelled</option></select></label>
     <label>Search runs<input id="run-search" type="search" maxlength="160"></label>
@@ -46,7 +46,7 @@
   </div>
 </section>
 <section id="new" role="tabpanel" aria-labelledby="tab-new" hidden>
-  <div class="section-heading"><div><h2>Prepare a run</h2><p>Check the inputs and requirements before starting.</p></div></div>
+  <div class="section-heading"><div><h2>Single Molecule Simulations</h2><p>Check the inputs and requirements before starting.</p></div></div>
   <form id="run-form" class="new-run-layout">
     <div class="new-run-inputs">
     <section class="card" id="molecule-panel" aria-labelledby="molecule-title">

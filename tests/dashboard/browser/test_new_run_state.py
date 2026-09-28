@@ -37,7 +37,7 @@ def test_new_run_recovers_deleted_clone_and_preserves_settings(dashboard, live_p
     page.route('**/api/jobs/abcdef123456', lambda route: route.fulfill(json={'id':'abcdef123456'}))
     page.evaluate("localStorage.setItem('ddm.form',JSON.stringify({...JSON.parse(localStorage.getItem('ddm.form')),clone_of:'abcdef123456'}))")
     page.reload()
-    page.get_by_role('tab', name='New run', exact=True).click()
+    page.get_by_role('tab', name='Single Molecule Simulations', exact=True).click()
     page.route(url, record_submit)
     expect(page.locator('#clone-notice')).to_contain_text('Cloning abcdef123456')
     expect(page.locator('#leave-clone')).to_be_visible()

@@ -7,6 +7,16 @@ from dashboard.execution.adapters import cg
 from tests.dashboard.support import PROJECT_ROOT
 
 
+def test_the_workflow_is_named_for_single_molecules(dashboard, live_page):
+    """The tab and the panel heading say which workflow this is, now that there are two."""
+    page, errors = live_page
+    page.goto(live_page.base_url)
+    expect(page.get_by_role('tab', name='Single Molecule Simulations', exact=True)).to_be_visible()
+    page.get_by_role('tab', name='Single Molecule Simulations', exact=True).click()
+    expect(page.locator('#new h2')).to_have_text('Single Molecule Simulations')
+    assert errors == []
+
+
 def test_directory_selection_supports_generic_aa_and_ddm_cg_pair(dashboard, live_page, monkeypatch, tmp_path):
     root=PROJECT_ROOT
     shutil.copytree(root/'molecules/DDM',tmp_path/'molecules/DDM')
