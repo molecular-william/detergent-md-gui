@@ -24,8 +24,12 @@ VERSION='charmm36-single-solute-v1'
 # One vocabulary of execution profiles, owned here because it decides AA durations.
 # 'draft-smoke-reference' is the exception: it keeps a full-length AA reference and
 # shortens only the CG half, for a run whose reference is meant to be reused.
-PROFILES=('standard','draft-smoke','draft-smoke-reference')
+PROFILES=('standard','draft-smoke','draft-smoke-reference','aa-200ns')
 DRAFT_DURATIONS={'draft-smoke':{'aa_nvt_ps':5.0,'aa_npt_ps':5.0,'aa_production_ps':50.0}}
+# A full-length reference for ensemble work. The paper sampled at least 200 ns of atomistic data for the
+# geometry and volume comparisons behind its ring scaling, so an AA run that is to feed ring-target
+# averaging has to reach that scale. This is a sampling scale, not a validation claim.
+LONG_DURATIONS={'aa-200ns':{'aa_nvt_ps':100.0,'aa_npt_ps':1000.0,'aa_production_ps':200000.0}}
 
 
 def validate_profile(profile):
@@ -83,6 +87,7 @@ def stage_defaults(profile='standard'):
     validate_profile(profile)
     values = dict(DEFAULTS)
     values.update(DRAFT_DURATIONS.get(profile, {}))
+    values.update(LONG_DURATIONS.get(profile, {}))
     return {'values': values, 'sources': {'AA': VERSION + ' · CHARMM36 July 2022 / CHARMM TIP3P'}, 'profile': VERSION}
 
 
@@ -200,7 +205,15 @@ mv neutral.gro system.gro
         prev=Path(STAGES[i-1][1]).parent.as_posix(); coord='system.gro' if i==2 else 'run.gro'
         checkpoint=f' -t ../{prev}/run.cpt' if i>=4 else ''
         gpu_flags = MDRUN_GPU_NONBONDED_FLAGS if kind == 'em' else MDRUN_GPU_PME_FLAGS
-        scripts.append(f'cp ../{prev}/system.top system.top\ngmx grompp -f run.mdp -c ../{prev}/{coord}{checkpoint} -p system.top -o run.tpr\ngmx mdrun -deffnm run -ntmpi 1 -ntomp 8 {gpu_flags} -v\n')
+        # No -ntmpi here. This host's GROMACS is an MPI build only -- /usr/local/gromacs/2026.3/bin/gmx is
+        # a symlink to gmx_mpi -- and -ntmpi is a thread-MPI option, so mdrun aborts with "Setting the
+        # number of thread-MPI ranks is only supported with thread-MPI and GROMACS was compiled without
+        # thread-MPI". That killed every run on this machine before the first minimization step, which is
+        # why runs/ was empty. -ntomp is valid for both builds, and an MPI build run without mpirun uses a
+        # single rank, so this is correct in either case. The proper fix is capability-aware command
+        # construction: probe the build once in the tool resolver, emit -ntmpi for a thread-MPI build, and
+        # wrap in mpirun for an MPI one, recording the flavour in the run manifest.
+        scripts.append(f'cp ../{prev}/system.top system.top\ngmx grompp -f run.mdp -c ../{prev}/{coord}{checkpoint} -p system.top -o run.tpr\ngmx mdrun -deffnm run -ntomp 8 {gpu_flags} -v\n')
     scripts.append('''printf 'Solute\\nSolute\\n' | gmx trjconv -f ../06_production/run.xtc -s ../06_production/run.tpr -n ../common/solute.ndx -pbc mol -center -o lig.xtc
 printf 'Solute\\n' | gmx trjconv -f ../06_production/run.xtc -s ../06_production/run.tpr -n ../common/solute.ndx -dump 0 -o lig.gro
 printf 'Solute\\n' | gmx convert-tpr -s ../06_production/run.tpr -n ../common/solute.ndx -o lig.tpr
