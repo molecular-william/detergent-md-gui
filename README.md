@@ -101,8 +101,8 @@ sampled to 1 µs of Martini CG MD with a micelle-formation assessment and a
 removal step in the middle — is specified in
 `docs/superpowers/specs/2026-09-28-protein-detergent-complex-panel-design.md`,
 with a phased plan beside it under `docs/superpowers/plans/`. The builder is
-unimplemented beyond its skeleton, and back-mapping is blocked on a tool that is
-not installed on this host.
+unimplemented beyond its skeleton; back-mapping uses CG2AT2, run from source and
+vendored under `tools/` when that stage is built.
 
 * Approved design: docs/superpowers/specs/2026-09-14-detergent-micelle-builder-design.md.
 * Implementation plan: docs/superpowers/plans/2026-09-14-detergent-micelle-builder.md.

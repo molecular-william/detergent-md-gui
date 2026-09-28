@@ -23,8 +23,9 @@ molecule one. It is specified in
 `docs/superpowers/specs/2026-09-28-protein-detergent-complex-panel-design.md`,
 with its task breakdown in the matching plan under `docs/superpowers/plans/`.
 It reuses `micelle/` for detergent placement and the existing executor for
-stages; no part of it is implemented yet, and its back-mapping stage is blocked
-on a tool that is not installed on this host.
+stages; no part of it is implemented yet. Back-mapping uses CG2AT2, run from
+source and vendored under `tools/` when that stage is built, because its align
+method and its Martini 3 fragment database match the protocol.
 
 ## Goal
 

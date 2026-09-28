@@ -1,8 +1,8 @@
 # Protein–detergent complex panel — implementation plan
 
 > **For Hermes:** execute with the `subagent-driven-development` skill, one task per subagent, or by hand with
-> `test-driven-development`. Execute **phase by phase** and stop for review at each phase boundary; phases C and
-> D depend on decisions the user has not made yet (see the specification's open decisions).
+> `test-driven-development`. Execute **phase by phase** and stop for review at each phase boundary. The design
+> decisions are already taken (the specification's final section) and this plan assumes them.
 
 **Goal:** a second workflow that builds a protein–detergent complex, samples it to 1 µs of Martini CG MD with a
 micelle-formation assessment in the middle, and back-maps the result — with the setup visible in an NGL viewer.
@@ -244,6 +244,8 @@ def test_a_compact_cluster_of_tails_is_in_the_micelle_and_a_loose_one_is_not():
     loose = build_tails(cluster_radius=2.5)
     assert pdc_assessment.verdict(tight, requested=12, contact_nm=0.6)['largest_cluster'] == 12
     assert pdc_assessment.verdict(loose, requested=12, contact_nm=0.6)['not_in_micelle']  # names the detergents
+    # A protein-free build uses the same criterion with the belt requirement switched off.
+    assert pdc_assessment.verdict(tight, requested=12, contact_nm=0.6, protein=None)['largest_cluster'] == 12
 ```
 
 **Step 2: run, expect ImportError.** **Step 3: implement the contact graph and the cluster report, recording the
@@ -251,12 +253,17 @@ contact distance and the cluster sizes.** **Step 4: run.** **Step 5: commit.**
 
 ### Task C3: removal and the bounded retry
 
-**Objective:** the >10 rule, the seeded re-run, and the attempt history.
+**Objective:** the fraction rule, the seeded re-run, and the attempt history.
 
 **Files:** `dashboard/execution/adapters/pdc.py`, test `tests/dashboard/unit/test_pdc_retry.py`
 
-**Step 1: failing test** — removing 3 detergents continues from the checkpoint; removing 11 starts a fresh
-assessment phase whose recorded seed differs from the first attempt's, and the attempt list has two entries.
+Decided: the threshold is **10% of the requested aggregation number**, floored at one detergent, and the loop is
+bounded at **3 attempts**. A retry re-seeds **velocities only** — the placed system is kept, so attempts differ in
+one documented way.
+
+**Step 1: failing test** — removing 3 of 40 detergents continues from the checkpoint; removing 5 of 40 (over 10%)
+starts a fresh assessment phase whose recorded seed differs from the first attempt's; the attempt list stops at
+three; and a build whose placed coordinates change between attempts fails the test that compares them.
 **Steps 2–5** as usual.
 
 ### Task C4: the extension phase
@@ -271,30 +278,48 @@ assessment checkpoint, and the final report compares the two verdicts rather tha
 
 ---
 
-## Phase D — back-mapping (gated on open decision 2)
+## Phase D — back-mapping (CG2AT2, decided)
 
-### Task D1: the CG2AT-align stage
+### Task D1: vendor CG2AT2 and build its align stage
 
-**Objective:** the final snapshot converted to atomistic detail, or an explicit blocked stage.
+**Objective:** the final snapshot converted to atomistic detail with the align method of the tool the user named.
 
-**Files:** `dashboard/execution/adapters/pdc.py`, test `tests/dashboard/unit/test_pdc_backmap.py`
+**Files:**
+- Modify: `dashboard/execution/adapters/pdc.py` (`backmap_command`)
+- Modify: `config/tools.json` (declare the CG2AT2 path, so a missing tool is a clear error rather than an empty
+  command — the repository verifies a declared path before use and resolves to nothing when it cannot be honoured)
+- Test: `tests/dashboard/unit/test_pdc_backmap.py`
 
-**Step 1: write the test marked expected-to-fail until the tool is pinned**
+**Step 1: fetch the tool and record its provenance.** It runs from source with no installation
+(`github.com/owenvickery/cg2at`, GPL-3.0). Vendor it under `tools/cg2at/` (gitignored, like `tools/bartender/`),
+record the resolved release or commit, and confirm its requirements are met — it needs Python 3, GROMACS, numpy
+and scipy, all of which this host already has. Do **not** install it through conda: the environment here is a
+venv over a conda base, and touching the base is not this task's business.
+
+**Step 2: write the failing test**
 
 ```python
-@pytest.mark.xfail(reason='CG2AT is not installed on this host; decision 2 in the specification', strict=False)
-def test_the_final_snapshot_is_back_mapped_with_cg2at_align():
-    command = pdc.backmap_command('final.gro', 'final.tpr', out_dir='.')
-    assert command[0].endswith('cg2at') or 'cg2at' in command[0]
-    assert '-align' in command                   # the align flavour the request names
+def test_the_back_mapping_uses_the_align_method_with_martini_3_fragments(tmp_path):
+    command = pdc.backmap_command(tmp_path / 'final.gro', tmp_path / 'protein.pdb', tmp_path / 'aa_input.pdb')
+    assert 'cg2at.py' in ' '.join(command)
+    assert command[command.index('-o') + 1] == 'align'          # the method the request names
+    assert command[command.index('-fg') + 1] == 'martini_3-0_charmm36'   # these runs are Martini 3
+    assert '-silent' in command                                  # a stage must not block on a question
+    assert command[command.index('-c') + 1].endswith('final.gro')
+    assert command[command.index('-a') + 1].endswith('aa_input.pdb')
 ```
 
-`strict=False` clears the marker once the tool exists, so the test becomes live by itself.
+**Step 3: run it and watch it fail** (ImportError, then the missing flag).
 
-**Step 2: run it and confirm it fails for the stated reason**, then run it with `--runxfail` in the same commit
-to show the failure is the missing tool rather than a typo.
-**Step 3: implement the command builder only; do not run a back-map.** **Step 4: run.**
-**Step 5: commit** — `feat: pdc back-mapping command, blocked on the tool`
+**Step 4: implement the command builder and declare the tool path.**
+
+**Step 5: run it, plus the fast tier and the lint gate.**
+
+**Step 6: commit** — `feat: pdc back-mapping through vendored CG2AT2`
+
+**Step 7: only then attempt a real conversion**, on a small system, and record in the manifest that the align
+method invokes GROMACS internally (a short minimisation and a steered-MD morph), so the stage needs a log and a
+timeout like any other.
 
 ---
 
