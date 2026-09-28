@@ -102,9 +102,17 @@ Completion, technical reference eligibility, and scientific validation are separ
 ## DDM draft execution test
 In New run, choose DDM draft smoke test under Execution. This explicit option uses the run-local mapping_candidate_smoke.json: a connected 11-bead draft, covering all 35 heavy atoms with one documented S-bead size exception. C1 tail beads follow the local dodecane reference; polar bead assignments are uncalibrated chemical guesses. These are software test inputs, not a validated DDM model. Standard parameterization retains its reviewed-model gate.
 
-The profile runs 10 ps NVT equilibration and 50 ps NVT production for both AA and CG, in pure water at 300 K, using one MPI rank and four OpenMP threads. It runs AA → ff_map → ff_inter → CG → ff_assess → SASA with checks at each handoff. Every run is new; retry preserves the draft profile and original data.
+The profile runs 10 ps NVT equilibration and 50 ps NVT production for both AA and CG, in pure water at 300 K. The profile sets durations only; the thread budget comes from the stage settings, whose defaults are one MPI rank and eight OpenMP threads. It runs AA → ff_map → ff_inter → CG → ff_assess → SASA with checks at each handoff. Every run is new; retry preserves the draft profile and original data.
 
-Scripts live in dashboard/execution/scripts/. Only scientific assets (SwissParam, CHARMM36, Martini, MDP/water templates) are copied from local resource folders. No ENAP molecule or script is used. GROMACS 2026 TPRs are kept for simulation; analysis uses supported ligand GRO inputs with matching trajectories. Maintained AA and CG `mdrun` launchers request CUDA offload on GPU 0 for nonbonded and PME work (`-nb gpu -pme gpu -pmefft gpu`) with thread pinning; verify the recorded command and GROMACS log when diagnosing hardware selection.
+Scripts live in dashboard/execution/scripts/. Only scientific assets (SwissParam, CHARMM36, Martini, MDP/water templates) are copied from local resource folders. No ENAP molecule or script is used. GROMACS 2026 TPRs are kept for simulation; analysis uses supported ligand GRO inputs with matching trajectories. Maintained `mdrun` launchers request CUDA offload on GPU 0 for nonbonded work with thread pinning; the AA stages put PME on the GPU as well, while the CG launcher leaves PME on the CPU and takes its budget from the stage settings. Verify the recorded command and GROMACS log when diagnosing hardware selection.
+
+### Stage settings
+
+The stage settings decide the `mdrun` budget and the nonbonded and PME schemes. One helper renders them for a generated AA stage command and for the CG stage scripts, which receive them as `MDRUN_LAUNCHER` and `MDRUN_FLAGS`, so a script and a generated command cannot disagree.
+
+The CPU levers are `mdrun_ntomp` (OpenMP threads per rank) and `mdrun_ranks` (MPI ranks). On this host the ranks are separate processes under `mpirun`; a thread-MPI build would take them inside one process with `-ntmpi`, which is why the adapter asks the binary for its configuration instead of assuming, and records the answer as `resource_usage.gromacs_flavour` in the stage manifest. The product of ranks and threads is checked against the machine's cores before a stage is prepared.
+
+`mdrun_nb` and `mdrun_pme` accept `auto`, `cpu` or `gpu`. `auto` emits no flag and leaves the profile's own flags untouched, which is what every run did before these settings existed; a named scheme *replaces* the flag it names rather than being appended after it, so the setting cannot be silently overridden by the profile. Choosing `gpu` for PME requires `gpu` for the nonbonded scheme, because GROMACS runs PME on the GPU only then. A run's manifest records the flags it used, and its `resource_usage` records the threads, ranks and build flavour.
 
 Set up the isolated tool installation once from the repository root:
 
