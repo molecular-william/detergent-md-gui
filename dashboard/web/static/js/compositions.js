@@ -28,16 +28,40 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
   const BEAD_RADIUS_SCALE = 0.75;
   const BEAD_ASPECT_RATIO = 2;
 
-  function represent(key, pdb, sele, selected) {
-    // One structure, three views: the file holds both fragments under SUG and TAI, so a selection is what
-    // separates the panels. The linkage bead is a second representation, in the colour that marks a choice.
+  // One colour per bead type, so a bead keeps its colour in every view. The map is explicit and the fallback is
+  // a single neutral grey rather than a generated hue: a type nobody has given a colour yet is visibly generic
+  // instead of looking deliberate.
+  const BEAD_COLOURS = {
+    C1: 0x4a5568, C2: 0x4a5568, C3: 0x4a5568, C4: 0x4a5568, C5: 0x4a5568,  // apolar carbon beads
+    SP1: 0x2b6cb0, SP1r: 0x2b6cb0, SN6: 0x2f855a, SP4r: 0x805ad5, TC4: 0xb7791f,
+  };
+  const BEAD_COLOUR_FALLBACK = 0x718096;
+  const LINKAGE_COLOUR = 0xdf203d;
+  const beadColour = type => BEAD_COLOURS[String(type || '')] ?? BEAD_COLOUR_FALLBACK;
+
+  function represent(key, pdb, beads, selected) {
+    // One structure, three views: each panel is told which beads it owns, so what it draws is that list grouped
+    // by type, and the fragment split needs no residue selection. The linkage beads are a second set of
+    // representations, in the colour that marks a choice.
     const stage = stageFor(key);
     stage.removeAllComponents();
     const component = stage.loadFile(new Blob([pdb], {type: 'text/plain'}), {ext: 'pdb'});
+    const groups = new Map();
+    for (const bead of beads) {
+      const colour = beadColour(bead.type);
+      if (!groups.has(colour)) groups.set(colour, []);
+      groups.get(colour).push(bead.name);
+    }
     component.then(item => {
-      item.addRepresentation('ball+stick', {sele, radiusScale: BEAD_RADIUS_SCALE, aspectRatio: BEAD_ASPECT_RATIO});
-      if (selected.length) item.addRepresentation('ball+stick', {sele: selected.join(' or '), color: 0xdf203d, radiusScale: BEAD_RADIUS_SCALE, aspectRatio: BEAD_ASPECT_RATIO});
-      item.autoView(sele);
+      for (const [colour, names] of groups) {
+        item.addRepresentation('ball+stick', {sele: names.join(' or '), color: colour,
+          radiusScale: BEAD_RADIUS_SCALE, aspectRatio: BEAD_ASPECT_RATIO});
+      }
+      if (selected.length) {
+        item.addRepresentation('ball+stick', {sele: selected.join(' or '), color: LINKAGE_COLOUR,
+          radiusScale: BEAD_RADIUS_SCALE, aspectRatio: BEAD_ASPECT_RATIO});
+      }
+      item.autoView(beads.map(bead => bead.name).join(' or '));
     });
     return component;
   }
@@ -56,9 +80,9 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
     }
     const link = [geometry.link.head_bead, geometry.link.tail_bead];
     if (result.pdb) {
-      represent('head', result.pdb, 'SUG', [geometry.link.head_bead]);
-      represent('tail', result.pdb, 'TAI', [geometry.link.tail_bead]);
-      represent('joined', result.pdb, '*', link);
+      represent('head', result.pdb, geometry.head.beads, [geometry.link.head_bead]);
+      represent('tail', result.pdb, geometry.tail.beads, [geometry.link.tail_bead]);
+      represent('joined', result.pdb, geometry.joined.beads, link);
     }
     if (basis) basis.textContent = geometry.basis;
   }

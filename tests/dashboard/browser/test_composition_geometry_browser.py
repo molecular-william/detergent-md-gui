@@ -31,15 +31,14 @@ ATOMS = """(el, key) => {
   return atoms;
 }"""
 
-# The representation that carries the panel's own fragment selection: the first one added.
-BASE = """(el, key) => (el.compositionStages?.[key]?.compList?.[0]?.reprList ?? [])
-  .map(repr => (repr.parameters ?? repr.params)?.sele)
-  .filter(sele => typeof sele === 'string')[0] ?? null"""
+# Every representation the panel asked for, with the selection and the colour it carries.
+REPS = """(el, key) => (el.compositionStages?.[key]?.compList?.[0]?.reprList ?? []).map(repr => {
+  const parameters = repr.parameters ?? repr.params ?? {};
+  return {sele: parameters.sele, colour: parameters.color};
+}).filter(repr => typeof repr.sele === 'string')"""
 
-# The selections the panel asked NGL to highlight: everything except the panel's own fragment selection.
-HIGHLIGHT = """(el, key) => (el.compositionStages?.[key]?.compList?.[0]?.reprList ?? [])
-  .map(repr => (repr.parameters ?? repr.params)?.sele)
-  .filter(sele => typeof sele === 'string' && sele !== 'SUG' && sele !== 'TAI' && sele !== '*')"""
+# The colour the panel gives the linkage beads, which is what marks those representations out.
+LINKAGE_COLOUR = 0xDF203D
 
 
 # The drawn ball radius, as NGL computes it: atomRadius x radiusScale x aspectRatio.
@@ -81,10 +80,33 @@ def _beads(page, selector, key):
     return beads
 
 
-def _highlight(page, selector, key):
-    """The highlighted bead names. The join asks for both at once, as one NGL selection."""
-    selections = page.locator(HOST).evaluate(HIGHLIGHT, key)
-    return [name for selection in selections for name in selection.split(' or ')]
+def _reps(page, key):
+    return page.locator(HOST).evaluate(REPS, key)
+
+
+def _names(sele):
+    return [name for name in sele.split(' or ')]
+
+
+def _drawn(page, key):
+    """The beads the panel draws in their own type colour."""
+    return [name for rep in _reps(page, key) if rep['colour'] != LINKAGE_COLOUR for name in _names(rep['sele'])]
+
+
+def _highlight(page, key):
+    """The beads the panel draws in the linkage colour. The join asks for both at once, as one selection."""
+    return [name for rep in _reps(page, key) if rep['colour'] == LINKAGE_COLOUR for name in _names(rep['sele'])]
+
+
+def _colours(page, keys):
+    """Bead name -> the colours it is drawn in, ignoring the linkage highlight."""
+    colours = {}
+    for key in keys:
+        for rep in _reps(page, key):
+            if rep['colour'] == LINKAGE_COLOUR: continue
+            for name in _names(rep['sele']):
+                colours.setdefault(name, set()).add(rep['colour'])
+    return colours
 
 
 def test_the_panel_mounts_both_fragments_and_the_join_with_the_linkage_beads_highlighted(dashboard, live_page):
@@ -100,22 +122,25 @@ def test_the_panel_mounts_both_fragments_and_the_join_with_the_linkage_beads_hig
     tail = _beads(page, TAIL, 'tail')
     joined = _beads(page, JOINED, 'joined')
 
-    # One structure per panel, holding every bead; what separates the views is each representation's
-    # selection, which is why the fragment split is asserted here and not as an atom count.
+    # One structure per panel, holding every bead: what separates the views is which beads each panel is told
+    # it owns, so the fragment split is asserted on what it draws rather than on an atom count.
     assert (len(head), len(tail), len(joined)) == (6, 6, 6), (head, tail, joined)
     residues = {atom['name']: atom['residue'] for atom in joined}
     assert sorted(residues.values()) == ['SUG', 'SUG', 'SUG', 'TAI', 'TAI', 'TAI'], residues
     assert 'VS' not in residues
-    assert page.locator(HOST).evaluate(BASE, 'head') == 'SUG'
-    assert page.locator(HOST).evaluate(BASE, 'tail') == 'TAI'
-    assert page.locator(HOST).evaluate(BASE, 'joined') == '*'
+    assert sorted(_drawn(page, 'head')) == sorted(atom['name'] for atom in head if atom['residue'] == 'SUG')
+    assert sorted(_drawn(page, 'tail')) == sorted(atom['name'] for atom in tail if atom['residue'] == 'TAI')
+    assert sorted(_drawn(page, 'joined')) == sorted(atom['name'] for atom in joined)
+    # One colour per bead type: a bead shown in more than one panel keeps a single colour.
+    colours = _colours(page, ('head', 'tail', 'joined'))
+    assert colours and all(len(values) == 1 for values in colours.values()), colours
 
     # Each fragment highlights exactly the endpoint the linkage currently attaches to, and the join both.
     head_endpoint = page.locator('#composition-head-endpoint').input_value()
     tail_endpoint = page.locator('#composition-tail-endpoint').input_value()
-    assert _highlight(page, HEAD, 'head') == [head_endpoint]
-    assert _highlight(page, TAIL, 'tail') == [tail_endpoint]
-    assert sorted(_highlight(page, JOINED, 'joined')) == sorted([head_endpoint, tail_endpoint])
+    assert _highlight(page, 'head') == [head_endpoint]
+    assert _highlight(page, 'tail') == [tail_endpoint]
+    assert sorted(_highlight(page, 'joined')) == sorted([head_endpoint, tail_endpoint])
 
     caption = page.locator('#composition-geometry-basis').text_content()
     assert 'layout' in caption and 'minimised' in caption and 'CG' in caption
@@ -135,8 +160,8 @@ def test_choosing_another_endpoint_moves_the_highlight_in_every_view(dashboard, 
     _preview(page)
     _mounted(page)
 
-    assert _highlight(page, HEAD, 'head') == [second]
-    assert second in _highlight(page, JOINED, 'joined')
+    assert _highlight(page, 'head') == [second]
+    assert second in _highlight(page, 'joined')
     assert errors == []
 
 
