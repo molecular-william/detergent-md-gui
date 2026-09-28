@@ -117,6 +117,10 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
   }
   function updateActions() {
     const ready = !!lastPreview;
+    // The preview needs the catalogue's own values, and until it arrives the selects are empty. A payload built
+    // from an empty select asks the server for the fragment named '' and gets back a message about fragment ids,
+    // which gives no hint that the real problem was a click that arrived a moment too early.
+    previewButton.disabled = !catalog || !sugar?.value || !recipe?.value;
     saveButton.disabled = !ready || !!saved;
     openBonded.disabled = !saved; startRun.disabled = !saved;
   }
@@ -124,9 +128,13 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
     if (catalog) return;
     catalog = await cachedApi('/api/compositions/catalog', {maxAge: 60000});
     options(sugar, catalog.sugars); options(recipe, catalog.tail_recipes); options(profile, catalog.linkage_profiles);
-    syncEndpoints();
+    syncEndpoints(); updateActions();
   }
   async function preview() {
+    if (!catalog || !sugar?.value) {
+      setText($('#composition-panel-status'), 'Waiting for the fragment catalogue; try again in a moment.');
+      return null;
+    }
     const token = ++generation; saved = null; lastPreview = null; updateActions();
     setText($('#composition-panel-status'), 'Building deterministic preview…');
     try {

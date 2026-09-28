@@ -88,6 +88,44 @@ def _names(sele):
     return [name for name in sele.split(' or ')]
 
 
+def test_preview_waits_for_the_catalogue_instead_of_posting_an_empty_fragment(dashboard, live_page):
+    """The panel's first click used to build a fragment id with nothing after the colon.
+
+    The Preview button is rendered with the tab, but its inputs are only real once the catalogue has arrived. In
+    that window `sugar.value` is empty, the payload asks the server for the fragment named '', and the server
+    answers about fragment ids -- so a click that arrived a moment too early looks exactly like a panel that does
+    not render. The catalogue is held open here to make that window deterministic rather than a race.
+    """
+    page, errors = live_page
+    posted = []
+    page.route('**/api/compositions/preview',
+               lambda route: (posted.append(route.request.post_data_json), route.continue_())[1])
+    catalog = dashboard.client.get('/api/compositions/catalog').get_json()
+    released = {'value': False}
+    # Returning without fulfilling leaves the request pending: this is the window under test.
+    page.route('**/api/compositions/catalog',
+               lambda route: route.fulfill(json=catalog) if released['value'] else None)
+
+    page.goto(f'{live_page.base_url}/#compositions')
+    page.get_by_role('tab', name='Molecule Combination', exact=True).click()
+    page.wait_for_selector('#composition-preview', timeout=30000)
+    page.wait_for_timeout(700)
+    assert page.locator('#composition-preview').is_disabled(), 'the button must not be live before its inputs are'
+    assert posted == [], 'a click this early must not reach the server at all'
+
+    # Release the catalogue. The button becomes live, and what it posts names a real fragment.
+    released['value'] = True
+    page.reload()
+    page.get_by_role('tab', name='Molecule Combination', exact=True).click()
+    page.wait_for_function("() => !document.querySelector('#composition-preview').disabled", timeout=30000)
+    _preview(page)
+    _mounted(page)
+    assert posted, 'the released click should have reached the server'
+    fragment = posted[-1]['head_fragment_id']
+    assert not fragment.endswith(':'), f'the fragment id has no residue: {fragment!r}'
+    assert errors == []
+
+
 def _drawn(page, key):
     """The beads the panel draws in their own type colour."""
     return [name for rep in _reps(page, key) if rep['colour'] != LINKAGE_COLOUR for name in _names(rep['sele'])]
