@@ -79,11 +79,17 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
       return;
     }
     const link = [geometry.link.head_bead, geometry.link.tail_bead];
-    if (result.pdb) {
-      represent('head', result.pdb, geometry.head.beads, [geometry.link.head_bead]);
-      represent('tail', result.pdb, geometry.tail.beads, [geometry.link.tail_bead]);
-      represent('joined', result.pdb, geometry.joined.beads, link);
+    if (!result.pdb) {
+      // Geometry without a structure file means this dashboard process predates the viewer. Say so rather than
+      // leaving three empty canvases: a process older than the panel is the failure mode this project has hit
+      // before, and silence is what makes it expensive to diagnose.
+      if (basis) basis.textContent = 'This dashboard process returned no structure file for the viewer. '
+        + 'Restart the dashboard, then preview again.';
+      return;
     }
+    represent('head', result.pdb, geometry.head.beads, [geometry.link.head_bead]);
+    represent('tail', result.pdb, geometry.tail.beads, [geometry.link.tail_bead]);
+    represent('joined', result.pdb, geometry.joined.beads, link);
     if (basis) basis.textContent = geometry.basis;
   }
   const selectedSugar = () => catalog?.sugars.find(item => item.id === sugar.value);

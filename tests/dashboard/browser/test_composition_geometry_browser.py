@@ -165,6 +165,33 @@ def test_choosing_another_endpoint_moves_the_highlight_in_every_view(dashboard, 
     assert errors == []
 
 
+def test_a_response_without_the_structure_file_says_so_instead_of_showing_nothing(dashboard, live_page):
+    """A dashboard process older than the viewer returns geometry but no structure file.
+
+    Not hypothetical: it is exactly what a process started before that field existed answers with, and the panel
+    used to reply with three empty canvases and no explanation -- which is what made the report "nothing is
+    rendered" cost a debugging session. The message has to name the cause and the remedy.
+    """
+    import json
+
+    page, errors = live_page
+
+    def without_pdb(route):
+        body = route.fetch().json()
+        body.pop('pdb', None)
+        route.fulfill(status=200, content_type='application/json', body=json.dumps(body))
+
+    page.route('**/api/compositions/preview', without_pdb)
+    page.goto(f'{live_page.base_url}/#compositions')
+    _preview(page)
+
+    expect(page.locator('#composition-geometry-basis')).to_contain_text('Restart the dashboard')
+    # The stages exist but hold nothing, which is what the message is explaining.
+    assert page.locator(HOST).evaluate(
+        '(el) => Object.values(el.compositionStages ?? {}).every(stage => stage.compList.length === 0)') is True
+    assert errors == []
+
+
 def test_the_drawn_bead_radii_match_what_the_size_classes_mean(dashboard, live_page):
     """The plan for this panel said to measure the drawn radii rather than assume them.
 
