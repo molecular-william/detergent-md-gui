@@ -1,7 +1,12 @@
 # NGL replaces plotly in the Molecule Combination panel
 
-Status: scoped, not written. Opened after the decision that the endpoint comboboxes own the linkage choice, so
-the bead picker has no job and plotly's only advantage in this panel is gone with it.
+Status: written and verified, with one exception noted below. Commits `285dfee` (the swap), `454e49d` (the radii,
+measured rather than assumed), `0b56c4a` (colour by bead type) and `b83230b` (the CG stages get the same budget).
+
+Two notes against the plan as it was scoped. The CSS needed no change: `.composition-plot` already has fixed
+heights and NGL sizes itself to the element, so step 4 was unnecessary. And the "live look" under Verification is
+still outstanding -- screenshots of the running app time out -- so the browser tests assert what the viewer
+loaded rather than anyone having seen the rendered picture.
 
 ## What is already in place
 
