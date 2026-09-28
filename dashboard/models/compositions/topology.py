@@ -156,7 +156,10 @@ def expand_tail(recipe_id: str, carbon_count: int) -> dict:
         bead_type = recipe["terminal_types"][-1] if index == count - 1 and len(recipe["terminal_types"]) > 1 else recipe["terminal_types"][0]
         beads.append({"name": f"C{index + 1:02d}", "type": bead_type,
                       "carbon_range": [first, last], "mass": 54.0, "charge": 0.0})
-    coordinates = [[0.0, 0.0, round(index * 0.47, 6),] for index in range(count)]
+    # The tail lies in the same z=0 plane as the head layout, so an initial composite starts coplanar: a line
+    # and a circle share a plane. The bonded terms are seeded from this geometry, so a flat start seeds flat
+    # torsions and the fitting stage has to correct them -- coplanar is a stated convention, not a conformer.
+    coordinates = [[round(index * 0.47, 6), 0.0, 0.0] for index in range(count)]
     bonds = [{"a": beads[index - 1]["name"], "b": beads[index]["name"],
               "function": 1, "length": 0.47, "force": 5000.0} for index in range(1, count)]
     return {"recipe_id": recipe_id, "carbon_count": carbon_count, "beads": beads,
@@ -269,11 +272,13 @@ def render_itp(result: dict) -> str:
 def preview_geometry(result: dict) -> dict:
     """Per-fragment CG bead positions for the combined-geometry panel.
 
-    The tail's positions are the recipe's own (`tail['coordinates']`, which `render_gro` writes too).
-    The head's are a *layout* from its bead set: the composition catalog does not carry the sugar's
-    reference positions, so drawing them would be inventing a structure. The joined view translates the
-    tail so its endpoint sits beside the head's, which is a preview arrangement -- nothing is minimised,
-    and this is the mapped CG molecule, not the atomistic one.
+    The tail's positions are the recipe's own (`tail['coordinates']`, which `render_gro` writes too), laid
+    in the same z=0 plane as the head layout so an initial composite is coplanar: a line and a circle share
+    a plane. That is a stated convention for a starting geometry, not a conformer -- the head's are a
+    *layout* from its bead set, since the composition catalog does not carry the sugar's reference
+    positions, and the joint bonds are seeded from these coordinates, so the fitting stage corrects what the
+    flat start implies. The joined view translates the tail so its endpoint sits beside the head's, which is
+    a preview arrangement -- nothing is minimised, and this is the mapped CG molecule, not the atomistic one.
     """
     import math
     tail = result["tail"]
