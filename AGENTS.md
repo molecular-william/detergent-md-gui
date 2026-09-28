@@ -76,6 +76,11 @@ dashboard.
 
 ## Engineering rules
 
+- Test against fixtures, never against the developer's workspace. A test that read a mapping
+  candidate out of `workspace/dashboard/mapping_drafts/` by filename passed only while that
+  file happened to exist, so it reported nothing about the code and turned red the moment the
+  file was gone. Shared fixtures redirect every writable store; build the record you need.
+
 - Trace inputs, state transitions, outputs, and failure handling before
   edits.
 - Prefer one local Python orchestration service and subprocess-based GROMACS
