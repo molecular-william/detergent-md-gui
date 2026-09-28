@@ -2,12 +2,14 @@ import { $, storage, setText, post, cachedApi, invalidateResource, guarded, DROP
 import { setupBondedWorkspace } from './bonded.js';
 import { createEditor, toggleAtom, clearSelection, clearMapping, groupAtoms, renameBead, removeBead } from './mapping-state.js';
 import { mountDiagram } from './mapping-diagram.js';
+import { mountOverlay3d } from './mapping-ngl.js';
 
 // Candidate edits and local drafts stay inside this workspace.
 export function createMappings() {
   const mappingData = {candidates: [], bead_types: []};
   let moleculeEditor = null;
   let moleculeDiagram = null;
+  let moleculeOverlay = null;
 
   function editorStorageKey(context) {
     if (!context?.molecule_id || !context?.snapshot?.snapshot_sha256) return null;
@@ -124,6 +126,9 @@ export function createMappings() {
     if (!moleculeEditor) return;
     $('#mapping-editor-name').value = moleculeEditor.candidate.name || 'New mapping';
     renderBeadRows(); editorSelection(); updateDiagram();
+    // The 3D view redraws only when the assignment itself changed, so this costs a request on an edit and nothing
+    // on a refresh -- which is what lets it be called from every render rather than from the places that edit.
+    if (moleculeOverlay) moleculeOverlay.update(moleculeEditor.candidate);
     // A local draft has nothing to overwrite or delete; both buttons act on a saved candidate. Saying so costs one
     // attribute and saves the report this panel keeps producing: a control that does nothing when pressed, with no
     // reason anywhere on the page. A saved candidate has to be scoped to this molecule and built from this snapshot
@@ -145,6 +150,8 @@ export function createMappings() {
   async function loadMoleculeEditor(moleculeId) {
     if (!moleculeId) { editorMessage('Select a molecule to begin.'); return; }
     if (moleculeDiagram) moleculeDiagram.destroy(); moleculeDiagram = null; moleculeEditor = null;
+    // A stage holds a WebGL context and browsers cap how many exist, so the 3D view is disposed with the 2D one.
+    if (moleculeOverlay) moleculeOverlay.destroy(); moleculeOverlay = null;
     editorMessage(`Loading ${moleculeId}…`);
     try {
       // Keyed by molecule: a switch supersedes the load in flight, so the state assignment
@@ -165,6 +172,12 @@ export function createMappings() {
         : (catalogue.candidates?.[0] ? await loadMapping(catalogue.candidates[0].file) : null);
       moleculeEditor = createEditor(source.context, candidate);
       moleculeDiagram = mountDiagram($('#mapping-editor-diagram'), source.scene, source.context, id => {
+        toggleAtom(moleculeEditor, id); persistEditor(); editorSelection();
+        moleculeDiagram.update(moleculeEditor.candidate, moleculeEditor.selectedAtoms, moleculeEditor.selectedBeads);
+      });
+      // The same callback from the other view: a bead ticked in three dimensions is the same edit as one picked in
+      // the 2D depiction, because both call the editor rather than keeping a selection of their own.
+      moleculeOverlay = mountOverlay3d($('#mapping-editor-overlay3d'), source.context, id => {
         toggleAtom(moleculeEditor, id); persistEditor(); editorSelection();
         moleculeDiagram.update(moleculeEditor.candidate, moleculeEditor.selectedAtoms, moleculeEditor.selectedBeads);
       });
