@@ -127,17 +127,27 @@ def test_overlap_refuses_an_empty_series_rather_than_returning_zero():
 
 
 def test_a_few_outlying_values_do_not_move_the_metric():
-    """The defect E2 exposed, in its tightest form.
-
-    The edges used to be min/max over both series, so two series with identical in-range shape but different
-    tails were scored on different ranges: the same model at 1,001 coarse-grained frames scored 0.98 where
-    the same model at 20,001 scored 0.62. Anchored on the atomistic series, two outlying values change
-    nothing."""
+    """The edges are the atomistic series', so two outlying values change nothing about the range."""
     anchor = np.linspace(0.0, 1.0, 2000)
     base = np.concatenate([np.linspace(0.2, 0.8, 900), np.linspace(0.35, 0.65, 100)])
     tails = np.concatenate([base, [3.0], [-3.0]])
     assert bonded_terms.overlap(anchor, tails, anchor=anchor) == pytest.approx(
         bonded_terms.overlap(anchor, base, anchor=anchor), abs=0.01)
+
+
+def test_the_metric_does_not_depend_on_which_series_is_sampled_more():
+    """The defect E2 exposed, exactly.
+
+    Raw counts were compared, so with 20,001 atomistic frames against 1,001 coarse-grained ones the `min` was
+    the smaller series wherever it had mass: the same model scored 0.98 at 1,001 frames and 0.62 at 20,001,
+    which is a statement about the sampling. Repeating every coarse-grained sample twenty times leaves the
+    distribution unchanged, and now leaves the metric unchanged too.
+    """
+    rng = np.random.default_rng(20260929)
+    anchor = 120 + rng.normal(0, 5, 20000)
+    cg = 118 + rng.normal(0, 6, 1001)
+    assert bonded_terms.overlap(anchor, cg, anchor=anchor) == pytest.approx(
+        bonded_terms.overlap(anchor, np.repeat(cg, 20), anchor=anchor), abs=1e-9)
 
 
 def test_the_range_comes_from_the_anchor_and_not_from_the_wider_series():

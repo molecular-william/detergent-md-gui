@@ -139,11 +139,18 @@ def bin_edges(anchor, bins=40, margin=0.1):
 
 
 def overlap(first, second, bins=40, anchor=None, margin=0.1):
-    """The fraction of a shared histogram two series occupy: 1.0 identical, 0.0 disjoint.
+    """The overlap of two distributions over one set of bins: 1.0 identical, 0.0 disjoint.
 
-    `anchor` fixes the range (see `bin_edges`); without one the first series is used. Each series gets two
-    extra bins, one below and one above that range, so a value outside it is counted as outside — sharing
-    nothing with the anchor's mass — rather than being folded onto the edge or dropped from the sample.
+    Each histogram is turned into the fraction of its own sample per bin before the shared area is taken. That
+    is the whole difference between a metric that can be read across runs and one that cannot: comparing raw
+    counts makes the answer depend on which sample is smaller — with 20,001 atomistic frames against 1,001
+    coarse-grained ones the counts are roughly twenty to one, `min` returns the smaller series everywhere it
+    has any mass at all, and the score says "the smaller sample's support sits inside the larger's", which
+    scored 0.98 for a model that reads 0.62 when it is sampled properly.
+
+    `anchor` fixes the range (see `bin_edges`) — the atomistic series, so two runs of one reference are
+    measured on the same bins — with one extra bin below and above it so mass outside the range counts as
+    outside rather than being folded onto the edge or dropped.
     """
     first, second = np.asarray(first, dtype=float), np.asarray(second, dtype=float)
     if not first.size or not second.size:
@@ -154,8 +161,9 @@ def overlap(first, second, bins=40, anchor=None, margin=0.1):
     edges = np.concatenate(([-np.inf], bin_edges(source, bins, margin), [np.inf]))
     counts_first, _ = np.histogram(first, bins=edges)
     counts_second, _ = np.histogram(second, bins=edges)
-    shared = float(np.minimum(counts_first, counts_second).sum())
-    return shared / max(1, min(int(counts_first.sum()), int(counts_second.sum())))
+    fraction_first = counts_first / max(1, int(counts_first.sum()))
+    fraction_second = counts_second / max(1, int(counts_second.sum()))
+    return float(np.minimum(fraction_first, fraction_second).sum())
 
 
 def label_for(currency, atoms):

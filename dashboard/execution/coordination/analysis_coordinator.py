@@ -13,13 +13,25 @@ from pathlib import Path
 from dashboard import files, paths
 from dashboard.analysis import worker as analysis
 
-from ...analysis.runs import observability, refinement, surfaces
-from ...analysis.validation import geometry as carbohydrate_geometry
-from ...analysis.validation import osmotic as osmotic_pressure
-from ...analysis.validation import report as carbohydrate_validation
-from ...analysis.validation import targets
-from ...analysis.validation import transfer as transfer_free_energy
-from ...models import sugars as carbohydrates
+#: The packages whose content decides an analysis result: the analysis code itself and the model code it reads.
+CODE_ROOTS = ('analysis', 'models')
+
+
+def code_fingerprint_files():
+    """`(relative name, path)` for every file that decides an analysis result, in a stable order.
+
+    A hand-written list of module files stood here and had quietly fallen behind: `bonded_terms`, `consistency`,
+    `mapping_consistency`, `layout` and `sugar_ensemble` were not in it, so fixing the overlap metric changed no
+    signature at all — re-queuing the same analysis returned the completed task, and the panel went on showing
+    numbers the code on disk would no longer produce. This walks the packages instead, so the list cannot drift
+    from the code it describes, and names each file relative to `dashboard/` because two modules can share a
+    basename.
+    """
+    root = Path(analysis.__file__).resolve().parent.parent
+    return [(str(path.relative_to(root)), path)
+            for package in CODE_ROOTS
+            for path in sorted((root / package).rglob('*.py'))]
+
 from .. import workflow
 from ..environment import recorded_environment
 from . import resources
@@ -79,14 +91,11 @@ class AnalysisCoordinator:
             source_root = workflow.execution_root(owner.run_path(job))
             source_entries = analysis.source_entries(source_root, kind)
             fingerprint = [(relative, files.sha256(path)) for relative, path in source_entries.items()]
-            code_files = (Path(analysis.__file__), Path(observability.__file__), Path(targets.__file__),
-                          Path(refinement.__file__), Path(surfaces.__file__), Path(carbohydrates.__file__),
-                          Path(carbohydrate_validation.__file__), Path(carbohydrate_geometry.__file__),
-                          Path(transfer_free_energy.__file__), Path(osmotic_pressure.__file__))
+            code_files = code_fingerprint_files()
             signature = hashlib.sha256(json.dumps(
                 [kind, payload, fingerprint,
                  self.dependencies(job) if kind == 'refinement-score' else {},
-                 [(path.name, files.sha256(path)) for path in code_files]],
+                 [(name, files.sha256(path)) for name, path in code_files]],
                 sort_keys=True).encode()).hexdigest()
             tasks = job.get('analyses', [])
             for task in reversed(tasks):
