@@ -91,10 +91,10 @@ th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mute
   <button role="tab" aria-selected="true">Mapping Validation</button>
 </nav>
 
-<p class="notice"><strong>Draft for review.</strong> Layout and wording only; nothing here is wired to the
-application. Numbers marked <em>measured</em> are the real values from run <code>03875cf39790</code>; the CG
-column is <em>placeholder</em> because no CG run exists in this workspace yet (task D2). The six questions I
-want judged are at the bottom of the page.</p>
+<p class="notice"><strong>Reviewed and accepted 2026-09-29; kept as the layout reference for the build.</strong>
+Nothing here is wired to the application yet. Numbers marked <em>measured</em> are the real values from run
+<code>03875cf39790</code>; the CG column is <em>placeholder</em> because no CG run exists in this workspace yet
+(task D2). The six questions that were put to review, and the answers taken from it, are at the bottom.</p>
 
 <div class="selector">
   <label>Molecule<select><option>Sucrose</option><option>Maltose</option><option>DDM</option></select></label>
@@ -304,15 +304,17 @@ want judged are at the bottom of the page.</p>
     </ol>
   </div>
   <div class="review" style="border-left-color:var(--warn);background:#fffdf5">
-    <strong>What I want your eye on</strong>
+    <strong>Put to review, and accepted as drawn on 2026-09-29</strong>
     <ol>
-      <li>A new tab (recommended) or all four cards inside CG Bead Assignment?</li>
-      <li>Card 4 visible-but-empty for single-solute runs (recommended), or hidden until a series exists?</li>
-      <li>Keep the <i>inside the AA range</i> badge, or show numbers only?</li>
-      <li>Measure and display the expansion factor against our own AA, leaving 1.15 in the topologies (recommended)?</li>
-      <li>AA-reference-driven mapping: restrict candidate scoring to the partitions the bead types admit
-        (recommended), or also allow a covariance-scored search over plausible boundaries as a later goal?</li>
-      <li>Experiment order: second AA reference → CG geometry → osmotic pressure → transfer → transferability?</li>
+      <li>A new tab (recommended) or all four cards inside CG Bead Assignment? <span class="muted">→ new tab</span></li>
+      <li>Card 4 visible-but-empty for single-solute runs, or hidden until a series exists? <span class="muted">→ visible</span></li>
+      <li>Keep the <i>inside the AA range</i> badge, or show numbers only? <span class="muted">→ keep the badge</span></li>
+      <li>Measure and display the expansion factor against our own AA, leaving 1.15 in the topologies? <span class="muted">→ yes, display only</span></li>
+      <li>AA-reference-driven mapping: restrict candidate scoring to the partitions the bead types admit, or
+        also allow a covariance-scored search over plausible boundaries? <span class="muted">→ restriction now,
+        covariance score as task C4</span></li>
+      <li>Experiment order: second AA reference → CG geometry → transferability → osmotic pressure → transfer?
+        <span class="muted">→ as listed</span></li>
     </ol>
   </div>
 </section>

@@ -1,8 +1,9 @@
 # Sugar mapping consistency validation — design
 
-Status: **draft for review, 2026-09-29.** Nothing here is implemented. The panel layouts this describes
-are drafted in `docs/design/prototypes/sugar-consistency-20260929.html`, and the task list is
-`docs/superpowers/plans/2026-09-29-sugar-consistency-validation.md`.
+Status: **approved for implementation, 2026-09-29.** The layout draft in
+`docs/design/prototypes/sugar-consistency-20260929.html` was reviewed and accepted, and every decision below
+(D1-D6) stands as written, so nothing in this note changed during review. Implementation has not started; the
+task list is `docs/superpowers/plans/2026-09-29-sugar-consistency-validation.md`.
 
 ## What this is for
 
@@ -158,7 +159,12 @@ longer durations in the form. Martini water `W`, the registry's temperature, 20-
 frames. Deliverable: card 1 and card 3 of the new tab, populated. Preceded by a 10 ns scouting run to
 measure CG ns/day on this box.
 
-**E3. Osmotic pressure series** (CG: days; AA: weeks). Setup, matching `validation/osmotic.py`'s existing
+**E3. Transferability across molecules** (cheap, and it needs no new system). The same bead types inside
+sucrose, maltose and trehalose, each with its own AA reference and CG run; per-bead distributions compared
+across the three. This is the paper's own disaccharide transferability check and the cheapest test of
+whether our type assignment is chemistry or coincidence.
+
+**E4. Osmotic pressure series** (CG: days; AA: weeks). Setup, matching `validation/osmotic.py`'s existing
 contract: 0, 0.5, 1.0, 1.5, 2.0 and 2.5 molal; a box sized so the xy area is large and the solute slab
 thin in z; solute count from the target molality and the water mass; flat-bottomed restraint on the solute
 centre of mass; semiisotropic pressure coupling with the z degree of freedom decoupled; osmotic pressure
@@ -166,17 +172,13 @@ centre of mass; semiisotropic pressure coupling with the z degree of freedom dec
 concentration-series system builder — this is the largest single item in the plan and it should be its own
 task sequence, not a step inside one.
 
-**E4. Water-to-octanol transfer free energy.** Setup, matching `validation/transfer.py`: 19 non-uniform λ
+**E5. Water-to-octanol transfer free energy.** Setup, matching `validation/transfer.py`: 19 non-uniform λ
 windows (`0.0 … 1.0`, the canonical list is in that module), soft-core LJ, NpT, BAR with uncertainty, both
 solvent legs. Martini 3's 1-octanol is available locally (`OCO` in
 `resources/templates/small_mols_fast_forward/4_CG_sim/inputs/martini_v3.0.0_solvents_v1.itp`, three beads);
 no CHARMM36 tree in this checkout ships an octanol topology, so an AA leg needs one added or the check
 stays CG-versus-experiment. Budget: CG ≈ 200-400 ns for both legs (hours); AA ≈ 400-800 ns (roughly 6-12
 days at the measured rate). One molecule, one check.
-
-**E5. Transferability across molecules** (cheap). The same bead types inside sucrose, maltose and
-trehalose; per-bead distributions compared across the three. The paper's own disaccharide transferability
-check, and the cheapest test of whether our type assignment is chemistry or coincidence.
 
 ## Metrics and thresholds
 
@@ -197,17 +199,24 @@ Both are computed from our own data, so both may be badged. Everything else is a
 - No CG profile long enough to sample geometry (E2).
 - The AA reference used for targets is 200 ns; convergence is not demonstrated until E1 exists.
 
-## What I want your eye on
+## Review questions, and their answers
+
+The draft was reviewed and accepted as drawn on 2026-09-29, so the recommendations below are the answers:
+one new tab plus the run-card line; card 4 visible-but-empty; badges for the two internal claims only; the
+expansion factor measured but not applied; candidate scoring restricted to the admissible set; and the
+experiment order E1 → E2 → E3 → E4 → E5. The questions are kept because they are the record of what was
+asked, and any of them can be revisited.
 
 1. **D1**: a new Mapping Validation tab plus a line on the run card, or all four cards inside CG Bead
-   Assignment? I recommend the tab.
+   Assignment? Recommended: the tab.
 2. **D2 card 4**: keep the solution-behaviour card visible-but-empty for single-solute runs, or omit it
-   until a concentration series exists?
+   until a concentration series exists? Recommended: visible.
 3. **D4**: is "inside the AA observed range" a badge you want, or would you rather see only the numbers?
+   Recommended: keep the badge.
 4. **D5**: measure and display the ring-expansion factor against our own AA, without changing the 1.15
-   written into topologies — agree?
+   written into topologies? Recommended: yes.
 5. **AA-reference-driven mapping**: is the admissible-partition restriction (no free bead boundaries) the
    line you want drawn, or do you want the covariance-scored search over *chemically plausible* boundaries
-   as an explicit later goal?
-6. **E1-E5 order**: second AA reference → CG geometry → osmotic pressure → transfer → transferability. Any
-   reordering?
+   as an explicit later goal? Recommended: restriction now, covariance score as task C4.
+6. **E1-E5 order**: second AA reference → CG geometry → transferability → osmotic pressure → transfer.
+   Recommended: as listed.

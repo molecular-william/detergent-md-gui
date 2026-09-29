@@ -130,7 +130,7 @@ Test: `tests/dashboard/integration/test_consistency_api.py` — queue the analys
 assert 200, assert the published result carries the request key, the attempt id and the source hashes.
 Run, `ruff check`, full fast tier, commit.
 
-### Phase B — the surface (after the draft is signed off)
+### Phase B — the surface (draft signed off 2026-09-29)
 
 **Task B1: panel section 1 (ring and constraint geometry)** — route to fetch a published attempt, panel
 that renders the per-pair overlay and table, `tests/dashboard/browser/test_mapping_validation_browser.py`
