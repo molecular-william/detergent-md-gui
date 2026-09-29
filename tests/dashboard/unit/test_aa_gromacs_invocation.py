@@ -7,7 +7,32 @@ step, which is why no run had ever completed here. `-ntomp` is valid for both bu
 import os
 import subprocess
 
+import pytest
+
 from dashboard.execution.adapters import aa
+
+
+@pytest.fixture(scope='module')
+def gromacs_text():
+    """The installed build's own report, asked once for the whole module.
+
+    `gmx --version` costs about 1.3 s on this host and four tests below wanted the same answer, so the probe
+    was paid four times. It stays a real probe — this is the binary's output, not a fixture's claim about it
+    — it is simply not repeated. A host without the binary skips rather than failing for a reason unrelated
+    to the code under test.
+    """
+    resolved = '/usr/local/gromacs/2026.3/bin/gmx'
+    try:
+        report = subprocess.run([resolved, '--version'], capture_output=True, text=True, timeout=60)
+    except OSError as error:
+        pytest.skip(f'{resolved} is not runnable here: {error}')
+    return {'path': resolved, 'text': report.stdout + report.stderr}
+
+
+@pytest.fixture(scope='module')
+def flavour(gromacs_text):
+    """What the adapter makes of the build the probe above found: the adapter's own classifier, once."""
+    return aa.gromacs_flavour()
 
 
 def test_no_mdrun_command_in_the_project_passes_a_thread_mpi_only_flag():
@@ -36,25 +61,19 @@ def test_no_generated_mdrun_command_passes_a_thread_mpi_only_flag():
     assert not any('-ntmpi' in line for line in commands), commands
 
 
-def test_the_resolved_gromacs_is_indeed_an_mpi_build():
+def test_the_resolved_gromacs_is_indeed_an_mpi_build(gromacs_text):
     """The reason the flag is absent, checked against the binary rather than asserted in prose."""
-    resolved = '/usr/local/gromacs/2026.3/bin/gmx'
-    try:
-        report = subprocess.run([resolved, '--version'], capture_output=True, text=True, timeout=60)
-    except OSError:
-        return
-    text = report.stdout + report.stderr
-    assert 'MPI library' in text, text[:200]
-    assert 'thread MPI' not in text, 'if this becomes a thread-MPI build, -ntmpi is valid again'
+    assert 'MPI library' in gromacs_text['text'], gromacs_text['text'][:200]
+    assert 'thread MPI' not in gromacs_text['text'], 'if this becomes a thread-MPI build, -ntmpi is valid again'
 
 
-def test_the_mdrun_cpu_budget_comes_from_the_stage_settings():
+def test_the_mdrun_cpu_budget_comes_from_the_stage_settings(flavour):
     """This host has no thread-MPI, so the second CPU lever is MPI ranks under mpirun, not -ntmpi."""
-    assert aa.mdrun_launch({'mdrun_ntomp': 16, 'mdrun_ranks': 2}) == ('mpirun -np 2 ', '-ntomp 16')
+    assert aa.mdrun_launch({'mdrun_ntomp': 16, 'mdrun_ranks': 2}, flavour) == ('mpirun -np 2 ', '-ntomp 16')
 
 
-def test_a_single_rank_keeps_the_command_it_always_had():
-    assert aa.mdrun_launch({}) == ('', '-ntomp 8')
+def test_a_single_rank_keeps_the_command_it_always_had(flavour):
+    assert aa.mdrun_launch({}, flavour) == ('', '-ntomp 8')
 
 
 def test_the_cpu_budget_is_checked_against_the_machine():
@@ -85,7 +104,6 @@ def test_a_thread_mpi_build_takes_its_ranks_inside_one_process():
     assert aa.mdrun_launch({'mdrun_ranks': 1}, flavour='thread-mpi') == ('', '-ntomp 8')
 
 
-def test_the_flavour_probe_asks_the_binary():
-    flavour = aa.gromacs_flavour()
+def test_the_flavour_probe_asks_the_binary(flavour):
     assert flavour in ('mpi', 'thread-mpi', 'unknown'), flavour
     assert flavour != 'thread-mpi', 'this host is documented as an MPI build; if that changed, -ntmpi is valid'
