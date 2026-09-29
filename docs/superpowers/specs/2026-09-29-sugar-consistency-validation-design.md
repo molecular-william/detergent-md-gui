@@ -180,6 +180,15 @@ no CHARMM36 tree in this checkout ships an octanol topology, so an AA leg needs 
 stays CG-versus-experiment. Budget: CG ≈ 200-400 ns for both legs (hours); AA ≈ 400-800 ns (roughly 6-12
 days at the measured rate). One molecule, one check.
 
+### Card 1 is a check on the pipeline, not on the model
+
+The ring constraints a run carries were fitted from the atomistic reference that card 1 compares them against,
+so that section agreeing says the mapping, the mapped trajectory and the simulated trajectory are one
+assignment. That is worth having as a regression test — a mismatched assignment cannot produce that agreement —
+and it is not evidence about the model's physics. Card 2 carries the information: those terms were fitted from
+the same reference and are free to disagree, and the distributions behind them are compared rather than their
+means.
+
 ## Metrics and thresholds
 
 No absolute threshold is invented. The two comparisons with an internal reference have one:

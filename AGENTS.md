@@ -176,9 +176,53 @@ Run `03875cf39790` (`workspace/dashboard/runs/03875cf39790/`) — `aa_only`, Suc
 1568.873 ns/day is 1.3% from the 8-thread benchmark (1589), so the mdrun sweep's numbers transfer to
 production. Re-measure before quoting either number in a new context.
 
-### Next task: the ensemble comparison tool
+### Where this stands (2026-09-29, after the first end-to-end CG consumer runs)
 
-Deferred until this run finished. The core works and is measured — no re-run of the simulation is needed:
+The CG consumer path runs to completion for a sugar. Two `aa_cg` runs are in the live database, both
+`completed`, all six stages exit 0, both off the shared CHARMM36m reference `03875cf39790` and the
+mapping the runs themselves recorded:
+
+| run | CG timestep | CG production | rate | wall clock |
+| --- | --- | --- | --- | --- |
+| `3168e92e052f` | 20 fs | 10 ns in 500,000 steps | 28,885 ns/day | 3 min 38 s |
+| `abd5bf461c49` | 2 fs (before the fix) | 10 ns in 5,000,000 steps | 2,863 ns/day | 8 min 10 s |
+
+The coarse-grained half integrates at 20 fs and the atomistic half at 2 fs; `cg.mdp_integration` is the one
+place that decides it, because the adapter used to stamp 2 fs on both. Three failures stood between the first
+queue and the first completion, each fixed and pinned by a test: the seeded topology named beads with the
+reference's per-residue letters while `mapped.gro` said `B01..` (`grompp`: "Too many warnings (1)"); the fitted
+temperature reached `ff_inter` as a float where its argument is an int; and the topology named two residues, so
+MDAnalysis — and therefore `ff_assess` — saw two four-bead molecules instead of one eight-bead one
+(`IndexError: axis 1 with size 4`). A run's CG topology is now one residue per molecule, beads `B01..`, which
+is what `mapped.gro`, the `.map` and the `.ndx` already said.
+
+The Mapping Validation tab is live: `GET /api/jobs/<id>/mapping-consistency` reads the record the analysis
+published (it is not recomputed in the route), and `static/js/mapping-validation.js` renders card 1 (ring and
+constraint pairs) and card 2 (bonded terms) with the reference entry carried as context. Cards 3 and 4 say why
+they are empty instead of showing a substitute number. Card 1's agreement is by construction — those
+constraints were fitted from the same atomistic reference they are compared against — so it checks that the
+mapping, the mapped trajectory and the simulated trajectory are one assignment, and the panel says so on the
+card. The reference's numbers are context and set no verdict.
+
+### Still open
+
+- Phase B experiments E1–E5 (spec §Phase B): a second independent AA reference, CG geometry at paper scale,
+  transferability across sucrose/maltose/trehalose, the osmotic-pressure series (needs a concentration-series
+  builder), water-octanol transfer (needs an AA octanol topology).
+- Card 3 (shape and volume) has no figure yet: the displacement summary is shown, the per-bead picture and
+  Connolly surfaces are not. Card 4 is blocked on the system builder above.
+- D1's other half: the run card does not yet carry the line that deep-links this tab with a run preselected.
+- `resources/validation/carbohydrates/targets-v1.json` is still `metadata_only`, so no experimental path is
+  evidence-complete.
+- An analysis is handed a *work* directory whose files sit at the execution root, not under `stages/`; both
+  spellings resolve through `analysis/runs/layout.py`. A reader that spells only `stages/...` sees a complete
+  run as empty.
+- A run's `molecule_snapshot` in a mapping candidate is a *file* record (`files`, `atom_order_sha256`), not a
+  molecule record: it has no id for `CGNames` to resolve.
+
+### The ensemble comparison tool (delivered 2026-09-29)
+
+Built and measured before the CG runs above existed; no re-run of the simulation was needed.
 
 ```python
 from dashboard.analysis import sugar_ensemble as se
@@ -241,7 +285,7 @@ numbers should say which of the two it is comparing.
 ### Verify
 
 ```
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q     # fast tier, 665 at last full run
+dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q     # fast tier, 771 at last full run
 dashboard/.venv/bin/python -m ruff check .                                # gate: F, E9, I must exit 0
 ```
 
