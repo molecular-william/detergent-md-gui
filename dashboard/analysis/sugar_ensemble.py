@@ -153,6 +153,20 @@ def published_constraints(entry_name):
             for item in record.get('constraints', [])}
 
 
+def mapping_currency(mapping, physical_only=False):
+    """`{topology index: (residue, bead letter)}` as the mapping declares it.
+
+    The letters are read from the mapping rather than from a generated topology: every file a run consumes
+    names its beads `B01..` (so that one bead has one identity across the run's files, and so that
+    `gmx grompp` finds the topology and the mapped coordinates in agreement), while a report beside the
+    published entry speaks the entry's language, `(2, 'A') – (2, 'B')`. This is that translation, in one
+    place.
+    """
+    return {index: (bead.get('residue', 1), bead.get('letter') or bead['name'])
+            for index, bead in enumerate(mapping['beads'], 1)
+            if not (physical_only and bead.get('virtual_site'))}
+
+
 def samples(run_dir, molecule='Sucrose', stride=1, limit=None):
     """Per-pair distance samples over a run's own atomistic trajectory, before any comparison.
 
@@ -163,14 +177,13 @@ def samples(run_dir, molecule='Sucrose', stride=1, limit=None):
     """
     import MDAnalysis as mda
 
-    from ..models.sugars import candidate, coordinates, ring_pairs, topology
+    from ..models.sugars import candidate, coordinates, ring_pairs
     from .runs import layout
 
     run_dir = Path(run_dir)
     solute = read_solute(run_dir)
     mapping = candidate(solute, molecule)
-    text = topology(mapping, solute)
-    beads = currency(text)
+    beads = mapping_currency(mapping)
     pairs = list(ring_pairs(mapping))
 
     universe = mda.Universe(str(layout.resolve(run_dir, 'aa_structure')),

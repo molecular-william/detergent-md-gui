@@ -19,13 +19,19 @@ from . import layout
 
 
 def expected_currency(mapping):
-    """`{topology index: (residue, bead letter)}` for the physical beads, in the order a writer emits them.
+    """`{topology index: (residue, bead id)}` as the run's own files name them: `B01`, `B02`, …
 
-    The generated topology is written from the mapping, so a bead's index is its position in that list;
-    that is the bridge between a distance measured on a trajectory and the pair the mapping constrains.
+    The generated topology, the `.map`, the `.ndx` and the mapped coordinates all identify a bead by its
+    position (`B01..`), because that identity is unique where the reference's letters are not: a
+    two-residue sugar names two beads `A`, and `gmx grompp` reconciles a topology with a trajectory by atom
+    name. The letters stay available from the mapping for anything that speaks to the published entry.
     """
-    return {index: (bead.get('residue', 1), bead.get('letter') or bead['name'])
+    return {index: (bead.get('residue', 1), f'B{index:02d}')
             for index, bead in enumerate(mapping['beads'], 1) if not bead.get('virtual_site')}
+
+
+#: The mapping's own names, for anything that has to read or label beads the way the entry does.
+mapping_currency = ensemble.mapping_currency
 
 
 def ring_pairs(mapping):
@@ -93,7 +99,10 @@ def cg_samples(cg_run_dir, mapping, stride=1, limit=None):
     return {'run': str(cg_run_dir), 'frames': frames,
             'trajectory': str(trajectory.relative_to(cg_run_dir)),
             'topology': str(topology_path.relative_to(cg_run_dir)),
-            'beads': currency, 'pairs': pairs, 'samples': sampled, 'first': first or {}}
+            # The run's own ids (B01..) were checked above; the mapping's letters are what a report beside
+            # the published entry needs, so that is what the samples carry.
+            'beads': ensemble.mapping_currency(mapping), 'pairs': pairs,
+            'samples': sampled, 'first': first or {}}
 
 
 def labels_for(measured, pair):
@@ -104,13 +113,6 @@ def labels_for(measured, pair):
     """
     beads = measured['beads']
     return sorted(beads[index] for index in pair)
-
-
-def mapping_currency(mapping, physical_only=False):
-    """`{index: (residue, bead letter)}` for every bead, or only for the beads that own atoms."""
-    return {index: (bead.get('residue', 1), bead.get('letter') or bead['name'])
-            for index, bead in enumerate(mapping['beads'], 1)
-            if not (physical_only and bead.get('virtual_site'))}
 
 
 def physical_indices(mapping):

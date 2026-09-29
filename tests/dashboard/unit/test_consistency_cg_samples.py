@@ -26,7 +26,7 @@ MAPPING = {
 POSITIONS = [[0.0, 0.0, 0.0], [0.4, 0.0, 0.0], [0.0, 0.4, 0.0], [0.0, 0.0, 0.0]]
 
 
-def topology_text(names=('A', 'B', 'C', 'VS'), extra_atom=False):
+def topology_text(names=('B01', 'B02', 'B03', 'B04'), extra_atom=False):
     rows = [f'{index} {"TC4" if name == "VS" else "SP1r"} 1 SUCR {name} {index} 0 '
             f'{"0" if name == "VS" else "54"}' for index, name in enumerate(names, 1)]
     if extra_atom:
@@ -35,7 +35,7 @@ def topology_text(names=('A', 'B', 'C', 'VS'), extra_atom=False):
             + '\n\n[ constraints ]\n1 2 1 0.46\n1 3 1 0.54\n2 3 1 0.41\n')
 
 
-def build_run(root, names=('A', 'B', 'C', 'VS'), topology_names=None, extra_atom=False, frames=3,
+def build_run(root, names=('B01', 'B02', 'B03', 'B04'), topology_names=None, extra_atom=False, frames=3,
               positions=None):
     """A minimal CG consumer, built through the shared fixture, with the topology the case asks for."""
     positions = list(positions or POSITIONS)[:len(names)]
@@ -72,7 +72,18 @@ def test_the_run_and_the_files_it_read_are_recorded(tmp_path):
 
 
 def test_a_topology_naming_other_beads_is_refused_rather_than_read(tmp_path):
-    root = build_run(tmp_path, topology_names=('X', 'Y', 'Z', 'VS'))
+    root = build_run(tmp_path, topology_names=('X', 'Y', 'Z', 'W'))
+    with pytest.raises(ValueError, match='does not describe this mapping'):
+        consistency.cg_samples(root, MAPPING)
+
+
+def test_a_topology_using_the_reference_letters_is_refused(tmp_path):
+    """The letters name two beads `A` in a two-residue sugar; a run's files say `B01..` instead.
+
+    This is the mismatch that made `gmx grompp` count eight atom-name disagreements and refuse the CG
+    topology stage, so the reader refuses it here first, with the reason.
+    """
+    root = build_run(tmp_path, topology_names=('A', 'B', 'C', 'VS'))
     with pytest.raises(ValueError, match='does not describe this mapping'):
         consistency.cg_samples(root, MAPPING)
 
@@ -85,7 +96,7 @@ def test_a_topology_with_an_extra_bead_is_refused_rather_than_read(tmp_path):
 
 
 def test_a_trajectory_of_the_wrong_bead_count_is_refused(tmp_path):
-    root = build_run(tmp_path, names=('A', 'B', 'C'), topology_names=('A', 'B', 'C', 'VS'))
+    root = build_run(tmp_path, names=('B01', 'B02', 'B03'), topology_names=('B01', 'B02', 'B03', 'B04'))
     with pytest.raises(ValueError, match='not the same system'):
         consistency.cg_samples(root, MAPPING)
 
@@ -103,5 +114,8 @@ def test_stride_and_limit_take_the_frames_the_caller_asked_for(tmp_path):
     assert consistency.cg_samples(root, MAPPING, stride=2)['frames'] == 3
 
 
-def test_the_expected_currency_is_the_mapping_order_without_virtual_sites():
-    assert consistency.expected_currency(MAPPING) == {1: (1, 'A'), 2: (1, 'B'), 3: (1, 'C')}
+def test_the_expected_currency_is_the_run_own_bead_ids():
+    """The run's files name beads by position; the mapping's letters are a separate reading."""
+    assert consistency.expected_currency(MAPPING) == {1: (1, 'B01'), 2: (1, 'B02'), 3: (1, 'B03')}
+    assert consistency.mapping_currency(MAPPING, physical_only=True) == {1: (1, 'A'), 2: (1, 'B'),
+                                                                        3: (1, 'C')}

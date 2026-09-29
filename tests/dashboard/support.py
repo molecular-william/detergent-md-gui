@@ -51,8 +51,8 @@ def write_aa_fixture(root, molecule_id='Fixture'):
     return folder
 
 
-def cg_fixture_run(root, positions, names=('A', 'B', 'C', 'VS'), frames=3, residue='SUCR', topology=None,
-                   run_dir=None):
+def cg_fixture_run(root, positions, names=('B01', 'B02', 'B03', 'B04'), frames=3, residue='SUCR',
+                   topology=None, run_dir=None):
     """A minimal CG consumer: its topology, its structure, and a trajectory at the given coordinates.
 
     `positions` are nanometres, the way a GROMACS trajectory carries them. MDAnalysis holds ångström, so the

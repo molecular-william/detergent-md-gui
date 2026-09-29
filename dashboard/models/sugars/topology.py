@@ -60,7 +60,7 @@ def linkage_edge(beads, seed, a, b):
     return frozenset((first, second)) == seed['ends']
 
 
-def topology(data, structure, *, residue_name='DDM', representation_mode=None):
+def topology(data, structure, *, residue_name='DDM', representation_mode=None, export_names=False):
     import numpy as np
     from MDAnalysis.lib.distances import calc_angles, calc_dihedrals
     representation_mode = representation_mode or data.get('representation_mode') or 'tc4'
@@ -81,10 +81,14 @@ def topology(data, structure, *, residue_name='DDM', representation_mode=None):
              '[ moleculetype ]', f'{residue_name} 1', '', '[ atoms ]']
     for i,b in enumerate(beads,1):
         mass = 0 if b.get('virtual_site') else {'R':72,'S':54,'T':36}[b['size']]
-        # The reference names its beads A/B/C/VS within each residue, so a two-residue model reads like
-        # the published entry instead of one residue numbered B01..B08. Leftover fragments are not
-        # reference residues and keep a positional name.
-        lines.append(f'{i} {b["type"]} {b.get("residue",1)} {residue_name} {b.get("letter") or f"B{i:02d}"} '
+        # Two naming conventions, and which one a file needs is decided by what reads it. The reference
+        # names its beads A/B/C/VS within each residue, so a topology written for reading beside the
+        # published entry uses those letters. Everything the run itself consumes — mapping.map,
+        # mapping.ndx, mapped.gro and the seeded topology — uses B01.., because a two-residue sugar names
+        # two beads A and `gmx grompp` compares the topology against the mapped coordinates by atom name:
+        # letters there make it count eight mismatches and refuse the run ("Too many warnings").
+        name = f'B{i:02d}' if export_names else (b.get('letter') or f'B{i:02d}')
+        lines.append(f'{i} {b["type"]} {b.get("residue",1)} {residue_name} {name} '
                      f'{i} {b.get("charge",0)} {mass}')
     lines += ['', '[ constraints ]']
     for (a,b),scale in pairs.items():

@@ -52,8 +52,19 @@ def test_maltose_mapping_validation_uses_its_bound_molecule():
     assert '[ moleculetype ]' in topology
     assert topology.count('\n[ atoms ]') == 1
     assert '\nLIG1 1\n' in topology
-    assert ' 1 LIG1 A ' in topology, 'atom names follow the reference per-residue letters'
-    assert ' 2 LIG1 A ' in topology, 'the second residue repeats the letters under its own number'
+    # The run's files identify a bead by position, across both residues: this is the identity the mapped
+    # coordinates carry and `gmx grompp` reconciles by name. The reference's per-residue letters name two
+    # beads `A` here, which is why they are not what the run is prepared with.
+    atoms, section = [], None
+    for line in topology.splitlines():
+        body = line.split(';', 1)[0].strip()
+        if body.startswith('['):
+            section = body.strip('[] ').strip()
+            continue
+        if section == 'atoms' and body:
+            atoms.append(body.split())
+    assert [(int(row[2]), row[4]) for row in atoms] == [(1, 'B01'), (1, 'B02'), (1, 'B03'), (1, 'B04'),
+                                                        (2, 'B05'), (2, 'B06'), (2, 'B07'), (2, 'B08')]
     assert ' DDM ' not in topology
 
 

@@ -97,7 +97,7 @@ def test_coarse_grained_mean_positions_are_read_in_nanometres(tmp_path):
     assert result['frames'] == 4
     assert np.allclose(result['mean'][0], [0.0, 0.0, 0.0], atol=1e-6)
     assert np.allclose(result['mean'][1], [0.4, 0.0, 0.0], atol=1e-6), 'the trajectory is in ångström'
-    assert result['beads'][1] == (1, 'A')
+    assert result['beads'][1] == (1, 'B01'), "the coarse-grained run's own bead id"
 
 
 def test_coarse_grained_means_refuse_a_trajectory_of_the_wrong_bead_count(tmp_path):
