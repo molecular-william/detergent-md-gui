@@ -372,10 +372,13 @@ printf '{ff.water_molecule}\\n' | gmx genion -s ions.tpr -o neutral.gro -p syste
 mv neutral.gro system.gro
 '''
     scripts[1]+='python ../common/aa_references.py counts system.top ../common/context.json\n'
+    # Asked once for the whole run rather than once per stage: the build flavour is a property of the binary,
+    # and on this host `gmx --version` costs 1.3 s, so four per-stage probes were 5.3 s of prepare_run's 5.4 s.
+    flavour = gromacs_flavour()
     for i,kind in enumerate(('em','nvt','npt','production'),2):
         prev=Path(STAGES[i-1][1]).parent.as_posix(); coord='system.gro' if i==2 else 'run.gro'
         checkpoint=f' -t ../{prev}/run.cpt' if i>=4 else ''
-        launcher, mdrun_flags = mdrun_command_flags(settings, kind)
+        launcher, mdrun_flags = mdrun_command_flags(settings, kind, flavour)
         # No -ntmpi here. This host's GROMACS is an MPI build only -- /usr/local/gromacs/2026.3/bin/gmx is
         # a symlink to gmx_mpi -- and -ntmpi is a thread-MPI option, so mdrun aborts with "Setting the
         # number of thread-MPI ranks is only supported with thread-MPI and GROMACS was compiled without
