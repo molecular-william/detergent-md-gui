@@ -124,15 +124,34 @@ def measure(trajectory, structure, terms, stride=1, limit=None):
             'source': {'trajectory': str(trajectory), 'structure': str(structure)}}
 
 
-def overlap(first, second, bins=40):
-    """The fraction of a shared histogram two series occupy: 1.0 identical, 0.0 disjoint."""
+def bin_edges(anchor, bins=40, margin=0.1):
+    """The shared histogram's edges, from one series padded by `margin` of its span.
+
+    They come from the *atomistic* series rather than from both, because that series is the comparison's
+    target and is the same across the runs being compared. Taking the edges from both series makes the metric
+    move with the sample: a coarse-grained run with 1,001 frames has narrower observed extremes than the same
+    model sampled over 20,001, the shared range shrinks with it, and a run of 10 ns scores 0.98 where the same
+    model at 200 ns scores 0.62 — for the model, not for the sampling.
+    """
+    anchor = np.asarray(anchor, dtype=float)
+    span = float(anchor.max() - anchor.min())
+    return np.linspace(float(anchor.min() - margin * span), float(anchor.max() + margin * span), bins + 1)
+
+
+def overlap(first, second, bins=40, anchor=None, margin=0.1):
+    """The fraction of a shared histogram two series occupy: 1.0 identical, 0.0 disjoint.
+
+    `anchor` fixes the range (see `bin_edges`); without one the first series is used. Each series gets two
+    extra bins, one below and one above that range, so a value outside it is counted as outside — sharing
+    nothing with the anchor's mass — rather than being folded onto the edge or dropped from the sample.
+    """
     first, second = np.asarray(first, dtype=float), np.asarray(second, dtype=float)
     if not first.size or not second.size:
         raise ValueError('Overlap needs two non-empty series')
-    low, high = min(first.min(), second.min()), max(first.max(), second.max())
-    if high <= low:
+    source = first if anchor is None else np.asarray(anchor, dtype=float)
+    if not source.size or float(source.max() - source.min()) <= 0:
         return 1.0
-    edges = np.linspace(low, high, bins + 1)
+    edges = np.concatenate(([-np.inf], bin_edges(source, bins, margin), [np.inf]))
     counts_first, _ = np.histogram(first, bins=edges)
     counts_second, _ = np.histogram(second, bins=edges)
     shared = float(np.minimum(counts_first, counts_second).sum())
@@ -186,6 +205,11 @@ def compare_terms(aa, cg, currency=None, block_count=10, bins=40):
             row['compared'] = True
             row['delta'] = round(row['cg']['mean'] - row['aa']['mean'], 4)
             row['wasserstein'] = float(wasserstein_distance(aa_values, cg_values))
-            row['overlap'] = overlap(aa_values, cg_values, bins) if len(aa_values) > 1 and len(cg_values) > 1 else None
+            if len(aa_values) > 1 and len(cg_values) > 1:
+                row['overlap'] = overlap(aa_values, cg_values, bins, anchor=aa_values)
+                edges = bin_edges(aa_values, bins)
+                # The range the overlap was measured on, so two runs can be read against each other: with the
+                # same atomistic reference it is the same range, and a reader does not have to assume that.
+                row['overlap_range'] = [round(float(edges[0]), 4), round(float(edges[-1]), 4)]
             rows.append(row)
     return rows

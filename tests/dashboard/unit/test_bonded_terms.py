@@ -126,6 +126,34 @@ def test_overlap_refuses_an_empty_series_rather_than_returning_zero():
         bonded_terms.overlap([], [0.3])
 
 
+def test_a_few_outlying_values_do_not_move_the_metric():
+    """The defect E2 exposed, in its tightest form.
+
+    The edges used to be min/max over both series, so two series with identical in-range shape but different
+    tails were scored on different ranges: the same model at 1,001 coarse-grained frames scored 0.98 where
+    the same model at 20,001 scored 0.62. Anchored on the atomistic series, two outlying values change
+    nothing."""
+    anchor = np.linspace(0.0, 1.0, 2000)
+    base = np.concatenate([np.linspace(0.2, 0.8, 900), np.linspace(0.35, 0.65, 100)])
+    tails = np.concatenate([base, [3.0], [-3.0]])
+    assert bonded_terms.overlap(anchor, tails, anchor=anchor) == pytest.approx(
+        bonded_terms.overlap(anchor, base, anchor=anchor), abs=0.01)
+
+
+def test_the_range_comes_from_the_anchor_and_not_from_the_wider_series():
+    anchor = np.linspace(0.0, 1.0, 200)
+    assert bonded_terms.bin_edges(anchor)[0] == pytest.approx(-0.1)
+    assert bonded_terms.bin_edges(anchor)[-1] == pytest.approx(1.1)
+
+
+def test_mass_beyond_the_range_counts_as_outside_rather_than_being_folded_in():
+    anchor = np.linspace(0.0, 1.0, 200)
+    outside = np.full(50, 9.0)
+    assert bonded_terms.overlap(anchor, outside, anchor=anchor) == 0.0
+    half = np.concatenate([np.full(25, 0.5), np.full(25, 9.0)])
+    assert 0.0 < bonded_terms.overlap(anchor, half, anchor=anchor) < 1.0
+
+
 def test_a_term_reads_as_the_mapping_names_its_beads():
     assert bonded_terms.label_for({1: (1, 'A'), 2: (1, 'B')}, (0, 1)) == '(1,A) - (1,B)'
 
