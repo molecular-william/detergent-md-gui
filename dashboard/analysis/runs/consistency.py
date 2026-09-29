@@ -81,7 +81,8 @@ def cg_samples(cg_run_dir, mapping, stride=1, limit=None):
         if limit is not None and index // stride >= limit:
             break
         frames += 1
-        positions = np.asarray(universe.atoms.positions)
+        # MDAnalysis holds ångström; this module reports nanometres, as the atomistic side does.
+        positions = np.asarray(universe.atoms.positions) / 10.0
         centres = {bead: positions[bead - 1] for bead in currency}
         distances = pair_distances(centres, pairs)
         if first is None:
@@ -103,6 +104,109 @@ def labels_for(measured, pair):
     """
     beads = measured['beads']
     return sorted(beads[index] for index in pair)
+
+
+def mapping_currency(mapping, physical_only=False):
+    """`{index: (residue, bead letter)}` for every bead, or only for the beads that own atoms."""
+    return {index: (bead.get('residue', 1), bead.get('letter') or bead['name'])
+            for index, bead in enumerate(mapping['beads'], 1)
+            if not (physical_only and bead.get('virtual_site'))}
+
+
+def physical_indices(mapping):
+    """The zero-based positions of the beads that own atoms, which is what a rigid-body fit may use."""
+    return [index for index, bead in enumerate(mapping['beads']) if not bead.get('virtual_site')]
+
+
+def cg_bead_means(cg_run_dir, stride=1, limit=None):
+    """Mean bead positions over a coarse-grained run's trajectory, in nanometres.
+
+    A mean position is the shape half of the comparison: constraint lengths say how big the ring is, and a
+    per-bead displacement says which part of it moved. The bead count is checked against the topology,
+    because averaging a trajectory read with the wrong topology produces a fluent number about nothing.
+    """
+    import MDAnalysis as mda
+
+    cg_run_dir = Path(cg_run_dir)
+    trajectory = layout.resolve(cg_run_dir, 'cg_trajectory')
+    structure = layout.resolve(cg_run_dir, 'cg_structure')
+    topology_path = layout.cg_topology(cg_run_dir)
+    currency = ensemble.currency(topology_path.read_text())
+    universe = mda.Universe(str(structure), str(trajectory))
+    if len(universe.atoms) != len(currency):
+        universe.trajectory.close()
+        raise ValueError(f'{trajectory} holds {len(universe.atoms)} beads but {topology_path} declares '
+                         f'{len(currency)}: these are not the same system')
+    totals, frames = np.zeros((len(currency), 3)), 0
+    for index, _ in enumerate(universe.trajectory):
+        if index % stride:
+            continue
+        if limit is not None and index // stride >= limit:
+            break
+        frames += 1
+        # MDAnalysis holds ångström; this module reports nanometres.
+        totals += np.asarray(universe.atoms.positions) / 10.0
+    universe.trajectory.close()
+    if not frames:
+        raise ValueError(f'{trajectory} holds no frame to average')
+    return {'run': str(cg_run_dir), 'beads': currency, 'frames': frames, 'mean': totals / frames,
+            'trajectory': str(trajectory.relative_to(cg_run_dir))}
+
+
+def aa_bead_means(aa_run_dir, mapping, stride=1, limit=None):
+    """Mean bead centres over an atomistic run, through the same assignment, in nanometres.
+
+    The dilation the generated constraints carry is applied here too, so a mean bead position and a generated
+    constraint length are the same kind of number and can be read in one table.
+    """
+    import MDAnalysis as mda
+
+    from ..models.sugars import coordinates
+
+    aa_run_dir = Path(aa_run_dir)
+    universe = mda.Universe(str(layout.resolve(aa_run_dir, 'aa_structure')),
+                            str(layout.resolve(aa_run_dir, 'aa_trajectory')))
+    totals, frames = np.zeros((len(mapping['beads']), 3)), 0
+    for index, _ in enumerate(universe.trajectory):
+        if index % stride:
+            continue
+        if limit is not None and index // stride >= limit:
+            break
+        frames += 1
+        totals += np.asarray(coordinates(mapping, universe.atoms.positions.tolist(), scaled=True)) / 10.0
+    universe.trajectory.close()
+    if not frames:
+        raise ValueError(f'{aa_run_dir} holds no frame to average')
+    return {'run': str(aa_run_dir), 'beads': mapping_currency(mapping), 'frames': frames,
+            'mean': totals / frames}
+
+
+def displacement(aa, cg, physical=None):
+    """Per-bead displacement and RMSD after fitting the CG means onto the AA means, in nanometres.
+
+    The fit uses the beads that own atoms, because a virtual site is an arithmetic mean of its parents and
+    fitting on it would count one constraint twice and flatter the result. The per-bead list still covers
+    every bead, so a virtual site that has drifted is visible rather than hidden by the fit.
+    """
+    from .surfaces import align
+
+    aa_mean, cg_mean = np.asarray(aa['mean'], dtype=float), np.asarray(cg['mean'], dtype=float)
+    if aa_mean.shape != cg_mean.shape:
+        raise ValueError(f'the two runs hold different bead counts: {aa_mean.shape[0]} '
+                         f'against {cg_mean.shape[0]}')
+    physical = list(range(aa_mean.shape[0])) if physical is None else list(physical)
+    if not physical:
+        raise ValueError('a rigid-body fit needs at least one bead that owns atoms')
+    fitted = align(cg_mean, aa_mean, physical)
+    deltas = np.linalg.norm(fitted - aa_mean, axis=1)
+    labels = aa['beads']
+    return {'comparison': 'AA vs CG, rigid-body fitted on the beads that own atoms',
+            'rmsd_nm': float(np.sqrt(np.mean(deltas[physical] ** 2))),
+            'max_nm': float(deltas.max()),
+            'fit_beads': [list(labels.get(index + 1, (None, None))) for index in physical],
+            'aa_frames': aa['frames'], 'cg_frames': cg['frames'],
+            'per_bead': [{'bead': list(labels.get(index + 1, (None, None))),
+                          'displacement_nm': float(value)} for index, value in enumerate(deltas)]}
 
 
 def _summary(values, block_count):

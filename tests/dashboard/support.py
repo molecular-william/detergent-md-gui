@@ -19,7 +19,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FAST_FORWARD_ROOT = PROJECT_ROOT / 'resources/parameterizers/fast_forward/fast_forward'
 
 __all__ = ['PROJECT_ROOT', 'FAST_FORWARD_ROOT', 'Dashboard', 'build', 'physical_mapping',
-           'write_aa_fixture', 'QuietHandler', 'fast_forward_source']
+           'write_aa_fixture', 'cg_fixture_run', 'QuietHandler', 'fast_forward_source']
 
 
 def physical_mapping():
@@ -49,6 +49,45 @@ def write_aa_fixture(root, molecule_id='Fixture'):
                                                       'force_field': 'charmm36-jul2022.ff',
                                                       'water_model': 'tip3p'}))
     return folder
+
+
+def cg_fixture_run(root, positions, names=('A', 'B', 'C', 'VS'), frames=3, residue='SUCR', topology=None,
+                   run_dir=None):
+    """A minimal CG consumer: its topology, its structure, and a trajectory at the given coordinates.
+
+    `positions` are nanometres, the way a GROMACS trajectory carries them. MDAnalysis holds ångström, so the
+    trajectory is written at ten times that: a reader that forgets the conversion is caught by the tests
+    instead of passing on a round-tripped number that never changed unit. The structure is written by hand
+    because a GRO line's fixed columns are part of what a reader has to parse.
+
+    Returns `(run directory, trajectory path, structure path, topology path)`.
+    """
+    import MDAnalysis as mda
+    import numpy as np
+    run_dir = run_dir or root
+    topology_dir = run_dir / 'stages/3_initial_CG'
+    topology_dir.mkdir(parents=True, exist_ok=True)
+    topology_path = topology_dir / f'{residue}_initial.itp'
+    rows = [f'{index} {"TC4" if name == "VS" else "SP1r"} 1 {residue} {name} {index} 0 '
+            f'{"0" if name == "VS" else "54"}' for index, name in enumerate(names, 1)]
+    topology_path.write_text(topology or '[ moleculetype ]\n' + residue + ' 1\n\n[ atoms ]\n'
+                             + '\n'.join(rows) + '\n')
+    production = run_dir / 'stages/4_CG_sim/prod'
+    production.mkdir(parents=True, exist_ok=True)
+    structure = production / 'lig_CG.gro'
+    lines = ['coarse-grained fixture', f'{len(names):5d}']
+    for index, (name, xyz) in enumerate(zip(names, positions), 1):
+        lines.append(f"{1:5d}{residue:<5}{name:>5}{index:5d}"
+                     + ''.join(f'{value:8.3f}' for value in xyz))
+    lines.append('   1.00000   1.00000   1.00000')
+    structure.write_text('\n'.join(lines) + '\n')
+    trajectory = production / 'lig_CG.xtc'
+    universe = mda.Universe.empty(len(names), trajectory=True)
+    universe.atoms.positions = np.asarray(positions, dtype=float) * 10.0
+    with mda.Writer(str(trajectory), n_atoms=len(names)) as writer:
+        for _ in range(frames):
+            writer.write(universe)
+    return run_dir, trajectory, structure, topology_path
 
 
 class QuietHandler(WSGIRequestHandler):

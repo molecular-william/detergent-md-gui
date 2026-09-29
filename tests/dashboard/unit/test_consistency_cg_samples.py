@@ -4,11 +4,11 @@ No coarse-grained run exists in the developer's workspace, and a test that neede
 workspace. This builds a four-bead system with known coordinates, so the measured distance is arithmetic the
 test can check, and the refusal cases are constructed rather than waited for.
 """
-import MDAnalysis as mda
 import numpy as np
 import pytest
 
 from dashboard.analysis.runs import consistency
+from tests.dashboard import support
 
 MAPPING = {
     'beads': [
@@ -22,7 +22,7 @@ MAPPING = {
 }
 
 #: A at the origin, B 0.4 nm along x, C 0.4 nm along y: two pairs are exactly 0.4 nm and the third is
-#: sqrt(0.32) = 0.56569 nm, which is what the test asserts against.
+#: sqrt(0.32) = 0.56569 nm, which is what the test asserts against. Nanometres, as GROMACS writes them.
 POSITIONS = [[0.0, 0.0, 0.0], [0.4, 0.0, 0.0], [0.0, 0.4, 0.0], [0.0, 0.0, 0.0]]
 
 
@@ -35,32 +35,14 @@ def topology_text(names=('A', 'B', 'C', 'VS'), extra_atom=False):
             + '\n\n[ constraints ]\n1 2 1 0.46\n1 3 1 0.54\n2 3 1 0.41\n')
 
 
-def gro_text(names=('A', 'B', 'C', 'VS'), positions=None):
-    positions = positions or POSITIONS
-    lines = ['coarse-grained fixture', f'{len(names):5d}']
-    for index, (name, xyz) in enumerate(zip(names, positions), 1):
-        lines.append(f"{1:5d}{'SUCR':<5}{name:>5}{index:5d}"
-                     + ''.join(f'{value:8.3f}' for value in xyz))
-    lines.append('   1.00000   1.00000   1.00000')
-    return '\n'.join(lines) + '\n'
-
-
 def build_run(root, names=('A', 'B', 'C', 'VS'), topology_names=None, extra_atom=False, frames=3,
               positions=None):
-    """A minimal CG consumer: its topology, its structure and a trajectory of the known geometry."""
+    """A minimal CG consumer, built through the shared fixture, with the topology the case asks for."""
     positions = list(positions or POSITIONS)[:len(names)]
-    (root / 'stages/3_initial_CG').mkdir(parents=True, exist_ok=True)
-    (root / 'stages/3_initial_CG/SUCR_initial.itp').write_text(
-        topology_text(topology_names or names, extra_atom=extra_atom))
-    production = root / 'stages/4_CG_sim/prod'
-    production.mkdir(parents=True, exist_ok=True)
-    (production / 'lig_CG.gro').write_text(gro_text(names, positions))
-    universe = mda.Universe.empty(len(names), trajectory=True)
-    universe.atoms.positions = np.asarray(positions, dtype=float)
-    with mda.Writer(str(production / 'lig_CG.xtc'), n_atoms=len(names)) as writer:
-        for _ in range(frames):
-            writer.write(universe)
-    return root
+    run_dir, _, _, _ = support.cg_fixture_run(
+        root, positions, names=names, frames=frames,
+        topology=topology_text(topology_names or names, extra_atom=extra_atom))
+    return run_dir
 
 
 def test_a_known_geometry_is_measured_on_the_coarse_grained_trajectory(tmp_path):
