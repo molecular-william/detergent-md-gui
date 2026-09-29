@@ -68,9 +68,9 @@ def test_a_domain_error_is_not_a_value_error():
     assert issubclass(errors.RunError, Exception)
 
 
-def test_the_app_maps_every_domain_error():
-    from dashboard.app import create_app
+def test_the_app_maps_every_domain_error(dashboard):
+    """The application under test is the one the test built, not one bound to the live workspace."""
     # {blueprint: {code-or-None: {exception class: handler}}}; None is the app itself.
-    handlers = create_app().error_handler_spec[None][None] or {}
+    handlers = dashboard.app.error_handler_spec[None][None] or {}
     for error in errors.ALL:
         assert error in handlers, error.__name__
