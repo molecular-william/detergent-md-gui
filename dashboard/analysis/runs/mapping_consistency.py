@@ -28,18 +28,28 @@ SECTIONS = {'pairs': 'AA vs CG', 'terms': 'AA-mapped vs CG-simulated',
 
 
 def topology_name(payload):
-    """The topology the run recorded for its simulated molecule, or `None` when the record does not say.
+    """Which `.itp` under `3_initial_CG/` is the simulated molecule, as the run's own record says.
 
-    A completed run leaves six `.itp` files in `3_initial_CG/` — the seeded topology, its coordinate-seeded
+    A completed run leaves six `.itp` files in that directory — the seeded topology, its coordinate-seeded
     copy, Fast_Forward's annotated copy, the fitted topology the simulation ran with, and two bundled
-    libraries — so "the only `.itp` here" stops being a selector once a run has completed. The mapping
-    snapshot a run records carries the run's own molecule snapshot, and `CGNames` is what the run used to name
-    those files, so the reader is told which file is the model instead of guessing at one.
+    libraries — so "the only `.itp` here" stops being a selector once a run has completed. The name comes from
+    the run's record, `manifest['cg_names']['final_itp']`, which the caller passes as `cg_topology`.
+
+    A mapping snapshot is not a substitute for that record. A mapping candidate's `molecule_snapshot` is a
+    *file* record — `files`, `atom_order_sha256`, `snapshot_sha256` — with no id for `CGNames` to resolve, so
+    reading it as a molecule record raises `KeyError: 'id'` and takes the whole analysis down with it. Payloads
+    that do carry a molecule record are still read; anything else leaves the single-`.itp` case to answer.
     """
-    snapshot = (payload or {}).get('mapping_snapshot', {}).get('molecule_snapshot')
+    payload = payload or {}
+    if payload.get('cg_topology'):
+        return payload['cg_topology']
+    snapshot = (payload.get('mapping_snapshot') or {}).get('molecule_snapshot')
     if isinstance(snapshot, dict) and snapshot:
-        return CGNames.for_snapshot(snapshot).final_itp
-    return (payload or {}).get('cg_topology')
+        try:
+            return CGNames.for_snapshot(snapshot).final_itp
+        except (KeyError, TypeError, ValueError):
+            return None
+    return None
 
 
 def _terms_for(work_dir, name=None):

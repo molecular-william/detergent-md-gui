@@ -126,6 +126,18 @@ def test_without_a_recorded_snapshot_a_caller_may_name_the_topology_directly():
     assert mapping_consistency.topology_name({**PAYLOAD, 'cg_topology': 'LIG1.itp'}) == 'LIG1.itp'
 
 
+def test_a_file_integrity_snapshot_is_not_read_as_a_molecule_record():
+    """A candidate's `molecule_snapshot` records files and hashes, not an id, and `CGNames` needs one.
+
+    This is the shape the run actually records: reading it as a molecule record raised `KeyError: 'id'` inside
+    the analysis subprocess and failed the whole comparison.
+    """
+    integrity = {'files': {'molecule.itp': 'abc'}, 'atom_order_sha256': 'x', 'snapshot_sha256': 'y'}
+    payload = {**PAYLOAD, 'mapping_snapshot': {**MAPPING, 'molecule_snapshot': integrity}}
+    assert mapping_consistency.topology_name(payload) is None
+    assert mapping_consistency.topology_name({**payload, 'cg_topology': 'LIG1.itp'}) == 'LIG1.itp'
+
+
 def test_publish_writes_the_artifact_and_returns_a_small_summary(tmp_path):
     aa, cg = readers()
     summary = mapping_consistency.publish(coarse_grained_run(tmp_path), PAYLOAD,
