@@ -278,6 +278,14 @@ numbers should say which of the two it is comparing.
 - A running dashboard is two caches: Python routes and models are frozen at process start, `static/`
   and templates are re-read per request. Restart after a Python change; hard-reload after a JS change;
   a job queued before a fix runs the old code.
+- `static/js/shared.js`'s `api()` returns the response body itself — only `/distance-diagnostics` wraps its
+  payload in `data`. A new tab is a button plus a `<section>` in `dashboard.html` and a mount case in
+  `main.js`'s `dashboard:tab` listener; `tabs.js` derives the tab list from the DOM, so there is no second
+  list to keep in step. Verify a JS change with the browser cache disabled (`Network.setCacheDisabled` plus
+  `Page.reload(ignoreCache=True)`), or the previous module is what gets inspected.
+- An analysis subprocess is handed a *work* directory whose files sit at the execution root, not under
+  `stages/`; `analysis/runs/layout.py` resolves both spellings. A reader that spells only `stages/...` sees a
+  completed run as empty.
 - GROMACS here is an MPI-only build (`gmx_mpi`): `-ntmpi` is invalid, `-ntomp` is the knob.
 - Relative and absolute paths both matter: the fast tier runs from the repository root with
   `dashboard/.venv/bin/python`.
