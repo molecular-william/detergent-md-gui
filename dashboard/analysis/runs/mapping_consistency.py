@@ -18,6 +18,7 @@ read the run's own files through `analysis/runs/layout`.
 import json
 from pathlib import Path
 
+from ...execution.adapters.cg_names import CGNames
 from .. import sugar_ensemble as ensemble
 from . import bonded_terms, consistency, layout
 
@@ -26,11 +27,26 @@ SECTIONS = {'pairs': 'AA vs CG', 'terms': 'AA-mapped vs CG-simulated',
             'displacement': 'AA vs CG, rigid-body fitted on the beads that own atoms'}
 
 
-def _terms_for(work_dir):
-    return bonded_terms.read_terms(layout.cg_topology(work_dir).read_text())
+def topology_name(payload):
+    """The topology the run recorded for its simulated molecule, or `None` when the record does not say.
+
+    A completed run leaves six `.itp` files in `3_initial_CG/` — the seeded topology, its coordinate-seeded
+    copy, Fast_Forward's annotated copy, the fitted topology the simulation ran with, and two bundled
+    libraries — so "the only `.itp` here" stops being a selector once a run has completed. The mapping
+    snapshot a run records carries the run's own molecule snapshot, and `CGNames` is what the run used to name
+    those files, so the reader is told which file is the model instead of guessing at one.
+    """
+    snapshot = (payload or {}).get('mapping_snapshot', {}).get('molecule_snapshot')
+    if isinstance(snapshot, dict) and snapshot:
+        return CGNames.for_snapshot(snapshot).final_itp
+    return (payload or {}).get('cg_topology')
 
 
-def _aa_measure(work_dir, mapping, molecule, terms, stride, limit):
+def _terms_for(work_dir, name=None):
+    return bonded_terms.read_terms(layout.cg_topology(work_dir, name).read_text())
+
+
+def _aa_measure(work_dir, mapping, molecule, terms, stride, limit, name=None):
     """The atomistic side: the supplied mapping's pairs and mean bead centres, under its own dilation."""
     return {'samples': consistency.aa_samples(work_dir, mapping, molecule, stride, limit),
             'means': consistency.aa_bead_means(work_dir, mapping, stride, limit),
@@ -38,10 +54,10 @@ def _aa_measure(work_dir, mapping, molecule, terms, stride, limit):
                                           layout.resolve(work_dir, 'mapped_structure'), terms, stride, limit)}
 
 
-def _cg_measure(work_dir, mapping, terms, stride, limit):
+def _cg_measure(work_dir, mapping, terms, stride, limit, name=None):
     """The simulated side: what the coarse-grained trajectory actually holds."""
-    return {'samples': consistency.cg_samples(work_dir, mapping, stride, limit),
-            'means': consistency.cg_bead_means(work_dir, stride, limit),
+    return {'samples': consistency.cg_samples(work_dir, mapping, stride, limit, name),
+            'means': consistency.cg_bead_means(work_dir, stride, limit, name),
             'terms': bonded_terms.measure(layout.resolve(work_dir, 'cg_trajectory'),
                                           layout.resolve(work_dir, 'cg_structure'), terms, stride, limit)}
 
@@ -60,9 +76,10 @@ def run(work_dir, payload=None, stride=1, limit=None, aa_measure=None, cg_measur
     mapping = _mapping_from(payload)
     molecule = payload.get('molecule') or payload.get('molecule_id') or 'Sucrose'
     entry = payload.get('entry_name')
-    terms = _terms_for(work_dir)
-    aa = (aa_measure or _aa_measure)(work_dir, mapping, molecule, terms, stride, limit)
-    cg = (cg_measure or _cg_measure)(work_dir, mapping, terms, stride, limit)
+    name = topology_name(payload)
+    terms = _terms_for(work_dir, name)
+    aa = (aa_measure or _aa_measure)(work_dir, mapping, molecule, terms, stride, limit, name)
+    cg = (cg_measure or _cg_measure)(work_dir, mapping, terms, stride, limit, name)
 
     reference = ensemble.published_constraints(entry) if entry else {}
     pairs = consistency.report(aa['samples'], cg['samples'], reference, entry=entry)

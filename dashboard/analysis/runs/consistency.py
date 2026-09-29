@@ -61,18 +61,22 @@ def check_currency(topology_text, mapping, source='the CG topology'):
     return currency
 
 
-def cg_samples(cg_run_dir, mapping, stride=1, limit=None):
+def cg_samples(cg_run_dir, mapping, stride=1, limit=None, topology_name=None):
     """Per-pair distance samples over a CG run's own trajectory, keyed by the mapping's pairs.
 
     Units follow the trajectory, which for GROMACS is nanometres — the same unit the atomistic side is
     converted into — so the two series can be compared without a conversion at the comparison site.
+
+    `topology_name` is the topology the run recorded for its simulated molecule. A completed run leaves several
+    `.itp` files in the stage directory, and comparing against the wrong one would describe a different
+    molecule; a caller that has the run's record passes the name rather than letting the reader guess.
     """
     import MDAnalysis as mda
 
     cg_run_dir = Path(cg_run_dir)
     trajectory = layout.resolve(cg_run_dir, 'cg_trajectory')
     structure = layout.resolve(cg_run_dir, 'cg_structure')
-    topology_path = layout.cg_topology(cg_run_dir)
+    topology_path = layout.cg_topology(cg_run_dir, topology_name)
     currency = check_currency(topology_path.read_text(), mapping, source=str(topology_path))
     pairs = ring_pairs(mapping)
 
@@ -122,19 +126,20 @@ def physical_indices(mapping):
     return [index for index, bead in enumerate(mapping['beads']) if not bead.get('virtual_site')]
 
 
-def cg_bead_means(cg_run_dir, stride=1, limit=None):
+def cg_bead_means(cg_run_dir, stride=1, limit=None, topology_name=None):
     """Mean bead positions over a coarse-grained run's trajectory, in nanometres.
 
     A mean position is the shape half of the comparison: constraint lengths say how big the ring is, and a
     per-bead displacement says which part of it moved. The bead count is checked against the topology,
     because averaging a trajectory read with the wrong topology produces a fluent number about nothing.
+    `topology_name` names the file the run recorded for its simulated molecule; see `cg_samples`.
     """
     import MDAnalysis as mda
 
     cg_run_dir = Path(cg_run_dir)
     trajectory = layout.resolve(cg_run_dir, 'cg_trajectory')
     structure = layout.resolve(cg_run_dir, 'cg_structure')
-    topology_path = layout.cg_topology(cg_run_dir)
+    topology_path = layout.cg_topology(cg_run_dir, topology_name)
     currency = ensemble.currency(topology_path.read_text())
     universe = mda.Universe(str(structure), str(trajectory))
     if len(universe.atoms) != len(currency):

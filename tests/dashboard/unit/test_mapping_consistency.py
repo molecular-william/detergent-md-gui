@@ -96,6 +96,36 @@ def test_the_displacement_section_is_the_fitted_one(tmp_path):
     assert shape['aa_frames'] == 3 and shape['cg_frames'] == 3
 
 
+def test_the_run_recorded_topology_is_what_the_reader_is_told_to_read(tmp_path):
+    """A completed run leaves six `.itp` files in the stage directory; only one of them is the model.
+
+    The mapping snapshot a run records carries the run's own molecule snapshot, so the composition can name
+    the file the run simulated instead of taking the first `.itp` it finds — or refusing, once a run has
+    completed and the fitted topology sits beside the seeded one.
+    """
+    support.cg_fixture_run(tmp_path, MEANS.tolist())
+    (tmp_path / 'stages/3_initial_CG/SUCR.itp').write_text(
+        (tmp_path / 'stages/3_initial_CG/SUCR_initial.itp').read_text())
+    captured = {}
+
+    def cg_reader(work_dir, mapping, terms, stride, limit, name=None):
+        captured['name'] = name
+        return measured(dict(PAIRS))
+
+    aa, _ = readers()
+    payload = {**PAYLOAD, 'mapping_snapshot': {**MAPPING,
+                                               'molecule_snapshot': {'id': 'Sucrose',
+                                                                     'metadata': {'molecule_type': 'SUCR'}}}}
+    mapping_consistency.run(tmp_path, payload, aa_measure=lambda *a: aa, cg_measure=cg_reader)
+    assert captured['name'] == 'SUCR.itp'
+    assert mapping_consistency.topology_name(payload) == 'SUCR.itp'
+
+
+def test_without_a_recorded_snapshot_a_caller_may_name_the_topology_directly():
+    assert mapping_consistency.topology_name(PAYLOAD) is None
+    assert mapping_consistency.topology_name({**PAYLOAD, 'cg_topology': 'LIG1.itp'}) == 'LIG1.itp'
+
+
 def test_publish_writes_the_artifact_and_returns_a_small_summary(tmp_path):
     aa, cg = readers()
     summary = mapping_consistency.publish(coarse_grained_run(tmp_path), PAYLOAD,

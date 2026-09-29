@@ -78,3 +78,42 @@ def test_the_summary_reports_absences_as_data_rather_than_raising(tmp_path):
     assert report['solute_topology'] == 'stages/common/molecule/molecule.itp'
     assert report['cg_trajectory'] is None and report['cg_topology'] is None
     assert set(report) == set(layout.CANDIDATES) | {'cg_topology'}
+
+
+def test_the_work_directory_an_analysis_is_handed_has_the_same_files_without_stages(tmp_path):
+    """`analysis.worker` copies the sources into a work directory rooted at the execution root.
+
+    An analysis is handed that directory, not the run directory, so the same roles have to resolve when the
+    stage directories are not under `stages/`. Until this was true, every published analysis that read
+    through `layout` refused a completed run with "has no aa_structure" and "has no CG molecule topology".
+    """
+    write(tmp_path, '1_AA-reference/prod/lig.xtc', '1_AA-reference/prod/lig.gro',
+          '2_mapping/mapped.xtc', '2_mapping/mapped.gro',
+          '4_CG_sim/prod/lig_CG.xtc', '4_CG_sim/prod/lig_CG.gro')
+    assert layout.resolve(tmp_path, 'aa_trajectory') == tmp_path / '1_AA-reference/prod/lig.xtc'
+    assert layout.resolve(tmp_path, 'mapped_structure') == tmp_path / '2_mapping/mapped.gro'
+    assert layout.resolve(tmp_path, 'cg_trajectory') == tmp_path / '4_CG_sim/prod/lig_CG.xtc'
+
+
+def test_the_same_role_at_both_roots_is_still_an_ambiguity(tmp_path):
+    write(tmp_path, '07_reference/lig.xtc', 'stages/07_reference/lig.xtc')
+    with pytest.raises(ValueError, match='more than one aa_trajectory'):
+        layout.resolve(tmp_path, 'aa_trajectory')
+
+
+def test_the_recorded_topology_name_selects_among_the_files_a_fitted_run_leaves(tmp_path):
+    """A completed run leaves six `.itp` files here; only the recorded one is the simulated molecule."""
+    write(tmp_path, '3_initial_CG/SUCR.itp', '3_initial_CG/SUCR_initial.itp',
+          '3_initial_CG/SUCR_coordinate_seed.itp', '3_initial_CG/SUCR_ff_inter.itp',
+          '3_initial_CG/martini_v3.0.0.itp', '3_initial_CG/reference_sugars_v2.itp')
+    with pytest.raises(ValueError, match='more than one CG molecule topology'):
+        layout.cg_topology(tmp_path)
+    assert layout.cg_topology(tmp_path, 'SUCR.itp').name == 'SUCR.itp'
+    assert layout.summary(tmp_path, 'SUCR.itp')['cg_topology'] == '3_initial_CG/SUCR.itp'
+
+
+def test_a_recorded_name_that_is_not_there_says_what_is(tmp_path):
+    write(tmp_path, '3_initial_CG/SUCR_initial.itp', '3_initial_CG/martini_v3.0.0.itp')
+    with pytest.raises(ValueError) as error:
+        layout.cg_topology(tmp_path, 'SUCR.itp')
+    assert 'has no SUCR.itp' in str(error.value) and 'SUCR_initial.itp' in str(error.value)
