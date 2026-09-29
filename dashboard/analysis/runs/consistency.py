@@ -19,14 +19,16 @@ from . import layout
 
 
 def expected_currency(mapping):
-    """`{topology index: (residue, bead id)}` as the run's own files name them: `B01`, `B02`, …
+    """`{topology index: (residue, bead id)}` as the run's own files name them: residue 1, `B01`, `B02`, …
 
     The generated topology, the `.map`, the `.ndx` and the mapped coordinates all identify a bead by its
-    position (`B01..`), because that identity is unique where the reference's letters are not: a
-    two-residue sugar names two beads `A`, and `gmx grompp` reconciles a topology with a trajectory by atom
-    name. The letters stay available from the mapping for anything that speaks to the published entry.
+    position under a single residue, because that is the identity the run's tools use: `gmx grompp` reconciles a
+    topology with a trajectory by atom name, and MDAnalysis — and therefore Fast_Forward's assessment — treats
+    every residue as a molecule, so a molecule split across two residues stops being one molecule to it. The
+    mapping's own letters and residue numbers stay available, `mapping_currency` reads them, and they are the
+    language a report beside the published entry is written in.
     """
-    return {index: (bead.get('residue', 1), f'B{index:02d}')
+    return {index: (1, f'B{index:02d}')
             for index, bead in enumerate(mapping['beads'], 1) if not bead.get('virtual_site')}
 
 

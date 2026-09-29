@@ -85,17 +85,21 @@ def test_a_bead_without_a_reference_letter_keeps_a_positional_name(sucrose):
 
 
 def test_the_run_own_files_name_beads_by_position_instead(sucrose):
-    """A run identifies a bead by position, and the topology has to agree with the mapped coordinates.
+    """A run identifies a bead by position under one residue, and its topology has to agree with it.
 
-    `gmx grompp` reconciles a topology against a `.gro` by atom name, and a two-residue sugar names two
-    beads `A`: with letters the CG topology stage counts eight mismatches and refuses the run with "Too
-    many warnings (1)". The `.map`, the `.ndx` and the mapped trajectory all say `B01..`, so the topology
-    a run is prepared with says the same.
+    Two reasons, both of them tool behaviour rather than taste. `gmx grompp` reconciles a topology against the
+    mapped coordinates by atom name, and a two-residue sugar names two beads `A`: with letters the CG topology
+    stage counts eight mismatches and refuses the run with "Too many warnings (1)". And MDAnalysis treats each
+    residue as a molecule, so a molecule split across two residues is two molecules to Fast_Forward's
+    assessment, which then indexes a (2, 4) array with the ITP's indices and fails on `index 4`. The `.map`,
+    the `.ndx`, the mapped trajectory and therefore the topology a run is prepared with all say one residue,
+    `B01..`.
     """
-    names = [row[4] for row in sections(topology(candidate(sucrose, 'Sucrose'), sucrose,
-                                                residue_name='SUCR', export_names=True))['atoms']]
-    assert names == [f'B{index:02d}' for index in range(1, 9)]
-    assert len(set(names)) == len(names)
+    rows = sections(topology(candidate(sucrose, 'Sucrose'), sucrose, residue_name='SUCR',
+                             run_layout=True))['atoms']
+    assert [row[4] for row in rows] == [f'B{index:02d}' for index in range(1, 9)]
+    assert {int(row[2]) for row in rows} == {1}, 'the run reads one molecule, not two residues'
+    assert len(set(row[4] for row in rows)) == len(rows)
 
 
 def test_the_seeded_topology_a_run_is_prepared_from_carries_them(sucrose):
@@ -103,13 +107,15 @@ def test_the_seeded_topology_a_run_is_prepared_from_carries_them(sucrose):
 
     generated = draft.initial_topology(candidate(sucrose, 'Sucrose'), molecule_root=MOLECULES,
                                        residue_name='LIG1')
-    assert [row[4] for row in sections(generated)['atoms']] == [f'B{index:02d}' for index in range(1, 9)]
+    rows = sections(generated)['atoms']
+    assert [row[4] for row in rows] == [f'B{index:02d}' for index in range(1, 9)]
+    assert {int(row[2]) for row in rows} == {1}
 
 
-def test_only_the_name_column_differs_between_the_two_conventions(sucrose):
-    """Which file gets which names is a presentation choice; no term may change with it."""
+def test_only_the_name_and_residue_columns_differ_between_the_two_conventions(sucrose):
+    """Which file gets which reading is a presentation choice; no term may change with it."""
     letters = topology(candidate(sucrose, 'Sucrose'), sucrose, residue_name='SUCR')
-    exports = topology(candidate(sucrose, 'Sucrose'), sucrose, residue_name='SUCR', export_names=True)
-    body = lambda text: [row[:4] + row[5:] for row in (line.split() for line in text.splitlines()
-                                                      if line and not line.startswith(';'))]
-    assert body(letters) == body(exports)
+    run = topology(candidate(sucrose, 'Sucrose'), sucrose, residue_name='SUCR', run_layout=True)
+    body = lambda text: [row[:2] + row[3:4] + row[5:] for row in (line.split() for line in text.splitlines()
+                                                                 if line and not line.startswith(';'))]
+    assert body(letters) == body(run)

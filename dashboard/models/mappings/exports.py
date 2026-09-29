@@ -126,7 +126,7 @@ Size and disconnected-group findings remain review issues, even when files parse
     if data.get('rings'):
         extra = {'DDM_initial.itp': carbohydrates.topology(
                      data, structure, representation_mode=data.get('representation_mode'),
-                     export_names=True),
+                     run_layout=True),
                  **{f'sugars/{path.name}': path.read_text()
                     for path in sorted(Path(carbohydrates.__file__).parent.glob('*.py'))},
                  'sugar_mapping.py': (ROOT/'dashboard/execution/scripts/sugar_mapping.py').read_text(),

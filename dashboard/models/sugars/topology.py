@@ -60,7 +60,19 @@ def linkage_edge(beads, seed, a, b):
     return frozenset((first, second)) == seed['ends']
 
 
-def topology(data, structure, *, residue_name='DDM', representation_mode=None, export_names=False):
+def topology(data, structure, *, residue_name='DDM', representation_mode=None, run_layout=False):
+    """Write a coarse-grained topology text.
+
+    `run_layout=False` (the default) writes it the way the published entry reads: the reference's own beads, its
+    per-residue letters `A/B/C/VS` under residue numbers 1 and 2. `run_layout=True` writes the layout every other
+    file a run consumes already uses — beads identified by position (`B01..`) under one residue per molecule —
+    because the tools that read a run identify a bead both ways: `gmx grompp` reconciles a topology against the
+    mapped coordinates by atom name, and MDAnalysis treats each residue as a molecule, which is how Fast_Forward's
+    `ff_assess` rebuilds per-molecule atom indices (`reshape(n_mols, -1)`) and indexes them by the ITP's indices.
+    A two-residue molecule of eight beads makes that a (2, 4) array indexed up to 7, which fails with
+    `IndexError: index 4 is out of bounds for axis 1 with size 4`. The mapping's own `mapped.gro` already writes
+    every bead under residue 1, so one residue is the convention the run speaks everywhere except here.
+    """
     import numpy as np
     from MDAnalysis.lib.distances import calc_angles, calc_dihedrals
     representation_mode = representation_mode or data.get('representation_mode') or 'tc4'
@@ -81,14 +93,13 @@ def topology(data, structure, *, residue_name='DDM', representation_mode=None, e
              '[ moleculetype ]', f'{residue_name} 1', '', '[ atoms ]']
     for i,b in enumerate(beads,1):
         mass = 0 if b.get('virtual_site') else {'R':72,'S':54,'T':36}[b['size']]
-        # Two naming conventions, and which one a file needs is decided by what reads it. The reference
-        # names its beads A/B/C/VS within each residue, so a topology written for reading beside the
-        # published entry uses those letters. Everything the run itself consumes — mapping.map,
-        # mapping.ndx, mapped.gro and the seeded topology — uses B01.., because a two-residue sugar names
-        # two beads A and `gmx grompp` compares the topology against the mapped coordinates by atom name:
-        # letters there make it count eight mismatches and refuse the run ("Too many warnings").
-        name = f'B{i:02d}' if export_names else (b.get('letter') or f'B{i:02d}')
-        lines.append(f'{i} {b["type"]} {b.get("residue",1)} {residue_name} {name} '
+        # Which convention a file gets is decided by what reads it, and both halves of a bead's identity move
+        # together: a topology written to be read beside the published entry carries the reference's letters
+        # under its own residue numbers (which repeat across a two-residue sugar), while one written for a run
+        # carries `B01..` under a single residue, as `mapped.gro`, the `.map` and the `.ndx` already do.
+        name = f'B{i:02d}' if run_layout else (b.get('letter') or f'B{i:02d}')
+        residue = 1 if run_layout else b.get('residue', 1)
+        lines.append(f'{i} {b["type"]} {residue} {residue_name} {name} '
                      f'{i} {b.get("charge",0)} {mass}')
     lines += ['', '[ constraints ]']
     for (a,b),scale in pairs.items():

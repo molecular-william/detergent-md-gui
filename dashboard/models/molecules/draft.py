@@ -55,7 +55,7 @@ def initial_topology(data, *, molecule_root=None, residue_name=None):
     if data.get('rings'):
         # The run's seeded topology names its beads exactly as the mapped trajectory does: `grompp`
         # reconciles the two by atom name, and the reference's letters repeat across a two-residue sugar.
-        return carbohydrates.topology(data, structure, residue_name=residue_name, export_names=True)
+        return carbohydrates.topology(data, structure, residue_name=residue_name, run_layout=True)
     beads = data['beads']
     atoms = {a['id']: a for a in structure['atoms']}
     owner = {a: i for i, bead in enumerate(beads, 1) for a in bead['atoms']}
