@@ -153,6 +153,76 @@ The current Sucrose diagnostic records are documented in the operations note.
 They are preserved examples, not a replacement for a fresh run after changing
 inputs or code.
 
+## Handoff to the next session (2026-09-28)
+
+Nothing is in flight and the tree is clean. Nothing has been pushed since the pre-refactor baseline `e0504a3`.
+
+### The CHARMM36m reference run completed
+
+Run `03875cf39790` (`workspace/dashboard/runs/03875cf39790/`) — `aa_only`, Sucrose,
+`charmm36-feb2026_cgenff-4.6`, cube 2.5 nm / 494 waters, 303.15 K, 1 bar, seed 20260928, 8 ntomp,
+`constraints = all-bonds`, `rlist = 1.2`, `nstlist = 20`, `verlet-buffer-tolerance = -1`.
+
+| field | value |
+| --- | --- |
+| status | `completed`, all 7 stages exit 0, `error: null` |
+| wall clock | 07:23:03 → 10:28:29 UTC = 3 h 05 min |
+| production | 100,000,000 steps = 200 ns, wall 3 h 03 min 34 s |
+| performance | **1568.873 ns/day** (0.110 ms/step) |
+| frames | 20,001 at 10 ps |
+| artefacts | `run.xtc` 109.8 MB, `run.gro`, `run.edr` 122 MB, `lig.xtc` 5.26 MB, `diagnostics.xvg` 16.2 MB, `reference.json` 328 KB |
+| validated | `scientifically_validated: false` — SwissParam parameters under a CHARMM36 tree assume CGenFF 4.x compatibility rather than demonstrating it; the caveat is in the manifest |
+
+1568.873 ns/day is 1.3% from the 8-thread benchmark (1589), so the mdrun sweep's numbers transfer to
+production. Re-measure before quoting either number in a new context.
+
+### Next task: the ensemble comparison tool
+
+Deferred until this run finished. The core works and is measured — no re-run of the simulation is needed:
+
+```python
+from dashboard.analysis import sugar_ensemble as se
+se.format_report(se.run('workspace/dashboard/runs/03875cf39790', molecule='Sucrose', entry_name='SUCR'))
+```
+
+Over 20,001 frames: ring 1 is reproduced within 4.4%, all three constraints inside the published
+ranges. Ring 2 is systematically short — **A–B −16.0% with std 0.0035, outside the published range**,
+A–C −9.6% outside, B–C −6.6% inside. The same gap appeared on the earlier run under a different
+force-field tree, so it is a property of the reference mapping, not of one run or of sampling. Build
+the tool as a surface (a route plus a panel section) over these two functions, referencing the
+completed run immutably, with the ring-2 A–B gap presented as the diagnostic it is rather than as a
+pass/fail. Pin it with a test.
+
+### Open items, each with its evidence
+
+| item | state |
+| --- | --- |
+| PDC panel phases B5–B6 | landed but never exercised end to end (no PDC simulation has run); phases C–E remain |
+| Docs debt from `75de474` | `AGENTS.md`, `DDM_CALIBRATION.md`, `PROJECT_GUIDE.md`, `dashboard/README.md` still describe the removed validation panel |
+| `static/vendor/ngl.js` | untracked; ngl 2.3.1, sha256 `0e8fea984b0e306d948d675f30e10f5a275ab5b4ce2135191a6787ec1b29dc5d`. Decide track vs gitignore plus fetch step |
+| mapping panel tests | the 3D overlay has a browser test; the save/delete path still has none |
+| destroyed records | two Maltose mapping candidates lost at 16:12 during test runs and unrecoverable; DDM's unscoped candidate was deleted with a byte copy kept in `~/.hermes/profiles/moldym/cache/scratch/` |
+| `.ipynb_checkpoints/` | holds the only copy of `architecture-review-20260924-checkpoint.html` |
+| 7.3 sweep | `tests/dashboard/{fixtures,mapping_fixtures,tool_paths}.py` are still one-commit re-export shims |
+| diagnostics | `distance_diagnostics.py:30` `vmax` makes two runs' heatmaps not colour-comparable; the same result is written to two JSON files |
+| GLYCAM06 | AmberTools and acpype installed; waiting on a Glycam-Web topology from the user's account |
+
+### Environment gotchas that cost time this session
+
+- A running dashboard is two caches: Python routes and models are frozen at process start, `static/`
+  and templates are re-read per request. Restart after a Python change; hard-reload after a JS change;
+  a job queued before a fix runs the old code.
+- GROMACS here is an MPI-only build (`gmx_mpi`): `-ntmpi` is invalid, `-ntomp` is the knob.
+- Relative and absolute paths both matter: the fast tier runs from the repository root with
+  `dashboard/.venv/bin/python`.
+
+### Verify
+
+```
+dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q     # fast tier, 665 at last full run
+dashboard/.venv/bin/python -m ruff check .                                # gate: F, E9, I must exit 0
+```
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
