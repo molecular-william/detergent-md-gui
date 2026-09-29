@@ -153,6 +153,46 @@ def published_constraints(entry_name):
             for item in record.get('constraints', [])}
 
 
+def samples(run_dir, molecule='Sucrose', stride=1, limit=None):
+    """Per-pair distance samples over a run's own atomistic trajectory, before any comparison.
+
+    Split out of `run` so a second consumer can reuse the measurement instead of copying its loop: the
+    comparison against a coarse-grained run needs the same pairs, measured on the same assignment, and two
+    copies of this loop would eventually disagree. The trajectory and structure are resolved by role, so
+    this reads an AA-only run's published reference and a CG consumer's own atomistic reference alike.
+    """
+    import MDAnalysis as mda
+
+    from ..models.sugars import candidate, coordinates, ring_pairs, topology
+    from .runs import layout
+
+    run_dir = Path(run_dir)
+    solute = read_solute(run_dir)
+    mapping = candidate(solute, molecule)
+    text = topology(mapping, solute)
+    beads = currency(text)
+    pairs = list(ring_pairs(mapping))
+
+    universe = mda.Universe(str(layout.resolve(run_dir, 'aa_structure')),
+                            str(layout.resolve(run_dir, 'aa_trajectory')))
+    sampled, first = {}, None
+    for index, _ in enumerate(universe.trajectory):
+        if index % stride:
+            continue
+        if limit is not None and index // stride >= limit:
+            break
+        xyz = np.asarray(coordinates(mapping, universe.atoms.positions.tolist(), scaled=True)) / 10.0
+        centres = {bead: xyz[bead - 1] for bead in beads}
+        distances = pair_distances(centres, pairs)
+        if first is None:
+            first = dict(distances)
+        for pair, distance in distances.items():
+            sampled.setdefault(pair, []).append(distance)
+    universe.trajectory.close()
+    return {'molecule': molecule, 'run': str(run_dir), 'beads': beads, 'pairs': pairs,
+            'samples': sampled, 'first': first or {}}
+
+
 def run(run_dir, molecule='Sucrose', entry_name='SUCR', stride=1, limit=None):
     """Average a completed run's ring geometry and report it beside the published constraints.
 
@@ -163,39 +203,14 @@ def run(run_dir, molecule='Sucrose', entry_name='SUCR', stride=1, limit=None):
     candidate's bead pairs against every entry would be a heuristic, and a report that says which entry it compared
     against is worth more than one that silently picked the closest name.
     """
-    import MDAnalysis as mda
-
-    from ..models.sugars import candidate, coordinates, ring_pairs, topology
-
-    run_dir = Path(run_dir)
-    reference_dir = run_dir / 'stages/07_reference'
-    solute = read_solute(run_dir)
-    mapping = candidate(solute, molecule)
-    text = topology(mapping, solute)
-    beads = currency(text)
-    pairs = list(ring_pairs(mapping))
-
-    universe = mda.Universe(str(reference_dir / 'lig.gro'), str(reference_dir / 'lig.xtc'))
-    samples, single = {}, None
-    for index, _ in enumerate(universe.trajectory):
-        if index % stride:
-            continue
-        if limit is not None and index // stride >= limit:
-            break
-        xyz = np.asarray(coordinates(mapping, universe.atoms.positions.tolist(), scaled=True)) / 10.0
-        centres = {bead: xyz[bead - 1] for bead in beads}
-        distances = pair_distances(centres, pairs)
-        if single is None:
-            single = dict(distances)
-        for pair, distance in distances.items():
-            samples.setdefault(pair, []).append(distance)
-
+    measured = samples(run_dir, molecule, stride, limit)
+    beads, sampled = measured['beads'], measured['samples']
     published = published_constraints(entry_name)
-    translated = {pair: published.get(frozenset(beads[index] for index in pair)) for pair in samples}
-    labels = {pair: sorted(beads[index] for index in pair) for pair in samples}
+    translated = {pair: published.get(frozenset(beads[index] for index in pair)) for pair in sampled}
+    labels = {pair: sorted(beads[index] for index in pair) for pair in sampled}
     return {'molecule': molecule, 'entry': entry_name,
-            'frames': max((len(v) for v in samples.values()), default=0),
-            'rows': compare(translated, samples, labels, single)}
+            'frames': max((len(values) for values in sampled.values()), default=0),
+            'rows': compare(translated, sampled, labels, measured['first'])}
 
 
 def format_report(result):
