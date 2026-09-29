@@ -213,7 +213,7 @@ def aa_bead_means(aa_run_dir, mapping, stride=1, limit=None):
     """
     import MDAnalysis as mda
 
-    from ..models.sugars import coordinates
+    from ...models.sugars import coordinates
 
     aa_run_dir = Path(aa_run_dir)
     universe = mda.Universe(str(layout.resolve(aa_run_dir, 'aa_structure')),
