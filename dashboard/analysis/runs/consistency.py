@@ -153,6 +153,49 @@ def cg_bead_means(cg_run_dir, stride=1, limit=None):
             'trajectory': str(trajectory.relative_to(cg_run_dir))}
 
 
+def aa_samples(aa_run_dir, mapping, molecule='Sucrose', stride=1, limit=None):
+    """Per-pair samples over an atomistic reference, measured through a mapping the caller supplies.
+
+    The mapping is supplied rather than recognised here. An analysis compares a *saved* mapping with the
+    model built from it, and re-recognising would silently compare a different assignment the day the
+    recognizer changes. The trailer counts are checked, because a mapping whose beads index atoms the
+    trajectory does not have would otherwise be reported as a geometry difference.
+    """
+    import MDAnalysis as mda
+
+    from ...models.sugars import coordinates
+
+    aa_run_dir = Path(aa_run_dir)
+    pairs = ring_pairs(mapping)
+    currency = mapping_currency(mapping)
+    universe = mda.Universe(str(layout.resolve(aa_run_dir, 'aa_structure')),
+                            str(layout.resolve(aa_run_dir, 'aa_trajectory')))
+    atoms = len(universe.atoms)
+    highest = max((max(bead.get('atoms') or [0]) for bead in mapping['beads']), default=0)
+    if highest > atoms:
+        universe.trajectory.close()
+        raise ValueError(f'the mapping names atom {highest} but {aa_run_dir} holds {atoms} atoms: '
+                         'these are not the same molecule')
+    sampled, first, frames = {}, None, 0
+    for index, _ in enumerate(universe.trajectory):
+        if index % stride:
+            continue
+        if limit is not None and index // stride >= limit:
+            break
+        frames += 1
+        # The dilation the generated constraints carry is applied here too, and ångström becomes nanometres.
+        xyz = np.asarray(coordinates(mapping, universe.atoms.positions.tolist(), scaled=True)) / 10.0
+        centres = {bead: xyz[bead - 1] for bead in currency}
+        distances = pair_distances(centres, pairs)
+        if first is None:
+            first = dict(distances)
+        for pair, distance in distances.items():
+            sampled.setdefault(pair, []).append(distance)
+    universe.trajectory.close()
+    return {'run': str(aa_run_dir), 'molecule': molecule, 'frames': frames, 'beads': currency,
+            'pairs': pairs, 'samples': sampled, 'first': first or {}}
+
+
 def aa_bead_means(aa_run_dir, mapping, stride=1, limit=None):
     """Mean bead centres over an atomistic run, through the same assignment, in nanometres.
 

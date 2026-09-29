@@ -5,6 +5,7 @@ DESCRIPTIONS = {
     'transfer_free_energy': ('Water-to-octanol transfer free energy', 'BAR estimates require both solvent legs, uncertainty, and a cited target.', 'kJ/mol; residual to target'),
     'osmotic_pressure': ('Concentration-dependent osmotic pressure', 'Every configured concentration must have a force/area estimate and uncertainty.', 'pressure units; residual to target'),
     'carbohydrate-validation': ('Carbohydrate validation report', 'Three independent evidence classes are required; setup checks remain diagnostic-only.', 'status and native evidence units'),
+    'mapping-consistency': ('Mapping consistency', 'A model should reproduce the atomistic structure it was built from; agreement here is not experimental evidence.', 'nm, degrees, and distribution metrics'),
     'plots': ('SASA over time', 'AA and CG SASA should agree in mean and temporal variability; larger is not inherently better.', 'nm²; agreement of mean/SD is desired'),
     'surfaces': ('AA/CG solvent-accessible surface overlay', 'Aligned envelopes should occupy similar regions; a snapshot is not ensemble validation.', 'nm; visual agreement'),
     'observables': ('Interaction distributions', 'Bond, angle, and dihedral distributions should reproduce AA shapes and populations.', 'native observable units; mismatch is lower-is-better'),
