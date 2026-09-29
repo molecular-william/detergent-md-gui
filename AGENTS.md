@@ -197,15 +197,37 @@ pass/fail. Pin it with a test.
 
 | item | state |
 | --- | --- |
-| PDC panel phases B5–B6 | landed but never exercised end to end (no PDC simulation has run); phases C–E remain |
-| Docs debt from `75de474` | `AGENTS.md`, `DDM_CALIBRATION.md`, `PROJECT_GUIDE.md`, `dashboard/README.md` still describe the removed validation panel |
-| `static/vendor/ngl.js` | untracked; ngl 2.3.1, sha256 `0e8fea984b0e306d948d675f30e10f5a275ab5b4ce2135191a6787ec1b29dc5d`. Decide track vs gitignore plus fetch step |
-| mapping panel tests | the 3D overlay has a browser test; the save/delete path still has none |
-| destroyed records | two Maltose mapping candidates lost at 16:12 during test runs and unrecoverable; DDM's unscoped candidate was deleted with a byte copy kept in `~/.hermes/profiles/moldym/cache/scratch/` |
-| `.ipynb_checkpoints/` | holds the only copy of `architecture-review-20260924-checkpoint.html` |
-| 7.3 sweep | `tests/dashboard/{fixtures,mapping_fixtures,tool_paths}.py` are still one-commit re-export shims |
-| diagnostics | `distance_diagnostics.py:30` `vmax` makes two runs' heatmaps not colour-comparable; the same result is written to two JSON files |
-| GLYCAM06 | AmberTools and acpype installed; waiting on a Glycam-Web topology from the user's account |
+| PDC panel phases B5–B6 | landed but never exercised end to end (no PDC simulation has run); phases C–E remain. Re-checked 2026-09-29: the live jobs table holds two jobs, both `aa_only` and both completed |
+| Docs debt from `75de474` | **paid in `6d83cad`** — `AGENTS.md`, `DDM_CALIBRATION.md`, `PROJECT_GUIDE.md` and `dashboard/README.md` all state that the controls were removed and the analysis is queue-through-API only. Verified 2026-09-29 |
+| `static/vendor/ngl.js` | **closed in `48408cf`** — tracked with its provenance in `ngl.js.source.json`. Verified 2026-09-29 |
+| mapping panel tests | still open: the 3D overlay has a browser test; the save/delete path still has none |
+| destroyed records | two Maltose mapping candidates lost at 16:12 during test runs and unrecoverable; DDM's unscoped candidate was deleted with a byte copy kept in `~/.hermes/profiles/moldym/cache/scratch/deleted-mapping_candidate_5c8ccfb716274fd9b653b2effaa71bf2.json` |
+| `.ipynb_checkpoints/` | **not a risk**: the same bytes are tracked at `architecture-review-20260924.html` (md5 `19150e0c1e2c89c31e6f0247f0ae7a68` for both files). Verified 2026-09-29 |
+| 7.3 sweep | **done in `f9690b0`** — the shims are gone; `tests/dashboard/{conftest,factory,support}.py` remain. Verified 2026-09-29 |
+| diagnostics | still open: `distance_diagnostics.py:30` `vmax` makes two runs' heatmaps not colour-comparable. The "same result written to two JSON files" claim was not re-checked |
+| GLYCAM06 | still open: AmberTools and acpype installed; waiting on a Glycam-Web topology from the user's account |
+
+Four rows of this table were already paid before the handoff was written, which is why they carry the commit that
+paid them. They were verified against the tree on 2026-09-29 and not taken on trust.
+
+### What the ensemble tool's numbers are, and are not
+
+Measured on `03875cf39790` on 2026-09-29, the two rings are the other way round from the first reading of this
+table's neighbour: residue 1 is the **fructofuranose** (`identify_furanoses`: 5-ring, oxygen 4) and residue 2 is
+the **glucopyranose** (`identify_hexoses`: 6-ring, oxygen 10), which is what the reference's own numbers say too
+(residue 2's 0.376/0.468/0.359 against its free `GLC` entry's 0.380/0.470/0.396). So the short pair is the
+**glucose** ring's A–B, and the fructose ring agrees within 4%.
+
+The obvious suspect — that our fragment split puts different atoms in the beads — was tested and refuted. A bead
+has to be a connected set, so the glucose ring's eleven atoms admit ten arc cuts; filtering those by the bead types
+the reference names (SN6 / SP4r / SP1r) leaves exactly **one** partition, and it is the one the recognizer already
+produces. Reordering `identify_furanoses` cannot be used to probe this: its carbon order also drives the shared
+exocyclic-oxygen ownership rule and a reorder produces a mapping with one atom in two beads.
+
+The standing goal is **internal consistency, not reproduction**: our CG model should reproduce the AA structures
+available to us, with the reference's numbers as context rather than as a pass mark. Any tool built over these
+numbers should say which of the two it is comparing.
+
 
 ### Environment gotchas that cost time this session
 
