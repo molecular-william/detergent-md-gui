@@ -37,6 +37,30 @@ def test_molecule_scoped_cg_rejects_invalid_reference_id(tmp_path):
         )
 
 
+def test_the_template_still_carries_the_anchor_the_rewrite_needs():
+    """The stage script ships a placeholder temperature; the adapter rewrites it from the run's settings.
+
+    If the template's anchor changes, the rewrite silently stops happening and every run fits at whatever
+    the template says. This test is the thing that fails instead.
+    """
+    template = (PROJECT_ROOT / 'dashboard/execution/scripts/fit_topology.sh').read_text()
+    assert '-temperature 300' in template
+
+
+def test_a_fractional_run_temperature_is_rounded_for_ff_inter():
+    """`ff_inter` declares `-temperature` as an int: 303.15 makes it exit before fitting anything."""
+    template = (PROJECT_ROOT / 'dashboard/execution/scripts/fit_topology.sh').read_text()
+    written = cg.fit_temperature(template, 303.15)
+    assert '-temperature 303 ' in written
+    assert '303.15' not in written
+    assert '-temperature 300' not in written
+
+
+def test_an_integral_temperature_is_passed_unchanged():
+    template = (PROJECT_ROOT / 'dashboard/execution/scripts/fit_topology.sh').read_text()
+    assert '-temperature 310 ' in cg.fit_temperature(template, 310)
+
+
 def test_maltose_mapping_validation_uses_its_bound_molecule():
     context = build_context(PROJECT_ROOT / 'molecules', 'Maltose')
     mapping = mappings.automatic_candidate(as_structure(context), 'Maltose')

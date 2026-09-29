@@ -129,6 +129,19 @@ def mirror_aa_settings(aa_settings):
             'output_interval_ps': aa_settings['output_interval_ps']}
 
 
+def fit_temperature(text, temperature_k):
+    """Rewrite the CG topology stage's `ff_inter -temperature` anchor to the run's temperature.
+
+    `ff_inter` declares `-temperature` as an `int` and feeds it to a Boltzmann inversion, so a fractional
+    run temperature (303.15 K) is rounded for that one argument — passing it through as written makes the
+    tool exit with `ff_inter: error: argument -temperature: invalid int value: '303.15'`, and the whole CG
+    topology stage fails with it. The run's own temperature stays fractional in the manifest and in the
+    MDPs. This is a function rather than an inline `replace` so that a template which no longer carries the
+    anchor fails a test instead of silently fitting at the template's own temperature.
+    """
+    return text.replace('-temperature 300', f'-temperature {round(float(temperature_k))}')
+
+
 def normalize_settings(settings=None, profile='standard'):
     """Normalize an AA-to-CG run's settings: both halves, composed in one place.
 
@@ -240,7 +253,7 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
         update_mdp(cg_md, {'nsteps': round(settings['cg_production_ps'] / md_dt), 'ref_t': settings['temperature_k'], 'nstxtcout': max(1, round(settings['output_interval_ps'] / md_dt))})
     fit_script = run_dir / '3_initial_CG/fit_topology.sh'
     if fit_script.is_file():
-        fit_script.write_text(fit_script.read_text().replace('-temperature 300', f'-temperature {settings["temperature_k"]:g}'))
+        fit_script.write_text(fit_temperature(fit_script.read_text(), settings['temperature_k']))
     sasa_script = run_dir / '6_SASA/sasa.sh'
     if sasa_script.is_file(): sasa_script.write_text('SASA_PROBE=' + f'{settings["sasa_probe_nm"]:.6g}\n' + sasa_script.read_text())
 

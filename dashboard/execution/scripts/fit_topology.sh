@@ -11,6 +11,7 @@ if [ -f BOND_STATE.itp ]; then
   exit 0
 fi
 gmx grompp -f initial.mdp -p topol.top -c ../2_mapping/mapped.gro -o mapped.tpr
-# This bundled FF version has no -itp-only switch. Explicitly use the AA temperature.
+# This bundled FF version has no -itp-only switch. Use the AA temperature, rounded: this version's
+# -temperature argument is an int, and it feeds a Boltzmann inversion.
 ff_inter -f ../2_mapping/mapped.xtc -s ../2_mapping/mapped.gro -i $INITIAL_ITP -temperature 300 -constraints 1000000000 -dists -plots -dist-matrix
 if [ -f refine_bonded.py ]; then python refine_bonded.py; fi
