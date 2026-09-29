@@ -26,6 +26,10 @@ def molecule_root(tmp_path):
 def prepare(tmp_path, molecule_root, monkeypatch):
     """Prepare a run at the given settings. The manifest's GROMACS probe is stubbed: it is not the question."""
     monkeypatch.setattr(aa, 'tool_metadata', lambda: {})
+    # Nor is the build-flavour probe, which costs 1.3 s of subprocess per preparation on this host and whose
+    # answer is pinned on its own by test_aa_gromacs_invocation.py. 'mpi' is what the generated commands
+    # assume, so stating it here keeps these tests independent of the GROMACS build on the machine.
+    monkeypatch.setattr(aa, 'gromacs_flavour', lambda *arguments, **keywords: 'mpi')
 
     def prepared(settings=None, name='run'):
         run = tmp_path / name
@@ -136,6 +140,7 @@ def test_the_ion_names_come_from_the_entry(tmp_path, molecule_root, monkeypatch)
     `genion` for, so it is stubbed out and the snapshot is made charged.
     """
     monkeypatch.setattr(aa, 'tool_metadata', lambda: {})
+    monkeypatch.setattr(aa, 'gromacs_flavour', lambda *arguments, **keywords: 'mpi')
     monkeypatch.setattr(aa_molecules, 'verify_selection', lambda *args: None)
     selected = aa_molecules.selection(molecule_root, 'Fixture', run_type='aa_only')
     metadata = selected['metadata']

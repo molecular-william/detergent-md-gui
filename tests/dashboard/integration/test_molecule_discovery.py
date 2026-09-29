@@ -84,6 +84,7 @@ def test_pdb_preparation_hashes_source_and_conversion_without_mutating_source(so
     before = files.hashes(source)
     run = tmp_path/'run'; run.mkdir()
     monkeypatch.setattr(aa, 'tool_metadata', lambda: {})
+    monkeypatch.setattr(aa, 'gromacs_flavour', lambda *arguments, **keywords: 'mpi')
     aa.prepare_run(run, source.parent, selected, {'box_nm': 4.0})
     prepared = run/'inputs/common/molecule'
     assert files.hashes(source) == before
