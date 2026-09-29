@@ -40,8 +40,9 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_
     # The catalogue is fetched once, scoped to the molecule the editor is bound to.
     assert [u for u in urls if u.startswith('/api/mappings?view=summary')] == ['/api/mappings?view=summary&molecule_id=DDM']
     assert urls.count('/api/bonded-states?view=summary') == 1
-    # Keyboard and hash navigation have the same activation semantics.
-    page.locator('#tab-new').press('ArrowRight')
+    # Returning to the editor keeps what was typed, and the hash activation below reaches the same panel.
+    # Arrow-key activation is covered in test_tab_layout_browser, where the order is the rail's own.
+    page.locator('#tab-mappings').click()
     expect(page.locator('#mapping-editor-name')).to_have_value(saved['name'])
     page.locator('#mapping-editor-name').fill('Unsaved local edit')
     page.locator('#tab-bonded').click()

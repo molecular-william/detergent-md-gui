@@ -67,6 +67,27 @@ table itself is denser (method folded into molecule, duration into created) — 
 Reversal cost: the markup is one `nav` moved inside a wrapper element, plus a breakpoint. The tab logic does not
 change, because the tab list is read from the DOM.
 
+## As built (2026-09-29)
+
+`static/layout.css`, loaded last so the measure wins over each workspace's own minima, plus the rail markup in
+`dashboard.html` and `aria-orientation` with both arrow-key pairs in `tabs.js`.
+
+Three decisions made while building, against the draft:
+
+- **The form's columns are 6 + 6, not 8 + 4.** At a 1280 px window the rail leaves a 997 px measure, so a
+  four-column settings panel is 319 px and its three-across fields wrap — "AA NVT equilibration (ps)" over three
+  lines, with the inputs squeezed beside the Default buttons. Six and six gives 489 px each, which is what the
+  fields had at their old 540 px. The Mapping editor's columns went 7 + 5 for the same reason.
+- **The rail compacts through the stylesheet, not a toggle**: 220 px, 64 px below 1100 px, and the horizontal row
+  below 900 px. A toggle would be a second piece of state to keep in step with the CSS, and `tabs.js` already has
+  to follow the breakpoint to set `aria-orientation` for assistive technology.
+- **RUN AND READ comes first**, so the landing tab is the top entry and the groups run from "look at runs" to
+  "design a model"; the draft showed BUILD A MODEL first.
+
+The tab order is therefore runs, simulate, validation, complexes, bead assignment, bond interactions,
+combinations. One existing test used `ArrowRight` from the second tab to reach the mappings panel; it now clicks
+the tab and says why, and the arrow keys are covered in the layout test, where the order is the rail's own.
+
 ## What I would not do
 
 - **Wrap the tabs onto two rows.** It costs no width and looks like an accident at the eighth tab; the rail does

@@ -1,5 +1,5 @@
 /* Run inventory: shared resources, three density options, recorded stage checkpoints. */
-body:has(#runs:not([hidden])) main, body:has(#runs:not([hidden])) header { max-width: 1800px; }
+/* The page width is one measure for every tab, set in layout.css; Runs no longer widens it for itself. */
 .runs-view-controls { display:flex; align-items:center; gap:6px; margin:16px 0; }
 .runs-view-controls > span { margin-right:8px; color:var(--muted); font-size:13px; }
 .runs-view-controls button { color:#24364e; background:#fff; border-color:#bcc9d9; padding:7px 14px; }
