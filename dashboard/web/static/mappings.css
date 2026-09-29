@@ -19,6 +19,15 @@
 .mapping-selection-row .toolbar{margin:0}
 .mapping-editor-controls .form-grid{grid-template-columns:1fr}
 .mapping-editor-controls .table-scroll{max-height:34rem;overflow:auto;border:1px solid var(--line);border-radius:8px}
+/* Mapping Validation. Same palette and idiom as the rest; only the heading row and the two badge kinds are
+   new, because a claim our own data supports must not look like a delta against the reference entry. */
+.validation-card-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.validation-card-heading h3{margin:0}
+.validation-comparison{background:var(--line);color:var(--muted);font-weight:600}
+.validation-comparison[data-comparison]{background:#e8eef6;color:var(--muted)}
+.validation-claim{background:#fce9eb;color:var(--danger);font-weight:650}
+.validation-selectors .toolbar{align-items:flex-end}
+.validation-selectors label{min-width:22rem}
 .mapping-editor-controls table{margin:0;table-layout:fixed;min-width:31rem}
 .mapping-editor-controls caption{padding:10px 12px;margin:0;background:#f3f6fa}
 .mapping-editor-controls td,.mapping-editor-controls th{padding:8px 6px}

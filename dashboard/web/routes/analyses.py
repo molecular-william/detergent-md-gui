@@ -1,5 +1,6 @@
 """Analyses HTTP endpoints."""
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Blueprint, abort, jsonify, request
@@ -35,6 +36,34 @@ def queue_analysis(jid, kind):
         payload = {**payload, 'molecule_id': molecule_id, 'target_dataset': dataset}
     task, status = coordinator().analysis_coordinator.queue(jid, kind, payload)
     return jsonify(task), status
+
+
+@blueprint.get('/api/jobs/<jid>/mapping-consistency')
+def mapping_consistency_api(jid):
+    """The newest published AA-vs-CG comparison for one coarse-grained run.
+
+    A published analysis writes into the output directory its attempt content-addressed, so this reads that
+    record rather than recomputing anything: the panel shows what was published, and `attempt` plus
+    `published_at` say which record answered. A run with no completed attempt is a 404 carrying the reason,
+    because "not run yet" and "ran and failed" are different answers for a reader, and only the second one is
+    worth looking into.
+    """
+    c = coordinator(); job = c.lookup(jid)
+    directory = c.run_path(job) / 'analyses/mapping-consistency'
+    records = sorted(directory.glob('*/*/result.json'), key=lambda path: path.stat().st_mtime, reverse=True)
+    if not records:
+        abort(404, 'No AA vs CG comparison has been published for this run')
+    attempt = records[0].parent
+    record = json.loads(records[0].read_text())
+    artifact = attempt / str(record.get('output_directory') or '') / 'analysis/mapping_consistency.json'
+    if not artifact.is_file():
+        abort(404, f'{attempt.name} names no published comparison file')
+    return jsonify({'run': jid, 'attempt': attempt.name,
+                    'published_at': datetime.fromtimestamp(attempt.stat().st_mtime, timezone.utc).isoformat(),
+                    'source': str(artifact.relative_to(c.RUNS)),
+                    'molecule': job.get('molecule_id'), 'run_type': job.get('run_type'),
+                    'profile': job.get('profile'), 'reference_run_id': job.get('reference_run_id'),
+                    'summary': record.get('result'), 'comparison': json.loads(artifact.read_text())})
 
 
 @blueprint.get('/api/jobs/<jid>/carbohydrate-validation')

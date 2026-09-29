@@ -21,6 +21,7 @@
   <button role="tab" id="tab-new" aria-controls="new" data-tab="new">Single Molecule Simulations</button>
   <button role="tab" id="tab-mappings" aria-label="CG mappings" aria-controls="mappings" data-tab="mappings">CG Bead Assignment</button>
   <button role="tab" id="tab-bonded" aria-controls="bonded" data-tab="bonded">CG Bond Interactions</button>
+  <button role="tab" id="tab-validation" aria-controls="validation" data-tab="validation">Mapping Validation</button>
   <button role="tab" id="tab-compositions" aria-controls="compositions" data-tab="compositions">Molecule Combination</button>
   <button role="tab" id="tab-pdc" aria-controls="pdc" data-tab="pdc">Protein-Detergent Complex Simulations</button>
 </nav>
@@ -152,6 +153,55 @@
       </div>
     </div>
   </section>
+</section>
+<section id="validation" role="tabpanel" aria-labelledby="tab-validation" hidden>
+  <div class="section-heading"><div><h2>Mapping Validation</h2><p>Does the model we simulate reproduce the atomistic structure it was built from? Every number here compares our model with our own atomistic reference; the reference entry's values are context and set no verdict.</p></div></div>
+  <section class="card validation-selectors" aria-labelledby="validation-selectors-title">
+    <h3 id="validation-selectors-title">Which comparison</h3>
+    <div class="toolbar">
+      <label>CG consumer run<select id="validation-run" aria-label="Coarse-grained consumer run"></select></label>
+      <button type="button" class="secondary" id="validation-refresh">Refresh runs</button>
+    </div>
+    <p id="validation-identity" class="hint" role="status">Choose a completed CG run.</p>
+    <p id="validation-message" class="notice" role="status" hidden></p>
+  </section>
+  <section class="card" aria-labelledby="validation-pairs-title">
+    <div class="validation-card-heading">
+      <h3 id="validation-pairs-title">1 · Ring and constraint geometry</h3>
+      <span class="badge validation-comparison">AA vs CG</span>
+      <span class="badge validation-claim" id="validation-pairs-badge" hidden></span>
+    </div>
+    <p class="hint">Distances between the beads the generated topology constrains, measured on the run's atomistic reference and on its coarse-grained trajectory. The bead reading <code>(2,A)</code> is the reference entry's language, kept so a row can be found in the entry.</p>
+    <div class="table-scroll"><table><caption>Ring and constraint pairs · nanometres</caption>
+      <thead><tr><th>Pair</th><th>AA mean ± stderr</th><th>CG mean ± stderr</th><th>Δ (AA→CG)</th><th>Reference entry</th><th>This run's AA range</th></tr></thead>
+      <tbody id="validation-pair-rows"><tr><td colspan="6">No comparison loaded.</td></tr></tbody></table></div>
+    <p class="hint">These constraints are fitted from the atomistic reference they are compared against here, so agreement is a check that the mapping, the mapped trajectory and the simulated trajectory are one assignment. It is not a statement about the model's physics, and it is not evidence from experiment.</p>
+  </section>
+  <section class="card" aria-labelledby="validation-terms-title">
+    <div class="validation-card-heading">
+      <h3 id="validation-terms-title">2 · Bonded terms</h3>
+      <span class="badge validation-comparison">AA-mapped vs CG-simulated</span>
+    </div>
+    <p class="hint">Each bonded term the model carries, as it appears in the mapped atomistic trajectory and in the simulated coarse-grained one. <b>Overlap</b> is the shared area of the two histograms: 1 is identical, 0 is no overlap. Δ is the mean difference in the term's own unit (nm or degrees).</p>
+    <div class="table-scroll"><table><caption>Bonded terms</caption>
+      <thead><tr><th>Section</th><th>Beads</th><th>AA mean ± std</th><th>CG mean ± std</th><th>Δ</th><th>Overlap</th><th>Reading</th></tr></thead>
+      <tbody id="validation-term-rows"><tr><td colspan="7">No comparison loaded.</td></tr></tbody></table></div>
+  </section>
+  <section class="card" aria-labelledby="validation-shape-title">
+    <div class="validation-card-heading">
+      <h3 id="validation-shape-title">3 · Shape and volume</h3>
+      <span class="badge validation-comparison">AA vs CG</span>
+    </div>
+    <p class="hint" id="validation-shape-detail">The run's shape analysis has not been published.</p>
+  </section>
+  <section class="card" aria-labelledby="validation-solution-title">
+    <div class="validation-card-heading">
+      <h3 id="validation-solution-title">4 · Solution behaviour</h3>
+      <span class="badge validation-comparison">blocked</span>
+    </div>
+    <p class="hint">Osmotic pressure and transfer free energy need a concentration-series system builder and a second solvent leg; neither exists yet, so this card stays empty rather than showing a substitute number. The checks are specified in <code>docs/superpowers/specs/2026-09-29-sugar-consistency-validation-design.md</code> (E4, E5).</p>
+  </section>
+  <p id="validation-interpretation" class="hint">Every comparison here is against our own atomistic reference.</p>
 </section>
 <section id="compositions" role="tabpanel" aria-labelledby="tab-compositions" hidden>
   <div class="section-heading"><div><h2>Molecule Combination</h2><p>Attach a reference-backed mapped headgroup to a deterministic Martini carbon tail.</p></div></div>
