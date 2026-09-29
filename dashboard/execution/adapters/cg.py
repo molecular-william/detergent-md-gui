@@ -129,6 +129,22 @@ def mirror_aa_settings(aa_settings):
             'output_interval_ps': aa_settings['output_interval_ps']}
 
 
+def mdp_integration(folder, aa_dir, steps):
+    """The per-file MDP changes for one half of the run, as one place that decides the timestep.
+
+    The atomistic half integrates at 2 fs, which is its template's own dt. The coarse-grained half keeps
+    Martini's timestep from *its* template: stamping the atomistic dt on both is what made a 10 ns
+    coarse-grained production 5,000,000 steps — ten times the work for the same trajectory — and left the run's
+    own record reading as an atomistic timestep (measured on run `abd5bf461c49`: 2863 ns/day, 0.060 ms/step).
+    """
+    changes = {'nsteps': steps, 'nstlog': 100, 'nstenergy': 100, 'pcoupl': 'no', 'gen-seed': 20260911}
+    if folder == aa_dir:
+        changes.update({'dt': 0.002, 'nstxout-compressed': 100})
+    else:
+        changes.update({'nstxtcout': 100, 'xtc-precision': 1000})
+    return changes
+
+
 def fit_temperature(text, temperature_k):
     """Rewrite the CG topology stage's `ff_inter -temperature` anchor to the run's temperature.
 
@@ -225,13 +241,7 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
             if folder == aa_dir and not inline_aa: continue
             update_mdp(folder / mdp_names[0], {'nsteps': 20000, 'define': ''})
             for filename, steps in zip(mdp_names[1:], (5000, 25000)):
-                changes = {'nsteps': steps, 'dt': 0.002, 'nstlog': 100, 'nstenergy': 100, 'pcoupl': 'no', 'gen-seed': 20260911}
-                if folder == aa_dir:
-                    changes['nstxout-compressed'] = 100
-                else:
-                    changes['nstxtcout'] = 100
-                    changes['xtc-precision'] = 1000
-                update_mdp(folder / filename, changes)
+                update_mdp(folder / filename, mdp_integration(folder, aa_dir, steps))
         shutil.copy2(SCRIPTS / 'validate_run.py', run_dir / '5_assessment/validate_run.py')
         shutil.copy2(SCRIPTS / 'distance_diagnostics.py', run_dir / '5_assessment/distance_diagnostics.py')
         sasa = run_dir / '6_SASA'

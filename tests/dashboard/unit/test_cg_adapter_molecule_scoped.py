@@ -37,6 +37,38 @@ def test_molecule_scoped_cg_rejects_invalid_reference_id(tmp_path):
         )
 
 
+CG_MDPS = PROJECT_ROOT / 'resources/templates/small_mols_fast_forward/4_CG_sim/inputs'
+AA_MDPS = PROJECT_ROOT / 'resources/templates/small_mols_fast_forward/1_AA_reference/mdps'
+
+
+def mdp_value(path, key):
+    for line in path.read_text().splitlines():
+        body = line.split(';', 1)[0].strip()
+        if body.startswith(key + ' '):
+            return float(body.split('=', 1)[1])
+    raise AssertionError(f'{key} is not in {path.name}')
+
+
+def test_the_coarse_grained_half_integrates_at_martini_timesteps():
+    """20 fs, as agreed: a 10 ns coarse-grained production is 500,000 steps and not 5,000,000."""
+    assert mdp_value(CG_MDPS / 'md.mdp', 'dt') == pytest.approx(0.02)
+    assert mdp_value(CG_MDPS / 'eq.mdp', 'dt') == pytest.approx(0.02)
+    assert round(10000.0 / mdp_value(CG_MDPS / 'md.mdp', 'dt')) == 500000
+
+
+def test_the_atomistic_half_still_integrates_at_two_femtoseconds():
+    assert mdp_value(AA_MDPS / 'eq.mdp', 'dt') == pytest.approx(0.002)
+    assert mdp_value(AA_MDPS / 'md.mdp', 'dt') == pytest.approx(0.002)
+
+
+def test_the_timestep_is_stamped_on_the_atomistic_half_only(tmp_path):
+    """Stamping `dt` on both halves is what put 2 fs on the coarse-grained MDPs of run `abd5bf461c49`."""
+    aa_dir, cg_dir = tmp_path / 'aa', tmp_path / 'cg'
+    assert cg.mdp_integration(aa_dir, aa_dir, 25000)['dt'] == 0.002
+    assert 'dt' not in cg.mdp_integration(cg_dir, aa_dir, 25000), \
+        'the coarse-grained half keeps its template timestep'
+
+
 def test_the_template_still_carries_the_anchor_the_rewrite_needs():
     """The stage script ships a placeholder temperature; the adapter rewrites it from the run's settings.
 
