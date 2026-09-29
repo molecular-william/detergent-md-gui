@@ -208,21 +208,9 @@ def unparameterized_observables(run_dir):
     itp = run_dir / '3_initial_CG/DDM_initial.itp'
     if not all(path.is_file() for path in (gro, xtc, itp)):
         raise FileNotFoundError('Mapped trajectory and fitted interaction inputs are required')
-    bonded, angles, dihedrals = set(), set(), set(); section = ''
-    for line in itp.read_text().splitlines():
-        text = line.split(';', 1)[0].strip()
-        if text.startswith('['): section = text.strip('[] ').strip(); continue
-        if not text or text.startswith(('#', ';')): continue
-        fields = text.split()
-        count = {'bonds':2, 'angles':3, 'dihedrals':4, 'proper-dihedrals':4}.get(section)
-        if count is None: continue
-        try:
-            atoms = tuple(int(x)-1 for x in fields[:count])
-            if len(atoms) != count or min(atoms) < 0: raise ValueError()
-        except ValueError as exc: raise ValueError(f'Invalid {section} atom indices') from exc
-        if count == 2: bonded.add(tuple(sorted(atoms)))
-        elif count == 3: angles.add(atoms)
-        else: dihedrals.add(atoms)
+    from .bonded_terms import read_terms, term_sets
+    parsed = term_sets(read_terms(itp.read_text()))
+    bonded, angles, dihedrals = parsed['bonds'], parsed['angles'], parsed['dihedrals']
     universe = mda.Universe(str(gro), str(xtc))
     n = len(universe.atoms)
     if any(i >= n for row in bonded | angles | dihedrals for i in row): raise ValueError('Topology references an unknown bead')
