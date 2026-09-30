@@ -204,6 +204,37 @@ constraints were fitted from the same atomistic reference they are compared agai
 mapping, the mapped trajectory and the simulated trajectory are one assignment, and the panel says so on the
 card. The reference's numbers are context and set no verdict.
 
+### E3, the transferability chain (2026-09-30)
+
+The three-molecule check (the paper's own disaccharide transferability test) is queued and, once the gateway is
+running, drives itself: `~/.hermes/profiles/moldym/scripts/e3-chain.py`, scheduled as cron job `e3-chain` every
+10 minutes with no LLM. Each tick reads the live API and does the next thing that exists to do — maltose CG run,
+trehalose mapping and reference, trehalose CG run, then both comparisons — and prints nothing when there is
+nothing to do, so a quiet tick sends no message. It only calls the endpoints the panel's buttons call.
+
+| leg | state |
+| --- | --- |
+| maltose reference | `a54ac8f64710` — restarted from solvation this morning by the coordinator's recovery (the machine was off overnight), ETA 13:08 HKT |
+| maltose CG run | queued by the driver once the reference completes (~13:25) |
+| trehalose | molecule added by the user and tracked (`cf6b830`); reference ~13:30-16:35, CG run ~16:50 |
+| comparisons | both queued by the driver (~17:00) |
+
+The driver is idempotent and safe to run by hand (`--verbose` reports what it sees). **A build item comes with
+it**: nothing compares the same bead types *across* molecules yet — every analysis compares AA against CG within
+one run — so when the chain lands the numbers exist and no analysis or panel presents them.
+
+### PDC: what is actually missing (checked 2026-09-30)
+
+Earlier notes said "phases C–E remain" without saying why nothing has ever run. The precise state: Phase B's
+builders exist and are unit-tested (`adapters/pdc_box.py`, `pdc_placement.py`, `pdc_protein.py`,
+`pdc_solvation.py`, `pdc_view.py`), `pdc.py` carries the catalogue, `SETTING_SPECS` and the six-stage `STAGES`
+contract — and **nothing writes the stage scripts `STAGES` names**. `grep prepare_system.sh` finds the string
+only in `STAGES` itself, and `workflow.prepare_run` calls `cg.prepare` unconditionally, so a `pdc` job cannot be
+created at all. That is tasks B7 (`pdc.prepare`) and B8 (dispatch on run type) in
+`docs/superpowers/plans/2026-09-28-protein-detergent-complex-panel.md`, and it is the next PDC work: six stage
+directories and their scripts over a `python -m` entry point that calls the tested builders, the dispatch, and
+tests that read the scripts the way `test_aa_gromacs_invocation.py` reads the AA ones.
+
 ### Still open
 
 - Phase B experiments E1–E5 (spec §Phase B): a second independent AA reference, CG geometry at paper scale,
@@ -244,12 +275,12 @@ pass/fail. Pin it with a test.
 | PDC panel phases B5–B6 | landed but never exercised end to end (no PDC simulation has run); phases C–E remain. Re-checked 2026-09-29: the live jobs table holds two jobs, both `aa_only` and both completed |
 | Docs debt from `75de474` | **paid in `6d83cad`** — `AGENTS.md`, `DDM_CALIBRATION.md`, `PROJECT_GUIDE.md` and `dashboard/README.md` all state that the controls were removed and the analysis is queue-through-API only. Verified 2026-09-29 |
 | `static/vendor/ngl.js` | **closed in `48408cf`** — tracked with its provenance in `ngl.js.source.json`. Verified 2026-09-29 |
-| mapping panel tests | still open: the 3D overlay has a browser test; the save/delete path still has none |
+| mapping panel tests | **closed 2026-09-30** — the save and delete paths *do* have browser coverage: `test_dashboard_browser.py` clicks `#save-mapping-inplace` (91), `#delete-mapping` (96) and `#save-mapping-editor` (167) against a test workspace, and asserts the disabled states before each. The row was stale; re-checked rather than trusted |
 | destroyed records | two Maltose mapping candidates lost at 16:12 during test runs and unrecoverable; DDM's unscoped candidate was deleted with a byte copy kept in `~/.hermes/profiles/moldym/cache/scratch/deleted-mapping_candidate_5c8ccfb716274fd9b653b2effaa71bf2.json` |
 | `.ipynb_checkpoints/` | **not a risk**: the same bytes are tracked at `architecture-review-20260924.html` (md5 `19150e0c1e2c89c31e6f0247f0ae7a68` for both files). Verified 2026-09-29 |
 | 7.3 sweep | **done in `f9690b0`** — the shims are gone; `tests/dashboard/{conftest,factory,support}.py` remain. Verified 2026-09-29 |
-| diagnostics | still open: `distance_diagnostics.py:30` `vmax` makes two runs' heatmaps not colour-comparable. The "same result written to two JSON files" claim was not re-checked |
-| GLYCAM06 | still open: AmberTools and acpype installed; waiting on a Glycam-Web topology from the user's account |
+| diagnostics | **colour scale fixed 2026-09-30** (`630f1cc`): `COLOUR_SCALE_NM = 0.1` for every run, `colour_scale()` the one place it is decided, the record says `per_run: false` plus `clipped`. The "same result written to two JSON files" half was verified paid: the writer emits only the stratified name, which `test_the_writer_emits_only_the_stratified_file` asserts |
+| GLYCAM06 | **dropped 2026-09-30 by the user's decision** — not to be pursued. The AmberTools/acpype installs stay on the machine; nothing in the tree depends on a Glycam-Web topology |
 
 Four rows of this table were already paid before the handoff was written, which is why they carry the commit that
 paid them. They were verified against the tree on 2026-09-29 and not taken on trust.
