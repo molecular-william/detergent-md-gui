@@ -135,11 +135,12 @@ def test_the_panels_setting_names_reach_the_builders_own(tmp_path):
 
 
 def test_the_run_record_names_the_stages_and_the_limits(tmp_path):
-    record = json.loads((prepared(tmp_path) / 'pdc-run.json').read_text())
+    record = json.loads((prepared(tmp_path) / 'manifest.json').read_text())
 
     assert record['run_type'] == 'pdc'
-    assert [stage['script'] for stage in record['stages']] == [stage.relative for stage in pdc.STAGES]
+    assert record['stage_plan'] == [[stage.name, stage.relative] for stage in pdc.STAGES]
     assert any('centre per molecule' in line for line in record['limitations'])
+    assert set(record['tools']) == {'gmx', 'martinize2'}
 
 
 def test_the_entry_point_applies_the_builders_rather_than_restating_them():

@@ -8,6 +8,8 @@ import json
 import sys
 from pathlib import Path
 
+from ... import files
+from .. import protocol, tools
 from ..stages import Stage
 
 # The two files the system-preparation stage reads and writes. The adapter owns their names because the stage
@@ -236,10 +238,130 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         indent=2, sort_keys=True))
     (system / Path(STAGES[0].relative).name).write_text(_STAGE_SCRIPT.format(
         label=STAGES[0].name, report=REPORT_NAME, root=str(root), python=sys.executable))
-    (run_dir / 'pdc-run.json').write_text(json.dumps(
-        {'run_type': 'pdc', 'protein': str(protein), 'template': str(template),
-         'template_issues': template_issues, 'settings': numbers,
-         'stages': [{'name': stage.name, 'script': stage.relative} for stage in STAGES],
+    # One record, and it is the one the pipeline reads: `workflow.prepare_run` takes this manifest, adds the run's
+    # snapshots and tools, and moves it to the run root. A tool that is not resolvable is recorded as unresolved
+    # rather than raising here, because readiness is the layer that blocks a run for it.
+    recorded_tools = {}
+    for name in ('gmx', 'martinize2'):
+        found = tools.tool_path(name)
+        recorded_tools[name] = ({'path': found, 'sha256': files.sha256(found)} if found
+                                else {'path': name, 'ready': False,
+                                      'detail': 'not declared or not executable'})
+    (run_dir / 'manifest.json').write_text(json.dumps(
+        {'run_type': 'pdc', 'stage_plan': _plan(), 'settings': numbers,
+         'protein': str(protein), 'template': str(template), 'template_issues': template_issues,
+         'tools': recorded_tools,
          'limitations': ['the detergent is one centre per molecule: the shipped templates carry no bead shape',
                          'the assessment, removal, extension and back-mapping stage scripts are task B7b']},
         indent=2, sort_keys=True))
+
+
+def _plan():
+    """The six stages as `(name, relative)` pairs, the spelling a run's manifest records."""
+    return [[stage.name, stage.relative] for stage in STAGES]
+
+
+def stage_contract(metadata=None):
+    """The contract in the shape the other run types publish: `(plan, inputs, outputs)`.
+
+    The pdc stages are the same six for every payload -- nothing here is per molecule yet -- so the metadata is
+    accepted and unused, rather than the caller having to know which run types need it.
+    """
+    return (_plan(),
+            {stage.name: list(stage.inputs) for stage in STAGES},
+            {stage.name: list(stage.outputs) for stage in STAGES})
+
+
+def stages(metadata=None):
+    """The stage records themselves, for a caller that wants more than the plan."""
+    return tuple(STAGES)
+
+
+def stage_defaults():
+    return dict(DEFAULTS)
+
+
+def normalize_settings(settings=None, profile='standard'):
+    """The panel's payload in the builders' spelling. The profile has no pdc meaning yet and is not recorded."""
+    return settings_from(settings or {})
+
+
+def readiness(protein=None, template=None, project_root=None):
+    """What a protein-detergent build needs, in the shape every run type answers with.
+
+    The template is checked by its own reader and validator, because those are the two things that decide whether
+    it can build a system at all; the executables are resolved through the declared tools, so a build that names a
+    tool the machine does not have is blocked here rather than in the middle of a stage.
+    """
+    from micelle import registry
+
+    from ..environment import probe_tool
+
+    checks, blockers = [], []
+    root = Path(project_root or Path.cwd())
+    paths_named = {}
+    for label, value in (('Protein', protein), ('Detergent template', template)):
+        if not value:
+            blockers.append(f'{label}: none selected')
+            continue
+        path = Path(value) if Path(value).is_absolute() else root / str(value)
+        paths_named[label] = path
+        found = path.is_file()
+        checks.append({'label': label, 'path': str(value), 'ready': found,
+                       'detail': 'found' if found else f'not a file: {path}'})
+        if not found:
+            blockers.append(f'{label}: not a file: {path}')
+
+    template_path = paths_named.get('Detergent template')
+    if template_path is not None and template_path.is_file():
+        try:
+            record = registry.load_template(template_path)
+            issues = list(registry.validate_template(record))
+            detail = '; '.join(issues) or 'coordinates and topology present'
+        except (ValueError, OSError) as exc:
+            issues, detail = [str(exc)], str(exc)
+        checks.append({'label': 'Template files',
+                       'path': f'{template_path.name}', 'ready': not issues, 'detail': detail})
+        blockers.extend(issues)
+
+    for name in ('gmx', 'martinize2'):
+        executable = tools.tool_path(name)
+        ok, detail = probe_tool(executable) if executable else (False, 'Executable not found')
+        checks.append({'label': name, 'path': executable or name, 'ready': ok, 'detail': detail})
+        if not ok:
+            blockers.append(f'{name}: {detail}')
+    return {'ready': not blockers, 'checks': checks, 'blockers': blockers}
+
+
+def tool_metadata():
+    """The tools a pdc run resolves and records: the executables its stages call."""
+    result = {}
+    for name in ('gmx', 'martinize2'):
+        executable = tools.tool_path(name)
+        if not executable:
+            raise FileNotFoundError(f'Missing tool: {name}')
+        result[name] = {'path': executable, 'sha256': files.sha256(executable)}
+    return result
+
+
+def _protocol_readiness(metadata):
+    return readiness(protein=metadata.get('protein'), template=metadata.get('template'),
+                     project_root=metadata.get('project_root'))
+
+
+def _protocol_prepare(run_dir, metadata):
+    keys = ('protein', 'template', 'settings', 'project_root')
+    prepare(run_dir, **{key: metadata[key] for key in keys if key in metadata})
+
+
+PROTOCOL = protocol.Protocol(
+    name='pdc',
+    stage_contract=stage_contract,
+    stages=stages,
+    settings_specs=lambda: SETTING_SPECS,
+    stage_defaults=stage_defaults,
+    normalize_settings=normalize_settings,
+    readiness=_protocol_readiness,
+    prepare=_protocol_prepare,
+    tool_report=tool_metadata,
+)

@@ -86,13 +86,31 @@ def prepare_run(run_dir, **kwargs):
         composition.prepare_run(run_dir, kwargs['composition_id'], kwargs.get('settings'))
         return
     stages = run_dir / 'stages'; stages.mkdir()
-    cg.prepare(stages, **kwargs)
+    # A pdc run is the one type whose inputs are a protein and a detergent template rather than a molecule
+    # snapshot, so it builds its own stages; the AA and CG types share cg.prepare's machinery.
+    if _run_type(kwargs) == 'pdc':
+        from .adapters import pdc
+        pdc.prepare(stages, **kwargs)
+    else:
+        cg.prepare(stages, **kwargs)
     metadata = json.loads((stages / 'manifest.json').read_text())
     (stages / 'manifest.json').unlink()
     shutil.copytree(stages, run_dir / 'inputs')
     protocol.write_prepared_manifest(run_dir, metadata, tools=metadata.get('tools', {}),
-                                     plan=metadata.get('stage_plan') or [name for name, _ in cg.STAGES],
+                                     plan=_plan_pairs(metadata),
                                      environment=metadata.get('environment'))
+
+
+def _plan_pairs(metadata) -> list[list[str]]:
+    """A run's stage plan as `(name, relative)` pairs, whatever shape its adapter declares its stages in.
+
+    The AA and CG adapters declare pairs, the pdc adapter declares `Stage` records, and the prepared manifest
+    records pairs for every run type -- so the conversion lives here rather than in each adapter.
+    """
+    pairs = []
+    for entry in metadata.get('stage_plan') or plan_for(metadata):
+        pairs.append([entry.name, entry.relative] if isinstance(entry, Stage) else [entry[0], entry[1]])
+    return pairs
 
 
 def resumable_stages(run_dir, metadata=None):
