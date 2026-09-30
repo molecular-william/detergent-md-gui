@@ -56,19 +56,31 @@ Done rather than argued. The automatic recogniser was run on `molecules/DDM` thr
 | ring 2 | `S2A SN6` `S2B SP4r` `S2C SP1r` + `S2VS TC4` |
 | tail | `TAIL1..TAIL3` = **three `C1` beads** — the dodecane entry's own hypothesis, arrived at by the recogniser |
 | bonded terms | 26 generated: 6 ring constraints with the geometry's own lengths, 10 bonds, 14 angles, 2 dihedrals |
-| reference-matched terms | **0 of 26.** Every bond, angle and dihedral fell back to the bead-centre distance with the placeholder force constants (bond 5000, angle 25), `references: []`, `confidence: 0.0` |
+| reference-matched | **10 of 26**, all from the Martini 3 sugar references (`SUCR.itp`, `martini_v3.0.0_sugars_v2.itp`): the ring-2 and linkage bonds, angles and dihedrals |
+| fallen back | 16 of 26, including **the whole tail**: `C1|C1` bonds and `C1|C1|C1` angles are geometry placeholders |
 
-So the assembled route produces a **complete, Martini 3, geometry-correct topology whose bonded terms are
-placeholders**. The reason is structural, not a bug: the M3 carbohydrate references describe a glucose ring as
-*constraints* between `SP4r`/`SP1r` beads inside whole fragments, and our ring-1 beads are all `SP1r`, a pairing
-those entries do not carry as a bond; `C1|SP1r`, `SN6|SP4r` and `C1|C1` are not in the reference set either,
-because the tree holds the M3 bead table and the sugar database, not the M3 lipid topologies.
+Two findings, in the order they arrived.
 
-**Consequence, stated plainly:** the assembled model is a smoke model. It can drive the pipeline — placement,
-solvation, assessment, the criterion, the snapshots — and it must never be read as a detergent parameterisation.
-Anything scientific about DDM's behaviour needs the fitted route: an AA reference run for DDM, then `ff_map` +
-`ff_inter` over the same 11-bead mapping, which is exactly the "option that stays open" below, now promoted from
-optional to required for a claim.
+First, the tail was parameterised from **Martini 2** files without anything saying so: `C1|C1` and `C1|C1|C1` come
+only from `references/MAD Database/{BOG,DDM,SDS}` and `references/martini-ddm.itp`, all of which are Martini 2. The
+reference index ranks those families *highest* for a DDM query (`_source_rank` gives them 4), so a Martini 3 build
+silently inherited Martini 2 constants — the exact mixing the user ruled out.
+
+The fix is in `bonded.generation`: a reference's generation is read from a sidecar (`<file>.source.json`'s
+`martini_version`) or from a known family (`martini-ddm`, the MAD Database → 2; the M3 sugar database → 3), and a
+mapping that declares its own generation (`martini_version` in the candidate) is parameterised only from that
+generation. A reference that states nothing stays usable — an unknown is not evidence of a mismatch — and a term
+whose only references are the wrong generation **falls back to geometry rather than mixing**, with a diagnostic
+naming it.
+
+Second, after the filter: 10 terms matched, all Martini 3, and 16 fall back. The whole tail is now a placeholder,
+which is the honest state of this tree — it holds the M3 bead table and the sugar database, not M3 lipid topologies.
+
+**Consequence, stated plainly:** the assembled model is a smoke model. Its head and linkage carry real Martini 3
+parameters; its tail carries none. It can drive the pipeline — placement, solvation, assessment, the criterion, the
+snapshots — and it must never be read as a detergent parameterisation. Anything scientific about DDM's behaviour
+needs the fitted route: an AA reference run for DDM, then `ff_map` + `ff_inter` over the same 11-bead mapping
+(which fits *every* term, tail included), the "option that stays open" below, promoted from optional to required.
 
 One defect found while measuring: `references/martini-ddm.itp:54` has a malformed dihedrals row, so the reference
 index reports it as unreadable — a second reason that file is context rather than a parameter source.

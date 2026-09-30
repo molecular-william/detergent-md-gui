@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import itertools
+import json
 import math
 from collections import Counter, defaultdict
 from copy import deepcopy
@@ -55,6 +56,39 @@ def _source_rank(path):
     if 'martini' in normalized:
         return 2
     return 1
+
+
+# Which Martini generation a reference file belongs to, where the file itself does not say.
+#
+# `references/martini-ddm.itp` is Martini 2 (its bead types are `P1`/`P2`/`P4`/`C1` with bead masses 44-60), and the
+# MAD Database's detergents are the same generation (its DDM entry says it was built by attaching an SDS tail to
+# maltose, and its note about bonds over 25000 being treated as constraints is Martini 2's convention). A reference
+# whose version is not stated is `None`, which means "usable": an unknown is not evidence of a mismatch, and
+# excluding it would silently drop parameters. A sidecar (`<file>.source.json`) may state `martini_version`.
+_KNOWN_VERSIONS = {'martini-ddm': 2, 'references/mad database/': 2}
+
+
+def _reference_version(relative: str, path=None) -> int | None:
+    """The generation a reference file belongs to: from its sidecar, else from a known family, else unknown.
+
+    `path` is the file itself when the caller has it, so a sidecar is found beside the file rather than beside a
+    relative string that only resolves from one working directory.
+    """
+    file_path = Path(path) if path is not None else Path(relative)
+    for sidecar in (file_path.with_name(file_path.name + '.source.json'),
+                    file_path.with_suffix('.source.json')):
+        if sidecar.is_file():
+            try:
+                stated = json.loads(sidecar.read_text()).get('martini_version')
+            except (OSError, json.JSONDecodeError):
+                continue
+            if isinstance(stated, int):
+                return stated
+    normalized = relative.lower()
+    for family, version in _KNOWN_VERSIONS.items():
+        if family in normalized:
+            return version
+    return None
 
 
 def _parse_reference(path: Path, root: Path, diagnostics: list[str]):
@@ -155,8 +189,12 @@ def _build_bond_index(root: Path) -> dict:
     for path in paths:
         relative = path.relative_to(root).as_posix()
         source_hash = _sha256(path)
-        sources.append({'path': relative, 'sha256': source_hash, 'rank': _source_rank(relative)})
+        version = _reference_version(relative, path)
+        sources.append({'path': relative, 'sha256': source_hash, 'rank': _source_rank(relative),
+                        'martini_version': version})
         for record in _parse_reference(path, root, diagnostics):
+            # The record carries its own file's generation, so selection never has to resolve a relative path again.
+            record['martini_version'] = version
             grouped[record['kind']][record['key']].append(record)
 
     def pack(records_by_key):
@@ -187,6 +225,7 @@ def _build_bond_index(root: Path) -> dict:
                         for item in sorted(matching, key=lambda item: (item['path'], item['line']))
                     ],
                     'source_rank': first['source_rank'],
+                    'martini_versions': sorted({item.get('martini_version') for item in matching}, key=str),
                 })
         return packed
 
@@ -379,11 +418,31 @@ def topology_from_terms(mapping: dict, structure: dict, terms: list[dict], *, ti
     return '\n'.join(lines) + '\n'
 
 
-def _select_reference(index, kind, types, mapping_name=''):
+def _record_versions(record) -> set:
+    """Which Martini generations a record's own sources belong to (None where a file does not say)."""
+    if 'martini_versions' in record:
+        return set(record['martini_versions'])
+    stamped = record.get('martini_version')
+    if stamped is not None or 'martini_version' in record:
+        return {stamped}
+    return {_reference_version(reference.get('path') or '') for reference in record.get('references') or []}
+
+
+def _select_reference(index, kind, types, mapping_name='', martini_version=None):
     key = _reference_term_key(kind, types)
     candidates = list(index.get(kind, {}).get(key, []))
     if not candidates:
         return key, None, []
+    if martini_version is not None:
+        # A term may be described by several files, and it is kept only if some source is of the requested
+        # generation (or says nothing at all). Guessing a version from bead-type letters cannot work -- Martini 2 and
+        # 3 both use `C1` -- and importing a Martini 2 parameter into a Martini 3 model is exactly the mixing this
+        # route exists to avoid. When nothing matches, the term falls back to geometry and says so, which is a
+        # weaker parameter than a mixed one and a stronger claim than a silent one.
+        candidates = [record for record in candidates
+                      if martini_version in _record_versions(record) or None in _record_versions(record)]
+        if not candidates:
+            return key, None, []
     molecule_name = str(mapping_name or '').lower().replace('_', '-')
 
     def rank(record):
@@ -449,6 +508,10 @@ def generate(mapping: dict, structure: dict, project_root: Path) -> dict:
     if not isinstance(mapping, dict) or not isinstance(structure, dict):
         raise ValueError('A mapping and molecule structure are required')
     physical = {bead['name']: bead for bead in mapping.get('beads', []) if not bead.get('virtual_site')}
+    # A mapping that states its Martini generation gets only that generation's references: mixed generations are
+    # what this filter exists to prevent, and a mapping that says nothing keeps the old behaviour.
+    martini_version = mapping.get('martini_version')
+    martini_version = int(martini_version) if isinstance(martini_version, (int, str)) and str(martini_version).isdigit() else None
     centers = _centers(mapping, structure)
     index = reference_bond_index(project_root)
     diagnostics = list(index['diagnostics'])
@@ -460,7 +523,7 @@ def generate(mapping: dict, structure: dict, project_root: Path) -> dict:
         first_type = physical.get(first, {}).get('type') or ''
         second_type = physical.get(second, {}).get('type') or ''
         key, selected, competing = _select_reference(
-            index, 'bonds', [first_type, second_type], mapping_name)
+            index, 'bonds', [first_type, second_type], mapping_name, martini_version)
         if selected:
             parameters = [_format(value) for value in selected['parameters']]
             function = str(selected['function'])
@@ -493,7 +556,8 @@ def generate(mapping: dict, structure: dict, project_root: Path) -> dict:
                 continue
             names = [first, middle, last]
             key, selected, competing = _select_reference(
-                index, 'angles', [physical[name].get('type') or '' for name in names], mapping_name)
+                index, 'angles', [physical[name].get('type') or '' for name in names], mapping_name,
+                martini_version)
             if selected:
                 function = str(selected['function'])
                 parameters = [_format(value) for value in selected['parameters']]
@@ -525,7 +589,8 @@ def generate(mapping: dict, structure: dict, project_root: Path) -> dict:
             for fourth in right:
                 names = [first, second, third, fourth]
                 key, selected, competing = _select_reference(
-                    index, 'dihedrals', [physical[name].get('type') or '' for name in names], mapping_name)
+                    index, 'dihedrals', [physical[name].get('type') or '' for name in names], mapping_name,
+                    martini_version)
                 if not selected:
                     continue
                 term_key = _canonical_term_key('dihedrals', names)
