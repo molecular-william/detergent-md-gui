@@ -255,6 +255,59 @@ test `tests/dashboard/integration/test_pdc_run.py`.
 
 Phase C implements the decisions the user already took: the contact-graph criterion and the retry policy.
 
+### Task B7a: prepare a pdc run — done 2026-09-30 (`2bb56ae`)
+
+`pdc.prepare` writes the six stage directories and fills the first one; `dashboard/execution/scripts/pdc_build.py`
+is stage 1's entry point, applying `pdc_box`, `pdc_placement` and `pdc_protein` rather than restating them. Stage 1
+stops with exit 3 on the one thing it refuses to guess — the topology — because the detergent has no CG model yet
+(B7c). 13 tests in `tests/dashboard/unit/test_pdc_prepare.py`.
+
+### Task B8: dispatch the run to the pdc pipeline — done 2026-09-30 (`a161ce9`)
+
+`pdc.PROTOCOL` answers the eight questions the other run types answer, `prepare_run` dispatches on the run type,
+and a pdc job's prepared manifest names the six pdc stages. 7 tests in `tests/dashboard/unit/test_pdc_protocol.py`.
+
+### Task B7b: the five remaining stage scripts
+
+Stage 1 exists; stages 2-6 carry scripts that say they are not written and exit 3. Replace them.
+
+- [ ] Stage 2 (CG assessment MD): `grompp` + `mdrun` through the same mdrun-flag builder the AA and CG adapters
+      use, writing `prod/run.gro|tpr|xtc|cpt`.
+- [ ] Stage 3 (micelle assessment): the criterion (`contact_nm`, `selection_threshold_fraction`) called once,
+      writing `assessment.json` with the cluster sizes and the protein contact count, plus `kept.gro` and
+      `removed.json`.
+- [ ] Stage 4 (removal and bounded retry): continue from the checkpoint when the removed fraction is at or below
+      the threshold, re-run with new velocities when it is above, bounded at `attempts_max`, every attempt
+      recording its seed and its removal count.
+- [ ] Stage 5 (extension): `convert-tpr -extend`, the criterion again, and the comparison with stage 3.
+- [ ] Stage 6 (back-map): the CG2AT2 align call from D1 with `-silent`, failing loudly while D1 is unbuilt.
+- [ ] Tests: each script is read the way `test_aa_gromacs_invocation.py` reads the AA ones (the commands, the
+      flags, no `-ntmpi`), and the criterion is exercised on a fixture trajectory without a simulation.
+
+### Task B7c: our own detergent model, and the topology assembly
+
+Design: `../specs/2026-09-30-pdc-detergent-model-and-snapshots.md`. Stage 1 cannot write `system.top` while the
+detergent's topology describes atoms and the structure holds one centre per molecule per detergent.
+
+- [ ] Queue DDM's AA reference behind the E3 chain; save a molecule-scoped DDM mapping candidate (the recognizer
+      for the glucose head, the 12-carbon tail finished by hand with Martini 3 bead types, provenance and limits
+      recorded).
+- [ ] A `draft-smoke` CG run off it, which is what produces our DDM CG topology and its fitted bonded terms.
+- [ ] Stage 1: the template names our CG topology and coordinates, the placement stamps the mapped beads at each
+      centre and direction, and `system.top` is assembled with the molecule names read from the two `.itp` files.
+- [ ] Tests: the bead names the topology declares are the names the structure writes (the mismatch that cost three
+      failed sugar runs), the `[ molecules ]` counts equal the beads present, and `grompp` accepts the pair.
+
+### Task B7d: the snapshot series
+
+- [ ] One sampling setting (10 ns apart, capped at 20 per stage) and the four states that are not frames:
+      `placement`, `start`, each stage's end, and the production dumps through `trjconv -dump`.
+- [ ] Each snapshot is written with the criterion's numbers, from the same function the verdict uses, together
+      with the command, the time and the source checksum that produced it.
+- [ ] The system view reads the series through the existing viewer route; the index is the record, not the panel.
+- [ ] Tests: the series is derived rather than stored (a resumed run re-derives it), the initial state is always
+      present, and a snapshot's numbers equal the assessment report's at the same time.
+
 ### Task C1: the assessment-phase stage
 
 **Objective:** a 100 ns CG stage using the shared mdrun flags.
