@@ -187,7 +187,26 @@ than an analogy.
 
 Neither reference decides anything in this note; both bound what a run of ours can be compared with.
 
-## 6. Open questions
+## 6. Decisions taken by the user (2026-09-30)
+
+1. **Removal means deletion, immediately.** Spec §8's "removed and the run continues from the checkpoint" cannot be
+   implemented as written — a checkpoint carries a particle count — so the user chose the strict reading: when the
+   criterion leaves detergents outside the micelle they are **deleted**, and the phase restarts from the kept system
+   with new velocities rather than continuing. The threshold keeps its meaning as the record of how much was lost,
+   and every attempt records its seed and its removal count.
+2. **The detergent stays a smoke model for now.** The measured state (a real Martini 3 head, an unparameterised tail)
+   is accepted deliberately, because the aim at this stage is to see whether the pipeline runs end to end. DDM's AA
+   reference and the refit are not queued; the runs are labelled, and no result from them is a statement about DDM.
+3. **The micelle criterion keeps its simple protein rule** — a tail bead within the contact distance of any protein
+   bead, recorded as a simplification on every verdict — rather than inventing a hydrophobic belt no code defines.
+4. **The aggregation number default is 150**, the scale a real DDM complex has (the atomistic literature builds 192
+   around a receptor), rather than the smoke-test 12.
+5. **The experimental targets registry gets numbers**, with their sources, so the carbohydrate comparisons can
+   complete rather than sitting citation-only.
+6. **CG2AT2 is vendored**, so the back-map stage has a tool to run once its invocation is pinned.
+7. **The snapshot cadence is 20 ns apart**, capped at 20 frames per stage.
+
+## 7. Open questions
 
 - **Scheduling:** no longer blocking. The detergent is assembled from Martini 3 building blocks, so the E3 chain
   keeps the run slot, and DDM's AA reference becomes an optional upgrade rather than a prerequisite.

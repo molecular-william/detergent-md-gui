@@ -25,9 +25,9 @@ REPORT_NAME = 'prepare_report.json'
 DETERGENT_TOPOLOGY = 'detergent_CG.itp'
 DETERGENT_GEOMETRY = 'detergent_CG.json'
 
-DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 12, 'assessment_ns': 100, 'extension_ns': 900,
+DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900,
             'selection_threshold_fraction': 0.10, 'attempts_max': 3, 'box_margin_nm': 2.0,
-            'initial_z_nm': 6.0, 'contact_nm': 0.6, 'snapshot_interval_ns': 10.0, 'snapshot_cap': 20}
+            'initial_z_nm': 6.0, 'contact_nm': 0.6, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20}
 _PROTEIN_LIMIT = 50
 
 # One shape across every run type: (label, lo, hi). Numbers only; a choice would need the registry, so it is

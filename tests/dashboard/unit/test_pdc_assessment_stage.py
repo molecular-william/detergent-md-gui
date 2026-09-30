@@ -116,11 +116,11 @@ def test_the_assessment_stage_has_every_input_it_declares(tmp_path):
             assert (stage / name).is_file()
 
 
-def test_the_back_map_stage_is_the_one_that_cannot_run_yet(tmp_path):
+def test_the_back_map_stage_now_has_a_tool_and_an_invocation(tmp_path):
     stage = prepared(tmp_path).parent / Path(pdc.STAGES[5].relative)
 
-    guard = stage.read_text()
-    assert 'not there' in guard and 'task D1' in guard
+    script = stage.read_text()
+    assert '-fg martini_3-0_charmm36' in script and '-silent' in script
 
 
 class FakeRun:

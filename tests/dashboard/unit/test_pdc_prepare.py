@@ -84,15 +84,14 @@ def test_the_system_stage_script_runs_the_entry_point_from_its_own_directory(tmp
     assert f'PYTHONPATH={tmp_path}' in script, 'the entry point must import from the tree, whatever calls it'
 
 
-def test_every_stage_has_a_script_and_the_unbuilt_one_says_why(tmp_path):
+def test_every_stage_has_a_script_and_the_back_map_names_its_tool(tmp_path):
     run = prepared(tmp_path)
 
     for stage in pdc.STAGES:
         script = (run / Path(stage.relative)).read_text()
         assert script.startswith('#!'), f'{stage.name} has no runnable script'
     backmap = (run / Path(pdc.STAGES[5].relative)).read_text()
-    assert 'CG2AT2' in backmap and 'task D1' in backmap, 'the back-map names what it is waiting for'
-    assert backmap.strip().endswith('exit 3')
+    assert 'CG2AT' in backmap and '-o align' in backmap, 'the back-map names its tool and its method'
 
 
 def test_the_settings_carry_the_decisions_the_run_recorded(tmp_path):
