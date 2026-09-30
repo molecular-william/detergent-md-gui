@@ -134,6 +134,11 @@ def molecule_name(topology_text: str) -> str:
     raise SystemExit('a topology without a [ moleculetype ] name cannot be listed in [ molecules ]')
 
 
+# What every topology this stage writes includes: the force field, which is where the water and ion molecule types
+# live. Without it `grompp` refuses the solvated system, because `W` is undefined.
+_INCLUDES = '#include "martini_v3.itp"\n'
+
+
 def write_topologies(stage: Path, protein_itp: Path | None, detergent_itp: Path | None, detergents: int) -> dict:
     """`system_EMPTY.top` (the protein alone, the stage's declared input) and `system.top` (the whole system).
 
@@ -147,18 +152,19 @@ def write_topologies(stage: Path, protein_itp: Path | None, detergent_itp: Path 
     if protein_itp is None:
         (stage / 'system_EMPTY.top').write_text(
             '; the system before the detergent arrives, filled in by the system-preparation stage\n'
+            f'{_INCLUDES}'
             '[ system ]\nempty micelle, no protein\n\n[ molecules ]\n')
         if detergent_itp is None or not detergents:
             return {'protein_molecule': None}
         detergent = molecule_name(detergent_itp.read_text())
         (stage / 'system.top').write_text(
             f'; the whole system, written by the system-preparation stage\n'
-            f'#include "{detergent_itp.name}"\n\n[ system ]\nempty micelle, detergent only\n\n[ molecules ]\n'
-            f'{detergent}\t{detergents}\n')
+            f'{_INCLUDES}#include "{detergent_itp.name}"\n\n[ system ]\nempty micelle, detergent only\n\n'
+            f'[ molecules ]\n{detergent}\t{detergents}\n')
         return {'protein_molecule': None, 'detergent_molecule': detergent, 'detergents': detergents}
     protein = molecule_name(protein_itp.read_text())
     empty = (f'; the system before the detergent arrives, filled in by the system-preparation stage\n'
-             f'#include "{protein_itp.name}"\n\n[ system ]\nprotein-detergent complex, CG protein\n\n'
+             f'{_INCLUDES}#include "{protein_itp.name}"\n\n[ system ]\nprotein-detergent complex, CG protein\n\n'
              f'[ molecules ]\n{protein}\t1\n')
     (stage / 'system_EMPTY.top').write_text(empty)
     if detergent_itp is None or not detergents:
@@ -166,7 +172,7 @@ def write_topologies(stage: Path, protein_itp: Path | None, detergent_itp: Path 
     detergent = molecule_name(detergent_itp.read_text())
     (stage / 'system.top').write_text(
         f'; the whole system, written by the system-preparation stage\n'
-        f'#include "{protein_itp.name}"\n#include "{detergent_itp.name}"\n\n[ system ]\n'
+        f'{_INCLUDES}#include "{protein_itp.name}"\n#include "{detergent_itp.name}"\n\n[ system ]\n'
         f'protein-detergent complex, CG protein and detergent\n\n[ molecules ]\n'
         f'{protein}\t1\n{detergent}\t{detergents}\n')
     return {'protein_molecule': protein, 'detergent_molecule': detergent, 'detergents': detergents}

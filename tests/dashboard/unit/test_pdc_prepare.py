@@ -11,6 +11,7 @@ would report nothing about this code and would change meaning the day that file 
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -242,3 +243,44 @@ def test_every_copied_stage_script_runs_under_this_interpreters_own_python(tmp_p
         assert '\npython ' not in text and not text.startswith('python '), \
             f'{script.name} still calls a bare python'
         assert sys.executable in text or not text.startswith('#!'), f'{script.name} names no interpreter'
+
+
+def test_each_stage_copies_in_the_inputs_it_declares(tmp_path):
+    """A stage reads the phase before it; nothing else puts a file in its directory, which cost a run at stage 2."""
+    root = molecule_tree(tmp_path)
+    pdc.prepare(tmp_path / 'run', template=TEMPLATE_PATH, settings={'seed': 1}, project_root=root)
+
+    for stage in pdc.STAGES:
+        script = tmp_path / 'run' / stage.relative
+        text = script.read_text()
+        for entry in stage.inputs:
+            if str(entry).startswith('../'):
+                # The phase before it stays immutable, so the script copies the input in itself.
+                assert f'cp -f {entry} ' in text, f'{stage.relative} never copies its declared input {entry}'
+            else:
+                # A local input is one this stage already has when it starts, which is checkable here.
+                assert (script.parent / str(entry)).is_file(), \
+                    f'{stage.relative} declares {entry}, which is not in its directory when the run is prepared'
+
+
+def test_the_topologies_carry_the_force_field_that_defines_water_and_ions(tmp_path):
+    """`grompp` refused the solvated system because molecule type `W` was never defined anywhere."""
+    root = molecule_tree(tmp_path)
+    pdc.prepare(tmp_path / 'run', template=TEMPLATE_PATH, settings={'seed': 1}, project_root=root)
+
+    system = tmp_path / 'run' / '1_system'
+    assert (system / pdc.FORCEFIELD_NAME).is_file(), 'the run has to carry the force field its topology includes'
+
+    from dashboard.execution.scripts import pdc_build
+
+    (system / 'det.itp').write_text('[ moleculetype ]\nDDM_CG 1\n')
+    pdc_build.write_topologies(system, None, system / 'det.itp', 6)
+    for name in ('system.top', 'system_EMPTY.top'):
+        text = (system / name).read_text()
+        assert f'#include "{pdc.FORCEFIELD_NAME}"' in text, f'{name} does not include the force field'
+
+    # And the include resolves to a file that defines what the solvated system lists.
+    text = (system / pdc.FORCEFIELD_NAME).read_text(errors='replace')
+    for molecule in ('W', 'NA', 'CL'):
+        assert re.search(r'\[\s*moleculetype\s*\](?:\s*;[^\n]*\n|\s*\n)*\s*' + molecule + r'\b', text), \
+            f'the force field does not define {molecule}'

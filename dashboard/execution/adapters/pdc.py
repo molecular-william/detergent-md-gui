@@ -12,10 +12,16 @@ from pathlib import Path
 
 from ... import files
 from .. import protocol, tools
-from ..environment import TUTORIAL_TEMPLATE
+from ..environment import ROOT, TUTORIAL_TEMPLATE
 from ..stages import Stage
 
-SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts'
+SCRIPTS = Path(__file__).resolve().parent.parent / 'scripts'
+# The coarse-grained force field a pdc topology has to carry. It is where the water and ion molecule types live --
+# `W`, `NA`, `CL` -- and without them `grompp` refuses a solvated system with an undefined molecule type. This is the
+# file `resources/forcefields/` holds and the one whose 204 molecule types actually include those three; the copy
+# under the tutorial template does not carry them under a name `grompp` resolves.
+FORCEFIELD_NAME = 'martini_v3.itp'
+FORCEFIELD_ROOT = ROOT / 'resources' / 'forcefields'
 
 # The two files the system-preparation stage reads and writes. The adapter owns their names because the stage
 # script, the entry point and the tests all have to agree on them.
@@ -50,23 +56,25 @@ SETTING_SPECS = {
 # The protocol's own steps, named as stages so the executor, the manifest and the panel all speak the same words.
 STAGES = (
     Stage('System preparation', '1_system/prepare_system.sh',
-          ('protein.pdb', 'system_EMPTY.top', 'detergent.itp'),
+          ('protein.pdb', 'system_EMPTY.top', 'detergent.itp', FORCEFIELD_NAME),
           ('system.gro', 'system.top', 'prepare_report.json')),
     Stage('CG assessment MD', '2_assessment/assessment.sh',
-          ('../1_system/system.gro', '../1_system/system.top', 'assessment.mdp'),
+          ('../1_system/system.gro', '../1_system/system.top', '../1_system/' + FORCEFIELD_NAME,
+           'assessment.mdp'),
           ('prod/run.gro', 'prod/run.tpr', 'prod/run.xtc', 'prod/run.cpt')),
     Stage('Micelle assessment', '3_assessment/assess.sh',
-          ('../2_assessment/prod/run.gro', '../2_assessment/prod/run.xtc', 'system.top'),
+          ('../2_assessment/prod/run.gro', '../2_assessment/prod/run.xtc'),
           ('assessment.json', 'kept.gro', 'removed.json')),
     Stage('CG extension MD', '4_extension/extension.sh',
-          ('../2_assessment/prod/run.tpr', '../2_assessment/prod/run.cpt', 'extension.mdp'),
+          ('../2_assessment/prod/run.tpr', '../2_assessment/prod/run.cpt', '../2_assessment/system.top',
+           'extension.mdp'),
           ('prod/run.gro', 'prod/run.xtc')),
     Stage('Final assessment', '5_assessment/assess.sh',
-          ('../4_extension/prod/run.gro', '../4_extension/prod/run.xtc', 'system.top'),
+          ('../4_extension/prod/run.gro', '../4_extension/prod/run.xtc'),
           ('assessment.json',)),
     Stage('Back-mapping (CG2AT2)', '6_backmap/backmap.sh',
-          ('../4_extension/prod/run.gro', 'protein.pdb', 'cg2at_input.pdb'),
-          ('FINAL/final_cg2at_aligned.pdb', 'backmap.log')),
+          ('../4_extension/prod/run.gro', '../1_system/protein.pdb'),
+          ('cg2at_input.pdb', 'FINAL/final_cg2at_aligned.pdb', 'backmap.log')),
 )
 
 
@@ -277,6 +285,38 @@ def _empty_topology() -> str:
             '[ molecules ]\n')
 
 
+def _stage_declared_inputs(script, stage):
+    """Copy the stage's declared inputs from the phase before it into its own directory.
+
+    A stage's artefacts are immutable and the scripts are written against that: solvation edits the topology in place
+    and an assessment reads the phase's trajectory, so both need a local copy. The copy is emitted from the stage's
+    own declaration, which is the one place the contract is stated -- the alternative is what the first run did,
+    where the script named `system.top` and nothing had ever put one there.
+    """
+    lines = []
+    for entry in stage.inputs:
+        source = str(entry)
+        if not source.startswith('../'):
+            continue
+        target = re.sub(r'^(?:\.\./[^/]+/)+', '', source)
+        parent = str(Path(target).parent)
+        prefix = f'mkdir -p {parent} && ' if parent != '.' else ''
+        lines.append(f'{prefix}cp -f {source} {target}')
+    if not lines:
+        return
+    text = script.read_text()
+    if lines[0] in text:
+        return
+    prelude = ('# The phase before this one stays immutable, so its declared inputs are copied in rather than\n'
+               '# edited where they lie. Emitted from the stage declaration itself.\n' + '\n'.join(lines) + '\n')
+    marker = '\nset -'
+    if marker in text:
+        head, _, tail = text.partition(marker)
+        script.write_text(f'{head}\n{prelude}{marker}{tail}')
+    else:
+        script.write_text(prelude + text)
+
+
 def _stamp_interpreter(script, root):
     """Point a copied stage script at the interpreter this application runs under, and at this repository.
 
@@ -354,6 +394,9 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         shutil.copy2(SCRIPTS / 'pdc_snapshot.py', run_dir / Path(stage.relative).parent / 'pdc_snapshot.py')
 
     system = run_dir / Path(STAGES[0].relative).parent
+    forcefield = FORCEFIELD_ROOT / FORCEFIELD_NAME
+    if forcefield.is_file():
+        shutil.copy2(forcefield, system / FORCEFIELD_NAME)
     if protein_path is not None:
         (system / 'protein.pdb').write_bytes(protein_path.read_bytes())
     else:
@@ -398,8 +441,12 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         recorded_tools[name] = ({'path': found, 'sha256': files.sha256(found)} if found
                                 else {'path': name, 'ready': False,
                                       'detail': 'not declared or not executable'})
-    for script in sorted(run_dir.glob('*/*.sh')):
+    for stage in STAGES:
+        script = run_dir / Path(stage.relative)
+        if not script.is_file():
+            continue
         _stamp_interpreter(script, root)
+        _stage_declared_inputs(script, stage)
     # The record is merged into whatever the coordinator already wrote rather than replacing it: a run's manifest
     # carries the executor's own keys -- the stage ledger above all -- and replacing the file left the worker reading
     # a manifest with no `stages`, which failed the run with a KeyError instead of a build.
