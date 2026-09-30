@@ -20,6 +20,10 @@ SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts'
 # script, the entry point and the tests all have to agree on them.
 SETTINGS_NAME = 'pdc-settings.json'
 REPORT_NAME = 'prepare_report.json'
+# The detergent's derived coarse-grained model: the topology the system includes, and the bead geometry together
+# with the provenance of its bonded terms.
+DETERGENT_TOPOLOGY = 'detergent_CG.itp'
+DETERGENT_GEOMETRY = 'detergent_CG.json'
 
 DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 12, 'assessment_ns': 100, 'extension_ns': 900,
             'selection_threshold_fraction': 0.10, 'attempts_max': 3, 'box_margin_nm': 2.0,
@@ -264,13 +268,14 @@ def _empty_topology() -> str:
             '[ molecules ]\n')
 
 
-def prepare(run_dir, *, protein=None, template=None, settings=None, project_root=None, **kwargs):
+def prepare(run_dir, *, protein=None, template=None, settings=None, project_root=None, mapping=None, **kwargs):
     """Write the six stage directories and everything the system-preparation stage needs to start.
 
     `protein` and `template` are paths relative to `project_root` -- the spelling `catalog` reports, so the panel's
-    own choice can be handed straight in. The template is loaded through its own reader, which is the one place
-    that says whether it can build a system at all; the answer is recorded and the stage refuses with it, rather
-    than being resolved by a second opinion here.
+    own choice can be handed straight in. `mapping` is a saved CG mapping for the detergent: with it, the run's
+    detergent is a real coarse-grained molecule (its topology derived from the mapping, its beads' centres computed
+    from the atomistic structure); without it, the build records that it is centres-only and the stage stops where it
+    always did, rather than pretending a dot is a molecule.
     """
     if not protein or not template:
         raise ValueError('a pdc build needs a protein and a detergent template')
@@ -320,6 +325,21 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     (system / 'protein.pdb').write_bytes(protein_path.read_bytes())
     (system / Path(STAGES[0].inputs[2]).name).write_bytes((template_path.parent / record.topology).read_bytes())
     (system / Path(STAGES[0].inputs[1]).name).write_text(_empty_topology())
+    # The detergent's coarse-grained model, derived from the run's own mapping: the topology the system will include
+    # and the bead geometry the placement stamps. A build without a mapping is recorded as centres-only.
+    model = {'mapping': None, 'terms': 0, 'reference_terms': 0, 'fallback_terms': 0}
+    if mapping is not None:
+        from ...models.molecules import detergent_cg
+        source = Path(mapping) if Path(str(mapping)).is_file() else Path(str(mapping))
+        if not source.is_file():
+            raise ValueError(f'the detergent mapping is not a file: {source}')
+        draft = detergent_cg.derive(source, root / 'molecules', root)
+        (system / DETERGENT_TOPOLOGY).write_text(draft['topology'])
+        (system / DETERGENT_GEOMETRY).write_text(json.dumps(draft, indent=2, sort_keys=True))
+        model = {'mapping': str(source), 'residue': draft['residue'], 'beads': len(draft['beads']),
+                 'terms': draft['terms'], 'reference_terms': draft['reference_terms'],
+                 'fallback_terms': draft['fallback_terms']}
+    numbers['detergent_model'] = model
     (system / SETTINGS_NAME).write_text(json.dumps(
         {'project_root': str(root), 'protein': str(protein), 'template': str(template), **numbers},
         indent=2, sort_keys=True))

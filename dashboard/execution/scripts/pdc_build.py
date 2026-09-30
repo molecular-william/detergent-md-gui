@@ -30,7 +30,7 @@ import sys
 from pathlib import Path
 
 from dashboard.execution.adapters import pdc_box, pdc_placement, pdc_protein, pdc_view
-from dashboard.execution.adapters.pdc import REPORT_NAME, SETTINGS_NAME
+from dashboard.execution.adapters.pdc import DETERGENT_GEOMETRY, DETERGENT_TOPOLOGY, REPORT_NAME, SETTINGS_NAME
 from micelle import output as micelle_output
 from micelle import registry as micelle_registry
 
@@ -63,6 +63,98 @@ def resolve(settings: dict, key: str, stage: Path) -> Path:
 
 def write_report(stage: Path, report: dict) -> None:
     (stage / REPORT_NAME).write_text(json.dumps(report, indent=2, default=str))
+
+
+def stamp(draft: dict, centres, directions, *, first_residue: int = 900) -> list[dict]:
+    """One detergent per placement, as beads: rotated so its tail points along the direction, moved to the centre.
+
+    The molecule's own axis is head-to-tail, from the mean of its tail beads to the mean of its head beads, and the
+    placement's direction is the axis each placement site carries. Every copy keeps the bead names the topology
+    declares -- `grompp` reconciles topology and coordinates by atom name, so a per-molecule name would break the
+    pair -- and each copy gets its own residue number, which is how a reader tells eight detergents apart.
+    """
+    import numpy as np
+
+    beads = draft['beads']
+    tail = [bead for bead in beads if str(bead.get('type', '')).startswith('C')]
+    head = [bead for bead in beads if not str(bead.get('type', '')).startswith('C')]
+    if not tail or not head:
+        raise SystemExit('the detergent mapping marks no hydrophobic core: its bead types must distinguish the '
+                         'tail (C-type beads) from the head, or the placement cannot orient it')
+
+    positions = {bead['name']: np.asarray(bead['position'], dtype=float) for bead in beads}
+    middle = np.mean([positions[bead['name']] for bead in beads], axis=0)
+    axis = np.mean([positions[bead['name']] for bead in tail], axis=0) \
+        - np.mean([positions[bead['name']] for bead in head], axis=0)
+    axis = axis / np.linalg.norm(axis)
+
+    atoms = []
+    for index, (centre, direction) in enumerate(zip(centres, directions), start=1):
+        target = np.asarray(direction, dtype=float)
+        target = target / np.linalg.norm(target)
+        rotation = _rotation(axis, target)
+        residue_id = first_residue + index
+        for bead in beads:
+            position = np.asarray(centre, dtype=float) + rotation @ (positions[bead['name']] - middle)
+            atoms.append({'residue_id': residue_id, 'residue': draft['residue'], 'name': bead['name'],
+                          'position': [round(float(value), 5) for value in position]})
+    return atoms
+
+
+def _rotation(axis, target):
+    """The rotation taking one unit vector onto another, including the antiparallel case."""
+    import numpy as np
+
+    cross = np.cross(axis, target)
+    sine = float(np.linalg.norm(cross))
+    cosine = float(np.dot(axis, target))
+    if sine < 1e-9:
+        if cosine > 0:
+            return np.eye(3)
+        # Opposite directions: any perpendicular axis turns the molecule by 180 degrees.
+        perpendicular = np.array([1.0, 0.0, 0.0]) if abs(axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+        perpendicular = perpendicular - axis * np.dot(perpendicular, axis)
+        perpendicular = perpendicular / np.linalg.norm(perpendicular)
+        return 2.0 * np.outer(perpendicular, perpendicular) - np.eye(3)
+    cross = cross / sine
+    skew = np.array([[0.0, -cross[2], cross[1]], [cross[2], 0.0, -cross[0]], [-cross[1], cross[0], 0.0]])
+    return np.eye(3) + sine * skew + (1.0 - cosine) * (skew @ skew)
+
+
+def molecule_name(topology_text: str) -> str:
+    """The molecule's name as a topology declares it, because `[ molecules ]` has to spell it exactly."""
+    lines = topology_text.splitlines()
+    for index, line in enumerate(lines):
+        stripped = line.split(';', 1)[0].strip()
+        if stripped.startswith('[') and stripped.lower().startswith('[ moleculetype'):
+            for following in lines[index + 1:]:
+                content = following.split(';', 1)[0].strip()
+                if content:
+                    return content.split()[0]
+    raise SystemExit('a topology without a [ moleculetype ] name cannot be listed in [ molecules ]')
+
+
+def write_topologies(stage: Path, protein_itp: Path, detergent_itp: Path | None, detergents: int) -> dict:
+    """`system_EMPTY.top` (the protein alone, the stage's declared input) and `system.top` (the whole system).
+
+    Both name their molecules exactly as the two `.itp` files do, and the counts are the counts of molecules the
+    structure actually holds -- the invariant `grompp` checks, and the one whose violation cost three failed sugar
+    runs.
+    """
+    protein = molecule_name(protein_itp.read_text())
+    empty = (f'; the system before the detergent arrives, filled in by the system-preparation stage\n'
+             f'#include "{protein_itp.name}"\n\n[ system ]\nprotein-detergent complex, CG protein\n\n'
+             f'[ molecules ]\n{protein}\t1\n')
+    (stage / 'system_EMPTY.top').write_text(empty)
+    if detergent_itp is None or not detergents:
+        return {'protein_molecule': protein}
+    detergent = molecule_name(detergent_itp.read_text())
+    (stage / 'system.top').write_text(
+        f'; the whole system, written by the system-preparation stage\n'
+        f'#include "{protein_itp.name}"\n#include "{detergent_itp.name}"\n\n[ system ]\n'
+        f'protein-detergent complex, CG protein and detergent\n\n[ molecules ]\n'
+        f'{protein}\t1\n{detergent}\t{detergents}\n')
+    return {'protein_molecule': protein, 'detergent_molecule': detergent, 'detergents': detergents}
 
 
 def cg_protein(stage: Path, protein: Path) -> tuple[list, list[str] | None]:
@@ -129,25 +221,57 @@ def build(stage: Path) -> int:
         return 2
 
     box = pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=settings['box_margin_nm'])
-    atoms = [{'name': bead['name'], 'residue': bead['residue'], 'position': bead['position']} for bead in beads]
-    # A .gro atom name is a five-character field, so the centres are named to fit it: a longer name shifts every
-    # column of the line and the file stops being readable by its own parser.
-    atoms += [{'name': f'{template.residue[:2]}{index + 1:03d}', 'residue': template.residue,
-               'position': centre} for index, centre in enumerate(placement['centers'])]
+    atoms = [{'residue_id': bead['residue_id'], 'residue': bead['residue'], 'name': bead['name'],
+              'position': bead['position']} for bead in beads]
+    model = _detergent_model(stage)
+    if model is None:
+        # A build whose detergent is a bare centre: the picture is honest and the topology stays unwritten, because
+        # a `[ molecules ]` line naming a molecule whose bead count nothing knows cannot be written at all.
+        atoms += [{'name': f'{template.residue[:2]}{index + 1:03d}', 'residue': template.residue,
+                   'position': centre} for index, centre in enumerate(placement['centers'])]
+        micelle_output.write_gro(stage / 'system.gro', atoms,
+                                 title=f'protein-detergent complex ({template.name}, '
+                                       f'AN={settings["aggregation_number"]})', box=box)
+        report.update({'valid': True, 'box_nm': box, 'atoms': len(atoms),
+                       'placed_detergents': len(placement['centers']),
+                       'system_top': 'not written: the detergent is one centre per molecule, not a model'})
+        write_report(stage, report)
+        _record_placement(stage, template, settings)
+        return 3
+
+    protein_itp = next(iter(sorted((stage / CG_DIRECTORY).glob('*.itp'))), None)
+    if protein_itp is None:
+        raise SystemExit('the CG protein step wrote no topology, so the system cannot be assembled')
+    atoms += stamp(model, placement['centers'], placement['directions'],
+                   first_residue=max([bead['residue_id'] for bead in beads], default=0) + 1)
     micelle_output.write_gro(stage / 'system.gro', atoms,
                              title=f'protein-detergent complex ({template.name}, '
-                                   f'AN={settings["aggregation_number"]})', box=box)
+                                   f'AN={settings["aggregation_number"]}, {model["residue"]})', box=box)
+    topologies = write_topologies(stage, protein_itp, stage / DETERGENT_TOPOLOGY, len(placement['centers']))
     report.update({'valid': True, 'box_nm': box, 'atoms': len(atoms),
                    'placed_detergents': len(placement['centers']),
-                   'system_top': 'not written: the detergent representation above is not a parameterised model'})
+                   'detergent_model': settings.get('detergent_model') or {},
+                   'molecules': topologies,
+                   'system_top': 'system.top'})
     write_report(stage, report)
-    # The state before a single step of dynamics, which is the frame a reader judges the placement from. It is free
-    # here and it is the one snapshot no run may be without.
+    _record_placement(stage, template, settings)
+    return 0
+
+
+def _detergent_model(stage: Path) -> dict | None:
+    """The derived detergent, when the run was prepared with one."""
+    path = stage / DETERGENT_GEOMETRY
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text())
+
+
+def _record_placement(stage: Path, template, settings: dict) -> None:
+    """The state before a single step of dynamics: the frame a reader judges the placement from."""
     from dashboard.execution.scripts import pdc_snapshot
     pdc_snapshot.write_snapshot(stage, 'placement', stage / 'system.gro',
                                 title=f'placed system before dynamics ({template.name}, '
                                       f'AN={settings["aggregation_number"]})')
-    return 3
 
 
 def main(argv=None) -> int:
