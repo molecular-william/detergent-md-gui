@@ -29,3 +29,7 @@ ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm prod/run ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 
 # have not been broken at periodic boundaries, and reading them back whole is what makes a snapshot reproducible.
 printf 'System\n' | gmx trjconv -f prod/run.xtc -s prod/run.tpr -pbc mol -center -o prod/whole.xtc
 printf 'System\n' | gmx trjconv -f prod/whole.xtc -s prod/run.tpr -dump 0 -o prod/start.gro
+
+# The series through the phase: the frames and, with each one, the numbers the criterion gives at that moment.
+python pdc_snapshot.py --settings ../1_system/pdc-settings.json --stage . --phase assessment \
+  --trajectory prod/whole.xtc --tpr prod/run.tpr

@@ -90,6 +90,8 @@ def test_the_stage_script_solvates_through_the_tested_builder(tmp_path):
     assert 'python pdc_solvate.py' in script
     assert 'gmx solvate' not in script, 'the water radius and the ion names belong to pdc_solvation'
     assert (stage / 'pdc_solvate.py').is_file()
+    assert 'python pdc_snapshot.py' in script and '--phase assessment' in script
+    assert (stage / 'pdc_snapshot.py').is_file()
 
 
 def test_the_script_takes_its_mdrun_budget_from_the_environment_and_never_passes_ntmpi(tmp_path):

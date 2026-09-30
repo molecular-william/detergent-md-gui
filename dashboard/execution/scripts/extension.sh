@@ -26,3 +26,8 @@ ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm run -cpi run.cpt ${MDRUN_FLAGS:--ntomp 8 -g
 cp run.gro prod/run.gro
 cp run.xtc prod/run.xtc
 printf 'System\n' | gmx trjconv -f prod/run.xtc -s prod/run.tpr -pbc mol -center -o prod/whole.xtc
+
+# The same series for the extension phase, judged by the same function: the two phases' frames are comparable
+# because nothing about the sampling or the criterion changes between them.
+python pdc_snapshot.py --settings ../1_system/pdc-settings.json --stage . --phase extension \
+  --trajectory prod/whole.xtc --tpr prod/run.tpr

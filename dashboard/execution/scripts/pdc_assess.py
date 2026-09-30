@@ -49,6 +49,39 @@ def tail_positions(beads, tail_beads) -> list[list[float]]:
     return [bead['position'] for bead in beads if bead['name'] in tail_beads]
 
 
+def read_settings(path) -> dict:
+    return json.loads(Path(path).read_text())
+
+
+def resolved(settings: dict):
+    """The template's own facts about the system: which residue is detergent, and which beads are its core."""
+    tail_beads = {str(name) for name in settings.get('tail_beads') or []}
+    if not tail_beads:
+        raise SystemExit('the run records no tail beads, so the criterion cannot tell a micelle from a crowd: '
+                         'name them on the detergent template (a bead role of "tail") and re-prepare the run')
+    template = json.loads((Path(settings['project_root']) / settings['template']).read_text())
+    return str(template.get('residue') or template.get('name')), tail_beads
+
+
+def judge(structure: Path, settings: dict) -> dict:
+    """The criterion applied to one structure, with the pieces a caller needs to write it out.
+
+    One function, called per frame and per phase, so every picture, every index entry and the report's verdict are
+    the same measurement rather than three implementations of it.
+    """
+    detergent_residue, tail_beads = resolved(settings)
+    protein, molecules = system_structure(structure, detergent_residue)
+    if not molecules:
+        raise SystemExit(f'{structure} holds no {detergent_residue} beads: the criterion has nothing to judge')
+    detergents = [{'name': f'{detergent_residue}{index + 1}', 'tail': tail_positions(beads, tail_beads)}
+                  for index, beads in enumerate(molecules)]
+    verdict = pdc_assessment.assess_micelle(detergents, [atom['position'] for atom in protein] or None,
+                                           contact_nm=float(settings.get('contact_nm', pdc_assessment.CONTACT_NM)),
+                                           aggregation_number=int(settings['aggregation_number']))
+    return {'verdict': verdict, 'protein': protein, 'molecules': molecules, 'detergents': detergents,
+            'detergent_residue': detergent_residue, 'tail_beads': tail_beads}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description='Assess the micelle in a protein-detergent system.')
     parser.add_argument('--settings', default='../1_system/pdc-settings.json')
@@ -57,28 +90,17 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     stage = Path(args.stage)
 
-    settings = json.loads(Path(args.settings).read_text())
-    tail_beads = {str(name) for name in settings.get('tail_beads') or []}
-    if not tail_beads:
-        raise SystemExit('the run records no tail beads, so the criterion cannot tell a micelle from a crowd: '
-                         'name them on the detergent template (a bead role of "tail") and re-prepare the run')
-    template = json.loads((Path(settings['project_root']) / settings['template']).read_text())
-    detergent_residue = str(template.get('residue') or template.get('name'))
-
+    settings = read_settings(args.settings)
     structure = stage / args.structure
-    protein, molecules = system_structure(structure, detergent_residue)
-    if not molecules:
-        raise SystemExit(f'{structure} holds no {detergent_residue} beads: the criterion has nothing to judge')
-    detergents = [{'name': f'{detergent_residue}{index + 1}', 'tail': tail_positions(beads, tail_beads)}
-                  for index, beads in enumerate(molecules)]
-    verdict = pdc_assessment.assess_micelle(detergents, [atom['position'] for atom in protein] or None,
-                                            contact_nm=float(settings.get('contact_nm', pdc_assessment.CONTACT_NM)),
-                                            aggregation_number=int(settings['aggregation_number']))
+    judged = judge(structure, settings)
+    verdict, protein, molecules = judged['verdict'], judged['protein'], judged['molecules']
+    detergent_residue, tail_beads = judged['detergent_residue'], judged['tail_beads']
     kept_names = set(verdict['in_micelle'])
-    kept = [molecules[index] for index, detergent in enumerate(detergents) if detergent['name'] in kept_names]
-    removed = [{'name': detergent['name'], 'residue_id': group[0]['residue_id'],
-                'beads': len(group), 'tail_beads': len(detergent['tail'])}
-               for detergent, group in zip(detergents, molecules) if detergent['name'] not in kept_names]
+    kept = [group for detergent, group in zip(judged['detergents'], molecules) if detergent['name'] in kept_names]
+    removed = [{'name': detergent['name'], 'residue_id': group[0]['residue_id'], 'beads': len(group),
+                'tail_beads': len(detergent['tail'])}
+               for detergent, group in zip(judged['detergents'], molecules)
+               if detergent['name'] not in kept_names]
 
     # The picture of the moment, written with the numbers the moment was judged on: a gallery that cannot disagree
     # with a verdict, because both come from the same call above.

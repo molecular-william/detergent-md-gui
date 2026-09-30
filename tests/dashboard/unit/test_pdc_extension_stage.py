@@ -74,6 +74,8 @@ def test_the_script_resumes_from_the_assessment_phases_own_outputs(tmp_path):
     assert 'gmx convert-tpr -s run.tpr -extend "$EXTENSION_PS"' in script
     assert '-cpi run.cpt' in script, 'the extension continues the assessment phase rather than restarting it'
     assert 'cp run.xtc prod/run.xtc' in script, 'the declared outputs are prod/run.gro and prod/run.xtc'
+    assert 'python pdc_snapshot.py' in script and '--phase extension' in script
+    assert (stage / 'pdc_snapshot.py').is_file()
 
 
 def test_the_script_takes_the_budget_from_the_environment_and_passes_no_ntmpi(tmp_path):

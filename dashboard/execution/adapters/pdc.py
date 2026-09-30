@@ -23,7 +23,7 @@ REPORT_NAME = 'prepare_report.json'
 
 DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 12, 'assessment_ns': 100, 'extension_ns': 900,
             'selection_threshold_fraction': 0.10, 'attempts_max': 3, 'box_margin_nm': 2.0,
-            'initial_z_nm': 6.0, 'contact_nm': 0.6}
+            'initial_z_nm': 6.0, 'contact_nm': 0.6, 'snapshot_interval_ns': 10.0, 'snapshot_cap': 20}
 _PROTEIN_LIMIT = 50
 
 # One shape across every run type: (label, lo, hi). Numbers only; a choice would need the registry, so it is
@@ -38,6 +38,8 @@ SETTING_SPECS = {
     'initial_z_nm': ('Initial z box (nm)', 1.0, 50.0),
     'contact_nm': ('Micelle contact distance (nm)', 0.1, 2.0),
     'selection_threshold_fraction': ('Removal threshold (fraction)', 0.0, 1.0),
+    'snapshot_interval_ns': ('Snapshot interval (ns)', 0.1, 1000.0),
+    'snapshot_cap': ('Snapshots per stage (cap)', 1, 200),
 }
 
 # The protocol's own steps, named as stages so the executor, the manifest and the panel all speak the same words.
@@ -310,6 +312,9 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
             shutil.copy2(SCRIPTS / source, directory / Path(stage.relative).name)
     for stage in (STAGES[2], STAGES[4]):
         shutil.copy2(SCRIPTS / 'pdc_assess.py', run_dir / Path(stage.relative).parent / 'pdc_assess.py')
+    # The frame sampler is copied beside every stage that has a trajectory to read.
+    for stage in (STAGES[1], STAGES[2], STAGES[3], STAGES[4]):
+        shutil.copy2(SCRIPTS / 'pdc_snapshot.py', run_dir / Path(stage.relative).parent / 'pdc_snapshot.py')
 
     system = run_dir / Path(STAGES[0].relative).parent
     (system / 'protein.pdb').write_bytes(protein_path.read_bytes())

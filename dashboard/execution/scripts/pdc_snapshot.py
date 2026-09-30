@@ -26,6 +26,79 @@ def index(stage: Path) -> dict:
     return {'snapshots': [], 'note': 'derived: a resumed run re-derives these rather than keeping stale files'}
 
 
+def sample_times(duration_ns: float, interval_ns: float, cap: int) -> list[float]:
+    """The moments a trajectory is sampled at: the settings' cadence, capped, never past its end.
+
+    The cadence is a setting rather than a constant so two runs' series are comparable by construction, which is the
+    same reason the diagnostics heatmap has one colour scale.
+    """
+    if interval_ns <= 0:
+        raise ValueError('the sampling interval must be positive')
+    if cap < 1:
+        raise ValueError('the sampling cap must be at least one')
+    times, moment = [], float(interval_ns)
+    while moment <= float(duration_ns) and len(times) < cap:
+        times.append(round(moment, 6))
+        moment += float(interval_ns)
+    return times
+
+
+def frames(stage: Path, trajectory: Path, tpr: Path, settings: dict, *, phase: str, gmx='gmx',
+           label: str | None = None) -> list[dict]:
+    """One snapshot per sampled moment, each judged by the same function that decides the report's verdict.
+
+    The frames come out of the trajectory with `trjconv -dump`: one call per moment asks GROMACS for that moment
+    without writing a second trajectory, and the whole-system group is piped in because trjconv asks for one.
+    """
+    import subprocess
+
+    from dashboard.execution.scripts import pdc_assess
+
+    settings = dict(settings)
+    duration = float(settings['assessment_ns' if phase == 'assessment' else 'extension_ns'])
+    records = []
+    for moment in sample_times(duration, float(settings.get('snapshot_interval_ns', 10.0)),
+                               int(settings.get('snapshot_cap', 20))):
+        name = f'{label or phase}_{moment:g}ps'
+        structure = Path(stage) / DIRECTORY / f'{name}.gro'
+        structure.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run([gmx, 'trjconv', '-f', str(trajectory), '-s', str(tpr), '-dump', str(moment),
+                        '-o', str(structure)], input='System\n', text=True, check=True)
+        judged = pdc_assess.judge(structure, settings)
+        verdict = judged['verdict']
+        records.append(write_snapshot(stage, name, structure, detergent_residue=judged['detergent_residue'],
+                                      time_ps=moment, title=f'{phase} at {moment:g} ps',
+                                      criterion={'verdict': verdict['verdict'],
+                                                 'largest_cluster': verdict['largest_cluster'],
+                                                 'aggregation_number': verdict['aggregation_number'],
+                                                 'fraction_of_requested': verdict['fraction_of_requested'],
+                                                 'protein_contact_count': verdict['protein_contact_count'],
+                                                 'reasons': verdict['reasons']}))
+    return records
+
+
+def main(argv=None) -> int:
+    """The stage-facing entry point: dump this phase's frames and record them, criterion numbers and all."""
+    import argparse
+
+    from dashboard.execution.scripts import pdc_assess
+
+    parser = argparse.ArgumentParser(description='Record snapshots through a phase trajectory.')
+    parser.add_argument('--settings', default='../1_system/pdc-settings.json')
+    parser.add_argument('--stage', default='.')
+    parser.add_argument('--phase', choices=('assessment', 'extension'), required=True)
+    parser.add_argument('--trajectory', required=True)
+    parser.add_argument('--tpr', required=True)
+    parser.add_argument('--gmx', default='gmx')
+    args = parser.parse_args(argv)
+
+    stage = Path(args.stage)
+    settings = pdc_assess.read_settings(args.settings)
+    records = frames(stage, stage / args.trajectory, stage / args.tpr, settings, phase=args.phase, gmx=args.gmx)
+    print(f'{len(records)} snapshots recorded for the {args.phase} phase')
+    return 0
+
+
 def write_snapshot(stage: Path, name: str, structure: Path, *, title: str, time_ps: float | None = None,
                    criterion: dict | None = None, detergent_residue: str = 'DDM',
                    include_water: bool = False) -> dict:

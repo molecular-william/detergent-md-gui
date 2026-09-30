@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from dashboard.execution.scripts import pdc_snapshot
 
 
@@ -85,3 +87,50 @@ def test_an_absent_index_is_an_empty_one_rather_than_an_error(tmp_path):
     document = pdc_snapshot.index(tmp_path)
 
     assert document['snapshots'] == [] and 'derived' in document['note']
+
+
+def test_the_cadence_comes_from_the_settings_and_stops_at_the_phases_end():
+    assert pdc_snapshot.sample_times(100, 10, 20) == [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    assert pdc_snapshot.sample_times(100, 10, 3) == [10, 20, 30], 'the cap is what keeps a long run readable'
+    assert pdc_snapshot.sample_times(5, 10, 20) == [], 'a phase shorter than the interval has no frames to record'
+    for arguments, message in (((100, 0, 20), 'interval'), ((100, 10, 0), 'cap')):
+        with pytest.raises(ValueError, match=message):
+            pdc_snapshot.sample_times(*arguments)
+
+
+def test_each_frame_is_dumped_judged_and_indexed(tmp_path, monkeypatch):
+    """The dump is exercised through a stand-in for gmx; the verdict is the real criterion on a real file."""
+    import subprocess
+
+    molecule = tmp_path / 'molecules' / 'DDM'
+    molecule.mkdir(parents=True)
+    (molecule / 'micelle_template.json').write_text(json.dumps({
+        'name': 'DDM', 'residue': 'DDM', 'beads': [{'name': 'TAIL1', 'type': 'C1', 'role': 'tail'}]}))
+    settings = {'project_root': str(tmp_path), 'template': 'molecules/DDM/micelle_template.json',
+                'tail_beads': ['TAIL1'], 'aggregation_number': 2, 'contact_nm': 0.6,
+                'assessment_ns': 30, 'extension_ns': 900, 'snapshot_interval_ns': 10, 'snapshot_cap': 20}
+    stage = tmp_path / 'stage'
+    stage.mkdir()
+    dumped = {'times': []}
+
+    def fake_run(command, **kwargs):
+        dumped['times'].append(float(command[command.index('-dump') + 1]))
+        Path(command[command.index('-o') + 1]).write_text('\n'.join([
+            'system', '4',
+            gro_line(1, 'PRO', 'B01', 1, (0.0, 0.0, 0.0)),
+            gro_line(1, 'PRO', 'B02', 2, (0.5, 0.0, 0.0)),
+            gro_line(2, 'DDM', 'TAIL1', 3, (0.2, 0.0, 0.0)),
+            gro_line(3, 'DDM', 'TAIL1', 4, (0.3, 0.0, 0.0)),
+            '   6.00000   6.00000   6.00000']) + '\n')
+        return None
+
+    monkeypatch.setattr(subprocess, 'run', fake_run)
+    records = pdc_snapshot.frames(stage, stage / 'prod' / 'whole.xtc', stage / 'prod' / 'run.tpr',
+                                  settings, phase='assessment')
+
+    assert dumped['times'] == [10.0, 20.0, 30.0]
+    assert [record['name'] for record in records] == ['assessment_10ps', 'assessment_20ps', 'assessment_30ps']
+    assert all(record['verdict']['largest_cluster'] == 2 for record in records)
+    document = json.loads((stage / pdc_snapshot.INDEX_NAME).read_text())
+    assert len(document['snapshots']) == 3
+    assert (stage / 'snapshots' / 'assessment_20ps.pdb').is_file()
