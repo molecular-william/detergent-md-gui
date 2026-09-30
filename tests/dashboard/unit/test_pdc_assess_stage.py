@@ -112,6 +112,11 @@ def test_a_micelle_is_judged_and_what_survives_is_written(tmp_path):
     assert removed['removed'] == [{'name': 'DDM3', 'residue_id': 3, 'beads': 3, 'tail_beads': 2}]
     assert removed['fraction_removed'] == pytest.approx(1 / 3, abs=1e-6)
     assert removed['kept'] == ['DDM1', 'DDM2']
+    # The gallery's numbers are the verdict's numbers, because both came from the same call.
+    from dashboard.execution.scripts import pdc_snapshot
+    index = json.loads((stage / pdc_snapshot.INDEX_NAME).read_text())
+    assert index['snapshots'][0]['verdict']['largest_cluster'] == record['largest_cluster']
+    assert index['snapshots'][0]['verdict']['verdict'] == record['verdict']
 
 
 def test_a_micelle_away_from_the_protein_is_not_judged_to_hold_it(tmp_path):

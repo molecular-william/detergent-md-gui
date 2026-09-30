@@ -170,6 +170,10 @@ def test_the_stage_builds_the_box_the_placement_and_the_report(tmp_path):
     assert report['box_nm'][2] >= report['box_nm_initial'][2], 'the box grows for the placed detergents'
     assert int(system[1]) == 11, 'three protein beads and eight detergent centres'
     assert report['system_top'].startswith('not written')
+    # The state before dynamics is recorded even though the stage stops here: it is the frame a reader judges the
+    # placement from, and the one snapshot no run may be without.
+    index = json.loads((stage / 'snapshots.json').read_text())
+    assert [entry['name'] for entry in index['snapshots']] == ['placement']
 
 
 def test_the_reader_the_stage_uses_returns_the_shape_the_stage_indexes(tmp_path):

@@ -80,6 +80,17 @@ def main(argv=None) -> int:
                 'beads': len(group), 'tail_beads': len(detergent['tail'])}
                for detergent, group in zip(detergents, molecules) if detergent['name'] not in kept_names]
 
+    # The picture of the moment, written with the numbers the moment was judged on: a gallery that cannot disagree
+    # with a verdict, because both come from the same call above.
+    from dashboard.execution.scripts import pdc_snapshot
+    pdc_snapshot.write_snapshot(stage, stage.name, structure, detergent_residue=detergent_residue,
+                                title=f'{detergent_residue} system, {stage.name}',
+                                criterion={'verdict': verdict['verdict'], 'largest_cluster': verdict['largest_cluster'],
+                                           'aggregation_number': verdict['aggregation_number'],
+                                           'fraction_of_requested': verdict['fraction_of_requested'],
+                                           'protein_contact_count': verdict['protein_contact_count'],
+                                           'reasons': verdict['reasons']})
+
     (stage / ASSESSMENT_NAME).write_text(json.dumps(
         {**verdict, 'structure': str(structure), 'structure_sha256': digest(structure),
          'detergent_residue': detergent_residue, 'tail_beads': sorted(tail_beads),

@@ -130,7 +130,9 @@ def build(stage: Path) -> int:
 
     box = pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=settings['box_margin_nm'])
     atoms = [{'name': bead['name'], 'residue': bead['residue'], 'position': bead['position']} for bead in beads]
-    atoms += [{'name': f'{template.residue[:3]}{index + 1:03d}', 'residue': template.residue,
+    # A .gro atom name is a five-character field, so the centres are named to fit it: a longer name shifts every
+    # column of the line and the file stops being readable by its own parser.
+    atoms += [{'name': f'{template.residue[:2]}{index + 1:03d}', 'residue': template.residue,
                'position': centre} for index, centre in enumerate(placement['centers'])]
     micelle_output.write_gro(stage / 'system.gro', atoms,
                              title=f'protein-detergent complex ({template.name}, '
@@ -139,6 +141,12 @@ def build(stage: Path) -> int:
                    'placed_detergents': len(placement['centers']),
                    'system_top': 'not written: the detergent representation above is not a parameterised model'})
     write_report(stage, report)
+    # The state before a single step of dynamics, which is the frame a reader judges the placement from. It is free
+    # here and it is the one snapshot no run may be without.
+    from dashboard.execution.scripts import pdc_snapshot
+    pdc_snapshot.write_snapshot(stage, 'placement', stage / 'system.gro',
+                                title=f'placed system before dynamics ({template.name}, '
+                                      f'AN={settings["aggregation_number"]})')
     return 3
 
 
