@@ -87,7 +87,7 @@ def test_the_system_stage_script_runs_the_entry_point_from_its_own_directory(tmp
 def test_the_stages_that_have_no_script_say_so_instead_of_failing_obscurely(tmp_path):
     run = prepared(tmp_path)
 
-    for stage in pdc.STAGES[1:]:
+    for stage in pdc.STAGES[2:]:
         script = (run / Path(stage.relative)).read_text()
         assert 'not written yet' in script, f'{stage.name} pretends to run'
         assert script.strip().endswith('exit 3')

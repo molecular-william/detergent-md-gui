@@ -5,12 +5,16 @@ stages arrive with the phases that implement them, and every one of them belongs
 route layer.
 """
 import json
+import shutil
 import sys
 from pathlib import Path
 
 from ... import files
 from .. import protocol, tools
+from ..environment import TUTORIAL_TEMPLATE
 from ..stages import Stage
+
+SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts'
 
 # The two files the system-preparation stage reads and writes. The adapter owns their names because the stage
 # script, the entry point and the tests all have to agree on them.
@@ -140,6 +144,59 @@ def _proteins(root):
 # map keeps that translation out of the dispatch.
 _ALIASES = {'pdc_seed': 'seed', 'pdc_assessment_ns': 'assessment_ns', 'pdc_extension_ns': 'extension_ns'}
 
+# `genion` fits ions to a topology and needs a tpr, not a trajectory: this is the shortest MDP that makes one, and
+# it is written beside the stage so the solvation step cannot depend on a template that moved.
+IONS_MDP = """\
+; A topology fix-up run for genion: no dynamics, no output, just a tpr the ions can be fitted to.
+integrator              = steep
+nsteps                  = 0
+cutoff-scheme           = Verlet
+rlist                   = 1.1
+coulombtype             = reaction-field
+epsilon_r               = 15
+"""
+
+
+def _mdp_number(path, key: str) -> float:
+    """A number from an MDP, so a requested duration can be turned into steps in the template's own units."""
+    for raw in Path(path).read_text().splitlines():
+        line = raw.split(';', 1)[0].strip()
+        if not line or '=' not in line:
+            continue
+        name, value = (part.strip() for part in line.split('=', 1))
+        if name.lower().replace('_', '-') == key:
+            try:
+                return float(value.split()[0])
+            except (ValueError, IndexError) as exc:
+                raise ValueError(f'{path}: {key} is not a number: {value!r}') from exc
+    raise ValueError(f'{path} does not set {key}')
+
+
+def _assessment_stage(run_dir: Path, settings: dict):
+    """The assessment phase's inputs: the MDPs for the requested duration, the water, and the two helpers.
+
+    The duration is converted into steps with the *template's* own `dt`, and the integration settings come from
+    `cg.mdp_integration`, so the coarse-grained half of a solved CG run and this stage cannot disagree about the
+    timestep. Its `aa_dir` argument cannot equal this stage -- a pdc run has no atomistic half -- so the
+    coarse-grained branch is the one that applies.
+    """
+    from ..environment import update_mdp
+    from . import cg as cg_adapter
+
+    stage = run_dir / Path(STAGES[1].relative).parent
+    stage.mkdir(parents=True, exist_ok=True)
+    source_inputs = TUTORIAL_TEMPLATE / '4_CG_sim' / 'inputs'
+    for target, source in (('minimization.mdp', 'minimization.mdp'), ('equilibration.mdp', 'eq.mdp'),
+                           ('assessment.mdp', 'md.mdp'), ('inputs/water.gro', 'water.gro')):
+        (stage / target).parent.mkdir(exist_ok=True)
+        shutil.copy2(source_inputs / source, stage / target)
+    steps = round(float(settings['assessment_ns']) * 1000 / _mdp_number(stage / 'assessment.mdp', 'dt'))
+    update_mdp(stage / 'assessment.mdp', cg_adapter.mdp_integration(stage, stage / '1_AA-reference', steps))
+    (stage / 'ions.mdp').write_text(IONS_MDP)
+    shutil.copy2(SCRIPTS / Path(STAGES[1].relative).name, stage / Path(STAGES[1].relative).name)
+    shutil.copy2(SCRIPTS / 'pdc_solvate.py', stage / 'pdc_solvate.py')
+    return steps
+
 _STAGE_SCRIPT = """#!/bin/sh
 # {label} for a protein-detergent complex run.
 #
@@ -221,11 +278,13 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     template_issues = list(registry.validate_template(record))
 
     # Every stage directory the contract names, so the run's plan and the executor's expectations agree before
-    # anything runs; only the first stage's script is written, and the others say so instead of failing obscurely.
+    # anything runs. Stage 1 and the assessment phase get their scripts and inputs below; the stages whose scripts
+    # are still to come say so instead of failing obscurely.
+    written = {STAGES[0].relative, STAGES[1].relative}
     for stage in STAGES:
         directory = run_dir / Path(stage.relative).parent
         directory.mkdir(parents=True, exist_ok=True)
-        if stage is not STAGES[0]:
+        if stage.relative not in written:
             (directory / Path(stage.relative).name).write_text(
                 _UNWRITTEN_SCRIPT.format(label=stage.name))
 
@@ -238,6 +297,7 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         indent=2, sort_keys=True))
     (system / Path(STAGES[0].relative).name).write_text(_STAGE_SCRIPT.format(
         label=STAGES[0].name, report=REPORT_NAME, root=str(root), python=sys.executable))
+    assessment_steps = _assessment_stage(run_dir, numbers)
     # One record, and it is the one the pipeline reads: `workflow.prepare_run` takes this manifest, adds the run's
     # snapshots and tools, and moves it to the run root. A tool that is not resolvable is recorded as unresolved
     # rather than raising here, because readiness is the layer that blocks a run for it.
@@ -250,7 +310,7 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     (run_dir / 'manifest.json').write_text(json.dumps(
         {'run_type': 'pdc', 'stage_plan': _plan(), 'settings': numbers,
          'protein': str(protein), 'template': str(template), 'template_issues': template_issues,
-         'tools': recorded_tools,
+         'assessment_steps': assessment_steps, 'tools': recorded_tools,
          'limitations': ['the detergent is one centre per molecule: the shipped templates carry no bead shape',
                          'the assessment, removal, extension and back-mapping stage scripts are task B7b']},
         indent=2, sort_keys=True))
