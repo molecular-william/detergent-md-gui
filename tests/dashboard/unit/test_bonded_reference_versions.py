@@ -120,3 +120,14 @@ def test_the_repositorys_own_ddm_tail_carries_a_martini_3_reference(tmp_path):
     assert float(bond[-1]) != 5000.0, 'not the placeholder force constant'
     assert 0.221 < float(bond[-2]) < 0.60, f'the length is a Martini 3 one, not {bond[-2]}'
     assert float(bond[-1]) != 30000.0, 'and not the Martini 2 detergent force constant'
+
+
+def test_the_published_lipid_set_states_its_generation():
+    """A Martini 2 mapping must not pick up Martini 3 lipid parameters, so the family states which it is."""
+    from dashboard.models.bonded import generation
+
+    root = Path(__file__).resolve().parents[3]
+    relative = 'references/M3-Lipid-Parameters/ITPs/martini_v3.0.0.itp'
+
+    assert generation._reference_version(relative, root / relative) == 3
+    assert generation._reference_version('references/martini-ddm.itp', root / 'references/martini-ddm.itp') == 2

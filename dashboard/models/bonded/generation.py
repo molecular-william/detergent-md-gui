@@ -65,7 +65,10 @@ def _source_rank(path):
 # maltose, and its note about bonds over 25000 being treated as constraints is Martini 2's convention). A reference
 # whose version is not stated is `None`, which means "usable": an unknown is not evidence of a mismatch, and
 # excluding it would silently drop parameters. A sidecar (`<file>.source.json`) may state `martini_version`.
-_KNOWN_VERSIONS = {'martini-ddm': 2, 'references/mad database/': 2}
+# `references/M3-Lipid-Parameters/` is the published Martini 3 lipid set (DOI 10.1021/acscentsci.5c00755): stating
+# its generation is what keeps it out of a Martini 2 mapping's lookup, rather than relying on its version reading as
+# unknown -- which is treated as usable, deliberately, for files that genuinely do not say.
+_KNOWN_VERSIONS = {'martini-ddm': 2, 'references/mad database/': 2, 'm3-lipid-parameters': 3}
 
 
 def _reference_version(relative: str, path=None) -> int | None:
