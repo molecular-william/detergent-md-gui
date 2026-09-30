@@ -15,28 +15,55 @@ against `martini_v3.0.0_sugars_v2.itp`, so a Martini 2 detergent would put two f
 — a mismatch that no amount of care in the stages can repair. The file stays in `references/` as context, in the
 same standing as the sugar reference entries: worth comparing against, not worth simulating.
 
-### What we build instead
+### Why not build it with Fast_Forward's fitting
 
-The route the sugars already use, with the same labels and the same limits:
+The obvious cheap route — map the detergent and let `ff_inter` fit its terms — needs the mapped **trajectory**:
+the stage script calls `ff_inter -f ../2_mapping/mapped.xtc -s mapped.gro ... -dists -plots`, and the bundled
+version's own comment in `fit_topology.sh` says it plainly: *this bundled FF version has no `-itp-only` switch*.
+Fitting is a Boltzmann inversion over frames, so without an AA reference run there is nothing to invert. Skipping
+the reference therefore does not mean *fitting less carefully*; it means **assembling** the topology from
+parameters that already exist in Martini 3.
 
-| step | what happens | what it costs |
-| --- | --- | --- |
-| 1 | An **AA reference run** for DDM (`aa_only`), from the packaged `molecules/DDM` tree | one run slot, ~3 h at the measured 1569 ns/day |
-| 2 | A **molecule-scoped mapping candidate**: the recognizer handles the glucose head (one hexopyranose ring) and leaves the 12-carbon tail as a draft, which we finish in the CG Bead Assignment editor with Martini 3 bead types | editing, no run slot |
-| 3 | A **`draft-smoke` CG run** off that reference, which is what produces our DDM CG topology: `ff_map` maps the trajectory, `ff_inter` fits the bonded terms against the AA reference, `ff_assess` reports the distance score | ~15 min of run slot |
-| 4 | The **bead geometry** comes from the same assignment: each bead's centre is the mean of its atoms, which the editor's 3D overlay already draws. Nothing is copied from a reference structure | none |
+### What we build instead: assembled from Martini 3 building blocks
+
+The pieces are already in the repository, and `molecules/DDM/BEAD_REFERENCE.md` — written before this decision —
+names them and their limits.
+
+| piece | source |
+| --- | --- |
+| the head's beads | the M3 carbohydrate references (`martini_v3.0.0_sugars_v2.itp`): two glucose rings' worth of `SP4r` / `SP1r` / `TC4` / `SN6` beads, i.e. the same vocabulary the sugar mappings already use |
+| the tail's beads | the M3 Bible's CG-SMILES database: dodecane (`DOD`) is **three `C1` beads** |
+| the linkage | the glycosidic bond between the reducing-end sugar bead and the first tail bead — a choice, recorded as one, because the building-block database does not decide it for us |
+| the bonded terms | `dashboard/models/bonded/generation.py`: parameters looked up from Martini 3 reference `.itp` files by bead-type combination, with its documented fallbacks where a combination is unseen |
+| the bead geometry | the assignment itself: each bead's centre is the mean of its atoms |
+| the mapping draft | `molecules/DDM/mapping_candidate.ndx` already groups the molecule into nine beads: `TAIL1..TAIL3`, `LINK`, `SUGAR1`, `SUGAR1_OH`, `SUGAR2`, `SUGAR2_OH_A`, `SUGAR2_OH_B` |
+
+What this costs in strength, stated where a reader will see it: **borrowed** parameters are not fitted ones, and a
+combination the references do not cover falls back to the generator's placeholder values rather than to a
+measurement. So the report must record, per run, which terms were transferred and how many fell back — and the
+model keeps the `candidate-unvalidated` label regardless.
+
+### The option that stays open
+
+An AA reference run for DDM is still worth queueing when the slot is free, because it upgrades this model rather
+than replacing it: `ff_map` + `ff_inter` would fit the same mapping's terms against a real trajectory, and the two
+models are distinguishable in the manifest (which model a run used is recorded). Assembling first is what makes
+the pipeline runnable now; fitting later is what makes the detergent defensible.
 
 ### What this does and does not claim
 
-- **Claims:** the detergent, the protein and the sugars are all Martini 3; the detergent's bonded terms were
-  fitted against a trajectory we ran and can re-derive; the bead assignment is saved, inspectable and reproducible
-  from its provenance.
-- **Does not claim:** that this detergent model is validated. It carries the same `candidate-unvalidated` label
-  the composition and sugar candidates carry, and the run's record says so. A draft model's geometry is an
-  execution check, not a parameterisation anyone should publish.
-- The recognizer's rules **do not transfer wholesale**: they cover one hexopyranose ring, which is DDM's head. The
-  tail is outside their scope and is a deliberate, recorded choice of the person who finishes the mapping — three
-  or four `C1`-type beads for twelve carbons, stated in the candidate's notes.
+- **Claims:** the detergent, the protein and the sugars are all Martini 3; the bead assignment is saved,
+  inspectable and reproducible from its provenance; every bonded term records which reference it came from, and
+  every fallback is counted rather than hidden.
+- **Does not claim:** that this detergent model is validated, or that its terms were fitted. It carries the same
+  `candidate-unvalidated` label the composition and sugar candidates carry, and the run's record says so. DDM's
+  head is two *linked* sugar rings with an alkyl glycosidic linkage, and `BEAD_REFERENCE.md`'s own warning stands:
+  substitution changes hydroxyl and ether environments, so copying two isolated glucose models unchanged is not
+  justified.
+- The recognizer's rules **do not transfer wholesale**: they cover hexopyranose rings, which is DDM's head — the
+  same case the sugar work already exercised with maltose (two rings, linkage letters AB). The 12-carbon tail is
+  outside their scope and is a deliberate, recorded choice: three `C1` beads for twelve carbons, from the M3
+  Bible's dodecane entry, stated in the candidate's notes.
 
 ## 2. What a run shows: snapshots
 
@@ -81,17 +108,23 @@ every time point, so the gallery is the assessment's time series and cannot disa
 The critical path avoids idling the run slot:
 
 1. **B7b** — the five remaining stage scripts, including the snapshot outputs above. Needs no detergent model.
-2. **The DDM AA reference**, queued once the E3 chain has finished with the slot (~17:00 HKT).
-3. **The DDM mapping candidate and its `draft-smoke` CG run.**
-4. **B7c** — wire stage 1 to our model: the template names our CG topology, the placement stamps its beads, and
-   `system.top` is assembled with the molecule names read from the two `.itp` files.
+2. **The DDM model, assembled**: finish the mapping candidate from `mapping_candidate.ndx`, take the head's beads
+   and terms from the M3 carbohydrate references and the tail's from the M3 Bible's dodecane entry, and let
+   `dashboard/models/bonded/generation.py` supply what the references cover — counting every fallback. No run
+   slot needed.
+3. **A short CG smoke run** of the detergent alone: stability, plus bead distances against the AA structure, which
+   is the cheapest evidence that an assembled model is not nonsense.
+4. **B7c** — wire stage 1 to it: the template names our CG topology and coordinates, the placement stamps the
+   mapped beads, and `system.top` is assembled with the molecule names read from the two `.itp` files, with
+   `grompp` accepting the pair as the test.
 5. The first end-to-end pdc run on a small system, which is when the series above first has anything to show.
+6. *(Optional, later, when the slot is free)* DDM's AA reference, then `ff_map` + `ff_inter` to fit the same
+   mapping's terms — the upgrade from borrowed to fitted parameters, distinguishable in the manifest.
 
 ## 4. Open questions
 
-- **Scheduling:** the DDM reference can queue behind the E3 chain (default) or ahead of the trehalose legs. Ahead
-  buys the detergent ~3 h and delays the third sugar leg by the same amount; behind costs nothing but a later
-  detergent. Default: behind.
+- **Scheduling:** no longer blocking. The detergent is assembled from Martini 3 building blocks, so the E3 chain
+  keeps the run slot, and DDM's AA reference becomes an optional upgrade rather than a prerequisite.
 - **Cadence:** the 10 ns / 20-frame rule above is a first guess, recorded in the settings where it can be changed
   without touching a stage. The floor that matters is not the interval but that the initial state is always
   recorded, because that is the one a reader needs to judge the placement.
