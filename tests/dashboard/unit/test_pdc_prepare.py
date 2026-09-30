@@ -121,9 +121,22 @@ def test_a_seed_is_required_rather_than_defaulted(tmp_path):
                     settings={'aggregation_number': 8}, project_root=tmp_path)
 
 
-def test_a_build_without_a_protein_says_what_is_missing(tmp_path):
-    with pytest.raises(ValueError, match='protein and a detergent template'):
-        pdc.prepare(tmp_path / 'run', template=TEMPLATE_PATH, settings={'seed': 1}, project_root=tmp_path)
+def test_a_build_without_a_template_says_what_is_missing(tmp_path):
+    """A missing template is the oversight; a template with no protein is the empty micelle, below."""
+    with pytest.raises(ValueError, match='needs a detergent template'):
+        pdc.prepare(tmp_path / 'run', settings={'seed': 1}, project_root=tmp_path)
+
+
+def test_an_empty_micelle_is_a_stated_choice_rather_than_a_missing_protein(tmp_path):
+    """The spec's protein-free build: an absence that is a choice, told apart from one that is an oversight."""
+    root = molecule_tree(tmp_path)
+
+    pdc.prepare(tmp_path / 'run', template=TEMPLATE_PATH, settings={'seed': 1}, project_root=root)
+    assert (tmp_path / 'run/1_system/protein.pdb').read_text().startswith('; no protein')
+
+    readiness = pdc.readiness(template=TEMPLATE_PATH, project_root=root)
+    assert readiness['ready'] is True and readiness['blockers'] == []
+    assert any('empty micelle' in str(check.get('path')) for check in readiness['checks'])
 
 
 def test_the_panels_setting_names_reach_the_builders_own(tmp_path):
@@ -197,3 +210,35 @@ def test_a_template_that_cannot_build_a_system_refuses_before_placing(tmp_path):
     assert code == 2 and report['valid'] is False
     assert report['template_issues'] == ['template has no beads']
     assert not (stage / 'system.gro').exists(), 'a refused build writes no system'
+
+
+def test_a_protein_free_build_writes_topologies_with_no_protein_row(tmp_path):
+    """The same two files with no protein row, so a reader downstream needs no special case."""
+    from dashboard.execution.scripts import pdc_build
+
+    stage = tmp_path / 'stage'
+    stage.mkdir()
+    (stage / 'det.itp').write_text('[ moleculetype ]\nDDM_CG 1\n')
+
+    info = pdc_build.write_topologies(stage, None, stage / 'det.itp', 6)
+
+    assert info == {'protein_molecule': None, 'detergent_molecule': 'DDM_CG', 'detergents': 6}
+    assert 'DDM_CG\t6' in (stage / 'system.top').read_text()
+    empty = (stage / 'system_EMPTY.top').read_text()
+    assert empty.split('[ molecules ]')[1].strip() == '', 'the empty-micelle topology lists no molecule'
+
+
+def test_every_copied_stage_script_runs_under_this_interpreters_own_python(tmp_path):
+    """`python` on PATH is not the venv that carries this repository, which cost a run at its second stage."""
+    import sys
+
+    root = molecule_tree(tmp_path)
+    pdc.prepare(tmp_path / 'run', template=TEMPLATE_PATH, settings={'seed': 1}, project_root=root)
+
+    scripts = sorted((tmp_path / 'run').glob('*/*.sh'))
+    assert scripts, 'the run should hold stage scripts'
+    for script in scripts:
+        text = script.read_text()
+        assert '\npython ' not in text and not text.startswith('python '), \
+            f'{script.name} still calls a bare python'
+        assert sys.executable in text or not text.startswith('#!'), f'{script.name} names no interpreter'

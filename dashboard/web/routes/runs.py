@@ -72,7 +72,7 @@ def queue():
         specs=set(pdc.SETTING_SPECS)
     else:
         specs=aa_specs if data.get('run_type')=='aa_only' else set(cg.SETTING_SPECS)|aa_specs
-    job = c.create_job(data.get('detergent') or data.get('molecule_id') or data.get('composition_id'), data.get('method'), data.get('label', ''), profile=data.get('profile', 'standard'), settings={k: data.get(k) for k in specs if data.get(k) not in (None, '')}, reference_run_id=data.get('reference_run_id') or None, mapping_candidate=data.get('mapping_candidate'), bonded_state_id=data.get('bonded_state_id') or None, bonded_intent=intent, temporary_validation=str(data.get('temporary_validation','')).lower() in ('1','true','yes'), molecule_id=data.get('molecule_id'),run_type=data.get('run_type'), composition_id=data.get('composition_id'))
+    job = c.create_job(data.get('detergent') or data.get('molecule_id') or data.get('composition_id'), data.get('method'), data.get('label', ''), profile=data.get('profile', 'standard'), settings={k: data.get(k) for k in specs if data.get(k) not in (None, '')}, reference_run_id=data.get('reference_run_id') or None, mapping_candidate=data.get('mapping_candidate'), bonded_state_id=data.get('bonded_state_id') or None, bonded_intent=intent, temporary_validation=str(data.get('temporary_validation','')).lower() in ('1','true','yes'), molecule_id=data.get('molecule_id'),run_type=data.get('run_type'), composition_id=data.get('composition_id'), protein=data.get('protein') or None, template=data.get('template') or None)
     return jsonify(view_of(c, job)), 201
 
 

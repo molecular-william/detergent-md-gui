@@ -134,13 +134,28 @@ def molecule_name(topology_text: str) -> str:
     raise SystemExit('a topology without a [ moleculetype ] name cannot be listed in [ molecules ]')
 
 
-def write_topologies(stage: Path, protein_itp: Path, detergent_itp: Path | None, detergents: int) -> dict:
+def write_topologies(stage: Path, protein_itp: Path | None, detergent_itp: Path | None, detergents: int) -> dict:
     """`system_EMPTY.top` (the protein alone, the stage's declared input) and `system.top` (the whole system).
 
     Both name their molecules exactly as the two `.itp` files do, and the counts are the counts of molecules the
     structure actually holds -- the invariant `grompp` checks, and the one whose violation cost three failed sugar
     runs.
+
+    A protein-free build (the empty micelle) writes the same two files with no protein row, so every reader
+    downstream sees the shape it expects rather than a special case.
     """
+    if protein_itp is None:
+        (stage / 'system_EMPTY.top').write_text(
+            '; the system before the detergent arrives, filled in by the system-preparation stage\n'
+            '[ system ]\nempty micelle, no protein\n\n[ molecules ]\n')
+        if detergent_itp is None or not detergents:
+            return {'protein_molecule': None}
+        detergent = molecule_name(detergent_itp.read_text())
+        (stage / 'system.top').write_text(
+            f'; the whole system, written by the system-preparation stage\n'
+            f'#include "{detergent_itp.name}"\n\n[ system ]\nempty micelle, detergent only\n\n[ molecules ]\n'
+            f'{detergent}\t{detergents}\n')
+        return {'protein_molecule': None, 'detergent_molecule': detergent, 'detergents': detergents}
     protein = molecule_name(protein_itp.read_text())
     empty = (f'; the system before the detergent arrives, filled in by the system-preparation stage\n'
              f'#include "{protein_itp.name}"\n\n[ system ]\nprotein-detergent complex, CG protein\n\n'
@@ -183,6 +198,7 @@ def build(stage: Path) -> int:
     report = {
         'stage': 'system-preparation',
         'protein': settings['protein'],
+        'protein_free': not (settings.get('protein') or '').strip(),
         'template': str(settings['template']),
         'detergent': template.name,
         'detergent_residue': template.residue,
@@ -202,23 +218,30 @@ def build(stage: Path) -> int:
         write_report(stage, report)
         return 2
 
-    beads, command = cg_protein(stage, resolve(settings, 'protein', stage))
+    beads, command = ([], None)
+    requested_protein = (settings.get('protein') or '').strip()
+    if requested_protein:
+        beads, command = cg_protein(stage, resolve(settings, 'protein', stage))
     points = [list(bead['position']) for bead in beads]
-    initial = pdc_box.initial_box(points, margin_nm=settings['box_margin_nm'],
-                                  initial_z_nm=settings['initial_z_nm'])
     placement = pdc_placement.place_detergents(points, template, settings['aggregation_number'],
                                                settings['seed'], radius_nm=settings['radius_nm'])
     report.update({
         'cg_command': command,
         'protein_beads': len(points),
-        'box_nm_initial': initial,
         'protein_clearance_nm': placement['protein_clearance_nm'],
         'placement_issues': placement['issues'],
     })
     if not placement['valid']:
-        report.update({'valid': False, 'box_nm': None, 'reasons': placement['issues']})
+        report.update({'valid': False, 'box_nm': None, 'box_nm_initial': None, 'reasons': placement['issues']})
         write_report(stage, report)
         return 2
+
+    # The box is measured on whatever the system actually has: the protein's beads, or -- for an empty micelle --
+    # the placed detergents, because a box around no coordinates is not a box. It is computed here rather than
+    # before the placement so that a failed placement is reported as a placement failure and not as a box error.
+    initial = pdc_box.initial_box(points or placement['centers'], margin_nm=settings['box_margin_nm'],
+                                  initial_z_nm=settings['initial_z_nm'])
+    report['box_nm_initial'] = initial
 
     box = pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=settings['box_margin_nm'])
     atoms = [{'residue_id': bead['residue_id'], 'residue': bead['residue'], 'name': bead['name'],
@@ -240,7 +263,7 @@ def build(stage: Path) -> int:
         return 3
 
     protein_itp = next(iter(sorted((stage / CG_DIRECTORY).glob('*.itp'))), None)
-    if protein_itp is None:
+    if protein_itp is None and (settings.get('protein') or '').strip():
         raise SystemExit('the CG protein step wrote no topology, so the system cannot be assembled')
     atoms += stamp(model, placement['centers'], placement['directions'],
                    first_residue=max([bead['residue_id'] for bead in beads], default=0) + 1)

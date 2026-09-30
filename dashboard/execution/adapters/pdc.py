@@ -5,6 +5,7 @@ stages arrive with the phases that implement them, and every one of them belongs
 route layer.
 """
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -276,6 +277,22 @@ def _empty_topology() -> str:
             '[ molecules ]\n')
 
 
+def _stamp_interpreter(script):
+    """Point a copied stage script at the interpreter this application runs under.
+
+    `python` on PATH is a different interpreter, and the one that carries this repository is this one -- so a copied
+    script that says `python` dies with `No module named 'dashboard'` after the tools have been resolved and before
+    anything is built. The generated stage-1 script already names the interpreter; this is the same choice for the
+    scripts written by hand.
+    """
+    text = script.read_text()
+    if not text.startswith('#!'):
+        return
+    rewritten = re.sub(r'(?m)^(\s*)python(?=\s|$)', lambda match: f'{match.group(1)}{sys.executable}', text)
+    if rewritten != text:
+        script.write_text(rewritten)
+
+
 def prepare(run_dir, *, protein=None, template=None, settings=None, project_root=None, mapping=None, **kwargs):
     """Write the six stage directories and everything the system-preparation stage needs to start.
 
@@ -284,9 +301,12 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     detergent is a real coarse-grained molecule (its topology derived from the mapping, its beads' centres computed
     from the atomistic structure); without it, the build records that it is centres-only and the stage stops where it
     always did, rather than pretending a dot is a molecule.
+
+    A build with a template and no protein is the design spec's empty micelle: the protein stages are skipped, so an
+    absence that is a choice is told apart from one that is an oversight -- an oversight has no template at all.
     """
-    if not protein or not template:
-        raise ValueError('a pdc build needs a protein and a detergent template')
+    if not template:
+        raise ValueError('a pdc build needs a detergent template')
     # The panel's spelling is translated before validation, because `validate_payload` reads the builders' names
     # and would otherwise see a missing seed where the caller sent one.
     supplied = {_ALIASES.get(key) or key: value
@@ -300,10 +320,12 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
 
     run_dir = Path(run_dir)
     root = Path(project_root or Path.cwd()).resolve()
-    protein_path, template_path = root / str(protein), root / str(template)
-    for label, path in (('protein', protein_path), ('template', template_path)):
-        if not path.is_file():
-            raise ValueError(f'the pdc {label} is not a file: {path}')
+    protein_path = (root / str(protein)) if protein else None
+    template_path = root / str(template)
+    if protein_path is not None and not protein_path.is_file():
+        raise ValueError(f'the pdc protein is not a file: {protein_path}')
+    if not template_path.is_file():
+        raise ValueError(f'the pdc template is not a file: {template_path}')
 
     from micelle import registry
     record = registry.load_template(template_path)
@@ -330,17 +352,26 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         shutil.copy2(SCRIPTS / 'pdc_snapshot.py', run_dir / Path(stage.relative).parent / 'pdc_snapshot.py')
 
     system = run_dir / Path(STAGES[0].relative).parent
-    (system / 'protein.pdb').write_bytes(protein_path.read_bytes())
+    if protein_path is not None:
+        (system / 'protein.pdb').write_bytes(protein_path.read_bytes())
+    else:
+        (system / 'protein.pdb').write_text('; no protein: this is an empty-micelle build\n')
     (system / Path(STAGES[0].inputs[2]).name).write_bytes((template_path.parent / record.topology).read_bytes())
     (system / Path(STAGES[0].inputs[1]).name).write_text(_empty_topology())
     # The detergent's coarse-grained model, derived from the run's own mapping: the topology the system will include
     # and the bead geometry the placement stamps. A build without a mapping is recorded as centres-only.
     model = {'mapping': None, 'terms': 0, 'reference_terms': 0, 'fallback_terms': 0}
     if mapping is not None:
+        from ...models.mappings import store
         from ...models.molecules import detergent_cg
-        source = Path(mapping) if Path(str(mapping)).is_file() else Path(str(mapping))
+        # A saved candidate arrives by name, not by path: the panel offers the names the store lists, and the run's
+        # own record keeps that name, so it is resolved here rather than demanded as a path.
+        source = Path(str(mapping))
         if not source.is_file():
-            raise ValueError(f'the detergent mapping is not a file: {source}')
+            candidate = store.candidate_paths().get(source.name)
+            source = Path(candidate) if candidate else (root / str(mapping))
+        if not source.is_file():
+            raise ValueError(f'the detergent mapping is not a file: {mapping}')
         draft = detergent_cg.derive(source, root / 'molecules', root)
         (system / DETERGENT_TOPOLOGY).write_text(draft['topology'])
         (system / DETERGENT_GEOMETRY).write_text(json.dumps(draft, indent=2, sort_keys=True))
@@ -349,7 +380,8 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
                  'fallback_terms': draft['fallback_terms']}
     numbers['detergent_model'] = model
     (system / SETTINGS_NAME).write_text(json.dumps(
-        {'project_root': str(root), 'protein': str(protein), 'template': str(template), **numbers},
+        {'project_root': str(root), 'protein': str(protein) if protein else '', 'template': str(template),
+         **numbers},
         indent=2, sort_keys=True))
     (system / Path(STAGES[0].relative).name).write_text(_STAGE_SCRIPT.format(
         label=STAGES[0].name, report=REPORT_NAME, root=str(root), python=sys.executable))
@@ -364,13 +396,26 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         recorded_tools[name] = ({'path': found, 'sha256': files.sha256(found)} if found
                                 else {'path': name, 'ready': False,
                                       'detail': 'not declared or not executable'})
-    (run_dir / 'manifest.json').write_text(json.dumps(
+    for script in sorted(run_dir.glob('*/*.sh')):
+        _stamp_interpreter(script)
+    # The record is merged into whatever the coordinator already wrote rather than replacing it: a run's manifest
+    # carries the executor's own keys -- the stage ledger above all -- and replacing the file left the worker reading
+    # a manifest with no `stages`, which failed the run with a KeyError instead of a build.
+    manifest = {}
+    if (run_dir / 'manifest.json').is_file():
+        try:
+            manifest = json.loads((run_dir / 'manifest.json').read_text())
+        except ValueError:
+            manifest = {}
+    manifest.update(
         {'run_type': 'pdc', 'stage_plan': _plan(), 'settings': numbers,
-         'protein': str(protein), 'template': str(template), 'template_issues': template_issues,
+         'protein': str(protein) if protein else '', 'template': str(template),
+         'template_issues': template_issues,
          'assessment_steps': assessment_steps, 'extension_ps': extension_ps, 'tools': recorded_tools,
          'limitations': ['the detergent is one centre per molecule: the shipped templates carry no bead shape',
-                         'the assessment, removal, extension and back-mapping stage scripts are task B7b']},
-        indent=2, sort_keys=True))
+                         'the assessment, removal, extension and back-mapping stage scripts are task B7b']})
+    manifest.setdefault('stages', [])
+    (run_dir / 'manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True))
 
 
 def _plan():
@@ -403,12 +448,13 @@ def normalize_settings(settings=None, profile='standard'):
     return settings_from(settings or {})
 
 
-def readiness(protein=None, template=None, project_root=None):
+def readiness(protein=None, template=None, project_root=None, **kwargs):
     """What a protein-detergent build needs, in the shape every run type answers with.
 
     The template is checked by its own reader and validator, because those are the two things that decide whether
     it can build a system at all; the executables are resolved through the declared tools, so a build that names a
-    tool the machine does not have is blocked here rather than in the middle of a stage.
+    tool the machine does not have is blocked here rather than in the middle of a stage. An empty micelle is a
+    choice the caller states, so a missing protein is reported as an absence rather than a blocker when it is one.
     """
     from micelle import registry
 
@@ -419,7 +465,11 @@ def readiness(protein=None, template=None, project_root=None):
     paths_named = {}
     for label, value in (('Protein', protein), ('Detergent template', template)):
         if not value:
-            blockers.append(f'{label}: none selected')
+            if label == 'Protein' and template:
+                checks.append({'label': label, 'path': 'none (empty micelle)', 'ready': True,
+                               'detail': 'no protein by choice: the protein stages are skipped'})
+            else:
+                blockers.append(f'{label}: none selected')
             continue
         path = Path(value) if Path(value).is_absolute() else root / str(value)
         paths_named[label] = path
@@ -467,8 +517,11 @@ def _protocol_readiness(metadata):
 
 
 def _protocol_prepare(run_dir, metadata):
-    keys = ('protein', 'template', 'settings', 'project_root')
-    prepare(run_dir, **{key: metadata[key] for key in keys if key in metadata})
+    """The run's own inputs, in the spellings the builders take: a saved mapping arrives as the job's candidate."""
+    values = {'protein': metadata.get('protein'), 'template': metadata.get('template'),
+              'settings': metadata.get('settings'), 'project_root': metadata.get('project_root'),
+              'mapping': metadata.get('mapping_candidate') or metadata.get('mapping')}
+    prepare(run_dir, **{key: value for key, value in values.items() if value})
 
 
 PROTOCOL = protocol.Protocol(

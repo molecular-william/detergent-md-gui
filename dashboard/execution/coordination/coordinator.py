@@ -344,7 +344,9 @@ class Coordinator:
                         'molecule_id': job.get('molecule_id') or job.get('detergent'),
                         'molecule_root': self.ROOT / 'molecules', 'method': job.get('method'),
                         'profile': job.get('profile', 'standard'), 'mapping_candidate': job.get('mapping_snapshot'),
-                        'composition_id': job.get('composition_id'), 'root': self.ROOT})
+                        'composition_id': job.get('composition_id'), 'root': self.ROOT,
+                        'protein': job.get('protein'), 'template': job.get('template'),
+                        'project_root': str(self.ROOT)})
                 if not readiness['ready']:
                     raise ValueError('; '.join(readiness['blockers']))
                 source_id = None if in_place else (job.get('resume_of') or job.get('reference_run_id'))
@@ -356,6 +358,12 @@ class Coordinator:
                         protocol.adapter_for(job.get('run_type')).prepare(
                             work, {'molecule_root': self.ROOT/'molecules', 'molecule_snapshot': job.get('molecule_snapshot'),
                                    'composition_id': job.get('composition_id'), 'settings': job.get('settings')})
+                    elif not in_place and job.get('run_type') == 'pdc':
+                        # The pdc adapter writes its own six stages; the CG kwargs below describe a molecule.
+                        protocol.adapter_for('pdc').prepare(
+                            work, {'protein': job.get('protein'), 'template': job.get('template'),
+                                   'mapping_candidate': job.get('mapping_candidate') or job.get('mapping_snapshot'),
+                                   'settings': job.get('settings'), 'project_root': str(self.ROOT)})
                     elif not in_place:
                         kwargs=dict(detergent=job['detergent'],profile=job.get('profile','standard'),settings={k:v for k,v in job.get('settings',{}).items() if k in cg.SETTING_SPECS},mapping_candidate=job.get('mapping_snapshot'),bonded_state_snapshot=job.get('bonded_state_snapshot'),bonded_intent=job.get('bonded_intent','fit_and_simulate'),molecule_snapshot=job.get('molecule_snapshot'),molecule_root=self.ROOT / 'molecules')
                         if job.get('shared_reference'):kwargs.update(shared_reference=job['shared_reference'],reference_root=self.RUNS)
@@ -365,7 +373,9 @@ class Coordinator:
                 prepared = json.loads((work/'manifest.json').read_text())
                 if job.get('molecule_snapshot'):
                     if aa_only:files.verify(workflow.execution_root(work)/'common/molecule',job['molecule_snapshot']['sha256'])
-                    elif not job.get('shared_reference'):
+                    elif job.get('run_type') == 'aa_cg' and not job.get('shared_reference'):
+                        # Only a CG run consumes an AA reference. A protein-detergent build names the detergent's
+                        # molecule for provenance, and demanding a reference for it refused every pdc job.
                         raise ValueError('CG run is missing its shared AA reference')
                     prepared.update(molecule_id=job['molecule_id'], molecule_snapshot=job['molecule_snapshot'])
                 if composition_only:
@@ -390,7 +400,7 @@ class Coordinator:
                     fp.write(f'\nRun failed: {exc}\n')
 
 
-    def create_job(self, detergent, method, label='', retry_of=None, profile='standard', settings=None, reference_run_id=None, resume_of=None, resume_from=None, mapping_candidate=None, mapping_snapshot=None, bonded_state_id=None, bonded_intent='fit_and_simulate', temporary_validation=False, molecule_id=None, molecule_snapshot=None, run_type=None, composition_id=None):
+    def create_job(self, detergent, method, label='', retry_of=None, profile='standard', settings=None, reference_run_id=None, resume_of=None, resume_from=None, mapping_candidate=None, mapping_snapshot=None, bonded_state_id=None, bonded_intent='fit_and_simulate', temporary_validation=False, molecule_id=None, molecule_snapshot=None, run_type=None, composition_id=None, protein=None, template=None):
         try:
             admission.validate_run_type({'run_type': run_type, 'composition_id': composition_id,
                                          'molecule_id': molecule_id, 'molecule_snapshot': molecule_snapshot,
@@ -468,11 +478,25 @@ class Coordinator:
             except (OSError,ValueError) as exc:raise SourceUnavailable(str(exc))
         elif reference_run_id:
             raise SourceUnavailable('CG runs require a shared AA reference')
-        ready = cg.readiness(molecule_id or detergent, method, profile, mapping_snapshot, molecule_root=self.ROOT / 'molecules')
+        if (run_type or 'aa_cg') == 'pdc':
+            # A protein-detergent build's inputs are a protein and a detergent template rather than a molecule, so
+            # it is checked by its own adapter; asking the CG adapter about it is how a pdc job used to be refused.
+            ready = protocol.adapter_for('pdc').readiness({'protein': protein, 'template': template,
+                                                           'project_root': str(self.ROOT)})
+        else:
+            ready = cg.readiness(molecule_id or detergent, method, profile, mapping_snapshot, molecule_root=self.ROOT / 'molecules')
         if not ready['ready']:
             raise RunConflict('; '.join(ready['blockers']))
         job = {'id': uuid.uuid4().hex[:12], 'detergent': detergent, 'method': method, 'label': str(label)[:160],
                'status': 'queued', 'stage': 'queued', 'created': self.now(), 'retry_of': retry_of, 'profile': profile, 'settings': settings, 'reference_run_id': reference_run_id, 'scientifically_validated': False, 'temporary_validation': bool(temporary_validation), 'bonded_intent': bonded_intent}
+        # The run type has to be on the record before the worker starts: everything downstream -- readiness, the
+        # stage plan, which adapter writes the run -- is chosen by it, and a job that only carries a method is read
+        # as a CG run by the adapter that answers about methods.
+        job['run_type'] = run_type or 'aa_cg'
+        if protein is not None:
+            job['protein'] = protein
+        if template is not None:
+            job['template'] = template
         if mapping_snapshot is not None:
             job.update(mapping_candidate=mapping_snapshot.get('file'), mapping_snapshot=mapping_snapshot)
         if bonded_snapshot is not None:
@@ -480,7 +504,14 @@ class Coordinator:
         if molecule_snapshot is not None:
             job.update(molecule_id=molecule_snapshot['id'], molecule_snapshot=molecule_snapshot)
         job.update(layout_version=2, resume_of=resume_of, resume_from=resume_from)
-        job.update(run_type='aa_cg',workflow_version='aa-cg-v2',stage_plan=[name for name,_ in cg.STAGES])
+        # The stage plan and the workflow version belong to the run's own type. Stamping every job that reaches here
+        # as a CG run is why a protein-detergent job was answered by the CG adapter's readiness check -- which knows
+        # only the methods it fits -- and refused as "not connected to an executable workflow".
+        if job['run_type'] == 'aa_cg':
+            job.update(workflow_version='aa-cg-v2', stage_plan=[name for name, _ in cg.STAGES])
+        else:
+            job.update(workflow_version=f"{job['run_type']}-v1",
+                       stage_plan=[stage.name for stage in protocol.adapter_for(job['run_type']).stages({})])
         if shared:
             if reference_snapshot:
                 job['shared_reference']={'source_run_id':reference_run_id,'sha256':reference_snapshot['sha256']}
