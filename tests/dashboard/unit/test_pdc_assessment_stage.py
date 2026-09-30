@@ -114,12 +114,11 @@ def test_the_assessment_stage_has_every_input_it_declares(tmp_path):
             assert (stage / name).is_file()
 
 
-def test_the_stages_without_scripts_still_say_so(tmp_path):
-    """Stages 4 and 6 (the extension and the back-map) are the ones still to write."""
-    run = prepared(tmp_path).parent
+def test_the_back_map_stage_is_the_one_that_cannot_run_yet(tmp_path):
+    stage = prepared(tmp_path).parent / Path(pdc.STAGES[5].relative)
 
-    for stage in (pdc.STAGES[3], pdc.STAGES[5]):
-        assert 'not written yet' in (run / stage.relative).read_text()
+    guard = stage.read_text()
+    assert 'not there' in guard and 'task D1' in guard
 
 
 class FakeRun:

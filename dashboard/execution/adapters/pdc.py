@@ -172,6 +172,24 @@ def _mdp_number(path, key: str) -> float:
     raise ValueError(f'{path} does not set {key}')
 
 
+def _extension_stage(run_dir: Path, settings: dict):
+    """The extension phase's inputs: the same MDP as the assessment phase, continuing instead of starting.
+
+    Velocities are not regenerated -- this phase continues the trajectory it was given -- and the duration is
+    passed to the stage as picoseconds, which is what `convert-tpr -extend` takes.
+    """
+    from ..environment import update_mdp
+
+    stage = run_dir / Path(STAGES[3].relative).parent
+    stage.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(run_dir / Path(STAGES[1].relative).parent / 'assessment.mdp', stage / 'extension.mdp')
+    update_mdp(stage / 'extension.mdp', {'gen-vel': 'no'})
+    shutil.copy2(SCRIPTS / Path(STAGES[3].relative).name, stage / Path(STAGES[3].relative).name)
+    extension_ps = round(float(settings['extension_ns']) * 1000)
+    (stage / 'extension.ps').write_text(f'{extension_ps}\n')
+    return extension_ps
+
+
 def _assessment_stage(run_dir: Path, settings: dict):
     """The assessment phase's inputs: the MDPs for the requested duration, the water, and the two helpers.
 
@@ -210,16 +228,15 @@ cd "$(dirname "$0")"
 PYTHONPATH={root}${{PYTHONPATH:+:$PYTHONPATH}} {python} -m dashboard.execution.scripts.pdc_build --stage .
 """
 
-_UNWRITTEN_SCRIPT = """#!/bin/sh
-# {label}: the stage script is not written yet.
-#
-# The adapter already declares this stage and the inputs and outputs it must produce; the script that produces
-# them is task B7b in docs/superpowers/plans/2026-09-28-protein-detergent-complex-panel.md. Exiting 3 here stops a
-# run at this stage with this reason instead of failing somewhere further downstream.
-set -eu
-echo "{label}: the stage script is not written yet (task B7b)" >&2
-exit 3
-"""
+# Which file in `scripts/` each stage's script comes from. Stage 1's is generated at prepare time, because it has
+# to carry the interpreter and the project root the run was prepared with.
+_STAGE_SOURCES = {
+    '2_assessment/assessment.sh': 'assessment.sh',
+    '3_assessment/assess.sh': 'pdc_assess.sh',
+    '4_extension/extension.sh': 'extension.sh',
+    '5_assessment/assess.sh': 'pdc_assess.sh',
+    '6_backmap/backmap.sh': 'backmap.sh',
+}
 
 
 def settings_from(payload: dict) -> dict:
@@ -282,22 +299,17 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     numbers['tail_beads'] = [str(bead.get('name')) for bead in record.beads
                              if str(bead.get('role') or '').lower() == 'tail']
 
-    # Every stage directory the contract names, so the run's plan and the executor's expectations agree before
-    # anything runs. Stage 1 and the assessment phase get their scripts and inputs below; the stages whose scripts
-    # are still to come say so instead of failing obscurely.
-    written = {STAGES[0].relative, STAGES[1].relative, STAGES[2].relative, STAGES[4].relative}
+    # Every stage directory the contract names, and every one gets its script. The map is explicit because two
+    # stage file names are not the name of a file in `scripts/`: stage 1's script is generated below, and both
+    # assessment stages run `pdc_assess.sh` (the legacy `assess.sh` belongs to the AA and CG run types).
     for stage in STAGES:
         directory = run_dir / Path(stage.relative).parent
         directory.mkdir(parents=True, exist_ok=True)
-        if stage.relative not in written:
-            (directory / Path(stage.relative).name).write_text(
-                _UNWRITTEN_SCRIPT.format(label=stage.name))
-    # The two assessment stages run the same script over different inputs: the phase's own end state is what the
-    # criterion judges, so the phase is the difference, not the analysis.
+        source = _STAGE_SOURCES.get(stage.relative)
+        if source:
+            shutil.copy2(SCRIPTS / source, directory / Path(stage.relative).name)
     for stage in (STAGES[2], STAGES[4]):
-        directory = run_dir / Path(stage.relative).parent
-        shutil.copy2(SCRIPTS / 'pdc_assess.sh', directory / Path(stage.relative).name)
-        shutil.copy2(SCRIPTS / 'pdc_assess.py', directory / 'pdc_assess.py')
+        shutil.copy2(SCRIPTS / 'pdc_assess.py', run_dir / Path(stage.relative).parent / 'pdc_assess.py')
 
     system = run_dir / Path(STAGES[0].relative).parent
     (system / 'protein.pdb').write_bytes(protein_path.read_bytes())
@@ -309,6 +321,7 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     (system / Path(STAGES[0].relative).name).write_text(_STAGE_SCRIPT.format(
         label=STAGES[0].name, report=REPORT_NAME, root=str(root), python=sys.executable))
     assessment_steps = _assessment_stage(run_dir, numbers)
+    extension_ps = _extension_stage(run_dir, numbers)
     # One record, and it is the one the pipeline reads: `workflow.prepare_run` takes this manifest, adds the run's
     # snapshots and tools, and moves it to the run root. A tool that is not resolvable is recorded as unresolved
     # rather than raising here, because readiness is the layer that blocks a run for it.
@@ -321,7 +334,7 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     (run_dir / 'manifest.json').write_text(json.dumps(
         {'run_type': 'pdc', 'stage_plan': _plan(), 'settings': numbers,
          'protein': str(protein), 'template': str(template), 'template_issues': template_issues,
-         'assessment_steps': assessment_steps, 'tools': recorded_tools,
+         'assessment_steps': assessment_steps, 'extension_ps': extension_ps, 'tools': recorded_tools,
          'limitations': ['the detergent is one centre per molecule: the shipped templates carry no bead shape',
                          'the assessment, removal, extension and back-mapping stage scripts are task B7b']},
         indent=2, sort_keys=True))
