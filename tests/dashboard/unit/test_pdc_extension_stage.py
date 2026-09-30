@@ -66,24 +66,26 @@ def test_the_extension_length_is_the_runs_setting_in_the_units_convert_tpr_takes
     assert (prepared(tmp_path / 'short', extension_ns=25) / 'extension.ps').read_text().strip() == '25000'
 
 
-def test_the_script_resumes_from_the_assessment_phases_own_outputs(tmp_path):
+def test_the_script_hands_both_paths_to_the_helper(tmp_path):
     stage = prepared(tmp_path)
     script = (stage / Path(pdc.STAGES[3].relative).name).read_text()
+    executed = '\n'.join(line for line in script.splitlines() if not line.strip().startswith('#'))
 
-    assert 'cp "../2_assessment/prod/$name" "$name"' in script
-    assert 'gmx convert-tpr -s run.tpr -extend "$EXTENSION_PS"' in script
-    assert '-cpi run.cpt' in script, 'the extension continues the assessment phase rather than restarting it'
-    assert 'cp run.xtc prod/run.xtc' in script, 'the declared outputs are prod/run.gro and prod/run.xtc'
-    assert 'python pdc_snapshot.py' in script and '--phase extension' in script
+    assert 'python pdc_extension.py' in executed and '--assessment ../3_assessment' in executed
+    assert 'convert-tpr' not in executed and '-cpi' not in executed, 'both are the helper\'s decisions, not the script\'s'
+    assert (stage / 'pdc_extension.py').is_file() and (stage / 'pdc_solvate.py').is_file()
+    assert 'python pdc_snapshot.py' in executed and '--phase extension' in executed
     assert (stage / 'pdc_snapshot.py').is_file()
 
 
-def test_the_script_takes_the_budget_from_the_environment_and_passes_no_ntmpi(tmp_path):
-    script = (prepared(tmp_path) / Path(pdc.STAGES[3].relative).name).read_text()
+def test_the_stage_passes_no_ntmpi_and_leaves_the_budget_to_the_helper(tmp_path):
+    stage = prepared(tmp_path)
+    script = (stage / Path(pdc.STAGES[3].relative).name).read_text()
     executed = '\n'.join(line for line in script.splitlines() if not line.strip().startswith('#'))
+    helper = (stage / 'pdc_extension.py').read_text()
 
-    assert '${MDRUN_LAUNCHER:-}' in script and '${MDRUN_FLAGS:-' in script
-    assert '-ntmpi' not in executed
+    assert '-ntmpi' not in executed, 'gmx here is an MPI-only build: -ntmpi aborts mdrun before the first step'
+    assert 'MDRUN_FLAGS' in helper and 'MDRUN_LAUNCHER' in helper, 'the budget comes from the environment, in Python'
 
 
 def test_the_extension_stage_declares_the_inputs_it_reads(tmp_path):

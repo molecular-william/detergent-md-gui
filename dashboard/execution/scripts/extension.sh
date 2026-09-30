@@ -11,20 +11,11 @@
 # gmx here is an mpi-only build where that flag aborts mdrun before the first step.
 set -euxo pipefail
 
-mkdir -p prod
-for name in run.tpr run.cpt run.xtc run.gro; do
-  cp "../2_assessment/prod/$name" "$name"
-done
-
-# The extension length is the run's own setting, written beside this stage by the adapter rather than restated
-# here: it is picoseconds, because that is what convert-tpr -extend takes.
-EXTENSION_PS="$(cat extension.ps)"
-
-gmx convert-tpr -s run.tpr -extend "$EXTENSION_PS" -o prod/run.tpr
-${MDRUN_LAUNCHER:-}gmx mdrun -deffnm run -cpi run.cpt ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v
-
-cp run.gro prod/run.gro
-cp run.xtc prod/run.xtc
+# Both paths -- continue from the assessment's checkpoint, or delete what the criterion left outside the micelle and
+# restart from the kept system with new velocities -- are the helper's, because the difference is a decision rather
+# than a command: it reads the assessment's own removal record and the run's settings and does the one they imply.
+python pdc_extension.py --settings ../1_system/pdc-settings.json --stage . \
+  --assessment ../3_assessment --assessment-stage ../2_assessment
 printf 'System\n' | gmx trjconv -f prod/run.xtc -s prod/run.tpr -pbc mol -center -o prod/whole.xtc
 
 # The same series for the extension phase, judged by the same function: the two phases' frames are comparable

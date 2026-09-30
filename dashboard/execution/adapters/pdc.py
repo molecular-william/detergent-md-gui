@@ -191,6 +191,14 @@ def _extension_stage(run_dir: Path, settings: dict):
     shutil.copy2(run_dir / Path(STAGES[1].relative).parent / 'assessment.mdp', stage / 'extension.mdp')
     update_mdp(stage / 'extension.mdp', {'gen-vel': 'no'})
     shutil.copy2(SCRIPTS / Path(STAGES[3].relative).name, stage / Path(STAGES[3].relative).name)
+    # The removal path rebuilds the system from the kept coordinates, so this stage needs the same mdps and water the
+    # assessment phase was prepared with, plus the two helpers that do it.
+    for target, source in (('minimization.mdp', 'minimization.mdp'), ('equilibration.mdp', 'eq.mdp'),
+                           ('inputs/water.gro', 'water.gro')):
+        (stage / target).parent.mkdir(exist_ok=True)
+        shutil.copy2(TUTORIAL_TEMPLATE / '4_CG_sim' / 'inputs' / source, stage / target)
+    shutil.copy2(SCRIPTS / 'pdc_extension.py', stage / 'pdc_extension.py')
+    shutil.copy2(SCRIPTS / 'pdc_solvate.py', stage / 'pdc_solvate.py')
     extension_ps = round(float(settings['extension_ns']) * 1000)
     (stage / 'extension.ps').write_text(f'{extension_ps}\n')
     return extension_ps
