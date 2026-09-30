@@ -16,7 +16,7 @@ BEAD_ELEMENT = 'C'
 
 
 def read_gro(path):
-    """The atoms of a GROMACS .gro: `(residue, name, xyz)` per bead, in nanometres.
+    """The atoms of a GROMACS .gro: one `{'residue', 'name', 'position'}` per bead, in nanometres.
 
     A parser rather than a dependency: the viewer route should not import a trajectory library to draw a system, and
     the format is fixed-width and trivial to read.
