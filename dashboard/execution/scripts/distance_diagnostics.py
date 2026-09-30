@@ -11,6 +11,19 @@ import MDAnalysis as mda
 import numpy as np
 from scipy.stats import wasserstein_distance
 
+#: The colour scale every run's matrix is drawn on, so two runs can be compared by colour. It is the value the
+#: runs on disk actually reach rather than each run's own maximum: with a per-run maximum a worse model is drawn
+#: on a wider scale and comes out looking the same, which is why the figure's note used to tell readers to
+#: compare numbers instead of colour.
+COLOUR_SCALE_NM = 0.1
+
+
+def colour_scale(matrix, maximum=COLOUR_SCALE_NM):
+    """`(vmin, vmax, clipped)`: the shared scale, and whether this run's values run past it."""
+    finite = np.isfinite(matrix)
+    observed = float(np.nanmax(matrix)) if finite.any() else 0.0
+    return 0.0, maximum, observed > maximum
+
 
 def write_matrix_plot(result, path):
     """Write a physical-pair Wasserstein matrix; virtual-site pairs are masked."""
@@ -27,16 +40,16 @@ def write_matrix_plot(result, path):
         a,b=pair['beads']; value=pair['wasserstein_nm'].get('ring_expanded_AA', pair['wasserstein_nm']['raw_AA'])
         matrix[index[a],index[b]]=matrix[index[b],index[a]]=value
     fig, ax = plt.subplots(figsize=(7.2,6.2), constrained_layout=True)
-    masked=np.ma.masked_invalid(matrix); scale=max(.1,float(np.nanmax(matrix))); image=ax.imshow(masked, cmap='viridis', vmin=0, vmax=scale)
+    masked=np.ma.masked_invalid(matrix); low,scale,clipped=colour_scale(matrix); image=ax.imshow(masked, cmap='viridis', vmin=low, vmax=scale)
     ax.set_xticks(range(len(names)),names,rotation=45,ha='right'); ax.set_yticks(range(len(names)),names)
     ax.set_title('Stratified physical distance matrix\nWasserstein distance (nm); lower is better')
     for i in range(len(names)):
         for j in range(len(names)):
             if np.isfinite(matrix[i,j]): ax.text(j,i,f'{matrix[i,j]:.3f}',ha='center',va='center',fontsize=7,color='white' if matrix[i,j]>.05 else 'black')
     fig.colorbar(image, ax=ax, label='Wasserstein distance (nm)')
-    # The colour scale is per run, so record the range this plot used: a reader comparing two
-    # matrices has to compare numbers, and this is what makes that instruction actionable.
-    result['colour_scale_nm'] = {'min': 0.0, 'max': round(scale, 3), 'per_run': True}
+    # The colour scale is the same for every run, so two matrices can be compared by colour; this records the
+    # range and whether this run ran past it, instead of a per-run range the reader has to be warned about.
+    result['colour_scale_nm'] = {'min': low, 'max': round(scale, 3), 'per_run': False, 'clipped': bool(clipped)}
     fig.savefig(path,dpi=160); plt.close(fig); return True
 
 

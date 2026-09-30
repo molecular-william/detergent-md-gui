@@ -24,8 +24,15 @@ export async function renderDistanceDiagnostics(card, job) {
   const virtual = classified ? pairs.filter(p => p.kind === 'virtual_site_diagnostic') : [];
   const physical = classified ? pairs.filter(p => p.kind !== 'virtual_site_diagnostic') : pairs;
   const scale = data.colour_scale_nm;
+  const perRun = scale && scale.per_run !== false;
+  // Records written before the scale became shared say so (`per_run`); the note follows the record rather than
+  // the reader's assumption, and a run that ran past the shared scale is told apart from one that fits it.
   const scaleNote = scale && Number.isFinite(Number(scale.max))
-    ? `<p class="hint">Heatmap colour scale: 0–${Number(scale.max).toFixed(3)} nm, set per run. Compare numbers, not colour.</p>` : '';
+    ? `<p class="hint">Heatmap colour scale: 0–${Number(scale.max).toFixed(3)} nm, `
+      + (perRun ? 'set per run. Compare numbers, not colour.'
+                : 'the same for every run, so two runs can be compared by colour.'
+                  + (scale.clipped ? ' This run has distances beyond the scale: they are drawn at its top, and the numbers in each cell are not clipped.' : ''))
+      + '</p>' : '';
   const legacyNote = legacy
     ? '<p class="hint">Written before per-pair classification, so constrained distances cannot be told apart from physical ones here. Re-run the distance analysis for a classified report.</p>' : '';
   const stratified = data.stratified_means_nm || {};
