@@ -87,7 +87,8 @@ def test_the_system_stage_script_runs_the_entry_point_from_its_own_directory(tmp
 def test_the_stages_that_have_no_script_say_so_instead_of_failing_obscurely(tmp_path):
     run = prepared(tmp_path)
 
-    for stage in pdc.STAGES[2:]:
+    # Stages 1-3 and 5 have scripts; the extension and the back-map are the ones still to write.
+    for stage in (pdc.STAGES[3], pdc.STAGES[5]):
         script = (run / Path(stage.relative)).read_text()
         assert 'not written yet' in script, f'{stage.name} pretends to run'
         assert script.strip().endswith('exit 3')
@@ -177,7 +178,7 @@ def test_the_reader_the_stage_uses_returns_the_shape_the_stage_indexes(tmp_path)
     path = write_gro(tmp_path / 'protein.gro', [('PRO', 'B01', (0.0, 0.0, 0.0))])
     atoms = pdc_view.read_gro(path)
 
-    assert [sorted(atom) for atom in atoms] == [['name', 'position', 'residue']]
+    assert [sorted(atom) for atom in atoms] == [['name', 'position', 'residue', 'residue_id']]
     assert atoms[0]['position'] == [0.0, 0.0, 0.0]
 
 

@@ -276,17 +276,28 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     from micelle import registry
     record = registry.load_template(template_path)
     template_issues = list(registry.validate_template(record))
+    # Which beads form the hydrophobic core is the template's to say (a bead role of "tail"), because only the
+    # assignment knows it. A template that does not say is not refused here -- the criterion refuses when it has
+    # nothing to judge, which is the stage that actually needs the answer.
+    numbers['tail_beads'] = [str(bead.get('name')) for bead in record.beads
+                             if str(bead.get('role') or '').lower() == 'tail']
 
     # Every stage directory the contract names, so the run's plan and the executor's expectations agree before
     # anything runs. Stage 1 and the assessment phase get their scripts and inputs below; the stages whose scripts
     # are still to come say so instead of failing obscurely.
-    written = {STAGES[0].relative, STAGES[1].relative}
+    written = {STAGES[0].relative, STAGES[1].relative, STAGES[2].relative, STAGES[4].relative}
     for stage in STAGES:
         directory = run_dir / Path(stage.relative).parent
         directory.mkdir(parents=True, exist_ok=True)
         if stage.relative not in written:
             (directory / Path(stage.relative).name).write_text(
                 _UNWRITTEN_SCRIPT.format(label=stage.name))
+    # The two assessment stages run the same script over different inputs: the phase's own end state is what the
+    # criterion judges, so the phase is the difference, not the analysis.
+    for stage in (STAGES[2], STAGES[4]):
+        directory = run_dir / Path(stage.relative).parent
+        shutil.copy2(SCRIPTS / 'pdc_assess.sh', directory / Path(stage.relative).name)
+        shutil.copy2(SCRIPTS / 'pdc_assess.py', directory / 'pdc_assess.py')
 
     system = run_dir / Path(STAGES[0].relative).parent
     (system / 'protein.pdb').write_bytes(protein_path.read_bytes())

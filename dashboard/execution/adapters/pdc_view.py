@@ -16,7 +16,10 @@ BEAD_ELEMENT = 'C'
 
 
 def read_gro(path):
-    """The atoms of a GROMACS .gro: one `{'residue', 'name', 'position'}` per bead, in nanometres.
+    """The atoms of a GROMACS .gro: one `{'residue_id', 'residue', 'name', 'position'}` per bead, in nanometres.
+
+    The residue *number* comes back as well as the name, because a system with eight detergents has eight residues
+    all called `DDM` and the criterion has to tell them apart.
 
     A parser rather than a dependency: the viewer route should not import a trajectory library to draw a system, and
     the format is fixed-width and trivial to read.
@@ -35,9 +38,24 @@ def read_gro(path):
     for line in body:
         if len(line) < 44:
             raise ValueError(f'{path} has a truncated atom line: {line!r}')
-        atoms.append({'residue': line[5:10].strip(), 'name': line[10:15].strip(),
+        try:
+            residue_id = int(line[0:5])
+        except ValueError as exc:
+            raise ValueError(f'{path} has an unreadable residue number: {line!r}') from exc
+        atoms.append({'residue_id': residue_id, 'residue': line[5:10].strip(), 'name': line[10:15].strip(),
                       'position': [float(line[20:28]), float(line[28:36]), float(line[36:44])]})
     return atoms
+
+
+def read_gro_box(path) -> list[float]:
+    """A .gro's box vector, so a structure written from another one can keep its own box."""
+    lines = Path(path).read_text().splitlines()
+    if not lines:
+        raise ValueError(f'{path} is not a .gro file')
+    try:
+        return [float(value) for value in lines[-1].split()]
+    except ValueError as exc:
+        raise ValueError(f'{path} has an unreadable box line: {lines[-1]!r}') from exc
 
 
 def system_pdb(atoms, *, detergent_residue='DDM', include_water=False, title='PDC system'):

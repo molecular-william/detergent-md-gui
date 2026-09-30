@@ -115,9 +115,10 @@ def test_the_assessment_stage_has_every_input_it_declares(tmp_path):
 
 
 def test_the_stages_without_scripts_still_say_so(tmp_path):
+    """Stages 4 and 6 (the extension and the back-map) are the ones still to write."""
     run = prepared(tmp_path).parent
 
-    for stage in pdc.STAGES[2:]:
+    for stage in (pdc.STAGES[3], pdc.STAGES[5]):
         assert 'not written yet' in (run / stage.relative).read_text()
 
 
