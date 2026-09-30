@@ -10,7 +10,7 @@
     "LICENSE.txt": "the upstream licence"
   },
   "not_vendored": {
-    ".git/": "the upstream checkout, not this repository's to track",
+    ".git-upstream/": "the upstream checkout, renamed from `.git`: a nested `.git` makes git treat the whole directory as an embedded repository, so the parameter files could not be tracked at all. Renaming it preserves the checkout and its history; rename it back to `.git` to pull upstream updates.",
     ".DS_Store": "macOS metadata",
     "autobuild-lipid-properties.xlsx": "upstream working file",
     "Martini_lipid_Benchmark/": "upstream benchmark material",
