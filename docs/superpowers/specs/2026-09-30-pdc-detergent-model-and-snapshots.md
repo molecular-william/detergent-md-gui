@@ -121,10 +121,36 @@ The critical path avoids idling the run slot:
 6. *(Optional, later, when the slot is free)* DDM's AA reference, then `ff_map` + `ff_inter` to fit the same
    mapping's terms — the upgrade from borrowed to fitted parameters, distinguishable in the manifest.
 
-## 4. Open questions
+## 5. What the two references in `references/` support (read 2026-09-30)
+
+`acs.biochem.0c00183.pdf` — "How Do Branched Detergents Stabilize GPCRs in Micelles?" (Lee et al.) — is an
+**atomistic** (CHARMM) study of A2A/β2 adrenergic receptors in LMNG, DMNG, OGNG and DDM. It is not a parameter
+source for a Martini 3 build, and it is not used as one. What it does give:
+
+- **Scale.** A receptor-detergent complex there holds **192 DDM molecules** (96 for the branched detergents), built
+  with CHARMM-GUI and sampled as five 250 ns runs. Our `aggregation_number` default of 12 is a smoke-test number,
+  not a physical one, and the panel should say so rather than let a 12-detergent "micelle" read as a result.
+- **Vocabulary for judging packing.** They ask the question with *radial density profiles of the head and tail
+  groups*, the *eccentricity* of the complex, the *density of tail carbons within 4 Å of a receptor residue*, and
+  the *water density within 3.5 Å of the receptor*. Our §7 criterion is coarser than that on purpose (it is a
+  contact graph, and it is cheap enough to run on every frame), but these four are candidate additions to the
+  numbers a report carries, and they are what a reader would compare us against.
+
+`ct2c00757_si_001.pdf` — the supporting information of "Martini 3 Coarse-Grained Force Field for Carbohydrates"
+(Grünewald, Punt et al.) — is the source of the sugar parameters we already use (`martini_v3.0.0_sugars_v2.itp`),
+and it carries the entries our DDM head needs: `a-D-GLC`, `b-D-GLC`, and the note that the mapping's `TC4` central
+site is part of the model. A maltose head is two of those rings, which is the case our recognizer already handles
+(it is what the saved maltose candidate is), so the head's beads and bonded terms have a published source rather
+than an analogy.
+
+Neither reference decides anything in this note; both bound what a run of ours can be compared with.
+
+## 6. Open questions
 
 - **Scheduling:** no longer blocking. The detergent is assembled from Martini 3 building blocks, so the E3 chain
   keeps the run slot, and DDM's AA reference becomes an optional upgrade rather than a prerequisite.
 - **Cadence:** the 10 ns / 20-frame rule above is a first guess, recorded in the settings where it can be changed
   without touching a stage. The floor that matters is not the interval but that the initial state is always
   recorded, because that is the one a reader needs to judge the placement.
+- **Aggregation number:** the default is a smoke-test number. A real DDM complex is two orders of magnitude larger
+  (see §5), so a production-meaning setting belongs in the run record with its source, not in the defaults.
