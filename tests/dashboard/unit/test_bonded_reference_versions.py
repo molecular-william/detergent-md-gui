@@ -95,8 +95,14 @@ def test_a_term_whose_only_references_are_the_wrong_generation_falls_back_rather
     assert any('No exact reference bond' in line for line in answer['diagnostics'])
 
 
-def test_the_repositorys_own_ddm_draft_does_not_take_its_tail_from_martini_2(tmp_path):
-    """The measured case: the C1|C1 bond exists only in the Martini 2 files, so a Martini 3 derivation falls back."""
+def test_the_repositorys_own_ddm_tail_carries_a_martini_3_reference(tmp_path):
+    """The tail's bond comes from a reference, and demonstrably not from the Martini 2 detergent file.
+
+    This test used to pin the opposite: with only the sugar and MAD references in the tree, `C1|C1` matched nothing
+    and the tail fell back to placeholder constants. Adding the published Martini 3 lipid set gives that pair a
+    source, so what is pinned now is that the source is used -- and that the Martini 2 detergent's own values
+    (length 0.222-0.246 nm, force constant 30000) are still not what a Martini 3 mapping gets.
+    """
     candidate = tmp_path / 'candidate.json'
     candidate.write_text(json.dumps({
         'schema_version': 3, 'molecule_id': 'DDM', 'name': 'two tail beads', 'martini_version': 3,
@@ -109,6 +115,8 @@ def test_the_repositorys_own_ddm_draft_does_not_take_its_tail_from_martini_2(tmp
     draft = detergent_cg.derive(candidate, molecule_root, molecule_root.parent)
     bond = draft['topology'].split('[ bonds ]', 1)[1].strip().splitlines()[0].split()
 
-    assert float(bond[-1]) == 5000.0, 'the placeholder force constant, not the Martini 2 one'
-    assert float(bond[-2]) != 0.47, 'and not the Martini 2 bond length'
-    assert draft['fallback_terms'] == draft['terms'], 'a tail with no Martini 3 reference falls back entirely'
+    assert draft['reference_terms'] >= 1, 'the published Martini 3 lipid set gives this pair a source'
+    assert draft['fallback_terms'] < draft['terms'], 'so the tail is no longer all fallback'
+    assert float(bond[-1]) != 5000.0, 'not the placeholder force constant'
+    assert 0.221 < float(bond[-2]) < 0.60, f'the length is a Martini 3 one, not {bond[-2]}'
+    assert float(bond[-1]) != 30000.0, 'and not the Martini 2 detergent force constant'

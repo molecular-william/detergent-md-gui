@@ -16,12 +16,19 @@ from ..environment import ROOT, TUTORIAL_TEMPLATE
 from ..stages import Stage
 
 SCRIPTS = Path(__file__).resolve().parent.parent / 'scripts'
-# The coarse-grained force field a pdc topology has to carry. It is where the water and ion molecule types live --
-# `W`, `NA`, `CL` -- and without them `grompp` refuses a solvated system with an undefined molecule type. This is the
-# file `resources/forcefields/` holds and the one whose 204 molecule types actually include those three; the copy
-# under the tutorial template does not carry them under a name `grompp` resolves.
-FORCEFIELD_NAME = 'martini_v3.itp'
-FORCEFIELD_ROOT = ROOT / 'resources' / 'forcefields'
+# The coarse-grained parameters a pdc topology has to carry, from the published Martini 3 lipid set: the bead types
+# (which the detergent's own beads need defined), the solvents file that defines water as `W`, and the ions file that
+# defines `NA` and `CL`. Without them `grompp` refuses a solvated system with an undefined molecule type -- which is
+# exactly how the first run that reached solvation failed. The set is recorded by commit and DOI in every manifest.
+FORCEFIELD_ROOT = ROOT / 'references' / 'M3-Lipid-Parameters' / 'ITPs'
+FORCEFIELD_FILES = ('martini_v3.0.0.itp', 'martini_v3.0.0_solvents_v1.itp', 'martini_v3.0.0_ions_v1.itp')
+FORCEFIELD_SOURCE = {
+    'repository': 'https://github.com/Martini-Force-Field-Initiative/M3-Lipid-Parameters.git',
+    'commit': '2121527',
+    'doi': '10.1021/acscentsci.5c00755',
+    'citation': 'Pedersen et al., The Martini 3 Lipidome, ACS Central Science (2025)',
+    'license': 'Apache-2.0',
+}
 
 # The two files the system-preparation stage reads and writes. The adapter owns their names because the stage
 # script, the entry point and the tests all have to agree on them.
@@ -56,11 +63,11 @@ SETTING_SPECS = {
 # The protocol's own steps, named as stages so the executor, the manifest and the panel all speak the same words.
 STAGES = (
     Stage('System preparation', '1_system/prepare_system.sh',
-          ('protein.pdb', 'system_EMPTY.top', 'detergent.itp', FORCEFIELD_NAME),
+          ('protein.pdb', 'system_EMPTY.top', 'detergent.itp', *FORCEFIELD_FILES),
           ('system.gro', 'system.top', 'prepare_report.json')),
     Stage('CG assessment MD', '2_assessment/assessment.sh',
-          ('../1_system/system.gro', '../1_system/system.top', '../1_system/' + FORCEFIELD_NAME,
-           'assessment.mdp'),
+          ('../1_system/system.gro', '../1_system/system.top',
+           *('../1_system/' + name for name in FORCEFIELD_FILES), 'assessment.mdp'),
           ('prod/run.gro', 'prod/run.tpr', 'prod/run.xtc', 'prod/run.cpt')),
     Stage('Micelle assessment', '3_assessment/assess.sh',
           ('../2_assessment/prod/run.gro', '../2_assessment/prod/run.xtc'),
@@ -394,9 +401,14 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         shutil.copy2(SCRIPTS / 'pdc_snapshot.py', run_dir / Path(stage.relative).parent / 'pdc_snapshot.py')
 
     system = run_dir / Path(STAGES[0].relative).parent
-    forcefield = FORCEFIELD_ROOT / FORCEFIELD_NAME
-    if forcefield.is_file():
-        shutil.copy2(forcefield, system / FORCEFIELD_NAME)
+    forced = {}
+    for name in FORCEFIELD_FILES:
+        source = FORCEFIELD_ROOT / name
+        if not source.is_file():
+            continue
+        shutil.copy2(source, system / name)
+        forced[name] = {'sha256': files.sha256(source), 'bytes': source.stat().st_size}
+    numbers['force_field'] = {**FORCEFIELD_SOURCE, 'files': forced, 'root': str(FORCEFIELD_ROOT)}
     if protein_path is not None:
         (system / 'protein.pdb').write_bytes(protein_path.read_bytes())
     else:

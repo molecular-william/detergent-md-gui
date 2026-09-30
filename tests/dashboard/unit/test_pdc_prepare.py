@@ -263,24 +263,54 @@ def test_each_stage_copies_in_the_inputs_it_declares(tmp_path):
                     f'{stage.relative} declares {entry}, which is not in its directory when the run is prepared'
 
 
-def test_the_topologies_carry_the_force_field_that_defines_water_and_ions(tmp_path):
-    """`grompp` refused the solvated system because molecule type `W` was never defined anywhere."""
+def test_the_topologies_carry_the_published_set_that_defines_water_and_ions(tmp_path):
+    """`grompp` refused the solvated system because molecule type `W` was never defined anywhere.
+
+    The set is the published Martini 3 lipid one: the bead types the detergent's own beads need, the solvents file
+    that defines water as `W`, and the ions file that defines `NA` and `CL`. Each file is checked for what it is
+    there to provide, so a set that quietly lost its ions fails here rather than in a run's second stage.
+    """
     root = molecule_tree(tmp_path)
     pdc.prepare(tmp_path / 'run', template=TEMPLATE_PATH, settings={'seed': 1}, project_root=root)
 
     system = tmp_path / 'run' / '1_system'
-    assert (system / pdc.FORCEFIELD_NAME).is_file(), 'the run has to carry the force field its topology includes'
+    # Each file is here for something specific, and that is what is checked: the main file defines *bead types*
+    # (its `[ moleculetype ]` blocks are molecules, of which it has none), while the solvents and ions files define
+    # the molecules a solvated system lists.
+    beads, solvents, ions = pdc.FORCEFIELD_FILES
+    expectations = ((beads, 'bead', 'C1'), (solvents, 'molecule', 'W'),
+                    (ions, 'molecule', 'NA'), (ions, 'molecule', 'CL'))
 
     from dashboard.execution.scripts import pdc_build
 
     (system / 'det.itp').write_text('[ moleculetype ]\nDDM_CG 1\n')
     pdc_build.write_topologies(system, None, system / 'det.itp', 6)
+
     for name in ('system.top', 'system_EMPTY.top'):
         text = (system / name).read_text()
-        assert f'#include "{pdc.FORCEFIELD_NAME}"' in text, f'{name} does not include the force field'
+        for forcefield in pdc.FORCEFIELD_FILES:
+            assert f'#include "{forcefield}"' in text, f'{name} does not include {forcefield}'
 
-    # And the include resolves to a file that defines what the solvated system lists.
-    text = (system / pdc.FORCEFIELD_NAME).read_text(errors='replace')
-    for molecule in ('W', 'NA', 'CL'):
-        assert re.search(r'\[\s*moleculetype\s*\](?:\s*;[^\n]*\n|\s*\n)*\s*' + molecule + r'\b', text), \
-            f'the force field does not define {molecule}'
+    for forcefield, kind, name in expectations:
+        assert (system / forcefield).is_file(), f'the run has to carry {forcefield}'
+        text = (system / forcefield).read_text(errors='replace')
+        if kind == 'molecule':
+            pattern = r'\[\s*moleculetype\s*\](?:\s*;[^\n]*\n|\s*\n)*\s*' + name + r'\b'
+        else:
+            pattern = r'^\s*' + name + r'\s+\S+\s+1\s'
+        assert re.search(pattern, text, re.M), f'{forcefield} does not define {kind} {name}'
+
+
+def test_the_run_records_where_its_parameters_came_from(tmp_path):
+    """Provenance is the point of using a published set: a run names its version, not just its files."""
+    root = molecule_tree(tmp_path)
+    pdc.prepare(tmp_path / 'run', template=TEMPLATE_PATH, settings={'seed': 1}, project_root=root)
+
+    recorded = json.loads((tmp_path / 'run' / '1_system' / 'pdc-settings.json').read_text())['detergent_model']
+    force_field = json.loads((tmp_path / 'run' / '1_system' / 'pdc-settings.json').read_text())['force_field']
+
+    assert force_field['doi'] == '10.1021/acscentsci.5c00755'
+    assert force_field['commit'] and force_field['repository'].startswith('https://github.com/')
+    assert set(force_field['files']) == set(pdc.FORCEFIELD_FILES)
+    assert all(entry['sha256'] and entry['bytes'] > 0 for entry in force_field['files'].values())
+    assert recorded['mapping'] is None or 'mapping' in recorded

@@ -29,7 +29,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from dashboard.execution.adapters import pdc_box, pdc_placement, pdc_protein, pdc_view
+from dashboard.execution.adapters import pdc, pdc_box, pdc_placement, pdc_protein, pdc_view
 from dashboard.execution.adapters.pdc import DETERGENT_GEOMETRY, DETERGENT_TOPOLOGY, REPORT_NAME, SETTINGS_NAME
 from micelle import output as micelle_output
 from micelle import registry as micelle_registry
@@ -134,9 +134,10 @@ def molecule_name(topology_text: str) -> str:
     raise SystemExit('a topology without a [ moleculetype ] name cannot be listed in [ molecules ]')
 
 
-# What every topology this stage writes includes: the force field, which is where the water and ion molecule types
-# live. Without it `grompp` refuses the solvated system, because `W` is undefined.
-_INCLUDES = '#include "martini_v3.itp"\n'
+# What every topology this stage writes includes: the published Martini 3 lipid set, which is where the bead types,
+# the water molecule type and the ion molecule types all live. Without them `grompp` refuses the solvated system,
+# because `W` is undefined. The names come from the adapter, so the two cannot drift apart.
+_INCLUDES = ''.join(f'#include "{name}"\n' for name in pdc.FORCEFIELD_FILES)
 
 
 def write_topologies(stage: Path, protein_itp: Path | None, detergent_itp: Path | None, detergents: int) -> dict:
