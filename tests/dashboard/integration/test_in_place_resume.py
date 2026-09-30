@@ -207,7 +207,11 @@ def test_resume_admission_preserves_terminal_run_on_rejection(resume_service, mo
     if blocker == 'analysis': owner.ANALYSIS_WORKERS[(job['id'], 'analysis')] = owner.Worker()
     if blocker == 'external': lease = owner.lease(root/'.worker.lock')
     if blocker == 'consumer': owner.database().insert_many([{'id': '222222222222', 'reference_run_id': job['id'], 'status': 'completed'}])
-    if blocker == 'capacity': owner.WORKERS['222222222222'] = owner.Worker()
+    if blocker == 'capacity':
+        # State the capacity this case is about rather than inheriting the project's: the point is a full house,
+        # and how many runs make a house full is the config's business, not this test's.
+        monkeypatch.setattr(owner, 'limits', lambda: dict(resources.DEFAULTS, max_concurrent_runs=1))
+        owner.WORKERS['222222222222'] = owner.Worker()
     if blocker == 'quota': monkeypatch.setattr(owner, 'limits', lambda: dict(resources.DEFAULTS, max_run_bytes=1))
     before = files.hashes(root)
     try:

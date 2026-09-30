@@ -314,3 +314,29 @@ def test_the_run_records_where_its_parameters_came_from(tmp_path):
     assert set(force_field['files']) == set(pdc.FORCEFIELD_FILES)
     assert all(entry['sha256'] and entry['bytes'] > 0 for entry in force_field['files'].values())
     assert recorded['mapping'] is None or 'mapping' in recorded
+
+
+def test_a_stage_that_runs_grompp_gets_every_include_of_its_topology(tmp_path):
+    """`grompp` reads the topology's includes from the stage directory, so each one has to be there.
+
+    Stage 1 writes `system.top`, which includes the detergent's own CG topology and the force field; the stage that
+    solvates it edits a copy in its own directory, and grompp resolves the includes beside that copy. The detergent
+    topology is produced by stage 1 rather than by the preparation, which is why it has to be declared.
+    """
+    root = molecule_tree(tmp_path)
+    pdc.prepare(tmp_path / 'run', template=TEMPLATE_PATH, settings={'seed': 1}, project_root=root)
+
+    from dashboard.execution.scripts import pdc_build
+
+    system = tmp_path / 'run' / '1_system'
+    detergent = system / pdc.DETERGENT_TOPOLOGY
+    detergent.write_text('[ moleculetype ]\nDDM_CG 1\n')
+    pdc_build.write_topologies(system, None, detergent, 6)
+    includes = re.findall(r'#include "([^"]+)"', (system / 'system.top').read_text())
+
+    for stage in (pdc.STAGES[1], pdc.STAGES[3]):
+        declared = {str(entry).split('/')[-1] for entry in stage.inputs}
+        copied = (tmp_path / 'run' / stage.relative).read_text()
+        for include in includes:
+            assert include in declared or include in copied, \
+                f'{stage.relative} runs grompp on a topology including {include}, which is neither declared nor copied'
