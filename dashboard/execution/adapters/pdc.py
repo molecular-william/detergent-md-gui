@@ -277,18 +277,20 @@ def _empty_topology() -> str:
             '[ molecules ]\n')
 
 
-def _stamp_interpreter(script):
-    """Point a copied stage script at the interpreter this application runs under.
+def _stamp_interpreter(script, root):
+    """Point a copied stage script at the interpreter this application runs under, and at this repository.
 
-    `python` on PATH is a different interpreter, and the one that carries this repository is this one -- so a copied
-    script that says `python` dies with `No module named 'dashboard'` after the tools have been resolved and before
-    anything is built. The generated stage-1 script already names the interpreter; this is the same choice for the
-    scripts written by hand.
+    Two things the generated stage-1 script does and the scripts written by hand did not. `python` on PATH is a
+    different interpreter, and the one carrying this repository is this one. And a stage script runs from its own
+    directory, so the repository is not on the import path: stage 1 sets PYTHONPATH, and without it the first import
+    of `dashboard` fails after the tools have been resolved and before anything is built.
     """
     text = script.read_text()
     if not text.startswith('#!'):
         return
     rewritten = re.sub(r'(?m)^(\s*)python(?=\s|$)', lambda match: f'{match.group(1)}{sys.executable}', text)
+    if 'PYTHONPATH=' not in rewritten:
+        rewritten = rewritten.replace('\nset -', f'\nexport PYTHONPATH={root}${{PYTHONPATH:+:$PYTHONPATH}}\nset -', 1)
     if rewritten != text:
         script.write_text(rewritten)
 
@@ -397,7 +399,7 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
                                 else {'path': name, 'ready': False,
                                       'detail': 'not declared or not executable'})
     for script in sorted(run_dir.glob('*/*.sh')):
-        _stamp_interpreter(script)
+        _stamp_interpreter(script, root)
     # The record is merged into whatever the coordinator already wrote rather than replacing it: a run's manifest
     # carries the executor's own keys -- the stage ledger above all -- and replacing the file left the worker reading
     # a manifest with no `stages`, which failed the run with a KeyError instead of a build.
