@@ -9,6 +9,7 @@ import { createMappingValidation } from './mapping-validation.js';
 const runs = createRuns({
   onClone: source => newRun.cloneRun(source),
   onDeleted: id => newRun.clearDeletedClone(id),
+  onValidate: id => { selectTab('validation'); return validation.open(id); },
 });
 const newRun = createNewRun({
   selectTab,

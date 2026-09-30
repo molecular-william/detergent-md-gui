@@ -4,7 +4,7 @@ import { RunFigureViewer } from './figures.js';
 import { renderDistanceDiagnostics } from './runs-diagnostics.js';
 
 // Owns run cards, filtering, artifact loading, and polling. Form changes are callbacks.
-export function createRuns({ onClone, onDeleted }) {
+export function createRuns({ onClone, onDeleted, onValidate }) {
   function setRunView(view) {
     const selected = ['table', 'grouped', 'dense'].includes(view) ? view : 'table';
     $('#runs').dataset.view = selected;
@@ -57,6 +57,11 @@ export function createRuns({ onClone, onDeleted }) {
             await onClone(source);
           } catch(error) { notice(error.message); }
         };
+        // A completed coarse-grained run is the only run the comparison can be read from, so that is where the
+        // panel is offered from. Whether a comparison was actually published is the panel's own answer to give.
+        const validate = $('.job-validate', card);
+        validate.hidden = !(job.run_type === 'aa_cg' && job.status === 'completed');
+        validate.onclick = () => { try { onValidate(job.id); } catch (error) { notice(error.message); } };
         $('.job-resume',card).onclick = async () => {
           try { await post(`/api/jobs/${job.id}/resume`,{stage:$('.resume-stage',card).value}); notice('Run resumed; current stage files will be executed.'); await refreshJobs(); }
           catch(error) { notice(error.message); }

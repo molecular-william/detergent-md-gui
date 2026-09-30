@@ -28,6 +28,7 @@
 .validation-claim{background:#fce9eb;color:var(--danger);font-weight:650}
 .validation-selectors .toolbar{align-items:flex-end}
 .validation-selectors label{min-width:22rem}
+.validation-plot{min-height:16rem}
 .mapping-editor-controls table{margin:0;table-layout:fixed;min-width:31rem}
 .mapping-editor-controls caption{padding:10px 12px;margin:0;background:#f3f6fa}
 .mapping-editor-controls td,.mapping-editor-controls th{padding:8px 6px}

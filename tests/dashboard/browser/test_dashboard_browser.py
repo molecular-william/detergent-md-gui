@@ -143,7 +143,12 @@ def test_mapping_editor_clear_all_removes_local_assignments(live_page):
     page.goto(f'{live_page.base_url}/#mappings')
     page.get_by_role('tab', name='CG mappings', exact=True).click()
     page.locator('#generate-automatic').click()
-    page.locator('#mapping-bead-rows tr').first.wait_for(timeout=30000)
+    # The recogniser runs in the server, and this wait is the tier's one load-sensitive step: 60 s covers
+    # moderate contention, and while a 200 ns atomistic run owns eight threads even that is not always enough,
+    # in which case this test needs an idle machine. (It passes in 4 s in isolation.) Making it independent of
+    # the recogniser means stubbing `generate_baseline` with a candidate the editor accepts, which is its own
+    # small piece of work rather than a timeout to keep raising.
+    page.locator('#mapping-bead-rows tr').first.wait_for(timeout=60000)
     expect(page.locator('#mapping-bead-rows tr')).not_to_have_count(0)
     page.on('dialog', lambda dialog: dialog.accept())
     page.locator('#clear-all-mapping').click()

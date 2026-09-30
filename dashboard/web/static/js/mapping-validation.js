@@ -61,6 +61,31 @@ function termRows(comparison) {
   }).join('');
 }
 
+function drawDisplacement(host, shape) {
+  // Per bead, in picometres: the comparison publishes nanometres, and at 4 pm an axis in nanometres reads as
+  // zero. The beads the rigid-body fit used are filled, so a reader can see which numbers the fit rests on.
+  if (!host) return;
+  const beads = (shape && shape.per_bead) || [];
+  if (!beads.length || typeof window.Plotly === 'undefined') {
+    host.textContent = 'The per-bead displacement is not in this comparison.';
+    return;
+  }
+  const labels = beads.map(entry => `(${entry.bead?.[0]},${entry.bead?.[1]})`);
+  const values = beads.map(entry => Number(entry.displacement_nm) * 1000);
+  const fitted = new Set((shape.fit_beads || []).map(bead => `(${bead[0]},${bead[1]})`));
+  window.Plotly.react(host, [{
+    type: 'bar', x: labels, y: values,
+    marker: { color: labels.map(label => (fitted.has(label) ? '#2455b0' : '#b9c6d8')) },
+    text: values.map(value => value.toFixed(1)), textposition: 'outside', cliponaxis: false,
+    hovertemplate: '%{x}: %{y:.2f} pm<extra></extra>',
+  }], {
+    margin: { l: 56, r: 12, t: 8, b: 44 }, height: 260, bargap: 0.35,
+    yaxis: { title: { text: 'displacement (pm)', font: { size: 11 } }, rangemode: 'tozero' },
+    xaxis: { title: { text: 'bead', font: { size: 11 } }, tickangle: 0 },
+    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+  }, { displayModeBar: false, responsive: true });
+}
+
 export function createMappingValidation({ request = api } = {}) {
   let mounted = false;
 
@@ -100,8 +125,10 @@ export function createMappingValidation({ request = api } = {}) {
     $('#validation-shape-detail').textContent = Number.isFinite(Number(shape.rmsd_nm))
       ? `Fitted on the beads that own atoms: rmsd ${Number(shape.rmsd_nm).toFixed(4)} nm, `
         + `max ${Number(shape.max_nm).toFixed(4)} nm over ${shape.aa_frames} AA and ${shape.cg_frames} CG frames. `
-        + 'Per-bead picture and Connolly surfaces come from the run’s own shape analysis.'
+        + 'The fitted beads are filled; the others are carried for completeness. The Connolly surfaces are a '
+        + 'separate analysis on this run, and are not drawn here.'
       : 'The run’s shape analysis has not been published.';
+    drawDisplacement($('#validation-shape-plot'), shape);
     $('#validation-interpretation').textContent = comparison.interpretation
       || 'Every comparison here is against our own atomistic reference.';
   }
@@ -154,5 +181,14 @@ export function createMappingValidation({ request = api } = {}) {
     mounted = true;
   }
 
-  return { mount };
+  async function open(runId) {
+    await mount();
+    const select = $('#validation-run');
+    if (runId && select && [...select.options].some(option => option.value === runId)) {
+      select.value = runId;
+      await load();
+    }
+  }
+
+  return { mount, open };
 }
