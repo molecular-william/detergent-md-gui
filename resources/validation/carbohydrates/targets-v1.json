@@ -1,37 +1,61 @@
 {
   "schema_version": 1,
   "source": {
-    "citation": "Grunewald et al., J. Chem. Theory Comput. 2022, DOI: 10.1021/acs.jctc.2c00757",
-    "note": "Metadata-only until molecule-specific experimental values and uncertainties are entered from the cited source. Evidence runs remain blocked while targets are unavailable."
+    "citation": "Grunewald et al., J. Chem. Theory Comput. 2022, DOI: 10.1021/acs.jctc.2c00757, Table S2 (Experimental partitioning coefficients)",
+    "note": "Glucose and Trehalose carry the values the cited table reports, with the table's own standard deviations over n = 3. Sucrose and Maltose appear nowhere in that table, so their datasets stay metadata-only: they need an experimental water-octanol partitioning source of their own, and no uncertainty has been invented for them. Table S2's Exp column is a partition free energy in kJ/mol and equals 5.708 x logP for every row in it (checked against all eleven), so the unit and the convention are the table's rather than an interpretation of ours."
   },
   "datasets": [
     {
       "id": "glucose-martini3-paper-v1",
       "molecule_id": "Glucose",
       "citation": "10.1021/acs.jctc.2c00757",
-      "availability": "metadata_only",
-      "targets": []
+      "availability": "measured",
+      "targets": [
+        {
+          "id": "glucose-water-octanol-partition-free-energy",
+          "kind": "partition_free_energy",
+          "name": "D-glucose, water-octanol partition free energy",
+          "value": -17.81,
+          "uncertainty": 0.57,
+          "unit": "kJ/mol",
+          "conditions": "25 C, water-octanol; Table S2's Exp column, which equals 5.708 x logP with logP = -3.12; uncertainty is the table's SD over n = 3",
+          "citation": "10.1021/acs.jctc.2c00757, Table S2 (D-glucose, GLC)"
+        }
+      ]
     },
     {
       "id": "sucrose-martini3-paper-v1",
       "molecule_id": "Sucrose",
       "citation": "10.1021/acs.jctc.2c00757",
       "availability": "metadata_only",
-      "targets": []
+      "targets": [],
+      "missing": "Sucrose is not a row in the cited table; a water-octanol partitioning measurement with a stated uncertainty is needed, as Trehalose's row has (it cites 10.1016/j.carres.2004.12.038 for its logP)."
     },
     {
       "id": "trehalose-martini3-paper-v1",
       "molecule_id": "Trehalose",
       "citation": "10.1021/acs.jctc.2c00757",
-      "availability": "metadata_only",
-      "targets": []
+      "availability": "measured",
+      "targets": [
+        {
+          "id": "trehalose-water-octanol-partition-free-energy",
+          "kind": "partition_free_energy",
+          "name": "Trehalose, water-octanol partition free energy",
+          "value": -21.52,
+          "uncertainty": 0.29,
+          "unit": "kJ/mol",
+          "conditions": "25 C, water-octanol; Table S2's Exp column, which equals 5.708 x logP with logP = -3.77 (that logP is taken from 10.1016/j.carres.2004.12.038); uncertainty is the table's SD over n = 3",
+          "citation": "10.1021/acs.jctc.2c00757, Table S2 (Trehalose, TREH)"
+        }
+      ]
     },
     {
       "id": "maltose-pilot-v1",
       "molecule_id": "Maltose",
       "citation": "10.1021/acs.jctc.2c00757",
       "availability": "metadata_only",
-      "targets": []
+      "targets": [],
+      "missing": "Maltose appears nowhere in the cited table (nor in its supporting information), so it needs its own experimental source, matched to the same quantity and temperature."
     }
   ]
 }
