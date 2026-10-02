@@ -134,3 +134,30 @@ def test_each_frame_is_dumped_judged_and_indexed(tmp_path, monkeypatch):
     document = json.loads((stage / pdc_snapshot.INDEX_NAME).read_text())
     assert len(document['snapshots']) == 3
     assert (stage / 'snapshots' / 'assessment_20ps.pdb').is_file()
+
+
+def test_a_phase_shorter_than_the_cadence_still_records_its_start(tmp_path, monkeypatch):
+    """The note's rule: the initial state is always recorded.
+
+    Measured: a 2 ns assessment on a 20 ns cadence sampled no moment at all, so the phase wrote no picture and said
+    so only by recording a zero. A phase that ends before its first cadence moment still has a beginning, and the
+    stage writes that frame just before asking for the series.
+    """
+    stage = tmp_path / 'stage'
+    (stage / 'prod').mkdir(parents=True)
+    gro_file(stage / 'prod' / 'start.gro', [(1, 'DDM', 'B01', (0.0, 0.0, 0.0)),
+                                            (1, 'DDM', 'B02', (0.47, 0.0, 0.0))])
+
+    verdict = {'verdict': 'in_micelle', 'largest_cluster': 6, 'aggregation_number': 6,
+               'fraction_of_requested': 1.0, 'protein_contact_count': 0, 'reasons': []}
+    monkeypatch.setattr('dashboard.execution.scripts.pdc_assess.judge',
+                        lambda structure, settings: {'verdict': verdict, 'detergent_residue': 'DDM'})
+
+    settings = {'assessment_ns': 2, 'extension_ns': 2, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20}
+    records = pdc_snapshot.frames(stage, stage / 'prod' / 'whole.xtc', stage / 'prod' / 'run.tpr',
+                                  settings, phase='assessment')
+
+    assert [record['name'] for record in records] == ['assessment_start']
+    assert records[0]['time_ps'] == 0.0
+    assert records[0]['verdict']['verdict'] == 'in_micelle', 'the start is judged like any other frame'
+    assert (stage / 'snapshots' / 'assessment_start.pdb').is_file()

@@ -74,6 +74,24 @@ def frames(stage: Path, trajectory: Path, tpr: Path, settings: dict, *, phase: s
                                                  'fraction_of_requested': verdict['fraction_of_requested'],
                                                  'protein_contact_count': verdict['protein_contact_count'],
                                                  'reasons': verdict['reasons']}))
+    if not records:
+        # The design note's rule: the initial state is always recorded. A phase shorter than the cadence samples no
+        # moment at all -- a 2 ns assessment on a 20 ns interval samples nothing -- and a phase with no picture in it
+        # is indistinguishable from one whose series was never wired up. The stage writes its start frame just
+        # before calling this, so that frame is the picture.
+        start = Path(stage) / 'prod' / 'start.gro'
+        if start.is_file():
+            judged = pdc_assess.judge(start, settings)
+            verdict = judged['verdict']
+            records.append(write_snapshot(stage, f'{phase}_start', start, time_ps=0.0,
+                                          detergent_residue=judged['detergent_residue'],
+                                          title=f'{phase} start (shorter than the {settings.get("snapshot_interval_ns")} ns cadence)',
+                                          criterion={'verdict': verdict['verdict'],
+                                                     'largest_cluster': verdict['largest_cluster'],
+                                                     'aggregation_number': verdict['aggregation_number'],
+                                                     'fraction_of_requested': verdict['fraction_of_requested'],
+                                                     'protein_contact_count': verdict['protein_contact_count'],
+                                                     'reasons': verdict['reasons']}))
     return records
 
 
