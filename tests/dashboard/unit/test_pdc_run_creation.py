@@ -23,3 +23,35 @@ def test_a_pdc_payload_keeps_its_run_type_and_plan(tmp_path):
     assert job['run_type'] == 'pdc'
     assert job['stage_plan'] == [stage.name for stage in PDC_STAGES]
     assert job['template'] == 'molecules/DDM/micelle_template.json'
+
+
+def test_the_panel_can_read_what_a_complex_build_needs_before_it_queues_one(tmp_path):
+    """`GET /api/readiness?run_type=pdc` answers the shape every other run type answers with.
+
+    The panel reads it before the POST, so a build that cannot start says why in the panel rather than in a run that
+    dies at stage one. An empty micelle is a stated choice, so a missing protein is an absence, not a blocker.
+    """
+    app = create_app(Paths(workspace=tmp_path / 'pdc-readiness'), {'TESTING': True, 'DISABLE_COORDINATOR': True})
+    client = app.test_client()
+
+    response = client.get('/api/readiness', query_string={
+        'run_type': 'pdc', 'template': 'molecules/DDM/micelle_template.json', 'protein': ''})
+
+    assert response.status_code == 200, response.get_data(as_text=True)
+    payload = response.json
+    assert payload['ready'] is True, payload['blockers']
+    labels = {check['label']: check for check in payload['checks']}
+    assert labels['Protein']['ready'] is True
+    assert 'no protein by choice' in labels['Protein']['detail']
+    assert labels['Detergent template']['ready'] is True
+
+
+def test_a_complex_build_with_no_template_is_not_ready_and_says_so(tmp_path):
+    app = create_app(Paths(workspace=tmp_path / 'pdc-readiness-empty'), {'TESTING': True, 'DISABLE_COORDINATOR': True})
+    client = app.test_client()
+
+    response = client.get('/api/readiness', query_string={'run_type': 'pdc'})
+
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert response.json['ready'] is False
+    assert any('Detergent template' in blocker for blocker in response.json['blockers'])

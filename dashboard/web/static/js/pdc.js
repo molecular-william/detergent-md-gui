@@ -5,6 +5,7 @@ export function createPdc() {
   const status = $('#pdc-panel-status'), limitation = $('#pdc-template-limitation');
   const viewer = $('#pdc-viewer'), viewerBasis = $('#pdc-view-basis');
   const strip = $('#pdc-snapshots'), stripBasis = $('#pdc-snapshot-basis');
+  const mapping = $('#pdc-mapping'), queue = $('#pdc-queue');
   let catalog = null, currentRun = null;
 
   function fill(select, values, label) {
@@ -28,11 +29,75 @@ export function createPdc() {
     // An empty micelle is in scope, so the protein list leads with the absence of one.
     fill(protein, [{id: '', name: 'No protein (empty micelle)'}, ...catalog.proteins], item => item.name);
     describe();
+    // After the catalogue, because the mapping list follows the chosen template's molecule.
+    loadMappings();
+  }
+
+  function chosenTemplate() {
+    return (catalog?.templates || []).find(item => item.id === template.value) || null;
+  }
+
+  async function loadMappings() {
+    // A build is made of a mapping: the beads a candidate saved from the bead-assignment editor. The list follows the
+    // template's molecule, because a mapping is a mapping *of* something, and the panel should not offer another
+    // molecule's beads.
+    if (!mapping) return;
+    const molecule = chosenTemplate()?.molecule || '';
+    mapping.replaceChildren(new Option('Looking for saved mappings…', ''));
+    if (queue) queue.disabled = true;
+    try {
+      const payload = await (await fetch(`/api/mappings?molecule_id=${encodeURIComponent(molecule)}`)).json();
+      const candidates = payload.candidates || [];
+      // The label is the candidate's own name; the value is the file the coordinator resolves a build against.
+      mapping.replaceChildren(...(candidates.length ? candidates : [{name: 'No saved mapping for this molecule'}])
+        .map(item => new Option(item.name, item.file || item.name)));
+      if (queue) queue.disabled = !candidates.length;
+    } catch (error) {
+      mapping.replaceChildren(new Option('The mapping list could not be read', ''));
+    }
+  }
+
+  async function queueBuild() {
+    // Readiness is read before the POST, so a build that cannot start says why here rather than in a run that dies at
+    // stage one. The settings are the catalogue's own defaults: the same ones the pipeline is prepared with.
+    const chosen = chosenTemplate();
+    if (!chosen || !mapping?.value) return;
+    if (status) status.textContent = 'Reading what this build needs…';
+    const query = new URLSearchParams({run_type: 'pdc', template: chosen.template, protein: protein?.value || ''});
+    let ready = {};
+    try {
+      ready = await (await fetch(`/api/readiness?${query}`)).json();
+    } catch (error) {
+      if (status) status.textContent = 'The readiness check could not be read.';
+      return;
+    }
+    if (!ready.ready) {
+      if (status) status.textContent = `Not ready: ${(ready.blockers || []).join('; ')}`;
+      return;
+    }
+    if (status) status.textContent = 'Queueing the build…';
+    const payload = {...(catalog?.defaults || {}), molecule_id: chosen.molecule, run_type: 'pdc', method: 'bartender',
+                     template: chosen.template, mapping_candidate: mapping.value,
+                     protein_free: !(protein?.value || '')};
+    let response, body = {};
+    try {
+      response = await fetch('/api/jobs', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                           body: JSON.stringify(payload)});
+      body = await response.json().catch(() => ({}));
+    } catch (error) {
+      if (status) status.textContent = 'The build could not be queued: the coordinator did not answer.';
+      return;
+    }
+    if (status) status.textContent = response.ok
+      ? `Queued ${body.id || body.job?.id || 'a run'} — it appears in Single Molecule Simulations as it runs.`
+      : `That build was refused: ${body.message || body.error || response.status}`;
   }
 
   template?.addEventListener('change', describe);
   template?.addEventListener('change', loadSystem);
+  template?.addEventListener('change', loadMappings);
   protein?.addEventListener('change', loadSystem);
+  queue?.addEventListener('click', queueBuild);
 
   function stage() {
     // Created on first use: NGL sizes itself to its host element, and the host is sized for it in pdc.css.

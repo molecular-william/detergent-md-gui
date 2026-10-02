@@ -109,8 +109,10 @@ topology (`ff_inter`), CG simulation, CG assessment (`ff_assess`), and SASA
 analysis.
 
 Every stage records start/end time, command, environment, inputs, outputs,
-exit code, and log path. Runs terminate as `complete`, `failed`, `cancelled`,
-or `blocked`.
+exit code, and log path. A stage with nothing to do records `skipped` -- exit 4,
+with its reason in `skip.json` beside the script -- and the run carries on to the
+next stage; nothing was attempted and nothing is owed. Runs terminate as
+`complete`, `failed`, `cancelled`, or `blocked`.
 
 ## Do not
 

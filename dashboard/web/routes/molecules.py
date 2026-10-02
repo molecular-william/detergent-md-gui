@@ -81,6 +81,14 @@ def _with_force_fields(result):
 def readiness_api():
     c = coordinator()
     run_type=request.args.get('run_type')
+    if run_type == 'pdc':
+        # The complex panel reads this before it queues a build, so a build that cannot start says why in the panel
+        # rather than in a run that dies at stage one. An empty micelle is a stated choice, so a missing protein is
+        # reported as an absence rather than a blocker.
+        from ...execution.adapters import pdc
+        return jsonify(pdc.readiness(protein=request.args.get('protein') or None,
+                                     template=request.args.get('template') or None,
+                                     project_root=c.ROOT))
     if run_type == 'cg_composition':
         from ...execution.adapters.composition import readiness
         composition_id = request.args.get('composition_id')
