@@ -16,7 +16,8 @@ set -euxo pipefail
 # than a command: it reads the assessment's own removal record and the run's settings and does the one they imply.
 python pdc_extension.py --settings ../1_system/pdc-settings.json --stage . \
   --assessment ../3_assessment --assessment-stage ../2_assessment
-printf 'System\n' | gmx trjconv -f prod/run.xtc -s prod/run.tpr -pbc mol -center -o prod/whole.xtc
+# `-center` asks twice: the group to centre on, then the group to write. One answer reads EOF on the second.
+printf 'System\nSystem\n' | gmx trjconv -f prod/run.xtc -s prod/run.tpr -pbc mol -center -o prod/whole.xtc
 
 # The same series for the extension phase, judged by the same function: the two phases' frames are comparable
 # because nothing about the sampling or the criterion changes between them.

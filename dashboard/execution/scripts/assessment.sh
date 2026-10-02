@@ -27,7 +27,9 @@ ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm prod/run ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 
 
 # The trajectory is written molecule-whole below, because the criterion and the viewer both need molecules that
 # have not been broken at periodic boundaries, and reading them back whole is what makes a snapshot reproducible.
-printf 'System\n' | gmx trjconv -f prod/run.xtc -s prod/run.tpr -pbc mol -center -o prod/whole.xtc
+# Two answers, not one: `-center` asks which group to centre on and then which group to write, and a single answer
+# leaves the second prompt reading EOF -- "Fatal error: Cannot read from input" -- after the MD has already run.
+printf 'System\nSystem\n' | gmx trjconv -f prod/run.xtc -s prod/run.tpr -pbc mol -center -o prod/whole.xtc
 printf 'System\n' | gmx trjconv -f prod/whole.xtc -s prod/run.tpr -dump 0 -o prod/start.gro
 
 # The series through the phase: the frames and, with each one, the numbers the criterion gives at that moment.
