@@ -385,6 +385,7 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     # nothing to judge, which is the stage that actually needs the answer.
     numbers['tail_beads'] = [str(bead.get('name')) for bead in record.beads
                              if str(bead.get('role') or '').lower() == 'tail']
+    numbers['tail_beads_source'] = 'the template, from its bead roles'
 
     # Every stage directory the contract names, and every one gets its script. The map is explicit because two
     # stage file names are not the name of a file in `scripts/`: stage 1's script is generated below, and both
@@ -419,6 +420,7 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     # The detergent's coarse-grained model, derived from the run's own mapping: the topology the system will include
     # and the bead geometry the placement stamps. A build without a mapping is recorded as centres-only.
     model = {'mapping': None, 'terms': 0, 'reference_terms': 0, 'fallback_terms': 0}
+    mapping_tail_beads = []
     if mapping is not None:
         from ...models.mappings import store
         from ...models.molecules import detergent_cg
@@ -436,7 +438,18 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         model = {'mapping': str(source), 'residue': draft['residue'], 'beads': len(draft['beads']),
                  'terms': draft['terms'], 'reference_terms': draft['reference_terms'],
                  'fallback_terms': draft['fallback_terms']}
+        # The mapping answers for itself when the template cannot: a bead of the aliphatic carbon series is a tail
+        # bead, and the sugar and polar series are not. This is what lets the criterion judge a run whose template is
+        # still the skeleton -- one bead, no roles -- instead of refusing it.
+        mapping_tail_beads = [str(bead['name']) for bead in draft.get('beads', [])
+                              if re.fullmatch(r'C[1-5][a-z]?', str(bead.get('type') or ''))]
     numbers['detergent_model'] = model
+    if not numbers['tail_beads'] and mapping_tail_beads:
+        # The template is the long-term home for this, but the skeleton names no roles: the run's own mapping answers
+        # instead, and the settings record which source was used so a reader knows what the criterion was told.
+        numbers['tail_beads'] = mapping_tail_beads
+        numbers['tail_beads_source'] = ("the run's own mapping: beads of the aliphatic carbon series, because the "
+                                        'template names no tail roles')
     (system / SETTINGS_NAME).write_text(json.dumps(
         {'project_root': str(root), 'protein': str(protein) if protein else '', 'template': str(template),
          **numbers},

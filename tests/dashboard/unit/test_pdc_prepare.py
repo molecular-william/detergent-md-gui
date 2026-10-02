@@ -340,3 +340,43 @@ def test_a_stage_that_runs_grompp_gets_every_include_of_its_topology(tmp_path):
         for include in includes:
             assert include in declared or include in copied, \
                 f'{stage.relative} runs grompp on a topology including {include}, which is neither declared nor copied'
+
+
+def test_the_mapping_answers_for_the_tail_when_the_template_names_none(tmp_path):
+    """The criterion refuses a run that names no tail beads, and the skeleton template names none.
+
+    Measured: a prepared run reached production and then stopped at "the run records no tail beads, so the criterion
+    cannot tell a micelle from a crowd". The template is a placeholder -- one bead, no roles -- while the run's own
+    mapping does know the tail, so the mapping answers and the settings say which source was used.
+    """
+    # The repository's own DDM is a tracked asset with a real topology; the mapping is the record the test builds.
+    root = Path(__file__).resolve().parents[3]
+    candidate = tmp_path / 'candidate.json'
+    candidate.write_text(json.dumps({
+        'schema_version': 3, 'molecule_id': 'DDM', 'name': 'a sugar bead and a tail bead', 'martini_version': 3,
+        'beads': [{'name': 'S1A', 'type': 'SP1r', 'atoms': [1, 2]},
+                  {'name': 'TAIL1', 'type': 'C1', 'atoms': [3, 4]},
+                  {'name': 'TAIL2', 'type': 'C1', 'atoms': [5, 6]}],
+        'connections': [['S1A', 'TAIL1'], ['TAIL1', 'TAIL2']]}))
+
+    pdc.prepare(tmp_path / 'run', template=TEMPLATE_PATH, settings={'seed': 1}, project_root=root,
+                mapping=str(candidate))
+
+    settings = json.loads((tmp_path / 'run' / '1_system' / 'pdc-settings.json').read_text())
+    assert settings['tail_beads'] == ['TAIL1', 'TAIL2'], 'the aliphatic beads, and not the sugar bead'
+    assert 'mapping' in settings['tail_beads_source']
+
+
+def test_a_template_that_names_its_own_tail_roles_is_believed_first(tmp_path):
+    """The template is the long-term home for this; the mapping is only the fallback."""
+    root = molecule_tree(tmp_path)
+    template = json.loads((root / 'molecules' / 'DDM' / 'micelle_template.json').read_text())
+    template['beads'] = [{'name': 'HEAD', 'role': 'head'}, {'name': 'TAIL', 'role': 'tail'}]
+    (root / 'molecules' / 'DDM' / 'micelle_template.json').write_text(json.dumps(template))
+
+    # No mapping: this case is about which source is believed, and the template's own roles are the one that wins.
+    pdc.prepare(tmp_path / 'run', template=TEMPLATE_PATH, settings={'seed': 1}, project_root=root)
+
+    settings = json.loads((tmp_path / 'run' / '1_system' / 'pdc-settings.json').read_text())
+    assert settings['tail_beads'] == ['TAIL']
+    assert settings['tail_beads_source'] == 'the template, from its bead roles'
