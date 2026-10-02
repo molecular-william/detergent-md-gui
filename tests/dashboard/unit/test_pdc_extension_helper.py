@@ -214,3 +214,22 @@ def test_a_template_without_a_seed_gets_one():
 
     assert written.count('gen-seed') == 1 and 'gen-seed = 7' in written, written
     assert 'gen-vel = yes' in written
+
+
+def test_the_restart_says_it_is_not_a_continuation():
+    """Measured: with `gen-vel = yes` beside the template's `continuation = yes`, grompp refused --
+
+        ERROR 1 [file restart.mdp]: Generating velocities is inconsistent with attempting to continue a previous
+        run. Choose only one of gen-vel = yes and continuation = yes.
+
+    -- and it is right: a seeded restart is not a continuation. The checkpoint still supplies the state; what it does
+    not supply is the claim that nothing was reset.
+    """
+    from dashboard.execution.scripts import pdc_extension
+
+    template = 'continuation = yes\ngen-vel = no\ngen-seed = 1\nnsteps = 1000\n'
+    written = pdc_extension.restart_mdp(template, 5)
+
+    assert 'continuation = no' in written, written
+    assert 'continuation = yes' not in written and written.count('continuation') == 1, written
+    assert 'gen-vel = yes' in written and written.count('gen-seed') == 1, written

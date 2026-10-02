@@ -96,8 +96,13 @@ def restart_mdp(text: str, seed: int) -> str:
     """The extension mdp with a fresh velocity seed, ready to restart from a checkpoint.
 
     A restart has to generate new velocities -- that is the whole difference from continuing -- and the template mdp
-    already names a `gen-seed`, so the new one replaces it. Appending it is what a measured run did, and grompp refused
-    the file outright: `Parameter "gen-seed" doubly defined`.
+    already names a `gen-seed` and says `continuation = yes`, so both are rewritten rather than appended to. Two
+    measured refusals came from getting this wrong, one for each field:
+
+        Parameter "gen-seed" doubly defined
+        Generating velocities is inconsistent with attempting to continue a previous run
+
+    The checkpoint still supplies the state; `continuation = no` only drops the claim that nothing was reset.
     """
     lines = []
     seeded = False
@@ -107,6 +112,8 @@ def restart_mdp(text: str, seed: int) -> str:
             line = 'gen-vel = yes'
         elif stripped.startswith('gen-seed'):
             line, seeded = f'gen-seed = {seed}', True
+        elif stripped.startswith('continuation'):
+            line = 'continuation = no'
         lines.append(line)
     if not seeded:
         lines.append(f'gen-seed = {seed}')
