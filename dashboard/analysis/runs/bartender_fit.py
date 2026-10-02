@@ -31,6 +31,9 @@ import MDAnalysis as mda
 import numpy as np
 
 REPORT = 'bartender-fit.json'
+#: A fit reads a trajectory; it does not simulate. Minutes, not hours, and a task that never returns is worse than one
+#: that fails.
+TOOL_TIMEOUT = 1200
 FITTED = 'gmx_out.itp'
 TRAJECTORY = 'solute_heavy.dcd'
 INPUT_FILE = 'bartender.inp'
@@ -39,7 +42,11 @@ SECTIONS = ('bonds', 'constraints', 'angles', 'dihedrals')
 
 
 def _run(command, cwd, timeout=None, env=None):
-    return subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env, check=True)
+    """Run a tool with no terminal to answer: BARTENDER under an analysis subprocess went into `Sl` and stayed there,
+    where the same command in a shell finished in a minute -- a prompt with nothing to answer it. `stdin=DEVNULL` turns
+    that into an end of input, and the timeout turns it into a failure rather than a task that never returns."""
+    return subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=timeout or TOOL_TIMEOUT,
+                          env=env, stdin=subprocess.DEVNULL, check=True)
 
 
 def find(root: Path, pattern: str) -> Path | None:
