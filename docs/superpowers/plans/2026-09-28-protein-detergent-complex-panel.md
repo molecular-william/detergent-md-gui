@@ -475,14 +475,22 @@ or an option that two pieces of the pipeline disagreed about.
 The lesson worth keeping: five of the seven were invisible from the code and obvious from one line of a tool's
 stderr, and my first two diagnoses of the silent snapshots were wrong in ways that only running the file exposed.
 
-Still open in Phase 1: the panel's queue button and mapping picker, and re-enabling the paused `pdc-empty-micelle`
-cron.
+Phase 1 is closed. The panel queues a build and says which mapping it is made of (`34af539`): the picker follows the
+template's molecule and posts the candidate's *file*, the button reads readiness before it posts anything, and an
+empty micelle is an absence rather than a blocker. The paused `pdc-empty-micelle` cron is resumed, and a run has now
+completed end to end through the coordinator:
+
+| stage | record |
+| --- | --- |
+| System preparation | completed, exit 0 |
+| CG assessment MD | completed, exit 0 |
+| Micelle assessment | completed, exit 0 |
+| CG extension MD | completed, exit 0 |
+| Final assessment | completed, exit 0 |
+| Back-mapping (CG2AT2) | **skipped** — `the run has no protein, so there is nothing to align` |
+
+Run `8a73fe6448f2`: `pdc`, status `completed`, `error: null`. Five stages that ran and one that recorded why it did
+not, which is the whole contract exercised in one run.
 
 The decision that paragraph used to ask for is settled, by the user: a stage with nothing to do records `skipped`
-(exit 4, with its reason in `skip.json`) and the run carries on. The back-map is its first user -- a protein-free
-complex run has no protein to align, so it skips rather than failing the run. A stage that lacks a tool it needs still
-fails loudly (the back-map keeps exit 3 for a missing CG2AT2), because that is a run that could have been attempted.
-
-`AGENTS.md` states the contract and is write-protected: the sentence that belongs there -- stage `skipped`, exit 4,
-reason in `skip.json`, run carries on -- still needs the user's approval, so the code carries the behaviour and the
-file does not yet carry the words.
+(exit 4, with its reason in `skip.json`) and the run carries on. `AGENTS.md` now states it.
