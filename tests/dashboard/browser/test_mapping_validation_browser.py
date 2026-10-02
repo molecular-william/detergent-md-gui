@@ -128,3 +128,70 @@ def test_a_run_with_no_published_comparison_says_so_in_the_panel(dashboard, live
     expect(page.locator('#validation-message')).to_contain_text('No AA vs CG comparison')
     assert page.evaluate("() => document.querySelector('#validation-shape-plot').data === undefined")
     assert errors == []
+
+
+def publish_molecule(dashboard, jid, molecule, beads, pair, mean):
+    """A completed CG run of one molecule with a published comparison, for the cross-molecule card.
+
+    Two of these are needed for a spread, and the card finds them through the job's own `analyses` list, so the
+    record carries it -- that is what the panel reads to decide which runs have something to compare.
+    """
+    run = dashboard.coordinator.RUNS / jid
+    attempt = run / 'analyses/mapping-consistency/hash/attempt1'
+    (attempt / 'output/abc123/analysis').mkdir(parents=True)
+    (run / 'manifest.json').write_text(json.dumps(
+        {'mapping_candidate': {'name': f'{molecule} mapping', 'molecule_id': molecule, 'beads': [
+            {'letter': letter, 'residue': 1, 'name': f'S1{letter}', 'type': bead_type}
+            for letter, bead_type in beads]}}))
+    (attempt / 'output/abc123/analysis/mapping_consistency.json').write_text(json.dumps(
+        {**COMPARISON, 'molecule': molecule,
+         'pairs': {'counts': {'pairs': 1, 'compared': 1, 'cg_outside_aa_range': 0},
+                   'rows': [{'pair': pair, 'aa': {'mean': mean}, 'cg': {'mean': mean}}]}}))
+    (attempt / 'result.json').write_text(json.dumps(
+        {'result': {'artifact': 'analysis/mapping_consistency.json', 'comparison': 'AA vs CG'},
+         'output_directory': 'output/abc123', 'wall_seconds': 3.0}))
+    dashboard.coordinator.database().insert(
+        {'id': jid, 'label': f'{molecule} CG consumer', 'detergent': molecule, 'molecule_id': molecule,
+         'method': 'fast_forward', 'run_type': 'aa_cg', 'profile': 'draft-smoke-reference',
+         'status': 'completed', 'stage': 'complete', 'created': dashboard.coordinator.now(),
+         'analyses': [{'kind': 'mapping-consistency', 'status': 'completed', 'id': 'attempt1'}]})
+    return attempt
+
+
+def test_the_across_molecules_card_puts_the_same_bead_types_side_by_side(dashboard, live_page):
+    """The spread is the number this card exists for, and the card names the runs that produced it."""
+    publish_molecule(dashboard, 'aa11bb22cc33', 'Sucrose', [('A', 'SN6'), ('C', 'SP1r')], [[1, 'A'], [1, 'C']], 0.4230)
+    publish_molecule(dashboard, 'bb22cc33dd44', 'Trehalose', [('A', 'SN6'), ('C', 'SP1r')], [[1, 'A'], [1, 'C']], 0.4226)
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#validation')
+
+    # The placeholder row is one row too, so the wait is for the card's own content rather than a row count.
+    page.wait_for_function(
+        "() => document.querySelector('#validation-across-head').textContent.includes('Trehalose')", timeout=30000)
+    row = page.evaluate("() => document.querySelector('#validation-across-rows tr').textContent")
+    head = page.evaluate("() => document.querySelector('#validation-across-head').textContent")
+    sources = page.evaluate("() => document.querySelector('#validation-across-sources').textContent")
+
+    assert 'Sucrose' in head and 'Trehalose' in head, head
+    assert 'SN6 – SP1r' in row, row
+    assert '0.4230' in row and '0.4226' in row, row
+    assert 'same edges' in row, row
+    assert '0.09%' in row, row
+    assert 'aa11bb22cc33' in sources and 'bb22cc33dd44' in sources, sources
+    assert errors == []
+
+
+def test_the_across_molecules_card_refuses_to_call_different_edges_a_spread(dashboard, live_page):
+    """`SP1r`|`SP1r` is one molecule's B-C edge and another's A-C edge; the card has to say so."""
+    publish_molecule(dashboard, 'aa11bb22cc33', 'Maltose', [('B', 'SP1r'), ('C', 'SP1r')], [[1, 'B'], [1, 'C']], 0.3130)
+    publish_molecule(dashboard, 'bb22cc33dd44', 'Sucrose', [('A', 'SP1r'), ('C', 'SP1r')], [[1, 'A'], [1, 'C']], 0.4019)
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#validation')
+
+    page.wait_for_function(
+        "() => document.querySelector('#validation-across-head').textContent.includes('Sucrose')", timeout=30000)
+    row = page.evaluate("() => document.querySelector('#validation-across-rows tr').textContent")
+
+    assert 'different edges' in row, row
+    assert '1B–1C' in row and '1A–1C' in row, 'the edges each molecule named are part of the reading'
+    assert errors == []

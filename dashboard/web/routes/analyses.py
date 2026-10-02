@@ -8,10 +8,31 @@ from flask import Blueprint, abort, jsonify, request
 from dashboard.execution import workflow
 from dashboard.models import mappings
 
+from ...analysis.runs import transferability
 from ...analysis.validation import carbohydrate_targets, targets
 from .common import coordinator, json_object
 
 blueprint = Blueprint('analyses', __name__)
+
+
+def newest_comparison(c, job):
+    """A run's newest published AA-vs-CG comparison: `(attempt, record, artifact)`.
+
+    Raises `LookupError` with the reason when there is none: "nothing was published" and "the newest record
+    names a file that does not exist" are different answers for a reader, and only the second is worth looking
+    into. Both readers of a comparison come through here, so they cannot disagree about which attempt answered.
+    """
+    directory = c.run_path(job) / 'analyses/mapping-consistency'
+    records = sorted(directory.glob('*/*/result.json'), key=lambda path: path.stat().st_mtime, reverse=True)
+    if not records:
+        raise LookupError('No AA vs CG comparison has been published for this run')
+    attempt = records[0].parent
+    record = json.loads(records[0].read_text())
+    artifact = attempt / str(record.get('output_directory') or '') / 'analysis/mapping_consistency.json'
+    if not artifact.is_file():
+        raise LookupError(f'{attempt.name} names no published comparison file')
+    return attempt, record, artifact
+
 
 @blueprint.post('/api/jobs/<jid>/<kind>')
 def queue_analysis(jid, kind):
@@ -49,21 +70,49 @@ def mapping_consistency_api(jid):
     worth looking into.
     """
     c = coordinator(); job = c.lookup(jid)
-    directory = c.run_path(job) / 'analyses/mapping-consistency'
-    records = sorted(directory.glob('*/*/result.json'), key=lambda path: path.stat().st_mtime, reverse=True)
-    if not records:
-        abort(404, 'No AA vs CG comparison has been published for this run')
-    attempt = records[0].parent
-    record = json.loads(records[0].read_text())
-    artifact = attempt / str(record.get('output_directory') or '') / 'analysis/mapping_consistency.json'
-    if not artifact.is_file():
-        abort(404, f'{attempt.name} names no published comparison file')
+    try:
+        attempt, record, artifact = newest_comparison(c, job)
+    except LookupError as exc:
+        abort(404, str(exc))
     return jsonify({'run': jid, 'attempt': attempt.name,
                     'published_at': datetime.fromtimestamp(attempt.stat().st_mtime, timezone.utc).isoformat(),
                     'source': str(artifact.relative_to(c.RUNS)),
                     'molecule': job.get('molecule_id'), 'run_type': job.get('run_type'),
                     'profile': job.get('profile'), 'reference_run_id': job.get('reference_run_id'),
                     'summary': record.get('result'), 'comparison': json.loads(artifact.read_text())})
+
+
+@blueprint.get('/api/runs/transferability')
+def transferability_api():
+    """The same bead-type pair side by side across molecules, from the comparisons already published.
+
+    Nothing is recomputed: each run's own published comparison is the input, and the mapping it used comes from
+    its own manifest, so every row here can be checked against the artifact it came from. The reader keys its
+    rows by molecule, so two runs of one molecule are refused rather than silently merged. This compares our
+    model across molecules and never against experiment, which the payload says in its own field.
+    """
+    c = coordinator()
+    ids = [part for part in request.args.get('ids', '').split(',') if part]
+    if not 2 <= len(ids) <= 8 or len(set(ids)) != len(ids):
+        abort(400, 'Choose 2-8 different runs')
+    entries, sources = {}, {}
+    for jid in ids:
+        job = c.lookup(jid)
+        try:
+            attempt, _, artifact = newest_comparison(c, job)
+        except LookupError:
+            abort(404, f'{jid} has no published AA vs CG comparison to compare across molecules')
+        molecule = job.get('molecule_id') or job.get('detergent') or jid
+        if molecule in entries:
+            abort(400, f'{molecule} is in this comparison twice; choose one run per molecule')
+        entries[molecule] = {'candidate': c.manifest_data(job).get('mapping_candidate') or {},
+                             'report': json.loads(artifact.read_text())}
+        sources[molecule] = {
+            'run': jid, 'label': job.get('label'), 'attempt': attempt.name,
+            'published_at': datetime.fromtimestamp(artifact.stat().st_mtime, timezone.utc).isoformat(),
+            'source': str(artifact.relative_to(c.RUNS))}
+    return jsonify({**transferability.compare(entries), 'sources': sources, 'runs': ids,
+                    'diagnostic_only': True, 'scientifically_validated': False})
 
 
 @blueprint.get('/api/jobs/<jid>/carbohydrate-validation')

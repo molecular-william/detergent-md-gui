@@ -207,6 +207,21 @@
     </div>
     <p class="hint">Osmotic pressure and transfer free energy need a concentration-series system builder and a second solvent leg; neither exists yet, so this card stays empty rather than showing a substitute number. The checks are specified in <code>docs/superpowers/specs/2026-09-29-sugar-consistency-validation-design.md</code> (E4, E5).</p>
   </section>
+  <section class="card" aria-labelledby="validation-across-title">
+    <div class="validation-card-heading">
+      <h3 id="validation-across-title">5 · Across molecules</h3>
+      <span class="badge validation-comparison">our model vs our model</span>
+    </div>
+    <p class="hint">The same bead-type pair in every molecule that has a published comparison, read from those
+      comparisons and nothing else. Each run agrees with its own reference by construction (card 1), so what moves
+      here is the <b>spread between molecules</b> — a spread near zero is what makes a bead type a shared library
+      rather than a per-molecule fit. A row whose molecules name different ring edges is not a comparison of one
+      bead type at all, and says so. This is our model against itself, never against experiment.</p>
+    <div class="table-scroll"><table><caption>Bead-type pairs across molecules · nanometres</caption>
+      <thead><tr id="validation-across-head"><th>Bead types</th><th>Where</th><th>Spread</th><th>Reading</th></tr></thead>
+      <tbody id="validation-across-rows"><tr><td colspan="4">No comparison loaded.</td></tr></tbody></table></div>
+    <p class="hint" id="validation-across-sources"></p>
+  </section>
   <p id="validation-interpretation" class="hint">Every comparison here is against our own atomistic reference.</p>
 </section>
 <section id="compositions" class="panel" role="tabpanel" aria-labelledby="tab-compositions" hidden>

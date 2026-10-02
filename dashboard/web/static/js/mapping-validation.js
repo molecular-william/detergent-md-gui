@@ -86,6 +86,44 @@ function drawDisplacement(host, shape) {
   }, { displayModeBar: false, responsive: true });
 }
 
+function acrossTable(body) {
+  // The same beads' own letters in every molecule -- the interaction, not the ring it sits in.
+  const molecules = body.molecules || [];
+  const rows = body.signatures || [];
+  const head = ['Bead types', 'Where', ...molecules, 'Spread', 'Reading']
+    .map(name => `<th>${cell(name)}</th>`).join('');
+  const columns = 2 + molecules.length + 2;
+  if (!rows.length) {
+    return { head, html: `<tr><td colspan="${columns}">No bead-type pair is shared by the loaded molecules.</td></tr>` };
+  }
+  const html = rows.map(signature => {
+    const perMolecule = molecules.map(name => {
+      const entry = signature.molecules[name];
+      if (!entry) return '<td>—</td>';
+      const pairs = (entry.pairs || []).map(pair => pair.join('–')).join(', ');
+      const count = `${entry.rows} ${entry.rows === 1 ? 'pair' : 'pairs'}`;
+      // The pairs are named, not just counted: a mean over unlike pairs is a different quantity, and only the
+      // reader who can see which edges were averaged can tell.
+      return `<td>${fixed(entry.atomistic_mean_nm)} <span class="hint">${cell(count)}: ${cell(pairs)}</span></td>`;
+    }).join('');
+    const reading = signature.pairs_match
+      ? '<span class="badge">same edges</span>'
+      : '<span class="badge validation-claim">different edges</span>';
+    const spread = number(signature.spread_pct) === null ? '—' : `${number(signature.spread_pct).toFixed(2)}%`;
+    return `<tr><td>${cell(signature.types.join(' – '))}</td><td>${cell(signature.role)}</td>`
+      + `${perMolecule}<td>${spread}</td><td>${reading}</td></tr>`;
+  }).join('');
+  return { head, html };
+}
+
+function publishedComparison(job) {
+  return (job.analyses || []).some(task => task.kind === 'mapping-consistency' && task.status === 'completed');
+}
+
+function shortTime(value) {
+  return String(value ?? '').replace('T', ' ').slice(0, 16);
+}
+
 export function createMappingValidation({ request = api } = {}) {
   let mounted = false;
 
@@ -159,7 +197,9 @@ export function createMappingValidation({ request = api } = {}) {
   async function fillRuns() {
     const select = $('#validation-run'); if (!select) return;
     const wanted = select.value || new URLSearchParams(location.search).get('run') || '';
-    const payload = await request('/api/jobs');
+    // The list is paged at 20 by default, and the oldest CG run is the one a reader most often wants to compare
+    // against, so the panel asks for everything rather than for the newest page.
+    const payload = await request('/api/jobs?limit=100');
     const jobs = (Array.isArray(payload) ? payload : (payload.jobs || payload.data || []))
       .filter(job => job.run_type === 'aa_cg');
     select.innerHTML = jobs.length
@@ -169,15 +209,56 @@ export function createMappingValidation({ request = api } = {}) {
     else if (jobs.length) select.value = jobs.find(job => job.status === 'completed')?.id || jobs[0].id;
   }
 
+  async function loadAcross() {
+    const tbody = $('#validation-across-rows');
+    const head = $('#validation-across-head');
+    const sources = $('#validation-across-sources');
+    if (!tbody || !head) return;
+    const fallbackHead = '<th>Bead types</th><th>Where</th><th>Spread</th><th>Reading</th>';
+    try {
+      const payload = await request('/api/jobs?limit=100');
+      const jobs = (Array.isArray(payload) ? payload : (payload.jobs || payload.data || []))
+        .filter(job => job.run_type === 'aa_cg' && job.status === 'completed' && publishedComparison(job));
+      // One run per molecule: the route refuses two of a kind rather than letting the second replace the first.
+      const byMolecule = new Map();
+      for (const job of jobs) {
+        const molecule = job.molecule_id || job.detergent || job.id;
+        if (!byMolecule.has(molecule)) byMolecule.set(molecule, job.id);
+      }
+      if (byMolecule.size < 2) {
+        head.innerHTML = fallbackHead;
+        tbody.innerHTML = `<tr><td colspan="4">${jobs.length === 1
+          ? `${cell(Object.keys(Object.fromEntries(byMolecule))[0] || 'One molecule')} is the only molecule with a published comparison; a spread needs two.`
+          : 'No completed coarse-grained run has a published comparison yet.'}</td></tr>`;
+        if (sources) sources.textContent = '';
+        return;
+      }
+      const body = await request(`/api/runs/transferability?ids=${[...byMolecule.values()].join(',')}`);
+      const table = acrossTable(body);
+      head.innerHTML = table.head;
+      tbody.innerHTML = table.html;
+      if (sources) {
+        sources.textContent = 'Read from: ' + Object.entries(body.sources || {}).map(([molecule, entry]) =>
+          `${molecule} ${entry.run} (attempt ${entry.attempt}, published ${shortTime(entry.published_at)} UTC)`
+        ).join(' · ');
+      }
+    } catch (error) {
+      head.innerHTML = fallbackHead;
+      tbody.innerHTML = `<tr><td colspan="4">${cell(error.message)}</td></tr>`;
+      if (sources) sources.textContent = '';
+    }
+  }
+
   async function mount() {
     if (!document.querySelector('#validation')) return;
     const select = $('#validation-run');
     if (!mounted) {
       select.addEventListener('change', load);
-      $('#validation-refresh').addEventListener('click', () => { fillRuns().then(load); });
+      $('#validation-refresh').addEventListener('click', () => { fillRuns().then(load); loadAcross(); });
     }
     await fillRuns();
     await load();
+    await loadAcross();
     mounted = true;
   }
 
