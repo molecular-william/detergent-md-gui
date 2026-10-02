@@ -52,7 +52,7 @@ def molecule_counts(text: str) -> list[tuple[str, int]]:
 
 
 def kept_topology(text: str, removed: int, protein: str | None = None,
-                  detergent: str | None = None) -> str:
+                  detergent: str | None = None, drop: tuple = ()) -> str:
     """The topology with `removed` of the detergent's molecules taken out of `[ molecules ]`.
 
     The caller names the detergent when it can, and it should: for a protein-free build there is no protein row to
@@ -77,6 +77,12 @@ def kept_topology(text: str, removed: int, protein: str | None = None,
         if section != 'molecules' or not line:
             continue
         fields = line.split()
+        if len(fields) >= 2 and fields[-1].lstrip('-').isdigit() and fields[0] in drop:
+            # Solvent and ions: the restart re-solvates the kept coordinates, and grompp reconciles topology and
+            # structure by count. Leaving them here also breaks genion -- `The solvent group W is not continuous` --
+            # because ions sit scattered among the water beads of a system that has already been solvated.
+            lines[index] = ''
+            continue
         is_detergent = (fields and fields[0] == detergent) if detergent is not None else (fields and fields[0] != protein)
         if len(fields) >= 2 and fields[-1].lstrip('-').isdigit() and is_detergent:
             remaining = int(fields[-1]) - removed
@@ -141,9 +147,11 @@ def main(argv=None) -> int:
         protein = None
         if (stage / 'system_EMPTY.top').is_file():
             protein = molecule_counts((stage / 'system_EMPTY.top').read_text())[0][0]
+        from dashboard.execution.adapters import pdc_solvation
         detergent = (settings.get('detergent_model') or {}).get('residue') or None
+        solvent = (pdc_solvation.WATER_BEADS, *pdc_solvation.ION_NAMES)
         (stage / KEPT_TOPOLOGY).write_text(kept_topology((stage / 'system.top').read_text(), len(removed), protein,
-                                                         detergent=detergent))
+                                                         detergent=detergent, drop=solvent))
         shutil.copy2(stage / KEPT_TOPOLOGY, stage / 'system.top')
         sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
         from dashboard.execution.scripts import pdc_solvate

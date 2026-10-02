@@ -170,3 +170,20 @@ def test_the_extension_stage_can_re_solvate_after_a_removal(tmp_path):
     for name in ('extension.mdp', 'minimization.mdp', 'equilibration.mdp', 'ions.mdp', 'inputs/water.gro',
                  'pdc_solvate.py'):
         assert (stage / name).is_file(), name
+
+
+def test_the_restart_topology_is_dry_because_the_restart_solvates_again():
+    """Measured: with the water and ion rows left in, genion refused --
+
+        The solvent group W is not continuous: index[5369]=5402, index[5370]=5531
+
+    -- because the ions sit scattered among the water beads of an already-solvated system. The kept coordinates are
+    the detergents alone, so the topology that goes with them is the dry one and solvation adds the rest back.
+    """
+    from dashboard.execution.scripts import pdc_extension
+
+    text = '[ molecules ]\nDDM\t6\nW\t5000\nNA\t60\nCL\t60\n'
+    kept = pdc_extension.kept_topology(text, 3, detergent='DDM', drop=('W', 'NA', 'CL'))
+    counts = dict(pdc_extension.molecule_counts(kept))
+
+    assert counts == {'DDM': 3}, counts
