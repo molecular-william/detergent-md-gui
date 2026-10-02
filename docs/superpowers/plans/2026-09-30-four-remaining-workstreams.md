@@ -184,6 +184,41 @@ Which means the constraints the draft asks for cannot be satisfied by the positi
 **Verification:** the test builds a two-bead candidate with a known geometry and asserts the reported mismatch; then
 run it on the DDM draft and record the largest mismatch **in this plan**. That number decides Task 2.3.
 
+**Measured (2026-10-02).** `dashboard/analysis/runs/draft_geometry.py` (9 tests). Run on the DDM candidate
+`mapping_candidate_2bcc24c3e5f149fab1e4f11f5d80ae0e.json` against the mapped structure of `aa_cg` run `1322f9e0782e`,
+whose molecule is one 11-bead DDM:
+
+| pair | constraint (nm) | mapped (nm) | over (nm) | over % |
+| --- | --- | --- | --- | --- |
+| S1A–S1C | 0.4294 | 0.3578 | +0.0717 | +20.04 |
+| S2A–S2C | 0.4337 | 0.3675 | +0.0662 | +18.01 |
+| S1A–S1B | 0.3610 | 0.3112 | +0.0498 | +15.99 |
+| S2A–S2B | 0.3183 | 0.2742 | +0.0441 | +16.09 |
+| S1B–S1C | 0.3391 | 0.3156 | +0.0235 | +7.45 |
+| S2B–S2C | 0.3370 | 0.3167 | +0.0203 | +6.43 |
+
+**Largest +0.0717 nm (+20.04%); median +16.09%.** Every constraint is longer than the geometry it will govern, because
+the length is the pair's distance in the molecule's own MMFF structure times the ring scale 1.15, and the run's
+molecule sits at a different conformer. Task 2.3's choice is between constraining only the pairs whose geometry is
+close and writing the rest as bonds -- with this table as the reason.
+
+**A second finding, from the same measurement — fixed.** The draft's *own* centre distance for those pairs was
+0.0314-0.0377 nm against 0.2742-0.3675 nm mapped, a factor of about 10: `detergent_cg.bead_centres` divided the
+structure's coordinates by ten while `bonded.generation._coordinates_nm` treats the same numbers as nanometres
+already. The placement paid for it — the beads of one detergent in `pdc` run `8a73fe6448f2`'s `1_system/system.gro`
+sat 0.021-0.037 nm apart while the topology's ring constraints asked 0.32-0.43 nm, an ~11x stretch at t=0 — and the
+run completed and reported clusters anyway, which is why it was not visible. It is the same defect
+`dashboard/models/sugars/units.py` records for the sugar writer and the mapping export; `bead_centres` was the
+remaining site, and it now converts by the structure's own factor.
+
+Verified after the fix, on a fresh `pdc` preparation: one placed detergent's ring pairs read 0.3136 and 0.3739 nm and
+its tail spans 0.8173 nm, against the draft's own 0.3139 and 0.3734 nm and constraints of 0.3610 and 0.4294 nm — the
+molecule is the size the topology describes, and the 15% the scale adds is the only stretch left at t=0.
+
+That also refines this table's reading. The draft's own geometry and the mapped structure differ by ~4% for
+`S1A–S1C` (0.3734 against 0.3578), so the scale accounts for most of the +20%: what Task 2.3 is deciding is whether a
+ring held 15% wider than the atomistic reference is worth its stiffness, not whether two conformers disagree.
+
 ### Task 2.2: the tail takes the published named defaults
 
 **Objective:** implement `docs/design/2026-09-30-named-bonded-defaults.md`: read the `#define` rows of
