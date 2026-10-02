@@ -242,6 +242,38 @@ constrained length, or write those pairs as flexible bonds. Whichever is chosen,
 - Modify: `dashboard/models/molecules/detergent_cg.py` (the `[ constraints ]` decision)
 - Test: `tests/dashboard/unit/test_detergent_cg.py`
 
+**Measured with BARTENDER (2026-10-02).** The user suggested the tool and it was run: it is vendored at
+`tools/bartender/m3_bartender/` (declared in `config/tools.json`, and `cg.py` says today that no stage invokes it),
+and it fits bonded parameters given a geometry, a trajectory and an `.inp` built by the script it ships from an
+AA-to-CG `.ndx` plus a CG topology. Two reconciliations were needed: the exporter's `.ndx` names the 9 physical beads
+while our topology's atoms run to 11 with the ring virtual sites (so the topology was renumbered and
+`virtual_sitesn` dropped), and `-owntraj` takes DCD/multi-PDB, so the trajectory came out of MDAnalysis.
+
+    bartender -refit -owntraj solute_heavy.dcd -noplot DDM_heavy.gro DDM_bartender.inp
+
+with `solute_heavy.dcd` = 2,001 frames of the DDM AA reference's solute (run `2321ee23a536`), heavy atoms only, in
+the molecule's own order — so the fit targets **our** ensemble, not BARTENDER's own GFN sampling.
+
+| pair | ours | fitted | mapped | ours vs mapped | fitted vs mapped |
+| --- | --- | --- | --- | --- | --- |
+| S1A–S1B | 0.3610 | 0.310 | 0.3112 | +16.0% | −0.4% |
+| S1A–S1C | 0.4294 | 0.359 | 0.3578 | +20.0% | +0.3% |
+| S1B–S1C | 0.3391 | 0.299 | 0.3156 | +7.4% | −5.3% |
+| S2A–S2B | 0.3183 | 0.275 | 0.2742 | +16.1% | +0.3% |
+| S2A–S2C | 0.4337 | 0.367 | 0.3675 | +18.0% | −0.1% |
+| S2B–S2C | 0.3370 | 0.299 | 0.3167 | +6.4% | −5.6% |
+
+Four of the six fitted lengths land on the mapped geometry within half a percent. So this task is narrower than it was
+written: the choice is not constraints versus bonds — BARTENDER kept the rings as constraints and commented out the
+matching `[bonds]` rows itself, which is our structure too — it is whether the ring scale of 1.15 should survive. The
+fitted lengths say no; what they do not say is whether a constrained ring should use its mapped distance (scale 1.0).
+
+The same run fitted the terms we currently guess, which is where the larger gain is: the head–tail junction S1A–TAIL3
+at 0.528 nm with k 394, the tail steps at 0.440/2441 and 0.538/386, and per-term angle constants (147.2° k 90.3, 142.0°
+k 18.5) where the draft uses blanket values. Its rmsd column flags the two ring pairs it fits worst (4.23, 4.64)
+against 0.36–1.36 for the rest. A constraint's force constant is unused by GROMACS, so for the rings the fitted
+*lengths* are the answer and for the junction and tail the constants are.
+
 ### Task 2.4: re-run the fit and record what the model does
 
 **Objective:** the honest measurement the smoke/fitted question has been waiting for.
