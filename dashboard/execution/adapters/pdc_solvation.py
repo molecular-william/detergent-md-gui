@@ -30,8 +30,10 @@ def solvation_commands(topology, structure, tpr, *, salt_molar=0.15, water='inpu
         ['gmx', 'grompp', '-f', 'ions.mdp', '-c', intermediate, '-p', topology, '-o', tpr, '-maxwarn', '1'],
         # The group is piped in by the stage: genion asks which solvent to replace, and an unanswered prompt is a
         # hung stage rather than a failed one.
+        # No `-g`: the genion of this GROMACS (2026.3) has no such option and aborts before reading anything, which
+        # is a stage that stops after solvation has already succeeded. Its output goes to the stage's own log.
         ['gmx', 'genion', '-s', tpr, '-o', 'system.gro', '-p', topology, '-pname', ION_NAMES[0],
-         '-nname', ION_NAMES[1], '-neutral', '-conc', str(salt_molar), '-g', 'ions.log'],
+         '-nname', ION_NAMES[1], '-neutral', '-conc', str(salt_molar)],
     ]
 
 

@@ -35,3 +35,20 @@ def test_a_negative_concentration_is_refused_rather_than_subtracted():
 def test_the_agreed_default_is_the_concentration_the_protocol_asks_for():
     _, _, genion = pdc_solvation.solvation_commands('system.top', 'system.gro', 'ions.tpr')
     assert genion[genion.index('-conc') + 1] == '0.15'   # 0.15 M NaCl, the protocol's number
+
+
+def test_genion_is_invoked_with_options_this_gromacs_has():
+    """`-g` is not one of them: this GROMACS (2026.3) has no genion log option.
+
+    Measured: a stage that had already solvated its box stopped with "Unknown command-line option -g", because the
+    command was written from a version of genion that had one. The stage's own log receives the tool's output.
+    """
+    from dashboard.execution.adapters import pdc_solvation
+
+    commands = pdc_solvation.solvation_commands('system.top', 'system.gro', 'system.tpr')
+    genion = commands[2]
+
+    assert genion[0] == 'gmx' and genion[1] == 'genion'
+    assert '-g' not in genion, 'this genion has no log option'
+    for required in ('-s', '-o', '-p', '-pname', '-nname', '-neutral', '-conc'):
+        assert required in genion, required
