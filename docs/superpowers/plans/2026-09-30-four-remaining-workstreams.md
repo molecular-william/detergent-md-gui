@@ -367,6 +367,34 @@ expected **not** to transfer even if the rings do.
 **Objective:** the answer, stated plainly, with the numbers behind it: which bead types carry one set of numbers
 across the three molecules and which do not.
 
+**Executed (2026-10-02).** Task 3.1's reader and Task 3.2's surface both landed — the reader in `2caf5bf` and
+`a9c2b07`, the route, card 5 and the panel's pagination fix in `c46a632` — so the answer is below.
+
+Three runs, each with a published comparison: sucrose `a2a457cf9413`, maltose `22075892b606`, trehalose
+`4e4ff51e7417`. Read through `GET /api/runs/transferability?ids=...`:
+
+| bead types | where | maltose | sucrose | trehalose | spread | the molecules named |
+| --- | --- | --- | --- | --- | --- | --- |
+| `SN6` / `SP1r` | intra | 0.4222 | 0.4230 | 0.4226 | 0.20% | the same edge each: `A–C` |
+| `SN6` / `SP4r` | intra | 0.3161 | 0.3160 | 0.3159 | 0.06% | the same edge each: `A–B` |
+| `SP1r` / `SP1r` | intra | 0.3130 | 0.4019 | 0.4027 | 24.08% | **different**: `1B–1C`, `1A–1C`, `2A–2C` |
+| `SP1r` / `SP4r` | intra | 0.3464 | 0.3244 | 0.3339 | 6.57% | **different**: maltose averages three edges, the others three others |
+
+**Two of the four are not comparisons of anything, and the reader now says so** (`pairs_match`). Specifically,
+the apparent 24% failure is one molecule's `B–C` ring edge against two others' `A–C`: three different bonds
+sharing two bead types. Reporting it as a bead type that does not transfer would have been a wrong answer to the
+transferability question, and it is the answer the numbers invite — which is why the card names the edges behind
+every mean rather than only the types.
+
+What the two comparable signatures do say: where the *same* ring edge is named in all three molecules, the same
+bead-type pair holds the same geometry to 0.2% and 0.06%. That is the paper's own transferability claim holding
+for the ring edges, on the evidence this repository has.
+
+**Not answered here:** the linkage. Every published row is a *constrained* pair, and the glycosidic link is not
+one of them, so the `inter` role never appears in this data at all. The card's expectation that the linkage is
+where a difference belongs is not testable from these three reports — the link's geometry is in `terms`, not in
+`pairs`, and nothing yet compares it across molecules.
+
 ---
 
 ## Phase 4 — the registry
