@@ -13,7 +13,7 @@ caller still decides what the process does about them.
 """
 from contextlib import contextmanager
 
-from ..workflow import Cancelled
+from ..workflow import Cancelled, Skipped
 
 
 def _terminal_fields(exc):
@@ -34,6 +34,12 @@ def attempt(record, *, update, running=None, on_exit=None):
     update(record, status='running', **(running or {}))
     try:
         yield record
+    except Skipped as exc:
+        # Nothing was attempted, so nothing failed and nothing is owed: the stage is recorded and the loop that called
+        # it goes on to the next one. This is the one terminal status that is not re-raised, because stopping the run
+        # is exactly what it must not do.
+        update(record, status='skipped', error=str(exc), **_terminal_fields(exc))
+        return
     except Cancelled as exc:
         update(record, status='cancelled', error=str(exc), **_terminal_fields(exc))
         raise

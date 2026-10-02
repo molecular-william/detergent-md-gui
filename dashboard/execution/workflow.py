@@ -361,7 +361,12 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
                 fp.write(f'\n## {name}\n$ {shlex.join(entry["command"])}\n'); fp.flush()
                 stage_log.parent.mkdir(parents=True, exist_ok=True)
                 with stage_log.open('a') as output:
-                    result = (execute or subprocess.run)(entry['command'], cwd=script.parent, env=stage_env, stdout=output, stderr=subprocess.STDOUT, check=True)
+                    try:
+                        result = (execute or subprocess.run)(entry['command'], cwd=script.parent, env=stage_env, stdout=output, stderr=subprocess.STDOUT, check=True)
+                    except subprocess.CalledProcessError as exc:
+                        if exc.returncode != SKIPPED_EXIT_CODE:
+                            raise
+                        raise Skipped(skip_reason(script.parent, name)) from None
                 entry['exit_code'] = result.returncode
                 missing = missing_files(script.parent, required_outputs.get(name, ()))
                 if missing:
@@ -377,3 +382,23 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
 
 class Cancelled(RuntimeError):
     pass
+
+
+class Skipped(RuntimeError):
+    """A stage that had nothing to do.
+
+    The contract's fourth outcome. A stage exits `SKIPPED_EXIT_CODE` and writes `skip.json` beside its script with the
+    reason; the run records `skipped` and carries on, because nothing was attempted and nothing is owed. A protein-free
+    complex run reaches the back-map, which aligns a protein and therefore has none to align.
+    """
+
+
+SKIPPED_EXIT_CODE = 4
+
+
+def skip_reason(stage_dir, name):
+    """Why a stage had nothing to do: the stage's own words, so a reader is not left guessing at an exit code."""
+    try:
+        return str(json.loads((Path(stage_dir) / 'skip.json').read_text()).get('reason') or f'{name} had nothing to do')
+    except (OSError, ValueError):
+        return f'{name} had nothing to do'

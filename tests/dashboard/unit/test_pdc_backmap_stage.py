@@ -61,3 +61,32 @@ def test_the_vendored_tool_is_where_the_stage_looks_for_it():
     """The clone the user asked for: the entry point exists and its own help answers."""
     assert TOOL.exists(), f'the vendored CG2AT2 is missing at {TOOL}'
     assert TOOL.is_symlink() or TOOL.is_file()
+
+
+def protein_free(tmp_path: Path) -> Path:
+    molecule = tmp_path / 'molecules' / 'DDM'
+    (molecule / 'results' / 'MMFF').mkdir(parents=True)
+    (molecule / 'results' / 'MMFF' / 'lig1.pdb').write_text('HETATM    1  C1  DDM A   1       0.000   0.000   0.000\n')
+    (molecule / 'results' / 'MMFF' / 'lig1.itp').write_text('[ moleculetype ]\nDDM             1\n')
+    (molecule / 'micelle_template.json').write_text(json.dumps(TEMPLATE))
+    run = tmp_path / 'empty-micelle'
+    run.mkdir()
+    pdc.prepare(run, protein_free=True, template='molecules/DDM/micelle_template.json',
+                settings={'seed': 20260930, 'aggregation_number': 4}, project_root=tmp_path)
+    return run / Path(pdc.STAGES[5].relative).parent
+
+
+def test_a_protein_free_run_skips_the_back_map_and_says_why(tmp_path):
+    """The back-map aligns a protein. A run with none has nothing to align, which is not a failure -- so the stage
+    skips (exit 4, the contract's fourth outcome) and the run is free to complete.
+    """
+    import subprocess
+
+    stage = protein_free(tmp_path)
+    script = stage / Path(pdc.STAGES[5].relative).name
+    result = subprocess.run(['bash', str(script)], cwd=stage, capture_output=True, text=True)
+
+    assert result.returncode == 4, result.stderr
+    assert json.loads((stage / 'skip.json').read_text())['skipped'] is True
+    assert 'no protein' in json.loads((stage / 'skip.json').read_text())['reason']
+    assert 'nothing to align' in result.stderr

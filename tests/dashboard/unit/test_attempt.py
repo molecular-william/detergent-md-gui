@@ -75,3 +75,20 @@ def test_the_exit_hook_runs_exactly_once_on_either_path():
         with attempt_module.attempt({}, update=writer([]), on_exit=lambda record: seen.append(record)):
             raise ValueError('boom')
     assert len(seen) == 2, 'once per attempt, successful or not'
+
+
+def test_a_skipped_stage_is_recorded_and_the_loop_can_go_on():
+    """A stage with nothing to do is finished, not failed. It is the one terminal status that is not re-raised:
+    stopping the run is exactly what it must not do, and the run can still complete.
+
+    Measured: a protein-free complex run reached the back-map, which aligns a protein and therefore has none to align.
+    """
+    from dashboard.execution.workflow import Skipped
+
+    record, calls = {}, []
+    with attempt_module.attempt(record, update=writer(calls)):
+        raise Skipped('the run has no protein, so there is nothing to align')
+
+    assert record['status'] == 'skipped', 'recorded, so a reader of the manifest sees what happened'
+    assert 'no protein' in record['error'], 'with the stage\'s own reason, not an exit code'
+    assert calls[-1]['status'] == 'skipped' and 'completed' not in [call.get('status') for call in calls]

@@ -13,6 +13,17 @@
 # coverage in CG2AT2's database is therefore unverified, and this script says so rather than implying otherwise.
 set -euxo pipefail
 
+# A protein-free complex run has nothing to align: this stage exists to put the protein's atoms back, and there are
+# none. That is not a failure and not a blocked run -- nothing was attempted -- so the stage skips, says why, and the
+# run carries on. The contract's fourth outcome, `skipped` (exit 4).
+PROTEIN=$(/mnt/data/wee/detergent-md-gui/dashboard/.venv/bin/python -c \
+  "import json;print(json.load(open('../1_system/pdc-settings.json')).get('protein') or '')")
+if [ -z "$PROTEIN" ]; then
+  echo '{"skipped": true, "reason": "the run has no protein, so there is nothing to align"}' > skip.json
+  echo "skipped: the run has no protein, so there is nothing to align" >&2
+  exit 4
+fi
+
 CG2AT="${CG2AT:-tools/cg2at/cg2at}"
 if [ ! -e "$CG2AT" ]; then
   echo "back-mapping needs CG2AT2 under tools/ (task D1); $CG2AT is not there" >&2

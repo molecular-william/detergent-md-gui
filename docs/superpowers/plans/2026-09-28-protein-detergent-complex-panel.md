@@ -476,7 +476,13 @@ The lesson worth keeping: five of the seven were invisible from the code and obv
 stderr, and my first two diagnoses of the silent snapshots were wrong in ways that only running the file exposed.
 
 Still open in Phase 1: the panel's queue button and mapping picker, and re-enabling the paused `pdc-empty-micelle`
-cron. The cron's condition needs one decision first: stage 6 exits 3 by design while D1 is unbuilt, so a protein-free
-smoke run can now reach its last stage and still be recorded as failed. Either the back-map is skipped with a reason
-when the run has no protein -- nothing to align -- or the cron stays paused until D1 lands. That is a design question
-about what a protein-free run *means*, not a defect, and it is the next thing to settle.
+cron.
+
+The decision that paragraph used to ask for is settled, by the user: a stage with nothing to do records `skipped`
+(exit 4, with its reason in `skip.json`) and the run carries on. The back-map is its first user -- a protein-free
+complex run has no protein to align, so it skips rather than failing the run. A stage that lacks a tool it needs still
+fails loudly (the back-map keeps exit 3 for a missing CG2AT2), because that is a run that could have been attempted.
+
+`AGENTS.md` states the contract and is write-protected: the sentence that belongs there -- stage `skipped`, exit 4,
+reason in `skip.json`, run carries on -- still needs the user's approval, so the code carries the behaviour and the
+file does not yet carry the words.
