@@ -274,6 +274,17 @@ k 18.5) where the draft uses blanket values. Its rmsd column flags the two ring 
 against 0.36–1.36 for the rest. A constraint's force constant is unused by GROMACS, so for the rings the fitted
 *lengths* are the answer and for the junction and tail the constants are.
 
+**Decided by the user, 2026-10-02.**
+
+1. *Compare* the two ring candidates head to head rather than argue them: constraining at the distance the molecule
+   has, against BARTENDER's fitted lengths. Both keep our 11-bead topology with its ring virtual sites and our other
+   terms, so the six ring lengths are the only difference; the current draft (scale 1.15) runs as the control, since
+   it is the configuration that fails.
+2. BARTENDER becomes an **optional** stage — declared, runnable, and not part of a default pipeline. Its inputs are
+   the physical-bead renumbering and a DCD of the AA reference's solute, both of which exist as scratch work today.
+3. The vendored M3-Lipid set's benchmark directory and property workbook stay **untracked by decision**, not by
+   accident; the source file records that.
+
 ### Task 2.4: re-run the fit and record what the model does
 
 **Objective:** the honest measurement the smoke/fitted question has been waiting for.
