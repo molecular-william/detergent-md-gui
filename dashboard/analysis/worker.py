@@ -13,12 +13,12 @@ from pathlib import Path
 from .. import files
 from ..execution import tools, workflow
 from . import metadata as analysis_metadata
-from .runs import mapping_consistency, observability, refinement
+from .runs import bartender_fit, mapping_consistency, observability, refinement
 from .runs import references as aa_references
 from .validation import report as carbohydrate_validation
 from .validation import targets
 
-KINDS = {'plots', 'snapshots', 'surfaces', 'observables', 'stability', 'refinement-score', 'targets', 'carbohydrate-validation', 'mapping-consistency'}
+KINDS = {'plots', 'snapshots', 'surfaces', 'observables', 'stability', 'refinement-score', 'targets', 'carbohydrate-validation', 'mapping-consistency', 'bartender-fit'}
 PATTERNS = {
     'plots': ['*SASA*/AA/*.xvg', '*SASA*/CG/*.xvg'],
     'snapshots': ['1_AA-reference/prod/lig.gro', '1_AA-reference/prod/lig.xtc'],
@@ -35,6 +35,10 @@ PATTERNS = {
     'mapping-consistency': ['1_AA-reference/prod/lig.gro', '1_AA-reference/prod/lig.xtc',
                             '2_mapping/mapped.gro', '2_mapping/mapped.xtc',
                             '4_CG_sim/prod/lig_CG.gro', '4_CG_sim/prod/lig_CG.xtc', '3_initial_CG/*.itp'],
+    # The atomistic solute and its trajectory (what the fit is checked against), the mapping that defines the beads,
+    # and the generated topology whose terms the fit is compared with. Optional by design: nothing queues it.
+    'bartender-fit': ['1_AA-reference/prod/lig.gro', '1_AA-reference/prod/lig.xtc', '2_mapping/model.json',
+                      '2_mapping/mapping.ndx', '3_initial_CG/*.itp'],
 }
 
 
@@ -99,6 +103,7 @@ def execute(request_path):
         elif kind == 'refinement-score': result = refinement.score(work)
         elif kind == 'carbohydrate-validation': result = carbohydrate_validation.run(work, request.get('payload', {}))
         elif kind == 'mapping-consistency': result = mapping_consistency.publish(work, request.get('payload', {}))
+        elif kind == 'bartender-fit': result = bartender_fit.run(work, request.get('payload', {}))
         else:
             function = {'plots': observability.sasa_plot, 'snapshots': observability.generate,
                         'surfaces': observability.connolly_surfaces, 'observables': observability.unparameterized_observables,
