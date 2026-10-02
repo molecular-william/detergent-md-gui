@@ -254,19 +254,24 @@ while our topology's atoms run to 11 with the ring virtual sites (so the topolog
 with `solute_heavy.dcd` = 2,001 frames of the DDM AA reference's solute (run `2321ee23a536`), heavy atoms only, in
 the molecule's own order — so the fit targets **our** ensemble, not BARTENDER's own GFN sampling.
 
-| pair | ours | fitted | mapped | ours vs mapped | fitted vs mapped |
+| pair | ours | fitted | AA reference (mean ± sd, 2001 frames) | ours vs AA | fitted vs AA |
 | --- | --- | --- | --- | --- | --- |
-| S1A–S1B | 0.3610 | 0.310 | 0.3112 | +16.0% | −0.4% |
-| S1A–S1C | 0.4294 | 0.359 | 0.3578 | +20.0% | +0.3% |
-| S1B–S1C | 0.3391 | 0.299 | 0.3156 | +7.4% | −5.3% |
-| S2A–S2B | 0.3183 | 0.275 | 0.2742 | +16.1% | +0.3% |
-| S2A–S2C | 0.4337 | 0.367 | 0.3675 | +18.0% | −0.1% |
-| S2B–S2C | 0.3370 | 0.299 | 0.3167 | +6.4% | −5.6% |
+| S1A–S1B | 0.3610 | 0.310 | 0.3102 ± 0.0030 | +16.4% | −0.1% |
+| S1A–S1C | 0.4294 | 0.359 | 0.3578 ± 0.0049 | +20.0% | +0.3% |
+| S1B–S1C | 0.3391 | 0.299 | 0.2948 ± 0.0116 | +15.0% | +1.4% |
+| S2A–S2B | 0.3183 | 0.275 | 0.2749 ± 0.0031 | +15.8% | 0.0% |
+| S2A–S2C | 0.4337 | 0.367 | 0.3682 ± 0.0079 | +17.8% | −0.3% |
+| S2B–S2C | 0.3370 | 0.299 | 0.2956 ± 0.0131 | +14.0% | +1.2% |
 
-Four of the six fitted lengths land on the mapped geometry within half a percent. So this task is narrower than it was
-written: the choice is not constraints versus bonds — BARTENDER kept the rings as constraints and commented out the
-matching `[bonds]` rows itself, which is our structure too — it is whether the ring scale of 1.15 should survive. The
-fitted lengths say no; what they do not say is whether a constrained ring should use its mapped distance (scale 1.0).
+The target is the AA reference's own **ensemble** mean, not one frame: against a single frame two of the fitted pairs
+looked 5% short, and against the ensemble they are 1.4% short at worst. All six fitted lengths sit inside the
+reference's own spread, so the fit reproduces the geometry the molecule actually has, and our 1.15 scale is the only
+thing pushing the constraints away from it.
+
+So this task is narrower than it was written: the choice is not constraints versus bonds — BARTENDER kept the rings as
+constraints and commented out the matching `[bonds]` rows itself, which is our structure too — it is whether the ring
+scale of 1.15 should survive. The fitted lengths say no; what they do not say is whether a constrained ring should use
+the measured mean (which is what the fit converged to) or something else.
 
 The same run fitted the terms we currently guess, which is where the larger gain is: the head–tail junction S1A–TAIL3
 at 0.528 nm with k 394, the tail steps at 0.440/2441 and 0.538/386, and per-term angle constants (147.2° k 90.3, 142.0°
