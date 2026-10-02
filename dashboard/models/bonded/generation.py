@@ -320,6 +320,11 @@ def _validate_term(term, physical):
     arity = {'bonds': 2, 'angles': 3, 'dihedrals': 4}[kind]
     if not isinstance(beads, list) or len(beads) != arity or any(name not in physical for name in beads):
         raise ValueError(f'{kind} terms must name {arity} physical beads')
+    if len(set(beads)) != len(beads):
+        # GROMACS refuses these outright -- "Duplicate atom index (6) in dihedrals" -- and it is right to: a
+        # dihedral whose first and last atom are the same is not a dihedral, and the bond/angle equivalents are
+        # equally meaningless. A repeated bead is a repeated atom once the term is rendered.
+        raise ValueError(f'{kind} terms must name {arity} distinct beads; {beads} repeats one')
     function = int(term.get('function', 1))
     parameters = term.get('parameters')
     if function not in FUNCTIONS[kind] or not isinstance(parameters, list) or len(parameters) != FUNCTIONS[kind][function]:
@@ -590,6 +595,13 @@ def generate(mapping: dict, structure: dict, project_root: Path) -> dict:
         right = sorted(adjacency.get(third, set()) - {second})
         for first in left:
             for fourth in right:
+                if fourth == first:
+                    # A ring closure: on a three-membered ring the bead on the other side of the edge is the same
+                    # bead, and `[first, second, third, first]` is not a dihedral. The proper term for this edge is
+                    # emitted when the walk starts from a bead that is not the closure.
+                    diagnostics.append(
+                        f'Skipped a degenerate dihedral over {first}-{second}-{third}: its ends are the same bead.')
+                    continue
                 names = [first, second, third, fourth]
                 key, selected, competing = _select_reference(
                     index, 'dihedrals', [physical[name].get('type') or '' for name in names], mapping_name,

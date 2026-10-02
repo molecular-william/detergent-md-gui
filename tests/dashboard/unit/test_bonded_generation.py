@@ -1,4 +1,6 @@
 
+from pathlib import Path
+
 import pytest
 
 from dashboard.models.bonded import generation as bonded_generation
@@ -240,3 +242,59 @@ def test_topology_from_terms_rejects_duplicate_pairs_and_keeps_virtual_site(tmp_
 
     with pytest.raises(ValueError, match='Duplicate'):
         bonded_generation.topology_from_terms(mapping, _structure(), terms + [{**terms[0]}], title='Draft')
+
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _triangle():
+    """Three beads bonded to each other: a ring, which is where the degenerate dihedral comes from.
+
+    Walking a dihedral from an edge of a ring, the two outside beads can be the *same* bead -- the closure -- and
+    `6 5 7 6` is not a dihedral. GROMACS says so: "Duplicate atom index (6) in dihedrals". The DDM draft emitted
+    exactly that, beside the proper `2 5 7 6`, and the whole pdc pipeline stopped there.
+    """
+    mapping = {'name': 'triangle', 'schema_version': 3, 'martini_version': 3,
+               'beads': [{'name': name, 'size': 'R', 'type': 'C1', 'atoms': [index]}
+                         for index, name in enumerate('ABC', start=1)],
+               'rings': [], 'connections': [['A', 'B'], ['B', 'C'], ['A', 'C']]}
+    structure = {'atoms': [{'id': 1, 'name': 'C1', 'heavy': True, 'xyz': [0.0, 0.0, 0.0]},
+                           {'id': 2, 'name': 'C2', 'heavy': True, 'xyz': [4.7, 0.0, 0.0]},
+                           {'id': 3, 'name': 'C3', 'heavy': True, 'xyz': [2.4, 4.1, 0.0]}],
+                 'bonds': [[1, 2], [2, 3], [1, 3]]}
+    return mapping, structure
+
+
+def test_a_ring_closure_does_not_yield_a_term_that_names_a_bead_twice(monkeypatch):
+    """A reference always matches here, so the enumerator itself is what is under test.
+
+    With the repository's real references and a triangle of one bead type, no dihedral matches and nothing is
+    emitted -- which would make this test pass without testing anything. Stubbing the selection puts the enumerator
+    in the position the DDM ring put it in, where the two outside beads of an edge on a three-membered ring are the
+    same bead.
+    """
+    def always_select(index, kind, types, mapping_name='', martini_version=None):
+        # The shape `_select_reference` really returns, with parameters that fit the section: the validator checks
+        # the count per function, and a bond takes two values where a dihedral takes three.
+        parameters = [100.0, 25.0] if kind != 'dihedrals' else [0.0, 25.0, 1]
+        selected = {'function': '1', 'parameters': parameters, 'count': 1,
+                    'references': [{'path': 'test', 'count': 1}], 'path': 'test'}
+        return '|'.join(types), selected, []
+
+    monkeypatch.setattr(bonded_generation, '_select_reference', always_select)
+
+    mapping, structure = _triangle()
+    result = bonded_generation.generate(mapping, structure, REPO_ROOT)
+
+    degenerate = [term for term in result['interactions']
+                  if len(set(term['beads'])) != len(term['beads'])]
+    assert not degenerate, f'GROMACS refuses these: {degenerate}'
+    assert result['interactions'], 'the triangle should still produce bonds and angles'
+
+
+def test_a_term_the_caller_wrote_with_a_repeated_bead_is_refused():
+    mapping, structure = _triangle()
+    terms = [{'kind': 'dihedrals', 'beads': ['A', 'B', 'C', 'A'], 'function': '1', 'parameters': [0.0, 25.0, 1]}]
+
+    with pytest.raises(ValueError, match='distinct beads'):
+        bonded_generation.topology_from_terms(mapping, structure, terms)
