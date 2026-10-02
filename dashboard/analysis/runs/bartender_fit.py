@@ -252,9 +252,12 @@ def run(work, payload=None) -> dict:
     environment = dict(os.environ)
     environment['BTROOT'] = str(region)
     cpus = int(payload.get('cpus') or 8)
-    _run(shell_command(bartender, cpus, region), cwd=work, env=environment)
+    _run(shell_command(bartender, cpus, region), cwd=work, env=environment,
+         timeout=int(payload.get('timeout') or TOOL_TIMEOUT))
 
     fitted = fitted_terms((work / FITTED).read_text()) if (work / FITTED).is_file() else {}
+    # `payload['timeout']` is honoured because a model can legitimately need longer: one that writes its linkage
+    # dihedral as an improper has BARTENDER scanning it, which took over 400 s where a proper dihedral took 40.
     ensemble = ensemble_distances(structure_path, trajectory_path, beads)
     physical_names = [bead['name'] for bead in beads if not bead.get('virtual_site')]
     pairs = {}

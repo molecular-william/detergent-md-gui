@@ -154,3 +154,14 @@ def test_the_fit_runs_through_the_tools_own_environment_file(tmp_path):
 
     assert command[0] == 'bash' and 'bartender_config.sh' in command[-1]
     assert 'exec ' in command[-1] and '-refit' in command[-1], 'the fit runs inside the sourced environment'
+
+
+def test_the_timeout_is_a_default_and_not_a_wall():
+    """A model that writes its linkage dihedral as an improper has BARTENDER scanning it: measured, over 400 s where
+    a proper dihedral took 40. A caller that knows its model may say how long it is willing to wait."""
+    import inspect
+
+    source = inspect.getsource(bartender_fit.run)
+
+    assert "payload.get('timeout')" in source, 'the payload may lengthen the wait'
+    assert bartender_fit.TOOL_TIMEOUT == 1200, 'and the default still fails rather than running forever'
