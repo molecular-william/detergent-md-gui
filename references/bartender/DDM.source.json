@@ -1,0 +1,35 @@
+{
+  "molecule": "DDM",
+  "reference_itp": "DDM.itp",
+  "tool": "BARTENDER",
+  "tool_source": "https://github.com/rmera/bartender",
+  "tool_version": "0.1.1 (the 10 MB binary vendored at tools/bartender/m3_bartender/, with xtb-6.4.1)",
+  "invocation": "bartender -refit -owntraj solute_heavy.dcd -noplot -cpus 8 solute_heavy.gro bartender.inp, inside the environment bartender_config.sh sets",
+  "fitted_against": {
+    "run": "2321ee23a536",
+    "stage": "07_reference",
+    "trajectory": "prod/lig.xtc, 2001 frames of the solute at 10 ps",
+    "geometry": "the same run's lig.gro, heavy atoms only, in the molecule's own atom order",
+    "frames": 2001
+  },
+  "mapping": {
+    "candidate": "mapping_candidate_2bcc24c3e5f149fab1e4f11f5d80ae0e.json",
+    "beads": "the nine physical beads; the two ring virtual sites are dropped, because BARTENDER has no notion of one and there are no atoms in it to fit",
+    "note": "the `[ atoms ]` types here are the mapping's, so the bonded index can key each fitted term by bead type"
+  },
+  "what_it_is": "bonded parameters fitted to this project's own atomistic ensemble, not to BARTENDER's semiempirical sampling: `-refit` with `-owntraj` fits the given trajectory",
+  "what_it_is_not": [
+    "not a validated force field: one fit, one molecule, one reference run",
+    "not a source of ring constraints: BARTENDER keeps those in its own `[ constraints ]` section, and a ring's constraint lengths belong to the mapping that drew the ring",
+    "not a replacement for the published Martini 3 lipid terms: it is preferred for the pairs it covers, and the rest still comes from the published sets",
+    "not independent of the mapping: it fits the bead partition that exists, so a grouping defect is fitted as faithfully as a correct one"
+  ],
+  "fit_quality": {
+    "note": "BARTENDER reports an rmsd for every fitted term in the unit of its ordinate, and the file's comments carry them. The worst two are the ring pairs 2-3 and 5-6 at 4.23 and 4.64, which it also kept as constraints rather than bonds."
+  },
+  "terms": {
+    "bonds": 4,
+    "angles": 14,
+    "dihedrals": 1
+  }
+}

@@ -436,7 +436,15 @@ def _record_versions(record) -> set:
     return {_reference_version(reference.get('path') or '') for reference in record.get('references') or []}
 
 
-def _select_reference(index, kind, types, mapping_name='', martini_version=None):
+def _select_reference(index, kind, types, molecule='', martini_version=None):
+    """The best reference for one term, and whatever else could have described it.
+
+    `molecule` is the *molecule* the mapping is of, and it is what makes a molecule-specific reference win: the term's
+    path must carry it. It used to be the mapping's whole name -- `DDM draft from the automatic recogniser (Martini 3)`
+    -- tested as a substring of the path, which is never true, so `references/bartender/DDM.itp` could sit in the tree
+    and never be chosen. A name's words are not used as tokens either: `martini`, `draft` and `automatic` would match
+    half the reference tree.
+    """
     key = _reference_term_key(kind, types)
     candidates = list(index.get(kind, {}).get(key, []))
     if not candidates:
@@ -451,7 +459,7 @@ def _select_reference(index, kind, types, mapping_name='', martini_version=None)
                       if martini_version in _record_versions(record) or None in _record_versions(record)]
         if not candidates:
             return key, None, []
-    molecule_name = str(mapping_name or '').lower().replace('_', '-')
+    molecule_name = str(molecule or '').lower().replace('_', '-')
 
     def rank(record):
         paths = [reference['path'].lower() for reference in record.get('references', [])]
@@ -524,14 +532,14 @@ def generate(mapping: dict, structure: dict, project_root: Path) -> dict:
     index = reference_bond_index(project_root)
     diagnostics = list(index['diagnostics'])
     terms = []
-    mapping_name = mapping.get('name', '')
+    molecule = mapping.get('molecule_id') or mapping.get('name', '')
     edges = _physical_edges(mapping, structure)
     term_keys = set()
     for first, second in edges:
         first_type = physical.get(first, {}).get('type') or ''
         second_type = physical.get(second, {}).get('type') or ''
         key, selected, competing = _select_reference(
-            index, 'bonds', [first_type, second_type], mapping_name, martini_version)
+            index, 'bonds', [first_type, second_type], molecule, martini_version)
         if selected:
             parameters = [_format(value) for value in selected['parameters']]
             function = str(selected['function'])
@@ -564,7 +572,7 @@ def generate(mapping: dict, structure: dict, project_root: Path) -> dict:
                 continue
             names = [first, middle, last]
             key, selected, competing = _select_reference(
-                index, 'angles', [physical[name].get('type') or '' for name in names], mapping_name,
+                index, 'angles', [physical[name].get('type') or '' for name in names], molecule,
                 martini_version)
             if selected:
                 function = str(selected['function'])
@@ -604,7 +612,7 @@ def generate(mapping: dict, structure: dict, project_root: Path) -> dict:
                     continue
                 names = [first, second, third, fourth]
                 key, selected, competing = _select_reference(
-                    index, 'dihedrals', [physical[name].get('type') or '' for name in names], mapping_name,
+                    index, 'dihedrals', [physical[name].get('type') or '' for name in names], molecule,
                     martini_version)
                 if not selected:
                     continue

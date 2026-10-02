@@ -1,0 +1,56 @@
+; DDM's bonded terms, fitted by BARTENDER to this project's own atomistic reference.
+;
+; Source: `dashboard/analysis/runs/bartender_fit.py`, run against the DDM `aa_cg` run's atomistic ensemble
+; (the shared reference, 2,001 frames of the solute, heavy atoms), with the terms keyed here by the bead types this
+; mapping assigns. See `DDM.source.json` for the inputs, their hashes, and what the fit is not.
+;
+; A term here is preferred to any published value for the same bead-type pair: it is the only source fitted to the
+; ensemble this project measures against. The force constants beside each term are what there is to adopt where the
+; draft had a geometric fallback.
+;
+; `[ constraints ]` is deliberately absent. BARTENDER fitted the ring pairs as constraints -- its own output keeps
+; them there and comments out the matching bonds -- and a ring's constraint lengths belong to the mapping that drew
+; the ring, not to a shared reference table.
+
+[ moleculetype ]
+DDM                 1
+
+[ atoms ]
+; nr  type  resnr residue atom  cgnr  charge   mass
+     1  SP1r      1     DDM   S1A     1       0     54
+     2  SP1r      1     DDM   S1B     2       0     54
+     3  SP1r      1     DDM   S1C     3       0     54
+     4  SN6       1     DDM   S2A     4       0     54
+     5  SP4r      1     DDM   S2B     5       0     54
+     6  SP1r      1     DDM   S2C     6       0     54
+     7  C1        1     DDM   TAIL1   7       0     72
+     8  C1        1     DDM   TAIL2   8       0     72
+     9  C1        1     DDM   TAIL3   9       0     72
+
+[ bonds ]
+; i  j  funct   length   force.c.        ; rmsd of the fitted distribution, in the unit of the ordinate
+  1  9      1    0.528    394.25         ; rmsd 1.74   the sugar-to-alkyl link: the term the draft had only a guess for
+  2  4      1    0.280   9997.44         ; rmsd 1.38   the glycosidic link between the two rings
+  7  8      1    0.440   2440.66         ; rmsd 2.12
+  8  9      1    0.538    385.96         ; rmsd 1.63
+
+[ angles ]
+; i  j  k  funct    angle   force_constant   ; rmsd
+  2  1  3      1    52.42   2154.81          ; rmsd 2.63
+  2  1  9      1   147.23     90.28          ; rmsd 1.43   the link's own angle
+  3  1  9      1    99.02     73.19          ; rmsd 1.61
+  1  2  3      1    72.16   2651.08          ; rmsd 0.66
+  1  2  4      1   162.92    183.59          ; rmsd 2.52
+  3  2  4      1   113.40    284.60          ; rmsd 2.17
+  1  3  2      1    55.51   5420.51          ; rmsd 0.74
+  2  4  5      1   124.62    244.31          ; rmsd 1.84
+  2  4  6      1    90.66    105.43          ; rmsd 2.41
+  5  4  6      1    52.12   1031.18          ; rmsd 1.40
+  4  5  6      1    80.25   1336.81          ; rmsd 1.70
+  4  6  5      1    47.39   5467.60          ; rmsd 1.03
+  7  8  9      1   141.99     18.47          ; rmsd 1.04
+  1  9  8      1   138.42     17.27          ; rmsd 1.55
+
+[ dihedrals ]
+; i  j  k  l  funct     phase       kd    pn      ; rmsd
+  2  4  6  5      1   -408.38     7.30     4      ; rmsd 0.81
