@@ -187,3 +187,30 @@ def test_the_restart_topology_is_dry_because_the_restart_solvates_again():
     counts = dict(pdc_extension.molecule_counts(kept))
 
     assert counts == {'DDM': 3}, counts
+
+
+def test_the_restart_mdp_seeds_new_velocities_without_defining_gen_seed_twice():
+    """Measured: grompp refused the file the restart wrote --
+
+        ERROR 1 [file restart.mdp, line 53]: Parameter "gen-seed" doubly defined
+
+    -- because the template mdp already names one and the writer appended a second. A restart does need new
+    velocities, so the seed is replaced, not added.
+    """
+    from dashboard.execution.scripts import pdc_extension
+
+    template = 'integrator = md\ngen-vel = no\ngen-seed = 1\nnsteps = 1000\n'
+    written = pdc_extension.restart_mdp(template, 20260930)
+
+    assert written.count('gen-seed') == 1, written
+    assert 'gen-seed = 20260930' in written and 'gen-seed = 1\n' not in written, written
+    assert 'gen-vel = yes' in written, 'a restart is the one that generates velocities'
+
+
+def test_a_template_without_a_seed_gets_one():
+    from dashboard.execution.scripts import pdc_extension
+
+    written = pdc_extension.restart_mdp('gen-vel = no\nnsteps = 10\n', 7)
+
+    assert written.count('gen-seed') == 1 and 'gen-seed = 7' in written, written
+    assert 'gen-vel = yes' in written

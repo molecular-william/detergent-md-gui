@@ -92,6 +92,27 @@ def kept_topology(text: str, removed: int, protein: str | None = None,
     return '\n'.join(lines) + '\n'
 
 
+def restart_mdp(text: str, seed: int) -> str:
+    """The extension mdp with a fresh velocity seed, ready to restart from a checkpoint.
+
+    A restart has to generate new velocities -- that is the whole difference from continuing -- and the template mdp
+    already names a `gen-seed`, so the new one replaces it. Appending it is what a measured run did, and grompp refused
+    the file outright: `Parameter "gen-seed" doubly defined`.
+    """
+    lines = []
+    seeded = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith('gen-vel'):
+            line = 'gen-vel = yes'
+        elif stripped.startswith('gen-seed'):
+            line, seeded = f'gen-seed = {seed}', True
+        lines.append(line)
+    if not seeded:
+        lines.append(f'gen-seed = {seed}')
+    return '\n'.join(lines) + '\n'
+
+
 def attempts(stage: Path) -> list[dict]:
     path = stage / ATTEMPTS
     if not path.is_file():
@@ -161,9 +182,7 @@ def main(argv=None) -> int:
         # New velocities, and only that changes: the seeded system is the same placement, one attempt older. The
         # seed has to differ from the one the phase it replaces used, so the first restart is seed + 1.
         seed = int(settings.get('seed', 1)) + len(history) + 1
-        (stage / RESTART_MDP).write_text(
-            (stage / 'extension.mdp').read_text().replace('gen-vel = no', 'gen-vel = yes')
-            + f'\ngen-seed = {seed}\n')
+        (stage / RESTART_MDP).write_text(restart_mdp((stage / 'extension.mdp').read_text(), seed))
         for target, source in (('min.tpr', 'minimization.mdp'), ('eq.tpr', 'equilibration.mdp')):
             previous_structure = 'system.gro' if target == 'min.tpr' else 'min.gro'
             subprocess.run(['gmx', 'grompp', '-f', source, '-p', 'system.top', '-c', previous_structure,
