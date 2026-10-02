@@ -438,3 +438,39 @@ particular do not describe back-mapping as working while Task D1 is expected-to-
 - Identical inputs and seed reproduce identical setup coordinates.
 - Nothing in the panel claims validation: the product is `candidate-unvalidated`, and the report says the
   assessment is a proxy for aggregate formation rather than evidence of equilibration.
+
+## Measured status of the pipeline (2026-10-02)
+
+B7b's scripts exist and have been driven stage by stage in a scratch run, not reasoned about. Each defect below was
+found by running the stage and reading what it said; each is fixed with the test that fails without it, and each
+commit is named because the plan's checkboxes are worth only what the running pipeline says they are worth.
+
+| stage | state |
+| --- | --- |
+| 1 system | complete — box, placement, an 11-bead topology derived from the run's own mapping |
+| 2 CG assessment | complete — solvation, ions, minimisation, equilibration, production (17,176 ns/day), centering, start frame, one snapshot recorded and judged |
+| 3 micelle assessment | complete — `assessment.json`, `kept.gro`, `removed.json`; a six-detergent run judges `largest cluster 3 of 6` |
+| 4 removal and retry | reaches the removal, reduces the topology to the detergents that stay, re-solvates, minimises and equilibrates; the extension itself is the last thing to drive |
+| 5 extension | not driven |
+| 6 back-map | not driven; needs CG2AT2 (D1) |
+
+Seven defects stood between "the run reaches stage 2" and "stage 4 rebuilds the system", all of the same kind: a file
+or an option that two pieces of the pipeline disagreed about.
+
+- `7373f82` a ring closure was emitted as a dihedral, with one atom at both ends
+- `de1a838` `genion` was passed `-g`, which this GROMACS does not have
+- `7b9bd6d` a centering `trjconv` was fed one answer where it asks two
+- `77304a6` a phase shorter than its snapshot cadence recorded nothing; it now records its start frame
+- `eb9a345` the criterion could not find the tail beads, because the shipped template names no roles: the run's own
+  mapping now answers when the template cannot
+- `ab743f8` `pdc_snapshot.py` had no `__main__` guard, so every stage call of it was a silent no-op — the real reason
+  two phases recorded nothing, after the cadence and the tail beads had both been fixed for their own reasons
+- `01842b6`, `87da51e`, `79f67b5`, `cf41557` the extension stage could not re-solvate (no `ions.mdp`), reduced the
+  *water* instead of the detergent, handed `genion` a topology that still described an earlier solvation, carried the
+  solvent into the structure the restart was supposed to re-solvate, and wrote `gen-seed` twice
+
+The lesson worth keeping: five of the seven were invisible from the code and obvious from one line of a tool's
+stderr, and my first two diagnoses of the silent snapshots were wrong in ways that only running the file exposed.
+
+Still open in Phase 1: stages 5 and 6, the panel's queue button and mapping picker, and re-enabling the paused
+`pdc-empty-micelle` cron once a run completes end to end.
