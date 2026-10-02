@@ -77,3 +77,18 @@ def test_a_mapping_without_a_reference_match_keeps_the_generic_seed():
     data['reference'] = None
     itp = topology(data, selected, residue_name='SUCR')
     assert float(sections(itp)['bonds'][0][4]) == 5000.0
+
+
+def test_a_cyclic_glycan_maps_and_takes_its_reference_linkage():
+    """Trehalose: alpha,alpha-1,1, both anomeric carbons joined, so there is no acceptor end to order against.
+
+    The recogniser used to refuse this outright -- "Cyclic glycan needs explicit linkage ordering" -- because its
+    walk arrived back at an anomeric carbon it had already seen. Both rings are equivalent, so the walk stops, and
+    the reference's own trehalose entry supplies the linkage stiffness the same way it does for sucrose.
+    """
+    itp = generated('Trehalose')
+    rows = sections(itp)['bonds']
+
+    assert len(rows) == 1, 'trehalose has exactly one non-ring bond, the 1,1 linkage'
+    assert float(rows[0][4]) == 9000.0, 'the reference fixes 9000 for trehalose'
+    assert 'linkage of TREH' in itp

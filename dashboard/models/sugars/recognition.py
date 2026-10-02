@@ -64,7 +64,13 @@ def identify_hexoses(structure):
     def depth(r, seen=None):
         seen = set() if seen is None else seen
         c1 = r['carbons'][0]
-        if c1 in seen: raise ValueError('Cyclic glycan needs explicit linkage ordering')
+        if c1 in seen:
+            # A closed linkage. Trehalose's alpha,alpha-1,1 joins its two rings through both anomeric carbons, so the
+            # walk arrives back at a ring it has already visited; there is no acceptor end to order against and the
+            # two rings are equivalent, so the walk stops rather than refusing the glycan. The sort's remaining keys
+            # keep the result deterministic, and every ring whose linkage is genuinely ambiguous -- a fused pair --
+            # is refused above by the overlapping-rings guard.
+            return 0
         seen = seen | {c1}
         for o in adj[c1] - r['atoms']:
             for other in rings:
