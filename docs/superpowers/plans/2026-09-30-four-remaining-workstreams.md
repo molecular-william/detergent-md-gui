@@ -221,6 +221,11 @@ ring held 15% wider than the atomistic reference is worth its stiffness, not whe
 
 ### Task 2.2: the tail takes the published named defaults
 
+**Landed 2026-10-02 (`3f2934c`), with `096eea0` for the ranking it needed.** `_parse_named_defaults` reads the
+`#define` rows with their context; `_select_reference` takes a `context` and prefers, in order, the molecule's own fit
+(unless the fit is ambiguous for that bead signature), then the named default in the right context, then the parsed
+rows. Measured on DDM: reference terms 12 -> 20, geometric fallbacks 13 -> 5.
+
 **Objective:** implement `docs/design/2026-09-30-named-bonded-defaults.md`: read the `#define` rows of
 `references/M3-Lipid-Parameters/ITPs/martini_v3.0.0_ffbonded_v2.itp`, choose the context (`_end` for a bead with one
 neighbour, `_mid` otherwise), rank them above the lipidome's per-molecule lines and below a detergent-specific
@@ -437,13 +442,34 @@ the molecule's own graph:
 | DDM | 1, 1, 1 | none | SP1r, SP1r, SP1r |
 | Maltose | 2, 1, 1 | S1A | SP4r, SP1r, SP1r |
 
-Both went through the same code, so the typing is faithful and `SP1r` is the correct answer for the three beads DDM
-produced. DDM's ring 1 has four hydroxyls available and the recogniser put one in each bead, where maltose -- the same
-ring type -- puts two in one. The recognition algorithm's own description says "diols first", which is the rule that
-did not fire. So the fix is in where the ring is cut, and it has to be made without disturbing sucrose or maltose,
-whose groupings are verified against the published entries.
+**Superseded on 2026-10-02, after reading the code and the molecule: there is no ring-typing defect.** The partition is
+not chosen per molecule -- `coords.py:189` fixes it to the paper's canonical pairs, `[{c1,c2}, {c3,c4}, {c5,c6,ring O}]`,
+for every recognised hexopyranose, and the typing then reads that partition's chemistry. DDM's ring 1 and maltose's
+ring 1 differ because their *chemistry* differs, not because the rule failed to fire.
 
-**A dead ranking key, found on the way.** `_select_reference` prefers a molecule-specific reference by testing
+Measured on the reference's own topology (`2321ee23a536`, `inputs/common/molecule/results/MMFF/lig1.itp`), counting a
+hydroxyl as an oxygen with one heavy neighbour:
+
+| ring | bead | atoms | O | OH | the oxygens | type |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | S1A | 4 | 2 | 1 | `O` bonded C11 (the tail) and C12 -- **the alkyl ether**; `O10`-C23 hydroxyl | SP1r |
+| 1 | S1B | 4 | 2 | 1 | `O3` bridging C15/C16 (ring oxygen); `O9`-C22 hydroxyl | SP1r |
+| 1 | S1C | 4 | 2 | 1 | `O1` bridging C13/C12 (ring oxygen); `O2`-C14 hydroxyl | SP1r |
+| 2 | S2A | 3 | 1 | 1 | `O8`-C21 hydroxyl | SN6 |
+| 2 | S2B | 4 | 2 | **2** | `O6`-C19 and `O7`-C20, both hydroxyls | SP4r |
+| 2 | S2C | 4 | 2 | 1 | `O4` bridging C16/C17 (the glycosidic oxygen); `O5`-C18 hydroxyl | SP1r |
+
+The tail attaches through the oxygen that sits **inside S1A** (`tail C11-O-C12`), so ring 1's A fragment is an ether
+fragment with one hydroxyl: four atoms, two oxygens, one hydroxyl, which is `SP1r` by the rule. Ring 2's B fragment
+holds two hydroxyls, which is the diol. `SP4r` in ring 1 would require a diol that the molecule does not have.
+
+So the "missing `SP4r`" recorded earlier is **withdrawn**, and the same for the ring-length comparison that came from
+the four harness arms. What remains true and worth keeping: the published Martini 3 sugar set has no entry for a sugar
+whose anomeric carbon carries an *alkyl* ether, which is what DDM's ring 1 is -- so the molecule's own fitted terms
+(the BARTENDER reference below) are the only source that reaches that ring at all.
+
+**A dead ranking key, found on the way -- fixed 2026-10-02 (`096eea0`).** `_select_reference` prefers a
+molecule-specific reference by testing
 `molecule_name in path`, where `molecule_name` is the mapping's *whole* name (`DDM draft from the automatic
 recogniser (Martini 3)`). That is never a substring of a reference path, so the ranking's first key is always false: a
 BARTENDER reference could sit in `references/` and never be chosen. The match has to be made on the molecule (its id,

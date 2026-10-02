@@ -155,180 +155,149 @@ The current Sucrose diagnostic records are documented in the operations note.
 They are preserved examples, not a replacement for a fresh run after changing
 inputs or code.
 
-## Handoff to the next session (2026-09-28)
+## Handoff to the next session (2026-10-02)
 
-Nothing is in flight and the tree is clean. Nothing has been pushed since the pre-refactor baseline `e0504a3`.
+The tree is clean apart from untracked reference assets (the vendored M3-Lipid duplicates, `.git-upstream/`, two of the
+user's PDFs) -- **the M3-Lipid set stays untracked by the user's instruction; do not "tidy" it into the index**. Nothing
+has been pushed since the pre-refactor baseline `e0504a3`; the branch is 270 commits ahead of `origin/main`.
 
-### The CHARMM36m reference run completed
+### What landed since the 2026-09-28 handoff
 
-Run `03875cf39790` (`workspace/dashboard/runs/03875cf39790/`) — `aa_only`, Sucrose,
-`charmm36-feb2026_cgenff-4.6`, cube 2.5 nm / 494 waters, 303.15 K, 1 bar, seed 20260928, 8 ntomp,
-`constraints = all-bonds`, `rlist = 1.2`, `nstlist = 20`, `verlet-buffer-tolerance = -1`.
-
-| field | value |
+| commit | what |
 | --- | --- |
-| status | `completed`, all 7 stages exit 0, `error: null` |
-| wall clock | 07:23:03 → 10:28:29 UTC = 3 h 05 min |
-| production | 100,000,000 steps = 200 ns, wall 3 h 03 min 34 s |
-| performance | **1568.873 ns/day** (0.110 ms/step) |
-| frames | 20,001 at 10 ps |
-| artefacts | `run.xtc` 109.8 MB, `run.gro`, `run.edr` 122 MB, `lig.xtc` 5.26 MB, `diagnostics.xvg` 16.2 MB, `reference.json` 328 KB |
-| validated | `scientifically_validated: false` — SwissParam parameters under a CHARMM36 tree assume CGenFF 4.x compatibility rather than demonstrating it; the caveat is in the manifest |
+| `096eea0` | a molecule's own fitted terms are preferred -- the ranking's first key had never been able to fire |
+| `3f2934c` | the tail takes the published named defaults, by the context the physical graph gives it |
+| `30bb52e` | the plan's tail expectation corrected: one end bond and one middle, not two ends |
+| `d56f388` | the three fixes as diagnosed: a "grouping defect" that turned out not to be one, a dead ranking key, and where each term comes from |
+| `413ca48`..`9515921` | BARTENDER as an optional analysis (`analysis/runs/bartender_fit.py`), plus the four fix-ups its own runs forced |
+| `edde530` | a placed detergent is the size its topology says it is -- the last x10 site |
+| `34af539`, `0097fa2` | the pdc panel queues a build and chooses its mapping; a pdc run completes end to end |
+| `e58ce02` | a stage with nothing to do records `skipped` (exit 4, `skip.json`) and the run carries on |
+| `eb9a345`, `ab743f8`, `cf41557`, `3b2ceb5`, `7373f82`, `de1a838`, `7b9bd6d`, `77304a6` | the six pdc stage defects: tail beads from the run's own mapping, the snapshot script's missing entry point, the restart's seed and continuation, a ring closure passed as a dihedral, `genion -g`, a centering trjconv fed one answer, a phase shorter than its cadence |
 
-1568.873 ns/day is 1.3% from the 8-thread benchmark (1589), so the mdrun sweep's numbers transfer to
-production. Re-measure before quoting either number in a new context.
+### DDM's bonded terms today (measured with `detergent_cg.derive` on the live draft)
 
-### Where this stands (2026-09-29, after the first end-to-end CG consumer runs)
+Reference terms **20**, geometric fallbacks **5** (they were 12 and 13 before `096eea0` + `3f2934c`).
 
-The CG consumer path runs to completion for a sugar. Two `aa_cg` runs are in the live database, both
-`completed`, all six stages exit 0, both off the shared CHARMM36m reference `03875cf39790` and the
-mapping the runs themselves recorded:
+| term | value | source |
+| --- | --- | --- |
+| `S1A-TAIL3` | 0.528 / 394.25 | BARTENDER's fit to this project's own AA ensemble |
+| `S1B-S2A` | 0.280 / 9997.44 | the same fit |
+| `TAIL1-TAIL2` | 0.500 / 2800 | `b_C1_C1_end` from `martini_v3.0.0_ffbonded_v2.itp` |
+| `TAIL2-TAIL3` | 0.490 / 2800 | `b_C1_C1_mid` from the same file |
+| the ring constraints | as the mapping wrote them | the mapping, at the scale 1.15 that `schema.py` and `validation.py` enforce |
 
-| run | CG timestep | CG production | rate | wall clock |
-| --- | --- | --- | --- | --- |
-| `3168e92e052f` | 20 fs | 10 ns in 500,000 steps | 28,885 ns/day | 3 min 38 s |
-| `abd5bf461c49` | 2 fs (before the fix) | 10 ns in 5,000,000 steps | 2,863 ns/day | 8 min 10 s |
+The fitted terms live in `references/bartender/DDM.itp` with `DDM.source.json` for provenance, fitted on 2,001 frames
+of the solute from run `2321ee23a536`. The rule that forced itself into the open while wiring the ranking: **a fit is
+keyed by bead type**, so it cannot say *which* of two `C1|C1` bonds it fitted -- BARTENDER held both and either would
+have been applied to both. Where a fit is ambiguous for a signature, the published context-aware default decides; where
+it is unambiguous, the fit stands as the molecule's own measurement.
 
-The coarse-grained half integrates at 20 fs and the atomistic half at 2 fs; `cg.mdp_integration` is the one
-place that decides it, because the adapter used to stamp 2 fs on both. Three failures stood between the first
-queue and the first completion, each fixed and pinned by a test: the seeded topology named beads with the
-reference's per-residue letters while `mapped.gro` said `B01..` (`grompp`: "Too many warnings (1)"); the fitted
-temperature reached `ff_inter` as a float where its argument is an int; and the topology named two residues, so
-MDAnalysis — and therefore `ff_assess` — saw two four-bead molecules instead of one eight-bead one
-(`IndexError: axis 1 with size 4`). A run's CG topology is now one residue per molecule, beads `B01..`, which
-is what `mapped.gro`, the `.map` and the `.ndx` already said.
+### The ring question: closed, and the earlier claim is withdrawn
 
-The Mapping Validation tab is live: `GET /api/jobs/<id>/mapping-consistency` reads the record the analysis
-published (it is not recomputed in the route), and `static/js/mapping-validation.js` renders card 1 (ring and
-constraint pairs) and card 2 (bonded terms) with the reference entry carried as context. Cards 3 and 4 say why
-they are empty instead of showing a substitute number. Card 1's agreement is by construction — those
-constraints were fitted from the same atomistic reference they are compared against — so it checks that the
-mapping, the mapped trajectory and the simulated trajectory are one assignment, and the panel says so on the
-card. The reference's numbers are context and set no verdict.
+An earlier handoff said DDM's ring 1 had one concrete defect, "a missing `SP4r`". **That is wrong and is withdrawn.**
+`coords.py:189` fixes the partition to the paper's canonical pairs for every recognised hexopyranose, and the typing
+reads that partition's chemistry. Measured on the reference's own `inputs/common/molecule/results/MMFF/lig1.itp`, with
+a hydroxyl counted as an oxygen with one heavy neighbour:
 
-### E3, the transferability chain (2026-09-30)
+- ring 1's `S1A` holds the **alkyl ether** (the tail attaches `C11-O-C12`, with that O inside S1A) and so has one
+  hydroxyl -- four atoms, two oxygens, one hydroxyl, which is `SP1r` by the rule;
+- ring 1's other two beads each hold one hydroxyl plus one ring oxygen -- also `SP1r`;
+- ring 2's `S2B` holds two hydroxyls, which is the diol -- `SP4r`.
 
-The three-molecule check (the paper's own disaccharide transferability test) is queued and, once the gateway is
-running, drives itself: `~/.hermes/profiles/moldym/scripts/e3-chain.py`, scheduled as cron job `e3-chain` every
-10 minutes with no LLM. Each tick reads the live API and does the next thing that exists to do — maltose CG run,
-trehalose mapping and reference, trehalose CG run, then both comparisons — and prints nothing when there is
-nothing to do, so a quiet tick sends no message. It only calls the endpoints the panel's buttons call.
+`SP4r` in ring 1 would require a diol the molecule does not have. The full table is in the plan.
 
-| leg | state |
-| --- | --- |
-| maltose reference | `a54ac8f64710` — restarted from solvation this morning by the coordinator's recovery (the machine was off overnight), ETA 13:08 HKT |
-| maltose CG run | queued by the driver once the reference completes (~13:25) |
-| trehalose | molecule added by the user and tracked (`cf6b830`); reference ~13:30-16:35, CG run ~16:50 |
-| comparisons | both queued by the driver (~17:00) |
+What survives from that line of work is the reason the fitted reference matters: the published Martini 3 sugar set has
+no entry for a sugar whose anomeric carbon carries an *alkyl* ether, which is what DDM's ring 1 is, so the molecule's
+own fit is the only source that reaches that ring.
 
-The driver is idempotent and safe to run by hand (`--verbose` reports what it sees). **A build item comes with
-it**: nothing compares the same bead types *across* molecules yet — every analysis compares AA against CG within
-one run — so when the chain lands the numbers exist and no analysis or panel presents them.
+### E3, the transferability chain: complete
 
-### PDC: what is actually missing (checked 2026-09-30)
+Four runs and two comparisons, all `completed`, queued by `~/.hermes/profiles/moldym/scripts/e3-chain.py`:
 
-Earlier notes said "phases C–E remain" without saying why nothing has ever run. The precise state: Phase B's
-builders exist and are unit-tested (`adapters/pdc_box.py`, `pdc_placement.py`, `pdc_protein.py`,
-`pdc_solvation.py`, `pdc_view.py`), `pdc.py` carries the catalogue, `SETTING_SPECS` and the six-stage `STAGES`
-contract — and **nothing writes the stage scripts `STAGES` names**. `grep prepare_system.sh` finds the string
-only in `STAGES` itself, and `workflow.prepare_run` calls `cg.prepare` unconditionally, so a `pdc` job cannot be
-created at all. That is tasks B7 (`pdc.prepare`) and B8 (dispatch on run type) in
-`docs/superpowers/plans/2026-09-28-protein-detergent-complex-panel.md`, and it is the next PDC work: six stage
-directories and their scripts over a `python -m` entry point that calls the tested builders, the dispatch, and
-tests that read the scripts the way `test_aa_gromacs_invocation.py` reads the AA ones.
+| leg | run | result |
+| --- | --- | --- |
+| maltose AA reference | `a54ac8f64710` | -- |
+| maltose CG | `22075892b606` | 6/6 ring pairs and 6/6 bonded rows inside the AA reference's own range; displacement rmsd 0.0062 nm |
+| trehalose AA reference | `0bfa1a39ef76` | -- |
+| trehalose CG | `4e4ff51e7417` | 6/6 and 6/6 inside; rmsd 0.0046 nm |
+
+Both comparisons are `diagnostic_only: true` and `scientifically_validated: false`, read from
+`analyses/mapping-consistency/<hash>/<hash>/result.json`.
+
+**Still unbuilt, and the reason those numbers sit unused:** nothing compares the same *bead types* across molecules.
+Every analysis compares AA against CG within one run, so the paper's own transferability question -- do the same bead
+types behave the same in sucrose, maltose and trehalose -- has no reader. That is Phase 3 of the plan.
+
+### The three crons are quiet
+
+`e3-chain` (`71a071938314`), `ddm-fit-chain` (`b4d8dfb2c7b8`) and `pdc-empty-micelle` (`eecb5a6b759f`) each fire every
+10 minutes with no LLM and print nothing when there is nothing to do. Verified 2026-10-02 by running each by hand with
+`--verbose`: the E3 chain says "nothing to do"; the DDM fit chain says "3 attempts, all failed; not trying again"; the
+pdc chain says "already queued: 8a73fe6448f2 completed". Leave, pause or delete them as you prefer -- none of them will
+move anything on its own.
+
+### The coordinator is running
+
+`http://127.0.0.1:5000`, concurrency 2 (`config/dashboard.json`), started persistent in-session, log at
+`/home/wee/.hermes/profiles/moldym/cache/scratch/coordinator-run.log`. The database holds 31 jobs.
+
+Runs worth keeping: the four E3 runs above, `2321ee23a536` (the DDM AA reference the fit targets), and
+`8a73fe6448f2` (pdc, completed end to end -- five stages exit 0 and Back-mapping `skipped` with "the run has no
+protein, so there is nothing to align"). Ignore the failed pdc probes and the three failed DDM `aa_cg` runs.
+
+**`8a73fe6448f2`'s system is void for geometry.** It was built while `detergent_cg.bead_centres` divided by ten, so
+every placed detergent was a tenth of its size. Fixed in `edde530` and verified on a fresh preparation (ring pairs
+0.3136 / 0.3739 nm against constraints of 0.3610 / 0.4294). Its stages are honest evidence that the pipeline works; its
+coordinates are evidence about nothing.
 
 ### Still open
 
-- Phase B experiments E1–E5 (spec §Phase B): a second independent AA reference, CG geometry at paper scale,
-  transferability across sucrose/maltose/trehalose, the osmotic-pressure series (needs a concentration-series
-  builder), water-octanol transfer (needs an AA octanol topology).
-- Card 3 (shape and volume) has no figure yet: the displacement summary is shown, the per-bead picture and
-  Connolly surfaces are not. Card 4 is blocked on the system builder above.
-- D1's other half: the run card does not yet carry the line that deep-links this tab with a run preselected.
-- `resources/validation/carbohydrates/targets-v1.json` is still `metadata_only`, so no experimental path is
-  evidence-complete.
-- An analysis is handed a *work* directory whose files sit at the execution root, not under `stages/`; both
-  spellings resolve through `analysis/runs/layout.py`. A reader that spells only `stages/...` sees a complete
-  run as empty.
-- A run's `molecule_snapshot` in a mapping candidate is a *file* record (`files`, `atom_order_sha256`), not a
-  molecule record: it has no id for `CGNames` to resolve.
-
-### The ensemble comparison tool (delivered 2026-09-29)
-
-Built and measured before the CG runs above existed; no re-run of the simulation was needed.
-
-```python
-from dashboard.analysis import sugar_ensemble as se
-se.format_report(se.run('workspace/dashboard/runs/03875cf39790', molecule='Sucrose', entry_name='SUCR'))
-```
-
-Over 20,001 frames: ring 1 is reproduced within 4.4%, all three constraints inside the published
-ranges. Ring 2 is systematically short — **A–B −16.0% with std 0.0035, outside the published range**,
-A–C −9.6% outside, B–C −6.6% inside. The same gap appeared on the earlier run under a different
-force-field tree, so it is a property of the reference mapping, not of one run or of sampling. Build
-the tool as a surface (a route plus a panel section) over these two functions, referencing the
-completed run immutably, with the ring-2 A–B gap presented as the diagnostic it is rather than as a
-pass/fail. Pin it with a test.
-
-### Open items, each with its evidence
-
 | item | state |
 | --- | --- |
-| PDC panel phases B5–B6 | landed but never exercised end to end (no PDC simulation has run); phases C–E remain. Re-checked 2026-09-29: the live jobs table holds two jobs, both `aa_only` and both completed |
-| Docs debt from `75de474` | **paid in `6d83cad`** — `AGENTS.md`, `DDM_CALIBRATION.md`, `PROJECT_GUIDE.md` and `dashboard/README.md` all state that the controls were removed and the analysis is queue-through-API only. Verified 2026-09-29 |
-| `static/vendor/ngl.js` | **closed in `48408cf`** — tracked with its provenance in `ngl.js.source.json`. Verified 2026-09-29 |
-| mapping panel tests | **closed 2026-09-30** — the save and delete paths *do* have browser coverage: `test_dashboard_browser.py` clicks `#save-mapping-inplace` (91), `#delete-mapping` (96) and `#save-mapping-editor` (167) against a test workspace, and asserts the disabled states before each. The row was stale; re-checked rather than trusted |
-| destroyed records | two Maltose mapping candidates lost at 16:12 during test runs and unrecoverable; DDM's unscoped candidate was deleted with a byte copy kept in `~/.hermes/profiles/moldym/cache/scratch/deleted-mapping_candidate_5c8ccfb716274fd9b653b2effaa71bf2.json` |
-| `.ipynb_checkpoints/` | **not a risk**: the same bytes are tracked at `architecture-review-20260924.html` (md5 `19150e0c1e2c89c31e6f0247f0ae7a68` for both files). Verified 2026-09-29 |
-| 7.3 sweep | **done in `f9690b0`** — the shims are gone; `tests/dashboard/{conftest,factory,support}.py` remain. Verified 2026-09-29 |
-| diagnostics | **colour scale fixed 2026-09-30** (`630f1cc`): `COLOUR_SCALE_NM = 0.1` for every run, `colour_scale()` the one place it is decided, the record says `per_run: false` plus `clipped`. The "same result written to two JSON files" half was verified paid: the writer emits only the stratified name, which `test_the_writer_emits_only_the_stratified_file` asserts |
-| GLYCAM06 | **dropped 2026-09-30 by the user's decision** — not to be pursued. The AmberTools/acpype installs stay on the machine; nothing in the tree depends on a Glycam-Web topology |
+| the ring scale (plan Task 2.3) | the one open decision. 1.15 is the project's convention and is schema-enforced; BARTENDER fitted those pairs *without* a scale and landed on the raw AA means within 1.4%. The four arms meant to settle it are **void** -- a published model failed identically, so the harness was at fault. A real pipeline run is the measurement |
+| Task 2.4: a real DDM `aa_cg` run | the path still dies at `Constraint error in algorithm Lincs` (three attempts: `ab22b392bc25`, `1322f9e0782e`, `3a9c4a5ef67c`), unexplained since the harness control voided the arm comparison. Today's terms have never been simulated |
+| BARTENDER as a queued analysis | the module is real and tested; no queued result has landed. Runs from before today carry an improper dihedral BARTENDER scans for >400 s, so a fit needs a model from today's generator or a caller's longer timeout |
+| Phase 3: the cross-molecule reader | unbuilt |
+| Phase 4: sucrose and maltose sources | `resources/validation/carbohydrates/targets-v1.json` is still `metadata_only`; lead is `10.1016/j.carres.2004.12.038` |
+| pdc phases C-E | the pipeline runs end to end and the panel queues it; the unused parts are still unused |
+| Card 3 of the Mapping Validation tab | the displacement summary shows; the per-bead picture and the Connolly surfaces do not |
+| D1's other half | the run card does not deep-link the Mapping Validation tab with a run preselected |
 
-Four rows of this table were already paid before the handoff was written, which is why they carry the commit that
-paid them. They were verified against the tree on 2026-09-29 and not taken on trust.
+### Standing decisions, not to be re-litigated
 
-### What the ensemble tool's numbers are, and are not
+- CG time step 20 fs; the atomistic half 2 fs; `cg.mdp_integration` is the one place that decides it.
+- The published M3-Lipid set is the project's standard source, recorded per run; it stays **untracked**.
+- GLYCAM06 is dropped by the user's decision.
+- Internal consistency is the primary evidence; the reference's own numbers are context, not a pass mark.
+- A mapping-consistency panel reads the published artifact and never recomputes it.
+- Do not delete simulation data during cleanup.
 
-Measured on `03875cf39790` on 2026-09-29, the two rings are the other way round from the first reading of this
-table's neighbour: residue 1 is the **fructofuranose** (`identify_furanoses`: 5-ring, oxygen 4) and residue 2 is
-the **glucopyranose** (`identify_hexoses`: 6-ring, oxygen 10), which is what the reference's own numbers say too
-(residue 2's 0.376/0.468/0.359 against its free `GLC` entry's 0.380/0.470/0.396). So the short pair is the
-**glucose** ring's A–B, and the fructose ring agrees within 4%.
+### Environment gotchas that cost time
 
-The obvious suspect — that our fragment split puts different atoms in the beads — was tested and refuted. A bead
-has to be a connected set, so the glucose ring's eleven atoms admit ten arc cuts; filtering those by the bead types
-the reference names (SN6 / SP4r / SP1r) leaves exactly **one** partition, and it is the one the recognizer already
-produces. Reordering `identify_furanoses` cannot be used to probe this: its carbon order also drives the shared
-exocyclic-oxygen ownership rule and a reorder produces a mapping with one atom in two beads.
-
-The standing goal is **internal consistency, not reproduction**: our CG model should reproduce the AA structures
-available to us, with the reference's numbers as context rather than as a pass mark. Any tool built over these
-numbers should say which of the two it is comparing.
-
-
-### Environment gotchas that cost time this session
-
-- A running dashboard is two caches: Python routes and models are frozen at process start, `static/`
-  and templates are re-read per request. Restart after a Python change; hard-reload after a JS change;
-  a job queued before a fix runs the old code.
-- `static/js/shared.js`'s `api()` returns the response body itself — only `/distance-diagnostics` wraps its
-  payload in `data`. A new tab is a button plus a `<section>` in `dashboard.html` and a mount case in
-  `main.js`'s `dashboard:tab` listener; `tabs.js` derives the tab list from the DOM, so there is no second
-  list to keep in step. Verify a JS change with the browser cache disabled (`Network.setCacheDisabled` plus
-  `Page.reload(ignoreCache=True)`), or the previous module is what gets inspected.
-- An analysis subprocess is handed a *work* directory whose files sit at the execution root, not under
-  `stages/`; `analysis/runs/layout.py` resolves both spellings. A reader that spells only `stages/...` sees a
-  completed run as empty.
-- GROMACS here is an MPI-only build (`gmx_mpi`): `-ntmpi` is invalid, `-ntomp` is the knob.
+- A running dashboard is two caches: Python routes and models are frozen at process start, `static/` and templates are
+  re-read per request. Restart after a Python change; hard-reload after a JS change; a job queued before a fix runs the
+  old code.
+- GROMACS here is an MPI-only build (`gmx_mpi`): `-ntmpi` is invalid, `-ntomp` is the knob; the binary in use is
+  `/usr/local/gromacs/2026.3/bin/gmx`.
+- An analysis subprocess is handed a *work* directory whose files sit at the execution root, not under `stages/`;
+  `analysis/runs/layout.py` resolves both spellings. A reader that spells only `stages/...` sees a complete run as
+  empty.
+- A mapping candidate's `molecule_snapshot` is a *file* record (`files`, `atom_order_sha256`), not a molecule record:
+  it has no id for `CGNames` to resolve.
+- A hydroxyl oxygen has **two** neighbours once its hydrogen is counted. Any check that says otherwise undercounts
+  every sugar fragment, and this cost a wrong diagnosis twice.
 - Relative and absolute paths both matter: the fast tier runs from the repository root with
   `dashboard/.venv/bin/python`.
 
 ### Verify
 
 ```
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q     # fast tier, 771 at last full run
-dashboard/.venv/bin/python -m ruff check .                                # gate: F, E9, I must exit 0
+dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q     # fast tier, 960 at last full run
+dashboard/.venv/bin/python -m ruff check dashboard tests                  # gate: F, E9, I must exit 0
 ```
+
+Repo-wide `ruff check .` exits 1 on the ~23 pre-existing `micelle/` findings, unchanged.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
