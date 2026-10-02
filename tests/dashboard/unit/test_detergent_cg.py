@@ -49,8 +49,25 @@ def test_a_beads_position_is_the_mean_of_its_atoms_in_nanometres():
                                                    {'name': 'B', 'atoms': [3]},
                                                    {'name': 'C', 'atoms': [4]}]}, STRUCTURE)
 
-    assert centres['A'] == [0.05, 0.0, 0.0]
-    assert centres['B'] == [0.0, 0.3, 0.0] and centres['C'] == [0.0, 0.0, 0.3]
+    # Approximate because this is a unit conversion: the legacy rule is a tenth, and the value that arrives is a
+    # float's worth of it. What is pinned is the nanometres, not the last bit of the arithmetic.
+    assert centres['A'] == pytest.approx([0.05, 0.0, 0.0])
+    assert centres['B'] == pytest.approx([0.0, 0.3, 0.0])
+    assert centres['C'] == pytest.approx([0.0, 0.0, 0.3])
+
+
+def test_a_structure_from_the_context_is_already_in_nanometres_and_is_not_divided_again():
+    """The same structure, told apart by the two fields a context-built one carries.
+
+    Measured: a placed detergent's beads sat 0.021-0.037 nm apart while the topology's ring constraints for those
+    pairs asked 0.32-0.43 nm -- an ~11x stretch at t=0 -- because the centres were divided by ten when the context had
+    already converted them. The sugar writer and the mapping export each had this defect before; this is the same one.
+    """
+    context = {**STRUCTURE, 'molecule_id': 'DDM', 'snapshot': {'snapshot_sha256': 'a' * 64}}
+
+    centres = detergent_cg.bead_centres({'beads': [{'name': 'A', 'atoms': [1, 2]}]}, context)
+
+    assert centres['A'] == [0.5, 0.0, 0.0], 'the context holds nanometres; a tenth of a nanometre apart is not a molecule'
 
 
 def test_a_ring_virtual_site_is_the_centre_of_its_parents_and_nothing_else_is():

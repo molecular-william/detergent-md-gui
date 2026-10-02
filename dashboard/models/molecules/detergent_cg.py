@@ -17,6 +17,7 @@ from pathlib import Path
 
 from ..bonded import generation
 from ..mappings.context import as_structure, build_context
+from ..sugars.units import angstrom_factor
 
 
 def candidate(path) -> dict:
@@ -34,8 +35,17 @@ def bead_centres(data: dict, structure: dict) -> dict[str, list[float]]:
 
     A ring virtual site is not an atom group, so its position is built the way the topology declares it (function 1:
     the centre of its parents). A bead with neither atoms nor parents is a mapping that cannot be placed.
+
+    The coordinates are converted by the structure's *own* unit factor rather than by a fixed ten. A structure from
+    the molecule context already holds nanometres, and dividing it again is the defect the sugar topology writer and
+    the mapping export each had -- `dashboard/models/sugars/units.py` states it -- where the generated ring
+    constraints came out a factor of ten short of the reference's. Here it came out as a placeable molecule a tenth
+    of its size, stamped beside a topology whose constraints were in the right unit: measured on `pdc` run
+    `8a73fe6448f2`, the beads of one detergent sat 0.021-0.037 nm apart while their ring constraints asked for
+    0.32-0.43 nm.
     """
-    coordinates = {int(atom['id']): [float(value) / 10.0 for value in atom.get('xyz', (0, 0, 0))]
+    factor = angstrom_factor(structure)
+    coordinates = {int(atom['id']): [float(value) * factor for value in atom.get('xyz', (0, 0, 0))]
                    for atom in structure.get('atoms', [])}
     centres: dict[str, list[float]] = {}
     for bead in data['beads']:
