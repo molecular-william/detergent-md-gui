@@ -214,6 +214,9 @@ def _extension_stage(run_dir: Path, settings: dict):
                            ('inputs/water.gro', 'water.gro')):
         (stage / target).parent.mkdir(exist_ok=True)
         shutil.copy2(TUTORIAL_TEMPLATE / '4_CG_sim' / 'inputs' / source, stage / target)
+    # `ions.mdp` comes from the assessment phase rather than the template, because the template has none: solvation is
+    # the phase that runs it, and the removal path re-solvates.
+    shutil.copy2(run_dir / Path(STAGES[1].relative).parent / 'ions.mdp', stage / 'ions.mdp')
     shutil.copy2(SCRIPTS / 'pdc_extension.py', stage / 'pdc_extension.py')
     shutil.copy2(SCRIPTS / 'pdc_solvate.py', stage / 'pdc_solvate.py')
     extension_ps = round(float(settings['extension_ns']) * 1000)

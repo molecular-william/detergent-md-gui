@@ -137,3 +137,36 @@ def test_the_loop_is_bounded_and_says_why_it_stopped(tmp_path, monkeypatch):
 
     with pytest.raises(SystemExit, match='3 attempts already used'):
         pdc_extension.main(arguments(stage, assessment, previous))
+
+
+def test_the_removal_reduces_the_detergent_row_and_leaves_the_solvent_alone():
+    """Measured: a protein-free removal reduced the water count and left `DDM 6` in place.
+
+    With no protein row to contrast against, the helper took the first row as the protein, so the detergent was
+    "the row that is not the protein's" -- which is water. The caller now names the detergent, which it knows from
+    the settings' own detergent model.
+    """
+    from dashboard.execution.scripts import pdc_extension
+
+    text = '[ molecules ]\nDDM\t6\nW\t5000\nNA\t60\nCL\t60\n'
+    kept = dict(pdc_extension.molecule_counts(pdc_extension.kept_topology(text, 2, detergent='DDM')))
+
+    assert kept['DDM'] == 4, kept
+    assert kept['W'] == 5000 and kept['NA'] == 60 and kept['CL'] == 60, 'the solvent is not the detergent'
+
+
+def test_the_extension_stage_can_re_solvate_after_a_removal(tmp_path):
+    """The removal path rebuilds the system, and solvation runs `ions.mdp`: without it the stage dies at grompp."""
+    from dashboard.execution.adapters import pdc
+
+    phase = tmp_path / Path(pdc.STAGES[1].relative).parent
+    phase.mkdir(parents=True, exist_ok=True)
+    (phase / 'assessment.mdp').write_text('; the assessment phase mdp\n')
+    (phase / 'ions.mdp').write_text('; the mdp that solvation runs\n')
+
+    pdc._extension_stage(tmp_path, {'extension_ns': 2.0})
+
+    stage = tmp_path / Path(pdc.STAGES[3].relative).parent
+    for name in ('extension.mdp', 'minimization.mdp', 'equilibration.mdp', 'ions.mdp', 'inputs/water.gro',
+                 'pdc_solvate.py'):
+        assert (stage / name).is_file(), name

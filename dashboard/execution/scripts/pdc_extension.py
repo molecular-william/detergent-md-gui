@@ -51,17 +51,22 @@ def molecule_counts(text: str) -> list[tuple[str, int]]:
     return rows
 
 
-def kept_topology(text: str, removed: int, protein: str | None = None) -> str:
+def kept_topology(text: str, removed: int, protein: str | None = None,
+                  detergent: str | None = None) -> str:
     """The topology with `removed` of the detergent's molecules taken out of `[ molecules ]`.
 
-    The detergent is the row that is not the protein's, so the protein's name comes from the caller; a count that
-    would go below one is refused rather than written, because a topology claiming no detergent cannot hold any.
+    The caller names the detergent when it can, and it should: for a protein-free build there is no protein row to
+    contrast it with, and inferring one -- taking the first row as the protein -- reduces the *water* instead. That
+    is what a measured run did, leaving `DDM 6` beside two fewer water beads. A count that would go below one is
+    refused rather than written, because a topology claiming no detergent cannot hold any.
     """
     rows = molecule_counts(text)
     if not rows:
         raise SystemExit('the topology has no [ molecules ] section to reduce')
-    if protein is None:
+    if detergent is None and protein is None:
         protein = rows[0][0]
+    # One row is the detergent's, and only that row is reduced. Naming the detergent is exact; the older spelling --
+    # "the row that is not the protein's" -- is what a caller that knows only the protein gets.
     lines = text.splitlines()
     section = ''
     for index, raw in enumerate(lines):
@@ -72,7 +77,8 @@ def kept_topology(text: str, removed: int, protein: str | None = None) -> str:
         if section != 'molecules' or not line:
             continue
         fields = line.split()
-        if len(fields) >= 2 and fields[-1].lstrip('-').isdigit() and fields[0] != protein:
+        is_detergent = (fields and fields[0] == detergent) if detergent is not None else (fields and fields[0] != protein)
+        if len(fields) >= 2 and fields[-1].lstrip('-').isdigit() and is_detergent:
             remaining = int(fields[-1]) - removed
             if remaining < 1:
                 raise SystemExit(f'{fields[0]}: removing {removed} would leave {remaining} molecules')
@@ -135,7 +141,9 @@ def main(argv=None) -> int:
         protein = None
         if (stage / 'system_EMPTY.top').is_file():
             protein = molecule_counts((stage / 'system_EMPTY.top').read_text())[0][0]
-        (stage / KEPT_TOPOLOGY).write_text(kept_topology((stage / 'system.top').read_text(), len(removed), protein))
+        detergent = (settings.get('detergent_model') or {}).get('residue') or None
+        (stage / KEPT_TOPOLOGY).write_text(kept_topology((stage / 'system.top').read_text(), len(removed), protein,
+                                                         detergent=detergent))
         shutil.copy2(stage / KEPT_TOPOLOGY, stage / 'system.top')
         sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
         from dashboard.execution.scripts import pdc_solvate
