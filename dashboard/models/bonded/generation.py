@@ -163,6 +163,72 @@ def _parse_reference(path: Path, root: Path, diagnostics: list[str]):
     return rows
 
 
+#: The contexts of the named defaults that mean something to a molecule this project builds: a bond in the middle of
+#: a chain, one at its end, the over-mapping variant, and the general angle default. The file's other contexts
+#: (`plasm`, `ether`, `glyc`, `bmp`, `fa`, ...) describe lipids nobody here builds, so they are parsed and never chosen.
+NAMED_CONTEXTS = ('mid_5long', 'mid', 'end', 'def')
+
+#: Generalised beats incidental: a named default is one published row for every molecule with that bead signature,
+#: where a per-molecule `[ bonds ]` line is whatever that molecule happened to use. It ranks above those lines and
+#: below a reference fitted to the molecule itself.
+NAMED_DEFAULT_RANK = 9
+
+
+def _parse_named_defaults(path: Path, root: Path, diagnostics: list[str]) -> dict:
+    """The `#define` rows as `{kind: {key: [record]}}`, with the context kept and the macro named.
+
+    This file is a library of named generalised parameters rather than a `[ bondtypes ]` table: `<b|a|d>_<bead
+    types>_<context>`. The context is the content -- `b_C1_C1_mid` 0.490 against `b_C1_C1_end` 0.500 -- and a
+    three-bead tail has two bonds and both of them end it.
+    """
+    kinds = {'b': 'bonds', 'a': 'angles', 'd': 'dihedrals'}
+    widths = {'bonds': 2, 'angles': 3, 'dihedrals': 4}
+    rows = {kind: defaultdict(list) for kind in widths}
+    section = ''
+    try:
+        lines = path.read_text(errors='replace').splitlines()
+    except OSError as exc:
+        diagnostics.append(f'{path}: {exc}')
+        return rows
+    relative = path.relative_to(root).as_posix()
+    for number, raw in enumerate(lines, 1):
+        line = raw.split(';', 1)[0].strip()
+        if line.startswith('['):
+            section = line.strip('[] ').strip().lower()
+            continue
+        if not line.startswith('#define') or section not in ('bondtypes', 'angletypes', 'dihedraltypes'):
+            continue
+        fields = line.split()[1:]
+        if len(fields) < 2 or len(fields[0]) < 3:
+            continue
+        kind = kinds.get(fields[0][0])
+        if kind is None or fields[0][1] != '_':
+            continue
+        body = fields[0][2:]
+        context = next((name for name in NAMED_CONTEXTS if body.endswith('_' + name)), None)
+        if context is None:
+            continue
+        types = body[:-(len(context) + 1)].split('_')
+        if len(types) != widths[kind]:
+            continue
+        try:
+            function = int(fields[1])
+            expected = FUNCTIONS[kind][function]
+            parameters = [float(value) for value in fields[2:2 + expected]]
+        except (IndexError, KeyError, ValueError):
+            continue
+        if len(parameters) != expected:
+            continue
+        key = _reference_term_key(kind, types)
+        rows[kind][key].append({
+            'macro': fields[0], 'context': context, 'function': function, 'parameters': parameters,
+            'count': 1, 'source_rank': NAMED_DEFAULT_RANK,
+            'references': [{'path': relative, 'sha256': _sha256(path), 'line': number}],
+            'martini_versions': [],
+        })
+    return rows
+
+
 def _reference_paths(root):
     """Every reference ITP the bonded index reads; AA directories are excluded."""
     reference_root = root / 'references'
@@ -235,9 +301,16 @@ def _build_bond_index(root: Path) -> dict:
     bonds = pack(grouped['bonds'])
     angles = pack(grouped['angles'])
     dihedrals = pack(grouped['dihedrals'])
+    named_defaults = {kind: defaultdict(list) for kind in ('bonds', 'angles', 'dihedrals')}
+    for named_path in paths:
+        parsed = _parse_named_defaults(named_path, root, diagnostics)
+        for kind, keyed in parsed.items():
+            for key, records in keyed.items():
+                named_defaults[kind][key].extend(records)
     payload = {
         'version': 2, 'sources': sources, 'bonds': bonds,
         'angles': angles, 'dihedrals': dihedrals, 'diagnostics': diagnostics,
+        'named_defaults': {kind: dict(keyed) for kind, keyed in named_defaults.items()},
     }
     payload['index_sha256'] = canonical_sha256(payload)
     return payload
@@ -436,18 +509,26 @@ def _record_versions(record) -> set:
     return {_reference_version(reference.get('path') or '') for reference in record.get('references') or []}
 
 
-def _select_reference(index, kind, types, molecule='', martini_version=None):
+def _select_reference(index, kind, types, molecule='', martini_version=None, context=None):
     """The best reference for one term, and whatever else could have described it.
 
-    `molecule` is the *molecule* the mapping is of, and it is what makes a molecule-specific reference win: the term's
-    path must carry it. It used to be the mapping's whole name -- `DDM draft from the automatic recogniser (Martini 3)`
-    -- tested as a substring of the path, which is never true, so `references/bartender/DDM.itp` could sit in the tree
-    and never be chosen. A name's words are not used as tokens either: `martini`, `draft` and `automatic` would match
-    half the reference tree.
+    Three sources, in order. A reference fitted to *this molecule* wins outright: `molecule` names it, and it is the
+    only source fitted to the ensemble the project measures against. Then a *named default* in the right context --
+    one published row for every molecule with that bead signature beats whatever incidental value a lipid's own
+    `[ bonds ]` line happens to carry. Then the best parsed reference, which is where the sugar terms still come from.
+
+    `molecule` used to be the mapping's *whole* name (`DDM draft from the automatic recogniser (Martini 3)`) tested as
+    a substring of the path, which is never true, so `references/bartender/DDM.itp` could sit in the tree and never be
+    chosen. A name's words are not used as tokens either: `martini`, `draft` and `automatic` would match half the
+    reference tree.
     """
     key = _reference_term_key(kind, types)
     candidates = list(index.get(kind, {}).get(key, []))
+    named = [record for record in (index.get('named_defaults') or {}).get(kind, {}).get(key, [])
+             if context and record['context'] == context]
     if not candidates:
+        if named:
+            return key, named[0], []
         return key, None, []
     if martini_version is not None:
         # A term may be described by several files, and it is kept only if some source is of the requested
@@ -473,6 +554,18 @@ def _select_reference(index, kind, types, molecule='', martini_version=None):
         key=lambda record: (-rank(record)[0], -rank(record)[1], -rank(record)[2], rank(record)[3]),
     )
     selected = ordered[0]
+    fitted = [record for record in ordered if rank(record)[0]]
+    fitted_values = {(record['function'], tuple(record['parameters'])) for record in fitted}
+    if named and (not fitted or len(fitted_values) > 1):
+        # A fit is keyed by bead type, so it cannot say *which* of two bonds with the same signature it fitted -- for
+        # a three-bead tail it holds both of them and either would be applied to both. Where the fit is ambiguous like
+        # that, the published context-aware default is what knows the difference between a chain end and its middle;
+        # where the fit is unambiguous (one value for the pair), it wins as the molecule's own measurement.
+        chosen = named[0]
+        competing = [record for record in ordered
+                     if (record['function'], tuple(record['parameters'])) !=
+                     (chosen['function'], tuple(chosen['parameters']))]
+        return key, chosen, competing
     selected_rank = rank(selected)[:3]
     competing = [record for record in ordered
                  if rank(record)[:3] == selected_rank
@@ -506,6 +599,9 @@ def _term_provenance(key, selected, competing, *, fallback=False, context=None):
         'confidence': selected['count'] / total if total else 0.0,
         'ambiguity': ambiguity,
     }
+    if selected.get('macro'):
+        # The published name, so a reader sees which one was applied rather than only its numbers.
+        result['macro'] = selected['macro']
     if context is not None:
         result['context'] = context
     return result
@@ -534,12 +630,19 @@ def generate(mapping: dict, structure: dict, project_root: Path) -> dict:
     terms = []
     molecule = mapping.get('molecule_id') or mapping.get('name', '')
     edges = _physical_edges(mapping, structure)
+    # How many beads each one is bonded to, because the named defaults distinguish a chain end from a chain middle and
+    # only the graph knows which a bond is. A bond with a terminal bead on either side is an end bond.
+    degree = defaultdict(int)
+    for first, second in edges:
+        degree[first] += 1
+        degree[second] += 1
     term_keys = set()
     for first, second in edges:
         first_type = physical.get(first, {}).get('type') or ''
         second_type = physical.get(second, {}).get('type') or ''
         key, selected, competing = _select_reference(
-            index, 'bonds', [first_type, second_type], molecule, martini_version)
+            index, 'bonds', [first_type, second_type], molecule, martini_version,
+            context='end' if min(degree[first], degree[second]) <= 1 else 'mid')
         if selected:
             parameters = [_format(value) for value in selected['parameters']]
             function = str(selected['function'])
@@ -573,7 +676,7 @@ def generate(mapping: dict, structure: dict, project_root: Path) -> dict:
             names = [first, middle, last]
             key, selected, competing = _select_reference(
                 index, 'angles', [physical[name].get('type') or '' for name in names], molecule,
-                martini_version)
+                martini_version, context='def')
             if selected:
                 function = str(selected['function'])
                 parameters = [_format(value) for value in selected['parameters']]

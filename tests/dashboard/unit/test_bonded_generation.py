@@ -273,7 +273,7 @@ def test_a_ring_closure_does_not_yield_a_term_that_names_a_bead_twice(monkeypatc
     in the position the DDM ring put it in, where the two outside beads of an edge on a three-membered ring are the
     same bead.
     """
-    def always_select(index, kind, types, mapping_name='', martini_version=None):
+    def always_select(index, kind, types, mapping_name='', martini_version=None, context=None):
         # The shape `_select_reference` really returns, with parameters that fit the section: the validator checks
         # the count per function, and a bond takes two values where a dihedral takes three.
         parameters = [100.0, 25.0] if kind != 'dihedrals' else [0.0, 25.0, 1]
