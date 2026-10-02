@@ -414,3 +414,38 @@ filled and which are blocked, without opening the JSON.
   resume it deliberately afterwards.
 - Python in the coordinator is frozen at process start: a change to routes or models needs a restart before it is
   observable through the API.
+
+## The three fixes, as diagnosed (2026-10-02, later)
+
+The user's decisions: fix the ring, take the tail from the published bonded file, and use BARTENDER's fitted values for
+the linkage. Working out what each fix actually is changed two of them.
+
+**The ring is a grouping defect, not a typing one.** The typing rule lives in `dashboard/models/sugars/coords.py` and
+is the paper's: a bead holding two hydroxyls is the `SP4r` diol fragment, a four-atom bead with two oxygens and no
+diol is `SP1r`, a three-atom bead with one oxygen is `SN6`. Measured on the candidates, with the hydroxyls counted from
+the molecule's own graph:
+
+| molecule | ring 1 beads, hydroxyls | diol bead | types |
+| --- | --- | --- | --- |
+| DDM | 1, 1, 1 | none | SP1r, SP1r, SP1r |
+| Maltose | 2, 1, 1 | S1A | SP4r, SP1r, SP1r |
+
+Both went through the same code, so the typing is faithful and `SP1r` is the correct answer for the three beads DDM
+produced. DDM's ring 1 has four hydroxyls available and the recogniser put one in each bead, where maltose -- the same
+ring type -- puts two in one. The recognition algorithm's own description says "diols first", which is the rule that
+did not fire. So the fix is in where the ring is cut, and it has to be made without disturbing sucrose or maltose,
+whose groupings are verified against the published entries.
+
+**A dead ranking key, found on the way.** `_select_reference` prefers a molecule-specific reference by testing
+`molecule_name in path`, where `molecule_name` is the mapping's *whole* name (`DDM draft from the automatic
+recogniser (Martini 3)`). That is never a substring of a reference path, so the ranking's first key is always false: a
+BARTENDER reference could sit in `references/` and never be chosen. The match has to be made on the molecule (its id,
+or a token of the name) before the fitted terms can be preferred.
+
+**Where each term will come from**, once those two are fixed:
+
+| term | source | rank |
+| --- | --- | --- |
+| the molecule's own fitted terms | `references/bartender/DDM.itp`, written from `gmx_out.itp` with the mapping's `[ atoms ]` so the index can key it by type | molecule-specific, first |
+| the C1 tail | `martini_v3.0.0_ffbonded_v2.itp`'s `#define` rows: `b_C1_C1_mid` 0.490 / `b_C1_C1_end` 0.500, both k 2800, with the context chosen by how many neighbours a bead has | named defaults, second |
+| whatever neither covers | the lipidome's per-molecule lines, then geometry | as today |
