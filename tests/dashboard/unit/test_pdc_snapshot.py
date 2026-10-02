@@ -161,3 +161,25 @@ def test_a_phase_shorter_than_the_cadence_still_records_its_start(tmp_path, monk
     assert records[0]['time_ps'] == 0.0
     assert records[0]['verdict']['verdict'] == 'in_micelle', 'the start is judged like any other frame'
     assert (stage / 'snapshots' / 'assessment_start.pdb').is_file()
+
+
+def test_the_script_does_something_when_it_is_run_as_a_script():
+    """It is copied into a stage and called as `python pdc_snapshot.py ...`; without a `__main__` guard it exits 0
+    having done nothing at all.
+
+    Measured: two stages recorded no snapshot and said nothing, and the reason was not the cadence and not the tail
+    beads -- the file simply had no entry point, so the call was a silent no-op. It is the only script of the five
+    the pdc stages run that lacked one.
+    """
+    import os
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parents[3]
+    script = root / 'dashboard/execution/scripts/pdc_snapshot.py'
+    # The stage runs it with the repository on the path -- its own prelude sets that -- so the test does too.
+    result = subprocess.run([sys.executable, str(script), '--help'], capture_output=True, text=True,
+                            env={**os.environ, 'PYTHONPATH': str(root)})
+
+    assert result.returncode == 0, result.stderr
+    assert '--phase' in result.stdout, f'a script with no entry point prints nothing: {result.stdout!r}'

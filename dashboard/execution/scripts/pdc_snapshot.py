@@ -136,3 +136,7 @@ def write_snapshot(stage: Path, name: str, structure: Path, *, title: str, time_
     document['snapshots'] = [entry for entry in document['snapshots'] if entry.get('name') != name] + [record]
     (stage / INDEX_NAME).write_text(json.dumps(document, indent=2, sort_keys=True))
     return record
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
