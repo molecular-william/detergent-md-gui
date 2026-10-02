@@ -183,3 +183,30 @@ def test_the_script_does_something_when_it_is_run_as_a_script():
 
     assert result.returncode == 0, result.stderr
     assert '--phase' in result.stdout, f'a script with no entry point prints nothing: {result.stdout!r}'
+
+
+def test_a_phase_says_what_it_started_from(tmp_path):
+    """Measured: the assessment phase recorded its start and the extension phase recorded nothing.
+
+    The fallback looked for `prod/start.gro`, which the assessment path writes and the restart path never does -- it
+    begins from the rebuilt system -- so the extension's series came back empty. A phase can now name its own start.
+    """
+    from dashboard.execution.scripts import pdc_snapshot
+
+    stage = tmp_path / '4_extension'
+    (stage / 'prod').mkdir(parents=True)
+    rebuilt = stage / 'system.gro'
+    rebuilt.write_text('rebuilt\n')
+    (stage / 'prod' / 'start.gro').write_text('the assessment path leaves one of these\n')
+
+    assert pdc_snapshot.start_structure(stage, rebuilt) == rebuilt
+    assert pdc_snapshot.start_structure(stage) == stage / 'prod' / 'start.gro'
+    assert pdc_snapshot.start_structure(tmp_path / 'nowhere') is None
+
+
+def test_the_extension_script_names_the_structure_it_started_from():
+    """The restart path rebuilds the system, so the script has to say so; `prod/start.gro` is not there to find."""
+    root = Path(__file__).resolve().parents[3]
+    text = (root / 'dashboard/execution/scripts/extension.sh').read_text()
+
+    assert '--start system.gro' in text, 'the extension phase would record no start frame'

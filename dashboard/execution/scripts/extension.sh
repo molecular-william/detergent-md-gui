@@ -21,5 +21,7 @@ printf 'System\nSystem\n' | gmx trjconv -f prod/run.xtc -s prod/run.tpr -pbc mol
 
 # The same series for the extension phase, judged by the same function: the two phases' frames are comparable
 # because nothing about the sampling or the criterion changes between them.
+# `--start` names the structure this phase began from: the restart path rebuilds the system and never writes the
+# `prod/start.gro` the assessment path leaves behind, so without it a phase shorter than the cadence records nothing.
 python pdc_snapshot.py --settings ../1_system/pdc-settings.json --stage . --phase extension \
-  --trajectory prod/whole.xtc --tpr prod/run.tpr
+  --trajectory prod/whole.xtc --tpr prod/run.tpr --start system.gro

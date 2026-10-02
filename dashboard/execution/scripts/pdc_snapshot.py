@@ -43,8 +43,22 @@ def sample_times(duration_ns: float, interval_ns: float, cap: int) -> list[float
     return times
 
 
+def start_structure(stage: Path, start: Path | None = None) -> Path | None:
+    """The structure a phase began from, for the rule that the initial state is always recorded.
+
+    Measured: the assessment phase found its own `prod/start.gro` and the *extension* phase found nothing, because the
+    restart path never writes that name -- it begins from the rebuilt system -- so the extension's series came back
+    empty. A phase is now told what it started from, and `prod/start.gro` remains the fallback for the phase that
+    writes it.
+    """
+    for candidate in (start, Path(stage) / 'prod' / 'start.gro'):
+        if candidate is not None and Path(candidate).is_file():
+            return Path(candidate)
+    return None
+
+
 def frames(stage: Path, trajectory: Path, tpr: Path, settings: dict, *, phase: str, gmx='gmx',
-           label: str | None = None) -> list[dict]:
+           label: str | None = None, start: Path | None = None) -> list[dict]:
     """One snapshot per sampled moment, each judged by the same function that decides the report's verdict.
 
     The frames come out of the trajectory with `trjconv -dump`: one call per moment asks GROMACS for that moment
@@ -77,13 +91,12 @@ def frames(stage: Path, trajectory: Path, tpr: Path, settings: dict, *, phase: s
     if not records:
         # The design note's rule: the initial state is always recorded. A phase shorter than the cadence samples no
         # moment at all -- a 2 ns assessment on a 20 ns interval samples nothing -- and a phase with no picture in it
-        # is indistinguishable from one whose series was never wired up. The stage writes its start frame just
-        # before calling this, so that frame is the picture.
-        start = Path(stage) / 'prod' / 'start.gro'
-        if start.is_file():
-            judged = pdc_assess.judge(start, settings)
+        # is indistinguishable from one whose series was never wired up.
+        beginning = start_structure(stage, start)
+        if beginning is not None:
+            judged = pdc_assess.judge(beginning, settings)
             verdict = judged['verdict']
-            records.append(write_snapshot(stage, f'{phase}_start', start, time_ps=0.0,
+            records.append(write_snapshot(stage, f'{phase}_start', beginning, time_ps=0.0,
                                           detergent_residue=judged['detergent_residue'],
                                           title=f'{phase} start (shorter than the {settings.get("snapshot_interval_ns")} ns cadence)',
                                           criterion={'verdict': verdict['verdict'],
@@ -107,12 +120,15 @@ def main(argv=None) -> int:
     parser.add_argument('--phase', choices=('assessment', 'extension'), required=True)
     parser.add_argument('--trajectory', required=True)
     parser.add_argument('--tpr', required=True)
+    parser.add_argument('--start', default=None,
+                        help='the structure this phase began from, when it is not `prod/start.gro`')
     parser.add_argument('--gmx', default='gmx')
     args = parser.parse_args(argv)
 
     stage = Path(args.stage)
     settings = pdc_assess.read_settings(args.settings)
-    records = frames(stage, stage / args.trajectory, stage / args.tpr, settings, phase=args.phase, gmx=args.gmx)
+    records = frames(stage, stage / args.trajectory, stage / args.tpr, settings, phase=args.phase, gmx=args.gmx,
+                     start=stage / args.start if args.start else None)
     print(f'{len(records)} snapshots recorded for the {args.phase} phase')
     return 0
 
