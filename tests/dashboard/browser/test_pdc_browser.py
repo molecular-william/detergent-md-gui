@@ -1,13 +1,15 @@
-"""The protein-detergent complex tab exists as a panel before any of its pipeline does.
+"""The protein-detergent complex tab exists as a panel with a pipeline behind it.
 
-The tab is added early on purpose: it shows where the second workflow lives, and its own hint says that nothing
-is launched from it yet. These tests pin that shape, so the pipeline tasks have somewhere to land and a reader is
-never left guessing whether the panel is broken or simply unfinished.
+The tab was added early, when nothing was launched from it, and its first test pinned that: the hint had to say
+"nothing is launched from here yet". That premise died in `34af539`, which gave the panel a queue button and a
+mapping picker -- and the assertion stayed behind, red, until it was flipped here. What the panel owes a reader
+has not changed and is still what this pins: it must state the limitation of the template it is holding rather
+than offering a reassurance or saying nothing, and its viewer host must be sized before anything renders.
 """
 from playwright.sync_api import expect
 
 
-def test_the_complex_tab_opens_an_empty_panel_that_says_so(dashboard, live_page):
+def test_the_complex_tab_opens_a_panel_that_says_what_it_would_build(dashboard, live_page):
     page, errors = live_page
     page.goto(live_page.base_url)
 
@@ -19,8 +21,13 @@ def test_the_complex_tab_opens_an_empty_panel_that_says_so(dashboard, live_page)
     for heading in ('Build a complex', 'System view', 'Status'):
         expect(page.locator('#pdc h3', has_text=heading)).to_be_visible()
 
-    # The panel is honest about having no pipeline behind it yet.
-    expect(page.locator('.pdc-setup .hint').first).to_contain_text('nothing is launched from here yet')
+    # The panel repeats the catalogue's own limitation for the template it holds -- so a reader cannot mistake
+    # the smoke template for a fitted detergent model, and the sentence is not one this panel invents.
+    catalogue = page.evaluate("() => fetch('/api/pdc/catalog').then(response => response.json())")
+    chosen = page.evaluate("() => document.querySelector('#pdc-template').value")
+    entry = next(item for item in catalogue['templates'] if item['id'] == chosen)
+    expect(page.locator('#pdc-template-limitation')).to_have_text(' · '.join(entry['limitations']))
+    assert entry['limitations'], 'the fixture template carries no limitation, so nothing is being pinned'
 
     # The viewer host is sized before anything renders into it: NGL sizes itself to its element, not to content,
     # and a zero-height host is how a working viewer looks like a broken one.
