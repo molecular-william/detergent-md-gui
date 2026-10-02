@@ -230,8 +230,15 @@ reference, and record the macro name in the term's provenance.
 - Modify: `dashboard/models/bonded/generation.py` (the index and `_select_reference`)
 - Test: `tests/dashboard/unit/test_named_defaults.py`
 
-**Verification:** the DDM tail's `C1|C1` bond reads 0.490 nm for the middle bond and 0.500 nm for the two end bonds,
-both k 2800, and the provenance names `b_C1_C1_mid` / `b_C1_C1_end`.
+**Verification:** the DDM tail's two `C1|C1` bonds read 0.500 nm at the free terminus (TAIL1--TAIL2) and 0.490 nm on
+the bond that runs on into the head (TAIL2--TAIL3), both k 2800, and the provenance names `b_C1_C1_end` /
+`b_C1_C1_mid`.
+
+**Corrected expectation (2026-10-02):** this originally expected "0.490 for the middle bond and 0.500 for the two end
+bonds", which describes a four-bead chain. The tail is three beads, so only TAIL1 is a terminus and only its bond is an
+end bond; TAIL3 is bonded to the head as well as to TAIL2, so neither of that bond's beads is a terminus. The rule
+implemented is the one that produces this: a bond with a terminal bead on either side (degree 1 in the physical graph)
+is an end bond.
 
 ### Task 2.3: the draft stops asking for constraints its geometry cannot hold
 
@@ -447,5 +454,5 @@ or a token of the name) before the fitted terms can be preferred.
 | term | source | rank |
 | --- | --- | --- |
 | the molecule's own fitted terms | `references/bartender/DDM.itp`, written from `gmx_out.itp` with the mapping's `[ atoms ]` so the index can key it by type | molecule-specific, first |
-| the C1 tail | `martini_v3.0.0_ffbonded_v2.itp`'s `#define` rows: `b_C1_C1_mid` 0.490 / `b_C1_C1_end` 0.500, both k 2800, with the context chosen by how many neighbours a bead has | named defaults, second |
+| the C1 tail | `martini_v3.0.0_ffbonded_v2.itp`'s `#define` rows: `b_C1_C1_mid` 0.490 / `b_C1_C1_end` 0.500, both k 2800, with the context chosen from the physical graph (a bond with a terminal bead on either side is an end bond, and DDM's three-bead tail therefore has one of each) | named defaults, second |
 | whatever neither covers | the lipidome's per-molecule lines, then geometry | as today |
