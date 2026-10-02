@@ -12,7 +12,9 @@ are the same -- an `SP1r`-`SP1r` bond inside a ring is not the glycosidic linkag
 
 The published row names beads as `[residue, name]`, so the types come from each run's own mapping candidate, which is
 what the caller passes alongside the report. A signature that appears in one molecule only is reported with the
-molecules that have it; nothing is padded to make a table look square.
+molecules that have it; nothing is padded to make a table look square. And a signature whose molecules name
+*different* edges is reported as `pairs_match: false`, because a mean over unlike pairs is a spread between two
+different bonds rather than a type that failed to transfer -- which is the reading the numbers invite.
 """
 
 
@@ -64,15 +66,17 @@ def compare(entries):
             aa = (row.get('aa') or {}).get('mean')
             cg = (row.get('cg') or {}).get('mean')
             record = entry_for_molecule['molecules'].setdefault(
-                molecule, {'atomistic': [], 'cg': [], 'pairs': []})
+                molecule, {'atomistic': [], 'cg': [], 'pairs': [], 'edges': set()})
             if aa is not None:
                 record['atomistic'].append(aa)
             if cg is not None:
                 record['cg'].append(cg)
             # The pair as the report labels it. A type pair can cover more than one of these -- and when it does,
             # a spread across molecules may be the labelling rather than the model, which a reader has to be able
-            # to tell apart.
+            # to tell apart. `edges` is the same information reduced to the part that names an interaction: the
+            # beads' own letters, because the residue number indexes the ring and not the chemistry.
             record['pairs'].append([f'{residue}{bead}' for residue, bead in row['pair']])
+            record['edges'].add(tuple(sorted(bead for _, bead in row['pair'])))
             entry_for_molecule['rows'] += 1
 
     result = []
@@ -90,8 +94,11 @@ def compare(entries):
         if len(atomistic_means) > 1:
             average = sum(atomistic_means) / len(atomistic_means)
             spread = 100.0 * (max(atomistic_means) - min(atomistic_means)) / average
+        # One interaction each, or several different ones sharing a signature: the spread means a comparison
+        # only when every molecule is naming the same edges, so the signature says which it is.
+        named_edges = {frozenset(record['edges']) for record in entry['molecules'].values()}
         result.append({'types': list(types), 'role': role, 'molecules': molecules,
-                       'spread_pct': spread, 'rows': entry['rows']})
+                       'pairs_match': len(named_edges) == 1, 'spread_pct': spread, 'rows': entry['rows']})
 
     return {
         'signatures': result,

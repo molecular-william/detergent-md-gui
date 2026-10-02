@@ -72,3 +72,64 @@ def test_a_report_with_no_rows_is_still_a_molecule():
     result = transferability.compare({'Maltose': {'candidate': _candidate([('A', 'SP1r')]), 'report': _report([])}})
 
     assert result['molecules'] == ['Maltose'] and result['signatures'] == []
+
+
+def test_two_molecules_naming_the_same_ring_edge_are_comparable():
+    """The residue number indexes the ring, not the chemistry, so it is not part of the comparison.
+
+    Maltose's second ring and trehalose's first carry the same ring edge; a reader comparing them is
+    comparing the same interaction, and the residue number alone must not read as a difference.
+    """
+    entries = {
+        'Maltose': {'candidate': _candidate([('A', 'SN6'), ('C', 'SP1r')], residue=2),
+                    'report': _report([_row([[2, 'A'], [2, 'C']], 0.4222)])},
+        'Trehalose': {'candidate': _candidate([('A', 'SN6'), ('C', 'SP1r')], residue=1),
+                      'report': _report([_row([[1, 'A'], [1, 'C']], 0.4226)])},
+    }
+    result = transferability.compare(entries)
+    signature = result['signatures'][0]
+
+    assert signature['types'] == ['SN6', 'SP1r']
+    assert signature['pairs_match'] is True
+    assert signature['spread_pct'] < 1
+
+
+def test_the_same_types_on_different_ring_edges_are_not_comparable():
+    """The measured case: `SP1r`|`SP1r` is maltose's B-C edge and sucrose's A-C edge.
+
+    Their 24% spread is the question being asked twice about two different bonds, not a model that fails to
+    transfer, so the signature has to say so rather than let a reader take the number at face value.
+    """
+    entries = {
+        'Maltose': {'candidate': _candidate([('B', 'SP1r'), ('C', 'SP1r')]),
+                    'report': _report([_row([[1, 'B'], [1, 'C']], 0.3130)])},
+        'Sucrose': {'candidate': _candidate([('A', 'SP1r'), ('C', 'SP1r')]),
+                    'report': _report([_row([[1, 'A'], [1, 'C']], 0.4019)])},
+    }
+    result = transferability.compare(entries)
+    signature = result['signatures'][0]
+
+    assert signature['pairs_match'] is False
+    assert signature['molecules']['Maltose']['pairs'] == [['1B', '1C']]
+    assert signature['molecules']['Sucrose']['pairs'] == [['1A', '1C']]
+
+
+def test_a_signature_covering_three_edges_in_one_molecule_and_two_in_another_is_not_comparable():
+    """A set of edges, not one edge: a mean over unlike pairs is not a comparison of anything.
+
+    One molecule names three ring edges under this signature and the other names two, so the per-molecule mean
+    is over a different collection and the spread between them is not a measurement of the bead types.
+    """
+    entries = {
+        'Maltose': {'candidate': _candidate([('A', 'SP1r'), ('B', 'SP1r'), ('C', 'SP1r')]),
+                    'report': _report([_row([[1, 'A'], [1, 'B']], 0.34), _row([[1, 'A'], [1, 'C']], 0.41),
+                                       _row([[1, 'B'], [1, 'C']], 0.29)])},
+        'Sucrose': {'candidate': _candidate([('A', 'SP1r'), ('B', 'SP1r'), ('C', 'SP1r')]),
+                    'report': _report([_row([[1, 'A'], [1, 'B']], 0.32), _row([[1, 'B'], [1, 'C']], 0.33)])},
+    }
+    result = transferability.compare(entries)
+    signature = result['signatures'][0]
+
+    assert signature['types'] == ['SP1r', 'SP1r'] and signature['pairs_match'] is False
+    assert signature['molecules']['Maltose']['rows'] == 3
+    assert signature['molecules']['Sucrose']['rows'] == 2
