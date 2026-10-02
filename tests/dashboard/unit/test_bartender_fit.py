@@ -145,3 +145,12 @@ def test_the_model_is_chosen_and_not_the_first_itp_in_the_directory(tmp_path):
     assert chosen == model, chosen
     assert bartender_fit.model_topology([seed, initial]).name == 'LIG1_initial.itp', 'the seed is the last resort'
     assert bartender_fit.model_topology([]) is None
+
+
+def test_the_fit_runs_through_the_tools_own_environment_file(tmp_path):
+    """Measured: the same command took one minute in a shell and ten under an analysis, because the shell had sourced
+    `bartender_config.sh` and the analysis had not. The flags were identical; the environment was the difference."""
+    command = bartender_fit.shell_command(tmp_path / 'bartender', 2, tmp_path)
+
+    assert command[0] == 'bash' and 'bartender_config.sh' in command[-1]
+    assert 'exec ' in command[-1] and '-refit' in command[-1], 'the fit runs inside the sourced environment'

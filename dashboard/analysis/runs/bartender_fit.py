@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -187,6 +188,17 @@ def bartender_command(bartender, cpus, *, geometry='solute_heavy.gro', trajector
             str(geometry), str(inputs)]
 
 
+def shell_command(bartender, cpus, region, **kwargs) -> list[str]:
+    """The invocation as the tool's own instructions run it: through its environment file.
+
+    BARTENDER's INSTALL says to source `bartender_config.sh`, which sets `XTBHOME`, `OMP_STACKSIZE` and
+    `ulimit -s unlimited`. Running the binary directly instead is what made the same fit take minutes under an
+    analysis where it takes one in a shell -- the flags were identical, the environment was not.
+    """
+    inner = ' '.join(shlex.quote(part) for part in bartender_command(bartender, cpus, **kwargs))
+    return ['bash', '-c', f'source {shlex.quote(str(Path(region) / "bartender_config.sh"))}; exec {inner}']
+
+
 def run(work, payload=None) -> dict:
     """Fit the molecule's bonded terms with BARTENDER and report them beside the ensemble they came from."""
     from ...execution import tools
@@ -240,7 +252,7 @@ def run(work, payload=None) -> dict:
     environment = dict(os.environ)
     environment['BTROOT'] = str(region)
     cpus = int(payload.get('cpus') or 8)
-    _run(bartender_command(bartender, cpus), cwd=work, env=environment)
+    _run(shell_command(bartender, cpus, region), cwd=work, env=environment)
 
     fitted = fitted_terms((work / FITTED).read_text()) if (work / FITTED).is_file() else {}
     ensemble = ensemble_distances(structure_path, trajectory_path, beads)
