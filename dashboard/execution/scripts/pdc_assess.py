@@ -117,8 +117,16 @@ def main(argv=None) -> int:
         {**verdict, 'structure': str(structure), 'structure_sha256': digest(structure),
          'detergent_residue': detergent_residue, 'tail_beads': sorted(tail_beads),
          'protein_beads': len(protein), 'detergents_present': len(molecules)}, indent=2, sort_keys=True))
+    # The kept structure is the restart's input, so it is the *dry* one: the protein, when there is one, and the
+    # detergents that stay. Measured: it used to carry the water and the ions too (W 5369, ION 128, three detergents),
+    # and the restart could then do nothing useful with it -- re-solvation found the box already full and added four
+    # water beads, while the dry topology the restart writes described a different system and grompp refused the pair.
+    # The restart solvates because removal leaves space where the water never was; it needs a dry structure to fill.
+    from dashboard.execution.adapters import pdc_solvation
+
+    solvent = pdc_solvation.SOLVENT_RESIDUES
     atoms = [{'residue_id': atom['residue_id'], 'residue': atom['residue'], 'name': atom['name'],
-              'position': atom['position']} for atom in protein]
+              'position': atom['position']} for atom in protein if str(atom.get('residue')) not in solvent]
     for group in kept:
         atoms.extend({'residue_id': bead['residue_id'], 'residue': bead['residue'], 'name': bead['name'],
                       'position': bead['position']} for bead in group)

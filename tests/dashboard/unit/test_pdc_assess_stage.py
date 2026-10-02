@@ -179,3 +179,23 @@ def test_both_assessment_stages_carry_the_same_script(tmp_path):
         assert 'python pdc_assess.py' in executed
         assert 'pdc_assessment' not in executed, 'the criterion is not restated in the stage script'
         assert (run / Path(stage.relative).parent / 'pdc_assess.py').is_file()
+
+
+def test_the_kept_structure_is_dry_because_the_restart_solvates_again(tmp_path):
+    """Measured: it carried `W 5369` and `ION 128` beside three detergents.
+
+    The restart's re-solvation then had nothing to fill -- the box was already full, and it added four water beads --
+    while the dry topology the restart writes described a different system, so grompp refused the pair. The kept
+    structure is the restart's input, and the restart supplies the solvent.
+    """
+    solvent = [(90, 'W', 'W', (1.0, 1.0, 1.0)), (91, 'ION', 'NA', (1.4, 1.0, 1.0))]
+    atoms = protein(at=(0.0, -0.4, 0.0)) + solvent + detergent(1, 0.0) + detergent(2, 0.25) + detergent(3, 30.0)
+
+    run, stage = staged(tmp_path, atoms, aggregation_number=2)
+    assert assess(stage, run) == 0
+    body = (stage / pdc_assess.KEPT_NAME).read_text().splitlines()[2:-1]
+    names = {line[5:10].strip() for line in body}
+
+    assert 'W' not in names and 'ION' not in names, 'the restart adds the solvent back itself'
+    assert 'DDM' in names, 'the detergents that stay are the point of the file'
+    assert '99' in {line[0:5].strip() for line in body}, 'and the protein stays, because the micelle is judged on it'

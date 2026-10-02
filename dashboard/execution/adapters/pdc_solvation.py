@@ -8,6 +8,10 @@ interactively, so the stage script pipes the water group in; these builders retu
 MARTINI_WATER_RADIUS_NM = 0.21
 WATER_BEADS = 'W'
 ION_NAMES = ('NA', 'CL')
+# The names a *structure* gives the solvent, which are not the names a topology does: GROMACS writes every inserted
+# ion under the one residue name `ION`, whatever the species, while `[ molecules ]` names them `NA` and `CL`. Both
+# spellings here, in one place, so a reader of either file agrees about what the solvent is.
+SOLVENT_RESIDUES = (WATER_BEADS, 'ION', *ION_NAMES)
 
 
 def solvation_commands(topology, structure, tpr, *, salt_molar=0.15, water='inputs/water.gro',
