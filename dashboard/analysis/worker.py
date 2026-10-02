@@ -52,7 +52,7 @@ def source_entries(root,kind):
     run=root.parent if root.name=='stages' else root
     metadata=json.loads((run/'manifest.json').read_text()) if (run/'manifest.json').is_file() else {}
     shared=metadata.get('shared_reference');aa_source=None
-    if kind in ('snapshots','surfaces','carbohydrate-validation','mapping-consistency'):
+    if kind in ('snapshots','surfaces','carbohydrate-validation','mapping-consistency','bartender-fit'):
         if shared:aa_source,_=aa_references.resolve(run.parent,shared['source_run_id'],shared['sha256'])
         elif metadata.get('run_type')=='aa_only':
             aa_references.verify(run);aa_source=root/'07_reference'
