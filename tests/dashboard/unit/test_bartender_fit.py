@@ -124,3 +124,24 @@ def test_the_target_is_the_ensemble_and_not_one_frame(tmp_path):
 def test_a_run_without_an_atomistic_reference_is_refused(tmp_path):
     with pytest.raises(ValueError, match='does not carry what a fit needs'):
         bartender_fit.run(tmp_path, {})
+
+
+def test_the_model_is_chosen_and_not_the_first_itp_in_the_directory(tmp_path):
+    """A stage directory holds the reference the mapping was fitted against, a coordinate seed, and the model.
+
+    Measured: taking the first by name picked a seed, and the fit then ran against a different parameter set -- only
+    visible by comparing the input it built (8 angles, one row written as an improper) with the one that works
+    (14 angles, a proper dihedral). The fitted interaction topology is the model the CG simulation was built from.
+    """
+    seed = tmp_path / 'LIG1_coordinate_seed.itp'
+    initial = tmp_path / 'LIG1_initial.itp'
+    model = tmp_path / 'LIG1_ff_inter.itp'
+    reference = tmp_path / 'reference_sugars_v2.itp'
+    for path in (seed, initial, model, reference):
+        path.write_text('[ moleculetype ]\nLIG1 1\n')
+
+    chosen = bartender_fit.model_topology([reference, seed, initial, model])
+
+    assert chosen == model, chosen
+    assert bartender_fit.model_topology([seed, initial]).name == 'LIG1_initial.itp', 'the seed is the last resort'
+    assert bartender_fit.model_topology([]) is None

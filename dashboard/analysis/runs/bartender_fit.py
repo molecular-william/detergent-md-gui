@@ -126,6 +126,19 @@ def fitted_terms(text: str) -> dict:
     return {section: [row for row in sections.get(section, []) if row] for section in SECTIONS}
 
 
+def model_topology(candidates: list[Path]) -> Path | None:
+    """The run's CG model among the ITPs a stage directory holds.
+
+    It holds several: the reference the mapping was fitted against, a coordinate seed, and the model the CG simulation
+    was built from. Taking the first by name picked a seed once, and the fit then ran against a different parameter set
+    -- visible only by comparing the input it produced with the one that works. The fitted interaction topology is the
+    model, so it is preferred and named; whatever is chosen is reported.
+    """
+    ordered = sorted(candidates, key=lambda path: (0 if path.stem.endswith('_ff_inter') else
+                                                   1 if path.stem.endswith('_initial') else 2, path.name))
+    return ordered[0] if ordered else None
+
+
 def ring_lengths(terms: dict) -> dict:
     """The six ring constraint lengths from `[ constraints ]`, as `{'1-2': nm}`."""
     lengths = {}
@@ -190,11 +203,8 @@ def run(work, payload=None) -> dict:
     structure = find(work, '**/1_AA-reference/prod/lig.gro') or find(work, '**/lig.gro')
     trajectory = find(work, '**/1_AA-reference/prod/lig.xtc') or find(work, '**/lig.xtc')
     ndx = find(work, '**/mapping.ndx')
-    topology_file = find(work, '**/3_initial_CG/*.itp')
-    if not topology_file:
-        candidates = [path for path in sorted(Path(work).glob('**/*.itp'))
-                      if 'martini' not in path.name.lower() and path.parent.name == '3_initial_CG']
-        topology_file = candidates[0] if candidates else None
+    topology_file = model_topology([path for path in Path(work).glob('**/3_initial_CG/*.itp')
+                                    if 'martini' not in path.name.lower()])
     missing = [name for name, value in (('model.json', model_file), ('the atomistic structure', structure),
                                         ('the atomistic trajectory', trajectory), ('the mapping `.ndx`', ndx),
                                         ('the CG topology', topology_file)) if value is None]
@@ -251,6 +261,7 @@ def run(work, payload=None) -> dict:
                                          if measured and measured['mean_nm'] else None)}
     return {
         'molecule_id': model.get('molecule_id') or model.get('name'),
+        'topology': topology_path.name,
         'beads_fitted': len(physical_names),
         'terms': {section: len(rows) for section, rows in fitted.items()},
         'ring_constraints': pairs,
