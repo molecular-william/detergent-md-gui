@@ -451,8 +451,8 @@ commit is named because the plan's checkboxes are worth only what the running pi
 | 2 CG assessment | complete — solvation, ions, minimisation, equilibration, production (17,176 ns/day), centering, start frame, one snapshot recorded and judged |
 | 3 micelle assessment | complete — `assessment.json`, `kept.gro`, `removed.json`; a six-detergent run judges `largest cluster 3 of 6` |
 | 4 removal and retry | reaches the removal, reduces the topology to the detergents that stay, re-solvates, minimises and equilibrates; the extension itself is the last thing to drive |
-| 5 extension | not driven |
-| 6 back-map | not driven; needs CG2AT2 (D1) |
+| 5 final assessment | complete — `assessment.json`, `kept.gro` (22 atoms: the two detergents that stay), `removed.json` |
+| 6 back-map | refuses correctly: exit 3 with `back-mapping needs CG2AT2 under tools/ (task D1); tools/cg2at/cg2at is not there` — the declared behaviour while D1 is unbuilt |
 
 Seven defects stood between "the run reaches stage 2" and "stage 4 rebuilds the system", all of the same kind: a file
 or an option that two pieces of the pipeline disagreed about.
@@ -465,12 +465,18 @@ or an option that two pieces of the pipeline disagreed about.
   mapping now answers when the template cannot
 - `ab743f8` `pdc_snapshot.py` had no `__main__` guard, so every stage call of it was a silent no-op — the real reason
   two phases recorded nothing, after the cadence and the tail beads had both been fixed for their own reasons
-- `01842b6`, `87da51e`, `79f67b5`, `cf41557` the extension stage could not re-solvate (no `ions.mdp`), reduced the
-  *water* instead of the detergent, handed `genion` a topology that still described an earlier solvation, carried the
-  solvent into the structure the restart was supposed to re-solvate, and wrote `gen-seed` twice
+- `01842b6`, `87da51e`, `79f67b5`, `cf41557`, `3b2ceb5` the extension stage could not re-solvate (no `ions.mdp`),
+  reduced the *water* instead of the detergent, handed `genion` a topology that still described an earlier solvation,
+  carried the solvent into the structure the restart was supposed to re-solvate, wrote `gen-seed` twice, and paired
+  `gen-vel = yes` with the template's `continuation = yes`
+- `48f611b` the extension phase recorded no snapshot, because the fallback looked for a `prod/start.gro` the restart
+  path never writes; a phase can now name what it began from
 
 The lesson worth keeping: five of the seven were invisible from the code and obvious from one line of a tool's
 stderr, and my first two diagnoses of the silent snapshots were wrong in ways that only running the file exposed.
 
-Still open in Phase 1: stages 5 and 6, the panel's queue button and mapping picker, and re-enabling the paused
-`pdc-empty-micelle` cron once a run completes end to end.
+Still open in Phase 1: the panel's queue button and mapping picker, and re-enabling the paused `pdc-empty-micelle`
+cron. The cron's condition needs one decision first: stage 6 exits 3 by design while D1 is unbuilt, so a protein-free
+smoke run can now reach its last stage and still be recorded as failed. Either the back-map is skipped with a reason
+when the run has no protein -- nothing to align -- or the cron stays paused until D1 lands. That is a design question
+about what a protein-free run *means*, not a defect, and it is the next thing to settle.
