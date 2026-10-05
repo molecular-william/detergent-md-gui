@@ -189,3 +189,64 @@ fluctuation tips it. Every arm failed at that pair; none of them failed anywhere
 
 The 10 fs and 5 fs equilibration steps are both defensible on the Methods' authority (equilibration is excluded
 from the 20 fs rule), and neither is evidenced to help. That is a decision for the user, not a result.
+
+### The head control: maltose does not explode, and the link's *fitted* stiffness is what separates it
+
+Asked whether maltose's coarse-grained molecule explodes -- if it does not, the difference from DDM is the tail;
+if it does, the head is at fault -- the answer is unambiguous and it also corrects the previous section's
+hypothesis.
+
+| run | molecule | CG production | LINCS warnings |
+| --- | --- | --- | --- |
+| `22075892b606` | maltose | 200 ns complete | **0** |
+| `4e4ff51e7417` | trehalose | 200 ns complete | **0** |
+| `a2a457cf9413` | sucrose | 200 ns complete | **0** |
+| arms A-F | DDM | fails at 53-858 ps | 6-12 |
+
+(The logs are real: 5.5-5.8 MB each, so the zero is a measurement and not a missing file.)
+
+**Correction.** The previous section called DDM's inter-ring link anomalously short against the published set's
+0.357-0.417. In the *initial* topology every one of our disaccharides has that link at ~0.272 -- maltose 0.272008,
+DDM 0.269607 -- so the short link is this pipeline's convention for this bead partition and is not DDM-specific.
+The claim as written was wrong and this replaces it.
+
+**What actually separates them** is what `ff_inter` fits for that same pair, and it is a large difference:
+
+| run | the inter-ring link as fitted by `ff_inter` |
+| --- | --- |
+| maltose | **0.315 nm, k 2985.62** |
+| DDM (arm B) | **0.273 nm, k 12964.842** |
+
+Same topological pair (bead 2 - bead 5), same bead types either side (SP1r to SN6), same stage, same pipeline.
+DDM's is 13% shorter and **4.3x stiffer**, and maltose's 0.315 sits in the same range as the reference set's own
+links (0.357/0.369/0.417) where DDM's 0.273 does not.
+
+That matters more than a number usually would, because the topology stage converts stiff fits into constraints.
+`fit_topology.sh` passes `-constraints 10000`, so any bond fitted above that is written as a rigid constraint.
+Arm F's `DDM.itp` shows exactly that for the failing pair:
+
+    [ bonds ]
+     1 11 1 0.421 2715.113     ; the tail link, and the three tail bonds -- all flexible
+    #ifdef FLEXIBLE
+     2  5 1 0.273 10000        ; the inter-ring link as a bond
+    #endif
+    [ constraints ]
+     1 2 1 0.356736 ...         ; the six ring constraints
+    #ifndef FLEXIBLE
+     2  5 1 0.273              ; and the same inter-ring link again, as a constraint
+    #endif
+
+FLEXIBLE is not defined, so under the standing settings DDM's inter-ring link is **rigid**, while maltose's
+identical link (k 2985.62, below the threshold) stays a **flexible bond**. The pair that fails in all six arms is
+that one.
+
+The open question is therefore narrow and answerable: **why does `ff_inter` fit that link at k=12964.8 for DDM and
+at 2985.6 for maltose**, from the same topology and the same bead types? The distributions it fitted from are in
+each run's `3_initial_CG/*_distr.dat`.
+
+**The tail-off control cannot be expressed as a mapping edit.** The validator refuses a candidate that leaves
+heavy atoms unmapped ("Missing heavy atoms: 1, 2, ... 12" for the dodecyl chain), so removing the tail beads from
+DDM's mapping is rejected at queue time. The user's discriminator needs a molecule: DDM's head without the dodecyl
+chain, registered and run as its own molecule. The head-only candidate built while testing this is saved as
+`mapping_candidate_d17dac35a91a40ada85301877e70a7d1.json`; it is inert for runs and should be removed unless that
+molecule is created.
