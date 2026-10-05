@@ -11,6 +11,10 @@ from .. import bonded
 
 SIZES = {'R': 4, 'S': 3, 'T': 2}
 LABELS = {'d', 'a', 'e', 'v'}
+# A ring's constraint length is its measured bead-pair distance times this scale. 1.15 is the paper's convention
+# and stays what the recogniser writes; a mapping may state its own, because the ring experiment compares that
+# convention against the distance the molecule actually measures. Outside this range it is not a ring at all.
+RING_SCALES = (0.5, 2.0)
 
 
 def check_schema(data, *, allow_empty=False, representation_mode=None):
@@ -65,7 +69,10 @@ def check_schema(data, *, allow_empty=False, representation_mode=None):
             if site_name is not None: raise ValueError('Physical-only ring definitions cannot reference virtual sites')
         elif site.get('virtual_site',{}).get('parents') != parents:
             raise ValueError('Ring virtual site parents disagree with its ring')
-        if type(ring.get('scale')) not in (int,float) or ring['scale'] != 1.15: raise ValueError('Paper ring distance scale must be 1.15')
+        scale = ring.get('scale')
+        if isinstance(scale, bool) or not isinstance(scale, (int, float)) \
+                or not RING_SCALES[0] <= scale <= RING_SCALES[1]:
+            raise ValueError(f'A ring scale must be a number between {RING_SCALES[0]} and {RING_SCALES[1]}')
     bonded.validate(data)
 
 

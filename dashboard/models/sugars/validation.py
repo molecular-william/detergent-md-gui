@@ -3,6 +3,7 @@
 from copy import deepcopy
 
 from ..mappings.identity import candidate_identity
+from ..mappings.schema import RING_SCALES
 
 PHYSICAL_ONLY = 'physical_only_ring_constrained'
 TC4 = 'tc4'
@@ -35,8 +36,10 @@ def validate_representation(mapping, mode):
             raise ValueError('Carbohydrate ring references a missing physical bead')
         if any(beads[name].get('virtual_site') for name in parents):
             raise ValueError('Carbohydrate ring vertices must be physical beads')
-        if ring.get('scale') != 1.15:
-            raise ValueError('Carbohydrate ring constraints must use scale 1.15')
+        scale = ring.get('scale')
+        if isinstance(scale, bool) or not isinstance(scale, (int, float)) \
+                or not RING_SCALES[0] <= scale <= RING_SCALES[1]:
+            raise ValueError(f'A ring scale must be a number between {RING_SCALES[0]} and {RING_SCALES[1]}')
         site_name = ring.get('virtual_site')
         if mode == TC4:
             site = beads.get(site_name)
