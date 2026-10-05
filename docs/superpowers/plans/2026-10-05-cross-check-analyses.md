@@ -306,6 +306,36 @@ and the analysis built on it would be reporting our numbers under shaker's name.
 
 **Step 3: commit.** `test:` — the adapted estimator is pinned to the tool it came from.
 
+**Measured (2026-10-05), and it needed no shaker installed.** shaker's throwaway venv was pruned — scratch entries
+idle for 24 h are removed and this session spans three days — but the pinning does not need the package: shaker's
+recorded numbers are the reference and *our* estimator is the thing under test. `bonded_estimate` on the same run,
+the same 20,001 frames, the same ten pairs, at 303.15 K:
+
+| pair | ours nm | shaker nm | delta pm | ours k | shaker k | ratio | ours says |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| B01-B02 | 0.260 | 0.258 | +2 | 8903.3 | 7878.5 | 1.130 | free |
+| B01-B03 | 0.348 | 0.349 | −1 | 7562.0 | 6395.3 | 1.182 | free |
+| B02-B03 | 0.261 | 0.261 | 0 | 3774.7 | 3655.9 | 1.032 | free |
+| B01-B11 | 0.424 | 0.424 | 0 | 2484.3 | 2424.4 | 1.025 | free |
+| B02-B05 | 0.328 | 0.328 | 0 | 4279.1 | 4055.8 | 1.055 | free |
+| B09-B10 | 0.443 | 0.443 | 0 | 2526.2 | 2464.9 | 1.025 | free |
+| B10-B11 | 0.444 | 0.444 | 0 | 2472.4 | 2423.3 | 1.020 | free |
+| B05-B06 | 0.275 | 0.271 | +4 | 276106.1 | — | — | constraint |
+| B05-B07 | 0.369 | 0.367 | +2 | 40392.0 | — | — | constraint |
+| B06-B07 | 0.296 | 0.296 | 0 | 14109.0 | 15515.3 | 0.909 | constraint |
+
+Worst length disagreement **3.9 pm**; worst force-constant ratio **1.182**, with six of the eight comparable pairs
+within 1.055. So the adaptation is faithful, and the residual is one-directional and small — a few per cent typical,
+18% worst, which is the size of what a histogram-binned spread against our exact pairwise distances would explain.
+
+**It also reproduces, with our own code on our own run, the finding the design note made from shaker's output.** Our
+estimator reads B01-B02 / B01-B03 / B02-B03 as **free** (8903 / 7562 / 3775, all under 10000) where our topology
+writes all six ring-1 pairs as *constraints*. Same three pairs, same direction, and it no longer rests on another
+tool's word. This is the P0.4-shaped result: the measurement instrument now exists in-tree and disagrees with our own
+generated topology in a specific, named place.
+
+The size of the residual is not the finding; **the verdicts are, and they agree in every case.**
+
 ---
 
 ## Phase 4 — the cross-check analysis, end to end

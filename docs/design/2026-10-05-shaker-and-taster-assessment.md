@@ -53,6 +53,9 @@ Four things it establishes:
 3. **It questions our ring 1.** Its k values for B01-B02 / B01-B03 / B02-B03 are 7878 / 6395 / 3656 — below both
    thresholds, so flexible bonds, where we write all six ring pairs as constraints. For ring 2 we agree (k
    15515–153646). Worth investigating, given rigidity is the thread the DDM arms kept pulling.
+   **Independently reproduced on 2026-10-05 by this repository's own adapted estimator** on the same 20,001 frames:
+   8903 / 7562 / 3775, free, with the same three pairs named — see the cross-check plan's Task 3.2, whose worst
+   disagreement against shaker across all ten pairs is 3.9 pm in length and 18% in force constant.
 4. **The threshold is in the signature**: `constraint_threshold=25000` by default against our 10000. Under their
    default, DDM's link at the time (fitted 12964.8) would never have become a constraint.
 
