@@ -90,13 +90,18 @@ Two decisions are the user's and not mine:
    value against shaker's per term, with the commit, the temperature and both thresholds in the report. The
    experiment above is its prototype — it is what makes the ring-1 question visible without anyone re-deriving it.
 3. **Do not adopt** `map_aa2cg`, `write_initial_CGitp` or `runSim`, for the reasons in the table.
-4. **The readability win is already in our own tree.** `map_trajectory.sh` branches on a *file's existence*:
-   `if [ -f sugar_mapping.py ]` runs our mapper, else `ff_map` followed by a 46-line workaround for its `dt` bug.
-   Two mapping paths, one of them a workaround around a vendored fork, selected by whether a file was copied in.
-   Our own mapper already subsumes the `-mode COG` case (both are centres of geometry, confirmed at the command
-   line), so the honest simplification is to **keep one mapper, delete `finalize_mapping.py` and the `ff_map`
-   branch**, and prove the outputs agree on an existing AA reference before switching. That is a refactor of our
-   code toward readability that needs no new dependency at all.
+4. **The readability win is already in our own tree — DONE, `b35063e`.** `map_trajectory.sh` branched on a *file's
+   existence*: `if [ -f sugar_mapping.py ]` ran our mapper, else `ff_map` followed by a 46-line script. The branch
+   that called `ff_map` never executed, which the run record proves rather than suggests: all 18 CG runs in this
+   workspace had `sugar_mapping.py` present, none wrote `mapped_raw.xtc`, and every one recorded
+   `max_coordinate_error_nm: 0`. So one mapper stayed and the other path was deleted, with the frame times, boxes and
+   mapping-validation record that the deleted script also carried already being written by the mapper. The
+   independent COG check was not deleted with it -- it lives in `validate_run.py`, a different script, which
+   reconstructs every bead from the AA coordinates and fails the mapping above 0.002 nm. What went with the branch
+   was also a false requirement: readiness no longer demands `ff_map` as a tool, since nothing invokes it. The
+   rings-less mapping, which only the deleted branch ever served, now has five tests against hand-computable
+   centres of geometry. The stage was named after the tool it used to call, so it was renamed too (`1c6c0fa`), with
+   the 21 runs that recorded the old name keeping their own words and their shared abbreviation.
 
 ## Open
 
