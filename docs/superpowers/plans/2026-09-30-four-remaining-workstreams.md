@@ -302,6 +302,23 @@ against 0.36–1.36 for the rest. A constraint's force constant is unused by GRO
 3. The vendored M3-Lipid set's benchmark directory and property workbook stay **untracked by decision**, not by
    accident; the source file records that.
 
+**Executed 2026-10-05.** The head-to-head ran, and it was made possible by a small change to who decides the scale:
+`mappings/schema.py` refused any value but 1.15 and `sugars/validation.py` refused it again, so arm B could not be
+built from the same mapping. A mapping now states the scale its rings were built with (`5a098b1`), with 1.15 still
+the recogniser's default and a range guard in place of the exact-value one. Arm B was then saved through the
+mapping API off arm A's own candidate, so it has a real parent and a real file name.
+
+| arm | run | mapping | ring constraints | outcome |
+| --- | --- | --- | --- | --- |
+| A, control | `860eb013a82c` | `2bcc24c3…` | measured x 1.15 | failed, CG simulation, exit 139 |
+| B, measured | `e08dc53410f9` | `36142cc2…` | measured x 1.0 | failed, CG simulation, exit 139 |
+
+**The scale is exonerated** -- B held each ring at the distance its own mapped trajectory measures and failed
+identically. The failure and the next hypothesis, with the number that names it, are written under Task 2.4 in
+`docs/design/2026-09-30-named-bonded-defaults.md`: the topology stage passes `ff_inter -constraints 1000000000`
+where FF's default is 10000, so a bond at k 12964.8 -- ten times Martini's canonical constant -- stays a harmonic
+bond at a 20 fs timestep.
+
 ### Task 2.4: re-run the fit and record what the model does
 
 **Objective:** the honest measurement the smoke/fitted question has been waiting for.
