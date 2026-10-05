@@ -82,6 +82,25 @@ def analysis_view(job, summary) -> list:
     return [{k: v for k, v in task.items() if k in keys} for task in job.get('analyses', [])]
 
 
+def consistency_summary(job):
+    """The integers a run card states about its comparison, or `None` when there is nothing to state.
+
+    Projected from the summary the analysis published into the job record -- the same counts card 1 of the panel
+    badges -- rather than exposing the analyses' `result` wholesale: a card needs two numbers, and the same field on
+    a surfaces analysis weighs 3.5 kB of commands and checksums. Only a `completed` attempt answers and the newest
+    one wins, because a count from an attempt that did not finish is not something a card may state.
+    """
+    for task in reversed(job.get('analyses') or []):
+        if task.get('kind') != 'mapping-consistency' or task.get('status') != 'completed':
+            continue
+        pairs = (task.get('result') or {}).get('pairs')
+        if not isinstance(pairs, dict) or not isinstance(pairs.get('pairs'), int):
+            return None
+        return {'pairs': pairs['pairs'], 'compared': pairs.get('compared'),
+                'outside': pairs.get('cg_outside_aa_range') or 0}
+    return None
+
+
 def elapsed(job):
     """(elapsed_seconds, warnings); (None, []) when the record has no started_at."""
     start = job.get('started_at')
@@ -154,11 +173,12 @@ def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, co
         return result | {'status': 'failed', 'error': UNREPAIRABLE, 'can_cancel': False,
                          'can_delete': False, 'can_retry': False, 'stages': [],
                          'workflow_stages': [name for name, _ in cg.STAGES],
-                         'elapsed_seconds': None, 'analyses': []}
+                         'elapsed_seconds': None, 'analyses': [], 'consistency': None}
     run_dir = Path(run_dir)
     manifest = manifest or {}
     result.update(ownership or {})
     result['analyses'] = analysis_view(job, summary)
+    result['consistency'] = consistency_summary(job)
     if result.get('execution_kind') == 'screening-stub':
         # A stub must not be read as a completed simulation anywhere it is displayed.
         result['execution_note'] = 'screening stub — no MD executed'
@@ -178,7 +198,9 @@ def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, co
     result['metadata_warnings'].extend(warnings)
     result.update(eta(job, stages, run_dir=run_dir, console_log=console_log))
     for task in result['analyses']:
-        if task['status'] == 'running':
+        # `directory` is written by the worker for every attempt, but a record that lacks it must cost the runs list
+        # a progress line rather than a 500: this view's one promise is to report instead of raising.
+        if task['status'] == 'running' and task.get('directory'):
             try: task['progress'] = json.loads((run_dir / task['directory'] / 'progress.json').read_text())['phase']
             except (OSError, ValueError): pass
     if summary:

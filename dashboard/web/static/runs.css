@@ -17,6 +17,12 @@
 .run-table > tbody > tr > td { padding:14px 12px; vertical-align:top; border-left:0; overflow-wrap:anywhere; }
 .run-table .run-row > td { border-bottom:0; }
 .run-table .run-summary { display:table-cell; }
+/* D1's line: one sentence under the timeline that doubles as the door to the panel, so it reads as text that links
+   rather than as another button in the card's identity. Stated at this specificity because `button.secondary` sets
+   the fill and the border. */
+.run-summary .job-validate { display: inline-block; margin: 6px 0 0; padding: 0; border: 0; background: none;
+  color: var(--accent); font-size: 12px; text-align: left; text-decoration: underline; text-underline-offset: 2px; }
+.run-summary .job-validate:hover { color: var(--ink); }
 .run-summary .run-identity { display:inline-block; vertical-align:top; width:35%; padding-right:12px; }
 .run-summary .job-title { font-size:14px; margin:0 0 4px; line-height:1.45; }
 .run-summary .job-meta { font:11px/1.5 ui-monospace,monospace; }

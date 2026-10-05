@@ -41,6 +41,62 @@ def test_an_unusable_run_id_is_reported_in_the_view_not_raised():
     assert view['stages'] == [] and view['elapsed_seconds'] is None and view['analyses'] == []
 
 
+# D1's line needs two integers on every run card, so the view carries them rather than each card fetching a
+# comparison of its own. They are projected from the summary the analysis published -- the same counts card 1 of the
+# panel badges -- and never recomputed here. A view is only built at all when `run_dir` is a directory: with no
+# directory the run is reported unrepairable, whatever its analyses say.
+
+
+def test_a_published_comparison_puts_its_counts_on_the_view(tmp_path):
+    view = views.run_view(job(analyses=[
+        {'kind': 'mapping-consistency', 'status': 'completed', 'id': 'a1',
+         'result': {'pairs': {'pairs': 6, 'compared': 6, 'cg_outside_aa_range': 1}}}]), run_dir=tmp_path)
+
+    assert view['consistency'] == {'pairs': 6, 'compared': 6, 'outside': 1}
+
+
+def test_a_run_with_nothing_comparable_has_no_consistency(tmp_path):
+    assert views.run_view(job(), run_dir=tmp_path)['consistency'] is None
+    assert views.run_view(job(analyses=[{'kind': 'surfaces', 'status': 'completed'}]),
+                          run_dir=tmp_path)['consistency'] is None
+
+
+def test_a_comparison_that_did_not_finish_is_not_a_summary(tmp_path):
+    """A count from an attempt that did not finish is not something a card may state."""
+    for status in ('failed', 'running', 'queued'):
+        view = views.run_view(job(analyses=[
+            {'kind': 'mapping-consistency', 'status': status,
+             'result': {'pairs': {'pairs': 6, 'cg_outside_aa_range': 0}}}]), run_dir=tmp_path)
+        assert view['consistency'] is None, status
+
+
+def test_the_newest_completed_attempt_is_the_one_stated(tmp_path):
+    view = views.run_view(job(analyses=[
+        {'kind': 'mapping-consistency', 'status': 'completed', 'id': 'older',
+         'result': {'pairs': {'pairs': 6, 'cg_outside_aa_range': 2}}},
+        {'kind': 'mapping-consistency', 'status': 'completed', 'id': 'newer',
+         'result': {'pairs': {'pairs': 6, 'cg_outside_aa_range': 0}}}]), run_dir=tmp_path)
+
+    assert view['consistency']['outside'] == 0, 'the later attempt is the one that answers'
+
+
+def test_a_comparison_without_pair_counts_states_nothing(tmp_path):
+    """An older artifact may carry no `pairs` block; the card falls back rather than inventing a zero."""
+    view = views.run_view(job(analyses=[{'kind': 'mapping-consistency', 'status': 'completed',
+                                         'result': {'comparison': 'AA vs CG'}}]), run_dir=tmp_path)
+
+    assert view['consistency'] is None
+
+
+def test_an_incomplete_analysis_record_does_not_raise(tmp_path):
+    """`directory` is written for every attempt, but the view reports rather than raises, so a record without one
+    costs the runs list a progress line and not a 500."""
+    view = views.run_view(job(analyses=[{'kind': 'mapping-consistency', 'status': 'running'}]), run_dir=tmp_path)
+
+    assert view['consistency'] is None
+    assert view['analyses'][0]['status'] == 'running'
+
+
 def test_the_summary_shape_hides_the_heavy_fields(tmp_path):
     stages = [{'name': 'AA solvation', 'status': 'complete', 'started_at': 'T0', 'ended_at': 'T1',
                'command': ['gmx', 'solvate'], 'log': str(tmp_path / 'logs/x.log')}]

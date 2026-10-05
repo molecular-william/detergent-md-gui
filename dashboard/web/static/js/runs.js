@@ -4,6 +4,18 @@ import { RunFigureViewer } from './figures.js';
 import { renderDistanceDiagnostics } from './runs-diagnostics.js';
 
 // Owns run cards, filtering, artifact loading, and polling. Form changes are callbacks.
+// D1's line: the numbers the run card states, read from the summary the view projects off the published comparison --
+// `/api/jobs` already carries it, so a card costs no request of its own. The count is `cg_outside_aa_range`, which is
+// what card 1 of the panel badges, so the line says "range": the *spread* is the cross-molecule comparison on the same
+// tab and it is a different quantity with a different meaning.
+function consistencyLine(job) {
+  const summary = job.consistency;
+  if (!summary || !Number.isFinite(Number(summary.pairs))) return null;
+  const total = Number(summary.pairs);
+  const inside = total - (Number(summary.outside) || 0);
+  return `Consistency: CG ${inside} of ${total} ring distances inside the AA observed range`;
+}
+
 export function createRuns({ onClone, onDeleted, onValidate }) {
   function setRunView(view) {
     const selected = ['table', 'grouped', 'dense'].includes(view) ? view : 'table';
@@ -58,9 +70,11 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
           } catch(error) { notice(error.message); }
         };
         // A completed coarse-grained run is the only run the comparison can be read from, so that is where the
-        // panel is offered from. Whether a comparison was actually published is the panel's own answer to give.
+        // panel is offered from. Whether a comparison was actually published is the panel's own answer to give,
+        // and when it was, the control states what it found instead of offering a blank door.
         const validate = $('.job-validate', card);
         validate.hidden = !(job.run_type === 'aa_cg' && job.status === 'completed');
+        validate.textContent = consistencyLine(job) || 'Mapping validation';
         validate.onclick = () => { try { onValidate(job.id); } catch (error) { notice(error.message); } };
         $('.job-resume',card).onclick = async () => {
           try { await post(`/api/jobs/${job.id}/resume`,{stage:$('.resume-stage',card).value}); notice('Run resumed; current stage files will be executed.'); await refreshJobs(); }

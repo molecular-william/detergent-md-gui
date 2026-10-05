@@ -44,14 +44,18 @@ COMPARISON = {
 }
 
 
-def publish(dashboard, jid, comparison=None):
+def publish(dashboard, jid, comparison=None, analyses=None):
     """Leave behind what `analysis.worker` leaves behind for a completed comparison."""
     runs = dashboard.coordinator.RUNS; runs.mkdir(parents=True, exist_ok=True)
-    dashboard.coordinator.database().replace([
-        {'id': jid, 'label': 'Sucrose CG consumer', 'detergent': 'Sucrose', 'method': 'fast_forward',
-         'run_type': 'aa_cg', 'profile': 'draft-smoke-reference', 'reference_run_id': '03875cf39790',
-         'molecule_id': 'Sucrose', 'status': 'completed', 'stage': 'complete',
-         'created': dashboard.coordinator.now()}])
+    record = {'id': jid, 'label': 'Sucrose CG consumer', 'detergent': 'Sucrose', 'method': 'fast_forward',
+              'run_type': 'aa_cg', 'profile': 'draft-smoke-reference', 'reference_run_id': '03875cf39790',
+              'molecule_id': 'Sucrose', 'status': 'completed', 'stage': 'complete',
+              'created': dashboard.coordinator.now()}
+    # Only when a test wants one: a record with no `analyses` is what most of these fixtures have always been, and
+    # the panel reads absence and an empty list the same way.
+    if analyses is not None:
+        record['analyses'] = analyses
+    dashboard.coordinator.database().replace([record])
     attempt = runs / jid / 'analyses/mapping-consistency/hash/attempt1'
     output = attempt / 'output/abc123/analysis'
     output.mkdir(parents=True)
@@ -309,4 +313,45 @@ def test_a_run_with_no_envelope_analysis_says_so_and_frames_nothing(dashboard, l
     assert 'queued by hand' in note, note
     assert 'no envelope analysis has been published' in body.lower(), body
     assert page.evaluate("() => document.querySelectorAll('#validation-surface-figure iframe').length") == 0
+    assert errors == []
+
+
+# D1's other half. The card used to offer a bare button; it now states what the run's comparison found, and the
+# numbers come from the summary the analysis published into the job record -- the same ones card 1 badges, carried
+# by `/api/jobs`, so the card states them without a request of its own.
+
+
+def test_the_run_card_states_the_numbers_its_comparison_published(dashboard, live_page):
+    publish(dashboard, 'bb22cc33dd44', analyses=[
+        {'kind': 'mapping-consistency', 'status': 'completed', 'id': 'attempt1',
+         'result': {'comparison': 'AA vs CG', 'artifact': 'analysis/mapping_consistency.json',
+                    'pairs': {'pairs': 6, 'compared': 6, 'cg_outside_aa_range': 1}}}])
+    page, errors = live_page
+    page.goto(live_page.base_url)
+    page.wait_for_function("() => document.querySelectorAll('.job').length === 1", timeout=30000)
+
+    line = page.locator('.job-validate')
+    expect(line).to_be_visible()
+    expect(line).to_contain_text('Consistency: CG 5 of 6 ring distances inside the AA observed range')
+
+    # D1's placement, measured rather than assumed: one line under the timeline.
+    timeline = page.locator('.job .workflow-timeline').bounding_box()
+    box = line.bounding_box()
+    assert box['y'] >= timeline['y'] + timeline['height'] - 2, 'the line sits under the timeline, not beside it'
+
+    # The numbers are the door, not a label beside it: clicking the line preselects the run on the panel.
+    line.click()
+    expect(page.locator('#tab-validation')).to_have_attribute('aria-selected', 'true')
+    expect(page.locator('#validation-run')).to_have_value('bb22cc33dd44')
+    assert errors == []
+
+
+def test_a_card_with_no_published_comparison_offers_the_door_without_numbers(dashboard, live_page):
+    """Nothing to state, so it offers the panel rather than inventing a count of zero."""
+    publish(dashboard, 'bb22cc33dd44')
+    page, errors = live_page
+    page.goto(live_page.base_url)
+    page.wait_for_function("() => document.querySelectorAll('.job').length === 1", timeout=30000)
+
+    expect(page.locator('.job-validate')).to_have_text('Mapping validation')
     assert errors == []

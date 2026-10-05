@@ -318,10 +318,10 @@
 <template id="job-template">
   <tbody class="job">
     <tr class="run-row">
-      <td class="run-summary" data-label="Run"><div class="run-identity"><h3 class="job-title"></h3><span class="job-meta hint"></span></div><ol class="workflow-timeline" aria-label="Workflow stage checkpoints"></ol></td>
+      <td class="run-summary" data-label="Run"><div class="run-identity"><h3 class="job-title"></h3><span class="job-meta hint"></span></div><ol class="workflow-timeline" aria-label="Workflow stage checkpoints"></ol><button class="secondary job-validate" hidden></button></td>
       <td class="run-status" data-label="Status"><span class="badge job-status"></span><span class="badge execution-note" hidden></span><span class="job-stage"></span><span class="job-eta hint"></span></td>
       <td class="job-molecule" data-label="Molecule"></td><td class="job-method" data-label="Method"></td><td class="job-created" data-label="Created"></td><td class="job-elapsed" data-label="Duration"></td>
-      <td class="run-actions" data-label="Actions"><div class="toolbar"><button class="secondary job-clone" title="Clone with changed settings">Clone</button><button class="secondary job-validate" hidden>Mapping validation</button><button class="secondary job-cancel" hidden>Cancel</button><button class="secondary job-retry" hidden>Retry</button><button class="danger secondary job-delete" hidden>Delete</button></div><div class="resume-control" hidden><label>Resume from stage<select class="resume-stage"></select></label><button class="secondary job-resume" hidden>Resume</button></div></td>
+      <td class="run-actions" data-label="Actions"><div class="toolbar"><button class="secondary job-clone" title="Clone with changed settings">Clone</button><button class="secondary job-cancel" hidden>Cancel</button><button class="secondary job-retry" hidden>Retry</button><button class="danger secondary job-delete" hidden>Delete</button></div><div class="resume-control" hidden><label>Resume from stage<select class="resume-stage"></select></label><button class="secondary job-resume" hidden>Resume</button></div></td>
     </tr>
     <tr class="run-detail-row"><td colspan="7">
       <p class="job-error notice" hidden></p>
