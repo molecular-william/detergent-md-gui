@@ -7,6 +7,10 @@ micelle builder whose architecture was approved on 2026-09-14
 (`2026-09-14-detergent-micelle-builder-design.md`); that design's pipeline is the reference for how detergents
 are placed, and its implementation under `micelle/` is a working skeleton, not a validated model.
 
+§1 and §4 (the box), §3's belt clearance and §7's belt contact criterion are amended by
+`2026-10-05-membrane-frame-pdc-design.md`, which puts the protein's orientation, the detergent belt and the box in
+the membrane frame OPM states rather than in a principal-axis guess.
+
 ## Goal
 
 A second simulation workflow beside the single-molecule one: place a membrane protein in a box, build a
