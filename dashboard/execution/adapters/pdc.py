@@ -195,6 +195,26 @@ def _portable(path, root):
         return str(path)
 
 
+def protein_frame(entry):
+    """The membrane frame a catalogue entry states, or `None` when it states none.
+
+    `None` rather than a default frame: a build with no stated membrane keeps the box and the placement it had, which
+    is every packaged protein, every import whose file states nothing, and a protein-free build that has no entry at
+    all. The `source` names the file that stated the thickness, so a frame in a manifest is traceable to what claimed
+    it.
+
+    The import sits inside the function the way this module's `registry` imports do: `micelle/__init__` pulls its own
+    CLI, which measures about 115 ms, and the route layer imports this module at startup.
+    """
+    half = (entry or {}).get('half_thickness_nm')
+    if half is None:
+        return None
+    from micelle.frame import frame_from_structure
+
+    path = (entry or {}).get('path') or (entry or {}).get('name') or 'protein'
+    return frame_from_structure(half, source=f'REMARK of {path}')
+
+
 # The panel sends its own field names (`pdc_seed`), the adapter's settings use the builders' (`seed`); one small
 # map keeps that translation out of the dispatch.
 _ALIASES = {'pdc_seed': 'seed', 'pdc_assessment_ns': 'assessment_ns', 'pdc_extension_ns': 'extension_ns'}

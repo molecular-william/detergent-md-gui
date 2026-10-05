@@ -115,3 +115,25 @@ def test_a_workspace_outside_the_repository_is_listed_by_its_absolute_path(tmp_p
 
     assert Path(catalogue['1qj8']['path']).is_absolute()
     assert catalogue['1qj8']['path'] == str(imported / '1qj8.pdb')
+
+
+def test_an_entry_that_states_its_membrane_becomes_a_frame_naming_the_file(tmp_path):
+    """The catalogue carries the statement; this is the one place it turns into geometry a build can use."""
+    catalogue = _catalogue(tmp_path, _workspace(tmp_path))
+
+    built = pdc.protein_frame(catalogue['1qj8'])
+
+    assert built.half_thickness_nm == 1.18
+    assert built.axis == (0.0, 0.0, 1.0)
+    assert (built.plane_low_nm, built.plane_high_nm) == (-1.18, 1.18)
+    assert 'workspace/proteins/1qj8.pdb' in built.source      # traceable to the file that stated it
+
+
+def test_an_entry_that_states_nothing_gives_no_frame_rather_than_a_guessed_one(tmp_path):
+    """No frame means the caller keeps the box and the placement it had -- which is every packaged protein, every
+    import whose file states nothing, and every protein-free build."""
+    catalogue = _catalogue(tmp_path, _workspace(tmp_path, with_sidecar=False))
+
+    assert pdc.protein_frame(catalogue['1qj8']) is None
+    assert pdc.protein_frame(catalogue['protein']) is None
+    assert pdc.protein_frame(None) is None
