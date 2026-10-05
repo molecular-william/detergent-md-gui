@@ -129,3 +129,35 @@ What is left standing: the failure is **DDM-specific**, it begins on a bead adja
 The cheapest discriminating experiment is therefore a control rather than another variant: **the same mapping with
 the three `C1` tail beads removed**, which turns DDM into a two-ring sugar comparable to the ones that work. It
 survives and the tail is implicated; it fails and the linkage is.
+
+### Arms D and E: the published protocol, and the one number that separates DDM from the reference
+
+The user read the Martini 3 paper's Methods, which turned up the one part of the published CG setup this project
+had never executed. "General setup for CG molecular dynamics simulations and analysis" (and the carbohydrate
+paper's own protocol, which restates it for exactly this system) prescribe a **Parrinello-Rahman barostat at 1 bar,
+tau_p 12 ps** for production. Our CG templates carry `Pcoupl = parrinello-rahman`, `tau_p = 12.0`, `ref_p = 1.0`
+-- the papers' numbers -- and `cg.py`'s `mdp_integration` stamped `pcoupl = no` over them (`a20d844`), so every CG
+run this project has done was NVT with `ref_p` and `compressibility` dead keys.
+
+| arm | run | the variable | outcome |
+| --- | --- | --- | --- |
+| D | `207ff34ce8bc` | the barostat restored, beta 4.5e-5 | failed at 72.5 ps |
+| E | `5bb303eb9ff5` | D + the equilibration at 10 fs | failed at **446.0 ps** |
+
+The barostat engaged: arm D's mean pressure is **1.36 bar** with the volume settling at 81.1 nm3, against the
+NVT arms' **-583 bar** -- a ~9% contraction to the correct density. It failed anyway, and sooner.
+
+Arm E is the best result of the five: **446 ps**, 2-6x the others, from the one change that made the starting state
+better rather than the system stiffer. Its failure is the same one, at the same pair, after 445 ps of clean
+dynamics: a 2% deviation on a ring constraint, then eleven steps later the `S1B-S2A` link explodes.
+
+**What the reference says about that pair.** Every two-ring sugar in `references/martini_v3.0.0_sugars_v2.itp`
+joins its rings with a bond of **0.357 nm (LAC), 0.369 (SUCR) and 0.417 (TREH)**, at k 11250, 6200 and 9000.
+DDM's link is fitted at **0.273 nm, k 12964.8** -- 24% shorter than the shortest published one and the stiffest.
+Measured on arm E's own starting geometry, that pair sits at 0.282 nm while the closest *non-bonded* pair in the
+molecule is 0.407 nm: the link is held closer than every other contact the molecule has, including the ones that
+are supposed to be soft. Nothing else in the molecule is like that -- the ring constraints are 0.275-0.368 nm and
+the published links are of the same order as their ring constraints, not below them.
+
+That is the next hypothesis with its number, and it is checkable: lengthen the link to the reference's own range,
+or find out why this mapping puts the two rings closer together than the reference's disaccharides do.
