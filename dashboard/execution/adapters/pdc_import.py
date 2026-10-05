@@ -82,15 +82,14 @@ def import_structure(pdbid, dest_dir, *, fetcher=None, fetched_at=None):
     return record
 
 
-def read_sidecar(dest_dir, pdbid):
-    """The record written beside a structure, or `None` when it was placed by hand.
+def read_sidecar(structure):
+    """The record written beside a structure, or `None` when there is none.
 
-    A hand-placed file is a real case -- someone will scp one in -- and it has no provenance, which the caller has to
-    be able to tell from an import that does.
+    Keyed on the file rather than on an id, because a hand-placed structure need not be named after a PDB id and a
+    reader must not refuse it for that -- the import writes both names, and anyone can drop a file in.
     """
-    path = sidecar_path(dest_dir, pdbid)
     try:
-        payload = json.loads(path.read_text())
+        payload = json.loads(Path(structure).with_suffix('.json').read_text())
     except (OSError, ValueError):
         return None
     return payload if isinstance(payload, dict) else None

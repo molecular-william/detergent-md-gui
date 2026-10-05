@@ -10,10 +10,11 @@ import shutil
 import sys
 from pathlib import Path
 
-from ... import files
+from ... import files, paths
 from .. import protocol, tools
 from ..environment import ROOT, TUTORIAL_TEMPLATE
 from ..stages import Stage
+from . import pdc_import
 
 SCRIPTS = Path(__file__).resolve().parent.parent / 'scripts'
 # The coarse-grained parameters a pdc topology has to carry, from the published Martini 3 lipid set: the bead types
@@ -149,18 +150,49 @@ def _templates(root):
 
 
 def _proteins(root):
-    """Protein inputs the repository actually holds, so a build can name one rather than guess a path.
+    """Protein inputs a build can name, from the packaged molecules and from the workspace's own imports.
 
-    Scoped to the packaged molecule directories and capped: the references tree is large, and an endpoint that
-    walks it would be slow for a list nobody asked to see in full.
+    Two roots now. The repository's own `molecules/*/` structures, and the local imports under the workspace -- which
+    `.gitignore` ignores, so a downloaded structure can never be committed. Capped across both, because the
+    references tree is large and nobody asked to see it in full, and every entry says which root answered: where a
+    protein came from is a question the run's manifest has to be able to answer.
     """
     proteins = []
     for path in sorted(root.glob('molecules/*/*.pdb')):
         if len(proteins) >= _PROTEIN_LIMIT:
             break
-        proteins.append({'id': str(path.relative_to(root)), 'name': path.stem,
-                         'path': str(path.relative_to(root))})
+        proteins.append(_protein_entry(path, root, 'packaged'))
+    for path in sorted(paths.current().proteins.glob('*.pdb')):
+        if len(proteins) >= _PROTEIN_LIMIT:
+            break
+        proteins.append(_protein_entry(path, root, 'imported'))
     return proteins
+
+
+def _protein_entry(path, root, source):
+    """One entry, with the same keys whatever the source.
+
+    `half_thickness_nm` is present on every entry and `None` when the structure states nothing, because a key that
+    sometimes exists is a key every reader has to guess about -- and "states nothing" is a real answer that has to be
+    distinguishable from "nobody looked".
+    """
+    sidecar = pdc_import.read_sidecar(path) if source == 'imported' else None
+    location = _portable(path, root)
+    return {'id': location, 'name': path.stem, 'path': location, 'source': source,
+            'half_thickness_nm': (sidecar or {}).get('half_thickness_nm')}
+
+
+def _portable(path, root):
+    """The path as `prepare` wants it: project-relative when it sits under the repository, absolute when it does not.
+
+    `prepare` resolves `root / protein`, and pathlib lets an absolute right-hand side win, so both spellings reach the
+    same file. A configured workspace can live outside the repository, and a path with no relative spelling has to be
+    listed rather than dropped for being unspellable.
+    """
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
 
 
 # The panel sends its own field names (`pdc_seed`), the adapter's settings use the builders' (`seed`); one small

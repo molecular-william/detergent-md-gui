@@ -32,6 +32,8 @@ class Paths:
     @property
     def uploads(self): return self.workspace/'uploads'
     @property
+    def proteins(self): return self.workspace/'proteins'
+    @property
     def mapping_drafts(self): return self.workspace/'mapping_drafts'
     @property
     def bonded_states(self): return self.workspace/'bonded_states'
