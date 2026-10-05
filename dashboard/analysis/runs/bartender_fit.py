@@ -38,6 +38,11 @@ TOOL_TIMEOUT = 1200
 FITTED = 'gmx_out.itp'
 TRAJECTORY = 'solute_heavy.dcd'
 INPUT_FILE = 'bartender.inp'
+#: BARTENDER's own default for the improper histogram is 1 degree, and its Newton fit does not converge at that width
+#: on a linkage an `ff_inter` topology writes as an improper (`funct 2`): the fit spins until the analysis kills it, so
+#: no `gmx_out.itp` is written and no result is ever produced. This is the width it returns at, and the same one its
+#: `improperTolerance` already uses when it decides whether an equilibrium is close to 0 or 180.
+IMPROPER_INCREMENT_DEG = 10
 
 SECTIONS = ('bonds', 'constraints', 'angles', 'dihedrals')
 
@@ -185,7 +190,7 @@ def bartender_command(bartender, cpus, *, geometry='solute_heavy.gro', trajector
     `-noplot` because a headless analysis has nowhere to put a plot.
     """
     return [str(bartender), '-refit', '-owntraj', str(trajectory), '-noplot', '-cpus', str(cpus),
-            str(geometry), str(inputs)]
+            '-improperIncrement', str(IMPROPER_INCREMENT_DEG), str(geometry), str(inputs)]
 
 
 def shell_command(bartender, cpus, region, **kwargs) -> list[str]:

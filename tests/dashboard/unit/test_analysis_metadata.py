@@ -16,3 +16,12 @@ def test_legacy_metadata_is_explicit():
 def test_carbohydrate_evidence_metadata_names_physical_measurements():
     assert describe('mapped_geometry')['title'] == 'Carbohydrate geometry and volume'
     assert 'osmotic' in describe('osmotic_pressure')['title'].lower()
+
+
+def test_the_bartender_fit_is_described_like_every_other_published_analysis():
+    """The kind is in the worker's KINDS and has a queue route, but it was missing here, so its own report carried the
+    generic fallback title. The description says what the metric is and that agreement is a check against our own
+    reference, not experimental evidence."""
+    described = describe('bartender-fit')
+    assert described['title'] != 'Bartender Fit', 'the generic title is the fallback, not a registered description'
+    assert 'reference' in described['ideal_result'] or 'ensemble' in described['ideal_result']

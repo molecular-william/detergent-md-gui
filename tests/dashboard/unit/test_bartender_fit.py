@@ -165,3 +165,17 @@ def test_the_timeout_is_a_default_and_not_a_wall():
 
     assert "payload.get('timeout')" in source, 'the payload may lengthen the wait'
     assert bartender_fit.TOOL_TIMEOUT == 1200, 'and the default still fails rather than running forever'
+
+
+def test_the_improper_histogram_is_coarse_enough_that_the_fit_terminates(tmp_path):
+    """Measured: BARTENDER's own 1-degree default for the improper histogram does not converge on a linkage that an
+    `ff_inter` topology writes as an improper (`funct 2`). The Newton fit in its own `Fit` spins until the analysis
+    kills it, so no `gmx_out.itp` is written and no result is ever produced -- this is what all four recorded DDM
+    attempts died of. Re-fitting the DDM reference at 10 degrees -- BARTENDER's own `improperTolerance` -- finishes
+    in 0.28 s, and the equilibrium it reports moves under 2 degrees between 2 and 10, so the width is not what
+    decides the answer; whether the fit returns at all is."""
+    command = bartender_fit.bartender_command(tmp_path / 'bartender', 8)
+
+    assert '-improperIncrement' in command, 'the 1-degree default does not terminate'
+    width = float(command[command.index('-improperIncrement') + 1])
+    assert width >= 2.0, 'and a width the fit converges at is what makes it return'
