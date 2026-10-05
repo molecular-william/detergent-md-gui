@@ -247,6 +247,13 @@ git add micelle/frame.py tests/dashboard/unit/test_micelle_frame.py
 git commit -m "feat: one definition of the membrane frame and the belt it implies"
 ```
 
+**Done — `ce96142`.** 8 tests; fast tier 1028. The module reproduces the spec's motivating measurement from the
+shipped code, not from a scratch script: on the real 1qj8 file, 540 of 1,158 atoms (46.6%) lie inside the slab the
+structure states against 453 (39.1%) inside the centroid band, 361 atoms classified differently. GitNexus reports
+LOW risk, `epistemic: exact`, and every one of the neighbouring symbols reached only through `main -> build -> ...`
+in `micelle/cli.py` -- an independent confirmation of the spec's correction that this is the standalone builder's
+path and not a pdc run's.
+
 ### Task B2: the importer's statement becomes a frame the adapter can use
 
 **Objective:** the sidecar's half-thickness reaches the pipeline as a frame, and a file with no statement produces
@@ -272,6 +279,10 @@ protein-extent path.
 git add dashboard/execution/adapters/pdc.py tests/dashboard/unit/test_pdc_adapter.py
 git commit -m "feat: a catalogue entry's stated half-thickness becomes a membrane frame"
 ```
+
+**Done — `73cb9ff`.** 2 tests; fast tier 1030. The helper's import sits inside the function because
+`micelle/__init__.py` is `from .cli import main`: importing any micelle submodule pulls the builder's own CLI,
+measured at about 115 ms, and the route layer imports this module at startup.
 
 ### Task B3: the builder measures its belt from the membrane plane
 
@@ -304,6 +315,21 @@ additions.
 git add micelle/geometry.py micelle/repack.py micelle/orientation.py micelle/cli.py tests/dashboard/unit/test_micelle_geometry.py
 git commit -m "fix: the builder's belt is measured from the membrane plane, and its thickness is the stated one"
 ```
+
+**Done — `c388da8`.** 19 tests (5 geometry, 5 orientation, 4 cli, and the frame's statement and record tests); fast
+tier 1049. Measured through the score the placement actually reads, on the real structure: coverage 0.466 from the
+slab it states against 0.391 from its centroid.
+
+**Deviation from this plan: `repack` gained no `origin`.** It reads only `clash` from the score, so a belt origin
+changes nothing observable in what it returns -- the pass-through written into this plan would have been a parameter
+that does not act, which reads as a belt-aware packing that is not one. The belt reaches the placement in C3, through
+the placement's own scoring instead.
+
+The gate also forced a cleanup this plan did not anticipate: `cli.py`, `geometry.py` and `orientation.py` carried five
+pre-existing ruff findings (unsorted import blocks, and two unused imports in `cli.py`), and the gate cannot pass on a
+file carrying any. Rather than narrate an exception at every future commit, they are settled by ruff's own fix, proven
+pre-existing by running the identical check against the HEAD copies -- 3 + 1 + 1, the same five. Repo-wide findings
+are 19 now, all still in `micelle/`.
 
 ---
 
