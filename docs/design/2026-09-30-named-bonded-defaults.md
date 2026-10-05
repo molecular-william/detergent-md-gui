@@ -301,6 +301,23 @@ Measured cost: the short reference ran at 676.9 and 590.5 ns/day in this box, so
 production on this machine. When it completes, the mapping stage must be rebuilt against it (a fresh `aa_cg` run
 consuming `dbc366ae772b` as its reference) before any of it reaches the coarse-grained half.
 
+**Its chain is scheduled, and that job removes itself.** `42fbd11d10c5`, name `ddm-200ns-chain`, every 30 minutes,
+no LLM, script `scripts/ddm-200ns-chain.py`. A scheduled job recurs forever by default -- the create call answers
+`repeat: forever` -- so the script takes itself off the schedule once it has done its one thing, rather than
+ticking silently forever. It acts on a terminal state only: queues the CG run against `dbc366ae772b` when the
+reference completes, reports and removes itself if the reference failed or was cancelled, and reports and removes
+itself if the reference is still non-terminal after writing nothing for six hours. A busy queue (HTTP 409) is the
+one case it does *not* remove itself, so the work still gets done on a later tick.
+
+Removal is `hermes -p moldym cron remove <id>`: the profile flag is required, because the command without it
+targets the default profile's own store and would not find this job. The result is verified against the store, and
+a removal that did not take says so loudly and names the command instead of claiming a cleanup that did not
+happen. That path was exercised for real before the job was left in place -- created, removed, confirmed absent
+through `hermes -p moldym cron list`, then recreated.
+
+`deliver` is `local`, so the job's output is saved rather than messaged: `hermes -p moldym cron runs` or the files
+under `cron/output/`.
+
 **The tail-off control cannot be expressed as a mapping edit.** The validator refuses a candidate that leaves
 heavy atoms unmapped ("Missing heavy atoms: 1, 2, ... 12" for the dodecyl chain), so removing the tail beads from
 DDM's mapping is rejected at queue time. The user's discriminator needs a molecule: DDM's head without the dodecyl
