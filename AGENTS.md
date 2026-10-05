@@ -155,11 +155,13 @@ The current Sucrose diagnostic records are documented in the operations note.
 They are preserved examples, not a replacement for a fresh run after changing
 inputs or code.
 
-## Handoff to the next session (2026-10-05)
+## Handoff to the next session (2026-10-05, after the linkage and surfaces work)
 
-The tree is clean apart from the same untracked reference assets (the vendored M3-Lipid duplicates, `.git-upstream/`, two of the
-user's PDFs) -- **the M3-Lipid set stays untracked by the user's instruction; do not "tidy" it into the index**. Nothing has been
-pushed since the pre-refactor baseline `e0504a3`; the branch is 279 commits ahead of `origin/main`.
+The tree is clean apart from the same untracked reference assets (the vendored M3-Lipid duplicates, `.git-upstream/`, the
+user's PDFs) -- **the M3-Lipid set stays untracked by the user's instruction; do not "tidy" it into the index**. Nothing has
+been pushed since the pre-refactor baseline `e0504a3`; the branch is 294 commits ahead of `origin/main`.
+
+**One chain is in flight and a cron is waiting on it: read "The DDM chain in flight" below before starting anything.**
 
 ### What landed since the 2026-10-02 handoff
 
@@ -172,6 +174,17 @@ pushed since the pre-refactor baseline `e0504a3`; the branch is 279 commits ahea
 | `5a098b1` | a mapping states the ring distance scale its own geometry was built with (the ring experiment's arm B) |
 | `75029f0` | the CG topology stage lets Fast_Forward constrain its stiffest bonds (`-constraints 10000`, was 1000000000) |
 | `c0a0b85`, `bff44f9` | the ring head-to-head and arm C: what failed, and the six causes each measurement eliminated |
+| `a20d844` | the CG half keeps the barostat its template prescribes; `cg.py` no longer stamps `pcoupl = no` |
+| `da99e89`, `c51e8db` | the CG equilibration integrates at 10 fs, then 5 fs, by the user's decision |
+| `8417284` | the navigation rail moves to the right of the content |
+| `cdb2ccc` | the linkage compared across molecules -- the `inter` rows the pairs table structurally cannot reach |
+| `767c90d` | card 3 draws the run's solvent-accessible envelope analysis |
+| `4fc2513` | the BARTENDER fit returns: `-improperIncrement 10`, because the 1-degree default never converged |
+| `672c196` | the migration script's only public door gets a test; the bonded module's tested privates documented |
+
+The documentation commits between those are evidence too (`c46ae38`, `3ac600f`, `ab29fd0`, `6aca073`, and the later ones that
+correct them): each records what an arm eliminated, and several were wrong about something a later measurement overturned.
+Read them as a sequence, not as conclusions.
 
 ### Phase 3 is closed: the same bead type across sucrose, maltose and trehalose
 
@@ -190,68 +203,133 @@ sharing two types. Reporting it as-is would have been a wrong answer to the pape
 carries `pairs_match` and the card names the edges behind every mean. What holds: where the *same* edge is named in all three
 molecules, the types agree to 0.2% and 0.06%.
 
-**Not answerable from this data: the linkage.** Every published row is a *constrained* pair, so the glycosidic link never
-appears and the `inter` role never fires; the link's geometry is in the comparison's `terms`, and nothing compares those
-across molecules yet.
+**The linkage, which this table structurally could not reach, is now compared too** (`cdb2ccc`). Every row above is a
+constrained ring distance and therefore inside one residue, so the `inter` role never fired there and the interaction that
+actually differs between disaccharides was absent from the table entirely. It lives in the comparison's `terms`, and for a
+two-ring molecule `terms` is nothing but the linkage. Measured over the same three molecules:
 
-### The DDM CG run: three arms, three failures, and six causes eliminated
+| term | types | role | spread | maltose | sucrose | trehalose |
+| --- | --- | --- | --- | --- | --- | --- |
+| bonds | `SN6`/`SP1r` | inter | **19.92%** | 0.310 | 0.298 | 0.363 |
+| angles | `SN6`/`SP1r`/`SP4r` | inter | 26.06% | 131.060 | 121.993 | 100.363 |
+| angles | `SN6`/`SP1r`/`SP1r` | inter | 34.61% | 100.898 | 99.017 | 69.785 |
+| dihedrals | `SN6`/`SP1r`/`SP4r`/`SP4r` | inter | withheld | −97.21 | +5.42 | −118.22 |
 
-One mapping, one reference (`2321ee23a536`), one set of settings; each arm differs from the one before by a single variable.
+The same bead-type signature that agrees to 0.06–0.20% on the ring edges is **19.92% apart on the linkage bond**. A dihedral's
+spread is withheld in the reader *and* in the card, because a mean of a wrapped angle is not a difference however it is
+subtracted -- that is asserted, not merely commented.
 
-| arm | run | the variable | outcome |
+### The DDM CG run: six arms, one failure, and the onset is stochastic
+
+One mapping, one set of settings; each arm differs from the one before by a single variable. The failure time, re-read from
+each run's own log rather than from the warning it was first quoted for:
+
+| arm | run | the variable | failed at |
 | --- | --- | --- | --- |
-| A, control | `860eb013a82c` | rings at measured x 1.15, `-constraints 1000000000` | Lincs, 125-200 ps |
-| B, measured scale | `e08dc53410f9` | rings at measured x 1.0 (needs `5a098b1`) | Lincs, 125-200 ps |
-| C, FF's threshold | `6404c3951674` | `-constraints 10000`, so the stiff link is rigid | Lincs at step 5640, 112.8 ps |
+| A, control | `860eb013a82c` | rings at measured x 1.15, `-constraints 1000000000` | **858.4 ps** |
+| B, measured scale | `e08dc53410f9` | rings at measured x 1.0 (needs `5a098b1`) | 199.6 ps |
+| C, FF's threshold | `6404c3951674` | `-constraints 10000`, so the stiff link is rigid | 113.2 ps |
+| D, barostat | `207ff34ce8bc` | the CG templates' Parrinello-Rahman restored (`a20d844`) | 72.5 ps |
+| E, 10 fs equilibration | `5bb303eb9ff5` | the Methods' exception, first value | 445.9 ps |
+| F, 5 fs equilibration | `c48c50265874` | the same idea taken further (the user's call) | **53.5 ps** |
 
-Every arm is verified in its own files rather than by intent: B's `2_mapping/ring_targets.json` is 0.310205 -> 0.310205 where
-A's is 0.310205 -> 0.356736, and C's `3_initial_CG/DDM.itp` writes `2 5 1 0.273` inside `[ constraints ]` with the harmonic
-form under an undefined `#ifdef FLEXIBLE`.
+**Arm E was read as a trend and was not one.** It looked like 2–6x the arms before it until F, the same idea taken further,
+failed first of all -- and re-reading arm A's own log showed it had reached 858 ps, the longest of the six. The honest reading
+is a stochastic onset across an order of magnitude (53–858 ps) for configurations whose physics barely differs, and none of
+the six variables moved it out of that band. Everything after that was measured against that fact.
 
-Eliminated by measurement, each with the number that kills it: the ring scale (B); the stiff harmonic link at k 12964.8 and the
-integration instability it implies (C); energy pumping (`md.edr` flat, -14850 +/- 120 kJ/mol across all 113 ps); the box or a
-periodic image (2.54 nm clearance against a 1.35 nm cutoff); the missing barostat and its -583 bar (the maltose control sits at
--526 bar and completes 200 ns through the same scripts); the bonded-pair exclusion convention (the published `SUCR` entry
-excludes only its ring virtual site, as ours does).
+**Six candidate causes are eliminated by measurement**, each with the number that kills it: the ring scale (B); the stiff
+harmonic link at k 12964.8 and the integration instability it implies (C); the missing barostat, whose absence showed as
+−583 bar and whose restoration gave 1.36 bar and a 9% contraction to the right density (D); energy pumping (`md.edr` flat,
+−14850 ± 120 kJ/mol); the box or a periodic image (2.54 nm clearance against a 1.35 nm cutoff); and the bonded-pair exclusion
+convention (the published `SUCR` entry excludes only its ring virtual site, as ours does).
 
-**What is left: the failure is DDM-specific and starts on a bead adjacent to the ring-1/ring-2 link** (atoms 2-3, then 2-5,
-then 5-6 across the three arms), while the two-molecule sugars run the identical pipeline to 200 ns. The next experiment is
-therefore a control, not another variant: **the same mapping with the three `C1` tail beads removed**, which makes DDM a
-two-ring sugar comparable to the two that work. It survives and the tail is implicated; it fails and the linkage is.
+**Then the parameters were put under the same treatment and yielded a different kind of answer.** The link's *length* is not
+a DDM defect: every one of our disaccharides states it at ~0.272 in its initial topology (maltose 0.272008, DDM 0.269607), so
+the divergence from the published set's 0.357–0.417 is this pipeline's convention for this bead partition. Its *stiffness* is
+not a discriminator either: sucrose's fitted link is 24030.9 and trehalose's is 77167.6, six times DDM's 12964.8, and both run
+200 ns with zero LINCS warnings. And the particular fitted values are reproducible by resampling: cutting a stable sugar's
+series into 2,001-frame windows gives mean 2.7776–3.2655 and sigma 0.1546–0.2148, and DDM sits at **2.7731 / 0.1563**. DDM's
+fitted link is what a normal disaccharide's link looks like sampled that briefly.
+
+The one column that separates DDM from all three stable molecules is the **sample size**: every sugar's parameters were fitted
+from 20,001 mapped frames (a 200 ns AA reference) and DDM's from 2,001 (20 ns) -- its own reference run is labelled "DDM AA
+reference (short)". That is not a diagnosis, it is a confound, and it is the one being removed now.
+
+### The DDM chain in flight
+
+`dbc366ae772b` is the same AA reference at 200 ns: same seed 20260928, same 4.0 nm box, same force field, only
+`aa_production_ps` changed from 20,000 to 200,000. Its prepared production mdp is `dt = 0.002, nsteps = 100000000`,
+`nstxout-compressed = 5000`, so the mapping stage will see 20,001 frames where it saw 2,001 -- and because the seed and
+initial conditions are unchanged, **the new run contains the old one as its prefix**, which makes the comparison DDM against
+DDM rather than an analogy with maltose.
+
+Measured cost: the short reference ran at 676.9 and 590.5 ns/day in this box; the long one has been running at ~1250 ns/day.
+
+**`ddm-200ns-chain` (`42fbd11d10c5`, every 30 minutes, no LLM)** waits for it and then queues the CG arm that consumes it as
+its reference (`mapping_candidate_2bcc24c3e5f149fab1e4f11f5d80ae0e.json`, label "DDM CG from the 200 ns reference (matched
+sampling), published protocol, 20 ns"). **That arm is the first DDM run whose parameters were fitted from a 200 ns sample**,
+so it either resolves the question or rules the sampling out. The job removes itself once it has acted -- that path was
+exercised for real (created, removed, confirmed absent through `hermes -p moldym cron list`, recreated) -- and its output is
+`local`, so read it with `hermes -p moldym cron runs`.
+
+**After that arm completes, restart the coordinator.** The user asked for this explicitly: the running process still holds the
+Python module from before `cdb2ccc` and `767c90d`, so the linkage card and the envelope card show their empty states until
+the restart. It was deferred deliberately, so as not to orphan the 200 ns run's subprocess group; the window between the
+reference finishing and the CG arm starting is the natural seam.
 
 ### The other stages' parameters, reviewed
 
 - **The AA half is right.** `2321ee23a536` runs 2 fs with C-rescale NPT and then Parrinello-Rahman production at `ref-p = 1` --
   real pressure coupling at 1 bar, and the guide's 303.15 K for CHARMM36m.
-- **The CG half runs NVT.** `cg.py:140`'s `mdp_integration` stamps `pcoupl: 'no'` on both mdps of the CG stage, so the CG
-  production is at fixed volume, `ref_p = 1.0` and `compressibility` are dead keys, and the recorded `pressure_bar: 1.0` never
-  reaches it. Measured mean pressure: -583 bar on arm C, -526 bar on the maltose run that completes. Not fatal for a small
-  solute -- the maltose control proves that -- but any density error is permanent, and the manifest claims a barostat it does
-  not have. **Worth a decision, not a silent fix.**
-- The CG equilibration is 10 ps (500 steps at 20 fs), from the `draft-smoke` profile. Thin, and it is the profile's number
-  rather than a measured one.
-- Everything else is standard Martini 3 and matches the reference set: `dt` 20 fs, `rlist` 1.35 with `rcoulomb`/`rvdw` 1.1,
-  reaction-field with `epsilon_r` 15, Verlet with `verlet-buffer-tolerance -1`, `nstlist` 20, frames every 10 ps.
+- **The CG half's barostat was missing and is fixed** (`a20d844`). `cg.py`'s `mdp_integration` used to stamp `pcoupl: 'no'`
+  over both mdps, so every CG production run was NVT with `ref_p` and `compressibility` as dead keys while the manifest
+  recorded `pressure_bar: 1.0`. The templates carry C-rescale to equilibrate and Parrinello-Rahman at `tau_p = 12` to
+  produce, and `cg.py` no longer overrides them; a grep for `pcoupl` in `cg.py` finds only a docstring saying it used to.
+  Verified on arm D, the first arm ever to run the published protocol: mean pressure 1.36 bar against the NVT arms' −583 bar,
+  the box contracting about 9% to the correct density. It failed anyway, and sooner.
+- **The CG equilibration is 5 fs** (`c51e8db`, the user's decision). Same 10 ps as before, so 2,000 steps rather than 500; the
+  template's `dt` decides it and the adapter reads each file's own `dt` back when it turns the requested duration into a step
+  count. The Martini 3 Methods exclude equilibration from the 20 fs rule without naming a value, so both 10 fs and 5 fs are
+  defensible on the paper's authority -- and neither is evidenced to help, which the six arms above show.
+- Everything else is standard Martini 3 and matches the reference set: `dt` 20 fs in production, `rlist` 1.35 with
+  `rcoulomb`/`rvdw` 1.1, reaction-field with `epsilon_r` 15, Verlet with `verlet-buffer-tolerance -1`, `nstlist` 20, frames
+  every 10 ps.
 - `ff_inter` is fitted at 303 K (`cg.fit_temperature` rounds the run's 303.15 for an int argument) and the thermostats are at
   303.15 K, so the fit and the simulation agree.
+- `-constraints 10000` (`75029f0`) is Fast_Forward's own default and it matters: a bond fitted above it becomes a rigid
+  constraint, which is how DDM's inter-ring link (fitted at 12964.8) became rigid while maltose's (2985.6) stayed flexible.
 
-### The three crons are quiet, and their blindness is fixed
+### The four crons are quiet, and one of them removes itself
 
 `e3-chain` (`71a071938314`), `ddm-fit-chain` (`b4d8dfb2c7b8`) and `pdc-empty-micelle` (`eecb5a6b759f`) fire every 10 minutes
-with no LLM. All three now print nothing when they have nothing to do, verified by hand with `--verbose` and by reading their
-tick files: the pdc one used to print a line every tick. All three also read `/api/jobs` unpaged until this session, so
+with no LLM. All three print nothing when they have nothing to do, verified by hand with `--verbose` and by reading their
+tick files: the pdc one used to print a line every tick. All three also read `/api/jobs` unpaged until an earlier session, so
 `e3-chain` could not see the maltose runs and reported "nothing to do" for a step it never looked at; they page to `total`
 now. The driver that POSTs a comparison additionally guards on a completed attempt existing, because the analysis memo key
 moves with any code change and a re-POST would rebuild it every tick.
 
+`ddm-200ns-chain` (`42fbd11d10c5`, every 30 minutes) is the fourth and the only temporary one: a scheduled job recurs forever
+by default, so it takes itself off the schedule once it has done its one thing, and it reports-and-removes itself if the
+reference failed or has written nothing for six hours. A busy queue is the one case it stays for. Removal is
+`hermes -p moldym cron remove <id>` -- **the profile flag is required**, because without it the command targets the default
+profile's own store and would not find the job -- and the result is verified against the store, with a loud line naming the
+command if it did not take.
+
 ### The coordinator is running
 
-`http://127.0.0.1:5000`, concurrency 2 (`config/dashboard.json`), restarted for each Python change. The database holds 34 jobs;
-6 saved mapping candidates. Log at `/home/wee/.hermes/profiles/moldym/cache/scratch/coordinator-run.log`.
+`http://127.0.0.1:5000`, concurrency 2 (`config/dashboard.json`), restarted for each Python change. The database holds 38 jobs
+(13 completed, 25 failed) and 7 saved mapping candidates. Log at
+`/home/wee/.hermes/profiles/moldym/cache/scratch/coordinator-run.log`.
 
-Worth keeping: the four E3 runs, `2321ee23a536` (the DDM AA reference all three arms consumed), `8a73fe6448f2` (pdc completed
-end to end), and the three DDM arms above -- they are the record of what was eliminated, so they are evidence even though
-every one of them failed. Ignore the failed pdc probes and the two earlier failed DDM `aa_cg` runs from 30 September.
+The running process predates this session's Python changes, so **its `/api/runs/transferability` has no `linkages` key and its
+`/api/jobs/<id>/mapping-consistency` has no `surfaces` block** -- both cards show their empty states on the live instance
+until the restart described above. The browser tier starts a fresh server, which is where both were verified.
+
+Worth keeping: the four E3 runs, `2321ee23a536` (the DDM AA reference `dbc366ae772b` supersedes), `8a73fe6448f2` (pdc
+completed end to end), the six DDM arms above, and the two BARTENDER attempts that produced results (`a2a457cf9413` task
+`9a0d4e97180a`, `1322f9e0782e` task `f840a2186aaf`). The arms are the record of what was eliminated, so they are evidence
+even though every one failed. Ignore the failed pdc probes and the two earlier failed DDM `aa_cg` runs from 30 September.
 
 **`8a73fe6448f2`'s system is void for geometry** -- built while `detergent_cg.bead_centres` divided by ten. And every DDM arm
 dies before any production sampling, so their coordinates are evidence about the failure and about nothing else.
@@ -260,18 +338,24 @@ dies before any production sampling, so their coordinates are evidence about the
 
 | item | state |
 | --- | --- |
-| the DDM CG run, Task 2.4 | still fails. Six causes eliminated by measurement; the next step is the tail-off control named above |
-| the CG half's missing barostat | `pcoupl: 'no'` while `pressure_bar: 1.0` is recorded, and the CG half cannot relax its density. A decision for the user |
-| BARTENDER as a queued analysis | the module is real, tested, and its fit is in `references/bartender/DDM.itp`; no queued analysis has produced a result |
+| the DDM CG run, Task 2.4 | **arm in flight.** Six arms failed with a stochastic onset; the six candidate causes above are eliminated. `dbc366ae772b`'s CG arm is the first run whose parameters come from a 200 ns sample, and it is the current test |
+| the tail-off control | **superseded.** It cannot be a mapping edit -- the validator refuses a candidate that leaves heavy atoms unmapped ("Missing heavy atoms: 1 ... 12" for the dodecyl chain). It needs DDM's head as a molecule of its own, with its own AA topology. The user set it aside on 2026-10-05 |
 | Phase 4: sucrose and maltose sources | `resources/validation/carbohydrates/targets-v1.json` is still `metadata_only` for both; lead is `10.1016/j.carres.2004.12.038`. The user deferred this on 2026-10-05 |
-| the linkage across molecules | every published row is a constrained pair, so the `inter` role never fires; nothing compares link geometry across molecules |
-| pdc phases C-E | the pipeline runs end to end and the panel queues it; the unused parts are still unused |
-| D1's other half | the run card does deep-link the tab with the run preselected (a browser test pins it); what is missing is the *numbered* line D1 asked for, which is a bare button today |
-| Card 3's Connolly surfaces | the per-bead chart is drawn and pinned by a browser test; the Connolly surface picture is not, and the card says so |
+| pdc phases C-E | the pipeline runs end to end and the panel queues it. C is the contact-graph criterion and retry policy (nothing judges whether the detergents contact the protein); D is back-mapping, the biggest of the three -- CG2AT2 is not even vendored yet; E is documentation |
+| D1's other half | the run card does deep-link the tab with the run preselected (a browser test pins it); what is missing is the *numbered* line D1 asked for -- "CG 4 of 6 ring distances inside the AA spread" -- which is a bare button today |
+| the iterative mapping refinement panel | README, five planned increments, none started: reference import, controlled variant generation, evidence execution, transparent ranking, human review gate |
+| the micelle builder | paused at the user's request; `micelle/` is a partial skeleton and explicitly not a validated model |
+| **no CI** | there is no `.github/workflows`. Enforcement is `gate_commit.sh`, a local script that runs the fast tier and ruff on named paths and blocks the commit, so the browser and slow tiers never run unless someone types them |
+| **no coverage or mutation signal** | 831 unit tests with no signal on which are load-bearing. Mutation testing confined to `analysis/` and the adapters is the high-value use -- three mutations on freshly written tests, three caught, in about a minute |
+| **no property-based tests** | the mapping-schema validator, the MDP writer and the published-artifact readers are the fuzzable surfaces, including the regex that parses a term's beads (`"(1,A) - (1,B) - (2,A)"`) |
+| a quarantined skip | `tests/dashboard/browser/test_dashboard_browser.py` skips a real behaviour with an explicit reason and nothing tracking it: fix or delete |
+| a stale measurement | `pyproject.toml`'s pytest comment claims the whole suite is "79.3 s serial / 19.6 s with these flags"; measured on 2026-10-05 it is 41.3 s at `-n 8 --dist loadfile` |
+| a stray mapping candidate | `mapping_candidate_d17dac35a91a40ada85301877e70a7d1.json` is the head-only mapping built for the tail-off control. The validator refuses it for DDM runs, so it is inert, but it shows in the candidate picker. Delete it or keep it for the head-only molecule |
 
 ### Standing decisions, not to be re-litigated
 
-- CG time step 20 fs; the atomistic half 2 fs; `cg.mdp_integration` is the one place that decides it.
+- CG time step 20 fs in production; the atomistic half 2 fs; `cg.mdp_integration` is the one place that decides it.
+- The CG **equilibration** integrates at 5 fs (the user's decision, 2026-10-05).
 - The published M3-Lipid set is the project's standard source, recorded per run; it stays **untracked**.
 - GLYCAM06 is dropped by the user's decision.
 - Internal consistency is the primary evidence; the reference's own numbers are context, not a pass mark.
@@ -279,14 +363,19 @@ dies before any production sampling, so their coordinates are evidence about the
 - Do not delete simulation data during cleanup.
 - A mapping states its own ring scale, 1.15 by default and the recogniser's own value; the guard is a range, not a constant.
 - The ring scale is **closed against**: it is not what breaks the DDM run, and no further arm should be spent on it.
+- **The fitted linkage values are not a diagnosis.** Its length is shared with maltose, its stiffness is exceeded by two
+  stable molecules, and its values are reproducible by resampling a stable one. Do not spend another arm on the link's
+  parameters.
 - Phase 4 (sucrose and maltose experimental sources) is deferred by the user, not abandoned.
+- `-improperIncrement 10` is passed to every BARTENDER fit, so **that term's values will not match anything fitted before
+  `4fc2513`** wherever a linkage dihedral is written as an improper. Accepted as the price of a fit that returns at all.
 
 ### Environment gotchas that cost time
 
 - A running dashboard is two caches: Python routes and models are frozen at process start, `static/` and templates are
   re-read per request. Restart after a Python change; hard-reload after a JS change; a job queued before a fix runs the
-  old code. A *stage script* is the exception: it is copied from `execution/scripts/` at prepare time, so an edit there
-  reaches the very next run with no restart -- verified on arm C.
+  old code. A *stage script* and a *template* are the exception: both are read at prepare time, so an edit there reaches the
+  very next run with no restart -- verified on arm C and again on the 5 fs equilibration.
 - GROMACS here is an MPI-only build (`gmx_mpi`): `-ntmpi` is invalid, `-ntomp` is the knob; the binary in use is
   `/usr/local/gromacs/2026.3/bin/gmx`.
 - An analysis subprocess is handed a *work* directory whose files sit at the execution root, not under `stages/`;
@@ -299,9 +388,21 @@ dies before any production sampling, so their coordinates are evidence about the
 - Relative and absolute paths both matter: the fast tier runs from the repository root with
   `dashboard/.venv/bin/python`.
 - `/api/jobs` is paged at 20 by default (limit capped at 100), newest first. Anything that filters the job list --
-  a panel, a driver, a script -- must pass `?limit=`. Never print that endpoint to a terminal: 34 jobs is >1 MB.
+  a panel, a driver, a script -- must pass `?limit=`. Never print that endpoint to a terminal: 38 jobs is >1 MB.
 - A run's `md.log` may hold nothing at all when it died violently; the LINCS warnings and the segfault are in
-  `logs/<stage>.log`, and the frame-by-frame evidence is in the stage's `md.edr` (`gmx energy`).
+  `logs/<stage>.log`, and the frame-by-frame evidence is in the stage's `md.edr` (`gmx energy`). A long production's own
+  progress is in `stages/06_production/run.log`, and its step lines need `tr '\r' '\n'` before `grep` will see them.
+- The surfaces analysis publishes a self-contained ~7 MB HTML. Serve it through
+  `/api/jobs/<id>/artifacts/<run-relative-path>?inline=1` -- the route sets a sandboxed CSP on `.html` that permits inline
+  scripts and eval, which is what the Plotly scene needs. Build the URL from the path the API returned, never from a
+  filesystem path.
+- Hermes cron: a job recurs forever unless something stops it; `hermes cron remove` needs `-p <profile>` or it targets the
+  default profile's store; a no-agent job's empty stdout delivers nothing, which is the watchdog pattern.
+- **Measure with the right instrument before believing a finding.** Three separate grep/AST checks in one session produced
+  three false findings: `\|` is a literal pipe in ERE, so an alternation search matched nothing; an AST scan counting only
+  `ast.Assert` reported `unittest`'s `self.assert*` tests as assertion-free; and a "prose assertion" search was matching
+  `assert cond, "message"` -- the message, not the comparison. Each looked like a real defect in the test suite and none was.
+  Also `ps -eo ... -p <pid>` lists *every* process, because `-e` wins.
 - GitNexus needs a bigger buffer pool before it can index this repo:
   `GITNEXUS_LBUG_BUFFER_POOL_SIZE=4294967296 npx -y gitnexus@latest analyze --index-only`. Without it the load dies with
   `The LadybugDB buffer pool (256 MiB) was exhausted`. The index is in `.gitnexus/`, which `.gitignore` excludes.
@@ -309,10 +410,13 @@ dies before any production sampling, so their coordinates are evidence about the
 ### Verify
 
 ```
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q     # fast tier, 981 at last full run
-dashboard/.venv/bin/python -m pytest -m browser -q -n 2                   # browser tier, 49 passed 1 skipped
+dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q     # fast tier, 999 at last full run
+dashboard/.venv/bin/python -m pytest -m browser -q -n 2                   # browser tier, 53 passed 1 skipped
 dashboard/.venv/bin/python -m ruff check dashboard tests                  # gate: F, E9, I must exit 0
 ```
+
+The whole suite is 1,057 tests (831 unit, 172 integration, 54 browser, 7 marked `slow`) and runs in 41.3 s at
+`-n 8 --dist loadfile`.
 
 Repo-wide `ruff check .` exits 1 on the ~23 pre-existing `micelle/` findings, unchanged.
 
