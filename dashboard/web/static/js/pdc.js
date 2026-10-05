@@ -1,4 +1,4 @@
-import { $, cachedApi } from './shared.js';
+import { $, cachedApi, invalidateResource } from './shared.js';
 
 export function createPdc() {
   const template = $('#pdc-template'), protein = $('#pdc-protein');
@@ -6,6 +6,7 @@ export function createPdc() {
   const viewer = $('#pdc-viewer'), viewerBasis = $('#pdc-view-basis');
   const strip = $('#pdc-snapshots'), stripBasis = $('#pdc-snapshot-basis');
   const mapping = $('#pdc-mapping'), queue = $('#pdc-queue');
+  const importField = $('#pdc-protein-id'), importButton = $('#pdc-import'), importNote = $('#pdc-import-status');
   let catalog = null, currentRun = null;
 
   function fill(select, values, label) {
@@ -57,6 +58,46 @@ export function createPdc() {
     }
   }
 
+  async function importStructure() {
+    // The id becomes a file name on the server, and a structure already there is the answer rather than a second
+    // download -- so a refusal leaves the catalogue exactly as it was.
+    const pdbid = (importField?.value || '').trim();
+    if (!pdbid) return;
+    if (importButton) importButton.disabled = true;
+    if (importNote) importNote.textContent = `Fetching ${pdbid} from OPM…`;
+    let response, body = {};
+    try {
+      response = await fetch('/api/pdc/proteins/import', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                                          body: JSON.stringify({pdbid})});
+      body = await response.json().catch(() => ({}));
+    } catch (error) {
+      if (importButton) importButton.disabled = false;
+      if (importNote) importNote.textContent = 'The import could not be read: the coordinator did not answer.';
+      return;
+    }
+    if (importButton) importButton.disabled = false;
+    if (!response.ok) {
+      if (importNote) importNote.textContent = `That import was refused: ${body.error || response.status}`;
+      return;
+    }
+    // The catalogue is where the protein list comes from, so it is invalidated rather than trusted: a cached copy
+    // would offer every structure except the one just imported.
+    invalidateResource('/api/pdc/catalog');
+    catalog = null;
+    await load();
+    const entry = (catalog.proteins || []).find(item => item.name === body.pdbid);
+    if (entry) {
+      protein.value = entry.id;
+      protein.dispatchEvent(new Event('change'));
+    }
+    if (importField) importField.value = '';
+    if (importNote) importNote.textContent = body.already_present
+      ? `${body.pdbid} was already here; the list now offers it.`
+      : `Imported ${body.pdbid}` + (body.half_thickness_nm
+          ? ` — its file states a ${body.half_thickness_nm} nm half-thickness.`
+          : ' — its file states no membrane, so a build would use the protein-extent box.');
+  }
+
   async function queueBuild() {
     // Readiness is read before the POST, so a build that cannot start says why here rather than in a run that dies at
     // stage one. The settings are the catalogue's own defaults: the same ones the pipeline is prepared with.
@@ -98,6 +139,11 @@ export function createPdc() {
   template?.addEventListener('change', loadMappings);
   protein?.addEventListener('change', loadSystem);
   queue?.addEventListener('click', queueBuild);
+  importButton?.addEventListener('click', importStructure);
+  // A four-character id and a button, so Enter in the field is the same request as the click.
+  importField?.addEventListener('keydown', event => {
+    if (event.key === 'Enter') { event.preventDefault(); importStructure(); }
+  });
 
   function stage() {
     // Created on first use: NGL sizes itself to its host element, and the host is sized for it in pdc.css.

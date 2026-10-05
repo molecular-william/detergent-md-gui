@@ -2,10 +2,11 @@
 import json
 from pathlib import Path
 
-from flask import Blueprint, Response, abort, jsonify
+from flask import Blueprint, Response, abort, current_app, jsonify, request
 
+from ... import paths
 from ...execution import workflow
-from ...execution.adapters import pdc, pdc_view
+from ...execution.adapters import pdc, pdc_import, pdc_view
 from .common import coordinator
 
 blueprint = Blueprint('pdc', __name__)
@@ -58,6 +59,33 @@ def snapshot_file(root: Path, relative: str) -> Path:
 @blueprint.get('/api/pdc/catalog')
 def pdc_catalog():
     return jsonify(pdc.catalog(coordinator().ROOT))
+
+
+@blueprint.post('/api/pdc/proteins/import')
+def pdc_import_structure():
+    """Fetch one structure from OPM into the workspace, where it stays local.
+
+    The id becomes a file name, so it is validated before anything else happens -- including before the network is
+    touched, which a test pins. A structure that is already here is answered from disk rather than fetched again: a
+    second import is a question about a file, and the sidecar it came with is not overwritten either.
+    """
+    payload = request.get_json(silent=True) or {}
+    destination = paths.current().proteins
+    try:
+        pdbid = pdc_import.canonical_id(payload.get('pdbid') or '')
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+
+    structure = pdc_import.structure_path(destination, pdbid)
+    if structure.is_file():
+        record = pdc_import.read_sidecar(structure) or {'pdbid': pdbid, 'half_thickness_nm': None}
+        return jsonify({**record, 'already_present': True}), 200
+    try:
+        record = pdc_import.import_structure(pdbid, destination, fetcher=current_app.config.get('PDC_FETCHER'))
+    except (OSError, ValueError) as error:
+        # A fetch that failed is upstream's problem, not the caller's bad request -- and nothing was written.
+        return jsonify({'error': f'{pdbid} could not be fetched: {error}'}), 502
+    return jsonify(record), 201
 
 
 @blueprint.get('/api/pdc/<job_id>/snapshots')

@@ -281,6 +281,10 @@
     <section class="card pdc-setup" aria-labelledby="pdc-setup-title">
       <h3 id="pdc-setup-title">Build a complex</h3>
       <label>Protein<select id="pdc-protein"></select></label>
+      <label>Import a structure from OPM<input id="pdc-protein-id" type="text" maxlength="4" placeholder="1qj8"
+        autocomplete="off" spellcheck="false" aria-describedby="pdc-import-status"></label>
+      <button id="pdc-import" type="button" class="secondary">Import</button>
+      <p id="pdc-import-status" class="hint" role="status"></p>
       <label>Detergent template<select id="pdc-template"></select></label>
       <label>Detergent mapping<select id="pdc-mapping"></select></label>
       <p id="pdc-template-limitation" class="hint pdc-limitation"></p>
