@@ -89,3 +89,42 @@ def intra_bead_distances(universe, residue_name, *, bead_names=None, start=0, st
     return {'bead_names': names, 'pairs': pairs, 'bins': edges, 'hist': histogram,
             'mean_nm': [float(value.mean()) for value in values],
             'frames': len(frames), 'residues': len(residues)}
+
+
+def overlap_matrix(reference, model):
+    """The overlap coefficient for every measured pair, as a symmetric matrix, and a mean per bead.
+
+    `reference` and `model` are two measurements from `intra_bead_distances`, over the same beads, the same pairs and
+    the same bins. Anything else is refused rather than intersected or broadcast: an intersection compares a subset of
+    the pairs and reports the result under the whole name, and a broadcast compares values never measured against
+    those edges.
+
+    Reading it: 1 is two distributions that coincide over these bins, 0 is two that share no bin at all. The diagonal
+    is 1 by construction -- a bead against itself -- so it is left out of every per-bead mean, and each mean is taken
+    over the pairs that bead actually appears in rather than over every cell, so an unmeasured pair cannot read as a
+    zero and drag a bead down.
+    """
+    names = list(reference['bead_names'])
+    if names != list(model['bead_names']):
+        raise ValueError(f'the two sides must name the same beads in the same order, not {names} against '
+                         f'{list(model["bead_names"])}')
+    if list(reference['pairs']) != list(model['pairs']):
+        raise ValueError(f'the two sides must be measured over the same pairs, not {len(reference["pairs"])} '
+                         f'against {len(model["pairs"])}')
+    if np.shape(reference['bins']) != np.shape(model['bins']) or not np.allclose(reference['bins'], model['bins']):
+        raise ValueError('the two sides must be measured over the same bins')
+
+    position = {name: i for i, name in enumerate(names)}
+    matrix = np.eye(len(names))
+    overlaps = []
+    incident = {name: [] for name in names}
+    for pair, reference_histogram, model_histogram in zip(reference['pairs'], reference['hist'], model['hist']):
+        coefficient = overlap_coefficient(reference_histogram, model_histogram, reference['bins'])
+        overlaps.append(coefficient)
+        incident[pair[0]].append(coefficient)
+        incident[pair[1]].append(coefficient)
+        i, j = position[pair[0]], position[pair[1]]
+        matrix[i, j] = matrix[j, i] = coefficient
+    return {'matrix': matrix, 'overlaps': overlaps, 'pairs': list(reference['pairs']), 'bead_names': names,
+            'per_bead_mean': [{'bead': name, 'mean': float(np.mean(incident[name])) if incident[name] else None}
+                              for name in names]}

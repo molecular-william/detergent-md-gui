@@ -127,3 +127,74 @@ def test_a_residue_name_the_trajectory_does_not_have_is_refused(tmp_path, monkey
     topology, trajectory = _bead_universe(FRAMES)
     with pytest.raises(ValueError, match='no residue named LIG'):
         overlap.intra_bead_distances(mda.Universe(topology, trajectory), 'LIG')
+
+
+# --- the matrix ------------------------------------------------------------------------------------------------
+
+def _measured(pairs, histograms, histogram_bins, names=None):
+    """A measurement as `intra_bead_distances` returns it, built by hand so the matrix's arithmetic is the subject."""
+    return {'bead_names': names or ['B01', 'B02', 'B03'], 'pairs': pairs, 'bins': histogram_bins,
+            'hist': np.array(histograms, dtype=float), 'mean_nm': [0.0] * len(pairs), 'frames': 2, 'residues': 1}
+
+
+PAIR_BINS = np.array([0.0, 0.1, 0.2])
+SHARED = np.array([10.0, 0.0])           # a density: 10 per nm over a 0.1 nm bin
+DISJOINT = np.array([0.0, 10.0])
+PAIRS = [('B01', 'B02'), ('B01', 'B03'), ('B02', 'B03')]
+
+
+def test_a_model_that_matches_the_reference_overlaps_everywhere():
+    reference = _measured(PAIRS, [SHARED] * 3, PAIR_BINS)
+    result = overlap.overlap_matrix(reference, reference)
+
+    assert result['matrix'].shape == (3, 3)
+    assert np.allclose(result['matrix'], 1.0)              # the diagonal included: it is 1 by construction
+    assert result['overlaps'] == pytest.approx([1.0, 1.0, 1.0])
+
+
+def test_the_matrix_is_symmetric_and_only_the_disagreeing_pair_falls():
+    model = _measured(PAIRS, [SHARED, DISJOINT, SHARED], PAIR_BINS)
+    reference = _measured(PAIRS, [SHARED] * 3, PAIR_BINS)
+
+    matrix = overlap.overlap_matrix(reference, model)['matrix']
+
+    assert matrix[0, 1] == matrix[1, 0] == pytest.approx(1.0)
+    assert matrix[0, 2] == matrix[2, 0] == pytest.approx(0.0)
+    assert matrix[1, 2] == matrix[2, 1] == pytest.approx(1.0)
+    assert np.allclose(np.diag(matrix), 1.0)
+
+
+def test_each_beads_mean_leaves_its_own_diagonal_out():
+    """A bead's own cell is 1 by construction, so leaving it in would lift every mean by the same amount and hide
+    exactly the difference between a bead whose pairs agree and one whose pairs do not."""
+    model = _measured(PAIRS, [SHARED, DISJOINT, SHARED], PAIR_BINS)
+    reference = _measured(PAIRS, [SHARED] * 3, PAIR_BINS)
+
+    means = {entry['bead']: entry['mean'] for entry in overlap.overlap_matrix(reference, model)['per_bead_mean']}
+
+    assert means == pytest.approx({'B01': 0.5, 'B02': 1.0, 'B03': 0.5})    # B01 meets the disjoint pair, B02 does not
+
+
+def test_two_sides_measured_over_different_pairs_are_refused():
+    """Intersecting would compare a subset of the pairs and report it under the whole name."""
+    reference = _measured(PAIRS, [SHARED] * 3, PAIR_BINS)
+    fewer = _measured([('B01', 'B02')], [SHARED], PAIR_BINS)
+
+    with pytest.raises(ValueError, match='same pairs'):
+        overlap.overlap_matrix(reference, fewer)
+
+
+def test_two_sides_measured_over_different_bins_are_refused():
+    reference = _measured(PAIRS, [SHARED] * 3, PAIR_BINS)
+    wider = _measured(PAIRS, [SHARED] * 3, np.array([0.0, 0.1, 0.2, 0.3]))
+
+    with pytest.raises(ValueError, match='same bins'):
+        overlap.overlap_matrix(reference, wider)
+
+
+def test_two_sides_naming_different_beads_are_refused():
+    reference = _measured(PAIRS, [SHARED] * 3, PAIR_BINS)
+    renamed = _measured(PAIRS, [SHARED] * 3, PAIR_BINS, names=['B01', 'B02', 'B04'])
+
+    with pytest.raises(ValueError, match='same beads'):
+        overlap.overlap_matrix(reference, renamed)
