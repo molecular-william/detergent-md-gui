@@ -25,3 +25,23 @@ def test_the_bartender_fit_is_described_like_every_other_published_analysis():
     described = describe('bartender-fit')
     assert described['title'] != 'Bartender Fit', 'the generic title is the fallback, not a registered description'
     assert 'reference' in described['ideal_result'] or 'ensemble' in described['ideal_result']
+
+
+def test_the_overlap_analysis_is_registered_in_all_three_places():
+    """A kind missing any one of them fails silently: without KINDS it is unreachable, without PATTERNS it is handed no
+    inputs, and without a DESCRIPTION its own report renders under the generic fallback title."""
+    from dashboard.analysis import worker
+
+    assert 'overlap' in worker.KINDS
+    described = describe('overlap')
+    assert described['title'] != 'Overlap', 'the generic title is the fallback, not a registered description'
+    assert 'reference' in described['ideal_result']
+
+    staged = worker.PATTERNS['overlap']
+    # The comparison is the model against the reference it was built from, so the atomistic reference and the CG
+    # simulation are both staged, and the *mapped* trajectory deliberately is not: it is a third thing, and the
+    # overlap is not a statement about it.
+    assert '1_AA-reference/prod/lig.gro' in staged and '1_AA-reference/prod/lig.xtc' in staged
+    assert '2_mapping/model.json' in staged
+    assert '4_CG_sim/prod/lig_CG.gro' in staged and '4_CG_sim/prod/lig_CG.xtc' in staged
+    assert not [path for path in staged if path.startswith('2_mapping/mapped')]

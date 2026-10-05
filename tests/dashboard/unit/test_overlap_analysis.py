@@ -85,6 +85,92 @@ def _bead_universe(frames):
     return 'beads.gro', 'beads.xtc'
 
 
+def _run_directory(tmp_path, aa_frames, cg_frames):
+    """The three files the analysis reads, staged as the worker stages them: a reference, a model, a CG trajectory."""
+    import json
+    work = tmp_path / 'work'
+    for name, frames in (('1_AA-reference/prod/lig', aa_frames), ('4_CG_sim/prod/lig_CG', cg_frames)):
+        directory = work / pathlib.Path(name).parent
+        directory.mkdir(parents=True, exist_ok=True)
+        universe = mda.Universe.empty(3, n_residues=1, atom_resindex=[0, 0, 0], trajectory=True)
+        universe.add_TopologyAttr('names', ['B01', 'B02', 'B03'])
+        universe.add_TopologyAttr('resnames', ['DDM'])
+        universe.add_TopologyAttr('resids', [1])
+        with mda.Writer(str(directory / f'{pathlib.Path(name).name}.xtc'), n_atoms=3) as writer:
+            for index, positions in enumerate(frames):
+                universe.atoms.positions = positions
+                universe.trajectory.ts.time = float(index)
+                if index == 0:
+                    universe.atoms.write(str(directory / f'{pathlib.Path(name).name}.gro'))
+                writer.write(universe.atoms)
+    (work / '2_mapping').mkdir(parents=True, exist_ok=True)
+    (work / '2_mapping/model.json').write_text(json.dumps(
+        {'beads': [{'export_name': name} for name in ('B01', 'B02', 'B03')], 'molecule_id': 'DDM'}))
+    return work
+
+
+# Beads on a line: B01 at 0, B02 at a, B03 at b -- so the pairs are a, b and b - a.
+AGREEING = np.array([[[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [5.0, 0.0, 0.0]]], dtype=np.float32)
+STRAYED = np.array([[[0.0, 0.0, 0.0], [6.0, 0.0, 0.0], [5.0, 0.0, 0.0]]], dtype=np.float32)
+
+
+def test_a_side_reports_its_own_range_so_one_range_can_cover_both(tmp_path, monkeypatch):
+    """The range is what lets the caller build bins spanning both ensembles, which is the only way the two
+    histograms are comparable. It is reported rather than only used internally, because the union needs both sides."""
+    monkeypatch.chdir(tmp_path)
+    topology, trajectory = _bead_universe(FRAMES)
+    measured = overlap.intra_bead_distances(mda.Universe(topology, trajectory), 'DDM')
+
+    assert measured['range_nm'] == (0.2, 0.6)
+
+
+# --- publishing ------------------------------------------------------------------------------------------------
+
+def test_a_model_that_agrees_with_its_reference_overlaps_on_every_pair(tmp_path):
+    work = _run_directory(tmp_path, AGREEING, AGREEING)
+    report = overlap.publish(work)
+
+    assert report['bead_names'] == ['B01', 'B02', 'B03']
+    assert report['overlaps'] == pytest.approx([1.0, 1.0, 1.0])
+    assert report['frames'] == {'reference': 1, 'model': 1}
+
+
+def test_pairs_that_moved_into_different_bins_score_zero_and_the_rest_one(tmp_path):
+    """Hand-checkable: the reference is 0.2, 0.5, 0.3 nm and the model 0.6, 0.5, 0.1 -- so the two pairs that stayed
+    in their bin overlap completely and the two that moved share nothing."""
+    work = _run_directory(tmp_path, AGREEING, STRAYED)
+    report = overlap.publish(work)
+
+    assert report['overlaps'] == pytest.approx([0.0, 1.0, 0.0])
+    # The range spans both ensembles: 0.1 nm (the model's shortest) to 0.6 nm (the model's longest), not 0.2 to 0.5.
+    assert (report['bins'][0], report['bins'][-1]) == pytest.approx((0.1, 0.6))
+
+
+def test_the_report_carries_what_a_reader_needs_to_disagree_with_it(tmp_path):
+    """"Agreement" without the pair set, the binning and the ensembles named is a number nobody can check."""
+    work = _run_directory(tmp_path, AGREEING, STRAYED)
+    report = overlap.publish(work)
+
+    assert report['pairs'] == [['B01', 'B02'], ['B01', 'B03'], ['B02', 'B03']]
+    assert len(report['bins']) == 41
+    assert report['residue'] == 'DDM'
+    assert report['trajectories']['reference']['frames'] == 1
+    assert report['trajectories']['model']['frames'] == 1
+    assert any('intra-residue' in line.lower() for line in report['limitations'])
+    assert any('one bin range' in line.lower() for line in report['limitations'])
+    assert report['scientifically_validated'] is False
+
+
+def test_the_figure_is_written_and_named_by_the_report(tmp_path):
+    """A self-contained file the run-artifact route can serve inline, named by the record rather than guessed."""
+    work = _run_directory(tmp_path, AGREEING, STRAYED)
+    report = overlap.publish(work)
+
+    figure = work / report['figure']
+    assert figure.is_file() and figure.stat().st_size > 1000
+    assert '<html' in figure.read_text()[:2000].lower()
+
+
 # Frame 0: B01-B02 0.2 nm, B01-B03 0.5 nm, B02-B03 0.3 nm.  Frame 1: 0.3, 0.6, 0.3 nm.
 FRAMES = np.array([[[0.0, 0.0, 0.0], [0.0, 0.0, 2.0], [0.0, 0.0, 5.0]],
                    [[0.0, 0.0, 0.0], [0.0, 0.0, 3.0], [0.0, 0.0, 6.0]]], dtype=np.float32)
