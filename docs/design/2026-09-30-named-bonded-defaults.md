@@ -100,3 +100,32 @@ Two cheap independent tests, either one a single line: `-constraints 10000` (FF'
 become constraints and the timestep stops mattering for them), or keep the flag and run at 10 fs.
 
 Not started as a refit, per Task 2.4: this says what to try next, not what the answer is.
+
+### Arm C: the constraint threshold, and six causes eliminated by measurement
+
+Arm C (`6404c3951674`) is arm A's mapping, reference and settings with one line changed: `fit_topology.sh` passes
+`-constraints 10000` (FF's own default) where it passed `1000000000`. Verified in the run's own files -- the
+prepared script reads `-temperature 303 -constraints 10000`, and FF's output writes the `S1B-S2A` link as
+`2 5 1 0.273` inside `[ constraints ]` with the harmonic form under an undefined `#ifdef FLEXIBLE`. The stiff link
+is therefore rigid in the simulated topology.
+
+**It failed too, and sooner**: `Constraint error in algorithm Lincs at step 5640` (112.8 ps), where arms A and B
+reached 125-200 ps. The first violation is now on the new constraint itself (atoms 2-5, rms 2.90).
+
+What has been measured and eliminated, in order of how much it cost:
+
+| candidate | the measurement that eliminates it |
+| --- | --- |
+| the ring scale (1.15) | arm B held every ring at its measured distance and failed identically |
+| the stiff harmonic link (k 12964.8) | arm C made it a constraint and the run failed sooner |
+| an integration instability from that constant | same as above: removing it from the integrator changed nothing |
+| energy pumping by a wrong bonded term | arm C's `md.edr` is flat: potential -14850 +/- 120 kJ/mol across all 113 ps, temperature 301.4 K |
+| the box or a periodic image | dodecahedron 5.013/5.013/3.545 nm; the solute spans 1.008 nm along the smallest axis, leaving 2.54 nm of clearance against a 1.35 nm cutoff |
+| the missing barostat and its -583 bar | the maltose run (`22075892b606`) sits at **-526 bar** and completes 200 ns in the same construction with the same scripts |
+| bonded pairs sharing the nonbonded interaction | the published `SUCR` entry's `[ exclusions ]` is `4 1 2 3` and nothing else -- the same convention this topology follows |
+
+What is left standing: the failure is **DDM-specific**, it begins on a bead adjacent to the ring-1/ring-2 link
+(atoms 2-3, 2-5, 5-6 across the three arms), and the two-molecule sugars run the identical pipeline to 200 ns.
+The cheapest discriminating experiment is therefore a control rather than another variant: **the same mapping with
+the three `C1` tail beads removed**, which turns DDM into a two-ring sugar comparable to the ones that work. It
+survives and the tail is implicated; it fails and the linkage is.
