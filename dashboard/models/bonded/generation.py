@@ -1,4 +1,16 @@
-"""Deterministic bonded drafts from mappings and read-only CG references."""
+"""Deterministic bonded drafts from mappings and read-only CG references.
+
+The module's public surface is three functions: `reference_bond_index` parses the CG reference set,
+`topology_from_terms` writes a topology, and `generate` runs a whole draft. The rest is private.
+
+Two private functions are exceptions, deliberately. `_reference_version` and `_select_reference` carry the
+*decision rules* this module is actually about -- which generation a reference file belongs to, and which
+reference describes a term -- and the tests pin those rules directly rather than through `generate`, because
+driving `generate` to reach one rule would be slower and would not say which rule moved when it failed. So they
+are private by name and depended upon by name: renaming or inlining either one must move
+`tests/dashboard/unit/test_bonded_reference_versions.py`, `test_fitted_reference.py` and `test_named_defaults.py`
+with it. That is a cost accepted here, not an oversight.
+"""
 
 from __future__ import annotations
 

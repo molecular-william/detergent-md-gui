@@ -1,6 +1,8 @@
 """Migration script correctness: idempotent, safe, reports manual lines."""
 import importlib.util
 
+import pytest
+
 from tests.dashboard.support import PROJECT_ROOT
 
 MODULE_PATH = PROJECT_ROOT / 'dashboard/execution/scripts/migrate_cg_naming.py'
@@ -132,3 +134,43 @@ def test_apply_is_idempotent_for_script_without_topology_literals(tmp_path):
     report = module._apply(script, apply=True)
     assert script.read_text() == first
     assert report == [f'{script.name}: already migrated']
+
+
+# `main` is this script's only public door and it had no test, while every one of its internals had several. The
+# three modes are the contract a stage runner actually depends on, so they are asserted through `argv`: the exit
+# codes are what a caller branches on, and nothing else in this file exercises them. `main` builds its script list
+# from the module-level `HERE`, so pointing that at tmp_path is also what keeps an `--apply` away from the
+# repository's own stage scripts.
+
+
+def test_the_cli_checks_dry_runs_and_applies_through_its_own_exit_codes(tmp_path):
+    module = _load()
+    (tmp_path / 'fit_topology.sh').write_text(SAMPLE)
+    module.HERE = tmp_path
+    module.SCRIPTS = ('fit_topology.sh',)
+
+    assert module.main(['--check']) == 1, 'a script still holding a topology literal is pending'
+
+    assert module.main(['--dry-run']) == 0, 'a dry run succeeds'
+    assert module.main(['--check']) == 1, 'and must not have migrated anything'
+
+    assert module.main(['--apply']) == 0
+    assert module.main(['--check']) == 0, 'and it is migrated once applied'
+
+
+def test_the_cli_reports_a_missing_script_with_its_own_code(tmp_path, capsys):
+    """2, not 1: "could not look" and "looked and found work" are different answers for a caller."""
+    module = _load()
+    module.HERE = tmp_path
+    module.SCRIPTS = ('absent.sh',)
+
+    assert module.main(['--check']) == 2
+    assert 'absent.sh' in capsys.readouterr().err
+
+
+def test_the_cli_requires_exactly_one_mode():
+    """No mode is a usage error rather than a silent full apply: argparse exits 2."""
+    module = _load()
+    with pytest.raises(SystemExit) as exit_info:
+        module.main([])
+    assert exit_info.value.code == 2
