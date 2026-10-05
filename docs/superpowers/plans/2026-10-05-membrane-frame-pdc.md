@@ -129,6 +129,11 @@ git add dashboard/execution/adapters/pdc_import.py tests/dashboard/unit/test_pdc
 git commit -m "feat: import an OPM structure to a local file with its provenance beside it"
 ```
 
+**Done — `63731e6`.** 6 tests, all against an injected fetcher; fast tier 1015. One bug found by the test rather
+than by review: the injected `fetched_at` is the stamp as recorded, and it was being handed to `datetime.isoformat`
+as though it were a `datetime`. The reader's first signature took `(dest_dir, pdbid)`; Task A2's test drove it to
+take the file instead, because a hand-placed structure need not be named after a PDB id.
+
 ### Task A2: the catalogue lists imports beside the packaged proteins
 
 **Objective:** a run can name an imported structure, and a reader can tell where each entry came from.
@@ -156,6 +161,11 @@ git add dashboard/execution/adapters/pdc.py tests/dashboard/unit/test_pdc_adapte
 git commit -m "feat: the protein catalogue lists imported structures beside the packaged ones"
 ```
 
+**Done — `176edc5`.** 4 tests; fast tier 1015. The entry's key set is pinned the same for both sources, with
+`half_thickness_nm` present and `None` when a structure states nothing. A path with no project-relative spelling is
+reported absolute rather than dropped: a configured workspace can live outside the repository, and `prepare`
+resolves `root / protein`, where pathlib lets an absolute right-hand side win.
+
 ### Task A3: import from the panel, with the id validated
 
 **Objective:** a user can name a PDB id in the panel and get it listed, without a shell.
@@ -182,6 +192,16 @@ field and a button; on success it reloads the catalogue and selects the new entr
 git add dashboard/web/routes/pdc.py dashboard/web/static/js/pdc.js dashboard/web/templates/dashboard.html tests/dashboard/integration/test_pdc_api.py
 git commit -m "feat: import an OPM structure from the panel, with the id validated at the boundary"
 ```
+
+**Done — `591f47e`.** 5 integration tests and 2 browser tests; fast tier 1020, browser tier 57 passed 1 skipped. Two
+findings came from the tests rather than from review: the field's `maxlength="4"` means the UI cannot express a
+dotted name or a traversal path at all, so the refusal a user can actually meet is a four-character string the
+server still declines; and `nope` is *accepted* by the format gate, because it is a well-formed four-letter id --
+whether it names a structure is the fetch's question, not the gate's.
+
+Phase A is live: the coordinator was restarted, `/api/pdc/catalog` now carries `source` and `half_thickness_nm`, and
+`POST /api/pdc/proteins/import` answers 400 for `../etc/passwd` without touching the network. No structure has been
+downloaded yet -- that is Phase G, by hand.
 
 ---
 
