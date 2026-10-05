@@ -60,8 +60,8 @@ def test_the_coarse_grained_half_integrates_at_martini_timesteps():
     """
     assert mdp_value(CG_MDPS / 'md.mdp', 'dt') == pytest.approx(0.02)
     assert round(10000.0 / mdp_value(CG_MDPS / 'md.mdp', 'dt')) == 500000
-    assert mdp_value(CG_MDPS / 'eq.mdp', 'dt') == pytest.approx(0.01)
-    assert round(10.0 / mdp_value(CG_MDPS / 'eq.mdp', 'dt')) == 1000
+    assert mdp_value(CG_MDPS / 'eq.mdp', 'dt') == pytest.approx(0.005)
+    assert round(10.0 / mdp_value(CG_MDPS / 'eq.mdp', 'dt')) == 2000
 
 
 def test_the_atomistic_half_still_integrates_at_two_femtoseconds():
@@ -157,14 +157,15 @@ def test_the_cg_equilibration_integrates_more_finely_than_its_production():
     """Martini 3's Methods: "Except for equilibration runs, a time step of 20 fs was used for all systems."
 
     That sentence is the only instruction either paper gives on the point -- it excludes equilibration from the
-    20 fs step without naming its own. 10 fs is this project's reading of it, and the templates state it, because
-    the adapter is not the place that decides a half's timestep: it reads each file's own dt back when it turns
-    the requested duration into a step count, so the equilibration still runs for the time asked for.
+    20 fs step without naming its own. The user set the value: 5 fs, after 10 fs ran the DDM arms twice as far as
+    20 fs did (446 ps against 125-200). The templates state it, because the adapter is not the place that decides
+    a half's timestep: it reads each file's own dt back when it turns the requested duration into a step count, so
+    the equilibration still runs for the 10 ps the profile asks for -- 2,000 steps rather than 500.
     """
     inputs = TUTORIAL_TEMPLATE / '4_CG_sim/inputs'
     equil, production = mdp_values(inputs / 'eq.mdp'), mdp_values(inputs / 'md.mdp')
 
-    assert equil['dt'] == '0.01', 'the equilibration step'
+    assert equil['dt'] == '0.005', 'the equilibration step'
     assert production['dt'] == '0.02', "the paper's production step, which the standing decision fixes at 20 fs"
     assert float(equil['dt']) < float(production['dt'])
 
