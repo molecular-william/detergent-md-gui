@@ -244,6 +244,50 @@ The open question is therefore narrow and answerable: **why does `ff_inter` fit 
 at 2985.6 for maltose**, from the same topology and the same bead types? The distributions it fitted from are in
 each run's `3_initial_CG/*_distr.dat`.
 
+### Reading those distributions: the answer is sample size, and the fit is not a diagnosis
+
+The per-frame series behind each fit (`*_bonds.dat`) and the counts settle it. One correction to the section
+above, then the measurement.
+
+| molecule | mapped frames | fitted r0 | fitted k | mean | sigma | outcome |
+| --- | --- | --- | --- | --- | --- | --- |
+| maltose | 20,001 | 0.315 | 2985.6 | 3.1035 | 0.2732 | stable, 200 ns, 0 warnings |
+| sucrose | 20,001 | 0.299 | **24030.9** | 2.9810 | 0.1488 | stable, 200 ns, 0 warnings |
+| trehalose | 20,001 | 0.363 | **77167.6** | 3.6257 | 0.0573 | stable, 200 ns, 0 warnings |
+| DDM (arm B) | **2,001** | 0.273 | 12964.8 | 2.7731 | 0.1563 | fails 53-858 ps |
+
+**Correction, the second one on this pair.** The section above says DDM's link is 4.3x stiffer than maltose's and
+that this separates them. It does not. Sucrose's fitted link is 24,031 and trehalose's is 77,168 -- six times
+DDM's -- and both run 200 ns with zero LINCS warnings. k spans 26x across the stable molecules with DDM in the
+middle of the range. Stiffness is not the discriminator, and the paragraph above is wrong.
+
+**What the column that does separate them means.** Every stable sugar was fitted from 20,001 mapped frames (a
+200 ns AA reference); DDM was fitted from 2,001 (20 ns -- its own reference run is labelled "DDM AA reference
+(short)"). Cutting a *stable* sugar's series into 2,001-frame windows reproduces DDM's numbers almost exactly:
+
+| maltose, 2,001-frame windows | mean | sigma |
+| --- | --- | --- |
+| its nine windows span | 2.7776 - 3.2655 | 0.1546 - 0.2148 |
+| DDM's one window | **2.7731** | **0.1563** |
+
+So DDM's fitted link -- the shortest mean and a sigma at the low end -- is what a normal disaccharide's link
+looks like when sampled that briefly. The fit is not reporting a feature of DDM; it is reporting the size of its
+sample. (The same table for sucrose gives 2.9590-3.0113 and 0.1188-0.1706, and for trehalose 3.6243-3.6284 and
+0.0546-0.0601, both of which bracket DDM's sigma as well.)
+
+**Two consequences, and they point in opposite directions from where this section started.**
+
+The parameter path is exhausted as a *diagnosis*. The link's length is shared with maltose, its stiffness is
+exceeded by two stable molecules, and its particular fitted values are reproducible by resampling the stable
+ones. Nothing in the fitted link marks DDM as the molecule that fails.
+
+It is not exhausted as a *confound*. DDM's bonded parameters -- the link and every angle -- were fitted from a
+sample ten times smaller than the validation set's, so comparing DDM's behaviour to sucrose's, maltose's and
+trehalose's compares a noisy fit against well-sampled ones. A 200 ns AA reference for DDM would remove that
+difference without touching anything else, and it is the only remaining difference between DDM and the three
+molecules it is being compared against apart from the tail itself. That, and the head-only molecule the user's
+discriminator needs, are the two things left to do.
+
 **The tail-off control cannot be expressed as a mapping edit.** The validator refuses a candidate that leaves
 heavy atoms unmapped ("Missing heavy atoms: 1, 2, ... 12" for the dodecyl chain), so removing the tail beads from
 DDM's mapping is rejected at queue time. The user's discriminator needs a molecule: DDM's head without the dodecyl
