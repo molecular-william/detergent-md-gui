@@ -34,6 +34,30 @@ def newest_comparison(c, job):
     return attempt, record, artifact
 
 
+def newest_surfaces(c, job):
+    """A run's newest published surfaces analysis: `(attempt, published, metadata_path, figure)`, or `None`.
+
+    The solvent-accessible envelope analysis is its own kind with its own attempt, because it needs the atomistic
+    trajectory, the mapped one and the simulated one and takes minutes rather than seconds. It publishes SASA
+    statistics and a self-contained figure. Most runs have never had one -- it is queued by hand -- and that is a
+    state a card has to be able to say, so this answers `None` rather than raising.
+    """
+    records = sorted((c.run_path(job) / 'analyses/surfaces').glob('*/*/result.json'),
+                     key=lambda path: path.stat().st_mtime, reverse=True)
+    for record_path in records:
+        attempt = record_path.parent
+        output = attempt / str(json.loads(record_path.read_text()).get('output_directory') or '')
+        metadata = output / 'analysis/surfaces/metadata.json'
+        if not metadata.is_file():
+            # An attempt that names a file that is no longer there is not a published analysis; an older one
+            # that still stands may be.
+            continue
+        published = json.loads(metadata.read_text())
+        figure = output / str(published.get('comparison_html') or '')
+        return attempt, published, metadata, (figure if figure.is_file() else None)
+    return None
+
+
 @blueprint.post('/api/jobs/<jid>/<kind>')
 def queue_analysis(jid, kind):
     payload = json_object(optional=True)
@@ -74,12 +98,35 @@ def mapping_consistency_api(jid):
         attempt, record, artifact = newest_comparison(c, job)
     except LookupError as exc:
         abort(404, str(exc))
+    # The envelope analysis is a separate kind on the same run, so it is read separately and its absence is
+    # reported as a state rather than left for the card to discover as a broken frame.
+    published_surfaces = newest_surfaces(c, job)
+    if published_surfaces is None:
+        surfaces = {'available': False,
+                    'reason': 'No solvent-accessible surfaces analysis has been published for this run. It is '
+                              'queued by hand, and it reads the atomistic, the mapped and the simulated '
+                              'trajectories together.'}
+    else:
+        surfaces_attempt, published, metadata, figure = published_surfaces
+        surfaces = {'available': True,
+                    'attempt': surfaces_attempt.name,
+                    'published_at': datetime.fromtimestamp(
+                        surfaces_attempt.stat().st_mtime, timezone.utc).isoformat(),
+                    'statistics': published.get('statistics') or {},
+                    'rendering': published.get('rendering'),
+                    'probe_nm': published.get('probe_nm'),
+                    'validated': bool(published.get('scientifically_validated')),
+                    # Relative to the run directory: the panel builds the artifact URL from this, and the route
+                    # that serves it resolves against the run too.
+                    'figure': str(figure.relative_to(c.run_path(job))) if figure else None,
+                    'source': str(metadata.relative_to(c.RUNS))}
     return jsonify({'run': jid, 'attempt': attempt.name,
                     'published_at': datetime.fromtimestamp(attempt.stat().st_mtime, timezone.utc).isoformat(),
                     'source': str(artifact.relative_to(c.RUNS)),
                     'molecule': job.get('molecule_id'), 'run_type': job.get('run_type'),
                     'profile': job.get('profile'), 'reference_run_id': job.get('reference_run_id'),
-                    'summary': record.get('result'), 'comparison': json.loads(artifact.read_text())})
+                    'summary': record.get('result'), 'comparison': json.loads(artifact.read_text()),
+                    'surfaces': surfaces})
 
 
 @blueprint.get('/api/runs/transferability')

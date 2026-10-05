@@ -29,6 +29,10 @@
 .validation-selectors .toolbar{align-items:flex-end}
 .validation-selectors label{min-width:22rem}
 .validation-plot{min-height:16rem}
+/* The envelope figure is the surfaces analysis's own self-contained HTML, served inline through the artifact
+   route. The frame states its own height because its content cannot, and it is a frame rather than a second
+   renderer: the analysis that measured the surfaces is the thing that draws them. */
+.validation-surface-frame{width:100%;height:600px;border:1px solid var(--line);border-radius:8px;background:#fff}
 .mapping-editor-controls table{margin:0;table-layout:fixed;min-width:31rem}
 .mapping-editor-controls caption{padding:10px 12px;margin:0;background:#f3f6fa}
 .mapping-editor-controls td,.mapping-editor-controls th{padding:8px 6px}

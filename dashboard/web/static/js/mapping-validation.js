@@ -159,6 +159,31 @@ function shortTime(value) {
   return String(value ?? '').replace('T', ' ').slice(0, 16);
 }
 
+
+// The envelope analysis publishes SASA statistics and a self-contained figure of its own. The figure is served
+// through the artifact route and framed rather than redrawn: it is a 3D scene built by the analysis that measured
+// it, and a second renderer here would be a second thing to keep true.
+function surfaceRows(surfaces) {
+  const statistics = Object.entries(surfaces.statistics || {});
+  if (!statistics.length) return '<tr><td colspan="5">The published analysis states no statistics.</td></tr>';
+  return statistics.map(([model, stat]) => {
+    const start = number(stat.start_ps), end = number(stat.end_ps);
+    const duration = start === null || end === null ? '—' : `${((end - start) / 1000).toFixed(1)} ns`;
+    return `<tr><td>${cell(model)}</td><td>${number(stat.frames) ?? '—'}</td><td>${duration}</td>`
+      + `<td>${fixed(stat.mean_nm2, 3)}</td><td>${fixed(stat.std_nm2, 3)}</td></tr>`;
+  }).join('');
+}
+
+function surfaceFigure(body) {
+  const surfaces = body.surfaces || {};
+  if (!surfaces.available || !surfaces.figure) return '';
+  // Built from the path the route returned, relative to the run, and never from a filesystem path.
+  const relative = String(surfaces.figure).split('/').map(encodeURIComponent).join('/');
+  return `<iframe class="validation-surface-frame" loading="lazy"`
+    + ` title="Solvent-accessible envelopes, drawn by the surfaces analysis"`
+    + ` src="/api/jobs/${encodeURIComponent(body.run || '')}/artifacts/${relative}?inline=1"></iframe>`;
+}
+
 export function createMappingValidation({ request = api } = {}) {
   let mounted = false;
 
@@ -198,10 +223,26 @@ export function createMappingValidation({ request = api } = {}) {
     $('#validation-shape-detail').textContent = Number.isFinite(Number(shape.rmsd_nm))
       ? `Fitted on the beads that own atoms: rmsd ${Number(shape.rmsd_nm).toFixed(4)} nm, `
         + `max ${Number(shape.max_nm).toFixed(4)} nm over ${shape.aa_frames} AA and ${shape.cg_frames} CG frames. `
-        + 'The fitted beads are filled; the others are carried for completeness. The Connolly surfaces are a '
-        + 'separate analysis on this run, and are not drawn here.'
+        + 'The fitted beads are filled; the others are carried for completeness. The solvent-accessible '
+        + 'envelopes below come from the separate surfaces analysis on this run.'
       : 'The run’s shape analysis has not been published.';
     drawDisplacement($('#validation-shape-plot'), shape);
+    const surfaces = body.surfaces || {};
+    const note = $('#validation-surface-note');
+    if (note) {
+      note.textContent = surfaces.available
+        ? `Attempt ${surfaces.attempt}, published ${shortTime(surfaces.published_at)} UTC. `
+          + `${surfaces.rendering || ''} ${surfaces.validated ? '' : 'Not scientifically validated.'}`.trim()
+        : (surfaces.reason || 'The run’s envelope analysis has not been published.');
+    }
+    const surfaceBody = $('#validation-surface-rows');
+    if (surfaceBody) {
+      surfaceBody.innerHTML = surfaces.available
+        ? surfaceRows(surfaces)
+        : '<tr><td colspan="5">No envelope analysis has been published for this run.</td></tr>';
+    }
+    const figureHost = $('#validation-surface-figure');
+    if (figureHost) figureHost.innerHTML = surfaceFigure(body);
     $('#validation-interpretation').textContent = comparison.interpretation
       || 'Every comparison here is against our own atomistic reference.';
   }

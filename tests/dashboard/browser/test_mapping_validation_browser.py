@@ -62,6 +62,28 @@ def publish(dashboard, jid, comparison=None):
     return attempt
 
 
+SURFACES = {
+    'probe_nm': 0.191, 'rendering': 'SAS mesh, GROMACS Connolly dots retained separately',
+    'scientifically_validated': False, 'comparison_html': 'analysis/surfaces/surface-comparison.html',
+    'statistics': {'AA': {'frames': 20001, 'start_ps': 0.0, 'end_ps': 200000.0,
+                          'mean_nm2': 5.8157, 'std_nm2': 0.077},
+                   'Simulated CG': {'frames': 20001, 'start_ps': 0.0, 'end_ps': 200000.0,
+                                    'mean_nm2': 5.599, 'std_nm2': 0.174}},
+}
+
+
+def publish_surfaces(dashboard, jid):
+    """Leave behind what `analysis.worker` leaves behind for a completed surfaces analysis."""
+    attempt = dashboard.coordinator.RUNS / jid / 'analyses/surfaces/hash/attempt1'
+    output = attempt / 'output/abc123/analysis/surfaces'
+    output.mkdir(parents=True)
+    (output / 'metadata.json').write_text(json.dumps(SURFACES))
+    (output / 'surface-comparison.html').write_text('<html><body>envelopes</body></html>')
+    (attempt / 'result.json').write_text(json.dumps(
+        {'result': SURFACES, 'output_directory': 'output/abc123', 'wall_seconds': 121.0}))
+    return attempt
+
+
 def test_the_panel_shows_the_published_comparison_including_the_shape_card(dashboard, live_page):
     publish(dashboard, 'aa11bb22cc33')
     page, errors = live_page
@@ -244,4 +266,47 @@ def test_a_wrapped_dihedral_shows_its_means_and_withholds_the_percentage(dashboa
     assert 'dihedrals' in row and '-97.2°' in row and '5.4°' in row, row
     assert 'wrapped angle: no spread' in row, row
     assert '%' not in row, 'a wrapped mean must not be turned into a percentage'
+    assert errors == []
+
+
+def test_the_envelope_analysis_is_drawn_with_its_statistics_and_its_own_figure(dashboard, live_page):
+    """Card 3's second half. The surfaces analysis publishes numbers and a figure; the card frames both.
+
+    The figure is served through the artifact route and framed rather than redrawn, so the assertion is on the
+    URL the card built -- from the path the route returned, never from a filesystem path.
+    """
+    publish(dashboard, 'bb22cc33dd44')
+    publish_surfaces(dashboard, 'bb22cc33dd44')
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#validation')
+
+    page.wait_for_function(
+        "() => document.querySelectorAll('#validation-surface-rows tr').length === 2", timeout=30000)
+    rows = page.evaluate("() => [...document.querySelectorAll('#validation-surface-rows tr')].map(r => r.textContent)")
+    frame = page.evaluate("() => { const f = document.querySelector('#validation-surface-figure iframe');"
+                          " return f ? f.getAttribute('src') : null; }")
+    note = page.evaluate("() => document.querySelector('#validation-surface-note').textContent")
+
+    assert 'AA' in rows[0] and '5.816' in rows[0] and '200.0 ns' in rows[0], rows
+    assert 'Simulated CG' in rows[1] and '5.599' in rows[1], rows
+    assert frame and frame.startswith('/api/jobs/bb22cc33dd44/artifacts/analyses/surfaces/'), frame
+    assert frame.endswith('surface-comparison.html?inline=1'), frame
+    assert 'SAS mesh' in note and 'Not scientifically validated' in note, note
+    assert errors == []
+
+
+def test_a_run_with_no_envelope_analysis_says_so_and_frames_nothing(dashboard, live_page):
+    """Never queued is a state the card states, rather than an empty frame a reader reads as broken."""
+    publish(dashboard, 'bb22cc33dd44')
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#validation')
+
+    page.wait_for_function(
+        "() => document.querySelector('#validation-surface-note').textContent.includes('surfaces')", timeout=30000)
+    note = page.evaluate("() => document.querySelector('#validation-surface-note').textContent")
+    body = page.evaluate("() => document.querySelector('#validation-surface-rows').textContent")
+
+    assert 'queued by hand' in note, note
+    assert 'no envelope analysis has been published' in body.lower(), body
+    assert page.evaluate("() => document.querySelectorAll('#validation-surface-figure iframe').length") == 0
     assert errors == []

@@ -40,6 +40,71 @@ def publish(dashboard, jid, attempt='attempt1', comparison=None, output='output/
     return directory
 
 
+SURFACES = {
+    'probe_nm': 0.191, 'rendering': 'SAS mesh, GROMACS Connolly dots retained separately',
+    'scientifically_validated': False, 'comparison_html': 'analysis/surfaces/surface-comparison.html',
+    'statistics': {'AA': {'frames': 20001, 'start_ps': 0.0, 'end_ps': 200000.0,
+                          'mean_nm2': 5.8157, 'std_nm2': 0.077},
+                   'Simulated CG': {'frames': 20001, 'start_ps': 0.0, 'end_ps': 200000.0,
+                                    'mean_nm2': 5.599, 'std_nm2': 0.174}},
+}
+
+
+def publish_surfaces(dashboard, jid, attempt='attempt1', output='output/abc123', surfaces=None):
+    """Leave behind what `analysis.worker` leaves behind for a completed surfaces analysis."""
+    directory = dashboard.coordinator.RUNS / jid / 'analyses/surfaces/hash' / attempt
+    published = surfaces if surfaces is not None else SURFACES
+    (directory / output / 'analysis/surfaces').mkdir(parents=True)
+    (directory / output / 'analysis/surfaces/metadata.json').write_text(json.dumps(published))
+    (directory / output / 'analysis/surfaces/surface-comparison.html').write_text('<html>envelopes</html>')
+    (directory / 'result.json').write_text(json.dumps(
+        {'result': published, 'output_directory': output, 'wall_seconds': 121.0}))
+    return directory
+
+
+def test_a_published_surfaces_analysis_comes_with_its_numbers_and_its_figure(dashboard):
+    """The envelope analysis is its own kind and its own attempt; the panel reads what it published."""
+    job(dashboard, 'aa11bb22cc33')
+    publish(dashboard, 'aa11bb22cc33')
+    publish_surfaces(dashboard, 'aa11bb22cc33')
+
+    surfaces = dashboard.client.get('/api/jobs/aa11bb22cc33/mapping-consistency').json['surfaces']
+
+    assert surfaces['available'] is True
+    assert surfaces['statistics']['AA']['mean_nm2'] == 5.8157
+    assert surfaces['statistics']['Simulated CG']['mean_nm2'] == 5.599
+    assert surfaces['validated'] is False
+    assert 'SAS mesh' in surfaces['rendering']
+    # Relative to the run directory, so the panel builds the artifact URL from it and never from a filesystem path.
+    assert surfaces['figure'] == ('analyses/surfaces/hash/attempt1/output/abc123/'
+                                  'analysis/surfaces/surface-comparison.html')
+    assert surfaces['source'].endswith('analysis/surfaces/metadata.json')
+
+
+def test_a_run_with_no_surfaces_analysis_says_so_rather_than_showing_nothing(dashboard):
+    """Never queued is a state, and a card that shows an empty frame reads as broken."""
+    job(dashboard, 'aa11bb22cc33')
+    publish(dashboard, 'aa11bb22cc33')
+
+    surfaces = dashboard.client.get('/api/jobs/aa11bb22cc33/mapping-consistency').json['surfaces']
+
+    assert surfaces['available'] is False
+    assert 'surfaces' in surfaces['reason'].lower()
+    assert 'figure' not in surfaces
+
+
+def test_a_surfaces_record_whose_artifact_is_gone_falls_back_to_the_reason(dashboard):
+    """An attempt that names a file no longer there is not a published analysis."""
+    job(dashboard, 'aa11bb22cc33')
+    publish(dashboard, 'aa11bb22cc33')
+    directory = publish_surfaces(dashboard, 'aa11bb22cc33')
+    (directory / 'output/abc123/analysis/surfaces/metadata.json').unlink()
+
+    surfaces = dashboard.client.get('/api/jobs/aa11bb22cc33/mapping-consistency').json['surfaces']
+
+    assert surfaces['available'] is False
+
+
 def test_the_published_comparison_is_what_answers(dashboard):
     job(dashboard, 'aa11bb22cc33')
     publish(dashboard, 'aa11bb22cc33')
