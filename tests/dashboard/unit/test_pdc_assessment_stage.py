@@ -78,7 +78,12 @@ def habits_are_the_templates(timestep: float) -> bool:
 def test_the_assessment_mdp_carries_the_cg_halfs_own_integration_settings(tmp_path):
     numbers = mdp_numbers(prepared(tmp_path) / 'assessment.mdp')
 
-    assert numbers['pcoupl'] == 'no', 'the coarse-grained half decides its own pressure coupling'
+    # The coarse-grained half decides its own pressure coupling, and the template this file is copied from
+    # asks for Parrinello-Rahman at 1 bar -- the protocol both Martini papers describe. This assertion used to
+    # read `== 'no'`: the intent was right and the value was the defect, because `mdp_integration` stamped the
+    # coupling off over every coarse-grained mdp.
+    assert numbers['pcoupl'] == 'parrinello-rahman'
+    assert numbers['ref_p'] == '1.0'
     assert numbers['nstxtcout'] == '100' and numbers['xtc-precision'] == '1000'
     assert numbers['nstenergy'] == '100'
 

@@ -7,6 +7,7 @@ import pytest
 
 from dashboard.execution.adapters import cg
 from dashboard.execution.adapters.cg_names import CGNames
+from dashboard.execution.environment import TUTORIAL_TEMPLATE
 from dashboard.models import mappings
 from dashboard.models.mappings.context import as_structure, build_context
 from dashboard.models.molecules import draft as draft_model
@@ -101,6 +102,48 @@ def test_the_topology_stage_lets_fast_forward_constrain_its_stiffest_bonds():
 
     assert '-constraints 10000' in executable, "FF's own default: a bond above k=10000 becomes a constraint"
     assert '1000000000' not in executable, 'that value disables the conversion for every bond'
+
+
+def mdp_values(path):
+    """An mdp's settings, keyed the way `update_mdp` normalizes them (lower-case, underscore-folded)."""
+    values = {}
+    for line in path.read_text().splitlines():
+        key, separator, value = line.partition('=')
+        if not separator:
+            continue
+        values[key.strip().lower().replace('_', '-')] = value.split(';')[0].strip().lower()
+    return values
+
+
+def test_the_cg_templates_prescribe_the_barostat_both_papers_use():
+    """C-rescale to equilibrate, Parrinello-Rahman to produce, both at 1 bar.
+
+    Martini 3's Methods ("General setup for CG molecular dynamics simulations and analysis") and the
+    carbohydrate paper's own protocol both maintain pressure with Parrinello-Rahman at tau_p = 12 ps by
+    velocity rescaling and a barostat; the carbohydrate paper gives beta = 4.5e-5 bar-1 for the same system
+    this project runs -- a single sugar in water. The templates carried those numbers all along.
+    """
+    inputs = TUTORIAL_TEMPLATE / '4_CG_sim/inputs'
+    equil, production = mdp_values(inputs / 'eq.mdp'), mdp_values(inputs / 'md.mdp')
+
+    assert equil['pcoupl'] == 'c-rescale' and equil['tau-p'] == '4.0'
+    assert production['pcoupl'] == 'parrinello-rahman' and production['tau-p'] == '12.0'
+    for values in (equil, production):
+        assert values['ref-p'] == '1.0'
+        assert values['compressibility'] == '4.5e-5', "the papers' water compressibility, not GROMACS' default"
+
+
+def test_the_cg_half_keeps_the_barostat_its_template_carries():
+    """`mdp_integration` decides durations, logging and the timestep. Pressure coupling is not its business.
+
+    It used to stamp `pcoupl = no` on both mdps of the coarse-grained half -- over a template that asks for
+    C-rescale and Parrinello-Rahman at 1 bar -- so every CG production run this project has done was NVT with
+    `ref_p` and `compressibility` dead keys, and the published protocol had never been executed once.
+    """
+    changes = cg.mdp_integration(Path('/run/4_CG_sim/inputs'), Path('/run/1_AA-reference'), 25000)
+
+    assert 'pcoupl' not in changes, 'the template states the barostat; this must not override it'
+    assert changes['nsteps'] == 25000, 'the timestep and the step count are what it is for'
 
 
 def test_an_integral_temperature_is_passed_unchanged():

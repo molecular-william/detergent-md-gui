@@ -136,8 +136,14 @@ def mdp_integration(folder, aa_dir, steps):
     Martini's timestep from *its* template: stamping the atomistic dt on both is what made a 10 ns
     coarse-grained production 5,000,000 steps — ten times the work for the same trajectory — and left the run's
     own record reading as an atomistic timestep (measured on run `abd5bf461c49`: 2863 ns/day, 0.060 ms/step).
+
+    What this does **not** decide is the pressure coupling. It used to stamp `pcoupl = no` over both halves,
+    and the CG templates ask for C-rescale while equilibrating and Parrinello-Rahman at 1 bar in production —
+    the protocol both the Martini 3 paper and the carbohydrate paper describe. The stamp meant every CG run
+    this project has done was NVT with `ref_p` and `compressibility` dead keys and the published protocol
+    never executed. A template states its own coupling; this leaves it alone.
     """
-    changes = {'nsteps': steps, 'nstlog': 100, 'nstenergy': 100, 'pcoupl': 'no', 'gen-seed': 20260911}
+    changes = {'nsteps': steps, 'nstlog': 100, 'nstenergy': 100, 'gen-seed': 20260911}
     if folder == aa_dir:
         changes.update({'dt': 0.002, 'nstxout-compressed': 100})
     else:
