@@ -58,6 +58,31 @@ def newest_surfaces(c, job):
     return None
 
 
+def newest_overlap(c, job):
+    """A run's newest published bead-overlap analysis: `(attempt, published, report, figure_or_None)`, or `None`.
+
+    Same shape as `newest_surfaces`, with one deliberate difference: an attempt whose figure is gone does not answer
+    *unless nothing better exists*, and then it still answers with `figure=None` so the card can report that the
+    analysis published and its figure is no longer on disk -- a sentence a run that was never analysed must not get.
+    """
+    records = sorted((c.run_path(job) / 'analyses/overlap').glob('*/*/result.json'),
+                     key=lambda path: path.stat().st_mtime, reverse=True)
+    without_figure = None
+    for record_path in records:
+        attempt = record_path.parent
+        output = attempt / str(json.loads(record_path.read_text()).get('output_directory') or '')
+        report = output / 'overlap.json'
+        if not report.is_file():
+            continue
+        published = json.loads(report.read_text())
+        figure = output / str(published.get('figure') or '')
+        if figure.is_file():
+            return attempt, published, report, figure
+        if without_figure is None:
+            without_figure = (attempt, published, report, None)
+    return without_figure
+
+
 @blueprint.post('/api/jobs/<jid>/<kind>')
 def queue_analysis(jid, kind):
     payload = json_object(optional=True)
@@ -120,13 +145,38 @@ def mapping_consistency_api(jid):
                     # that serves it resolves against the run too.
                     'figure': str(figure.relative_to(c.run_path(job))) if figure else None,
                     'source': str(metadata.relative_to(c.RUNS))}
+    # The bead-overlap analysis is another separate kind on the same run, read the same way and absent for the same
+    # reason most runs have no surfaces analysis at all.
+    published_overlap = newest_overlap(c, job)
+    if published_overlap is None:
+        overlap = {'available': False,
+                   'reason': 'No bead-overlap analysis has been published for this run. It compares the coarse-grained '
+                             'simulation with the atomistic reference it was built from, bead pair by bead pair, '
+                             'and it is queued by hand.'}
+    else:
+        overlap_attempt, overlap_published, overlap_report, overlap_figure = published_overlap
+        overlap = {'available': True,
+                   'attempt': overlap_attempt.name,
+                   'published_at': datetime.fromtimestamp(
+                       overlap_attempt.stat().st_mtime, timezone.utc).isoformat(),
+                   'residue': overlap_published.get('residue'),
+                   'bead_names': overlap_published.get('bead_names') or [],
+                   'pairs': overlap_published.get('pairs') or [],
+                   'overlaps': overlap_published.get('overlaps') or [],
+                   'per_bead_mean': overlap_published.get('per_bead_mean') or [],
+                   'range_nm': overlap_published.get('range_nm'),
+                   'frames': overlap_published.get('frames') or {},
+                   'limitations': overlap_published.get('limitations') or [],
+                   'validated': bool(overlap_published.get('scientifically_validated')),
+                   'figure': str(overlap_figure.relative_to(c.run_path(job))) if overlap_figure else None,
+                   'source': str(overlap_report.relative_to(c.RUNS))}
     return jsonify({'run': jid, 'attempt': attempt.name,
                     'published_at': datetime.fromtimestamp(attempt.stat().st_mtime, timezone.utc).isoformat(),
                     'source': str(artifact.relative_to(c.RUNS)),
                     'molecule': job.get('molecule_id'), 'run_type': job.get('run_type'),
                     'profile': job.get('profile'), 'reference_run_id': job.get('reference_run_id'),
                     'summary': record.get('result'), 'comparison': json.loads(artifact.read_text()),
-                    'surfaces': surfaces})
+                    'surfaces': surfaces, 'overlap': overlap})
 
 
 @blueprint.get('/api/runs/transferability')

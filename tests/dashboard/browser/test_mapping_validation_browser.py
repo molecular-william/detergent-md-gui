@@ -316,6 +316,101 @@ def test_a_run_with_no_envelope_analysis_says_so_and_frames_nothing(dashboard, l
     assert errors == []
 
 
+# The bead-overlap analysis, drawn beside the envelope in card 3. Its report lands at the analysis's work root -- the
+# worker preserves the work directory's own structure -- which is why there is no `analysis/<kind>/` level here.
+
+OVERLAP = {
+    'residue': 'DDM',
+    'bead_names': ['B01', 'B02', 'B03'],
+    'pairs': [['B01', 'B02'], ['B01', 'B03'], ['B02', 'B03']],
+    'matrix': [[1.0, 0.82, 0.31], [0.82, 1.0, 0.44], [0.31, 0.44, 1.0]],
+    'overlaps': [0.82, 0.31, 0.44],
+    'per_bead_mean': [{'bead': 'B01', 'mean': 0.565}, {'bead': 'B02', 'mean': 0.63},
+                      {'bead': 'B03', 'mean': 0.375}],
+    'range_nm': [0.1, 0.6],
+    'frames': {'reference': 20001, 'model': 2001},
+    'limitations': ['Intra-residue bead distances only: an interaction spanning two residues is outside this report.'],
+    'figure': 'overlap.html',
+    'report': 'overlap.json',
+    'scientifically_validated': False,
+}
+
+
+def publish_overlap(dashboard, jid):
+    """Leave behind what `analysis.worker` leaves behind for a completed overlap analysis."""
+    attempt = dashboard.coordinator.RUNS / jid / 'analyses/overlap/hash/attempt1'
+    output = attempt / 'output/abc123'
+    output.mkdir(parents=True)
+    (output / 'overlap.json').write_text(json.dumps(OVERLAP))
+    (output / 'overlap.html').write_text('<html><body>heatmap</body></html>')
+    (attempt / 'result.json').write_text(json.dumps(
+        {'result': OVERLAP, 'output_directory': 'output/abc123', 'wall_seconds': 3.0}))
+    return attempt
+
+
+def test_the_bead_overlap_analysis_is_drawn_with_its_numbers_and_its_own_figure(dashboard, live_page):
+    """An 11-bead molecule is a 55-cell heatmap, so the card states the reading as well as drawing it, worst pair
+    first, and says out loud that none of it reaches between residues."""
+    publish(dashboard, 'bb22cc33dd44')
+    publish_overlap(dashboard, 'bb22cc33dd44')
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#validation')
+
+    page.wait_for_function(
+        "() => !!document.querySelector('#validation-overlap-figure iframe')", timeout=30000)
+    frame = page.evaluate(
+        "() => document.querySelector('#validation-overlap-figure iframe').getAttribute('src')")
+    note = page.evaluate("() => document.querySelector('#validation-overlap-note').textContent")
+    detail = page.evaluate("() => document.querySelector('#validation-overlap-detail').textContent")
+
+    assert frame.startswith('/api/jobs/bb22cc33dd44/artifacts/analyses/overlap/'), frame
+    assert frame.endswith('overlap.html?inline=1'), frame
+    assert 'DDM' in note and 'Not scientifically validated' in note, note
+    assert '3 bead pairs' in detail and '0.523' in detail, detail
+    assert 'B01 → B03 at 0.310' in detail, detail
+    assert 'B02 → B03 at 0.440' in detail, detail
+    assert 'nothing here says anything about the bonds between residues' in detail, detail
+    assert errors == []
+
+
+def test_a_run_with_no_bead_overlap_analysis_says_so_and_frames_nothing(dashboard, live_page):
+    """Never queued is a state the card states, rather than an empty frame a reader reads as broken."""
+    publish(dashboard, 'bb22cc33dd44')
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#validation')
+
+    page.wait_for_function(
+        "() => document.querySelector('#validation-overlap-note').textContent.includes('queued by hand')",
+        timeout=30000)
+    note = page.evaluate("() => document.querySelector('#validation-overlap-note').textContent")
+
+    assert 'bead pair by bead pair' in note, note
+    assert page.evaluate("() => document.querySelectorAll('#validation-overlap-figure iframe').length") == 0
+    assert page.evaluate("() => document.querySelector('#validation-overlap-detail').textContent") == ''
+    assert errors == []
+
+
+def test_a_published_analysis_whose_figure_is_gone_still_states_its_numbers(dashboard, live_page):
+    """The deliberate difference from the envelope reader: the analysis *did* publish, so the card owes the reader
+    that fact, the numbers, and the reason it cannot draw -- not the sentence it uses for a run never analysed."""
+    publish(dashboard, 'bb22cc33dd44')
+    attempt = publish_overlap(dashboard, 'bb22cc33dd44')
+    (attempt / 'output/abc123/overlap.html').unlink()
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#validation')
+
+    page.wait_for_function(
+        "() => document.querySelector('#validation-overlap-note').textContent.includes('no longer on disk')",
+        timeout=30000)
+    note = page.evaluate("() => document.querySelector('#validation-overlap-note').textContent")
+    detail = page.evaluate("() => document.querySelector('#validation-overlap-detail').textContent")
+
+    assert 'no longer on disk' in note, note
+    assert '3 bead pairs' in detail and '0.523' in detail, detail
+    assert page.evaluate("() => document.querySelectorAll('#validation-overlap-figure iframe').length") == 0
+    assert errors == []
+
+
 # D1's other half. The card used to offer a bare button; it now states what the run's comparison found, and the
 # numbers come from the summary the analysis published into the job record -- the same ones card 1 badges, carried
 # by `/api/jobs`, so the card states them without a request of its own.

@@ -212,6 +212,26 @@ a multi-molecule system it is every frame of every copy, which is a different sa
 
 **Objective:** the panel shows the analysis and its figure for a run.
 
+**Measured (2026-10-05), and one correction to this task.** The card's data does **not** come through
+`views.py`: the mapping-validation panel fetches `GET /api/jobs/<jid>/mapping-consistency`, so the block went there
+beside `surfaces` and `views.py` needed no change. The card is an `<h4>` subsection of **card 3** ("Shape and
+volume", already "AA vs CG") rather than a new numbered card, so the numbered cards do not renumber under links
+already saved and the panel's own tests keep their numbers.
+
+`newest_overlap()` deliberately differs from `newest_surfaces()` next to it in one place: it falls through to an
+older attempt whose figure is still on disk, and when none has one it still answers with the newest attempt and
+`figure=None`. The envelope reader answers `None` there, which the card renders with the same sentence it uses for a
+run never analysed -- true of the file and false of the run. The card therefore states three separate things: never
+analysed, published with its figure, published with the figure gone but the numbers intact.
+
+The report's **`figure` key is load-bearing**: the reader takes the artifact's name from the published record rather
+than assuming a filename, so a report without it reads as a published analysis with no figure. That is what a first
+browser run caught -- the *fixture* was an incomplete imitation of the real report, and the reader was right.
+
+4 unit tests on the reader (nothing published; the two content-addressed levels; fall-through; published without a
+figure) and 3 browser tests (drawn with its numbers; never queued; figure gone but numbered). Browser tier 61 passed
+1 skipped, fast tier 1082, ruff clean.
+
 **Files:**
 - Modify: `dashboard/web/routes/analyses.py` (a `newest_overlap()` reader beside `newest_surfaces()`),
   `dashboard/web/views.py` (the run view projects it), `dashboard/web/static/js/mapping-validation.js` (a card),

@@ -184,6 +184,34 @@ function surfaceFigure(body) {
     + ` src="/api/jobs/${encodeURIComponent(body.run || '')}/artifacts/${relative}?inline=1"></iframe>`;
 }
 
+function overlapFigure(body) {
+  const overlap = body.overlap || {};
+  if (!overlap.available || !overlap.figure) return '';
+  // Built from the path the route returned, relative to the run, and never from a filesystem path.
+  const relative = String(overlap.figure).split('/').map(encodeURIComponent).join('/');
+  return `<iframe class="validation-surface-frame" loading="lazy"`
+    + ` title="Bead pair overlap between the atomistic reference and the coarse-grained model"`
+    + ` src="/api/jobs/${encodeURIComponent(body.run || '')}/artifacts/${relative}?inline=1"></iframe>`;
+}
+
+// The heatmap is 55 cells for an 11-bead molecule, so the numbers a reader would otherwise have to read off it are
+// stated: how many pairs, the mean, and the three that agree least, worst first.
+function overlapDetail(overlap) {
+  const pairs = overlap.pairs || [], values = overlap.overlaps || [];
+  const rows = pairs.map((pair, index) => ({ pair: (pair || []).join(' → '), value: Number(values[index]) }))
+    .filter((row) => Number.isFinite(row.value));
+  if (!rows.length) return 'The published analysis states no pair overlaps.';
+  const mean = rows.reduce((sum, row) => sum + row.value, 0) / rows.length;
+  const worst = [...rows].sort((a, b) => a.value - b.value).slice(0, 3)
+    .map((row) => `${row.pair} at ${row.value.toFixed(3)}`).join('; ');
+  const range = Array.isArray(overlap.range_nm) ? overlap.range_nm : null;
+  const frames = overlap.frames || {};
+  return `${rows.length} bead pairs, mean overlap ${mean.toFixed(3)} over `
+    + `${range ? `${Number(range[0]).toFixed(2)}–${Number(range[1]).toFixed(2)} nm` : 'the shared bin range'}. `
+    + `Furthest apart: ${worst}. Frames: reference ${frames.reference ?? '—'}, model ${frames.model ?? '—'}. `
+    + 'Each pair is a distance inside one residue, so nothing here says anything about the bonds between residues.';
+}
+
 export function createMappingValidation({ request = api } = {}) {
   let mounted = false;
 
@@ -243,6 +271,22 @@ export function createMappingValidation({ request = api } = {}) {
     }
     const figureHost = $('#validation-surface-figure');
     if (figureHost) figureHost.innerHTML = surfaceFigure(body);
+    const overlap = body.overlap || {};
+    const overlapNote = $('#validation-overlap-note');
+    if (overlapNote) {
+      overlapNote.textContent = overlap.available
+        ? `Attempt ${overlap.attempt}, published ${shortTime(overlap.published_at)} UTC. `
+          + `${overlap.residue || 'The molecule'} against its own atomistic reference. `
+          + `${overlap.figure ? '' : 'Its figure is no longer on disk, so only the numbers remain. '}`
+          + `${overlap.validated ? '' : 'Not scientifically validated.'}`.trim()
+        : (overlap.reason || 'The run’s bead-overlap analysis has not been published.');
+    }
+    const overlapDetailLine = $('#validation-overlap-detail');
+    // A published analysis whose figure is gone still owes the reader its numbers, so the detail line does not
+    // depend on the figure existing.
+    if (overlapDetailLine) overlapDetailLine.textContent = overlap.available ? overlapDetail(overlap) : '';
+    const overlapHost = $('#validation-overlap-figure');
+    if (overlapHost) overlapHost.innerHTML = overlapFigure(body);
     $('#validation-interpretation').textContent = comparison.interpretation
       || 'Every comparison here is against our own atomistic reference.';
   }
