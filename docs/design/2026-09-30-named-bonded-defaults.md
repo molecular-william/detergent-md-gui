@@ -288,6 +288,19 @@ difference without touching anything else, and it is the only remaining differen
 molecules it is being compared against apart from the tail itself. That, and the head-only molecule the user's
 discriminator needs, are the two things left to do.
 
+**It is queued.** Run `dbc366ae772b`, "DDM AA reference, 200 ns (matching the sugar references' sampling)", copies
+the short reference's settings exactly -- same seed 20260928, same 4.0 nm box, same force field, same 10 ps output
+interval -- and changes only `aa_production_ps` from 20,000 to 200,000. Its prepared production mdp is
+`dt = 0.002, nsteps = 100000000`, so the mapping stage will see 20,001 frames where it saw 2,001.
+
+Because the seed and initial conditions are unchanged, the new run *contains* the old one: its first 20 ns
+reproduce `2321ee23a536`, and the extra 180 ns are exactly the sampling that was missing. That turns "2,001 frames
+against 20,001" from an analogy with maltose into a controlled comparison on DDM's own trajectory.
+
+Measured cost: the short reference ran at 676.9 and 590.5 ns/day in this box, so 200 ns is roughly 7-9 hours of
+production on this machine. When it completes, the mapping stage must be rebuilt against it (a fresh `aa_cg` run
+consuming `dbc366ae772b` as its reference) before any of it reaches the coarse-grained half.
+
 **The tail-off control cannot be expressed as a mapping edit.** The validator refuses a candidate that leaves
 heavy atoms unmapped ("Missing heavy atoms: 1, 2, ... 12" for the dodecyl chain), so removing the tail beads from
 DDM's mapping is rejected at queue time. The user's discriminator needs a molecule: DDM's head without the dodecyl
