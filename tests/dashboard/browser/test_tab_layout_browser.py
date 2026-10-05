@@ -77,6 +77,13 @@ def test_the_tabs_are_a_rail_on_a_wide_window_and_say_so(dashboard, live_page):
     assert len({left for _, left in boxes}) == 1, 'one common left edge'
     assert width(page, 'nav[role=tablist]') == 220
 
+    # The rail is on the right, so the content keeps the left edge of the measure. Measured rather than inferred
+    # from the stylesheet: the two are adjacent grid columns, so their edges meet.
+    rail = page.locator('nav[role=tablist]').bounding_box()
+    content = page.locator('.app-content').bounding_box()
+    assert rail['x'] >= content['x'] + content['width'] - 1, \
+        f"the rail is at {rail['x']:.0f} where the content ends at {content['x'] + content['width']:.0f}"
+
     # The visible label is short; the accessible name is the one the workflow is known by, so a reader who knows
     # the old name still finds it and no existing lookup by role and name breaks.
     assert page.evaluate("() => document.querySelector('#tab-new .tab-text').textContent") == 'Simulate'
@@ -108,6 +115,9 @@ def test_a_medium_window_keeps_the_icons_so_the_table_keeps_its_room(dashboard, 
     assert not page.locator('#tab-new .tab-text').is_visible(), 'the labels fold away before the content does'
     expect(page.get_by_role('tab', name='Single Molecule Simulations', exact=True)).to_be_visible()
     assert width(page, 'nav[role=tablist]') == 64
+    rail = page.locator('nav[role=tablist]').bounding_box()
+    content = page.locator('.app-content').bounding_box()
+    assert rail['x'] >= content['x'] + content['width'] - 1, 'the icons stay on the right on the way down'
     assert errors == []
 
 
@@ -120,6 +130,11 @@ def test_a_narrow_window_gets_the_row_back_and_is_told_which_it_is(dashboard, li
     expect(page.locator('nav[role=tablist]')).to_have_attribute('aria-orientation', 'horizontal')
     boxes = page.evaluate(BOXES)
     assert len({top for top, _ in boxes}) == 1, 'one row'
+    # The rail is on the right at the widths above this one; here it is one column again and the row goes back
+    # above the content, which is the only ordering a one-column layout has.
+    rail = page.locator('nav[role=tablist]').bounding_box()
+    content = page.locator('.app-content').bounding_box()
+    assert rail['y'] + rail['height'] <= content['y'] + 1, 'the row sits above the content, not beside it'
     expect(page.locator('#tab-new .tab-text')).to_be_visible(), 'the labels come back with the room'
     assert visible_panel(page) == 'runs'
     assert page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth") == 0

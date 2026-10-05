@@ -14,21 +14,30 @@
  */
 header, main { max-width: 1800px }
 
-.app-shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); align-items: start }
+/* The rail is on the right. The tab list is read after the content it switches, and a right-hand rail leaves the
+ * reading edge of the measure on the left, where every panel's headings, tables and forms are.
+ *
+ * The DOM order does not move: the nav still comes first. Only its grid placement does, which keeps the tab order
+ * as it was and keeps the rail above the content on the small windows below, where the row returns. Both the
+ * column and the row are stated for both children -- with only the column set, auto-placement puts the content
+ * under the rail, which is the left-hand layout again with the nav on top. */
+.app-shell { display: grid; grid-template-columns: minmax(0, 1fr) 220px; align-items: start }
+.app-shell > nav[role=tablist] { grid-area: 1 / 2 }
+.app-shell > .app-content { grid-area: 1 / 1 }
 .app-content { min-width: 0 }
 #notice { margin-top: 0 }
 
 nav[role=tablist] {
-  display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 14px 10px 14px 0;
-  border-bottom: 0; border-right: 1px solid var(--line); position: sticky; top: 0; max-height: 100vh; overflow: auto;
+  display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 14px 0 14px 10px;
+  border-bottom: 0; border-left: 1px solid var(--line); position: sticky; top: 0; max-height: 100vh; overflow: auto;
 }
-nav[role=tablist] .tab-group { font-size: 10px; letter-spacing: 1.6px; color: var(--muted); font-weight: 700; margin: 14px 8px 4px; padding-left: 8px }
+nav[role=tablist] .tab-group { font-size: 10px; letter-spacing: 1.6px; color: var(--muted); font-weight: 700; margin: 14px 8px 4px; padding-right: 8px }
 nav[role=tablist] button {
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
-  background: transparent; color: var(--muted); border-radius: 0 8px 8px 0;
-  border: 0; border-left: 3px solid transparent; border-bottom: 0; padding: 10px 12px;
+  background: transparent; color: var(--muted); border-radius: 8px 0 0 8px;
+  border: 0; border-right: 3px solid transparent; border-bottom: 0; padding: 10px 12px;
 }
-nav[role=tablist] button[aria-selected=true] { background: var(--surface); color: var(--accent); border-left-color: var(--accent) }
+nav[role=tablist] button[aria-selected=true] { background: var(--surface); color: var(--accent); border-right-color: var(--accent) }
 nav[role=tablist] button .tab-glyph { width: 18px; flex: 0 0 18px; text-align: center; font-weight: 400; color: var(--accent) }
 
 /* The measure. A panel is a twelve-column grid and a card is a card on it, whatever the workspace inside. */
@@ -56,7 +65,7 @@ nav[role=tablist] button .tab-glyph { width: 18px; flex: 0 0 18px; text-align: c
 /* Every workspace is one column by 1100 px (its own stylesheet says so at 980 or 900), so the spans go with it:
    a span of eight in a one-column grid is eight implicit columns, which is how a layout breaks by accident. */
 @media (max-width: 1100px) {
-  .app-shell { grid-template-columns: 64px minmax(0, 1fr) }
+  .app-shell { grid-template-columns: minmax(0, 1fr) 64px }
   nav[role=tablist] .tab-group { visibility: hidden; height: 0; margin: 0; padding: 0 }
   nav[role=tablist] button { justify-content: center; padding: 10px 4px }
   nav[role=tablist] button .tab-text { display: none }
@@ -66,13 +75,16 @@ nav[role=tablist] button .tab-glyph { width: 18px; flex: 0 0 18px; text-align: c
 }
 
 @media (max-width: 900px) {
+  /* One column, and the placement goes back to the DOM order so the row sits above the content as it always did:
+     a `grid-area` left over from the rail would put both children in one cell and overlap them. */
   .app-shell { grid-template-columns: minmax(0, 1fr) }
+  .app-shell > nav[role=tablist], .app-shell > .app-content { grid-area: auto }
   nav[role=tablist] {
-    flex-direction: row; gap: 6px; border-right: 0; border-bottom: 1px solid var(--line);
+    flex-direction: row; gap: 6px; border-left: 0; border-bottom: 1px solid var(--line);
     padding: 0; margin-bottom: 20px; max-height: none; overflow-x: auto; white-space: nowrap;
   }
   nav[role=tablist] .tab-group { display: none }
   nav[role=tablist] button { width: auto; justify-content: flex-start; padding: 12px 18px; border-radius: 8px 8px 0 0; border-bottom: 3px solid transparent }
-  nav[role=tablist] button[aria-selected=true] { border-bottom-color: var(--accent); border-left-color: transparent }
+  nav[role=tablist] button[aria-selected=true] { border-bottom-color: var(--accent); border-right-color: transparent }
   nav[role=tablist] button .tab-text { display: inline }
 }
