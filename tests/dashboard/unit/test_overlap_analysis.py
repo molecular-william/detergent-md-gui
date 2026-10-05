@@ -5,6 +5,9 @@ the Bhattacharyya coefficient, and the Kullback-Leibler divergence -- and they a
 is bounded by 1 and symmetric, which is what lets a matrix of it be read at all. So the tests pin which one this is,
 including a case where two of them disagree by a factor of two.
 """
+import pathlib
+
+import MDAnalysis as mda
 import numpy as np
 import pytest
 
@@ -62,3 +65,65 @@ def test_values_that_do_not_match_the_bin_count_are_refused():
     """Three edges describe two bins: a third value has nowhere to sit, and summing it would read as a wider sample."""
     with pytest.raises(ValueError, match='3 values cannot be read against 2 bins'):
         overlap.overlap_coefficient(np.array([1.0, 1.0, 1.0]), np.array([1.0, 1.0, 1.0]), BINS)
+
+
+# --- the measurement -------------------------------------------------------------------------------------------
+
+def _bead_universe(frames):
+    """A one-residue, three-bead universe whose bead distances are round numbers in nm."""
+    universe = mda.Universe.empty(3, n_residues=1, atom_resindex=[0, 0, 0], trajectory=True)
+    universe.add_TopologyAttr('names', ['B01', 'B02', 'B03'])
+    universe.add_TopologyAttr('resnames', ['DDM'])
+    universe.add_TopologyAttr('resids', [1])
+    with mda.Writer(str(pathlib.Path.cwd() / 'beads.xtc'), n_atoms=3) as writer:
+        for index, positions in enumerate(frames):
+            universe.atoms.positions = positions
+            universe.trajectory.ts.time = float(index)
+            if index == 0:
+                universe.atoms.write('beads.gro')
+            writer.write(universe.atoms)
+    return 'beads.gro', 'beads.xtc'
+
+
+# Frame 0: B01-B02 0.2 nm, B01-B03 0.5 nm, B02-B03 0.3 nm.  Frame 1: 0.3, 0.6, 0.3 nm.
+FRAMES = np.array([[[0.0, 0.0, 0.0], [0.0, 0.0, 2.0], [0.0, 0.0, 5.0]],
+                   [[0.0, 0.0, 0.0], [0.0, 0.0, 3.0], [0.0, 0.0, 6.0]]], dtype=np.float32)
+
+
+def test_every_intra_residue_pair_is_measured_in_nanometres(tmp_path, monkeypatch):
+    """Angstroms in the file, nanometres in every builder here -- the conversion is asserted, not assumed."""
+    monkeypatch.chdir(tmp_path)
+    topology, trajectory = _bead_universe(FRAMES)
+    measured = overlap.intra_bead_distances(mda.Universe(topology, trajectory), 'DDM',
+                                            bins=np.arange(0.0, 0.8, 0.1))
+
+    assert measured['bead_names'] == ['B01', 'B02', 'B03']
+    assert measured['pairs'] == [('B01', 'B02'), ('B01', 'B03'), ('B02', 'B03')]
+    assert measured['frames'] == 2
+    assert [round(mean, 6) for mean in measured['mean_nm']] == [0.25, 0.55, 0.3]
+
+
+def test_the_histograms_are_densities_over_the_bins_it_was_given(tmp_path, monkeypatch):
+    """Density, not counts: the coefficient is the shared probability, so the histograms must integrate to 1."""
+    monkeypatch.chdir(tmp_path)
+    topology, trajectory = _bead_universe(FRAMES)
+    bins = np.arange(0.0, 0.8, 0.1)
+    measured = overlap.intra_bead_distances(mda.Universe(topology, trajectory), 'DDM', bins=bins)
+
+    assert measured['hist'].shape == (3, 7)
+    assert np.allclose(measured['hist'].sum(axis=1) * 0.1, 1.0)
+
+
+def test_a_bead_name_the_residue_does_not_have_is_refused(tmp_path, monkeypatch):
+    """A missing bead would otherwise drop out of the pairs silently, shrinking the sample and hiding the reason."""
+    monkeypatch.chdir(tmp_path)
+    topology, trajectory = _bead_universe(FRAMES)
+    with pytest.raises(ValueError, match='B99'):
+        overlap.intra_bead_distances(mda.Universe(topology, trajectory), 'DDM', bead_names=['B01', 'B99'])
+
+
+def test_a_residue_name_the_trajectory_does_not_have_is_refused(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    topology, trajectory = _bead_universe(FRAMES)
+    with pytest.raises(ValueError, match='no residue named LIG'):
+        overlap.intra_bead_distances(mda.Universe(topology, trajectory), 'LIG')

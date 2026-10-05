@@ -124,11 +124,15 @@ distances are hand-computable, asserting the pair list, the frame count and one 
 **Step 2: run it to watch it fail.** Expected: FAIL — no `intra_bead_distances`.
 
 **Step 3: implement.** `intra_bead_distances(universe, residue_name, start=0, stop=None, stride=1, bins=...)`
-returning `{'bead_names', 'pairs', 'bins', 'hist', 'frames'}`, using `MDAnalysis.analysis.bat` or
-`calc_bonds`-style primitives and `np.histogram(..., density=True)`. Guard the two things that make a comparison
-meaningless rather than merely wrong: **raise when a bead name does not resolve** in that residue, and **raise when
-the two sides are given different pair sets** rather than silently intersecting them — shaker does the second and it
-is right.
+returning `{'bead_names', 'pairs', 'bins', 'hist', 'mean_nm', 'frames', 'residues'}`, using MDAnalysis's primitives
+and `np.histogram(..., density=True)`. Distances are **nanometres**: MDAnalysis reports angstroms, and this repository
+has already paid once for a factor of ten hiding in a reader. **The bin range is an argument, and the comparison
+derives one range covering both ensembles** -- a range that stops at the reference's longest distance drops every
+coarse-grained distance beyond it, and a dropped sample reads as a model that does not overlap rather than as a range
+that was too short. Guard the two things that make a comparison meaningless rather than merely wrong: **raise when a
+bead name does not resolve** in that residue (it would otherwise drop out of the pairs and shrink the sample
+invisibly), and **raise when the two sides are measured over different pair sets** rather than silently intersecting
+them — shaker does the second and it is right.
 
 **Step 4: run it to watch it pass.** Expected: the new tests pass.
 
