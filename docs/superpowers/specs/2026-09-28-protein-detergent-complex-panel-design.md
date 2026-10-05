@@ -67,7 +67,8 @@ from the atomistic structure so the restraint set is reproducible from the input
 
 The micelle builder's deterministic lattice, scoring and bounded repacking, with the protein in place: exact
 aggregation count, headgroup-outward orientation, and the builder's hard overlap gates. Protein-relative
-clearance uses the builder's existing hydrophobic-belt / soluble-domain checks. A placement that cannot satisfy
+clearance is the builder's minimum-distance gate; no hydrophobic-belt check exists in this code, and the belt is
+defined by `2026-10-05-membrane-frame-pdc-design.md`. A placement that cannot satisfy
 the gates writes diagnostics and produces no run, as in the original design. For a protein-free build the same
 placement runs with the protein-relative terms switched off, so an empty micelle is one code path rather than a
 second builder.

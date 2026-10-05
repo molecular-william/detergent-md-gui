@@ -4,7 +4,31 @@
 
 Decisions taken by the user on 2026-10-05 ("go with the box"). Amends
 `2026-09-28-protein-detergent-complex-panel-design.md` §1 (box and protein insertion), §4 (box extension in z), the
-belt clearance in §3 and the belt contact criterion in §7. Nothing is implemented yet.
+belt clearance in §3 and the belt contact criterion in §7. Nothing is implemented yet; the work is broken down in
+`2026-10-05-membrane-frame-pdc.md`.
+
+## Corrections
+
+Two things in this document's first draft were wrong, and both were found by reading the code a plan would have to
+change. They are kept rather than quietly edited out, because the first draft is what made the plan look.
+
+**The belt does not exist, so this is a build and not a repair.** The panel spec's §3 says protein-relative
+clearance "uses the builder's existing hydrophobic-belt / soluble-domain checks". No such check exists.
+`dashboard/execution/adapters/pdc_assessment.py:14` states it:
+
+> the spec says the cluster must touch the protein's *hydrophobic belt*. No belt is defined anywhere in this code
+> base yet, so the rule is implemented at its simplest defensible form — a tail bead within `contact_nm` of any
+> protein bead — and the report says so.
+
+and that artifact carries the matching `limitations` line. A search for belt/hydrophobic/soluble functions in
+`micelle/` finds none. So this design is the **first definition** of a belt in this repository, and its consumers —
+the assessment, the placement, the box — are what changes.
+
+**The belt code named below is the standalone builder's, not a run's.** `candidate_score` is called only by
+`micelle/repack.py`, which is called only by `micelle/cli.py:24`. A pdc run imports `micelle.registry`,
+`micelle.packing` and `micelle.validation`, and owns `pdc_box`, `pdc_placement` and `pdc_assessment` itself. The
+measurements in "Why" therefore stand — they were taken on a real OPM structure — but the *fix* has to land in the
+pdc builders, with `micelle/` brought along for coherence. That is how the plan is phased.
 
 ## Why
 
@@ -15,7 +39,8 @@ follow from it, and both are in the code rather than inferred from it:
   build today records `method='heuristic'`, `confidence=0.35`, `evidence=('principal-axis fallback',)`** — the
   weakest of the three sources `infer_orientation` knows about.
 - `micelle/geometry.py:candidate_score` measures its belt from `p - p.mean(0)`, **the protein's centroid**, with
-  `span=(-1,1)` nm — a value no input sets, and 1.0 nm on a structure that may state its own thickness.
+  `span=(-1,1)` nm — a value no input sets, and 1.0 nm on a structure that may state its own thickness. (That is
+  the standalone builder's path rather than a run's; see Corrections.)
 
 Measured on OPM entry **1qj8** (OmpX, 1,158 atoms), fetched from
 `https://biomembhub.org/shared/opm-assets/pdb/1qj8.pdb`:
@@ -114,9 +139,10 @@ seeded, and that assertion has to be checked in the code before a preview can be
 
 ## Open questions
 
-- Whether fetched structures are committed, cached or fetched-and-recorded. OPM derives from the PDB and asks to be
-  cited; the M3-Lipid set is kept untracked by the user's standing instruction and this needs the same decision.
-  OPM's terms have not been read.
+- **Decided, 2026-10-05: fetched structures live locally only and are not committed.** They are written under
+  `workspace/`, which `.gitignore` already ignores, so nothing downloaded can reach the index and no new ignore rule
+  is needed. OPM's terms have not been read, which is a further reason to keep them out of the repository rather
+  than a reason to read them.
 - Whether half-thickness comes from the file's REMARK or the entry page's "Hydrophobic Thickness or Depth" (23.6 Å
   for 1qj8, which is the REMARK's 2 × 11.8 — they agree here). The REMARK travels with the coordinates, so it is
   the one the import should trust.
