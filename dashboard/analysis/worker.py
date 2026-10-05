@@ -13,12 +13,12 @@ from pathlib import Path
 from .. import files
 from ..execution import tools, workflow
 from . import metadata as analysis_metadata
-from .runs import bartender_fit, mapping_consistency, observability, overlap, refinement
+from .runs import bartender_fit, bonded_estimate, mapping_consistency, observability, overlap, refinement
 from .runs import references as aa_references
 from .validation import report as carbohydrate_validation
 from .validation import targets
 
-KINDS = {'plots', 'snapshots', 'surfaces', 'observables', 'stability', 'refinement-score', 'targets', 'carbohydrate-validation', 'mapping-consistency', 'bartender-fit', 'overlap'}
+KINDS = {'plots', 'snapshots', 'surfaces', 'observables', 'stability', 'refinement-score', 'targets', 'carbohydrate-validation', 'mapping-consistency', 'bartender-fit', 'overlap', 'bonded-cross-check'}
 PATTERNS = {
     'plots': ['*SASA*/AA/*.xvg', '*SASA*/CG/*.xvg'],
     'snapshots': ['1_AA-reference/prod/lig.gro', '1_AA-reference/prod/lig.xtc'],
@@ -26,6 +26,10 @@ PATTERNS = {
     # The model against the reference it was built from: both ensembles, and the model for the bead names. The
     # *mapped* trajectory is deliberately not staged -- it is a third thing, and this analysis says nothing about it.
     'overlap': ['1_AA-reference/prod/lig.gro', '1_AA-reference/prod/lig.xtc', '2_mapping/model.json', '4_CG_sim/prod/lig_CG.gro', '4_CG_sim/prod/lig_CG.xtc'],
+    # Our fitted topology against an independent estimate taken from the frames the fit saw. The draft is staged too,
+    # because a job whose fit stage skipped still has a topology, and the report says which of the two answered.
+    'bonded-cross-check': ['2_mapping/mapped.gro', '2_mapping/mapped.xtc', '2_mapping/model.json',
+                           '3_initial_CG/*_ff_inter.itp', '3_initial_CG/*initial*.itp'],
     'observables': ['2_mapping/mapped.gro', '2_mapping/mapped.xtc', '3_initial_CG/DDM_initial.itp'],
     'stability': ['*.log', '*.xtc'],
     'refinement-score': ['5_assessment/validation.json'],
@@ -108,6 +112,7 @@ def execute(request_path):
         elif kind == 'mapping-consistency': result = mapping_consistency.publish(work, request.get('payload', {}))
         elif kind == 'bartender-fit': result = bartender_fit.run(work, request.get('payload', {}))
         elif kind == 'overlap': result = overlap.publish(work, request.get('payload', {}))
+        elif kind == 'bonded-cross-check': result = bonded_estimate.cross_check(work, request.get('payload', {}))
         else:
             function = {'plots': observability.sasa_plot, 'snapshots': observability.generate,
                         'surfaces': observability.connolly_surfaces, 'observables': observability.unparameterized_observables,
