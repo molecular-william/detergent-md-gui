@@ -120,6 +120,41 @@ function publishedComparison(job) {
   return (job.analyses || []).some(task => task.kind === 'mapping-consistency' && task.status === 'completed');
 }
 
+
+// The linkage: the bond, angles and dihedral that join the two rings. No `pairs` row can show it, because every
+// row there is a constrained distance inside one ring -- which is exactly why the interaction that differs most
+// between disaccharides was the one this panel could not see. A dihedral's published mean is a wrapped quantity,
+// so its spread is withheld and the cell says so rather than showing a percentage that means nothing.
+function linkageTable(body) {
+  const molecules = body.molecules || [];
+  const rows = body.linkages || [];
+  const head = ['Term', 'Types', ...molecules, 'Spread'].map(name => `<th>${cell(name)}</th>`).join('');
+  const columns = 3 + molecules.length;
+  const measure = (entry, value) => {
+    const parsed = number(value);
+    if (parsed === null) return '—';
+    return entry.section === 'bonds' ? `${parsed.toFixed(4)} nm` : `${parsed.toFixed(1)}°`;
+  };
+  if (!rows.length) {
+    return { head, html: `<tr><td colspan="${columns}">No linkage term is stated by the loaded molecules.</td></tr>` };
+  }
+  const html = rows.map(entry => {
+    const perMolecule = molecules.map(name => {
+      const row = (entry.molecules || {})[name];
+      if (!row) return '<td>—</td>';
+      const terms = (row.terms || []).map(term => cell(term)).join(', ');
+      return `<td>${measure(entry, row.atomistic_mean)} <span class="hint">${terms} → `
+        + `${measure(entry, row.cg_mean)}</span></td>`;
+    }).join('');
+    const spread = entry.circular
+      ? '<span class="badge">wrapped angle: no spread</span>'
+      : (number(entry.spread_pct) === null ? '—' : `${number(entry.spread_pct).toFixed(2)}%`);
+    return `<tr><td>${cell(entry.section)}</td><td>${cell(entry.types.join(' – '))}</td>`
+      + `${perMolecule}<td>${spread}</td></tr>`;
+  }).join('');
+  return { head, html };
+}
+
 function shortTime(value) {
   return String(value ?? '').replace('T', ' ').slice(0, 16);
 }
@@ -213,8 +248,18 @@ export function createMappingValidation({ request = api } = {}) {
     const tbody = $('#validation-across-rows');
     const head = $('#validation-across-head');
     const sources = $('#validation-across-sources');
+    const linkageBody = $('#validation-linkage-rows');
+    const linkageHead = $('#validation-linkage-head');
     if (!tbody || !head) return;
     const fallbackHead = '<th>Bead types</th><th>Where</th><th>Spread</th><th>Reading</th>';
+    const linkageFallback = '<th>Term</th><th>Types</th><th>Spread</th>';
+    const empty = (message) => {
+      head.innerHTML = fallbackHead;
+      tbody.innerHTML = `<tr><td colspan="4">${message}</td></tr>`;
+      if (linkageHead) linkageHead.innerHTML = linkageFallback;
+      if (linkageBody) linkageBody.innerHTML = `<tr><td colspan="3">${message}</td></tr>`;
+      if (sources) sources.textContent = '';
+    };
     try {
       const payload = await request('/api/jobs?limit=100');
       const jobs = (Array.isArray(payload) ? payload : (payload.jobs || payload.data || []))
@@ -226,26 +271,27 @@ export function createMappingValidation({ request = api } = {}) {
         if (!byMolecule.has(molecule)) byMolecule.set(molecule, job.id);
       }
       if (byMolecule.size < 2) {
-        head.innerHTML = fallbackHead;
-        tbody.innerHTML = `<tr><td colspan="4">${jobs.length === 1
+        empty(jobs.length === 1
           ? `${cell(Object.keys(Object.fromEntries(byMolecule))[0] || 'One molecule')} is the only molecule with a published comparison; a spread needs two.`
-          : 'No completed coarse-grained run has a published comparison yet.'}</td></tr>`;
-        if (sources) sources.textContent = '';
+          : 'No completed coarse-grained run has a published comparison yet.');
         return;
       }
       const body = await request(`/api/runs/transferability?ids=${[...byMolecule.values()].join(',')}`);
       const table = acrossTable(body);
       head.innerHTML = table.head;
       tbody.innerHTML = table.html;
+      if (linkageHead && linkageBody) {
+        const linkage = linkageTable(body);
+        linkageHead.innerHTML = linkage.head;
+        linkageBody.innerHTML = linkage.html;
+      }
       if (sources) {
         sources.textContent = 'Read from: ' + Object.entries(body.sources || {}).map(([molecule, entry]) =>
           `${molecule} ${entry.run} (attempt ${entry.attempt}, published ${shortTime(entry.published_at)} UTC)`
         ).join(' · ');
       }
     } catch (error) {
-      head.innerHTML = fallbackHead;
-      tbody.innerHTML = `<tr><td colspan="4">${cell(error.message)}</td></tr>`;
-      if (sources) sources.textContent = '';
+      empty(cell(error.message));
     }
   }
 

@@ -130,23 +130,28 @@ def test_a_run_with_no_published_comparison_says_so_in_the_panel(dashboard, live
     assert errors == []
 
 
-def publish_molecule(dashboard, jid, molecule, beads, pair, mean):
+def publish_molecule(dashboard, jid, molecule, beads, pair, mean, terms=(), other_ring=()):
     """A completed CG run of one molecule with a published comparison, for the cross-molecule card.
 
     Two of these are needed for a spread, and the card finds them through the job's own `analyses` list, so the
-    record carries it -- that is what the panel reads to decide which runs have something to compare.
+    record carries it -- that is what the panel reads to decide which runs have something to compare. `terms` are
+    the linkage rows, and `other_ring` puts beads in residue 2 so those rows have types to resolve against.
     """
     run = dashboard.coordinator.RUNS / jid
     attempt = run / 'analyses/mapping-consistency/hash/attempt1'
+    mapped = [{'letter': letter, 'residue': 1, 'name': f'S1{letter}', 'type': bead_type}
+              for letter, bead_type in beads]
+    mapped += [{'letter': letter, 'residue': 2, 'name': f'S2{letter}', 'type': bead_type}
+               for letter, bead_type in other_ring]
     (attempt / 'output/abc123/analysis').mkdir(parents=True)
     (run / 'manifest.json').write_text(json.dumps(
-        {'mapping_candidate': {'name': f'{molecule} mapping', 'molecule_id': molecule, 'beads': [
-            {'letter': letter, 'residue': 1, 'name': f'S1{letter}', 'type': bead_type}
-            for letter, bead_type in beads]}}))
+        {'mapping_candidate': {'name': f'{molecule} mapping', 'molecule_id': molecule, 'beads': mapped}}))
     (attempt / 'output/abc123/analysis/mapping_consistency.json').write_text(json.dumps(
         {**COMPARISON, 'molecule': molecule,
          'pairs': {'counts': {'pairs': 1, 'compared': 1, 'cg_outside_aa_range': 0},
-                   'rows': [{'pair': pair, 'aa': {'mean': mean}, 'cg': {'mean': mean}}]}}))
+                   'rows': [{'pair': pair, 'aa': {'mean': mean}, 'cg': {'mean': mean}}]},
+         'terms': [{'section': section, 'beads': ' - '.join(f'({r},{b})' for r, b in atoms),
+                    'aa': {'mean': aa}, 'cg': {'mean': cg}} for section, atoms, aa, cg in terms]}))
     (attempt / 'result.json').write_text(json.dumps(
         {'result': {'artifact': 'analysis/mapping_consistency.json', 'comparison': 'AA vs CG'},
          'output_directory': 'output/abc123', 'wall_seconds': 3.0}))
@@ -194,4 +199,49 @@ def test_the_across_molecules_card_refuses_to_call_different_edges_a_spread(dash
 
     assert 'different edges' in row, row
     assert '1B–1C' in row and '1A–1C' in row, 'the edges each molecule named are part of the reading'
+
+
+def test_the_linkage_is_shown_where_the_pairs_table_cannot_reach_it(dashboard, live_page):
+    """The bond joining the two rings. Every `pairs` row is a constrained distance inside one ring, so the
+    interaction that differs most between disaccharides appears in no row of that table and in this one."""
+    publish_molecule(dashboard, 'aa11bb22cc33', 'Maltose', [('B', 'SP1r'), ('A', 'SP4r')], [[1, 'A'], [1, 'B']], 0.34,
+                     terms=[('bonds', [(1, 'B'), (2, 'A')], 0.310, 0.304)], other_ring=[('A', 'SN6')])
+    publish_molecule(dashboard, 'bb22cc33dd44', 'Trehalose', [('B', 'SP1r'), ('A', 'SP4r')], [[1, 'A'], [1, 'B']], 0.34,
+                     terms=[('bonds', [(1, 'B'), (2, 'A')], 0.363, 0.363)], other_ring=[('A', 'SN6')])
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#validation')
+
+    page.wait_for_function(
+        "() => document.querySelector('#validation-linkage-head').textContent.includes('Trehalose')", timeout=30000)
+    head = page.evaluate("() => document.querySelector('#validation-linkage-head').textContent")
+    row = page.evaluate("() => document.querySelector('#validation-linkage-rows tr').textContent")
+
+    assert 'Term' in head and 'Types' in head and 'Spread' in head, head
+    assert 'bonds' in row and 'SN6 – SP1r' in row, row
+    assert '0.3100 nm' in row and '0.3630 nm' in row, row
+    assert '1B-2A' in row, 'the beads the term was measured over'
+    assert '15.75%' in row, row
+    assert errors == []
+
+
+def test_a_wrapped_dihedral_shows_its_means_and_withholds_the_percentage(dashboard, live_page):
+    """A dihedral mean near the wrap: -97 and +5 are not far apart, and a percentage would say they were."""
+    publish_molecule(dashboard, 'aa11bb22cc33', 'Maltose',
+                     [('B', 'SP1r'), ('A', 'SP4r')], [[1, 'A'], [1, 'B']], 0.34,
+                     terms=[('dihedrals', [(1, 'A'), (1, 'B'), (2, 'A'), (2, 'B')], -97.21, -101.09)],
+                     other_ring=[('A', 'SN6'), ('B', 'SP4r')])
+    publish_molecule(dashboard, 'bb22cc33dd44', 'Sucrose',
+                     [('B', 'SP1r'), ('A', 'SP4r')], [[1, 'A'], [1, 'B']], 0.34,
+                     terms=[('dihedrals', [(1, 'A'), (1, 'B'), (2, 'A'), (2, 'B')], 5.42, -0.05)],
+                     other_ring=[('A', 'SN6'), ('B', 'SP4r')])
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#validation')
+
+    page.wait_for_function(
+        "() => document.querySelector('#validation-linkage-head').textContent.includes('Sucrose')", timeout=30000)
+    row = page.evaluate("() => document.querySelector('#validation-linkage-rows tr').textContent")
+
+    assert 'dihedrals' in row and '-97.2°' in row and '5.4°' in row, row
+    assert 'wrapped angle: no spread' in row, row
+    assert '%' not in row, 'a wrapped mean must not be turned into a percentage'
     assert errors == []

@@ -15,7 +15,14 @@ what the caller passes alongside the report. A signature that appears in one mol
 molecules that have it; nothing is padded to make a table look square. And a signature whose molecules name
 *different* edges is reported as `pairs_match: false`, because a mean over unlike pairs is a spread between two
 different bonds rather than a type that failed to transfer -- which is the reading the numbers invite.
+
+`pairs` cannot see the linkage. Every row there is a constrained ring distance, and a constraint inside a ring is
+inside one residue, so the interaction that actually differs between disaccharides is absent from it -- while the
+role it would carry, `inter`, never fires. That interaction is in the comparison's `terms`, which for a two-ring
+molecule is nothing but the linkage: the bond, the four angles and the dihedral that span the two rings. So the
+terms are compared too, under their own key, and reported separately rather than mixed into the pairs table.
 """
+import re
 
 
 def bead_types(candidate):
@@ -46,6 +53,68 @@ def _signature(types, pair):
     """The key a comparison is made under: the two bead types, order-insensitive, with the role."""
     names = [types.get((residue, bead), types.get(bead, bead)) for residue, bead in pair]
     return tuple(sorted(names)), _role(pair)
+
+
+_TERM_BEAD = re.compile(r'\(\s*(\d+)\s*,\s*"?([^",)]+)"?\s*\)')
+
+
+def term_beads(text):
+    """A published term's beads in order: `"(1,A) - (1,B) - (2,A)"` -> `[(1,'A'), (1,'B'), (2,'A')]`.
+
+    Read rather than assumed: the comparison writes a term's beads as a formatted string, so a reader that wants
+    the types behind them has to parse it back. A string that names fewer than two beads is not a term.
+    """
+    return [(int(residue), letter.strip()) for residue, letter in _TERM_BEAD.findall(str(text or ''))]
+
+
+def link_terms(entries):
+    """The interactions that span two residues, per bead-type signature, across molecules -- the linkage.
+
+    Keyed by the section as well as the types, because a bond and an angle between the same two beads are
+    different interactions; and by the role, so a term inside one residue stays apart from one that joins two.
+
+    A dihedral's published mean is a wrapped quantity -- -97 degrees and +5 degrees are both near the wrap, and
+    the difference between them says nothing -- so its means are reported and its spread is withheld, rather than
+    handing a reader a percentage that invites a wrong reading.
+    """
+    terms = {}
+    for molecule, entry in sorted(entries.items()):
+        types = bead_types(entry.get('candidate'))
+        for row in (entry.get('report') or {}).get('terms') or []:
+            atoms = term_beads(row.get('beads'))
+            if len(atoms) < 2:
+                continue
+            section = row.get('section') or 'terms'
+            key = (section, tuple(sorted(types.get(atom, types.get(atom[1], atom[1])) for atom in atoms)),
+                   'intra' if len({residue for residue, _ in atoms}) == 1 else 'inter')
+            bucket = terms.setdefault(key, {'molecules': {}, 'rows': 0})
+            record = bucket['molecules'].setdefault(molecule, {'atomistic': [], 'cg': [], 'terms': []})
+            aa = (row.get('aa') or {}).get('mean')
+            cg = (row.get('cg') or {}).get('mean')
+            if aa is not None:
+                record['atomistic'].append(aa)
+            if cg is not None:
+                record['cg'].append(cg)
+            record['terms'].append('-'.join(f'{residue}{letter}' for residue, letter in atoms))
+            bucket['rows'] += 1
+
+    result = []
+    for (section, names, role), bucket in sorted(terms.items()):
+        molecules, means = {}, []
+        for molecule, record in sorted(bucket['molecules'].items()):
+            mean = sum(record['atomistic']) / len(record['atomistic']) if record['atomistic'] else None
+            cg_mean = sum(record['cg']) / len(record['cg']) if record['cg'] else None
+            molecules[molecule] = {'atomistic_mean': mean, 'cg_mean': cg_mean,
+                                   'rows': len(record['atomistic']), 'terms': record['terms']}
+            if mean is not None:
+                means.append(mean)
+        circular = section == 'dihedrals'
+        spread = None
+        if len(means) > 1 and not circular and sum(means):
+            spread = 100.0 * (max(means) - min(means)) / (sum(means) / len(means))
+        result.append({'section': section, 'types': list(names), 'role': role, 'molecules': molecules,
+                       'circular': circular, 'spread_pct': spread, 'rows': bucket['rows']})
+    return result
 
 
 def compare(entries):
@@ -102,12 +171,15 @@ def compare(entries):
 
     return {
         'signatures': result,
+        'linkages': link_terms(entries),
         'molecules': sorted(entries),
         'interpretation': (
             'This compares our model across molecules, not against experiment. A spread of nearly zero says the '
             'same bead-type pair holds the same atomistic geometry wherever it appears, which is what makes the '
             'bead types a shared library rather than per-molecule fits. A linkage is where a difference is expected: '
             'the published entries give each disaccharide its own linkage stiffness, so the linkage is not the same '
-            'interaction in two different molecules even when the types on either side are.'
+            'interaction in two different molecules even when the types on either side are. That is why the linkage '
+            'is reported under its own key and separately from the ring distances: the pairs table cannot show it, '
+            'because every row there is a constrained distance inside one ring.'
         ),
     }
