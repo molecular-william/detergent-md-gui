@@ -51,10 +51,17 @@ def mdp_value(path, key):
 
 
 def test_the_coarse_grained_half_integrates_at_martini_timesteps():
-    """20 fs, as agreed: a 10 ns coarse-grained production is 500,000 steps and not 5,000,000."""
+    """20 fs in production, as agreed: a 10 ns coarse-grained production is 500,000 steps and not 5,000,000.
+
+    The equilibration is the exception the Martini 3 Methods name -- "Except for equilibration runs, a time step
+    of 20 fs was used for all systems" -- so it integrates at 10 fs and the profile's 10 ps equilibration is
+    1,000 steps. This assertion used to require 20 fs on both files; the production half of it is what the
+    agreement was about and it is unchanged.
+    """
     assert mdp_value(CG_MDPS / 'md.mdp', 'dt') == pytest.approx(0.02)
-    assert mdp_value(CG_MDPS / 'eq.mdp', 'dt') == pytest.approx(0.02)
     assert round(10000.0 / mdp_value(CG_MDPS / 'md.mdp', 'dt')) == 500000
+    assert mdp_value(CG_MDPS / 'eq.mdp', 'dt') == pytest.approx(0.01)
+    assert round(10.0 / mdp_value(CG_MDPS / 'eq.mdp', 'dt')) == 1000
 
 
 def test_the_atomistic_half_still_integrates_at_two_femtoseconds():
@@ -144,6 +151,30 @@ def test_the_cg_half_keeps_the_barostat_its_template_carries():
 
     assert 'pcoupl' not in changes, 'the template states the barostat; this must not override it'
     assert changes['nsteps'] == 25000, 'the timestep and the step count are what it is for'
+
+
+def test_the_cg_equilibration_integrates_more_finely_than_its_production():
+    """Martini 3's Methods: "Except for equilibration runs, a time step of 20 fs was used for all systems."
+
+    That sentence is the only instruction either paper gives on the point -- it excludes equilibration from the
+    20 fs step without naming its own. 10 fs is this project's reading of it, and the templates state it, because
+    the adapter is not the place that decides a half's timestep: it reads each file's own dt back when it turns
+    the requested duration into a step count, so the equilibration still runs for the time asked for.
+    """
+    inputs = TUTORIAL_TEMPLATE / '4_CG_sim/inputs'
+    equil, production = mdp_values(inputs / 'eq.mdp'), mdp_values(inputs / 'md.mdp')
+
+    assert equil['dt'] == '0.01', 'the equilibration step'
+    assert production['dt'] == '0.02', "the paper's production step, which the standing decision fixes at 20 fs"
+    assert float(equil['dt']) < float(production['dt'])
+
+
+def test_neither_cg_template_has_its_timestep_stamped_by_the_adapter():
+    """Side by side with the barostat: what a template states, the adapter leaves alone."""
+    changes = cg.mdp_integration(Path('/run/4_CG_sim/inputs'), Path('/run/1_AA-reference'), 1000)
+
+    assert 'dt' not in changes, 'the CG half keeps its template dt; only the atomistic half is stamped'
+    assert cg.mdp_integration(Path('/run/1_AA-reference'), Path('/run/1_AA-reference'), 1000)['dt'] == 0.002
 
 
 def test_an_integral_temperature_is_passed_unchanged():

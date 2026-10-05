@@ -1,7 +1,7 @@
 title                    = Martini
 
 integrator               = md
-dt                       = 0.02
+dt                       = 0.01 ; 10 fs: the Martini 3 Methods exclude equilibration from the 20 fs production step
 nsteps                   = 1000000
 nstcomm                  = 100
 comm-grps		 = System
