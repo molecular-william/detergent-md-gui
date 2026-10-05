@@ -88,6 +88,21 @@ def test_a_fractional_run_temperature_is_rounded_for_ff_inter():
     assert '-temperature 300' not in written
 
 
+def test_the_topology_stage_lets_fast_forward_constrain_its_stiffest_bonds():
+    """FF's own default for `-constraints` is 10000; the runs passed 1000000000, which disables it entirely.
+
+    Measured on the ring arms (`860eb013a82c`, `e08dc53410f9`): the stage kept the `S1B-S2A` link at
+    k = 12964.8 as a harmonic bond, and the run died at ~200 ps -- which is what a numerically extreme
+    constant does at a 20 fs timestep. This pins the flag so a later edit cannot quietly switch it off again;
+    the executable lines only, because the comment above the line names the old value to explain it.
+    """
+    script = (PROJECT_ROOT / 'dashboard/execution/scripts/fit_topology.sh').read_text()
+    executable = '\n'.join(line for line in script.splitlines() if not line.lstrip().startswith('#'))
+
+    assert '-constraints 10000' in executable, "FF's own default: a bond above k=10000 becomes a constraint"
+    assert '1000000000' not in executable, 'that value disables the conversion for every bond'
+
+
 def test_an_integral_temperature_is_passed_unchanged():
     template = (PROJECT_ROOT / 'dashboard/execution/scripts/fit_topology.sh').read_text()
     assert '-temperature 310 ' in cg.fit_temperature(template, 310)

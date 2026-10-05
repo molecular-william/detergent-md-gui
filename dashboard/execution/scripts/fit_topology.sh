@@ -13,5 +13,9 @@ fi
 gmx grompp -f initial.mdp -p topol.top -c ../2_mapping/mapped.gro -o mapped.tpr
 # This bundled FF version has no -itp-only switch. Use the AA temperature, rounded: this version's
 # -temperature argument is an int, and it feeds a Boltzmann inversion.
-ff_inter -f ../2_mapping/mapped.xtc -s ../2_mapping/mapped.gro -i $INITIAL_ITP -temperature 300 -constraints 1000000000 -dists -plots -dist-matrix
+# `-constraints` is the fitted force constant above which ff_inter writes a bond as a constraint instead of a
+# bond. FF's own default is 10000; this file used to pass 1000000000, which disables the conversion for every
+# bond -- so the DDM link FF fitted at k=12964.8 stayed harmonic at a 20 fs timestep and the run died at ~200 ps
+# (ring arms 860eb013a82c and e08dc53410f9). Keep FF's own default.
+ff_inter -f ../2_mapping/mapped.xtc -s ../2_mapping/mapped.gro -i $INITIAL_ITP -temperature 300 -constraints 10000 -dists -plots -dist-matrix
 if [ -f refine_bonded.py ]; then python refine_bonded.py; fi
