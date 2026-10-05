@@ -1,15 +1,20 @@
-import argparse,json,sys,re
+import argparse
+import sys
 from pathlib import Path
+
 import numpy as np
-from .registry import load_template,validate_template
-from .packing import golden_angle_directions
-from .repack import repack
+
+from .frame import frame_from_pdb
 from .geometry import box_for
-from .solvation import add_solvent
-from .output import write_gro,write_manifest
-from .validation import validate_positions,write_report
-from .orientation import infer_orientation
 from .gromacs import grompp
+from .orientation import infer_orientation
+from .output import write_gro, write_manifest
+from .packing import golden_angle_directions
+from .registry import load_template, validate_template
+from .repack import repack
+from .solvation import add_solvent
+from .validation import validate_positions, write_report
+
 
 def pdb_positions(path):
  out=[]
@@ -18,12 +23,20 @@ def pdb_positions(path):
    try: out.append([float(line[30:38])/10,float(line[38:46])/10,float(line[46:54])/10])
    except ValueError: pass
  return np.asarray(out,float)
+def frame_metadata(frame):
+ """The metadata `infer_orientation` reads, from a frame a structure stated itself -- or None, which keeps the
+ heuristic path and its 0.35 confidence exactly as they were."""
+ if frame is None: return None
+ return {'axis':frame.axis,'span':(frame.plane_low_nm,frame.plane_high_nm),'origin':(0.,0.,0.)}
 def build(a):
  t=load_template(a.template); issues=validate_template(t)
  protein=pdb_positions(a.protein) if a.protein else np.empty((0,3)); dirs=golden_angle_directions(max(a.aggregation_number*4,32),a.seed)
+ # A structure that states its own membrane is built in the frame it stated; one that states nothing is built exactly
+ # as it was before, so this reaches only structures that measured themselves.
+ frame=frame_from_pdb(a.protein) if a.protein else None
  centers,packing=repack(None,dirs,protein, a.radius,a.aggregation_number,a.seed)
- report=validate_positions(centers,a.aggregation_number); orientation=infer_orientation(protein) if len(protein) else infer_orientation([])
- report.update({'seed':a.seed,'detergent':t.name,'packing':packing,'protein_atoms':len(protein),'orientation':orientation.__dict__})
+ report=validate_positions(centers,a.aggregation_number); orientation=infer_orientation(protein,opm=frame_metadata(frame)) if len(protein) else infer_orientation([])
+ report.update({'seed':a.seed,'detergent':t.name,'packing':packing,'protein_atoms':len(protein),'orientation':orientation.__dict__,'membrane':frame.as_record() if frame else None})
  out=Path(a.output); out.mkdir(parents=True,exist_ok=True)
  if issues: report['issues']=issues+report['issues'];report['valid']=False
  if not report['valid']: write_report(report,out/'diagnostics');return 2

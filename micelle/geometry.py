@@ -1,10 +1,15 @@
 import numpy as np
 
-def candidate_score(point, protein, axis=(0,0,1), span=(-1,1), radius=3., min_distance=.25):
+
+def candidate_score(point, protein, axis=(0,0,1), span=(-1,1), radius=3., min_distance=.25, origin=None):
  p=np.asarray(protein,float)
  if not len(p): return {'score':1.,'clash':False,'exposure':1.}
  c=np.asarray(point); d=np.linalg.norm(p-c,axis=1); clash=bool(d.min()<min_distance)
- axial=np.dot(p-p.mean(0),np.asarray(axis)/np.linalg.norm(axis)); belt=((axial>=span[0])&(axial<=span[1]))
+ # The belt is measured from the membrane plane when a caller states one, and from the protein's own centroid when it
+ # does not -- which is what every caller did before a frame could be stated. `(0,0,0)` is the plane in OPM's frame,
+ # so the test is `is not None` and not truthiness: a falsy check would throw away the one origin that matters most.
+ centre=np.asarray(origin,float) if origin is not None else p.mean(0)
+ axial=np.dot(p-centre,np.asarray(axis)/np.linalg.norm(axis)); belt=((axial>=span[0])&(axial<=span[1]))
  coverage=float(belt.mean()); exposure=float((~belt).mean())
  return {'score':coverage+exposure*.25-(10 if clash else 0), 'clash':clash,'coverage':coverage,'exposure':exposure}
 

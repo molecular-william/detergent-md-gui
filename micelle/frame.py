@@ -8,11 +8,16 @@ OPM's convention is that a structure arrives already rotated, so the bilayer is 
 correction is applied here. What a frame adds is the thickness the structure states and the origin the belt is
 measured from -- which is the whole point, since a thickness nobody states is not a measurement.
 """
+import re
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
 DEFAULT_AXIS = (0.0, 0.0, 1.0)
+# The file's own statement of its membrane. It travels with the coordinates, unlike a number on a page that linked
+# them, which is why the structure is the authority and the page is not.
+_HALF_THICKNESS = re.compile(r'^REMARK\s+1/2 of bilayer thickness:\s*([0-9.]+)', re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -35,6 +40,17 @@ class MembraneFrame:
     @property
     def centre_nm(self):
         return round((self.plane_high_nm + self.plane_low_nm) / 2, 6)
+
+    def as_record(self):
+        """The frame as a report or a manifest holds it.
+
+        Flat and named for a reader: the half-thickness is what a person compares against the structure's own REMARK,
+        and it is the same key the catalogue and the sidecar carry. `__dict__` would have omitted it, being derived
+        rather than stored.
+        """
+        return {'half_thickness_nm': self.half_thickness_nm, 'plane_low_nm': self.plane_low_nm,
+                'plane_high_nm': self.plane_high_nm, 'centre_nm': self.centre_nm, 'axis': list(self.axis),
+                'source': self.source}
 
 
 def frame_from_structure(half_thickness_nm, *, axis=DEFAULT_AXIS, source=''):
@@ -71,6 +87,29 @@ def unit_axis(axis):
     if not length:
         raise ValueError('a membrane frame needs a direction, and this one has no length')
     return tuple(vector / length)
+
+
+def stated_half_thickness_nm(text):
+    """The half-thickness a structure states for itself, in nanometres, or `None`.
+
+    One definition, shared by the importer that records it in a sidecar and the builder that reads it out of the file
+    it was handed: two readers of the same REMARK would eventually disagree about it. `None` rather than a default,
+    because a structure that states nothing must stay unstated.
+    """
+    match = _HALF_THICKNESS.search(text)
+    return round(float(match.group(1)) / 10, 4) if match else None
+
+
+def frame_from_pdb(path):
+    """The frame the structure at `path` states for itself, or `None` when it states no membrane.
+
+    `None` is the answer for most structures, and it is a useful one: the caller keeps the box and the placement it
+    had rather than being handed a membrane nobody measured.
+    """
+    half = stated_half_thickness_nm(Path(path).read_text(errors='replace'))
+    if half is None:
+        return None
+    return frame_from_structure(half, source=f'{Path(path).name} REMARK')
 
 
 def _axial(points, frame):

@@ -17,9 +17,6 @@ from pathlib import Path
 ASSET_URL = 'https://biomembhub.org/shared/opm-assets/pdb/{pdbid}.pdb'
 
 _PDB_ID = re.compile(r'[A-Za-z0-9]{4}\Z')
-# The file's own statement of its membrane. It travels with the coordinates, unlike the entry page's derived
-# numbers, which is why the structure is the authority rather than the page that linked it.
-_HALF_THICKNESS = re.compile(r'^REMARK\s+1/2 of bilayer thickness:\s*([0-9.]+)', re.MULTILINE)
 
 
 def canonical_id(pdbid):
@@ -52,12 +49,15 @@ def membrane_statement(text):
 
     `None` rather than a default value: the defect this replaces was a silent 1.0 nm, and a guessed thickness is
     indistinguishable from a measured one once it is written into a manifest.
+
+    The parsing itself lives with the frame it is used to build, so the importer that records a statement and the
+    builder that reads one out of a file cannot drift apart. The import is inside the function because
+    `micelle/__init__` pulls the builder's own CLI.
     """
-    match = _HALF_THICKNESS.search(text)
-    if not match:
-        return None
-    # Angstrom in the file, nanometres in every builder here.
-    return {'half_thickness_nm': round(float(match.group(1)) / 10, 4)}
+    from micelle.frame import stated_half_thickness_nm
+
+    half = stated_half_thickness_nm(text)
+    return {'half_thickness_nm': half} if half is not None else None
 
 
 def import_structure(pdbid, dest_dir, *, fetcher=None, fetched_at=None):
