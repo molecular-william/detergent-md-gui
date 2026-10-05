@@ -161,3 +161,31 @@ the published links are of the same order as their ring constraints, not below t
 
 That is the next hypothesis with its number, and it is checkable: lengthen the link to the reference's own range,
 or find out why this mapping puts the two rings closer together than the reference's disaccharides do.
+
+### Arm F, and the correction it forces: the onset is stochastic, not tuned
+
+| arm | run | the variable | failed at |
+| --- | --- | --- | --- |
+| A | `860eb013a82c` | 1.15, `-constraints 1000000000`, 20 fs eq | **858.4 ps** |
+| B | `e08dc53410f9` | ring scale 1.0 | 199.6 ps |
+| C | `6404c3951674` | the link as a constraint | 113.2 ps |
+| D | `207ff34ce8bc` | + Parrinello-Rahman at 1 bar | 72.5 ps |
+| E | `5bb303eb9ff5` | + 10 fs equilibration | 445.9 ps |
+| F | `c48c50265874` | + 5 fs equilibration (the user's call) | **53.5 ps** |
+
+Arm E looked like a trend when it was read: 446 ps against the 125-200 ps of the arms before it. **It was not one.**
+Arm F, the same idea taken further, failed at 53 ps -- earlier than everything -- and re-reading arm A's own log
+(rather than the first warning I had quoted for it) shows it reached **858 ps**, the longest of the six.
+
+So the honest reading is that the onset is **stochastic across an order of magnitude** (53-858 ps) for
+configurations whose physics barely differs, and none of the six variables -- ring scale, link stiffness, link
+type, pressure coupling, equilibration step at two values -- moved it out of that band. Two runs of the same idea
+are as far apart as either is from the control.
+
+What that leaves is the structural observation above, which is not a tuning knob: the link is held 24% shorter
+than the shortest published disaccharide link and closer than any other contact the molecule has. A contact in that
+part of its own potential is exactly the kind that fails stochastically -- it is held in a steep region, and a rare
+fluctuation tips it. Every arm failed at that pair; none of them failed anywhere else.
+
+The 10 fs and 5 fs equilibration steps are both defensible on the Methods' authority (equilibration is excluded
+from the 20 fs rule), and neither is evidenced to help. That is a decision for the user, not a result.
