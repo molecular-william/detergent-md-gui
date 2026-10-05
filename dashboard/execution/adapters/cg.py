@@ -34,7 +34,7 @@ STAGE_DEFS = (
     Stage('AA reference', '1_AA-reference/aa_reference.sh',
           ('molecule.pdb', 'system_EMPTY.top', 'em.mdp', 'eq.mdp', 'run.mdp'),
           ('prod/lig.gro', 'prod/lig.tpr', 'prod/lig.xtc', '3-run.xtc')),
-    Stage('trajectory mapping (ff_map)', '2_mapping/map_trajectory.sh',
+    Stage('trajectory mapping', '2_mapping/map_trajectory.sh',
           ('../1_AA-reference/prod/lig.xtc', '../1_AA-reference/prod/lig.tpr',
            '../1_AA-reference/prod/lig.gro', 'mapping.map'),
           ('mapped.xtc', 'mapped.gro', 'mapping_validation.json')),

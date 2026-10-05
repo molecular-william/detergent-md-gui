@@ -146,7 +146,12 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
           const dot = document.createElement('span'); dot.className = 'timeline-dot'; dot.setAttribute('aria-hidden', 'true');
           dot.textContent = {completed:'✓', reused:'↗', skipped:'–', failed:'×', cancelled:'■', running:'●', cancelling:'●'}[state] || '';
           const label = document.createElement('span'); label.className = 'timeline-label';
-          label.textContent = {'AA reference':'AA ref.', 'trajectory mapping (ff_map)':'Map', 'CG topology (ff_inter)':'Fit', 'CG simulation':'CG run', 'CG assessment (ff_assess)':'Assess', 'SASA analysis':'SASA'}[name] || name;
+          // Two spellings for one stage: it was named after the tool it used to call, and 21 runs record it that way.
+          // Their manifests keep the words they ran under -- only the visible abbreviation is shared, and the full
+          // name still reaches the tooltip and the aria-label, so history is not rewritten to match the code.
+          label.textContent = {'AA reference':'AA ref.', 'trajectory mapping':'Map', 'trajectory mapping (ff_map)':'Map',
+                               'CG topology (ff_inter)':'Fit', 'CG simulation':'CG run',
+                               'CG assessment (ff_assess)':'Assess', 'SASA analysis':'SASA'}[name] || name;
           step.append(dot, label); timeline.append(step);
         }
         card.dataset.stages = stageKey;

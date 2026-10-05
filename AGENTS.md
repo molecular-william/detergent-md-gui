@@ -104,9 +104,10 @@ AA-only runs use `STAGES` from `execution/adapters/aa.py`: solvation,
 neutralization, minimization, NVT equilibration, NPT equilibration, NPT
 production, and reference publication. CG runs consume an AA reference — their
 own parent AA-only job or a completed shared reference — and run `STAGES` from
-`execution/adapters/cg.py`: AA reference, trajectory mapping (`ff_map`), CG
+`execution/adapters/cg.py`: AA reference, trajectory mapping, CG
 topology (`ff_inter`), CG simulation, CG assessment (`ff_assess`), and SASA
-analysis.
+analysis. Only the stages that shell out to a published tool name it; the
+mapping is this repository's own script, so it is named for what it does.
 
 Every stage records start/end time, command, environment, inputs, outputs,
 exit code, and log path. A stage with nothing to do records `skipped` -- exit 4,

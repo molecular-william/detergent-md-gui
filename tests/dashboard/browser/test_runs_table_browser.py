@@ -4,9 +4,38 @@ from playwright.sync_api import expect
 from dashboard import files
 
 
+def test_a_run_recorded_under_the_old_stage_name_keeps_its_short_label(dashboard, live_page):
+    """21 runs say `trajectory mapping (ff_map)` -- the name this stage had when it called that tool.
+
+    Their abbreviation has to survive the rename: a timeline that fell back to printing the whole recorded name would
+    show those runs differently from every run after them, for a change they had nothing to do with. The recorded
+    words stay recorded, which is why the step's own description still carries them.
+    """
+    runs = dashboard.coordinator.RUNS
+    job_id = '00000000000a'
+    recorded = ['AA reference', 'trajectory mapping (ff_map)', 'CG topology (ff_inter)']
+    dashboard.coordinator.database().replace([{
+        'id': job_id, 'label': 'Recorded under the old stage name', 'detergent': 'DDM', 'method': 'fast_forward',
+        'status': 'completed', 'stage': 'complete', 'created': '2026-09-16T10:00:00+00:00',
+        'started_at': '2026-09-16T10:00:00+00:00', 'layout_version': 2}])
+    directory = runs / job_id
+    (directory / 'logs').mkdir(parents=True)
+    files.atomic_json(directory / 'manifest.json',
+                      {'stage_plan': recorded,
+                       'stages': [{'name': name, 'status': 'completed'} for name in recorded]})
+
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#runs')
+
+    step = page.locator(f'.job[data-id="{job_id}"] .timeline-step').nth(1)
+    expect(step.locator('.timeline-label')).to_have_text('Map')
+    expect(step).to_have_attribute('aria-label', 'trajectory mapping (ff_map): completed')
+    assert errors == [], errors
+
+
 def test_runs_views_checkpoints_and_inline_console(dashboard, live_page):
     runs = dashboard.coordinator.RUNS
-    stages = ['AA reference', 'trajectory mapping (ff_map)', 'CG topology (ff_inter)', 'CG simulation', 'CG assessment (ff_assess)', 'SASA analysis']
+    stages = ['AA reference', 'trajectory mapping', 'CG topology (ff_inter)', 'CG simulation', 'CG assessment (ff_assess)', 'SASA analysis']
     jobs = [{'id': f'{i:012x}', 'label': label, 'detergent': 'DDM', 'method': 'fast_forward',
              'status': status, 'stage': stage, 'created': '2026-09-16T10:00:00+00:00',
              'started_at': '2026-09-16T10:00:00+00:00', 'layout_version': 2}
