@@ -31,7 +31,9 @@ for label, topology, trajectory, count in (
         raise ValueError(f'{label}: frame times must increase')
     result['trajectories'][label] = {'atoms': len(u.atoms), 'frames': len(times), 'start_ps': times[0], 'end_ps': times[-1]}
     u.trajectory.close()
-# Independently verify that ff_map actually performed the exported heavy-atom COG.
+# Independently verify that the mapper actually performed the exported heavy-atom COG. This is a separate script
+# from the mapper on purpose: the check reconstructs the expected beads from the AA coordinates rather than trusting
+# anything the mapper wrote about itself, so it catches a writer bug, a frame misalignment or a unit error.
 aa = mda.Universe(str(aa_source/'lig.gro'),str(aa_source/'lig.xtc'))
 cg = mda.Universe(str(root/'2_mapping/mapped.gro'), str(root/'2_mapping/mapped.xtc'))
 if len(aa.trajectory) != len(cg.trajectory):
@@ -52,7 +54,7 @@ for aaframe, cgframe in zip(aa.trajectory, cg.trajectory):
 
     error = max(error, float(np.max(np.abs(expected-cgframe.positions))) / 10)
 if error > 0.002:
-    raise ValueError(f'ff_map output differs from the exported COG by {error} nm')
+    raise ValueError(f'the mapped trajectory differs from the exported COG by {error} nm')
 result['mapping_max_coordinate_error_nm'] = error
 aa.trajectory.close(); cg.trajectory.close()
 for report in ('report_interactions.out', 'report_distances.out'):

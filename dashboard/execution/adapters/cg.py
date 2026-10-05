@@ -210,7 +210,6 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
 
     if profile in ('draft-smoke','draft-smoke-reference'):
         data = draft_model.load(mapping_candidate, molecule_root=molecule_root)
-        shutil.copy2(SCRIPTS / 'finalize_mapping.py', run_dir / '2_mapping/finalize_mapping.py')
         exports = mappings.export_files(data)
         for filename in ('mapping.map', 'mapping.ndx', 'model.json', 'README.txt'):
             (run_dir / '2_mapping' / filename).write_text(exports[filename])
@@ -230,8 +229,10 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
             if source_dir and source_dir.is_dir():
                 for source_file in source_dir.glob('*_distr.dat'):
                     shutil.copy2(source_file, cg/source_file.name)
+        # The one mapper, copied for every mapping rather than only the ringed ones: a mapping with no rings has
+        # nothing to expand and writes no ring targets, and the branch that called ff_map instead is gone with it.
+        shutil.copy2(SCRIPTS/'sugar_mapping.py', run_dir/'2_mapping/sugar_mapping.py')
         if data.get('rings'):
-            shutil.copy2(SCRIPTS/'sugar_mapping.py', run_dir/'2_mapping/sugar_mapping.py')
             shutil.copy2(SCRIPTS/'prepare_ring_constraints.py', cg/'prepare_ring_constraints.py')
             for suffix in ('.itp', '.source.json'):
                 shutil.copy2(ROOT/'references'/('martini_v3.0.0_sugars_v2'+suffix), cg/('reference_sugars_v2'+suffix))
@@ -301,7 +302,7 @@ def tool_metadata():
         if not executable: raise FileNotFoundError(f'Missing tool: {exe}')
         proc = subprocess.run([executable,*args],env=environment(),capture_output=True,text=True,check=True,timeout=30)
         result[exe] = {'path':executable,'version_output':proc.stdout,'sha256':files.sha256(executable)}
-    for exe in ('ff_map','ff_inter','ff_assess'):
+    for exe in ('ff_inter','ff_assess'):
         executable = tools.tool_path(exe)
         if executable: result[exe] = {'path':executable,'sha256':files.sha256(executable)}
     # Which source produced those entry points: their version output cannot say.
@@ -339,7 +340,7 @@ def readiness(molecule_id, method, profile='standard', mapping_candidate=None, m
                    'path': str(FORCE_FIELD.relative_to(ROOT)),
                    'ready': (FORCE_FIELD / 'forcefield.itp').is_file(),
                    'detail': 'Copied into each run with checksums'})
-    for tool in ('gmx','ff_map','ff_inter','ff_assess'):
+    for tool in ('gmx','ff_inter','ff_assess'):
         executable = tools.tool_path(tool)
         ok, detail = probe_tool(executable) if executable else (False, 'Executable not found')
         checks.append({'label': tool, 'path': executable or tool, 'ready': ok, 'detail': detail})

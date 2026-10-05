@@ -28,12 +28,18 @@ scientific validation automatically.
   AA and CG trajectories are made whole with GROMACS before analysis. Explicit ITP
   annotations supply fitting/scoring connectivity. GROMACS still creates and uses
   TPR files for every simulation/preprocessing stage.
-- The bundled `ff_map` resets the trajectory interval to 1 ps and writes its last
-  frame as the GRO. `finalize_mapping.py` preserves these raw outputs, verifies all
-  bead coordinates against independently computed AA COGs, restores exact AA frame
-  times/boxes and writes the first mapped frame. Both source and derived artifacts
-  remain available with a mapping validation record.
-- Fitted bonds remain harmonic (`-constraints 1000000000`); the smoke test uses a
+- One mapper, `sugar_mapping.py`: it computes every bead as the heavy-atom centre of
+  geometry, restores each frame's own time and box, refuses to overwrite an earlier
+  mapping, and writes the mapping validation record. Bundled `ff_map` is not called
+  any more -- it stamped dt = 1 ps and its own box on the frames it wrote, and the
+  branch that used it never executed: across every CG run in this workspace the
+  ring-aware mapper was the one that ran, and no run ever produced its raw output.
+  `validate_run.py` is a separate script that still reconstructs every bead from the
+  AA coordinates and fails the mapping above 0.002 nm, so the check stays independent
+  of the mapper it checks.
+- Fitted bonds are harmonic below `-constraints 10000` (Fast_Forward's own default)
+  and become rigid constraints at or above it -- that is what the tool does with a bond
+  stiffer than the threshold, not a choice of ours; the smoke test uses a
   2 fs timestep because short-reference fits can be very stiff. This is not a
   recommended production Martini model or timestep.
 - Pure-water NVT is a bounded software test. It does not reproduce the tutorial's

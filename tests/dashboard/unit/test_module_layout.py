@@ -148,13 +148,17 @@ def test_module_level_path_constants_point_at_real_locations():
 
 
 def test_run_preparation_scripts_are_present():
-    """cg.py copies these into each run directory; the adapter owns the list."""
+    """cg.py copies these into each run directory; the adapter owns the list.
+
+    `finalize_mapping.py` is not among them any more: it existed to check and re-time bundled `ff_map` output, and
+    the one mapper that has ever run here writes its own times and records its own check.
+    """
     from dashboard.execution import environment
     from dashboard.execution.adapters import cg
 
     assert cg.SCRIPTS.is_dir(), f'{cg.SCRIPTS} is not a directory'
     assert cg.SCRIPTS == Path(environment.ROOT / 'dashboard/execution/scripts')
-    copied = ('finalize_mapping.py', 'refine_bonded.py', 'sugar_mapping.py',
+    copied = ('refine_bonded.py', 'sugar_mapping.py',
               'prepare_ring_constraints.py', 'validate_run.py', 'distance_diagnostics.py')
     assert [name for name in copied if not (cg.SCRIPTS / name).is_file()] == []
 
