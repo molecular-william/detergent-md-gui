@@ -142,7 +142,16 @@ cat > system.top <<TOP
 osmotic condition
 
 [ molecules ]
-$(cat solute_molecule.txt)  $(python -c "import json;print(json.load(open('placement.json'))['solute_molecules_placed'])")
+$(python -c "
+import json
+from pathlib import Path
+count = json.load(open('placement.json'))['solute_molecules_placed']
+name = Path('solute_molecule.txt').read_text().strip()
+# **A zero count is not written, and this is not tidiness.** `LIG1  0` in [ molecules ] makes grompp *segfault* --
+# not refuse, crash -- because a moleculetype with bonded interactions and no copies has no edges to build. The
+# pure-solvent control is exactly that case, so the entry is omitted and the block says why it is absent.
+print(f'{name}  {count}' if count else '; no solute in this condition: the pure-solvent control')
+")
 REFC  1
 W     0
 TOP
