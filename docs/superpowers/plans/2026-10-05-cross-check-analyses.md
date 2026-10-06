@@ -364,6 +364,25 @@ delta between two numbers is worthless without knowing which side came from wher
 
 **Step 5: commit.** `feat:` — the cross-check publishes.
 
+**Measured (2026-10-05).** The kind is `bonded-cross-check`, and `PATTERNS` stages `2_mapping/mapped.gro`, `mapped.xtc`,
+`model.json`, `3_initial_CG/*_ff_inter.itp` and `3_initial_CG/*initial*.itp`. The report lands at the analysis's work
+root as `bonded-cross-check.json` -- the worker preserves the work directory's own structure, so there is no
+`analysis/<kind>/` level here, unlike the surfaces analysis.
+
+Two things came out of writing it that this task had not anticipated:
+
+- **The bead names come from the mapped trajectory's own atom order**, not from `model.json`. A topology's indices are
+  positions in the coordinate file it is applied to, so taking them from the same file the estimate is measured from
+  removes an assumption that two files agree about ordering.
+- **A constraint carries no force constant**, so "is this term a constraint" cannot be read off a number that is
+  sometimes absent. The rule is stated in the record instead: a term counts as a constraint when the topology says so
+  *or* when its constant is above the threshold.
+
+9 new tests, including the four-place registration check. Fast tier 1101. Five of the nine failed first, all on fixture
+arithmetic of mine: a residue index cycled where MDAnalysis needs it repeated, a scalar where it needs one value per
+residue, trajectories written to the work root instead of `2_mapping/`, a sigma computed with `ddof=0` for a sample
+defined with `ddof=1`, and a truncated literal in an expectation.
+
 ### Task 4.2: surface it
 
 **Objective:** the same tab shows the per-term comparison, constrained terms marked and the threshold named.
@@ -374,6 +393,18 @@ delta between two numbers is worthless without knowing which side came from wher
 states the threshold and the temperature rather than only the numbers.
 
 **Commit.** `feat:` — the cross-check is visible.
+
+**Measured (2026-10-05).** The block is `bonded_cross_check`, on `GET /api/jobs/<jid>/mapping-consistency` beside
+`surfaces` and `overlap`, and the card is an `<h4>` subsection of card 3 -- so the numbered cards do not renumber under
+links already saved. Small thing worth keeping: the table's verdict column is written in words ("both springs", "we
+write rigid, the estimate reads a spring"), because two force constants side by side do not say that the two sides
+disagree about *what kind of term* it is.
+
+`newest_cross_check` is shorter than `newest_overlap` rather than a copy of it: there is no figure to lose, so a report
+on disk is the whole artifact and the fall-through is one `continue`. The browser test deletes the report and asserts
+the older attempt answers -- the same property the overlap reader pins with a figure.
+
+4 unit tests on the reader, 2 browser tests. Fast tier 1105, browser tier 63 passed 1 skipped.
 
 ---
 
@@ -389,3 +420,55 @@ Before that task is written, the licence question has to be answered — by the 
 whether a reimplementation of that workflow, written from the paper and the tool's documented behaviour, is
 comfortable; or run their code in an isolated tool environment for that one analysis, which needs the LGPL decision
 instead.
+
+---
+
+## Phase 5, answered
+
+### Task 5.1: the dihedral fit, reimplemented, and shaker credited
+
+**The licence question was answered by the user on 2026-10-05:** reimplement the workflow, and credit shaker. So the
+second of the two honest routes above is the one taken, and the first branch -- running their code in an isolated
+environment -- is not needed.
+
+**Files:** `dashboard/analysis/runs/dihedral_fit.py`, `tests/dashboard/unit/test_dihedral_fit.py`, `CREDITS.md`
+
+**Measured.** The workflow is histogram, inverted Boltzmann, Savitzky-Golay smoothing, a cumulative cosine series, and
+AIC/BIC over the number of harmonics. Three decisions are recorded in the module rather than in this plan:
+
+- the series is fitted as `c + sum_n [a_n cos n phi + b_n sin n phi]`, which is **linear in its coefficients** and so
+  is a least-squares problem rather than an optimisation, and reported in the form GROMACS writes,
+  `k (1 + cos(n phi - phi_s))`, via `k_n = hypot(a_n, b_n)` and `phi_s = atan2(b_n, a_n)`;
+- **Savitzky-Golay is implemented here**, because scipy is in the venv only as another package's dependency and is not
+  declared by this project. Both edges keep their full width and are fitted as the interior is, which is what lets a
+  closed curve stay closed where its ends meet;
+- the potential of mean force has no absolute zero, so the minimum is subtracted and the offset reported. Empty
+  histogram bins are dropped and counted rather than given an infinite energy: `-R T ln 0` is not a large number, it
+  is no number.
+
+**The decisive test is a round trip.** A potential that *is* two cosines must come back as those two cosines -- those
+amplitudes, those phases, to 1e-8, with the fundamental at zero -- because every step is invertible in that direction.
+That pins the degrees/radians boundary somewhere a residual cannot hide. The end-to-end test draws frames by sampling a
+grid with `exp(-F/RT)` weights, the exact inverse of the inversion the fit performs, and its tolerances are loose and
+said to be loose: a histogram and a smoothing filter are lossy by nature.
+
+10 tests. Fast tier 1116, ruff clean. Three failed first, all on my arithmetic: a sign read backwards in the PMF offset
+(now pinned to the hand-computable `-R T ln p_max`, which is a stronger assertion than the one it replaced), a phase
+converted twice, and a cosine's peak assumed to sit at `phi_s` rather than at `phi_s / n`.
+
+**The credit.** `CREDITS.md` at the repository root carries the three adapted modules and what each took, the
+validation evidence beside it, and what was *not* taken and why. Each module also carries the credit in its docstring,
+so it travels with the number it produced. The user's decision was explicitly to credit and reimplement; no shaker
+source is copied, vendored or imported.
+
+### Task 5.2: wire the fit as an analysis
+
+**Not started.** `dihedral_fit` is a measurement primitive with tests and no caller -- the state `overlap.py` was in at
+its first commit, and the state `bonded_estimate` was in before Task 4.1. What it needs:
+
+1. a torsion measured from four beads, pinned by hand;
+2. the run's `[ dihedrals ]` read for the terms to fit;
+3. an entry point publishing the fit beside the run's own terms;
+4. the four registration places, and a card beside the cross-check's.
+
+The comparison column is the point: it answers the question the BARTENDER route currently answers by tool default.
