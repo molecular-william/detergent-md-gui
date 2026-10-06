@@ -101,6 +101,23 @@ def newest_cross_check(c, job):
     return None
 
 
+def newest_dihedral_fit(c, job):
+    """A run's newest published dihedral fit: `(attempt, published, report)`, or `None`.
+
+    The same shape as `newest_cross_check` and for the same reason: this analysis publishes numbers and a list of
+    terms, with no figure to lose, so a report on disk is the whole artifact.
+    """
+    records = sorted((c.run_path(job) / 'analyses/dihedral-fit').glob('*/*/result.json'),
+                     key=lambda path: path.stat().st_mtime, reverse=True)
+    for record_path in records:
+        attempt = record_path.parent
+        output = attempt / str(json.loads(record_path.read_text()).get('output_directory') or '')
+        report = output / 'dihedral-fit.json'
+        if report.is_file():
+            return attempt, json.loads(report.read_text()), report
+    return None
+
+
 @blueprint.post('/api/jobs/<jid>/<kind>')
 def queue_analysis(jid, kind):
     payload = json_object(optional=True)
@@ -215,13 +232,40 @@ def mapping_consistency_api(jid):
                               'limitations': check_published.get('limitations') or [],
                               'validated': bool(check_published.get('scientifically_validated')),
                               'source': str(check_report.relative_to(c.RUNS))}
+    # The dihedral fit is a fourth separate kind on the same run, read the same way again.
+    published_dihedral_fit = newest_dihedral_fit(c, job)
+    if published_dihedral_fit is None:
+        dihedral = {'available': False,
+                    'reason': 'No dihedral fit has been published for this run. It fits every proper dihedral the '
+                              'topology declares and lets a criterion choose how many harmonics each needs, and it '
+                              'is queued by hand.'}
+    else:
+        fit_attempt, fit_published, fit_report = published_dihedral_fit
+        dihedral = {'available': True,
+                    'attempt': fit_attempt.name,
+                    'published_at': datetime.fromtimestamp(
+                        fit_attempt.stat().st_mtime, timezone.utc).isoformat(),
+                    'molecule': fit_published.get('molecule'),
+                    'temperature': fit_published.get('temperature'),
+                    'temperature_source': fit_published.get('temperature_source'),
+                    'criterion': fit_published.get('criterion'),
+                    'ours_from': fit_published.get('ours_from'),
+                    'ours_provenance': fit_published.get('ours_provenance'),
+                    'frames_measured': fit_published.get('frames_measured'),
+                    'rows': fit_published.get('rows') or [],
+                    'unmeasured': fit_published.get('unmeasured') or [],
+                    'disagreements': fit_published.get('disagreements') or [],
+                    'limitations': fit_published.get('limitations') or [],
+                    'validated': bool(fit_published.get('scientifically_validated')),
+                    'source': str(fit_report.relative_to(c.RUNS))}
     return jsonify({'run': jid, 'attempt': attempt.name,
                     'published_at': datetime.fromtimestamp(attempt.stat().st_mtime, timezone.utc).isoformat(),
                     'source': str(artifact.relative_to(c.RUNS)),
                     'molecule': job.get('molecule_id'), 'run_type': job.get('run_type'),
                     'profile': job.get('profile'), 'reference_run_id': job.get('reference_run_id'),
                     'summary': record.get('result'), 'comparison': json.loads(artifact.read_text()),
-                    'surfaces': surfaces, 'overlap': overlap, 'bonded_cross_check': bonded_cross_check})
+                    'surfaces': surfaces, 'overlap': overlap, 'bonded_cross_check': bonded_cross_check,
+                    'dihedral_fit': dihedral})
 
 
 @blueprint.get('/api/runs/transferability')

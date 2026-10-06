@@ -463,12 +463,29 @@ source is copied, vendored or imported.
 
 ### Task 5.2: wire the fit as an analysis
 
-**Not started.** `dihedral_fit` is a measurement primitive with tests and no caller -- the state `overlap.py` was in at
-its first commit, and the state `bonded_estimate` was in before Task 4.1. What it needs:
+**Done.** `d961153` registers the kind and publishes the report; the card lands with it. `dihedral-fit` is registered
+in all four places, and its card sits beside the cross-check's in card 3, reading through `newest_dihedral_fit` on the
+mapping-consistency route.
 
-1. a torsion measured from four beads, pinned by hand;
-2. the run's `[ dihedrals ]` read for the terms to fit;
-3. an entry point publishing the fit beside the run's own terms;
-4. the four registration places, and a card beside the cross-check's.
+The four pieces listed above, plus one that writing them produced:
 
-The comparison column is the point: it answers the question the BARTENDER route currently answers by tool default.
+1. **`torsion_deg`** -- the standard arctan2 construction, pinned on a geometry built so the answer *is* the rotation,
+   sign included;
+2. **`read_declared_dihedrals`** -- reads `i j k l funct phi_s cp mult` and **refuses** anything that is not a proper
+   dihedral. This reader's whole output is a comparison, so a number it invented would not be a small error;
+3. **`measure_torsions`** -- one pass over the trajectory for every declared term;
+4. **the report's rows** -- our phase, force constant and multiplicity; the fit's kept multiplicities, dominant term
+   and residual; and whether the multiplicities agree;
+5. **and the one that was not on the list**: the fitted phase is in this measurement's convention and the topology's
+   is GROMACS's. They are *assumed* to be the same, and if they were not, a phase would come out mirrored while the
+   multiplicity still agreed. So the multiplicity is the comparison the report leans on, and that assumption is the
+   report's **first limitation**, printed under the table -- a caveat the reader cannot see is not a caveat.
+
+**Measured.** 8 tests end to end for the analysis -- a trajectory drawn from a known 2-fold potential so the
+multiplicity the criterion should choose is known before it runs; a topology declaring a different multiplicity and
+named as a disagreement; a term naming a bead the trajectory lacks and listed rather than dropped -- plus 1 for the
+reader and 2 browser tests for the card. Fast tier 1125, browser tier 65 passed 1 skipped, ruff clean. Every one of
+them passed on its first honest run, which is the first time that has been true in this plan's three phases.
+
+The comparison column is the point, and it is now visible: the question the BARTENDER route answers by tool default is
+answered by a criterion beside it.

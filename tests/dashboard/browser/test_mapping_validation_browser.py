@@ -501,6 +501,92 @@ def test_a_run_with_no_bonded_cross_check_says_so_and_lists_nothing(dashboard, l
     assert errors == []
 
 
+# The dihedral fit, in the same card and one level over from the cross-check: the tool's chosen multiplicities against
+# a criterion's, on the terms the run's own topology declares.
+
+DIHEDRAL_FIT = {
+    'molecule': 'DDM', 'criterion': 'bic', 'temperature': 303.15,
+    'temperature_source': "the analysis default; the run's own fit temperature was not staged",
+    'frames_measured': 20001, 'frames_in_trajectory': 20001,
+    'ours_from': '3_initial_CG/DDM_ff_inter.itp', 'ours_provenance': 'the Fast_Forward fit',
+    'measured_from': '2_mapping/mapped.xtc',
+    'rows': [
+        {'beads': ['B01', 'B02', 'B03', 'B04'],
+         'ours': {'phase_deg': 180.0, 'force_constant_kj_mol': 3.5, 'multiplicity': 2},
+         'fit': {'terms': 3, 'dihedrals': [], 'residual_rms_kj_mol': 0.42,
+                 'dominant_multiplicity': 2, 'dominant_force_constant_kj_mol': 2.9},
+         'multiplicities_agree': True},
+        {'beads': ['B05', 'B06', 'B07', 'B08'],
+         'ours': {'phase_deg': 0.0, 'force_constant_kj_mol': 1.2, 'multiplicity': 3},
+         'fit': {'terms': 4, 'dihedrals': [], 'residual_rms_kj_mol': 0.31,
+                 'dominant_multiplicity': 2, 'dominant_force_constant_kj_mol': 1.05},
+         'multiplicities_agree': False},
+    ],
+    'unmeasured': [{'beads': ['B09', 'B10', 'B11', 'B01'], 'phase_deg': 0.0, 'force_constant': 0.5,
+                    'multiplicity': 1,
+                    'reason': 'a distribution needs at least two frames to be a distribution'}],
+    'disagreements': [['B05', 'B06', 'B07', 'B08']],
+    'limitations': ["The fitted phase is in the convention this measurement uses, and the run topology's is GROMACS's.",
+                    'A proper dihedral is fitted on its own torsion distribution.'],
+    'scientifically_validated': False,
+}
+
+
+def publish_dihedral_fit(dashboard, jid):
+    """Leave behind what `analysis.worker` leaves behind for a completed dihedral fit."""
+    attempt = dashboard.coordinator.RUNS / jid / 'analyses/dihedral-fit/hash/attempt1'
+    output = attempt / 'output/abc123'
+    output.mkdir(parents=True)
+    (output / 'dihedral-fit.json').write_text(json.dumps(DIHEDRAL_FIT))
+    (attempt / 'result.json').write_text(json.dumps(
+        {'result': DIHEDRAL_FIT, 'output_directory': 'output/abc123', 'wall_seconds': 12.0}))
+    return attempt
+
+
+def test_the_dihedral_fit_puts_the_criterion_beside_the_tool_default(dashboard, live_page):
+    """The multiplicity is the comparison, not the phase: a phase is only comparable between tools that share a sign
+    convention, which is a limitation the report states and this card shows."""
+    publish(dashboard, 'bb22cc33dd44')
+    publish_dihedral_fit(dashboard, 'bb22cc33dd44')
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#validation')
+
+    page.wait_for_function(
+        "() => document.querySelectorAll('#validation-dihedral-rows tr').length === 3", timeout=30000)
+    rows = page.evaluate(
+        "() => [...document.querySelectorAll('#validation-dihedral-rows tr')].map(r => r.textContent)")
+    note = page.evaluate("() => document.querySelector('#validation-dihedral-note').textContent")
+    limits = page.evaluate("() => document.querySelector('#validation-dihedral-limits').textContent")
+
+    assert 'the Fast_Forward fit' in note and '20001 mapped frames' in note, note
+    assert 'multiplicity chosen by BIC' in note, note
+    assert '1 of 2 terms where the criterion chooses a different multiplicity' in note, note
+    assert 'Not scientifically validated' in note, note
+    assert 'B01–B02–B03–B04' in rows[0] and '180.0°' in rows[0] and '3.50' in rows[0], rows[0]
+    assert 'both 2-fold' in rows[0] and '0.42' in rows[0], rows[0]
+    assert 'B05–B06–B07–B08' in rows[1], rows[1]
+    assert 'we write 3-fold, the criterion chooses 2-fold' in rows[1], rows[1]
+    assert 'not measured' in rows[2] and 'at least two frames' in rows[2], rows[2]
+    assert 'convention' in limits, limits
+    assert errors == []
+
+
+def test_a_run_with_no_dihedral_fit_says_so_and_lists_nothing(dashboard, live_page):
+    publish(dashboard, 'bb22cc33dd44')
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#validation')
+
+    page.wait_for_function(
+        "() => document.querySelector('#validation-dihedral-note').textContent.includes('queued by hand')",
+        timeout=30000)
+    note = page.evaluate("() => document.querySelector('#validation-dihedral-note').textContent")
+    body = page.evaluate("() => document.querySelector('#validation-dihedral-rows').textContent")
+
+    assert 'criterion choose how many harmonics' in note, note
+    assert 'no dihedral fit has been published' in body.lower(), body
+    assert errors == []
+
+
 # D1's other half. The card used to offer a bare button; it now states what the run's comparison found, and the
 # numbers come from the summary the analysis published into the job record -- the same ones card 1 badges, carried
 # by `/api/jobs`, so the card states them without a request of its own.

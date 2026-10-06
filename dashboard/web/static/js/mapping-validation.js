@@ -240,6 +240,31 @@ function crossCheckRows(crossCheck) {
   return measured + unmeasured;
 }
 
+// A dihedral's phase is only comparable across tools that share a sign convention, so the verdict column leads with
+// the multiplicity -- which no convention can flip -- and the phases sit beside it as the detail they are. The report
+// names that assumption in its own limitations rather than leaving it to this comment.
+function dihedralFitRows(fit) {
+  const rows = fit.rows || [];
+  const unmeasured = (fit.unmeasured || []).map((entry) =>
+    `<tr><td>${cell((entry.beads || []).join('–'))}</td>`
+    + `<td colspan="7">not measured · ${cell(entry.reason)}</td></tr>`).join('');
+  if (!rows.length && !unmeasured.length) {
+    return '<tr><td colspan="8">The published analysis fits no declared dihedral.</td></tr>';
+  }
+  const measured = rows.map((row) => {
+    const ours = row.ours || {}, fitted = row.fit || {};
+    const verdict = row.multiplicities_agree
+      ? `both ${ours.multiplicity}-fold`
+      : `we write ${ours.multiplicity}-fold, the criterion chooses ${fitted.dominant_multiplicity}-fold`;
+    return `<tr><td>${cell((row.beads || []).join('–'))}</td>`
+      + `<td>${fixed(ours.phase_deg, 1)}°</td><td>${fixed(ours.force_constant_kj_mol, 2)}</td>`
+      + `<td>${ours.multiplicity}</td><td>${fitted.terms}</td><td>${fitted.dominant_multiplicity}</td>`
+      + `<td>${fixed(fitted.residual_rms_kj_mol, 2)}</td>`
+      + `<td>${row.multiplicities_agree ? cell(verdict) : `<strong>${cell(verdict)}</strong>`}</td></tr>`;
+  }).join('');
+  return measured + unmeasured;
+}
+
 export function createMappingValidation({ request = api } = {}) {
   let mounted = false;
 
@@ -344,6 +369,36 @@ export function createMappingValidation({ request = api } = {}) {
     const checkLimits = $('#validation-crosscheck-limits');
     if (checkLimits) {
       checkLimits.textContent = crossCheck.available ? (crossCheck.limitations || []).join(' ') : '';
+    }
+    const dihedralFit = body.dihedral_fit || {};
+    const fitNote = $('#validation-dihedral-note');
+    if (fitNote) {
+      const disagreements = dihedralFit.disagreements || [];
+      fitNote.textContent = dihedralFit.available
+        ? `Attempt ${dihedralFit.attempt}, published ${shortTime(dihedralFit.published_at)} UTC. `
+          + `${dihedralFit.ours_from || 'the run topology'} · ${dihedralFit.ours_provenance || ''} `
+          + `${dihedralFit.frames_measured ?? '—'} mapped frames at ${fixed(dihedralFit.temperature, 2)} K, `
+          + `multiplicity chosen by ${String(dihedralFit.criterion || '').toUpperCase()}. `
+          + (disagreements.length
+              ? `${disagreements.length} of ${(dihedralFit.rows || []).length} terms where the criterion chooses a `
+                + 'different multiplicity from the tool. '
+              : 'Every declared multiplicity is one the criterion chooses too. ')
+          + `${dihedralFit.validated ? '' : 'Not scientifically validated.'}`
+        : (dihedralFit.reason || 'The run’s dihedral fit has not been published.');
+    }
+    const fitRows = $('#validation-dihedral-rows');
+    if (fitRows) {
+      fitRows.innerHTML = dihedralFit.available
+        ? dihedralFitRows(dihedralFit)
+        : '<tr><td colspan="8">No dihedral fit has been published for this run.</td></tr>';
+    }
+    const fitLimits = $('#validation-dihedral-limits');
+    if (fitLimits) {
+      // The convention caveat is a limitation of the report, so it belongs in front of the reader rather than in the
+      // code that draws it.
+      fitLimits.textContent = dihedralFit.available
+        ? [dihedralFit.limitations?.[0], ...(dihedralFit.limitations || []).slice(1)].join(' ')
+        : '';
     }
     $('#validation-interpretation').textContent = comparison.interpretation
       || 'Every comparison here is against our own atomistic reference.';

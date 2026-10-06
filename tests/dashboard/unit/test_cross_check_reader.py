@@ -70,3 +70,34 @@ def test_nothing_published_at_all_still_answers_none(tmp_path):
     _attempt(tmp_path / 'aaaaaaaaaaaa', 'attempt-one', report=False)
 
     assert newest_cross_check(_Coordinator(tmp_path), job) is None
+
+
+# The dihedral fit is read the same way, one level over.
+
+def _dihedral_attempt(root, attempt_id, *, report=True):
+    signature = root / 'analyses/dihedral-fit/signature' / attempt_id
+    output = signature / 'output/key'
+    output.mkdir(parents=True)
+    (signature / 'result.json').write_text(json.dumps({'output_directory': 'output/key'}))
+    if report:
+        (output / 'dihedral-fit.json').write_text(json.dumps({
+            'molecule': 'DDM', 'criterion': 'bic', 'temperature': 303.15,
+            'rows': [{'beads': ['B01', 'B02', 'B03', 'B04'], 'multiplicities_agree': False}],
+            'disagreements': [['B01', 'B02', 'B03', 'B04']], 'scientifically_validated': False}))
+    return signature
+
+
+def test_a_published_dihedral_fit_is_found_and_its_absence_answers_none(tmp_path):
+    from dashboard.web.routes.analyses import newest_dihedral_fit
+
+    job = {'id': 'aaaaaaaaaaaa'}
+    (tmp_path / 'aaaaaaaaaaaa').mkdir()
+    assert newest_dihedral_fit(_Coordinator(tmp_path), job) is None
+
+    _dihedral_attempt(tmp_path / 'aaaaaaaaaaaa', 'attempt-one')
+    attempt, published, report = newest_dihedral_fit(_Coordinator(tmp_path), job)
+
+    assert attempt.name == 'attempt-one'
+    assert published['criterion'] == 'bic'
+    assert published['disagreements'] == [['B01', 'B02', 'B03', 'B04']]
+    assert report.name == 'dihedral-fit.json'
