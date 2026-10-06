@@ -11,7 +11,7 @@ from flask import Flask, jsonify
 from . import paths as path_config
 from .constants import HOST, PORT
 from .execution.coordination.coordinator import Coordinator
-from .web.routes import analyses, bonded, catalog, common, maintenance, mappings, molecules, pdc, refinement, runs
+from .web.routes import analyses, bonded, catalog, common, maintenance, mappings, molecules, osmotic, pdc, refinement, runs
 
 
 def create_app(paths=None, config=None):
@@ -22,7 +22,7 @@ def create_app(paths=None, config=None):
     coordinator = Coordinator(app, app.config['PATHS'])
     app.extensions['dashboard_coordinator'] = coordinator
     app.before_request(coordinator.ensure_service)
-    for module in (runs, molecules, catalog, mappings, bonded, refinement, analyses, maintenance, pdc):
+    for module in (runs, molecules, catalog, mappings, bonded, refinement, analyses, maintenance, pdc, osmotic):
         app.register_blueprint(module.blueprint)
 
     @app.errorhandler(ValueError)

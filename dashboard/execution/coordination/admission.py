@@ -23,8 +23,21 @@ def validate_run_type(data):
     if not hasattr(data, 'get'):
         raise ValueError('Expected an object')
     kind = data.get('run_type')
-    if kind not in (None, 'aa_only', 'aa_cg', 'cg_composition', 'pdc'):
+    if kind not in (None, 'aa_only', 'aa_cg', 'cg_composition', 'pdc', 'osmotic'):
         raise ValueError('Unknown run type')
+    if kind == 'osmotic':
+        # The one thing a condition cannot be built without: the directory its own files are copied out of. Checked
+        # here as well as in the route, because a payload can reach the coordinator without passing through it.
+        settings = data.get('settings') or data
+        if settings.get('solute_root') in (None, ''):
+            raise ValueError('Osmotic runs require solute_root: the molecule, its topology and the water tile')
+        # This run type is not a *shared reference* consumer: its solute comes from a mapping, and the mapping
+        # candidate carries the provenance of the run it was made from. A reference id here would be resolved as if
+        # the condition consumed the AA trajectory, which it does not -- so it is refused rather than ignored.
+        if data.get('reference_run_id') not in (None, ''):
+            raise ValueError('An osmotic condition takes its solute from a mapping, not from a shared AA reference; '
+                             'the mapping candidate records the run it was made from')
+        return
     if kind == 'cg_composition':
         if not data.get('composition_id'):
             raise ValueError('CG composition runs require composition_id')

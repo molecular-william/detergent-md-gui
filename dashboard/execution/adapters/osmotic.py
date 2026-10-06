@@ -175,6 +175,15 @@ SETTING_SPECS = {
 SOLUTE_FILES = ('solute.gro', 'solute.itp', 'water.gro')
 
 
+#: A condition's series membership is a string, not a number, so it is declared here rather than in
+#: `SETTING_SPECS`. It rides in the settings because that is what the coordinator stores and what the resume path
+#: already verifies; inventing a second place to keep it would be a second thing to keep in step. `solute_root` is
+#: here for the same reason and one more: it is what `prepare` reads to find the molecule's files, and a run whose
+#: files could not be found afterwards would be a run type that cannot be resumed.
+CHOICE_SPECS = {'series_id': ('The series this condition belongs to', ()),
+                'solute_root': ('Directory holding the solute, its topology and the water tile', ())}
+
+
 def stage_defaults(profile='standard'):
     if profile not in PROFILES:
         raise ValueError(f'unknown osmotic profile: {profile}')
@@ -186,6 +195,13 @@ def normalize_settings(settings=None, profile='standard'):
         raise ValueError('osmotic settings must be an object')
     result = dict(stage_defaults(profile)['values'])
     for key, value in (settings or {}).items():
+        if key in CHOICE_SPECS:
+            label, allowed = CHOICE_SPECS[key]
+            text = str(value)
+            if allowed and text not in allowed:
+                raise ValueError(f'{key} must be one of ' + ', '.join(allowed))
+            result[key] = text
+            continue
         if key not in SETTING_SPECS:
             raise ValueError('Unknown osmotic setting: ' + key)
         try:
@@ -247,6 +263,17 @@ def _protocol_prepare(run_dir, metadata):
     prepare(run_dir, metadata)
 
 
+def _solute_root(metadata):
+    """Where the solute's files are.
+
+    A setting, because settings are what the coordinator stores and what the resume path verifies -- but a top-level
+    key is honoured too, so a direct caller can pass either spelling. A run that could not find its own inputs
+    afterwards would be a run type that cannot be resumed.
+    """
+    settings = metadata.get('settings') or {}
+    return str(metadata.get('solute_root') or settings.get('solute_root') or '').strip()
+
+
 def readiness(metadata):
     """Whether a condition can be built, in the shared shape: every check stated, every blocker named."""
     checks, blockers = [], []
@@ -257,7 +284,7 @@ def readiness(metadata):
     else:
         blockers.append('molecule_id is required to check an osmotic run')
 
-    solute_root = metadata.get('solute_root')
+    solute_root = _solute_root(metadata)
     if not solute_root or not Path(str(solute_root)).is_dir():
         blockers.append('solute_root is required: a directory holding ' + ', '.join(SOLUTE_FILES))
     else:
@@ -298,6 +325,14 @@ def prepare(run_dir, metadata):
     stage = run_dir / '01_simulate'
     (stage / 'inputs').mkdir(parents=True, exist_ok=True)
     shutil.copy2(SCRIPTS / 'osmotic_simulation.sh', stage / 'run.sh')
+    # The runner reads the molecule's own files from `inputs/`, so they are copied in here -- and a missing one is a
+    # refusal rather than a run that starts and then cannot solvate.
+    root = _solute_root(metadata)
+    if root:
+        for name in SOLUTE_FILES:
+            if not (Path(root) / name).is_file():
+                raise ValueError(f'solute_root is missing {name}: {root}')
+            shutil.copy2(Path(root) / name, run_dir / 'inputs' / name)
     for name in ('minimization.mdp', 'eq.mdp', 'md.mdp', 'reference.itp', 'osmotic_condition.json'):
         shutil.copy2(run_dir / 'inputs' / name, stage / 'inputs' / name)
     if record['solute_molecules'] == 0:
