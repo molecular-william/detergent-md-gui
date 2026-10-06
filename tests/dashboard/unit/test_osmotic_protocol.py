@@ -99,7 +99,11 @@ def test_prepare_builds_a_run_the_executor_could_start(tmp_path):
     # the same test: the first two versions of this declaration passed the assertions above and failed this one.
     for declared in osmotic.STAGE_DEFS[0].inputs:
         assert (tmp_path / '01_simulate' / declared).resolve().is_file(), declared
-    assert 'REF' in (tmp_path / 'inputs' / 'reference.itp').read_text()
+    # `[ atomtypes ]` must come before the moleculetype that uses it, or GROMACS reports "Atomtype REF not found" with
+    # the type visible in the same file. Asserting the file *contains* REF passes either way -- which is what the
+    # first version of this assertion did, while the run was failing on grompp.
+    reference = (tmp_path / 'inputs' / 'reference.itp').read_text()
+    assert reference.index('[ atomtypes ]') < reference.index('[ moleculetype ]')
     # The manifest every prepared run type carries, wherever the shared writer puts it: what matters is that this
     # run type has one and that it names itself, because the resume path verifies runs against it.
     manifests = list(tmp_path.rglob('manifest.json'))
@@ -172,3 +176,51 @@ def test_an_output_interval_that_is_not_a_whole_number_of_steps_is_refused():
     with pytest.raises(ValueError, match='whole number of'):
         osmotic_mdp.osmotic_mdps(temperature=308.15, production_ps=1000.0,
                                  equilibration_ps=1000.0, output_interval_ps=0.017)
+
+
+def test_the_placement_writes_a_gro_file_gromacs_can_read(tmp_path):
+    """The script's placement half, run for real. It writes what `gmx solvate` reads first, and .gro is fixed format.
+
+    **Nothing ran this script before this test, which is why two defects reached GROMACS**: an atom line five
+    characters short because the 5-character serial field was missing, and every bead of a molecule written at the
+    same coordinates because the molecule was placed but its atoms were never translated. Both are invisible to a
+    test that only checks the files exist -- so this runs the script, with `gmx` stubbed out, and reads what it wrote.
+    """
+    import os
+    import subprocess
+
+    solute = tmp_path / 'solute'
+    solute.mkdir()
+    # Two beads 0.26 nm apart, in the fixed-format layout a real mapping produces.
+    (solute / 'solute.gro').write_text('a written molecule\n    2\n'
+                                       '    1LIG1   B01    1   1.000   1.000   1.000\n'
+                                       '    1LIG1   B02    2   1.260   1.000   1.000\n'
+                                       '   4.00000   4.00000   4.00000\n')
+    for name in ('solute.itp', 'water.gro', 'martini_v3.0.0_solvents_v1.itp'):
+        (solute / name).write_text('placeholder\n')
+
+    record = osmotic.prepare(tmp_path, {'molecule_id': 'Maltose', 'solute_root': str(solute),
+                                        'mapping_snapshot': MAPPING, 'settings': {'osmotic_molality': 1.0}})
+    stage = tmp_path / '01_simulate'
+    stub = tmp_path / 'gmx'
+    stub.write_text('#!/bin/sh\nexit 0\n')
+    stub.chmod(0o755)
+    # A stubbed `gmx` that produces nothing stops the script at the step after the placement; the placement is step 1,
+    # so its outputs are on disk. The return code is not what this test is about, the file it wrote is.
+    subprocess.run(['bash', str(stage / 'run.sh')], cwd=stage, capture_output=True, check=False,
+                   env={**os.environ, 'GROMACS': str(stub)})
+
+    lines = (stage / 'system.gro').read_text().splitlines()
+    molecules = record['solute_molecules']
+    assert lines[1].strip() == str(2 * molecules + 1)              # two beads each, plus the reference
+
+    atoms = lines[2:2 + 2 * molecules]
+    assert all(len(line) == 44 for line in atoms), sorted({len(line) for line in atoms})
+    # The molecule keeps its shape: its two beads stay 0.26 nm apart rather than being written on top of each other.
+    assert float(atoms[1][20:28]) - float(atoms[0][20:28]) == pytest.approx(0.26, abs=1e-3)
+    # And the reference bead sits at the box centre, last before the box line. `.gro` coordinates carry three decimals,
+    # so "the centre" is 2.52078 written as 2.521: a 0.2 pm rounding, which at 1000 kJ/mol/nm2 is a force of order
+    # 1e-7 kJ/mol/nm. The assertion is at the format's precision, not at the intent's.
+    reference = lines[2 + 2 * molecules]
+    assert [float(reference[20:28]), float(reference[28:36]), float(reference[36:44])] == pytest.approx(
+        [2.521, 2.521, 5.042], abs=1e-3)

@@ -46,6 +46,16 @@ header, atoms = molecule[0], [line for line in molecule[2:-1] if line.strip()]
 if not atoms:
     raise SystemExit(f'{solute_dir / "solute.gro"} has no atoms')
 
+# The molecule's own shape, as offsets from its centroid. A .gro atom line is a 15-character (residue, residue name,
+# atom name) prefix, the 5-character atom serial, then x, y and z at 8.3 each -- so the coordinates start at column 20.
+# Placement chooses a *point* per molecule, so the molecule keeps its geometry only if each atom is written as that
+# point plus its own offset. A first version wrote every bead of a molecule at the same coordinates: the file was five
+# characters short per line for want of the serial, and even with that fixed each maltose would have been eight beads
+# stacked on one another.
+shape = [(line[:15], float(line[20:28]), float(line[28:36]), float(line[36:44])) for line in atoms]
+centre = [sum(atom[i] for atom in shape) / len(shape) for i in (1, 2, 3)]
+relative = [(prefix, x - centre[0], y - centre[1], z - centre[2]) for prefix, x, y, z in shape]
+
 rng = random.Random(20261006)
 # Rejection sampling with a floor on the separation: the paper's polyply does this properly, and this reports what it
 # actually managed rather than assuming it succeeded.
@@ -70,11 +80,11 @@ for other in placed:
 lines = ['placed solute and reference', f'{len(atoms) * count + 1:5d}']
 serial = 0
 for position in placed:
-    for atom in atoms:
+    for prefix, dx, dy, dz in relative:
         serial += 1
-        # The .gro atom line is a 15-character prefix (residue 5, atom 5, serial 5) and then three coordinates.
-        # The input line's own prefix is copied verbatim, which keeps its residue and atom names.
-        lines.append(f'{atom[:15]:<15}{position[0]:8.3f}{position[1]:8.3f}{position[2]:8.3f}')
+        # prefix(15) + serial(5) + x, y, z (8.3 each) = 44 characters, which is what fixed format means.
+        lines.append(f'{prefix}{serial:5d}'
+                     f'{position[0] + dx:8.3f}{position[1] + dy:8.3f}{position[2] + dz:8.3f}')
 # the reference bead, at the exact centre
 serial += 1
 lines.append(f'{"    1REFC":<10}{"REF":<5}{serial:5d}{box[0] / 2:8.3f}{box[1] / 2:8.3f}{box[2] / 2:8.3f}')

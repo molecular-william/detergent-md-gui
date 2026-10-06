@@ -24,7 +24,7 @@ from pathlib import Path
 
 from ... import files
 from .. import protocol, tools
-from ..environment import ROOT, recorded_environment
+from ..environment import ROOT, TUTORIAL_TEMPLATE, recorded_environment
 from ..stages import Stage, stage_tables
 from . import osmotic_box, osmotic_mdp
 
@@ -37,16 +37,22 @@ MANIFEST = 'osmotic_condition.json'
 
 
 def reference_bead_itp(*, residue='REFC'):
-    """The one-bead molecule the pull measures against: zero size, zero charge, and therefore no interaction."""
+    """The one-bead molecule the pull measures against: zero size, zero charge, and therefore no interaction.
+
+    **`[ atomtypes ]` comes first, and that is not cosmetic.** GROMACS resolves an atom's type as it reads the
+    moleculetype, so a type declared after the `[ atoms ]` that uses it is not found -- the run failed with
+    "Atomtype REF not found" while the type sat visible in the same file, eleven lines below. The first version of
+    this function had the block last.
+    """
     return (
+        f'[ atomtypes ]\n'
+        f'; the zero-size type: no van der Waals, and the zero charge means no Coulomb either\n'
+        f'{REFERENCE_TYPE}  {REFERENCE_MASS:g}  0.0  A  0.0  0.0\n\n'
         f'[ moleculetype ]\n{REFERENCE_MOLECULE}  1\n\n'
         f'; a frozen, non-interacting bead at the box centre, for the pull to measure against\n'
         f'[ atoms ]\n'
         f';id  type  resnr  residu  atom  cgnr  charge  mass\n'
-        f' 1   {REFERENCE_TYPE}   1  {residue}  {REFERENCE_TYPE}   1   0.0   {REFERENCE_MASS:g}\n\n'
-        f'[ atomtypes ]\n'
-        f'; the zero-size type: no van der Waals, and the zero charge above means no Coulomb either\n'
-        f'{REFERENCE_TYPE}  {REFERENCE_MASS:g}  0.0  A  0.0  0.0\n'
+        f' 1   {REFERENCE_TYPE}   1  {residue}  {REFERENCE_TYPE}   1   0.0   {REFERENCE_MASS:g}\n'
     )
 
 
@@ -357,6 +363,13 @@ def prepare(run_dir, metadata):
             shutil.copy2(Path(root) / name, stage / 'solute' / name)
     for name in ('minimization.mdp', 'eq.mdp', 'md.mdp', 'reference.itp', 'osmotic_condition.json'):
         shutil.copy2(run_dir / 'inputs' / name, stage / name)
+    # The force field the topology includes at its top level, from the source the CG path copies it from. It is not a
+    # molecule file and did not come from `solute_root`, so it is staged here -- and grompp's refusal to find it is
+    # what a run looks like when it is missing, one step before minimization.
+    force_field = TUTORIAL_TEMPLATE / '3_initial_CG' / 'martini_v3.0.0.itp'
+    if not force_field.is_file():
+        raise ValueError(f'the Martini force field is missing: {force_field}')
+    shutil.copy2(force_field, stage / 'martini_v3.0.0.itp')
     if record['solute_molecules'] == 0:
         # A zero-molality condition is a legitimate control and is stated as one rather than looking like a mistake.
         (run_dir / 'inputs' / 'control.json').write_text(
