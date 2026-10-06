@@ -346,6 +346,8 @@ class Coordinator:
                         'profile': job.get('profile', 'standard'), 'mapping_candidate': job.get('mapping_snapshot'),
                         'composition_id': job.get('composition_id'), 'root': self.ROOT,
                         'protein': job.get('protein'), 'template': job.get('template'),
+                        'settings': job.get('settings') or {},
+                        'solute_root': (job.get('settings') or {}).get('solute_root'),
                         'project_root': str(self.ROOT)})
                 if not readiness['ready']:
                     raise ValueError('; '.join(readiness['blockers']))
@@ -364,6 +366,15 @@ class Coordinator:
                             work, {'protein': job.get('protein'), 'template': job.get('template'),
                                    'mapping_candidate': job.get('mapping_candidate') or job.get('mapping_snapshot'),
                                    'settings': job.get('settings'), 'project_root': str(self.ROOT)})
+                    elif not in_place and job.get('run_type') == 'osmotic':
+                        # An osmotic condition writes its own single stage; the CG kwargs below describe a molecule
+                        # and would filter the settings down to keys this run type does not use -- dropping the
+                        # molality, which is the one setting that makes a series a series.
+                        protocol.adapter_for('osmotic').prepare(
+                            work, {'settings': job.get('settings') or {},
+                                   'mapping_snapshot': job.get('mapping_snapshot'),
+                                   'molecule_id': job.get('molecule_id'),
+                                   'molecule_root': self.ROOT / 'molecules'})
                     elif not in_place:
                         kwargs=dict(detergent=job['detergent'],profile=job.get('profile','standard'),settings={k:v for k,v in job.get('settings',{}).items() if k in cg.SETTING_SPECS},mapping_candidate=job.get('mapping_snapshot'),bonded_state_snapshot=job.get('bonded_state_snapshot'),bonded_intent=job.get('bonded_intent','fit_and_simulate'),molecule_snapshot=job.get('molecule_snapshot'),molecule_root=self.ROOT / 'molecules')
                         if job.get('shared_reference'):kwargs.update(shared_reference=job['shared_reference'],reference_root=self.RUNS)

@@ -91,7 +91,9 @@ def test_prepare_builds_a_run_the_executor_could_start(tmp_path):
     for name in ('minimization.mdp', 'eq.mdp', 'md.mdp', 'reference.itp', 'osmotic_condition.json'):
         assert (tmp_path / 'inputs' / name).is_file(), name
     assert (tmp_path / '01_simulate' / 'run.sh').is_file()
-    assert (tmp_path / '01_simulate' / 'inputs' / 'md.mdp').is_file()
+    # The runner's own documented layout: the molecule in `solute/` beside it, the build's files in its directory.
+    assert (tmp_path / '01_simulate' / 'md.mdp').is_file()
+    assert (tmp_path / '01_simulate' / 'solute' / 'solute.gro').is_file()
     assert 'REF' in (tmp_path / 'inputs' / 'reference.itp').read_text()
     # The manifest every prepared run type carries, wherever the shared writer puts it: what matters is that this
     # run type has one and that it names itself, because the resume path verifies runs against it.

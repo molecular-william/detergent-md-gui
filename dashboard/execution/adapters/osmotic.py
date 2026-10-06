@@ -142,13 +142,23 @@ def plan_and_build(destination, *, molality, temperature, bead_radii_nm=(), solu
 # --- the run type ----------------------------------------------------------------------------------------------
 
 VERSION = 'osmotic-v1'
-PROFILES = ('standard',)
+#: `draft-smoke` is the repository's execution-only profile -- the same name the CG path uses for candidate screening,
+#: and the one an unreviewed mapping is enough for. Its meaning is *short execution test*, so its durations are short:
+#: the paper's 500 ns under a profile named for smoke-testing would be a series nobody meant to launch.
+PROFILES = ('standard', 'draft-smoke')
 #: **One stage, deliberately.** The paper's 500 ns is one mdrun, and splitting minimization, equilibration and
 #: production into separate stages would copy the placed system between them -- which is exactly why
 #: `cg_simulation.sh` runs its three mdrun calls inside a single stage too. The plan said seven stages before this
 #: script existed; this is the table the script actually has.
+#: The files the stage needs: the five the build writes plus the three the molecule supplies, each named relative to the
+#: stage directory (`../inputs/x`, the way `aa.py` names `../01_solvation/system.gro`). The executor checks these in the
+#: stage directory before it runs, and reports a bare directory name as a missing input -- which is what a first
+#: version of this declaration got.
+STAGE_FILES = ('minimization.mdp', 'eq.mdp', 'md.mdp', 'reference.itp', 'osmotic_condition.json',
+               'solute.gro', 'solute.itp', 'water.gro')
 STAGE_DEFS = (
-    Stage('Osmotic condition', '01_simulate/run.sh', ('inputs/',),
+    Stage('Osmotic condition', '01_simulate/run.sh',
+          tuple(f'../inputs/{name}' for name in STAGE_FILES),
           ('prod/md_whole.xtc', 'built.json', 'system.top')),
 )
 STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS = stage_tables(STAGE_DEFS)
@@ -171,8 +181,9 @@ SETTING_SPECS = {
     'mdrun_ranks': ('mdrun MPI ranks', 1, 72),
 }
 #: The files one molecule's solver needs, in `solute_root`. Named rather than discovered, so a missing one is a
-#: blocker with its name in it instead of a failure halfway through a build.
-SOLUTE_FILES = ('solute.gro', 'solute.itp', 'water.gro')
+#: blocker with its name in it instead of a failure halfway through a build. The last is the Martini solvent
+#: definitions the runner's topology includes, from beside the molecule in the stage's own `solute/` directory.
+SOLUTE_FILES = ('solute.gro', 'solute.itp', 'water.gro', 'martini_v3.0.0_solvents_v1.itp')
 
 
 #: A condition's series membership is a string, not a number, so it is declared here rather than in
@@ -187,7 +198,10 @@ CHOICE_SPECS = {'series_id': ('The series this condition belongs to', ()),
 def stage_defaults(profile='standard'):
     if profile not in PROFILES:
         raise ValueError(f'unknown osmotic profile: {profile}')
-    return {'values': dict(DEFAULTS), 'sources': {'osmotic': VERSION}, 'profile': VERSION}
+    values = dict(DEFAULTS)
+    if profile != 'standard':
+        values.update(osmotic_production_ps=1000.0, osmotic_equilibration_ps=1000.0)
+    return {'values': values, 'sources': {'osmotic': VERSION}, 'profile': profile}
 
 
 def normalize_settings(settings=None, profile='standard'):
@@ -323,18 +337,20 @@ def prepare(run_dir, metadata):
                    equilibration_ps=settings['osmotic_equilibration_ps'],
                    output_interval_ps=settings['osmotic_output_interval_ps'])
     stage = run_dir / '01_simulate'
-    (stage / 'inputs').mkdir(parents=True, exist_ok=True)
+    (stage / 'solute').mkdir(parents=True, exist_ok=True)
     shutil.copy2(SCRIPTS / 'osmotic_simulation.sh', stage / 'run.sh')
-    # The runner reads the molecule's own files from `inputs/`, so they are copied in here -- and a missing one is a
-    # refusal rather than a run that starts and then cannot solvate.
+    # **The layout the runner documents is the layout it must get.** It reads the molecule's files from `solute/`
+    # beside itself and the build's files from its own directory; the first version of this method put all of them
+    # under `inputs/` and the first real run died on the very first file it looked for. A missing molecule file is a
+    # refusal here, where the name is known, rather than a failure inside GROMACS.
     root = _solute_root(metadata)
     if root:
         for name in SOLUTE_FILES:
             if not (Path(root) / name).is_file():
                 raise ValueError(f'solute_root is missing {name}: {root}')
-            shutil.copy2(Path(root) / name, run_dir / 'inputs' / name)
+            shutil.copy2(Path(root) / name, stage / 'solute' / name)
     for name in ('minimization.mdp', 'eq.mdp', 'md.mdp', 'reference.itp', 'osmotic_condition.json'):
-        shutil.copy2(run_dir / 'inputs' / name, stage / 'inputs' / name)
+        shutil.copy2(run_dir / 'inputs' / name, stage / name)
     if record['solute_molecules'] == 0:
         # A zero-molality condition is a legitimate control and is stated as one rather than looking like a mistake.
         (run_dir / 'inputs' / 'control.json').write_text(
@@ -343,7 +359,8 @@ def prepare(run_dir, metadata):
                                 'exists to show the measurement floor rather than a value'},
                        indent=2, sort_keys=True) + '\n')
     protocol.write_prepared_manifest(
-        run_dir, dict(metadata, run_type='osmotic', workflow_version=VERSION), tools=tool_metadata(),
+        run_dir, {'molecule_id': metadata.get('molecule_id'), 'settings': dict(metadata.get('settings') or {}),
+                  'run_type': 'osmotic', 'workflow_version': VERSION}, tools=tool_metadata(),
         plan=[name for name, _ in STAGES], environment=recorded_environment())
     return record
 
