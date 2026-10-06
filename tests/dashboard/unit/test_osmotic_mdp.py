@@ -9,6 +9,15 @@ import pytest
 
 from dashboard.execution.adapters import osmotic_mdp
 
+#: What the tests confine. Every mdp call goes through `mdps()` so the count is stated once, and the per-molecule
+#: coordinates are exercised rather than a single-coordinate special case.
+MOLECULES = 3
+
+
+def mdps(**overrides):
+    """The three stages for a condition, with the temperature and molecule count the tests use."""
+    return osmotic_mdp.osmotic_mdps(temperature=308.15, solute_molecules=MOLECULES, **overrides)
+
 
 def settings(text):
     """An mdp as a dict, ignoring comments and blanks -- what GROMACS would read."""
@@ -22,21 +31,21 @@ def settings(text):
 
 
 def test_the_three_stages_exist_and_are_their_own_method():
-    mdps = osmotic_mdp.osmotic_mdps(temperature=308.15)
+    built = mdps()
 
-    assert set(mdps) == {'minimization', 'equilibration', 'production'}
-    assert settings(mdps['minimization'])['integrator'] == 'steep'
-    assert settings(mdps['equilibration'])['integrator'] == 'md'
-    assert settings(mdps['production'])['integrator'] == 'md'
+    assert set(built) == {'minimization', 'equilibration', 'production'}
+    assert settings(built['minimization'])['integrator'] == 'steep'
+    assert settings(built['equilibration'])['integrator'] == 'md'
+    assert settings(built['production'])['integrator'] == 'md'
     assert osmotic_mdp.STAGES == ('minimization', 'equilibration', 'production')
 
 
 def test_only_z_is_coupled_and_the_cg_half_s_isotropic_coupling_is_not_reused():
     """The mechanism, not a preference: zero compressibility in xy means the box is not rescaled there."""
-    mdps = osmotic_mdp.osmotic_mdps(temperature=308.15)
+    built = mdps()
 
     for stage in ('equilibration', 'production'):
-        read = settings(mdps[stage])
+        read = settings(built[stage])
         assert read['pcoupltype'] == 'semiisotropic'
         compressibility = read['compressibility'].split()
         assert compressibility[0] == '0'
@@ -47,8 +56,8 @@ def test_only_z_is_coupled_and_the_cg_half_s_isotropic_coupling_is_not_reused():
 def test_the_equilibration_uses_a_berendsen_barostat_because_the_paper_says_so():
     """This is the one place the osmotic series deliberately differs from every other CG run here, whose
     equilibration uses c-rescale. The paper names Berendsen; the CG half's value would be a different method."""
-    equilibration = settings(osmotic_mdp.osmotic_mdps(temperature=308.15)['equilibration'])
-    production = settings(osmotic_mdp.osmotic_mdps(temperature=308.15)['production'])
+    equilibration = settings(mdps()['equilibration'])
+    production = settings(mdps()['production'])
 
     assert equilibration['pcoupl'] == 'berendsen'
     assert equilibration['tcoupl'] == 'v-rescale'
@@ -60,9 +69,9 @@ def test_the_equilibration_uses_a_berendsen_barostat_because_the_paper_says_so()
 def test_the_solute_is_confined_in_every_stage_including_minimization():
     """A stage without the restraint is a stage where the solute can drift out of the slab, and minimization is
     exactly where a bad initial configuration would."""
-    mdps = osmotic_mdp.osmotic_mdps(temperature=308.15)
+    built = mdps()
 
-    for stage, text in mdps.items():
+    for stage, text in built.items():
         read = settings(text)
         assert read['pull'] == 'yes', stage
         assert read['pull-coord1-type'] == 'flat-bottom', stage
@@ -73,16 +82,48 @@ def test_the_solute_is_confined_in_every_stage_including_minimization():
         assert read['pull-coord1-rate'] == '0', stage
 
 
-def test_the_restraint_needs_two_groups_because_the_probe_says_one_is_refused():
-    """`pull-coord1-groups should contain 2 pull group indices with geometry`, from grompp on 2026-10-06. The second
-    is a reference at the box centre, and the builder's job is to make that name true."""
-    read = settings(osmotic_mdp.osmotic_mdps(temperature=308.15, solute_group='MALTOSE',
+def test_every_molecule_gets_its_own_coordinate():
+    """One coordinate per molecule, which is what the paper describes: "At a distance of 2.52078 nm from the center
+    of the box, a harmonic force with a force constant 1000 kJ/nm2 was applied to the solute molecules."
+
+    This started as *one* group for the whole solute. That group cannot be given a PBC reference atom -- GROMACS
+    requires every atom within a quarter box of one, and the solute fills the box in xy -- so grompp refused it three
+    different ways, and when it was forced through mdrun aborted the run after 76 ns when the coordinate it computed
+    from the wrong reference exceeded half the box. A single molecule is about 0.5 nm across, so this passes on its
+    own. The absence of a pbcatom is asserted, because putting one back would be a silent return to that design.
+    """
+    read = settings(osmotic_mdp.osmotic_mdps(temperature=308.15, solute_molecules=4,
                                             reference_group='CENTRE')['production'])
 
-    assert read['pull-ngroups'] == '2'
-    assert read['pull-coord1-groups'].split() == ['1', '2']
-    assert read['pull-group1-name'] == 'MALTOSE'
-    assert read['pull-group2-name'] == 'CENTRE'
+    assert read['pull-ngroups'] == '5'
+    assert read['pull-ncoords'] == '4'
+    for coordinate in range(1, 5):
+        assert read[f'pull-coord{coordinate}-groups'].split() == [str(coordinate), '5']
+        assert read[f'pull-coord{coordinate}-geometry'] == 'direction'
+        assert float(read[f'pull-coord{coordinate}-init']) == pytest.approx(2.52078)
+        assert float(read[f'pull-coord{coordinate}-k']) == pytest.approx(1000.0)
+    assert read['pull-group1-name'] == 'MOL1'
+    assert read['pull-group4-name'] == 'MOL4'
+    assert read['pull-group5-name'] == 'CENTRE'
+    assert 'pull-pbc-ref-prev-step-com' not in read
+    assert not [key for key in read if 'pbcatom' in key]
+
+
+def test_a_pure_solvent_control_has_nothing_to_confine_and_says_so():
+    """0 molal is a legitimate condition: no solute, so no restraint -- and its pressure is zero by construction. It
+    is the condition that shows where the measurement floor is, so refusing it would delete a real measurement."""
+    assert osmotic_mdp.restraint_block(solute_molecules=0) == ['pull                    = no']
+
+    built = osmotic_mdp.osmotic_mdps(temperature=308.15, solute_molecules=0)
+    for stage in ('equilibration', 'production'):
+        read = settings(built[stage])
+        assert read['pull'] == 'no'
+        assert 'pull-nstfout' not in read, stage
+
+
+def test_a_negative_molecule_count_is_refused():
+    with pytest.raises(ValueError, match='cannot be negative'):
+        osmotic_mdp.restraint_block(solute_molecules=-1)
 
 
 def test_the_temperature_is_the_dataset_s_and_has_no_default():
@@ -91,18 +132,18 @@ def test_the_temperature_is_the_dataset_s_and_has_no_default():
     with pytest.raises(TypeError):
         osmotic_mdp.osmotic_mdps()
 
-    mdps = osmotic_mdp.osmotic_mdps(temperature=308.15)
+    built = mdps()
     for stage in ('equilibration', 'production'):
-        read = settings(mdps[stage])
+        read = settings(built[stage])
         assert float(read['ref_t']) == pytest.approx(308.15)
         assert float(read['gen-temp']) == pytest.approx(308.15)
 
 
 def test_each_stage_s_own_dt_turns_the_duration_into_its_step_count():
-    mdps = osmotic_mdp.osmotic_mdps(temperature=308.15, equilibration_ps=10000.0, production_ps=500000.0)
+    built = mdps(equilibration_ps=10000.0, production_ps=500000.0)
 
-    equilibration = settings(mdps['equilibration'])
-    production = settings(mdps['production'])
+    equilibration = settings(built['equilibration'])
+    production = settings(built['production'])
     assert float(equilibration['dt']) == pytest.approx(0.005)
     assert int(equilibration['nsteps']) * 0.005 == pytest.approx(10000.0)
     assert float(production['dt']) == pytest.approx(0.02)
@@ -110,7 +151,7 @@ def test_each_stage_s_own_dt_turns_the_duration_into_its_step_count():
 
 
 def test_the_default_production_is_the_papers_five_hundred_nanoseconds():
-    production = settings(osmotic_mdp.osmotic_mdps(temperature=308.15)['production'])
+    production = settings(mdps()['production'])
 
     assert int(production['nsteps']) * float(production['dt']) == pytest.approx(500000.0)
     assert osmotic_mdp.DEFAULT_PRODUCTION_PS == pytest.approx(500000.0)
@@ -118,7 +159,7 @@ def test_the_default_production_is_the_papers_five_hundred_nanoseconds():
 
 def test_a_setup_check_can_run_five_nanoseconds_of_the_same_system():
     """The tier exists: a setup check must be able to run the same mdps short, so the duration is a parameter."""
-    text = osmotic_mdp.osmotic_mdps(temperature=308.15, production_ps=5000.0)['production']
+    text = mdps(production_ps=5000.0)['production']
 
     assert int(settings(text)['nsteps']) * 0.02 == pytest.approx(5000.0)
 
@@ -127,11 +168,11 @@ def test_the_output_interval_divides_the_duration_exactly():
     """GROMACS would simply write the frames that fit. Two conditions with different effective averaging windows are
     not comparable, which is what makes this worth refusing."""
     with pytest.raises(ValueError, match='whole number'):
-        osmotic_mdp.osmotic_mdps(temperature=308.15, production_ps=5005.0, output_interval_ps=10.0)
+        mdps(production_ps=5005.0, output_interval_ps=10.0)
     with pytest.raises(ValueError, match='shorter than its output interval'):
-        osmotic_mdp.osmotic_mdps(temperature=308.15, production_ps=5.0, output_interval_ps=10.0)
+        mdps(production_ps=5.0, output_interval_ps=10.0)
     with pytest.raises(ValueError, match='positive'):
-        osmotic_mdp.osmotic_mdps(temperature=308.15, output_interval_ps=0.0)
+        mdps(output_interval_ps=0.0)
 
 
 def test_the_trajectory_is_written_often_enough_to_average_a_force_over():
@@ -143,7 +184,7 @@ def test_the_trajectory_is_written_often_enough_to_average_a_force_over():
     returns 10 for exactly the numbers the buggy code produced. It passed while the run would have written one frame
     per nanosecond, and it would have blocked the fix.
     """
-    production = settings(osmotic_mdp.osmotic_mdps(temperature=308.15)['production'])
+    production = settings(mdps()['production'])
 
     dt = float(production['dt'])
     interval_ps = int(production['nstxtcout']) * dt
@@ -156,17 +197,18 @@ def test_the_confinement_constants_are_the_papers_and_are_overridable_only_on_pu
     assert osmotic_mdp.DEFAULT_CONFINEMENT_NM == pytest.approx(2.52078)
     assert osmotic_mdp.DEFAULT_CONFINEMENT_KJ_MOL_NM2 == pytest.approx(1000.0)
 
-    block = '\n'.join(osmotic_mdp.restraint_block(confinement_nm=1.0, force_constant=5.0))
+    block = '\n'.join(osmotic_mdp.restraint_block(solute_molecules=2, confinement_nm=1.0, force_constant=5.0))
     assert 'pull-coord1-init        = 1' in block
     assert 'pull-coord1-k           = 5' in block
+    assert 'pull-coord2-init        = 1' in block
 
 
 def test_the_reference_bead_is_frozen_in_every_stage():
     """It defines the coordinate's origin, so it must not move: a spring would let it drift, and that drift would be
     indistinguishable from an osmotic pressure. The group name comes from the index file the build writes."""
-    mdps = osmotic_mdp.osmotic_mdps(temperature=308.15)
+    built = mdps()
 
-    for stage, text in mdps.items():
+    for stage, text in built.items():
         read = settings(text)
         assert read['freezegrps'] == 'REFERENCE', stage
         assert read['freezedim'] == 'Y Y Y', stage
@@ -174,7 +216,7 @@ def test_the_reference_bead_is_frozen_in_every_stage():
 
 def test_every_line_is_a_comment_a_blank_or_a_key_value():
     """An mdp that GROMACS would reject is not worth writing, and the cheapest way to know is to look."""
-    for stage, text in osmotic_mdp.osmotic_mdps(temperature=308.15).items():
+    for stage, text in mdps().items():
         for number, line in enumerate(text.splitlines(), start=1):
             stripped = line.split(';', 1)[0].strip()
             assert not stripped or '=' in stripped, f'{stage}:{number}: {line!r}'

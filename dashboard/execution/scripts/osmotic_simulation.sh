@@ -126,29 +126,9 @@ header = next(n for n, line in enumerate(lines) if line.strip().startswith('[ mo
 name = lines[header + 1].split()[0]
 (workdir / 'solute_molecule.txt').write_text(name + '\n')
 
-# The PBC reference atom of the solute group, and the option that must accompany it. grompp's own message: "The
-# maximum distance from the chosen PBC atom (280) of pull group 1 to other atoms in the group is larger than 0.5 times
-# half the box size. Set the pull-pbc-ref-prev-step-com option to yes." The solute fills the box in xy -- only z is
-# confined -- so no single atom is central enough on its own, and the option without an atom is refused just as the
-# atom without the option is. Which atom is central depends on where the molecules went, so it is chosen here and
-# appended to each mdp (GROMACS takes the last setting of a repeated key).
-gro = (workdir / 'system.gro').read_text().splitlines()
-box_z = float(gro[-1].split()[2])
-best, best_distance = None, None
-for serial in range(1, placement['solute_atoms_in_system'] + 1):
-    z = float(gro[serial + 1][36:44])          # +1: line 0 is the title, line 1 the atom count
-    distance = abs(z - box_z / 2)
-    if best_distance is None or distance < best_distance:
-        best, best_distance = serial, distance
-(workdir / 'solute_pbcatom.txt').write_text(str(best) + '\n')
-
-print('solute: moleculetype %s, pbcatom %d (%.3f nm from the centre in z)'
-      % (name, best, best_distance))
+print('solute: moleculetype %s, %d molecules confined individually'
+      % (name, placement['solute_molecules_placed']))
 PY
-
-for mdp in minimization.mdp eq.mdp md.mdp; do
-    printf 'pull-group1-pbcatom     = %s\n' "$(cat solute_pbcatom.txt)" >> "$mdp"
-done
 
 # 3. The topology: the force field, the solute, the reference and the water, with the counts between them. `solvate`
 #    fills the water count in [ molecules ] itself, which is why that line starts at zero.
@@ -174,8 +154,11 @@ gmx solvate -cp system.gro -cs "$SOLUTE_DIR/water.gro" -p system.top -radius 0.2
 # 4b. The index, now that the system is complete. **`System` must cover the solvated atoms**, and passing `-n` replaces
 #     GROMACS's own group list rather than adding to it -- so an index written before solvation leaves every water
 #     bead outside the thermostat and the first dynamics step fails with "1537 atoms are not part of any of the
-#     T-Coupling groups". The pull's two groups are the same indices either way: solvate appends.
-python - "$PWD" <<'PY'
+#     T-Coupling groups". The pull's groups are the same indices either way: solvate appends.
+#     **One group per solute molecule**, named MOL<i> to match the per-molecule coordinates the adapter wrote into the
+#     mdps. The adapter used the *planned* count and this uses the *placed* count; if those ever diverge the index
+#     cannot name a group the mdp asks for, and grompp says so rather than the run confining something unintended.
+python - "$PWD" "$SOLUTE_DIR" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -188,8 +171,10 @@ total = int((workdir / 'solvated.gro').read_text().splitlines()[1])
 reference = placement['reference_atom']
 (workdir / 'index.ndx').write_text(osmotic.index_groups(
     solute_atoms=range(1, reference), reference_atom=reference,
+    solute_molecules=placement['solute_molecules_placed'],
     solvent_atoms=range(reference + 1, total + 1)))
-print('index: System 1-%d, SOLUTE 1-%d, REFERENCE %d' % (total, reference - 1, reference))
+print('index: System 1-%d, %d MOL groups, REFERENCE %d'
+      % (total, placement['solute_molecules_placed'], reference))
 PY
 
 # 5. The stages. -n names the groups for freezegrps and for the pull alike. The equilibration takes no `-t`: a steep

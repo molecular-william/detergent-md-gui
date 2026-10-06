@@ -140,7 +140,7 @@ def test_the_paper_scale_production_writes_the_frames_it_was_asked_for():
     frame -- a hundred times sparser than asked, and the same cost."""
     from dashboard.execution.adapters import osmotic_mdp
 
-    mdps = osmotic_mdp.osmotic_mdps(temperature=308.15, production_ps=500000.0,
+    mdps = osmotic_mdp.osmotic_mdps(temperature=308.15, solute_molecules=2, production_ps=500000.0,
                                     equilibration_ps=10000.0, output_interval_ps=10.0)
 
     def settings(text):
@@ -174,7 +174,7 @@ def test_an_output_interval_that_is_not_a_whole_number_of_steps_is_refused():
     from dashboard.execution.adapters import osmotic_mdp
 
     with pytest.raises(ValueError, match='whole number of'):
-        osmotic_mdp.osmotic_mdps(temperature=308.15, production_ps=1000.0,
+        osmotic_mdp.osmotic_mdps(temperature=308.15, solute_molecules=2, production_ps=1000.0,
                                  equilibration_ps=1000.0, output_interval_ps=0.017)
 
 

@@ -56,21 +56,25 @@ def reference_bead_itp(*, residue='REFC'):
     )
 
 
-def index_groups(*, solute_atoms, reference_atom, solvent_atoms=()):
+def index_groups(*, solute_atoms, reference_atom, solute_molecules, solvent_atoms=()):
     """The `.ndx` naming the pull's two groups, plus the solvent for anything that wants it.
 
     Indices are 1-based, as GROMACS writes them. A group that is empty or that shares an atom with another is refused
     here: `grompp` would take the file happily and the run would measure something other than what was intended.
 
     **`System` is written too, and it is not decoration.** Passing `-n` replaces GROMACS's own group list rather than
-    adding to it, so an index with only the two pull groups leaves the mdps' `tc-grps = System` and `comm-grps =
-    System` referring to nothing: the minimization, which has no thermostat, passes, and the first *dynamics* step
-    fails with "Group System referenced in the .mdp file was not found in the list of index".
+    adding to it, so an index with only the pull groups leaves the mdps' `tc-grps = System` and `comm-grps = System`
+    referring to nothing: the minimization, which has no thermostat, passes, and the first *dynamics* step fails with
+    "Group System referenced in the .mdp file was not found in the list of index".
+
+    **One group per solute molecule**, because that is the granularity the confinement acts at: each molecule is
+    confined by its own flat-bottom coordinate, and the analysis sums the forces. The solute atoms are written
+    consecutively -- each molecule's beads together -- which is what makes `MOL<n>` groups possible at all.
     """
     solute = [int(index) for index in solute_atoms]
     solvent = [int(index) for index in solvent_atoms]
     reference = int(reference_atom)
-    if not solute:
+    if not solute and int(solute_molecules):
         raise ValueError('the solute group is empty, so there is nothing to confine or to measure')
     if reference <= 0:
         raise ValueError(f'the reference atom index {reference} is not 1-based')
@@ -79,9 +83,17 @@ def index_groups(*, solute_atoms, reference_atom, solvent_atoms=()):
         raise ValueError(f'atom {sorted(overlap)[0]} is in both the solute and the solvent group')
     if reference in set(solute) | set(solvent):
         raise ValueError(f'the reference atom {reference} is also in the solute or solvent group')
-    lines = ['[ System ]', *[str(index) for index in range(1, max([*solute, reference, *solvent]) + 1)], '',
-             '[ SOLUTE ]', *[str(index) for index in solute], '',
-             '[ REFERENCE ]', str(reference), '']
+    per_molecule = (len(solute) // int(solute_molecules)) if int(solute_molecules) else 0
+    if per_molecule * int(solute_molecules) != len(solute):
+        raise ValueError(f'{len(solute)} solute atoms do not divide into {solute_molecules} molecules, '
+                         'so the per-molecule confinement groups cannot be named')
+    lines = ['[ System ]', *[str(index) for index in range(1, max([*solute, reference, *solvent]) + 1)], '']
+    for molecule in range(1, int(solute_molecules) + 1):
+        first = (molecule - 1) * per_molecule
+        lines += [f'[ MOL{molecule} ]', *[str(index) for index in solute[first:first + per_molecule]], '']
+    if solute:
+        lines += ['[ SOLUTE ]', *[str(index) for index in solute], '']
+    lines += ['[ REFERENCE ]', str(reference), '']
     if solvent:
         lines += ['[ SOLVENT ]', *[str(index) for index in solvent], '']
     return '\n'.join(lines)
@@ -98,7 +110,8 @@ def build(destination, *, plan, temperature, production_ps=osmotic_mdp.DEFAULT_P
     """
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
-    mdps = osmotic_mdp.osmotic_mdps(temperature=temperature, production_ps=production_ps,
+    mdps = osmotic_mdp.osmotic_mdps(temperature=temperature, solute_molecules=plan['solute_molecules'],
+                                    production_ps=production_ps,
                                     equilibration_ps=equilibration_ps,
                                     output_interval_ps=output_interval_ps)
     written = {}
@@ -110,7 +123,8 @@ def build(destination, *, plan, temperature, production_ps=osmotic_mdp.DEFAULT_P
     # The index file needs atom indices, and a caller that does not know them yet -- the osmotic runner, which writes
     # them after placement -- passes none. Writing a placeholder with invented indices would be worse than writing
     # nothing: grompp would read it and the pull would measure the wrong atoms.
-    index = (index_groups(solute_atoms=solute_atoms, reference_atom=reference_atom, solvent_atoms=solvent_atoms)
+    index = (index_groups(solute_atoms=solute_atoms, reference_atom=reference_atom,
+                          solute_molecules=plan['solute_molecules'], solvent_atoms=solvent_atoms)
              if solute_atoms and reference_atom is not None else None)
     if index is not None:
         (destination / 'index.ndx').write_text(index)

@@ -67,7 +67,7 @@ def _check_duration(duration_ps, output_interval_ps, what):
     return duration_ps, output_interval_ps
 
 
-def restraint_block(*, solute_group='SOLUTE', reference_group='REFERENCE',
+def restraint_block(*, solute_molecules, reference_group='REFERENCE',
                     confinement_nm=DEFAULT_CONFINEMENT_NM,
                     force_constant=DEFAULT_CONFINEMENT_KJ_MOL_NM2):
     """The flat-bottomed pull that confines the solute to a slab at the centre, as mdp lines.
@@ -88,22 +88,41 @@ def restraint_block(*, solute_group='SOLUTE', reference_group='REFERENCE',
     **The geometry is `direction`, not `direction-periodic`**, and that is forced rather than chosen: the box is
     dynamic -- the paper couples pressure at 1 bar -- and grompp refuses the pair outright with "Can not have dynamic
     box while using pull geometry 'direction-periodic' (dim z)". The periodic geometry only applies to a fixed box.
+
+    **One coordinate per solute molecule**, which is what the paper describes: "At a distance of 2.52078 nm from the
+    center of the box, a harmonic force with a force constant 1000 kJ/nm2 was applied to the solute molecules." Each
+    coordinate is one molecule's centre of mass against the frozen reference bead, so every molecule is confined
+    individually and the force the analysis averages is the sum over molecules -- the quantity divided by the xy area.
+
+    **Why not one group for the whole solute**, which is what this started as: with the solute filling the box in xy,
+    that group cannot be given a PBC reference atom -- GROMACS requires every atom within a quarter box of one, and
+    the group's own extent is larger than that. grompp refuses it three different ways, and when it was forced
+    through, mdrun aborted the run after 76 ns when the coordinate it computed from the wrong reference exceeded
+    half the box. A single molecule is about 0.5 nm across, so the check passes on its own and no
+    `pull-group*-pbcatom` and no `pull-pbc-ref-prev-step-com` is needed at all.
     """
-    return [
-        'pull                    = yes',
-        'pull-ngroups            = 2',
-        f'pull-group1-name        = {solute_group}',
-        f'pull-group2-name        = {reference_group}',
-        'pull-ncoords            = 1',
-        'pull-coord1-groups      = 1 2',
-        'pull-coord1-geometry    = direction',
-        'pull-coord1-vec         = 0 0 1',
-        'pull-coord1-type        = flat-bottom',
-        f'pull-coord1-init        = {float(confinement_nm):g}',
-        'pull-coord1-rate        = 0',
-        f'pull-coord1-k           = {float(force_constant):g}',
-        'pull-pbc-ref-prev-step-com = yes',
-    ]
+    molecules = int(solute_molecules)
+    if molecules < 0:
+        raise ValueError('a solute molecule count cannot be negative')
+    if molecules == 0:
+        # The pure-solvent control. There is nothing to confine, and its osmotic pressure is zero by construction --
+        # refusing it would delete the one condition in a series that shows where the measurement floor is.
+        return ['pull                    = no']
+    reference = molecules + 1
+    lines = ['pull                    = yes',
+             f'pull-ngroups            = {molecules + 1}',
+             f'pull-ncoords            = {molecules}']
+    lines += [f'pull-group{index}-name        = MOL{index}' for index in range(1, molecules + 1)]
+    lines += [f'pull-group{reference}-name        = {reference_group}']
+    for coordinate in range(1, molecules + 1):
+        lines += [f'pull-coord{coordinate}-groups      = {coordinate} {reference}',
+                  f'pull-coord{coordinate}-geometry    = direction',
+                  f'pull-coord{coordinate}-vec         = 0 0 1',
+                  f'pull-coord{coordinate}-type        = flat-bottom',
+                  f'pull-coord{coordinate}-init        = {float(confinement_nm):g}',
+                  f'pull-coord{coordinate}-rate        = 0',
+                  f'pull-coord{coordinate}-k           = {float(force_constant):g}']
+    return lines
 
 
 def _lines(*, dt, nsteps, nstxtcout, nstenergy, thermostat, barostat, tau_p, temperature,
@@ -171,10 +190,10 @@ def _lines(*, dt, nsteps, nstxtcout, nstenergy, thermostat, barostat, tau_p, tem
     ] + ([f'pull-nstfout            = {int(pull_nstfout)}'] if pull_nstfout else []) + restraint
 
 
-def osmotic_mdps(*, temperature, production_ps=DEFAULT_PRODUCTION_PS,
+def osmotic_mdps(*, temperature, solute_molecules, production_ps=DEFAULT_PRODUCTION_PS,
                  equilibration_ps=DEFAULT_EQUILIBRATION_PS,
                  output_interval_ps=DEFAULT_OUTPUT_INTERVAL_PS,
-                 solute_group='SOLUTE', reference_group='REFERENCE',
+                 reference_group='REFERENCE',
                  confinement_nm=DEFAULT_CONFINEMENT_NM,
                  force_constant=DEFAULT_CONFINEMENT_KJ_MOL_NM2):
     """The three mdp files for one condition, as `{'minimization'|'equilibration'|'production': text}`.
@@ -182,7 +201,7 @@ def osmotic_mdps(*, temperature, production_ps=DEFAULT_PRODUCTION_PS,
     Durations are in picoseconds and the step counts are derived from each file's own `dt` -- 5 fs where the paper's
     equilibration runs and 20 fs in production, the same split as every other CG run here.
     """
-    restraint = restraint_block(solute_group=solute_group, reference_group=reference_group,
+    restraint = restraint_block(solute_molecules=solute_molecules, reference_group=reference_group,
                                 confinement_nm=confinement_nm, force_constant=force_constant)
     equilibration_ps, output_interval_ps = _check_duration(equilibration_ps, output_interval_ps, 'equilibration')
     production_ps, _ = _check_duration(production_ps, output_interval_ps, 'production')
@@ -193,14 +212,16 @@ def osmotic_mdps(*, temperature, production_ps=DEFAULT_PRODUCTION_PS,
         nstenergy=_every_steps(output_interval_ps, EQUILIBRATION_DT, 'equilibration'),
         thermostat='v-rescale', barostat='berendsen', tau_p=4.0, temperature=temperature,
         compressibility=WATER_COMPRESSIBILITY, gen_vel='yes', continuation='no', restraint=restraint,
-        pull_nstfout=_every_steps(output_interval_ps, EQUILIBRATION_DT, 'equilibration'))
+        pull_nstfout=(_every_steps(output_interval_ps, EQUILIBRATION_DT, 'equilibration')
+                      if int(solute_molecules) else 0))
     production = _lines(
         dt=PRODUCTION_DT, nsteps=int(round(production_ps / PRODUCTION_DT)),
         nstxtcout=_every_steps(output_interval_ps, PRODUCTION_DT, 'production'),
         nstenergy=_every_steps(output_interval_ps, PRODUCTION_DT, 'production'),
         thermostat='v-rescale', barostat='parrinello-rahman', tau_p=12.0, temperature=temperature,
         compressibility=WATER_COMPRESSIBILITY, gen_vel='no', continuation='yes', restraint=restraint,
-        pull_nstfout=_every_steps(output_interval_ps, PRODUCTION_DT, 'production'))
+        pull_nstfout=(_every_steps(output_interval_ps, PRODUCTION_DT, 'production')
+                      if int(solute_molecules) else 0))
     minimization = [
         'title                    = Martini, osmotic pressure series, minimization',
         '',
