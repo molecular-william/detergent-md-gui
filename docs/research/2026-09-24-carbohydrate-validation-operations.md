@@ -194,10 +194,13 @@ one leg that could run today; what holds it back is sampling. The transfer leg n
 runnable. The osmotic leg needs targets that do not exist yet.
 
 **Sampling, measured rather than assumed.** The paper averages SASA and Connolly surfaces over **at least 200 ns of
-both AA and CG**. The longest reference here is DDM's `dbc366ae772b` at 200 ns (20,001 frames, `dt = 0.002 x
-100,000,000`), and its CG arm `d7bfc7422677` ran a full 20 ns production (2,001 frames, `dt = 0.02 x 1,000,000`) --
-both are DDM, not a sugar, so no sugar has a long reference yet. The 200 ns reference ran at about 1250 ns/day in a
-4.0 nm box, which puts 200 ns of AA at roughly four hours on this machine.
+both AA and CG**. **Maltose already has exactly that**: `a54ac8f64710`'s AA reference and `22075892b606`'s CG
+production are each 20,001 frames (`dt 0.002 x 100,000,000` = 200 ns and `dt 0.02 x 10,000,000` = 200 ns, frames every
+10 ps), and the mapped trajectory between them is 20,001 frames as well. Sucrose and trehalose asked for the same CG
+lengths. So the geometry leg's sampling bar is **met** for the sugars, and what stands between us and it is nothing at
+all. The first version of this paragraph said no sugar had a long reference; further checking overturned it, and the
+correction is left visible rather than quietly rewritten. DDM's own `dbc366ae772b` is 200 ns with a 20 ns CG arm
+(`d7bfc7422677`, 2,001 frames) -- also complete.
 
 **The coordinator was restarted on 2026-10-06.** The live instance now serves `surfaces`, `overlap`,
 `bonded_cross_check` and `dihedral_fit` on `/api/jobs/<id>/mapping-consistency`. A process from before the route
