@@ -4,6 +4,42 @@
 sampling (20,001 frames per leg, `dt 0.002 x 100,000,000` and `dt 0.02 x 10,000,000`), so the geometry leg is already
 data-ready and this builder is what stands between us and the paper's third leg.
 
+## The method, as the paper states it
+
+Quoted from the paper, because four of its numbers replace choices this plan had made on its own authority, and it is
+the record we build against:
+
+> A rectangular box was created in which the solute molecules were confined in the z-direction by a flat-bottomed
+> potential to the center of the box. At a distance of 2.52078 nm from the center of the box, a harmonic force with a
+> force constant 1000 kJ/nm2 was applied to the solute molecules. The box dimensions were taken to be 10.08312 nm in
+> z-dimensions and 5.04156 nm in x and y. Previous to each run, a random configuration of solute and solvent molecules
+> was created with polyply placing solute molecules only in the center of the box and the solvent in the entire box.
+> After energy minimization, this setup was subjected to a 10 ns equilibration using a Berendsen barostat. Production
+> simulations were run for 500 ns ... at a pressure of 1 bar. The temperature matched the temperatures reported with
+> the experimental data sets. Following Sauter and Grafmuller, the pressure was coupled only in z-dimensions. The
+> osmotic pressure was computed from the trajectory by recalculating the total force exerted by the solute particles
+> onto the flat-bottomed potential averaged over the two potentials. Subsequently that force is divided by the xy area
+> of the box. The ensemble average as well as an error were computed from the time-series of the osmotic pressure.
+
+What it fixes, in numbers:
+
+| quantity | value | consequence here |
+| --- | --- | --- |
+| box | z 10.08312 nm, x = y 5.04156 nm | **fixed for the whole series**, so the dividing area is one number for all six conditions: 5.04156^2 = **25.4173 nm2** |
+| confinement | flat within 2.52078 nm of the centre, harmonic 1000 kJ/mol/nm2 beyond | 10.08312 / 4 = 2.52078 exactly, so the walls sit at the quarter box |
+| temperature | matched to the experimental dataset | **308.15 K** for maltose, from Ebrahimi & Sadeghi 2016 -- not this repository's 303.15 |
+| build | solute in the centre only, solvent everywhere, placed with polyply | our placement code does this; polyply is not vendored, and that substitution is recorded rather than hidden |
+| equilibration | 10 ns with a Berendsen barostat | not this repository's CG equilibration, which is v-rescale |
+| production | 500 ns at 1 bar, pressure coupled only in z | the bar |
+| the force | **recomputed from the trajectory**, averaged over the two potentials, divided by the xy area | the analysis needs z-coordinates, the two constants and the area -- **not** the pull machinery |
+| the error | from the time series | a block average or the standard error of the mean over the production window, stated either way |
+
+**Two decisions this plan made are superseded, and are left visible rather than deleted.** It chose a fixed water bead
+count with the solute count derived and a box that follows; the paper fixes the box and lets both counts follow. And
+it had the analysis read the pull force from the `.edr`; the paper recomputes it from the trajectory, which is both
+faithful to the method and independent of how the restraint was applied -- which is why Task 0.1's verified answer
+simplifies the analysis rather than enabling it. Task 1.1's arithmetic and Task 2.1's source are corrected below.
+
 ## Why this exists, and what the paper asks for
 
 Grunewald et al. (JCTC 2022, `10.1021/acs.jctc.2c00757`) compares Martini 3 osmotic pressures against experiment for
@@ -143,21 +179,37 @@ as `value`/`uncertainty` with the conversion stated in `conditions` and the DOI 
 
 **Files:**
 - Create: `dashboard/execution/adapters/osmotic_box.py`
-- Modify: `dashboard/execution/adapters/composition.py` (the solute/solvent counting this must not duplicate)
+- Reuse: `dashboard/execution/scripts/pdc_solvate.py` and `dashboard/execution/adapters/pdc_placement.py`
 - Test: `tests/dashboard/unit/test_osmotic_box.py`
 
-**The arithmetic, which is the whole task:**
+**A correction this task needed before it could be written.** The first version of this plan pointed at
+`composition.py` for the counting. That is the wrong module: `composition.py` is a protocol wrapper (`STAGE_DEFS`,
+`prepare_run`, `VERSION = 'cg-composition-v1'`) and holds no counting arithmetic at all. The repository's real
+placement and solvation machinery is `dashboard/execution/scripts/pdc_solvate.py` together with
+`dashboard/execution/adapters/pdc_placement.py`, built for the PDC work and shaped for exactly this: solvent
+everywhere, solute placed deliberately.
+
+**And the water constant must be read, never recalled.** Whether a Martini water bead is three waters or four decides
+the bead's volume, and therefore the water count in a fixed box, and therefore every molality in the series. The mass
+is not in the solvents itp's `[ atoms ]` block -- that block names the type `W` and nothing more -- it is in the
+`[ atomtypes ]` of `martini_v3.0.0.itp`. Read it there and record it as a named constant with the file it came from,
+the way `RADII_NM` records where the bead radii came from. Recalling it is how a series ends up at the wrong
+concentration with every internal check still passing.
+
+**The arithmetic, corrected to the paper's fixed box:**
 
 ```
-n_water  = the fixed water bead count, from the target density and the requested z elongation
-n_solute = m * (n_water / N_A_water) / 1000 * N_A   -- i.e. moles of solute per kilogram of water
-L_xy     = sqrt(n_water * V_water_bead / (L_z))      -- box volume from the counts at the target density
-area     = L_xy^2                                    -- recorded, never recomputed
+V_box      = 10.08312 * 5.04156**2              = 256.32 nm3    the paper's box, fixed for every condition
+area       = 5.04156**2                         = 25.4173 nm2   the same divisor for all six
+n_water    = (V_box - V_solute) / v_water        v_water from the bead's mass at the target density
+n_solute   = requested_m * (kg of water in n_water) * N_A
+achieved_m = n_solute / (kg of water)            recorded beside the requested one, always
 ```
 
-**Step 1 (failing tests):** a requested 1.0 molal gives a solute count that recomputes to 1.0 molal from the recorded
-water bead count; doubling the molality doubles the solute count and leaves the water count alone; the recorded area
-equals the recorded `L_xy` squared; a molality outside 0-2.5 is refused with the bound named.
+**Step 1 (failing tests):** the box is the paper's three dimensions and the area is 25.4173 nm²; a requested 1.0 molal
+gives a solute count whose *achieved* molality recomputes to 1.0 within a bead; doubling the requested molality
+doubles the solute count and leaves the water count alone; a molality outside 0-2.5 is refused with the bound named;
+a water bead count that cannot reach the requested molality at all is refused rather than silently rounded.
 
 **Step 2:** implement, refusing a non-positive water count, a molality outside the paper's range, and a density that
 would put the box below the cutoff.

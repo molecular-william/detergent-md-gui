@@ -206,6 +206,19 @@ correction is left visible rather than quietly rewritten. DDM's own `dbc366ae772
 `bonded_cross_check` and `dihedral_fit` on `/api/jobs/<id>/mapping-consistency`. A process from before the route
 changes returns the older key set and none of the four, which is the tell for whether a restart is owed.
 
+**A field name that misleads, found while reading the first attempt's report.** `geometry.py` sets
+`'passed': not diagnostic_only`, so `passed` means "this attempt ran at the evidence tier" and says nothing whatever
+about the numbers. The setup check reports `passed: false` with four surface means that agree to within 3.7%, and the
+evidence-tier attempt queued the same day reports `passed: true` whatever those means say. A reader who takes the
+field for a quality verdict reads it the wrong way in both directions; the numbers are the substance. Worth renaming
+or renaming the reading, but not silently.
+
+**Maltose's geometry check, measured on 2026-10-06** (all four at the full 20,001 frames, 0-200,000 ps, probe 0.191
+nm): AA 5.8157 nm² (SD 0.0768), mapped raw 5.1801 (0.0625), mapped ring-scaled 5.5548 (0.0768), simulated CG 5.5993
+(0.1742). So the unscaled mapping under-exposes by 10.9%, the 1.15 ring scaling recovers most of that to 4.5%, and
+the simulated CG sits 3.7% below the AA with 2.3 times its variability -- an independent reproduction of the paper's
+own claim that scaling the rings improves surface agreement.
+
 ## Handoff checklist
 
 When continuing this work:
