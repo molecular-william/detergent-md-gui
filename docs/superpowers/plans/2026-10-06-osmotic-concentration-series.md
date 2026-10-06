@@ -1,6 +1,20 @@
 # The concentration-series builder: osmotic pressure for a carbohydrate
 
-**Status:** planned, not started. Written 2026-10-06, after finding that maltose already carries 200 ns of AA *and* CG
+**Status:** Phase 0 built, Phase 1 built except the queue route -- as of 2026-10-06.
+
+| task | state | the numbers |
+| --- | --- | --- |
+| 0.1 the restraint mechanism | ✓ probe | `pull-coord1-type = flat-bottom` accepted by the installed build; two pull groups are mandatory and one is refused |
+| 0.3 the maltose target | ✓ `104c07d` | five points, 13.04 to 72.72 bar, +/- 0.04 to 0.20, under `maltose-osmotic-ebrahimi-2016` |
+| 1.1 the box | ✓ `7afc3f7` | 256.29 nm3 at the paper's dimensions; 2118 W beads and 236 maltose at 2.5 molal; 13 tests |
+| 1.2 the mdps | ✓ `b86f44d`, `62f6e86` | z-only coupling, the paper's Berendsen equilibration, 500 ns default, and the freeze the first version lacked |
+| 1.3 the build and the runner | ✓ `9b19d19`, `62f6e86` | the mdp set, the groups, the reference bead, the manifest's area; the script places, solvates and runs |
+| 1.4 queue the series | ○ not started | needs an `osmotic` protocol in `protocol.py` first, or the route would queue a run type that nothing can run |
+
+A note on the order of what remains: Task 1.4's route is small, but it creates jobs of a run type that has to exist, so
+the protocol registration comes first. A queued job that cannot run is worse than no job.
+
+Written 2026-10-06, after finding that maltose already carries 200 ns of AA *and* CG
 sampling (20,001 frames per leg, `dt 0.002 x 100,000,000` and `dt 0.02 x 10,000,000`), so the geometry leg is already
 data-ready and this builder is what stands between us and the paper's third leg.
 
@@ -264,6 +278,34 @@ paper's bar rather than refused.
 **Step 2:** implement.
 
 **Step 3:** commit. `feat:` -- the osmotic series runs as jobs.
+
+**Measured (2026-10-06).** Two commits: `9b19d19` the build, `62f6e86` the runner and the freeze.
+
+The build writes the mdp set, an index file, the reference bead's itp and `osmotic_condition.json`, and its test asserts
+that the mdps it writes are byte-for-byte `osmotic_mdp`'s -- one source of truth for the method, so the two cannot
+drift.
+
+**The reference bead is the piece that matters.** One bead at the box centre with `sigma = 0`, `epsilon = 0` and zero
+charge, so it has no van der Waals and no Coulomb; given a real mass because GROMACS will not integrate a massless
+bead; and frozen in all three stages. A reference that interacted would perturb the slab it is measuring, and one that
+could move would be a drift indistinguishable from an osmotic pressure.
+
+**The runner was exercised rather than described.** `bash -n` clean, and on a fixture of 8 molecules of 2 atoms plus
+the reference: the right atom count, a well-formed 15-character `.gro` prefix with three coordinates each, the
+reference at (2.521, 2.521, 5.042) -- the box centre to five decimals -- and a measured minimum separation of 1.1284 nm
+against a 0.7 nm target, with `gate_met` recording it. That run caught a defect in the writer: the reference's serial
+field was hard-coded to 1, and it now carries its real index.
+
+**It also caught an incomplete mdp rather than a wrong test.** The freeze went into `_lines`, which the equilibration
+and the production share -- and minimization is built from its own literal block, so it had none, and the test that
+asserted "every stage" failed with `KeyError: 'freezegrps'`. Minimization is where a badly placed configuration moves
+furthest, so that was the stage where a drifting reference was most likely and least visible. Fixed in `62f6e86`.
+
+**Two things this task's text said that the work corrected.** The plan had the runner reuse
+`pdc_solvate.py`/`pdc_placement.py`; it places the solute itself, because those tools work on a PDC system and this
+needs one box with a measured packing. And it had the build write the index file, which the build cannot do: the pull's
+groups are atom indices, and indices do not exist until the molecules are placed -- so the build's `index.ndx` is a
+placeholder and the runner generates the real one from the adapter's own `index_groups`.
 
 ### Task 1.4: queue the series
 
