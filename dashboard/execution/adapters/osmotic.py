@@ -61,6 +61,11 @@ def index_groups(*, solute_atoms, reference_atom, solvent_atoms=()):
 
     Indices are 1-based, as GROMACS writes them. A group that is empty or that shares an atom with another is refused
     here: `grompp` would take the file happily and the run would measure something other than what was intended.
+
+    **`System` is written too, and it is not decoration.** Passing `-n` replaces GROMACS's own group list rather than
+    adding to it, so an index with only the two pull groups leaves the mdps' `tc-grps = System` and `comm-grps =
+    System` referring to nothing: the minimization, which has no thermostat, passes, and the first *dynamics* step
+    fails with "Group System referenced in the .mdp file was not found in the list of index".
     """
     solute = [int(index) for index in solute_atoms]
     solvent = [int(index) for index in solvent_atoms]
@@ -74,7 +79,9 @@ def index_groups(*, solute_atoms, reference_atom, solvent_atoms=()):
         raise ValueError(f'atom {sorted(overlap)[0]} is in both the solute and the solvent group')
     if reference in set(solute) | set(solvent):
         raise ValueError(f'the reference atom {reference} is also in the solute or solvent group')
-    lines = ['[ SOLUTE ]', *[str(index) for index in solute], '', '[ REFERENCE ]', str(reference), '']
+    lines = ['[ System ]', *[str(index) for index in range(1, max([*solute, reference, *solvent]) + 1)], '',
+             '[ SOLUTE ]', *[str(index) for index in solute], '',
+             '[ REFERENCE ]', str(reference), '']
     if solvent:
         lines += ['[ SOLVENT ]', *[str(index) for index in solvent], '']
     return '\n'.join(lines)

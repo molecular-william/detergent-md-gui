@@ -72,10 +72,22 @@ def restraint_block(*, solute_group='SOLUTE', reference_group='REFERENCE',
                     force_constant=DEFAULT_CONFINEMENT_KJ_MOL_NM2):
     """The flat-bottomed pull that confines the solute to a slab at the centre, as mdp lines.
 
-    `geometry = direction` with `vec = 0 0 1` measures the z projection of the two groups' separation, so `init` is
-    the half-width of the slab: flat inside it, harmonic beyond. The force is *not* read back from this machinery --
-    the analysis recomputes it from the trajectory -- so what matters here is that the confinement reproduces the
-    potential the analysis assumes.
+    `geometry = direction-periodic` with `vec = 0 0 1` measures the z projection of the two groups' separation, so
+    `init` is the half-width of the slab: flat inside it, harmonic beyond. The force is *not* read back from this
+    machinery -- the analysis recomputes it from the trajectory -- so what matters here is that the confinement
+    reproduces the potential the analysis assumes.
+
+    **Two settings together, and neither works alone** -- this is what grompp's own message says, in full: "The
+    maximum distance from the chosen PBC atom (280) of pull group 1 to other atoms in the group is larger than 0.5
+    times half the box size. Set the pull-pbc-ref-prev-step-com option to yes." The solute fills the box in xy (only
+    z is confined), so its extent is comparable to the box and no single atom can be within a quarter box of all of
+    it. Naming a pbcatom alone fails the distance check; `pull-pbc-ref-prev-step-com` alone fails the "specific atom
+    selected" check. Both together are accepted. The *atom* is not known here -- it depends on where the molecules
+    were placed -- so the runner appends it to each mdp, which is also why that file is written after placement.
+
+    **The geometry is `direction`, not `direction-periodic`**, and that is forced rather than chosen: the box is
+    dynamic -- the paper couples pressure at 1 bar -- and grompp refuses the pair outright with "Can not have dynamic
+    box while using pull geometry 'direction-periodic' (dim z)". The periodic geometry only applies to a fixed box.
     """
     return [
         'pull                    = yes',
@@ -90,6 +102,7 @@ def restraint_block(*, solute_group='SOLUTE', reference_group='REFERENCE',
         f'pull-coord1-init        = {float(confinement_nm):g}',
         'pull-coord1-rate        = 0',
         f'pull-coord1-k           = {float(force_constant):g}',
+        'pull-pbc-ref-prev-step-com = yes',
     ]
 
 

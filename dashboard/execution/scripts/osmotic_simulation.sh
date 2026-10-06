@@ -108,6 +108,73 @@ REPO_ROOT="${REPO_ROOT:-.}"
 # Exported once, for every `python` block below: the executor runs a stage with the *stage directory* as its working
 # directory, so `import dashboard` from `.` fails unless the root is on the path for all of them, not just the first.
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+python - "$PWD" "$SOLUTE_DIR" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+from dashboard.execution.adapters import osmotic
+
+workdir, solute_dir = Path(sys.argv[1]), sys.argv[2]
+placement = json.loads((workdir / 'placement.json').read_text())
+
+# The moleculetype the topology declares, which is what `[ molecules ]` has to name it by. It is the molecule's own
+# name -- LIG1 for the maltose mapping -- and not something this pipeline chooses: writing `SOL` there is what
+# grompp answers with "No such moleculetype SOL".
+lines = (workdir / solute_dir / 'solute.itp').read_text().splitlines()
+header = next(n for n, line in enumerate(lines) if line.strip().startswith('[ moleculetype'))
+name = lines[header + 1].split()[0]
+(workdir / 'solute_molecule.txt').write_text(name + '\n')
+
+# The PBC reference atom of the solute group, and the option that must accompany it. grompp's own message: "The
+# maximum distance from the chosen PBC atom (280) of pull group 1 to other atoms in the group is larger than 0.5 times
+# half the box size. Set the pull-pbc-ref-prev-step-com option to yes." The solute fills the box in xy -- only z is
+# confined -- so no single atom is central enough on its own, and the option without an atom is refused just as the
+# atom without the option is. Which atom is central depends on where the molecules went, so it is chosen here and
+# appended to each mdp (GROMACS takes the last setting of a repeated key).
+gro = (workdir / 'system.gro').read_text().splitlines()
+box_z = float(gro[-1].split()[2])
+best, best_distance = None, None
+for serial in range(1, placement['solute_atoms_in_system'] + 1):
+    z = float(gro[serial + 1][36:44])          # +1: line 0 is the title, line 1 the atom count
+    distance = abs(z - box_z / 2)
+    if best_distance is None or distance < best_distance:
+        best, best_distance = serial, distance
+(workdir / 'solute_pbcatom.txt').write_text(str(best) + '\n')
+
+print('solute: moleculetype %s, pbcatom %d (%.3f nm from the centre in z)'
+      % (name, best, best_distance))
+PY
+
+for mdp in minimization.mdp eq.mdp md.mdp; do
+    printf 'pull-group1-pbcatom     = %s\n' "$(cat solute_pbcatom.txt)" >> "$mdp"
+done
+
+# 3. The topology: the force field, the solute, the reference and the water, with the counts between them. `solvate`
+#    fills the water count in [ molecules ] itself, which is why that line starts at zero.
+cat > system.top <<TOP
+#include "martini_v3.0.0.itp"
+#include "reference.itp"
+#include "$SOLUTE_DIR/solute.itp"
+#include "$SOLUTE_DIR/martini_v3.0.0_solvents_v1.itp"
+
+[ system ]
+osmotic condition
+
+[ molecules ]
+$(cat solute_molecule.txt)  $(python -c "import json;print(json.load(open('placement.json'))['solute_molecules_placed'])")
+REFC  1
+W     0
+TOP
+
+# 4. Solvent fills what the solute and the reference do not. The water count that follows is the one the molality is
+#    actually made of, so it is recorded and compared with what the box predicted.
+gmx solvate -cp system.gro -cs "$SOLUTE_DIR/water.gro" -p system.top -radius 0.21 -o solvated.gro
+
+# 4b. The index, now that the system is complete. **`System` must cover the solvated atoms**, and passing `-n` replaces
+#     GROMACS's own group list rather than adding to it -- so an index written before solvation leaves every water
+#     bead outside the thermostat and the first dynamics step fails with "1537 atoms are not part of any of the
+#     T-Coupling groups". The pull's two groups are the same indices either way: solvate appends.
 python - "$PWD" <<'PY'
 import json
 import sys
@@ -117,37 +184,21 @@ from dashboard.execution.adapters import osmotic
 
 workdir = Path(sys.argv[1])
 placement = json.loads((workdir / 'placement.json').read_text())
-solute = range(1, placement['solute_atoms_in_system'] + 1)
+total = int((workdir / 'solvated.gro').read_text().splitlines()[1])
+reference = placement['reference_atom']
 (workdir / 'index.ndx').write_text(osmotic.index_groups(
-    solute_atoms=solute, reference_atom=placement['reference_atom']))
-print('index: SOLUTE 1-%d, REFERENCE %d' % (placement['solute_atoms_in_system'], placement['reference_atom']))
+    solute_atoms=range(1, reference), reference_atom=reference,
+    solvent_atoms=range(reference + 1, total + 1)))
+print('index: System 1-%d, SOLUTE 1-%d, REFERENCE %d' % (total, reference - 1, reference))
 PY
 
-# 3. The topology: the force field, the solute, the reference and the water, with the counts between them. `solvate`
-#    fills the water count in [ molecules ] itself, which is why that line starts at zero.
-cat > system.top <<TOP
-#include "martini_v3.0.0.itp"
-#include "$SOLUTE_DIR/solute.itp"
-#include "reference.itp"
-#include "$SOLUTE_DIR/martini_v3.0.0_solvents_v1.itp"
-
-[ system ]
-osmotic condition
-
-[ molecules ]
-SOL   $(python -c "import json;print(json.load(open('placement.json'))['solute_molecules_placed'])")
-REFC  1
-W     0
-TOP
-
-# 4. Solvent fills what the solute and the reference do not. The water count that follows is the one the molality is
-#    actually made of, so it is recorded and compared with what the box predicted.
-gmx solvate -cp system.gro -cs "$SOLUTE_DIR/water.gro" -p system.top -radius 0.21 -o solvated.gro
-
-# 5. The stages. -n names the groups for freezegrps and for the pull alike.
+# 5. The stages. -n names the groups for freezegrps and for the pull alike. The equilibration takes no `-t`: a steep
+#    minimization writes no checkpoint -- it has no velocities to carry -- and passing min.cpt is "No such file or
+#    directory" one step after the first mdrun this pipeline ever completed. Production *does* continue from the
+#    equilibration's checkpoint, because that is where gen_vel went.
 gmx grompp -f minimization.mdp -p system.top -c solvated.gro -n index.ndx -o min.tpr -maxwarn 1
 ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm min ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v
-gmx grompp -f eq.mdp -p system.top -c min.gro -n index.ndx -t min.cpt -o eq.tpr -maxwarn 1
+gmx grompp -f eq.mdp -p system.top -c min.gro -n index.ndx -o eq.tpr -maxwarn 1
 ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm eq ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v
 gmx grompp -f md.mdp -p system.top -c eq.gro -n index.ndx -t eq.cpt -o md.tpr -maxwarn 1
 ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm md ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v

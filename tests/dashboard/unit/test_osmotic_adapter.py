@@ -67,13 +67,17 @@ def test_the_index_file_names_both_pull_groups_in_order(tmp_path):
     index = (tmp_path / 'index.ndx').read_text()
 
     assert '[ SOLUTE ]' in index and '[ REFERENCE ]' in index and '[ SOLVENT ]' in index
-    blocks = {name: [] for name in ('SOLUTE', 'REFERENCE', 'SOLVENT')}
+    blocks = {name: [] for name in ('System', 'SOLUTE', 'REFERENCE', 'SOLVENT')}
     current = None
     for line in index.splitlines():
         if line.startswith('['):
             current = line.strip('[] ')
         elif line.strip() and current:
             blocks[current] += line.split()
+    # `System` covers every atom up to the highest index given, because that is what `tc-grps = System` must be:
+    # passing `-n` replaces GROMACS's own groups, and an index without it leaves every water bead out of the
+    # thermostat -- "1537 atoms are not part of any of the T-Coupling groups", at the first dynamics step.
+    assert blocks['System'] == [str(n) for n in range(1, 43)]
     assert blocks['SOLUTE'] == ['5', '6', '7']
     assert blocks['REFERENCE'] == ['42']
     assert blocks['SOLVENT'] == ['8', '9']

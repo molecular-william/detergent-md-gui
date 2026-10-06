@@ -198,6 +198,11 @@ def test_the_placement_writes_a_gro_file_gromacs_can_read(tmp_path):
                                        '   4.00000   4.00000   4.00000\n')
     for name in ('solute.itp', 'water.gro', 'martini_v3.0.0_solvents_v1.itp'):
         (solute / name).write_text('placeholder\n')
+    # A real moleculetype, because `[ molecules ]` is written by reading this name: a placeholder here would stop the
+    # script before it wrote the topology at all.
+    (solute / 'solute.itp').write_text('[ moleculetype ]\nLIG1 1\n\n[ atoms ]\n'
+                                       '1  SP1r  1  LIG1  B01  1  0.0  36.0\n'
+                                       '2  SP1r  1  LIG1  B02  1  0.0  36.0\n')
 
     record = osmotic.prepare(tmp_path, {'molecule_id': 'Maltose', 'solute_root': str(solute),
                                         'mapping_snapshot': MAPPING, 'settings': {'osmotic_molality': 1.0}})
@@ -224,3 +229,15 @@ def test_the_placement_writes_a_gro_file_gromacs_can_read(tmp_path):
     reference = lines[2 + 2 * molecules]
     assert [float(reference[20:28]), float(reference[28:36]), float(reference[36:44])] == pytest.approx(
         [2.521, 2.521, 5.042], abs=1e-3)
+    # And the topology's includes are ordered by what the parser needs, not by what reads well: the force field, then
+    # the reference -- whose first section is `[ atomtypes ]` -- and only then the moleculetypes that use those types.
+    # Including the reference after the solute put a type after a moleculetype, and grompp answered "Atomtype REF not
+    # found" with the type eleven lines away in the same file.
+    top = (stage / 'system.top').read_text()
+    includes = [line for line in top.splitlines() if line.startswith('#include')]
+    assert includes[0].endswith('martini_v3.0.0.itp"')
+    assert 'reference.itp' in includes[1]
+    assert 'solute.itp' in includes[2]
+    # And `[ molecules ]` names the solute by the moleculetype its own topology declares, not by a name this pipeline
+    # picks: `SOL` there is what grompp answers with "No such moleculetype SOL".
+    assert top.split('[ molecules ]')[1].strip().splitlines()[0].split()[0] == 'LIG1'
