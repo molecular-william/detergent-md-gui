@@ -126,6 +126,10 @@ def _lines(*, dt, nsteps, nstxtcout, nstenergy, thermostat, barostat, tau_p, tem
         'constraint_algorithm     = Lincs',
         'lincs_order              = 4',
         'lincs_warnangle          = 30',
+        # The reference bead defines the coordinate's origin, so it must not move. It is frozen rather than
+        # restrained: a spring would let it drift, and the drift would be indistinguishable from an osmotic pressure.
+        'freezegrps               = REFERENCE',
+        'freezedim                = Y Y Y',
         f'gen_vel                  = {gen_vel}',
         f'gen-temp                 = {float(temperature):g}',
         'gen-seed                 = -1',
@@ -184,6 +188,11 @@ def osmotic_mdps(*, temperature, production_ps=DEFAULT_PRODUCTION_PS,
         '',
         'constraints              = none',
         'constraint_algorithm     = Lincs',
+        '',
+        # The same freeze as the other two stages, and most needed here: minimization is where a badly placed
+        # configuration moves furthest, and a reference that drifts is indistinguishable from an osmotic pressure.
+        'freezegrps               = REFERENCE',
+        'freezedim                = Y Y Y',
         '',
         '; the method: the solute is confined to the centre, from the first step',
     ] + restraint

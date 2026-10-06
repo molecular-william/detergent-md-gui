@@ -153,6 +153,17 @@ def test_the_confinement_constants_are_the_papers_and_are_overridable_only_on_pu
     assert 'pull-coord1-k           = 5' in block
 
 
+def test_the_reference_bead_is_frozen_in_every_stage():
+    """It defines the coordinate's origin, so it must not move: a spring would let it drift, and that drift would be
+    indistinguishable from an osmotic pressure. The group name comes from the index file the build writes."""
+    mdps = osmotic_mdp.osmotic_mdps(temperature=308.15)
+
+    for stage, text in mdps.items():
+        read = settings(text)
+        assert read['freezegrps'] == 'REFERENCE', stage
+        assert read['freezedim'] == 'Y Y Y', stage
+
+
 def test_every_line_is_a_comment_a_blank_or_a_key_value():
     """An mdp that GROMACS would reject is not worth writing, and the cheapest way to know is to look."""
     for stage, text in osmotic_mdp.osmotic_mdps(temperature=308.15).items():
