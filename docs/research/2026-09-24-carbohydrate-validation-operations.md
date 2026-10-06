@@ -169,6 +169,40 @@ moleculetype declares -- and is no longer recognised by the name `VS`, which sto
 suffixed: the endpoint lists had begun to offer `VS1` and `VS2` as linkage beads, and a site with no coordinates
 would have been drawn as one.
 
+## State as of 2026-10-06, verified against the live instance
+
+An inventory taken for this note, every number from the running coordinator or the filesystem rather than from an
+earlier note.
+
+**The three legs are implemented** in `dashboard/analysis/validation/`: `geometry.py`, `transfer.py` and `osmotic.py`,
+with `report.py`, `targets.py` and `carbohydrate_targets.py`. **No `carbohydrate-validation` attempt exists on disk**
+in this checkout, so none of them has ever been run here.
+
+**Targets.** `resources/validation/carbohydrates/targets-v1.json` holds a measured water-octanol partition free energy
+for **Glucose** (-17.81 +/- 0.57 kJ/mol) and **Trehalose** (-21.52 +/- 0.29 kJ/mol), both from the paper's Table S2.
+Sucrose and Maltose are `metadata_only`, each naming the missing quantity in its own `missing` field. **The osmotic leg
+has no target at all**: the registry carries partition free energies only, while the paper compares osmotic pressure
+against measured values for eight monosaccharides and two disaccharides.
+
+**Molecules and runs.** `molecules/` holds DDM, Maltose, Sucrose and Trehalose -- **not Glucose**, so of the two
+molecules with a measured target only Trehalose can be simulated today. Completed `aa_cg` runs exist for each sugar:
+Trehalose `4e4ff51e7417`, Maltose `22075892b606`, Sucrose `a2a457cf9413` and two more, all `draft-smoke-reference`
+and all short.
+
+**Which leg is data-unblocked.** The geometry leg compares AA with CG and needs **no registry target**, so it is the
+one leg that could run today; what holds it back is sampling. The transfer leg needs a target, so only Trehalose is
+runnable. The osmotic leg needs targets that do not exist yet.
+
+**Sampling, measured rather than assumed.** The paper averages SASA and Connolly surfaces over **at least 200 ns of
+both AA and CG**. The longest reference here is DDM's `dbc366ae772b` at 200 ns (20,001 frames, `dt = 0.002 x
+100,000,000`), and its CG arm `d7bfc7422677` ran a full 20 ns production (2,001 frames, `dt = 0.02 x 1,000,000`) --
+both are DDM, not a sugar, so no sugar has a long reference yet. The 200 ns reference ran at about 1250 ns/day in a
+4.0 nm box, which puts 200 ns of AA at roughly four hours on this machine.
+
+**The coordinator was restarted on 2026-10-06.** The live instance now serves `surfaces`, `overlap`,
+`bonded_cross_check` and `dihedral_fit` on `/api/jobs/<id>/mapping-consistency`. A process from before the route
+changes returns the older key set and none of the four, which is the tell for whether a restart is owed.
+
 ## Handoff checklist
 
 When continuing this work:
