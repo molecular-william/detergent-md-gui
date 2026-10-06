@@ -111,6 +111,20 @@ def test_the_mdps_written_are_the_ones_that_were_tested(tmp_path):
     assert (tmp_path / 'minimization.mdp').read_text() == expected['minimization']
 
 
+def test_a_run_with_no_indices_yet_writes_no_index_file(tmp_path):
+    """The runner places the molecules and *then* writes the index, because the pull's groups are atom indices. A
+    placeholder with invented indices would be read by grompp and would confine and measure the wrong atoms."""
+    placed = osmotic.plan_and_build(tmp_path, molality=1.0, temperature=308.15, solute_atoms=[1], reference_atom=2)
+    assert (tmp_path / 'index.ndx').is_file()
+    assert placed['restraint']['reference_atom'] == 2
+
+    elsewhere = tmp_path / 'unplaced'
+    unplaced = osmotic.plan_and_build(elsewhere, molality=1.0, temperature=308.15)
+    assert not (elsewhere / 'index.ndx').exists()
+    assert (elsewhere / 'md.mdp').is_file()
+    assert unplaced['restraint']['reference_atom'] is None
+
+
 def test_the_record_and_the_plan_agree_about_the_counts(tmp_path):
     """A build that wrote one set of counts and recorded another would be undetectable downstream."""
     from dashboard.execution.adapters import osmotic_box
