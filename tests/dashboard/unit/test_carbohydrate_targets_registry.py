@@ -50,9 +50,14 @@ def test_the_entered_values_are_the_tables_own_and_agree_with_its_logP_column():
 
 
 def test_a_molecule_the_source_does_not_cover_says_what_is_missing_instead_of_carrying_a_number():
-    for molecule in ('Sucrose', 'Maltose'):
-        dataset = datasets()[molecule]
+    # By dataset and not by molecule: a molecule can be covered for one quantity and missing another. Maltose now
+    # carries measured *osmotic* pressures from a separate source, and is still missing the water-octanol partition
+    # free energy that this source measures.
+    for molecule, dataset_id in (('Sucrose', 'sucrose-martini3-paper-v1'),
+                                 ('Maltose', 'maltose-pilot-v1')):
+        dataset = next(item for item in registry()['datasets'] if item['id'] == dataset_id)
 
+        assert dataset['molecule_id'] == molecule
         assert dataset['availability'] == 'metadata_only' and dataset['targets'] == []
         assert dataset['missing'].strip(), 'an unfilled dataset has to say what would fill it'
 

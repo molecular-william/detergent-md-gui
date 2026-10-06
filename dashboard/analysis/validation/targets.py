@@ -4,7 +4,7 @@ import math
 from datetime import datetime, timezone
 from pathlib import Path
 
-ALLOWED = {'transfer_free_energy', 'partition_free_energy', 'density', 'phase_transition',
+ALLOWED = {'transfer_free_energy', 'partition_free_energy', 'osmotic_pressure', 'density', 'phase_transition',
            'dimerization', 'miscibility', 'hydrogen_bond'}
 
 def build(run_dir, payload):

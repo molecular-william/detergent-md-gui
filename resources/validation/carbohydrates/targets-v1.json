@@ -56,6 +56,65 @@
       "availability": "metadata_only",
       "targets": [],
       "missing": "Maltose appears nowhere in the cited table (nor in its supporting information), so it needs its own experimental source, matched to the same quantity and temperature."
+    },
+    {
+      "id": "maltose-osmotic-ebrahimi-2016",
+      "molecule_id": "Maltose",
+      "citation": "10.1016/j.fluid.2016.02.030",
+      "availability": "measured",
+      "targets": [
+        {
+          "id": "maltose-osmotic-pressure-0p5",
+          "kind": "osmotic_pressure",
+          "name": "Maltose, osmotic pressure at 0.5 molal",
+          "value": 13.04,
+          "uncertainty": 0.04,
+          "unit": "bar",
+          "conditions": "308.15 K. Derived from the source's equation 8, Phi = 1 + sum A_i m^i, with the coefficients it gives for maltose monohydrate (0.024829, 0.077617, -0.117831, 0.065921, -0.011698) and its stated fit sigma of 0.0031; pi = -(R T / V_w) ln a_w with ln a_w = -Phi m M_w, V_w = 18.07 cm3/mol and M_w = 18.01528 g/mol. The uncertainty is the source's stated standard deviation (SD) of the fit, propagated as pi*sigma/Phi: the source does not state a per-point SD for the measurement itself, and none has been invented. Checked against the source's own measured water-activity column, which the calculation reproduces to +/- 0.00004.",
+          "citation": "10.1016/j.fluid.2016.02.030, equation 8 with Table 5 (Maltose monohydrate) and Table 3 (measured)"
+        },
+        {
+          "id": "maltose-osmotic-pressure-1p0",
+          "kind": "osmotic_pressure",
+          "name": "Maltose, osmotic pressure at 1.0 molal",
+          "value": 26.54,
+          "uncertainty": 0.08,
+          "unit": "bar",
+          "conditions": "As the 0.5 molal point: the source's equation 8 with its Table 5 coefficients for maltose monohydrate, pi = -(R T / V_w) ln a_w, and its stated standard deviation (SD) of the fit propagated as pi*sigma/Phi. 308.15 K.",
+          "citation": "10.1016/j.fluid.2016.02.030, equation 8 with Table 5 (Maltose monohydrate)"
+        },
+        {
+          "id": "maltose-osmotic-pressure-1p5",
+          "kind": "osmotic_pressure",
+          "name": "Maltose, osmotic pressure at 1.5 molal",
+          "value": 40.58,
+          "uncertainty": 0.12,
+          "unit": "bar",
+          "conditions": "As the 0.5 molal point: the source's equation 8 with its Table 5 coefficients for maltose monohydrate, pi = -(R T / V_w) ln a_w, and its stated standard deviation (SD) of the fit propagated as pi*sigma/Phi. 308.15 K.",
+          "citation": "10.1016/j.fluid.2016.02.030, equation 8 with Table 5 (Maltose monohydrate)"
+        },
+        {
+          "id": "maltose-osmotic-pressure-2p0",
+          "kind": "osmotic_pressure",
+          "name": "Maltose, osmotic pressure at 2.0 molal",
+          "value": 56.09,
+          "uncertainty": 0.16,
+          "unit": "bar",
+          "conditions": "As the 0.5 molal point: the source's equation 8 with its Table 5 coefficients for maltose monohydrate, pi = -(R T / V_w) ln a_w, and its stated standard deviation (SD) of the fit propagated as pi*sigma/Phi. 308.15 K.",
+          "citation": "10.1016/j.fluid.2016.02.030, equation 8 with Table 5 (Maltose monohydrate)"
+        },
+        {
+          "id": "maltose-osmotic-pressure-2p5",
+          "kind": "osmotic_pressure",
+          "name": "Maltose, osmotic pressure at 2.5 molal",
+          "value": 72.72,
+          "uncertainty": 0.20,
+          "unit": "bar",
+          "conditions": "As the 0.5 molal point: the source's equation 8 with its Table 5 coefficients for maltose monohydrate, pi = -(R T / V_w) ln a_w, and its stated standard deviation (SD) of the fit propagated as pi*sigma/Phi. 308.15 K.",
+          "citation": "10.1016/j.fluid.2016.02.030, equation 8 with Table 5 (Maltose monohydrate)"
+        }
+      ],
+      "note": "Five points, not six. The paper's series starts at zero molality, where the osmotic pressure is zero by definition rather than by measurement -- and this registry refuses a target with no uncertainty, so registering it would mean inventing one. A series should supply that point as the zero it is. Above roughly 1.5 molal the source's own discussion expects deviations, and lower-than-experimental pressure means excessive self-aggregation, so a series comparison should say which side it falls on rather than only how far."
     }
   ]
 }
