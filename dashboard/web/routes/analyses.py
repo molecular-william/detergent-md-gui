@@ -83,6 +83,24 @@ def newest_overlap(c, job):
     return without_figure
 
 
+def newest_cross_check(c, job):
+    """A run's newest published bonded cross-check: `(attempt, published, report)`, or `None`.
+
+    Unlike the overlap reader, there is no figure to require: this analysis publishes numbers and the list of terms
+    the two sides disagree about, so a report that is on disk is the whole artifact. An attempt whose report is gone
+    is skipped, which is the fall-through the overlap reader has to spell out because it also has a figure to lose.
+    """
+    records = sorted((c.run_path(job) / 'analyses/bonded-cross-check').glob('*/*/result.json'),
+                     key=lambda path: path.stat().st_mtime, reverse=True)
+    for record_path in records:
+        attempt = record_path.parent
+        output = attempt / str(json.loads(record_path.read_text()).get('output_directory') or '')
+        report = output / 'bonded-cross-check.json'
+        if report.is_file():
+            return attempt, json.loads(report.read_text()), report
+    return None
+
+
 @blueprint.post('/api/jobs/<jid>/<kind>')
 def queue_analysis(jid, kind):
     payload = json_object(optional=True)
@@ -170,13 +188,40 @@ def mapping_consistency_api(jid):
                    'validated': bool(overlap_published.get('scientifically_validated')),
                    'figure': str(overlap_figure.relative_to(c.run_path(job))) if overlap_figure else None,
                    'source': str(overlap_report.relative_to(c.RUNS))}
+    # The bonded cross-check is a third separate kind on the same run, read the same way.
+    published_cross_check = newest_cross_check(c, job)
+    if published_cross_check is None:
+        bonded_cross_check = {'available': False,
+                              'reason': 'No bonded cross-check has been published for this run. It compares the run\'s '
+                                        'own fitted topology with an independent equipartition estimate taken from '
+                                        'the same frames, and it is queued by hand.'}
+    else:
+        check_attempt, check_published, check_report = published_cross_check
+        bonded_cross_check = {'available': True,
+                              'attempt': check_attempt.name,
+                              'published_at': datetime.fromtimestamp(
+                                  check_attempt.stat().st_mtime, timezone.utc).isoformat(),
+                              'molecule': check_published.get('molecule'),
+                              'temperature': check_published.get('temperature'),
+                              'temperature_source': check_published.get('temperature_source'),
+                              'threshold': check_published.get('threshold'),
+                              'threshold_source': check_published.get('threshold_source'),
+                              'ours_from': check_published.get('ours_from'),
+                              'ours_provenance': check_published.get('ours_provenance'),
+                              'frames_measured': check_published.get('frames_measured'),
+                              'rows': check_published.get('rows') or [],
+                              'unmeasured': check_published.get('unmeasured') or [],
+                              'disagreements': check_published.get('disagreements') or [],
+                              'limitations': check_published.get('limitations') or [],
+                              'validated': bool(check_published.get('scientifically_validated')),
+                              'source': str(check_report.relative_to(c.RUNS))}
     return jsonify({'run': jid, 'attempt': attempt.name,
                     'published_at': datetime.fromtimestamp(attempt.stat().st_mtime, timezone.utc).isoformat(),
                     'source': str(artifact.relative_to(c.RUNS)),
                     'molecule': job.get('molecule_id'), 'run_type': job.get('run_type'),
                     'profile': job.get('profile'), 'reference_run_id': job.get('reference_run_id'),
                     'summary': record.get('result'), 'comparison': json.loads(artifact.read_text()),
-                    'surfaces': surfaces, 'overlap': overlap})
+                    'surfaces': surfaces, 'overlap': overlap, 'bonded_cross_check': bonded_cross_check})
 
 
 @blueprint.get('/api/runs/transferability')

@@ -212,6 +212,34 @@ function overlapDetail(overlap) {
     + 'Each pair is a distance inside one residue, so nothing here says anything about the bonds between residues.';
 }
 
+// Constrained terms are named rather than numbered: a term the fit writes as a rigid rod and the measurement reads as
+// a spring is a different molecule, and the numbers beside it would not show that. So the verdict column says which
+// of the two sides is which, in words, rather than a tick.
+function crossCheckRows(crossCheck) {
+  const rows = crossCheck.rows || [];
+  const unmeasured = (crossCheck.unmeasured || []).map((entry) =>
+    `<tr><td>${cell((entry.beads || []).join('–'))}</td>`
+    + `<td colspan="6">not measured · ${cell(entry.reason)}</td></tr>`).join('');
+  if (!rows.length && !unmeasured.length) {
+    return '<tr><td colspan="7">The published analysis compares no terms.</td></tr>';
+  }
+  const measured = rows.map((row) => {
+    const ours = row.ours || {}, estimate = row.estimate || {};
+    const verdict = row.verdicts_agree
+      ? (ours.constraint ? 'both rigid' : 'both springs')
+      : (ours.constraint ? 'we write rigid, the estimate reads a spring'
+                         : 'we write a spring, the estimate reads rigid');
+    const delta = Number.isFinite(Number(row.delta_value)) ? Number(row.delta_value) : null;
+    return `<tr><td>${cell((row.beads || []).join('–'))}</td>`
+      + `<td>${fixed(ours.value, 3)} nm</td>`
+      + `<td>${ours.constraint ? 'constraint' : fixed(ours.force_constant, 1)}</td>`
+      + `<td>${fixed(estimate.value, 3)} nm</td><td>${fixed(estimate.force_constant, 1)}</td>`
+      + `<td>${delta === null ? '—' : `${delta > 0 ? '+' : ''}${delta.toFixed(4)} nm`}</td>`
+      + `<td>${row.verdicts_agree ? cell(verdict) : `<strong>${cell(verdict)}</strong>`}</td></tr>`;
+  }).join('');
+  return measured + unmeasured;
+}
+
 export function createMappingValidation({ request = api } = {}) {
   let mounted = false;
 
@@ -287,6 +315,36 @@ export function createMappingValidation({ request = api } = {}) {
     if (overlapDetailLine) overlapDetailLine.textContent = overlap.available ? overlapDetail(overlap) : '';
     const overlapHost = $('#validation-overlap-figure');
     if (overlapHost) overlapHost.innerHTML = overlapFigure(body);
+    const crossCheck = body.bonded_cross_check || {};
+    const checkNote = $('#validation-crosscheck-note');
+    if (checkNote) {
+      const disagreements = crossCheck.disagreements || [];
+      checkNote.textContent = crossCheck.available
+        ? `Attempt ${crossCheck.attempt}, published ${shortTime(crossCheck.published_at)} UTC. `
+          + `${crossCheck.ours_from || 'the run topology'} · ${crossCheck.ours_provenance || ''} `
+          + `Threshold ${fixed(crossCheck.threshold, 0)} kJ/mol/nm² at ${fixed(crossCheck.temperature, 2)} K. `
+          + (disagreements.length
+              ? `${disagreements.length} of ${(crossCheck.rows || []).length} terms where the two sides disagree: `
+                + `${disagreements.map((pair) => pair.join('–')).join(', ')}. `
+              : 'No term disagrees. ')
+          + `${crossCheck.validated ? '' : 'Not scientifically validated.'}`
+        : (crossCheck.reason || 'The run’s bonded cross-check has not been published.');
+    }
+    const checkRows = $('#validation-crosscheck-rows');
+    if (checkRows) {
+      checkRows.innerHTML = crossCheck.available
+        ? crossCheckRows(crossCheck)
+        : '<tr><td colspan="7">No bonded cross-check has been published for this run.</td></tr>';
+    }
+    const checkCaption = $('#validation-crosscheck-caption');
+    if (checkCaption && crossCheck.available) {
+      checkCaption.textContent = 'Terms the run\u2019s topology declares, each against an independent estimate from the '
+        + `same frames · ${crossCheck.frames_measured ?? '—'} mapped frames`;
+    }
+    const checkLimits = $('#validation-crosscheck-limits');
+    if (checkLimits) {
+      checkLimits.textContent = crossCheck.available ? (crossCheck.limitations || []).join(' ') : '';
+    }
     $('#validation-interpretation').textContent = comparison.interpretation
       || 'Every comparison here is against our own atomistic reference.';
   }

@@ -411,6 +411,96 @@ def test_a_published_analysis_whose_figure_is_gone_still_states_its_numbers(dash
     assert errors == []
 
 
+# The bonded cross-check, in the same card: the run's own fitted topology against an independent estimate taken from
+# the same frames, with the terms the two sides disagree about named rather than left to be read off the numbers.
+
+CROSS_CHECK = {
+    'molecule': 'DDM', 'temperature': 303.15,
+    'temperature_source': "the analysis default; the run's own fit temperature was not staged",
+    'threshold': 10000.0,
+    'threshold_source': "this repository's Fast_Forward convention; shaker defaults to 25000",
+    'frames_measured': 20001, 'frames_in_trajectory': 20001,
+    'ours_from': '3_initial_CG/DDM_ff_inter.itp', 'ours_provenance': 'the Fast_Forward fit',
+    'estimate_from': '2_mapping/mapped.xtc',
+    'estimate_provenance': 'equipartition k = R T / sigma^2 per term, independently of the fit',
+    'rows': [
+        {'kind': 'bond', 'beads': ['B01', 'B11'],
+         'ours': {'value': 0.431, 'force_constant': 2716.9, 'constraint': False},
+         'estimate': {'value': 0.424, 'sigma': 0.03, 'force_constant': 2424.4, 'constraint': False},
+         'delta_value': -0.007, 'ratio_force_constant': 0.892, 'verdicts_agree': True},
+        {'kind': 'constraint', 'beads': ['B01', 'B02'],
+         'ours': {'value': 0.298794, 'force_constant': None, 'constraint': True},
+         'estimate': {'value': 0.260, 'sigma': 0.018, 'force_constant': 7878.5, 'constraint': False},
+         'delta_value': -0.038794, 'ratio_force_constant': None, 'verdicts_agree': False},
+    ],
+    'unmeasured': [{'kind': 'bond', 'beads': ['B05', 'B06'], 'value': 0.316070, 'force_constant': None,
+                    'reason': 'a spread of zero has no equipartition force constant; that term is a constraint'}],
+    'disagreements': [['B01', 'B02']],
+    'limitations': ['Bonds and constraints only: an angle is a triple measured as an angle, so it is not in this '
+                    'report yet.'],
+    'scientifically_validated': False,
+}
+
+
+def publish_cross_check(dashboard, jid):
+    """Leave behind what `analysis.worker` leaves behind for a completed bonded cross-check."""
+    attempt = dashboard.coordinator.RUNS / jid / 'analyses/bonded-cross-check/hash/attempt1'
+    output = attempt / 'output/abc123'
+    output.mkdir(parents=True)
+    (output / 'bonded-cross-check.json').write_text(json.dumps(CROSS_CHECK))
+    (attempt / 'result.json').write_text(json.dumps(
+        {'result': CROSS_CHECK, 'output_directory': 'output/abc123', 'wall_seconds': 4.0}))
+    return attempt
+
+
+def test_the_bonded_cross_check_names_the_terms_the_two_sides_disagree_about(dashboard, live_page):
+    """The verdict column is the substance: the same pair as a rigid rod on one side and a spring on the other is a
+    different molecule, and a table of force constants alone would not say so."""
+    publish(dashboard, 'bb22cc33dd44')
+    publish_cross_check(dashboard, 'bb22cc33dd44')
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#validation')
+
+    page.wait_for_function(
+        "() => document.querySelectorAll('#validation-crosscheck-rows tr').length === 3", timeout=30000)
+    rows = page.evaluate(
+        "() => [...document.querySelectorAll('#validation-crosscheck-rows tr')].map(r => r.textContent)")
+    note = page.evaluate("() => document.querySelector('#validation-crosscheck-note').textContent")
+    caption = page.evaluate("() => document.querySelector('#validation-crosscheck-caption').textContent")
+    limits = page.evaluate("() => document.querySelector('#validation-crosscheck-limits').textContent")
+
+    assert 'the Fast_Forward fit' in note, note
+    assert 'Threshold 10000' in note and '303.15 K' in note, note
+    assert '1 of 2 terms where the two sides disagree: B01–B02' in note, note
+    assert 'Not scientifically validated' in note, note
+    assert 'B01–B11' in rows[0] and '0.431 nm' in rows[0] and '2716.9' in rows[0], rows[0]
+    assert '0.424 nm' in rows[0] and '2424.4' in rows[0] and 'both springs' in rows[0], rows[0]
+    assert '-0.0070 nm' in rows[0], rows[0]
+    assert 'B01–B02' in rows[1] and 'constraint' in rows[1], rows[1]
+    assert 'we write rigid, the estimate reads a spring' in rows[1], rows[1]
+    assert 'not measured' in rows[2] and 'spread of zero' in rows[2], rows[2]
+    assert '20001 mapped frames' in caption, caption
+    assert 'angle' in limits, limits
+    assert errors == []
+
+
+def test_a_run_with_no_bonded_cross_check_says_so_and_lists_nothing(dashboard, live_page):
+    """Never queued is a state the card states, rather than a table with a placeholder row in it."""
+    publish(dashboard, 'bb22cc33dd44')
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/#validation')
+
+    page.wait_for_function(
+        "() => document.querySelector('#validation-crosscheck-note').textContent.includes('queued by hand')",
+        timeout=30000)
+    note = page.evaluate("() => document.querySelector('#validation-crosscheck-note').textContent")
+    body = page.evaluate("() => document.querySelector('#validation-crosscheck-rows').textContent")
+
+    assert 'equipartition estimate' in note, note
+    assert 'no bonded cross-check has been published' in body.lower(), body
+    assert errors == []
+
+
 # D1's other half. The card used to offer a bare button; it now states what the run's comparison found, and the
 # numbers come from the summary the analysis published into the job record -- the same ones card 1 badges, carried
 # by `/api/jobs`, so the card states them without a request of its own.
