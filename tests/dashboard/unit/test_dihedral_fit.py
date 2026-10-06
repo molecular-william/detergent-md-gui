@@ -5,9 +5,14 @@ amplitudes and phases, because every step of the workflow -- histogram, inversio
 in that direction. A factor-of-57 error in the degrees/radians conversion survives every test that only looks at the
 residual, and dies here.
 """
+import inspect
+import json
+
+import MDAnalysis as mda
 import numpy as np
 import pytest
 
+from dashboard.analysis import metadata, worker
 from dashboard.analysis.runs import dihedral_fit
 
 R_GAS = dihedral_fit.R_GAS
@@ -177,3 +182,151 @@ def test_the_series_reproduces_the_gromacs_form_it_claims_to():
     assert values[1] == pytest.approx(8.0)
     assert values[2] == pytest.approx(0.0, abs=1e-12)
     assert values[0] == pytest.approx(4.0 * (1.0 + np.cos(-0.5)))
+
+
+# --- the torsion, the declared dihedrals, and the analysis that compares them --------------------------------
+
+DIHEDRAL_TOPOLOGY = """\
+; the shape Fast_Forward writes, with one dihedral it fitted
+[ dihedrals ]
+1 2 3 4 1 180.0 3.5 2
+"""
+
+
+def _placed(torsion, *, arm=1.0):
+    """Four points whose dihedral is the angle asked for, by construction.
+
+    The 1-2 bond is the x axis, the 0th point sits perpendicular to it, and the 3rd point is that same perpendicular
+    arm rotated about the axis -- which is what a dihedral measures, so the expected answer is the rotation itself and
+    nothing has to be looked up. Sign included: the construction's sign is the one the module documents.
+    """
+    angle = np.radians(torsion)
+    return (np.array([0.0, arm, 0.0]), np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]),
+            np.array([1.0, arm * np.cos(angle), arm * np.sin(angle)]))
+
+
+def test_a_torsion_is_the_rotation_between_the_two_planes():
+    for torsion in (0.0, 60.0, 90.0, 180.0, -120.0, 179.0):
+        assert dihedral_fit.torsion_deg(*_placed(torsion)) == pytest.approx(torsion, abs=1e-9), torsion
+
+
+def test_a_declared_dihedral_is_read_with_its_phase_constant_and_multiplicity(tmp_path):
+    """`i j k l funct phi_s cp mult` -- eight fields, and the order of the last three is what a reader gets wrong."""
+    path = tmp_path / 'DDM_ff_inter.itp'
+    path.write_text(DIHEDRAL_TOPOLOGY)
+
+    terms = dihedral_fit.read_declared_dihedrals(path)
+
+    assert len(terms) == 1, terms
+    assert terms[0]['atoms'] == (1, 2, 3, 4)
+    assert terms[0]['phase_deg'] == pytest.approx(180.0)
+    assert terms[0]['force_constant'] == pytest.approx(3.5)
+    assert terms[0]['multiplicity'] == 2
+
+
+def test_a_dihedral_of_another_function_type_and_a_short_line_are_both_refused(tmp_path):
+    """This reader's whole output is a comparison, so a number it invented would not be a small error."""
+    other = tmp_path / 'other.itp'
+    other.write_text('[ dihedrals ]\n1 2 3 4 3 180.0 3.5 2\n')
+    with pytest.raises(ValueError, match='not a proper dihedral'):
+        dihedral_fit.read_declared_dihedrals(other)
+
+    short = tmp_path / 'short.itp'
+    short.write_text('[ dihedrals ]\n1 2 3 4 1 180.0 3.5\n')
+    with pytest.raises(ValueError, match='needs 8 fields'):
+        dihedral_fit.read_declared_dihedrals(short)
+
+
+def _dihedral_run(tmp_path, topology=DIHEDRAL_TOPOLOGY, *, frames=2000, amplitude=6.0, seed=11):
+    """A work directory whose four beads take torsions drawn from a known 2-fold potential.
+
+    The frames come from `p ~ exp(-F/RT)` with `F = amplitude (1 + cos 2 phi)`, so the distribution has its two
+    minima at 0 and 180 degrees -- what a 2-fold term looks like -- and the answer the fit should find is known
+    before it runs. That is the same construction as the one-cosine test above, one dimension down.
+    """
+    work = tmp_path / 'work'
+    (work / '2_mapping').mkdir(parents=True)
+    (work / '3_initial_CG').mkdir(parents=True)
+    (work / '3_initial_CG' / 'DDM_ff_inter.itp').write_text(topology)
+    grid = np.linspace(-180.0, 180.0, 721)[:-1]
+    weights = np.exp(-amplitude * (1.0 + np.cos(2.0 * np.radians(grid))) / (dihedral_fit.R_GAS * 303.15 / 1000.0))
+    torsions = np.random.default_rng(seed).choice(grid, size=frames, p=weights / weights.sum())
+    universe = mda.Universe.empty(4, n_residues=1, atom_resindex=[0, 0, 0, 0], trajectory=True)
+    universe.add_TopologyAttr('names', ['B01', 'B02', 'B03', 'B04'])
+    universe.add_TopologyAttr('resnames', ['DDM'])
+    universe.add_TopologyAttr('resids', [1])
+    with mda.Writer(str(work / '2_mapping' / 'mapped.xtc'), n_atoms=4) as writer:
+        for index, torsion in enumerate(torsions):
+            universe.atoms.positions = np.array(_placed(torsion)) * 10.0  # written in angstroms
+            universe.trajectory.ts.time = float(index)
+            if index == 0:
+                universe.atoms.write(str(work / '2_mapping' / 'mapped.gro'))
+            writer.write(universe.atoms)
+    return work
+
+
+def test_the_analysis_fits_a_declared_dihedral_and_compares_it_with_ours(tmp_path):
+    """The end-to-end path: a 2-fold potential sampled into a trajectory, a topology declaring a 2-fold term, and a
+    report that says the two agree -- with the residual that says how much the histogram and smoothing cost."""
+    work = _dihedral_run(tmp_path)
+
+    report = dihedral_fit.publish(work, {'temperature': 303.15})
+
+    assert report['molecule'] == 'DDM'
+    assert report['frames_measured'] == 2000 and report['frames_in_trajectory'] == 2000
+    assert report['ours_from'] == '3_initial_CG/DDM_ff_inter.itp'
+    assert 'Fast_Forward' in report['ours_provenance']
+    assert len(report['rows']) == 1 and not report['unmeasured']
+    row = report['rows'][0]
+    assert row['beads'] == ['B01', 'B02', 'B03', 'B04']
+    assert row['ours'] == {'phase_deg': 180.0, 'force_constant_kj_mol': 3.5, 'multiplicity': 2}
+    assert row['fit']['terms'] >= 2                      # one harmonic has one minimum, not two
+    assert row['fit']['dominant_multiplicity'] == 2
+    assert row['fit']['residual_rms_kj_mol'] > 0.0
+    assert row['multiplicities_agree'] is True
+    assert report['disagreements'] == []
+    assert json.loads((work / dihedral_fit.REPORT).read_text())['rows'] == report['rows']
+
+
+def test_a_topology_whose_multiplicity_the_fit_does_not_choose_is_named_as_a_disagreement(tmp_path):
+    """The finding this analysis exists for: the tool's default term count against a criterion's."""
+    work = _dihedral_run(tmp_path, DIHEDRAL_TOPOLOGY.replace('1 180.0 3.5 2', '1 180.0 3.5 3'))
+
+    report = dihedral_fit.publish(work)
+
+    assert report['rows'][0]['ours']['multiplicity'] == 3
+    assert report['rows'][0]['fit']['dominant_multiplicity'] == 2
+    assert report['rows'][0]['multiplicities_agree'] is False
+    assert report['disagreements'] == [['B01', 'B02', 'B03', 'B04']]
+    assert any('mirrored' in line for line in report['limitations'])
+
+
+def test_a_dihedral_the_trajectory_cannot_form_is_listed_rather_than_dropped(tmp_path):
+    """A term naming a bead the trajectory does not have is reported with the bead named -- dropped, it would look
+    like a topology that declares less than it does."""
+    work = _dihedral_run(tmp_path, DIHEDRAL_TOPOLOGY.replace('1 2 3 4 1', '1 2 3 9 1'))
+
+    report = dihedral_fit.publish(work)
+
+    assert report['rows'] == []
+    assert [entry['beads'] for entry in report['unmeasured']] == [['B01', 'B02', 'B03', '#9']]
+    assert 'no bead' in report['unmeasured'][0]['reason']
+
+
+def test_a_run_with_no_topology_is_refused(tmp_path):
+    work = _dihedral_run(tmp_path)
+    (work / '3_initial_CG' / 'DDM_ff_inter.itp').unlink()
+
+    with pytest.raises(ValueError, match='neither a fit nor a draft'):
+        dihedral_fit.publish(work)
+
+
+def test_the_dihedral_fit_kind_is_registered_in_all_four_places():
+    """KINDS, PATTERNS, DESCRIPTIONS and the dispatch arm. The fourth is the one whose absence lets a job queue
+    successfully and then produce nothing at all, which reads as a stuck worker rather than a missing line."""
+    assert 'dihedral-fit' in worker.KINDS
+    assert worker.PATTERNS['dihedral-fit'] == [
+        '2_mapping/mapped.gro', '2_mapping/mapped.xtc', '2_mapping/model.json',
+        '3_initial_CG/*_ff_inter.itp', '3_initial_CG/*initial*.itp']
+    assert 'dihedral-fit' in metadata.DESCRIPTIONS
+    assert "kind == 'dihedral-fit'" in inspect.getsource(worker)
