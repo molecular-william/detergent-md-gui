@@ -136,12 +136,20 @@ def test_the_output_interval_divides_the_duration_exactly():
 
 def test_the_trajectory_is_written_often_enough_to_average_a_force_over():
     """The analysis recomputes the force from the trajectory, so the frame interval is what sets the sample size.
-    500 ns at 10 ps is fifty thousand frames; at 1 ns it would be five hundred."""
+    500 ns at 10 ps is fifty thousand frames; at 1 ns it would be five hundred.
+
+    `nstxtcout` is a *step* count, so the interval it implies is `nstxtcout * dt`. This test used to write
+    `duration / nstxtcout`, which is a frame interval only if the step count were a frame count -- and that division
+    returns 10 for exactly the numbers the buggy code produced. It passed while the run would have written one frame
+    per nanosecond, and it would have blocked the fix.
+    """
     production = settings(osmotic_mdp.osmotic_mdps(temperature=308.15)['production'])
 
-    interval_ps = 500000.0 / int(production['nstxtcout'])
+    dt = float(production['dt'])
+    interval_ps = int(production['nstxtcout']) * dt
     assert interval_ps == pytest.approx(10.0)
-    assert 500000.0 / interval_ps == pytest.approx(50000.0)
+    assert int(production['nsteps']) * dt == pytest.approx(500000.0)
+    assert int(production['nsteps']) / int(production['nstxtcout']) == 50000
 
 
 def test_the_confinement_constants_are_the_papers_and_are_overridable_only_on_purpose():

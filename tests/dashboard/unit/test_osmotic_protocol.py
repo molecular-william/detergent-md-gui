@@ -94,6 +94,11 @@ def test_prepare_builds_a_run_the_executor_could_start(tmp_path):
     # The runner's own documented layout: the molecule in `solute/` beside it, the build's files in its directory.
     assert (tmp_path / '01_simulate' / 'md.mdp').is_file()
     assert (tmp_path / '01_simulate' / 'solute' / 'solute.gro').is_file()
+    # **Every input the stage declares must resolve from the stage directory.** The executor checks exactly this, and
+    # a declaration that does not resolve stops the run before GROMACS is reached. Asserting the files exist is not
+    # the same test: the first two versions of this declaration passed the assertions above and failed this one.
+    for declared in osmotic.STAGE_DEFS[0].inputs:
+        assert (tmp_path / '01_simulate' / declared).resolve().is_file(), declared
     assert 'REF' in (tmp_path / 'inputs' / 'reference.itp').read_text()
     # The manifest every prepared run type carries, wherever the shared writer puts it: what matters is that this
     # run type has one and that it names itself, because the resume path verifies runs against it.
@@ -123,3 +128,47 @@ def test_the_stage_contract_is_the_shared_shape():
     assert inputs[name] == osmotic.STAGE_DEFS[0].inputs
     assert outputs[name] == osmotic.STAGE_DEFS[0].outputs
     assert 'prod/md_whole.xtc' in outputs[name]
+
+
+def test_the_paper_scale_production_writes_the_frames_it_was_asked_for():
+    """The trap this test exists for: `nstxtcout` is a *step* count, so an interval of 10 ps at dt 0.02 is 500 steps.
+    The first version of the mdp divided the 500 ns *duration* by the interval and passed 50,000, which is 1 ns per
+    frame -- a hundred times sparser than asked, and the same cost."""
+    from dashboard.execution.adapters import osmotic_mdp
+
+    mdps = osmotic_mdp.osmotic_mdps(temperature=308.15, production_ps=500000.0,
+                                    equilibration_ps=10000.0, output_interval_ps=10.0)
+
+    def settings(text):
+        out = {}
+        for line in text.splitlines():
+            if '=' in line:
+                key, _, value = line.partition('=')
+                out[key.strip()] = value.strip()
+        return out
+
+    md = settings(mdps['production'])
+    assert float(md['dt']) == 0.02
+    assert int(md['nsteps']) == 25_000_000                 # 500 ns at 20 fs
+    assert int(md['nstxtcout']) == 500                     # 500 steps x 0.02 ps = 10 ps
+    assert int(md['nsteps']) / int(md['nstxtcout']) == 50_000
+    # The engine's own force on the restraint, at the same interval, is what the recomputation is checked against.
+    assert int(md['pull-nstfout']) == 500
+    assert md['pull-coord1-type'] == 'flat-bottom'
+
+    eq = settings(mdps['equilibration'])
+    assert float(eq['dt']) == 0.005
+    assert int(eq['nstxtcout']) == 2000                    # 2000 steps x 0.005 ps = 10 ps
+    assert int(eq['nsteps']) / int(eq['nstxtcout']) == 1000
+
+
+def test_an_output_interval_that_is_not_a_whole_number_of_steps_is_refused():
+    """Silently flooring it would write frames at an interval nobody chose, and two conditions in a series would then
+    have different windows -- which is what makes their averages incomparable."""
+    import pytest
+
+    from dashboard.execution.adapters import osmotic_mdp
+
+    with pytest.raises(ValueError, match='whole number of'):
+        osmotic_mdp.osmotic_mdps(temperature=308.15, production_ps=1000.0,
+                                 equilibration_ps=1000.0, output_interval_ps=0.017)

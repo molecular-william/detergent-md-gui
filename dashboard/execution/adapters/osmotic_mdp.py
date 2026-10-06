@@ -32,7 +32,23 @@ DEFAULT_CONFINEMENT_KJ_MOL_NM2 = 1000.0
 DEFAULT_EQUILIBRATION_PS = 10000.0     # 10 ns, the paper's
 DEFAULT_PRODUCTION_PS = 500000.0       # 500 ns, the paper's
 DEFAULT_OUTPUT_INTERVAL_PS = 10.0      # dense enough that the force average is not a handful of frames
+EQUILIBRATION_DT = 0.005               # 5 fs, the time step the CG equilibration integrates at
+PRODUCTION_DT = 0.02                   # 20 fs, the time step CG production integrates at
 WATER_COMPRESSIBILITY = 4.5e-5         # the CG templates' own value, from the papers
+
+
+def _every_steps(interval_ps, dt, what):
+    """An output interval as a step count, which is what every `nst*` option is.
+
+    The first version of this module divided the *duration* by the interval and passed the result as a step count, so
+    a 500 ns run asked for a frame every 10 ps would have written one every nanosecond -- 500 frames instead of 50,000.
+    A flat-bottom force averaged over those would have been a number with no error bar worth reporting, and the run
+    would have cost the same.
+    """
+    steps = float(interval_ps) / dt
+    if abs(steps - round(steps)) > 1e-9:
+        raise ValueError(f'{what} output interval {interval_ps:g} ps is not a whole number of {dt * 1000:g} fs steps')
+    return int(round(steps))
 
 
 def _check_duration(duration_ps, output_interval_ps, what):
@@ -78,7 +94,7 @@ def restraint_block(*, solute_group='SOLUTE', reference_group='REFERENCE',
 
 
 def _lines(*, dt, nsteps, nstxtcout, nstenergy, thermostat, barostat, tau_p, temperature,
-           compressibility, gen_vel, continuation, restraint):
+           compressibility, gen_vel, continuation, restraint, pull_nstfout=0):
     return [
         'title                    = Martini, osmotic pressure series',
         '',
@@ -136,7 +152,10 @@ def _lines(*, dt, nsteps, nstxtcout, nstenergy, thermostat, barostat, tau_p, tem
         f'continuation             = {continuation}',
         '',
         '; the method: the solute is confined to the centre, and the walls sit at the quarter box',
-    ] + restraint
+        # The engine's own force on the restraint, written every `pull_nstfout` steps. The analysis recomputes the
+        # force from the trajectory; this is the independent measurement it is checked against, and it costs one
+        # number per frame.
+    ] + ([f'pull-nstfout            = {int(pull_nstfout)}'] if pull_nstfout else []) + restraint
 
 
 def osmotic_mdps(*, temperature, production_ps=DEFAULT_PRODUCTION_PS,
@@ -156,15 +175,19 @@ def osmotic_mdps(*, temperature, production_ps=DEFAULT_PRODUCTION_PS,
     production_ps, _ = _check_duration(production_ps, output_interval_ps, 'production')
 
     equilibration = _lines(
-        dt=0.005, nsteps=math.ceil(equilibration_ps / 0.005),
-        nstxtcout=int(equilibration_ps / output_interval_ps), nstenergy=100,
+        dt=EQUILIBRATION_DT, nsteps=math.ceil(equilibration_ps / EQUILIBRATION_DT),
+        nstxtcout=_every_steps(output_interval_ps, EQUILIBRATION_DT, 'equilibration'),
+        nstenergy=_every_steps(output_interval_ps, EQUILIBRATION_DT, 'equilibration'),
         thermostat='v-rescale', barostat='berendsen', tau_p=4.0, temperature=temperature,
-        compressibility=WATER_COMPRESSIBILITY, gen_vel='yes', continuation='no', restraint=restraint)
+        compressibility=WATER_COMPRESSIBILITY, gen_vel='yes', continuation='no', restraint=restraint,
+        pull_nstfout=_every_steps(output_interval_ps, EQUILIBRATION_DT, 'equilibration'))
     production = _lines(
-        dt=0.02, nsteps=int(round(production_ps / 0.02)),
-        nstxtcout=int(production_ps / output_interval_ps), nstenergy=int(1000 / 0.02),
+        dt=PRODUCTION_DT, nsteps=int(round(production_ps / PRODUCTION_DT)),
+        nstxtcout=_every_steps(output_interval_ps, PRODUCTION_DT, 'production'),
+        nstenergy=_every_steps(output_interval_ps, PRODUCTION_DT, 'production'),
         thermostat='v-rescale', barostat='parrinello-rahman', tau_p=12.0, temperature=temperature,
-        compressibility=WATER_COMPRESSIBILITY, gen_vel='no', continuation='yes', restraint=restraint)
+        compressibility=WATER_COMPRESSIBILITY, gen_vel='no', continuation='yes', restraint=restraint,
+        pull_nstfout=_every_steps(output_interval_ps, PRODUCTION_DT, 'production'))
     minimization = [
         'title                    = Martini, osmotic pressure series, minimization',
         '',

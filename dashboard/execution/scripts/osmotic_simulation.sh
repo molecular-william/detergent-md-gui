@@ -95,7 +95,10 @@ PY
 #    groups the pull reads are the groups it validates. REPO_ROOT is where `dashboard` can be imported from; the
 #    adapter that runs this script passes it, and the default assumes the executor's working directory is the repo.
 REPO_ROOT="${REPO_ROOT:-.}"
-PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" python - "$PWD" <<'PY'
+# Exported once, for every `python` block below: the executor runs a stage with the *stage directory* as its working
+# directory, so `import dashboard` from `.` fails unless the root is on the path for all of them, not just the first.
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+python - "$PWD" <<'PY'
 import json
 import sys
 from pathlib import Path

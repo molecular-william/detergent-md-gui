@@ -24,7 +24,7 @@ from pathlib import Path
 
 from ... import files
 from .. import protocol, tools
-from ..environment import recorded_environment
+from ..environment import ROOT, recorded_environment
 from ..stages import Stage, stage_tables
 from . import osmotic_box, osmotic_mdp
 
@@ -150,12 +150,12 @@ PROFILES = ('standard', 'draft-smoke')
 #: production into separate stages would copy the placed system between them -- which is exactly why
 #: `cg_simulation.sh` runs its three mdrun calls inside a single stage too. The plan said seven stages before this
 #: script existed; this is the table the script actually has.
-#: The files the stage needs: the five the build writes plus the three the molecule supplies, each named relative to the
-#: stage directory (`../inputs/x`, the way `aa.py` names `../01_solvation/system.gro`). The executor checks these in the
-#: stage directory before it runs, and reports a bare directory name as a missing input -- which is what a first
-#: version of this declaration got.
-STAGE_FILES = ('minimization.mdp', 'eq.mdp', 'md.mdp', 'reference.itp', 'osmotic_condition.json',
-               'solute.gro', 'solute.itp', 'water.gro')
+#: The build's own files, named relative to the stage directory (`../inputs/x`, the way `aa.py` names
+#: `../01_solvation/system.gro`): these are what `prepare` writes into the run's `inputs/`, and what the executor
+#: checks before the stage runs. The molecule's files are *not* here -- they come from `solute_root` into the stage's
+#: own `solute/`, which is the layout the runner reads, and declaring them here as well is what a first version of
+#: this tuple got wrong twice.
+STAGE_FILES = ('minimization.mdp', 'eq.mdp', 'md.mdp', 'reference.itp', 'osmotic_condition.json')
 STAGE_DEFS = (
     Stage('Osmotic condition', '01_simulate/run.sh',
           tuple(f'../inputs/{name}' for name in STAGE_FILES),
@@ -338,16 +338,22 @@ def prepare(run_dir, metadata):
                    output_interval_ps=settings['osmotic_output_interval_ps'])
     stage = run_dir / '01_simulate'
     (stage / 'solute').mkdir(parents=True, exist_ok=True)
-    shutil.copy2(SCRIPTS / 'osmotic_simulation.sh', stage / 'run.sh')
-    # **The layout the runner documents is the layout it must get.** It reads the molecule's files from `solute/`
-    # beside itself and the build's files from its own directory; the first version of this method put all of them
-    # under `inputs/` and the first real run died on the very first file it looked for. A missing molecule file is a
-    # refusal here, where the name is known, rather than a failure inside GROMACS.
+    # **The stage's working directory is the stage directory**, so a script that imports this repository's own modules
+    # cannot find them from `.`. The root is written in, the way the CG templates get theirs, rather than assumed from
+    # the environment, which does not set it: the first real run placed its molecules and then died with
+    # `ModuleNotFoundError: No module named 'dashboard'` on the very next line.
+    script = (SCRIPTS / 'osmotic_simulation.sh').read_text()
+    (stage / 'run.sh').write_text(script.replace('REPO_ROOT="${REPO_ROOT:-.}"', f'REPO_ROOT="{ROOT}"'))
+    # The molecule's files go to **both** places, and each has a reason: `inputs/` is what the prepared manifest
+    # hashes, so the run's own record covers which molecule was simulated; `solute/` beside the stage is the layout
+    # the runner documents and reads. A missing molecule file is a refusal here, where the name is known, rather
+    # than a failure inside GROMACS.
     root = _solute_root(metadata)
     if root:
         for name in SOLUTE_FILES:
             if not (Path(root) / name).is_file():
                 raise ValueError(f'solute_root is missing {name}: {root}')
+            shutil.copy2(Path(root) / name, run_dir / 'inputs' / name)
             shutil.copy2(Path(root) / name, stage / 'solute' / name)
     for name in ('minimization.mdp', 'eq.mdp', 'md.mdp', 'reference.itp', 'osmotic_condition.json'):
         shutil.copy2(run_dir / 'inputs' / name, stage / name)
