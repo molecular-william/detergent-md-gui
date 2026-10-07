@@ -67,7 +67,7 @@ def _check_duration(duration_ps, output_interval_ps, what):
     return duration_ps, output_interval_ps
 
 
-def restraint_block(*, solute_molecules, reference_group='REFERENCE',
+def restraint_block(*, solute_molecules, origin_group='REFERENCE',
                     confinement_nm=DEFAULT_CONFINEMENT_NM,
                     force_constant=DEFAULT_CONFINEMENT_KJ_MOL_NM2):
     """The flat-bottomed pull that confines the solute to a slab at the centre, as mdp lines.
@@ -91,15 +91,22 @@ def restraint_block(*, solute_molecules, reference_group='REFERENCE',
 
     **One coordinate per solute molecule**, which is what the paper describes: "At a distance of 2.52078 nm from the
     center of the box, a harmonic force with a force constant 1000 kJ/nm2 was applied to the solute molecules." Each
-    coordinate is one molecule's centre of mass against the frozen reference bead, so every molecule is confined
-    individually and the force the analysis averages is the sum over molecules -- the quantity divided by the xy area.
+    coordinate is one molecule's centre of mass against the second group, so every molecule is confined individually
+    and the force the analysis averages is the sum over molecules -- the quantity divided by the xy area.
+
+    **The origin is a restrained bead whose reference is scaled with the box**, and that is the whole subtlety. The
+    paper confines the solute "to the center of the box" and couples pressure at 1 bar in z, so the box changes size;
+    an origin that cannot follow it stops being the centre. A *frozen* atom is not scaled by the barostat -- the first
+    attempt's box contracted 19% while the bead stayed at the original centre, the confinement's origin drifted toward
+    the face, and mdrun aborted when one molecule's minimum-image distance flipped sign. A restrained atom with
+    `refcoord-scaling = all` has its target scaled with the box, so it sits at the centre for every box size. It must
+    also be a *small* group: the pull refuses a group wider than a quarter of the box, which is why the solvent --
+    box-filling, and the obvious way to express "the centre" -- cannot serve.
 
     **Why not one group for the whole solute**, which is what this started as: with the solute filling the box in xy,
     that group cannot be given a PBC reference atom -- GROMACS requires every atom within a quarter box of one, and
-    the group's own extent is larger than that. grompp refuses it three different ways, and when it was forced
-    through, mdrun aborted the run after 76 ns when the coordinate it computed from the wrong reference exceeded
-    half the box. A single molecule is about 0.5 nm across, so the check passes on its own and no
-    `pull-group*-pbcatom` and no `pull-pbc-ref-prev-step-com` is needed at all.
+    the group's own extent is larger than that. A single molecule is about 0.5 nm across, so the check passes on its
+    own and no `pull-group*-pbcatom` and no `pull-pbc-ref-prev-step-com` is needed at all.
     """
     molecules = int(solute_molecules)
     if molecules < 0:
@@ -113,7 +120,7 @@ def restraint_block(*, solute_molecules, reference_group='REFERENCE',
              f'pull-ngroups            = {molecules + 1}',
              f'pull-ncoords            = {molecules}']
     lines += [f'pull-group{index}-name        = MOL{index}' for index in range(1, molecules + 1)]
-    lines += [f'pull-group{reference}-name        = {reference_group}']
+    lines += [f'pull-group{reference}-name        = {origin_group}']
     for coordinate in range(1, molecules + 1):
         lines += [f'pull-coord{coordinate}-groups      = {coordinate} {reference}',
                   f'pull-coord{coordinate}-geometry    = direction',
@@ -174,10 +181,16 @@ def _lines(*, dt, nsteps, nstxtcout, nstenergy, thermostat, barostat, tau_p, tem
         'constraint_algorithm     = Lincs',
         'lincs_order              = 4',
         'lincs_warnangle          = 30',
-        # The reference bead defines the coordinate's origin, so it must not move. It is frozen rather than
-        # restrained: a spring would let it drift, and the drift would be indistinguishable from an osmotic pressure.
-        'freezegrps               = REFERENCE',
-        'freezedim                = Y Y Y',
+        # The reference bead defines the coordinate's origin. It is **restrained to the box centre rather than
+        # frozen**, and `refcoord-scaling = all` is what makes the target follow the box: a frozen atom is not scaled
+        # by the barostat, so at 1 bar in z the original centre stops being the centre. With the reference coordinates
+        # scaled, the restraint target moves with the box and the bead is at the centre for every box size -- which is
+        # what the paper's "flat-bottomed potential to the center of the box" means.
+        'refcoord-scaling         = all',
+        # No `define = -DPOSRES`: this project's `[ position_restraints ]` is not wrapped in that macro, so the
+        # section applies on its own -- and defining an unused macro is a warning grompp counts, which pushed the
+        # equilibration past the runner's `-maxwarn 1`. Verified the restraint is live without it: the bead sits at
+        # the box centre to within the .gro rounding through solvation and minimization.
         f'gen_vel                  = {gen_vel}',
         f'gen-temp                 = {float(temperature):g}',
         'gen-seed                 = -1',
@@ -193,7 +206,7 @@ def _lines(*, dt, nsteps, nstxtcout, nstenergy, thermostat, barostat, tau_p, tem
 def osmotic_mdps(*, temperature, solute_molecules, production_ps=DEFAULT_PRODUCTION_PS,
                  equilibration_ps=DEFAULT_EQUILIBRATION_PS,
                  output_interval_ps=DEFAULT_OUTPUT_INTERVAL_PS,
-                 reference_group='REFERENCE',
+                 origin_group='REFERENCE',
                  confinement_nm=DEFAULT_CONFINEMENT_NM,
                  force_constant=DEFAULT_CONFINEMENT_KJ_MOL_NM2):
     """The three mdp files for one condition, as `{'minimization'|'equilibration'|'production': text}`.
@@ -201,7 +214,7 @@ def osmotic_mdps(*, temperature, solute_molecules, production_ps=DEFAULT_PRODUCT
     Durations are in picoseconds and the step counts are derived from each file's own `dt` -- 5 fs where the paper's
     equilibration runs and 20 fs in production, the same split as every other CG run here.
     """
-    restraint = restraint_block(solute_molecules=solute_molecules, reference_group=reference_group,
+    restraint = restraint_block(solute_molecules=solute_molecules, origin_group=origin_group,
                                 confinement_nm=confinement_nm, force_constant=force_constant)
     equilibration_ps, output_interval_ps = _check_duration(equilibration_ps, output_interval_ps, 'equilibration')
     production_ps, _ = _check_duration(production_ps, output_interval_ps, 'production')
@@ -246,10 +259,10 @@ def osmotic_mdps(*, temperature, solute_molecules, production_ps=DEFAULT_PRODUCT
         'constraints              = none',
         'constraint_algorithm     = Lincs',
         '',
-        # The same freeze as the other two stages, and most needed here: minimization is where a badly placed
-        # configuration moves furthest, and a reference that drifts is indistinguishable from an osmotic pressure.
-        'freezegrps               = REFERENCE',
-        'freezedim                = Y Y Y',
+        # The same restraint as the other two stages, and most needed here: minimization is where a badly placed
+        # configuration moves furthest. `refcoord-scaling` keeps the reference at the box centre -- see the note in
+        # restraint_block.
+        'refcoord-scaling         = all',
         '',
         '; the method: the solute is confined to the centre, from the first step',
     ] + restraint

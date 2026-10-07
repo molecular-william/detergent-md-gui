@@ -156,9 +156,34 @@ REFC  1
 W     0
 TOP
 
-# 4. Solvent fills what the solute and the reference do not. The water count that follows is the one the molality is
-#    actually made of, so it is recorded and compared with what the box predicted.
-gmx solvate -cp system.gro -cs "$SOLUTE_DIR/water.gro" -p system.top -radius 0.21 -o solvated.gro
+# 4. Solvent fills what the solute and the reference do not. **The paper's polyply fills the solvent in the entire
+#    box; filling it the other way costs the run.** `gmx solvate` tiles its 3.64428 nm configuration and discards the
+#    molecules that clash with their own periodic images, arriving 7.2% light even for pure solvent and 18% light with
+#    solute (its -radius also strips a shell around 560 beads). At 1 bar the box then contracts to correct that --
+#    measured: 10.08 -> 8.17 nm -- until half the box is barely wider than the confined slab, and mdrun's half-box
+#    check aborts the run.
+#    `insert-molecules` packs to a target instead, rejecting overlaps, so it fills the free volume at the tile's own
+#    density and reports how many it managed. The target is the box's own capacity from the condition record; the
+#    overlap rejection is what keeps it from over-filling around the solute.
+python - "$SOLUTE_DIR" <<'PY'
+import pathlib, sys
+# One bead, from the tile: insert-molecules inserts the whole configuration it is given, and the tile is 400 beads.
+lines = (pathlib.Path(sys.argv[1]) / 'water.gro').read_text().splitlines()
+pathlib.Path('water_one.gro').write_text(
+    '\n'.join([lines[0], '    1', lines[2], '   1.00000   1.00000   1.00000']) + '\n')
+PY
+WATER_TARGET="$(python -c "import json;print(json.load(open('osmotic_condition.json'))['water_beads'])")"
+gmx insert-molecules -f system.gro -ci water_one.gro -nmol "$WATER_TARGET" -radius 0.05 -try 200 \
+    -o solvated.gro > insert.log 2>&1 || { cat insert.log; exit 1; }
+grep -E "Added|Could only" insert.log
+WATER_ADDED="$(python -c "
+import json, pathlib
+total = int(pathlib.Path('solvated.gro').read_text().splitlines()[1])
+placement = json.loads(pathlib.Path('placement.json').read_text())
+print(total - placement['solute_atoms_in_system'] - 1)
+")"
+printf 'W  %s\n' "$WATER_ADDED" >> system.top
+echo "water: $WATER_ADDED beads inserted, target $WATER_TARGET"
 
 # 4b. The index, now that the system is complete. **`System` must cover the solvated atoms**, and passing `-n` replaces
 #     GROMACS's own group list rather than adding to it -- so an index written before solvation leaves every water
@@ -190,11 +215,15 @@ PY
 #    minimization writes no checkpoint -- it has no velocities to carry -- and passing min.cpt is "No such file or
 #    directory" one step after the first mdrun this pipeline ever completed. Production *does* continue from the
 #    equilibration's checkpoint, because that is where gen_vel went.
-gmx grompp -f minimization.mdp -p system.top -c solvated.gro -n index.ndx -o min.tpr -maxwarn 1
+#    `-r` names the file the position restraints' reference coordinates come from: the same coordinates the stage
+#    starts from, which is where the reference bead sits at the box centre. `-maxwarn 1` is for the Berendsen barostat
+#    the paper's method names -- GROMACS warns it is not a strictly correct ensemble, and here that warning is the
+#    method rather than a mistake. More than one warning means something else is wrong, so the count stays at one.
+gmx grompp -f minimization.mdp -p system.top -c solvated.gro -r solvated.gro -n index.ndx -o min.tpr -maxwarn 1
 ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm min ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v
-gmx grompp -f eq.mdp -p system.top -c min.gro -n index.ndx -o eq.tpr -maxwarn 1
+gmx grompp -f eq.mdp -p system.top -c min.gro -r min.gro -n index.ndx -o eq.tpr -maxwarn 1
 ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm eq ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v
-gmx grompp -f md.mdp -p system.top -c eq.gro -n index.ndx -t eq.cpt -o md.tpr -maxwarn 1
+gmx grompp -f md.mdp -p system.top -c eq.gro -r eq.gro -n index.ndx -t eq.cpt -o md.tpr -maxwarn 1
 ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm md ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v
 
 # 6. The trajectory the analysis reads, and the counts it should be told were actually built. The build predicted

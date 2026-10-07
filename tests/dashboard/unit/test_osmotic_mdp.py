@@ -93,7 +93,7 @@ def test_every_molecule_gets_its_own_coordinate():
     own. The absence of a pbcatom is asserted, because putting one back would be a silent return to that design.
     """
     read = settings(osmotic_mdp.osmotic_mdps(temperature=308.15, solute_molecules=4,
-                                            reference_group='CENTRE')['production'])
+                                            origin_group='CENTRE')['production'])
 
     assert read['pull-ngroups'] == '5'
     assert read['pull-ncoords'] == '4'
@@ -107,6 +107,16 @@ def test_every_molecule_gets_its_own_coordinate():
     assert read['pull-group5-name'] == 'CENTRE'
     assert 'pull-pbc-ref-prev-step-com' not in read
     assert not [key for key in read if 'pbcatom' in key]
+
+
+def test_the_origin_group_is_the_reference_by_default():
+    """The confinement is "to the center of the box", and the origin is the one group GROMACS's pull will accept
+    that can be held there: a single bead. The solvent cannot serve -- a box-filling group is refused by the same
+    check that refused the whole solute."""
+    read = settings(mdps()['production'])
+
+    assert read[f'pull-group{MOLECULES + 1}-name'] == 'REFERENCE'
+    assert read['pull-coord1-groups'].split()[1] == str(MOLECULES + 1)
 
 
 def test_a_pure_solvent_control_has_nothing_to_confine_and_says_so():
@@ -203,15 +213,21 @@ def test_the_confinement_constants_are_the_papers_and_are_overridable_only_on_pu
     assert 'pull-coord2-init        = 1' in block
 
 
-def test_the_reference_bead_is_frozen_in_every_stage():
-    """It defines the coordinate's origin, so it must not move: a spring would let it drift, and that drift would be
-    indistinguishable from an osmotic pressure. The group name comes from the index file the build writes."""
+def test_the_reference_bead_is_restrained_to_the_box_centre_in_every_stage():
+    """It defines the coordinate's origin, so it must not move -- and it must not be *frozen* either, because the
+    paper couples pressure at 1 bar and a frozen atom is not scaled by the barostat. `refcoord-scaling = all` is what
+    makes the restraint target follow the box, so the bead is the centre for every box size. This is the fix for the
+    run that aborted: its box contracted 19% and the frozen origin stopped being the centre."""
     built = mdps()
 
     for stage, text in built.items():
         read = settings(text)
-        assert read['freezegrps'] == 'REFERENCE', stage
-        assert read['freezedim'] == 'Y Y Y', stage
+        assert read['refcoord-scaling'] == 'all', stage
+        assert 'freezegrps' not in read, stage
+        # No POSRES: a bare [ position_restraints ] section applies on its own, and defining the unused macro is a
+        # warning that pushed the equilibration past the runner's -maxwarn 1. The bead's position in the stage files
+        # is the evidence that the restraint is live.
+        assert 'define' not in read, stage
 
 
 def test_every_line_is_a_comment_a_blank_or_a_key_value():

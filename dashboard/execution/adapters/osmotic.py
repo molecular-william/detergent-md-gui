@@ -31,7 +31,11 @@ from . import osmotic_box, osmotic_mdp
 SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts'
 
 REFERENCE_TYPE = 'REF'
-REFERENCE_MASS = 72.0          # a real mass, because a massless bead has no defined force; it is frozen anyway
+REFERENCE_MASS = 72.0          # a real mass, because a massless bead has no defined force; it is restrained anyway
+#: The bead's position restraint in z (kJ/mol/nm2). Stiff because it is the coordinate's origin and must not move:
+#: at the paper's force it is displaced by ~1e-6 nm, and its own restraint force acts on the bead, not on the solute
+#: whose force is measured.
+REFERENCE_RESTRAINT = 10000.0
 REFERENCE_MOLECULE = 'REFC'
 MANIFEST = 'osmotic_condition.json'
 
@@ -53,6 +57,15 @@ def reference_bead_itp(*, residue='REFC'):
         f'[ atoms ]\n'
         f';id  type  resnr  residu  atom  cgnr  charge  mass\n'
         f' 1   {REFERENCE_TYPE}   1  {residue}  {REFERENCE_TYPE}   1   0.0   {REFERENCE_MASS:g}\n'
+        f'\n'
+        f'[ position_restraints ]\n'
+        f'; the origin of the pull coordinate, held at the box centre. `refcoord-scaling = all` in the mdps scales\n'
+        f'; this target with the box, so the bead is the centre for every box size; a frozen atom would not be\n'
+        f'; scaled and would stop being the centre as the barostat changes the box. Stiff because it must not move:\n'
+        f'; at the paper\'s force the pull displaces it by 1e-6 nm, and its own restraint force is on the bead, not\n'
+        f'; on the solute whose force is measured.\n'
+        f'; atom  funct  fcx  fcy  fcz\n'
+        f' 1       1      0    0    {REFERENCE_RESTRAINT:g}\n'
     )
 
 
