@@ -128,7 +128,7 @@ def plumed_walls(*, solute_molecules, solute_atoms, box_centre_nm,
         atoms = ','.join(str(i) for i in range(first, first + per_molecule))
         lines.append(f'm{molecule}: COM ATOMS={atoms}')
     lines.append('')
-    lines.append('# **One wall per CV, not one wall over a comma-list of CVs.** PLUMED 2.9 answers the latter with')
+    lines.append('# **One wall per CV, not one wall over a comma-list of CVs.** PLUMED 2.10 answers the latter with')
     lines.append('# "ERROR in input to action UPPER_WALLS_SCALAR with label upper : vector read in" -- measured, on the')
     lines.append('# first run that got far enough to parse this file. It costs two lines per molecule and no more.')
     for molecule in range(1, molecules + 1):
