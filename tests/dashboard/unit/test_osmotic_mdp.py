@@ -90,40 +90,42 @@ def test_every_molecule_gets_its_own_wall_pair():
     coordinate free to pass half the box is a potential free to act on the wrong side of it -- once the minimum image
     flips, a flat-bottom pushes *away*. PLUMED evaluates each wall on an absolute coordinate, so neither can happen.
     """
-    text = osmotic_mdp.plumed_walls(solute_molecules=4, solute_atoms=range(1, 21),
-                                    solvent_atoms=range(21, 31))
+    text = osmotic_mdp.plumed_walls(solute_molecules=4, solute_atoms=range(1, 21), box_centre_nm=5.0)
 
-    assert 'ref: COM ATOMS=21,22,23,24,25,26,27,28,29,30' in text
     for molecule in range(1, 5):
         first = (molecule - 1) * 5 + 1
         assert f'm{molecule}: COM ATOMS=' + ','.join(str(i) for i in range(first, first + 5)) in text
-        assert f'd{molecule}: CUSTOM ARG=m{molecule}.z,centre' in text
-    assert 'UPPER_WALLS ARG=d1,d2,d3,d4 AT=2.52078 KAPPA=1000 EXP=2' in text
-    assert 'LOWER_WALLS ARG=d1,d2,d3,d4 AT=-2.52078 KAPPA=1000 EXP=2' in text
+    # One wall pair per molecule, on that molecule's own absolute z: 5.0 is the box centre, so the walls sit at
+    # 2.47922 and 7.52078, and KAPPA is half the paper's force constant -- the engine's convention, measured.
+    for molecule in range(1, 5):
+        assert f'upper{molecule}: UPPER_WALLS ARG=m{molecule}.z AT=7.52078 KAPPA=500 EXP=2' in text
+        assert f'lower{molecule}: LOWER_WALLS ARG=m{molecule}.z AT=2.47922 KAPPA=500 EXP=2' in text
     assert 'pull' not in text.lower()
+    # No periodic CV at all: an absolute coordinate needs none, and the one that measured a group's centre of mass
+    # returned 61.75 nm in a 10.08 nm box.
+    assert 'CUSTOM' not in text
 
 
 def test_the_potential_and_the_reference_the_failures_asked_for():
     """The two refusals that would otherwise be silent: a count the atoms do not divide into, and no reference to
     measure from. Either one produces a plumed.dat that runs and confines the wrong thing."""
     with pytest.raises(ValueError, match='do not divide'):
-        osmotic_mdp.plumed_walls(solute_molecules=3, solute_atoms=range(1, 9), solvent_atoms=range(9, 12))
-    with pytest.raises(ValueError, match='solvent as the reference'):
-        osmotic_mdp.plumed_walls(solute_molecules=1, solute_atoms=range(1, 9), solvent_atoms=[])
+        osmotic_mdp.plumed_walls(solute_molecules=3, solute_atoms=range(1, 9), box_centre_nm=5.0)
+    with pytest.raises(ValueError, match='box centre'):
+        osmotic_mdp.plumed_walls(solute_molecules=1, solute_atoms=range(1, 9), box_centre_nm=0.0)
 
 
-def test_the_origin_is_the_solvent_s_centre_of_mass():
-    """The confinement is "to the center of the box", and the reference that gives is the solvent's centre of mass:
-    the box centre by symmetry, it follows the box when the barostat scales it, and being thousands of beads it
-    absorbs a wall's reaction force as one part in thousands. A single reference atom -- the restrained bead this
-    replaced -- could not, which is why the reference is a group rather than an atom here.
+def test_the_origin_is_the_box_centre_and_it_is_named_outright():
+    """The confinement is "to the center of the box", and the coordinate is the box's own z. Everything else was
+    tried first: subtracting a group's centre of mass returned 61.75 nm in a 10.08 nm box, because a group that
+    fills the box has no meaningful centre of mass. The centre is also the one coordinate the barostat cannot quietly
+    invalidate here -- measured, it moved 0.006 nm over an equilibration.
     """
-    text = osmotic_mdp.plumed_walls(solute_molecules=2, solute_atoms=range(1, 5), solvent_atoms=range(5, 8))
+    text = osmotic_mdp.plumed_walls(solute_molecules=2, solute_atoms=range(1, 5), box_centre_nm=5.04156)
 
-    assert 'ref: COM ATOMS=5,6,7' in text
-    assert 'centre: CUSTOM ARG=ref.z PERIODIC=NO FUNC=x' in text
-    assert 'd1: CUSTOM ARG=m1.z,centre' in text
-    assert 'd2: CUSTOM ARG=m2.z,centre' in text
+    assert 'The box centre is z = 5.04156 nm' in text
+    assert 'AT=7.56234' in text and 'AT=2.52078' in text
+    assert 'CUSTOM' not in text
 
 
 def test_a_pure_solvent_control_has_nothing_to_confine_and_says_so():
@@ -132,7 +134,7 @@ def test_a_pure_solvent_control_has_nothing_to_confine_and_says_so():
     assert 'nothing is confined' in osmotic_mdp.restraint_block(solute_molecules=0)[0]
 
     with pytest.raises(ValueError, match='at least one solute molecule'):
-        osmotic_mdp.plumed_walls(solute_molecules=0, solute_atoms=[], solvent_atoms=range(1, 4))
+        osmotic_mdp.plumed_walls(solute_molecules=0, solute_atoms=[], box_centre_nm=5.0)
 
     built = osmotic_mdp.osmotic_mdps(temperature=308.15, solute_molecules=0)
     for stage in ('equilibration', 'production'):
@@ -217,10 +219,12 @@ def test_the_confinement_constants_are_the_papers_and_are_overridable_only_on_pu
     assert osmotic_mdp.DEFAULT_CONFINEMENT_NM == pytest.approx(2.52078)
     assert osmotic_mdp.DEFAULT_CONFINEMENT_KJ_MOL_NM2 == pytest.approx(1000.0)
 
-    text = osmotic_mdp.plumed_walls(solute_molecules=2, solute_atoms=range(1, 9), solvent_atoms=range(9, 12),
+    text = osmotic_mdp.plumed_walls(solute_molecules=2, solute_atoms=range(1, 9), box_centre_nm=5.0,
                                     confinement_nm=1.0, force_constant=5.0)
-    assert 'UPPER_WALLS ARG=d1,d2 AT=1 KAPPA=5 EXP=2' in text
-    assert 'LOWER_WALLS ARG=d1,d2 AT=-1 KAPPA=5 EXP=2' in text
+    # KAPPA is half of it: PLUMED writes V = KAPPA*(x-AT)**2, so a force constant of 5 is KAPPA = 2.5 here, and
+    # the walls sit 1 nm either side of the centre at 5.0.
+    assert 'upper1: UPPER_WALLS ARG=m1.z AT=6 KAPPA=2.5 EXP=2' in text
+    assert 'lower2: LOWER_WALLS ARG=m2.z AT=4 KAPPA=2.5 EXP=2' in text
 
 
 def test_the_reference_bead_is_restrained_to_the_box_centre_in_every_stage():

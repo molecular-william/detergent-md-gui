@@ -27,7 +27,7 @@ IDENTITIES = {'gmx': 'gromacs', 'ff_map': 'fast_forward', 'ff_inter': 'fast_forw
 # Declarations that name a tool the run types resolve, in the order they are reported.
 # Other keys in the same file describe where a tool came from and which revision it
 # should be at -- provenance, not something to resolve or put on PATH.
-TOOL_KEYS = ('gromacs', 'fast_forward', 'bartender', 'xtb', 'acpype', 'antechamber')
+TOOL_KEYS = ('gromacs', 'fast_forward', 'bartender', 'xtb', 'acpype', 'antechamber', 'plumed')
 # Declarations that answer for more than one command: the declared entry point
 # locates the others, which sit beside it in the same install. A one-to-one
 # identity (gromacs, whose command is gmx) is not a family.
@@ -154,6 +154,38 @@ def tool_path(command: str, config=None, path=None):
         return located
     sibling = Path(located).parent / command
     return str(sibling) if _is_executable(sibling) else None
+
+
+def plumed_environment(config=None, environ=None) -> dict:
+    """The environment PLUMED needs in order to load, or {} when the declaration cannot supply it.
+
+    GROMACS here is built *with* PLUMED support but PLUMED is **not compiled into it**: `gmx mdrun -plumed` loads a
+    kernel at run time, and with none on the machine it stops with "You are trying to use plumed, but it is not
+    available. Check your PLUMED_KERNEL environment variable." The declared entry point locates it -- the kernel sits
+    in `lib/` beside the `bin/` of the same installation -- and that installation's `lib` directory goes on
+    `LD_LIBRARY_PATH` *after* the inherited one, because the kernel's own dependencies (GSL, a BLAS) live there and
+    nothing here should shadow a system library. Measured: handing `LD_LIBRARY_PATH` every conda package directory
+    on this machine, to satisfy a kernel whose dependencies were not linked into an environment, kills MPI's own
+    startup with "MPI_Init_thread" -- a worse failure than the one it fixes.
+
+    An explicitly set `PLUMED_KERNEL` wins: this supplies what the declaration implies, it does not overrule the
+    operator. A declaration that cannot be honoured contributes nothing, which is this module's rule everywhere
+    else -- and the run then fails inside mdrun, saying exactly what is missing, rather than here saying nothing.
+    """
+    environ = os.environ if environ is None else environ
+    kernel = environ.get('PLUMED_KERNEL', '')
+    if not kernel:
+        located = tool_path('plumed', config) if declared('plumed', config) else None
+        if located is None:
+            return {}
+        candidates = sorted((Path(located).parent.parent / 'lib').glob('libplumedKernel.so*'))
+        if not candidates:
+            return {}
+        kernel = str(candidates[0])
+    inherited = environ.get('LD_LIBRARY_PATH', '')
+    libs = [str(Path(kernel).parent)]
+    return {'PLUMED_KERNEL': kernel,
+            'LD_LIBRARY_PATH': os.pathsep.join(libs + ([inherited] if inherited else []))}
 
 
 def declared_tool_checks(config=None):

@@ -7,5 +7,6 @@
   "xtb": "tools/bartender/m3_bartender/xtb-6.4.1/bin/xtb",
   "bartender_source": "https://cgmartini-library.s3.ca-central-1.amazonaws.com/0_Tutorials/m3_tutorials/Parametrize_Small_Molecule/m3_bartender.zip",
   "acpype": "/mnt/data/wee/miniconda/envs/ambertools/bin/acpype",
-  "antechamber": "/mnt/data/wee/miniconda/envs/ambertools/bin/antechamber"
+  "antechamber": "/mnt/data/wee/miniconda/envs/ambertools/bin/antechamber",
+  "plumed": "/mnt/data/wee/miniconda/envs/plumed/bin/plumed"
 }

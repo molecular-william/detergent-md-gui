@@ -241,11 +241,10 @@ workdir = Path(sys.argv[1])
 placement = json.loads((workdir / 'placement.json').read_text())
 molecules = placement['solute_molecules_placed']
 if molecules:
-    total = int((workdir / 'solvated.gro').read_text().splitlines()[1])
     reference = placement['reference_atom']
     (workdir / 'plumed.dat').write_text(osmotic_mdp.plumed_walls(
         solute_molecules=molecules, solute_atoms=range(1, reference),
-        solvent_atoms=range(reference + 1, total + 1)))
+        box_centre_nm=float((workdir / 'solvated.gro').read_text().splitlines()[-1].split()[2]) / 2.0))
 print('plumed: %d molecules confined, each by its own wall pair' % molecules)
 PY
 
@@ -254,6 +253,27 @@ PY
 #     mdrun. An `if` rather than `[ -f ... ] &&`, because a false test is a non-zero status and this script is
 #     expected to reach the next line either way.
 if [ -f plumed.dat ]; then PLUMED="-plumed plumed.dat"; else PLUMED=""; fi
+
+#     **The kernel is loaded at run time, and GROMACS does not carry it.** This build is compiled *with* PLUMED
+#     support but not against it: with no kernel on the machine, mdrun stops with "You are trying to use plumed, but
+#     it is not available. Check your PLUMED_KERNEL environment variable." `config/tools.json` declares the entry
+#     point, and `tools.plumed_environment` turns that into the two variables the load needs -- the kernel's path and
+#     its library directory, appended after whatever is inherited. It contributes nothing when nothing is declared,
+#     which is this repository's rule everywhere: the run then fails in mdrun saying exactly what is missing.
+#     Written to a file and sourced rather than `eval`-ed from a command substitution, because a heredoc nested in
+#     `$(...)` is precisely the construct that ran `LIG1` as a command two commits ago.
+python - <<'PY'
+import shlex
+from pathlib import Path
+
+from dashboard.execution import tools
+
+Path('plumed_env.sh').write_text(''.join(
+    f'export {name}={shlex.quote(value)}\n'
+    for name, value in tools.plumed_environment().items()))
+print('plumed: ' + (Path('plumed_env.sh').read_text().strip() or 'no declaration, so no kernel is loaded'))
+PY
+. ./plumed_env.sh
 
 # 5. The stages. `-n` names the one group the mdps refer to by name: `System`, for the thermostat and the barostat.
 #    The index still carries MOL<i> and REFERENCE, but nothing names them any more -- the confinement is PLUMED's,

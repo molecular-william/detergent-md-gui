@@ -167,4 +167,6 @@ def test_the_record_and_the_plan_agree_about_the_counts(tmp_path):
         assert record[key] == plan[key], key
     assert record['confinement_nm'] == pytest.approx(osmotic_box.CONFINEMENT_NM)
     assert record['restraint']['reference_type'] == osmotic.REFERENCE_TYPE
-    assert record['restraint']['mechanism'].startswith('pull, flat-bottom')
+    # The mechanism the record names is the one the mdp and the runner actually use. This assertion is why the
+    # record's own account of *how* the solute is confined is not allowed to drift.
+    assert record['restraint']['mechanism'].startswith('plumed, flat-bottom')

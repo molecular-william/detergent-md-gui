@@ -67,7 +67,7 @@ def _check_duration(duration_ps, output_interval_ps, what):
     return duration_ps, output_interval_ps
 
 
-def plumed_walls(*, solute_molecules, solute_atoms, solvent_atoms,
+def plumed_walls(*, solute_molecules, solute_atoms, box_centre_nm,
                  confinement_nm=DEFAULT_CONFINEMENT_NM,
                  force_constant=DEFAULT_CONFINEMENT_KJ_MOL_NM2,
                  print_stride=500):
@@ -82,16 +82,19 @@ def plumed_walls(*, solute_molecules, solute_atoms, solvent_atoms,
     act on the wrong side of it: once the minimum image flips, the flat-bottom pushes away rather than back. PLUMED
     evaluates the wall on an absolute coordinate, so there is no image to flip and no half-box readout to trip.
 
-    The reference is the **solvent's centre of mass**, which is the box centre by symmetry and, being ~2000 beads,
-    absorbs the reaction force as 1/2000 of itself per bead -- the pull had a single reference atom and could not.
+    The walls sit on the **absolute z of the box centre**, which is the one coordinate that needs no periodic
+    handling. "To the center of the box" is a statement about the box, and this box was measured to move 0.006 nm
+    over an equilibration. Referencing the walls to the solvent's centre of mass instead -- a reference that follows
+    the box and has no recoil to worry about -- was tried and is wrong: a group filling the box has no meaningful
+    centre of mass, the coordinate came out at 61.75 nm in a 10.08 nm box, and the 3.5 MJ/mol bias it produced
+    segfaulted the equilibration.
     """
     molecules = int(solute_molecules)
     if molecules < 1:
         raise ValueError('plumed walls need at least one solute molecule to confine, or there is nothing to write')
     solute = [int(index) for index in solute_atoms]
-    solvent = [int(index) for index in solvent_atoms]
-    if not solvent:
-        raise ValueError('plumed walls need the solvent as the reference, and none was given')
+    if float(box_centre_nm) <= 0.0:
+        raise ValueError('plumed walls need the box centre to sit at, and none was given')
     per_molecule = len(solute) // molecules
     if per_molecule * molecules != len(solute):
         raise ValueError(f'{len(solute)} solute atoms do not divide into {molecules} molecules')
@@ -100,32 +103,45 @@ def plumed_walls(*, solute_molecules, solute_atoms, solvent_atoms,
              '# constant 1000 kJ/nm2 was applied to the solute molecules."',
              'UNITS LENGTH=nm ENERGY=kj/mol TIME=ps',
              '']
-    # The box centre, as the solvent's centre of mass: by symmetry it is the centre, and it moves with the box.
-    lines.append('ref: COM ATOMS=' + ','.join(str(i) for i in solvent))
-    lines.append('centre: CUSTOM ARG=ref.z PERIODIC=NO FUNC=x')
+    # **Two things in this file are measurements rather than assumptions**, both read off `plumed_bias.dat` from the
+    # first run that carried one:
+    #
+    #  * **KAPPA is half the paper's constant.** PLUMED writes the wall as V = KAPPA*(x-AT)**2, so the force it
+    #    applies is 2*KAPPA*(x-AT). That run's row reads upper1.bias = 3508274.2 kJ/mol at d1 = 61.75, and
+    #    1000*(61.75-2.52078)**2 = 3508274.2 exactly -- so the paper's "force constant 1000 kJ/nm2" is KAPPA = 500.
+    #  * **The wall sits on an absolute z, not on a difference against a group.** "To the center of the box" is a
+    #    statement about the box: its centre was measured to move 0.006 nm over an equilibration (10.0831 ->
+    #    10.0720), so it can be named outright. Referencing the walls to the solvent's centre of mass instead -- the
+    #    reference that follows the box with nothing to recoil onto -- gave d1 = 61.75 nm in a 10.08 nm box: a group
+    #    that fills the box has no meaningful centre of mass, a 3.5 MJ/mol bias landed on one molecule, and the
+    #    equilibration segfaulted. An absolute coordinate needs no periodic handling at all.
+    centre = float(box_centre_nm)
+    half = float(confinement_nm)
+    kappa = float(force_constant) / 2.0
+    lines.append(f'# The box centre is z = {centre:g} nm, so the walls sit at {centre - half:g} and {centre + half:g}.')
     lines.append('')
-    names = []
+    lines.append('# One wall pair per molecule at that centre. Right-hand rule for the two sides: UPPER bounds z from')
+    lines.append(f'# above, LOWER from below, and together they are the paper\'s flat bottom at +/-{half:g} nm.')
+    lines.append('')
     for molecule in range(1, molecules + 1):
         first = (molecule - 1) * per_molecule + 1
         atoms = ','.join(str(i) for i in range(first, first + per_molecule))
         lines.append(f'm{molecule}: COM ATOMS={atoms}')
-        lines.append(f'd{molecule}: CUSTOM ARG=m{molecule}.z,centre PERIODIC=NO FUNC=y-x')
-        names.append(f'd{molecule}')
     lines.append('')
-    arguments = ','.join(names)
-    lines.append(f'# the two walls, each on every molecule: flat inside, quadratic beyond, k = {force_constant:g}')
-    lines.append(f'upper: UPPER_WALLS ARG={arguments} AT={float(confinement_nm):g} '
-                 f'KAPPA={float(force_constant):g} EXP=2 EPS=1 OFFSET=0')
-    lines.append(f'lower: LOWER_WALLS ARG={arguments} AT=-{float(confinement_nm):g} '
-                 f'KAPPA={float(force_constant):g} EXP=2 EPS=1 OFFSET=0')
+    lines.append('# **One wall per CV, not one wall over a comma-list of CVs.** PLUMED 2.9 answers the latter with')
+    lines.append('# "ERROR in input to action UPPER_WALLS_SCALAR with label upper : vector read in" -- measured, on the')
+    lines.append('# first run that got far enough to parse this file. It costs two lines per molecule and no more.')
+    for molecule in range(1, molecules + 1):
+        lines.append(f'upper{molecule}: UPPER_WALLS ARG=m{molecule}.z AT={centre + half:g} '
+                     f'KAPPA={kappa:g} EXP=2 EPS=1 OFFSET=0')
+        lines.append(f'lower{molecule}: LOWER_WALLS ARG=m{molecule}.z AT={centre - half:g} '
+                     f'KAPPA={kappa:g} EXP=2 EPS=1 OFFSET=0')
     if int(print_stride) > 0:
         lines.append('')
-        lines.append("# The walls' own energy, so the constant this engine applies is measured rather than assumed.")
-        lines.append('# PLUMED writes the harmonic wall as k(x-AT)^2, so the force it applies is 2k(r-AT) -- twice the')
-        lines.append("# paper's stated 1000 kJ/mol/nm2 if KAPPA is read as that constant. The analysis recomputes the force")
-        lines.append('# from the trajectory with the paper\'s own constant either way; this file is how the simulation\'s')
-        lines.append('# convention is checked against it.')
-        lines.append(f'PRINT ARG=upper.bias,lower.bias,d1 FILE=plumed_bias.dat STRIDE={int(print_stride)}')
+        lines.append("# One molecule's own wall pair, so the constant this engine applies is measured rather than")
+        lines.append('# assumed -- the two facts above were read from this file, and keeping it written is how the next')
+        lines.append('# reader checks them instead of trusting this comment.')
+        lines.append(f'PRINT ARG=upper1.bias,lower1.bias,m1.z FILE=plumed_bias.dat STRIDE={int(print_stride)}')
     return '\n'.join(lines) + '\n'
 
 

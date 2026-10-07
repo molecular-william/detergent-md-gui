@@ -149,6 +149,12 @@ def build(destination, *, plan, temperature, production_ps=osmotic_mdp.DEFAULT_P
         'box_volume_nm3': plan['box_volume_nm3'],
         'dividing_area_nm2': plan['dividing_area_nm2'],
         'water_beads': plan['water_beads'],
+        # **The bead mass, which the runner reads back at the end to report the molality it actually built.** It was
+        # in `plan_condition`'s output all along and was dropped here, so `built.json` died with
+        # `KeyError: 'water_bead_mass'` -- a defect three runs could not reach, because they failed before the last
+        # step. Written down because a reader needs it: the count is meaningless without what a bead weighs.
+        'water_bead_mass': plan['water_bead_mass'],
+        'water_kg': plan.get('water_kg'),
         'solute_molecules': plan['solute_molecules'],
         'solute_beads': plan.get('solute_beads'),
         'confinement_nm': plan['confinement_nm'],
@@ -158,7 +164,7 @@ def build(destination, *, plan, temperature, production_ps=osmotic_mdp.DEFAULT_P
         'production_ps': float(production_ps),
         'equilibration_ps': float(equilibration_ps),
         'output_interval_ps': float(output_interval_ps),
-        'restraint': {'mechanism': 'pull, flat-bottom, direction z',
+        'restraint': {'mechanism': 'plumed, flat-bottom, on the absolute z of the box centre',
                       'reference_type': REFERENCE_TYPE,
                       'reference_atom': int(reference_atom) if reference_atom is not None else None},
         'groups': {'solute': len(list(solute_atoms)), 'solvent': len(list(solvent_atoms))},
