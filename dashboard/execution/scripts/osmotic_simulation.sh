@@ -130,31 +130,41 @@ print('solute: moleculetype %s, %d molecules confined individually'
       % (name, placement['solute_molecules_placed']))
 PY
 
-# 3. The topology: the force field, the solute, the reference and the water, with the counts between them. `solvate`
-#    fills the water count in [ molecules ] itself, which is why that line starts at zero.
-cat > system.top <<TOP
-#include "martini_v3.0.0.itp"
-#include "reference.itp"
-#include "$SOLUTE_DIR/solute.itp"
-#include "$SOLUTE_DIR/martini_v3.0.0_solvents_v1.itp"
-
-[ system ]
-osmotic condition
-
-[ molecules ]
-$(python -c "
+# 3. The topology: the force field, the solute, the reference and the water, with the counts between them.
+#
+#    **Written from Python, not a heredoc, and that is not style.** This was a `cat` heredoc with the molecule's own
+#    name substituted into it by `$(python -c "...")`. A command substitution *inside* an unquoted heredoc is
+#    expanded as the heredoc is read, and when it goes wrong bash executes the substituted text: the run that first
+#    carried the PLUMED step reported "line 135: LIG1: command not found" and the script then stopped before
+#    plumed.dat was ever written. A writer that cannot be re-parsed removes the class, not the instance.
+python - "$PWD" "$SOLUTE_DIR" <<'PY'
 import json
+import sys
 from pathlib import Path
-count = json.load(open('placement.json'))['solute_molecules_placed']
-name = Path('solute_molecule.txt').read_text().strip()
+
+workdir, solute_dir = Path(sys.argv[1]), sys.argv[2]
+count = json.loads((workdir / 'placement.json').read_text())['solute_molecules_placed']
+name = (workdir / 'solute_molecule.txt').read_text().strip()
 # **A zero count is not written, and this is not tidiness.** `LIG1  0` in [ molecules ] makes grompp *segfault* --
 # not refuse, crash -- because a moleculetype with bonded interactions and no copies has no edges to build. The
-# pure-solvent control is exactly that case, so the entry is omitted and the block says why it is absent.
-print(f'{name}  {count}' if count else '; no solute in this condition: the pure-solvent control')
-")
-REFC  1
-W     0
-TOP
+# pure-solvent control is exactly that case, so the entry is omitted and the file says why it is absent. The water
+# count is appended after the solvent is placed; it cannot be known here.
+entries = [f'{name}  {count}'] if count else ['; no solute in this condition: the pure-solvent control']
+entries.append('REFC  1')
+(workdir / 'system.top').write_text('\n'.join([
+    '#include "martini_v3.0.0.itp"',
+    '#include "reference.itp"',
+    f'#include "{solute_dir}/solute.itp"',
+    f'#include "{solute_dir}/martini_v3.0.0_solvents_v1.itp"',
+    '',
+    '[ system ]',
+    'osmotic condition',
+    '',
+    '[ molecules ]',
+    *entries,
+]) + '\n')
+print('topology: %s' % (entries[0] if count else 'no solute in this condition'))
+PY
 
 # 4. Solvent fills what the solute and the reference do not. **The paper's polyply fills the solvent in the entire
 #    box; filling it the other way costs the run.** `gmx solvate` tiles its 3.64428 nm configuration and discards the
@@ -211,20 +221,58 @@ print('index: System 1-%d, %d MOL groups, REFERENCE %d'
       % (total, placement['solute_molecules_placed'], reference))
 PY
 
-# 5. The stages. -n names the groups for freezegrps and for the pull alike. The equilibration takes no `-t`: a steep
+# 4c. The confinement, as PLUMED. The paper's potential is *external* -- a flat-bottom at 2.52078 nm from the box
+#     centre, k = 1000 kJ/mol/nm2, per solute molecule -- and GROMACS's `pull` is not: it is a spring between two
+#     groups, so its coordinate is what it measures and its origin is what it pulls against. Both failed visibly.
+#     The coordinate is the *unwrapped* z-difference: it grew to 4.91 nm, nearly half the box, and mdrun's half-box
+#     check aborted the run while the trajectory still showed the solute 1.64 nm from the origin, inside the wall.
+#     And a coordinate free to pass half the box is a potential free to act on the wrong side of it: once the minimum
+#     image flips, a flat-bottom pushes *away*. PLUMED evaluates each wall on an absolute coordinate, referenced to
+#     the solvent's centre of mass -- which is the box centre by symmetry, follows the box, and being ~2000 beads
+#     absorbs the wall's reaction force as 1/2000 of itself per bead. The pull's origin was a single atom.
+python - "$PWD" "$SOLUTE_DIR" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+from dashboard.execution.adapters import osmotic_mdp
+
+workdir = Path(sys.argv[1])
+placement = json.loads((workdir / 'placement.json').read_text())
+molecules = placement['solute_molecules_placed']
+if molecules:
+    total = int((workdir / 'solvated.gro').read_text().splitlines()[1])
+    reference = placement['reference_atom']
+    (workdir / 'plumed.dat').write_text(osmotic_mdp.plumed_walls(
+        solute_molecules=molecules, solute_atoms=range(1, reference),
+        solvent_atoms=range(reference + 1, total + 1)))
+print('plumed: %d molecules confined, each by its own wall pair' % molecules)
+PY
+
+#     The pure-solvent control has nothing to confine, so it writes no file and passes no option: `plumed_walls`
+#     refuses a zero molecule count rather than writing a wall on nothing, and PLUMED handed an empty file stops
+#     mdrun. An `if` rather than `[ -f ... ] &&`, because a false test is a non-zero status and this script is
+#     expected to reach the next line either way.
+if [ -f plumed.dat ]; then PLUMED="-plumed plumed.dat"; else PLUMED=""; fi
+
+# 5. The stages. `-n` names the one group the mdps refer to by name: `System`, for the thermostat and the barostat.
+#    The index still carries MOL<i> and REFERENCE, but nothing names them any more -- the confinement is PLUMED's,
+#    and it takes its atoms from plumed.dat rather than from an index group. The equilibration takes no `-t`: a steep
 #    minimization writes no checkpoint -- it has no velocities to carry -- and passing min.cpt is "No such file or
 #    directory" one step after the first mdrun this pipeline ever completed. Production *does* continue from the
 #    equilibration's checkpoint, because that is where gen_vel went.
 #    `-r` names the file the position restraints' reference coordinates come from: the same coordinates the stage
-#    starts from, which is where the reference bead sits at the box centre. `-maxwarn 1` is for the Berendsen barostat
-#    the paper's method names -- GROMACS warns it is not a strictly correct ensemble, and here that warning is the
-#    method rather than a mistake. More than one warning means something else is wrong, so the count stays at one.
+#    starts from, which is where the reference bead sits at the box centre. With the confinement in PLUMED nothing
+#    depends on that bead any more -- the walls are referenced to the solvent -- so it and its restraint are left
+#    where they are rather than removed mid-flight. `-maxwarn 1` is for the Berendsen barostat the paper's method
+#    names -- GROMACS warns it is not a strictly correct ensemble, and here that warning is the method rather than a
+#    mistake. More than one warning means something else is wrong, so the count stays at one.
 gmx grompp -f minimization.mdp -p system.top -c solvated.gro -r solvated.gro -n index.ndx -o min.tpr -maxwarn 1
-${MDRUN_LAUNCHER:-}gmx mdrun -deffnm min ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v
+${MDRUN_LAUNCHER:-}gmx mdrun -deffnm min ${PLUMED} ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v
 gmx grompp -f eq.mdp -p system.top -c min.gro -r min.gro -n index.ndx -o eq.tpr -maxwarn 1
-${MDRUN_LAUNCHER:-}gmx mdrun -deffnm eq ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v
+${MDRUN_LAUNCHER:-}gmx mdrun -deffnm eq ${PLUMED} ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v
 gmx grompp -f md.mdp -p system.top -c eq.gro -r eq.gro -n index.ndx -t eq.cpt -o md.tpr -maxwarn 1
-${MDRUN_LAUNCHER:-}gmx mdrun -deffnm md ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v
+${MDRUN_LAUNCHER:-}gmx mdrun -deffnm md ${PLUMED} ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v
 
 # 6. The trajectory the analysis reads, and the counts it should be told were actually built. The build predicted
 #    them; a prediction is not a substitute for the number, and the difference is the whole reason molality is

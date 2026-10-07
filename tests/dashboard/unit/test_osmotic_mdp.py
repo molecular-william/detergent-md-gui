@@ -67,68 +67,76 @@ def test_the_equilibration_uses_a_berendsen_barostat_because_the_paper_says_so()
 
 
 def test_the_solute_is_confined_in_every_stage_including_minimization():
-    """A stage without the restraint is a stage where the solute can drift out of the slab, and minimization is
-    exactly where a bad initial configuration would."""
+    """A stage without the confinement is a stage where the solute can drift out of the slab, and minimization is
+    exactly where a bad initial configuration would. The mdp switches the potential on; `plumed_walls` writes it."""
     built = mdps()
 
     for stage, text in built.items():
-        read = settings(text)
-        assert read['pull'] == 'yes', stage
-        assert read['pull-coord1-type'] == 'flat-bottom', stage
-        assert read['pull-coord1-geometry'] == 'direction', stage
-        assert read['pull-coord1-vec'].split() == ['0', '0', '1'], stage
-        assert float(read['pull-coord1-init']) == pytest.approx(2.52078), stage
-        assert float(read['pull-coord1-k']) == pytest.approx(1000.0), stage
-        assert read['pull-coord1-rate'] == '0', stage
+        # The mdp carries a note, not a switch: this build reaches PLUMED at the mdrun call (`-plumed plumed.dat`).
+        # An mdp entry named `plumed` is answered with "Unknown left-hand 'plumed' in parameter file" -- two
+        # warnings against `-maxwarn 1`, which is what stopped the first run that carried them.
+        assert 'the confinement is PLUMED' in text, stage
+        assert not [key for key in settings(text) if key.startswith('plumed')], stage
 
 
-def test_every_molecule_gets_its_own_coordinate():
-    """One coordinate per molecule, which is what the paper describes: "At a distance of 2.52078 nm from the center
+def test_every_molecule_gets_its_own_wall_pair():
+    """One wall pair per molecule, which is what the paper describes: "At a distance of 2.52078 nm from the center
     of the box, a harmonic force with a force constant 1000 kJ/nm2 was applied to the solute molecules."
 
-    This started as *one* group for the whole solute. That group cannot be given a PBC reference atom -- GROMACS
-    requires every atom within a quarter box of one, and the solute fills the box in xy -- so grompp refused it three
-    different ways, and when it was forced through mdrun aborted the run after 76 ns when the coordinate it computed
-    from the wrong reference exceeded half the box. A single molecule is about 0.5 nm across, so this passes on its
-    own. The absence of a pbcatom is asserted, because putting one back would be a silent return to that design.
+    This started as *one* group for the whole solute, then as one `pull` coordinate per molecule against a reference
+    bead. Both are gone. A `pull` is a spring between two groups, so the coordinate it reports is the *unwrapped*
+    z-difference: the run that died at 2.4 ns of equilibration had grown one to 4.91 nm, nearly half the box, while
+    its own trajectory showed the solute 1.64 nm from the origin and the origin 0.026 nm from the box centre. And a
+    coordinate free to pass half the box is a potential free to act on the wrong side of it -- once the minimum image
+    flips, a flat-bottom pushes *away*. PLUMED evaluates each wall on an absolute coordinate, so neither can happen.
     """
-    read = settings(osmotic_mdp.osmotic_mdps(temperature=308.15, solute_molecules=4,
-                                            origin_group='CENTRE')['production'])
+    text = osmotic_mdp.plumed_walls(solute_molecules=4, solute_atoms=range(1, 21),
+                                    solvent_atoms=range(21, 31))
 
-    assert read['pull-ngroups'] == '5'
-    assert read['pull-ncoords'] == '4'
-    for coordinate in range(1, 5):
-        assert read[f'pull-coord{coordinate}-groups'].split() == [str(coordinate), '5']
-        assert read[f'pull-coord{coordinate}-geometry'] == 'direction'
-        assert float(read[f'pull-coord{coordinate}-init']) == pytest.approx(2.52078)
-        assert float(read[f'pull-coord{coordinate}-k']) == pytest.approx(1000.0)
-    assert read['pull-group1-name'] == 'MOL1'
-    assert read['pull-group4-name'] == 'MOL4'
-    assert read['pull-group5-name'] == 'CENTRE'
-    assert 'pull-pbc-ref-prev-step-com' not in read
-    assert not [key for key in read if 'pbcatom' in key]
+    assert 'ref: COM ATOMS=21,22,23,24,25,26,27,28,29,30' in text
+    for molecule in range(1, 5):
+        first = (molecule - 1) * 5 + 1
+        assert f'm{molecule}: COM ATOMS=' + ','.join(str(i) for i in range(first, first + 5)) in text
+        assert f'd{molecule}: CUSTOM ARG=m{molecule}.z,centre' in text
+    assert 'UPPER_WALLS ARG=d1,d2,d3,d4 AT=2.52078 KAPPA=1000 EXP=2' in text
+    assert 'LOWER_WALLS ARG=d1,d2,d3,d4 AT=-2.52078 KAPPA=1000 EXP=2' in text
+    assert 'pull' not in text.lower()
 
 
-def test_the_origin_group_is_the_reference_by_default():
-    """The confinement is "to the center of the box", and the origin is the one group GROMACS's pull will accept
-    that can be held there: a single bead. The solvent cannot serve -- a box-filling group is refused by the same
-    check that refused the whole solute."""
-    read = settings(mdps()['production'])
+def test_the_potential_and_the_reference_the_failures_asked_for():
+    """The two refusals that would otherwise be silent: a count the atoms do not divide into, and no reference to
+    measure from. Either one produces a plumed.dat that runs and confines the wrong thing."""
+    with pytest.raises(ValueError, match='do not divide'):
+        osmotic_mdp.plumed_walls(solute_molecules=3, solute_atoms=range(1, 9), solvent_atoms=range(9, 12))
+    with pytest.raises(ValueError, match='solvent as the reference'):
+        osmotic_mdp.plumed_walls(solute_molecules=1, solute_atoms=range(1, 9), solvent_atoms=[])
 
-    assert read[f'pull-group{MOLECULES + 1}-name'] == 'REFERENCE'
-    assert read['pull-coord1-groups'].split()[1] == str(MOLECULES + 1)
+
+def test_the_origin_is_the_solvent_s_centre_of_mass():
+    """The confinement is "to the center of the box", and the reference that gives is the solvent's centre of mass:
+    the box centre by symmetry, it follows the box when the barostat scales it, and being thousands of beads it
+    absorbs a wall's reaction force as one part in thousands. A single reference atom -- the restrained bead this
+    replaced -- could not, which is why the reference is a group rather than an atom here.
+    """
+    text = osmotic_mdp.plumed_walls(solute_molecules=2, solute_atoms=range(1, 5), solvent_atoms=range(5, 8))
+
+    assert 'ref: COM ATOMS=5,6,7' in text
+    assert 'centre: CUSTOM ARG=ref.z PERIODIC=NO FUNC=x' in text
+    assert 'd1: CUSTOM ARG=m1.z,centre' in text
+    assert 'd2: CUSTOM ARG=m2.z,centre' in text
 
 
 def test_a_pure_solvent_control_has_nothing_to_confine_and_says_so():
-    """0 molal is a legitimate condition: no solute, so no restraint -- and its pressure is zero by construction. It
-    is the condition that shows where the measurement floor is, so refusing it would delete a real measurement."""
-    assert osmotic_mdp.restraint_block(solute_molecules=0) == ['pull                    = no']
+    """0 molal is a legitimate condition: no solute, so no wall -- and its pressure is zero by construction. It is
+    the condition that shows where the measurement floor is, so refusing it would delete a real measurement."""
+    assert 'nothing is confined' in osmotic_mdp.restraint_block(solute_molecules=0)[0]
+
+    with pytest.raises(ValueError, match='at least one solute molecule'):
+        osmotic_mdp.plumed_walls(solute_molecules=0, solute_atoms=[], solvent_atoms=range(1, 4))
 
     built = osmotic_mdp.osmotic_mdps(temperature=308.15, solute_molecules=0)
     for stage in ('equilibration', 'production'):
-        read = settings(built[stage])
-        assert read['pull'] == 'no'
-        assert 'pull-nstfout' not in read, stage
+        assert not [key for key in settings(built[stage]) if key.startswith('plumed')], stage
 
 
 def test_a_negative_molecule_count_is_refused():
@@ -204,13 +212,15 @@ def test_the_trajectory_is_written_often_enough_to_average_a_force_over():
 
 
 def test_the_confinement_constants_are_the_papers_and_are_overridable_only_on_purpose():
+    """The paper's two numbers, and where they now live: `plumed_walls` writes the potential, and the mdp only
+    switches it on. The constants stayed in the mdp's signature for the callers that still name them."""
     assert osmotic_mdp.DEFAULT_CONFINEMENT_NM == pytest.approx(2.52078)
     assert osmotic_mdp.DEFAULT_CONFINEMENT_KJ_MOL_NM2 == pytest.approx(1000.0)
 
-    block = '\n'.join(osmotic_mdp.restraint_block(solute_molecules=2, confinement_nm=1.0, force_constant=5.0))
-    assert 'pull-coord1-init        = 1' in block
-    assert 'pull-coord1-k           = 5' in block
-    assert 'pull-coord2-init        = 1' in block
+    text = osmotic_mdp.plumed_walls(solute_molecules=2, solute_atoms=range(1, 9), solvent_atoms=range(9, 12),
+                                    confinement_nm=1.0, force_constant=5.0)
+    assert 'UPPER_WALLS ARG=d1,d2 AT=1 KAPPA=5 EXP=2' in text
+    assert 'LOWER_WALLS ARG=d1,d2 AT=-1 KAPPA=5 EXP=2' in text
 
 
 def test_the_reference_bead_is_restrained_to_the_box_centre_in_every_stage():

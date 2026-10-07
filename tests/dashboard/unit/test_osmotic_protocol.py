@@ -156,9 +156,14 @@ def test_the_paper_scale_production_writes_the_frames_it_was_asked_for():
     assert int(md['nsteps']) == 25_000_000                 # 500 ns at 20 fs
     assert int(md['nstxtcout']) == 500                     # 500 steps x 0.02 ps = 10 ps
     assert int(md['nsteps']) / int(md['nstxtcout']) == 50_000
-    # The engine's own force on the restraint, at the same interval, is what the recomputation is checked against.
-    assert int(md['pull-nstfout']) == 500
-    assert md['pull-coord1-type'] == 'flat-bottom'
+    # The engine's own measurement of the confinement is PLUMED's now -- `plumed_walls` writes the wall's bias at
+    # its own stride -- so the mdp declares no pull output interval, and asserting that it does not is what would
+    # catch a stale `pull-*` line coming back with it.
+    assert 'pull-nstfout' not in md
+    assert 'pull' not in md
+    # The confinement is PLUMED's, switched on at the mdrun call rather than from the mdp: `gmx grompp -h` mentions
+    # PLUMED nowhere, and an mdp entry named `plumed` is two warnings against `-maxwarn 1`.
+    assert not [key for key in md if key.startswith('plumed')]
 
     eq = settings(mdps['equilibration'])
     assert float(eq['dt']) == 0.005
