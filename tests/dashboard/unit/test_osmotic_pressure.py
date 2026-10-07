@@ -208,3 +208,26 @@ def test_measure_returns_the_force_the_frames_imply(tmp_path):
     assert measured['symmetry'] == pytest.approx(1.0, rel=1e-3)
     assert measured['pressure_bar'] == pytest.approx(
         PAPER_FORCE_CONSTANT * excursion / AREA_NM2 * op.KJ_MOL_NM2_TO_BAR, rel=5e-4)
+
+
+def test_the_kind_is_registered_in_all_four_places():
+    """A kind missing the fourth is accepted by the queue and then produces nothing -- learned here the hard way, so
+    the four are asserted together rather than discovered one at a time as each failure surfaces.
+
+    The fourth is the dispatch arm, which has no name to look up; its source is read for the branch. That is a text
+    check and it can be fooled by a comment, but the alternative is running a job to find out.
+    """
+    import inspect
+
+    from dashboard.analysis import metadata as analysis_metadata
+    from dashboard.analysis import worker
+
+    assert 'osmotic-pressure' in worker.KINDS
+    assert worker.PATTERNS['osmotic-pressure'] == ['01_simulate/osmotic_condition.json', '01_simulate/plumed.dat',
+                                                   '01_simulate/solvated.gro', '01_simulate/prod/md_whole.xtc']
+    title, note, units = analysis_metadata.DESCRIPTIONS['osmotic-pressure']
+    assert 'bar' in units
+    assert 'converged' in note
+    assert "kind == 'osmotic-pressure'" in inspect.getsource(worker)
+    # The module the branch calls has to be importable from it, which is the failure a missing import looks like.
+    assert callable(worker.osmotic_pressure.publish)

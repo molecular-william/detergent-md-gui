@@ -13,12 +13,12 @@ from pathlib import Path
 from .. import files
 from ..execution import tools, workflow
 from . import metadata as analysis_metadata
-from .runs import bartender_fit, bonded_estimate, dihedral_fit, mapping_consistency, observability, overlap, refinement
+from .runs import bartender_fit, bonded_estimate, dihedral_fit, mapping_consistency, observability, osmotic_pressure, overlap, refinement
 from .runs import references as aa_references
 from .validation import report as carbohydrate_validation
 from .validation import targets
 
-KINDS = {'plots', 'snapshots', 'surfaces', 'observables', 'stability', 'refinement-score', 'targets', 'carbohydrate-validation', 'mapping-consistency', 'bartender-fit', 'overlap', 'bonded-cross-check', 'dihedral-fit'}
+KINDS = {'plots', 'snapshots', 'surfaces', 'observables', 'stability', 'refinement-score', 'targets', 'carbohydrate-validation', 'mapping-consistency', 'bartender-fit', 'overlap', 'bonded-cross-check', 'dihedral-fit', 'osmotic-pressure'}
 PATTERNS = {
     'plots': ['*SASA*/AA/*.xvg', '*SASA*/CG/*.xvg'],
     'snapshots': ['1_AA-reference/prod/lig.gro', '1_AA-reference/prod/lig.xtc'],
@@ -34,6 +34,12 @@ PATTERNS = {
     # criterion-driven fit say, beside what the run's own tool-chosen terms say.
     'dihedral-fit': ['2_mapping/mapped.gro', '2_mapping/mapped.xtc', '2_mapping/model.json',
                      '3_initial_CG/*_ff_inter.itp', '3_initial_CG/*initial*.itp'],
+    # One condition's own files, all of them: the walls the run was built with (`plumed.dat` names the grouping, the
+    # box centre and KAPPA), the record that holds the dividing area, the structure the trajectory is read against,
+    # and the trajectory itself. The walls are staged deliberately rather than re-derived -- the analysis and the
+    # simulation disagreeing about what a molecule is would be invisible in the number.
+    'osmotic-pressure': ['01_simulate/osmotic_condition.json', '01_simulate/plumed.dat',
+                         '01_simulate/solvated.gro', '01_simulate/prod/md_whole.xtc'],
     'observables': ['2_mapping/mapped.gro', '2_mapping/mapped.xtc', '3_initial_CG/DDM_initial.itp'],
     'stability': ['*.log', '*.xtc'],
     'refinement-score': ['5_assessment/validation.json'],
@@ -118,6 +124,7 @@ def execute(request_path):
         elif kind == 'overlap': result = overlap.publish(work, request.get('payload', {}))
         elif kind == 'bonded-cross-check': result = bonded_estimate.cross_check(work, request.get('payload', {}))
         elif kind == 'dihedral-fit': result = dihedral_fit.publish(work, request.get('payload', {}))
+        elif kind == 'osmotic-pressure': result = osmotic_pressure.publish(work, request.get('payload', {}))
         else:
             function = {'plots': observability.sasa_plot, 'snapshots': observability.generate,
                         'surfaces': observability.connolly_surfaces, 'observables': observability.unparameterized_observables,

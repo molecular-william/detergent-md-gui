@@ -32,6 +32,7 @@ AVOGADRO = 6.02214076e23
 KJ_MOL_NM2_TO_BAR = 1.0e30 / AVOGADRO / 1.0e5
 
 MANIFEST = 'osmotic_condition.json'
+REPORT = 'osmotic-pressure.json'
 WALLS = 'plumed.dat'
 BIAS = 'plumed_bias.dat'
 TRAJECTORY = ('prod/md_whole.xtc', 'md.xtc')
@@ -112,6 +113,31 @@ def _structure_and_trajectory(run_dir):
         if (run_dir / name).is_file():
             return run_dir / name, trajectory
     raise FileNotFoundError(f'{run_dir}: no structure ({", ".join(STRUCTURE)})')
+
+
+def publish(work, payload=None):
+    """Measure one condition and write the report a reader finds beside the run's own outputs.
+
+    `work` is the run's execution root -- the layout every kind in this repository resolves its own paths against --
+    and an osmotic run has one stage, so the condition's files are under `01_simulate/`. If that directory is not
+    there, `work` itself is used, because a caller that already has the stage directory should not have to pretend.
+
+    `payload` may carry the paper's `target_pressure` for this molality, in which case the residual is written beside
+    the measurement. It is taken from the payload rather than looked up, deliberately: the target for a molecule is
+    citation metadata until someone supplies a measurement and an uncertainty, and inventing a lookup here would make
+    that distinction invisible.
+    """
+    work = Path(work)
+    stage = work / '01_simulate' if (work / '01_simulate').is_dir() else work
+    payload = dict(payload or {})
+    measured = measure(stage,
+                       force_constant_kj_mol_nm2=payload.get('force_constant_kj_mol_nm2'),
+                       frames=payload.get('frames'))
+    if payload.get('target_pressure') is not None:
+        measured['target_pressure'] = float(payload['target_pressure'])
+        measured['target_residual'] = measured['pressure_bar'] - measured['target_pressure']
+    (stage / REPORT).write_text(json.dumps(measured, indent=2, sort_keys=True) + '\n')
+    return measured
 
 
 def measure(run_dir, *, force_constant_kj_mol_nm2=None, frames=None):
