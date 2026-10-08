@@ -347,6 +347,41 @@ residual is the measured minus the target; a target with no uncertainty is refus
 
 **Step 3:** commit. `feat:` -- the osmotic pressure is measured and compared.
 
+**Measured, 2026-10-07: 14.944 bar at 0.5 molal against the paper's 13.04 -- 1.146x, and settled.** The first run of
+this protocol at the paper's own durations (`3767b3975adc`: 500 ns of production, 10 ns of equilibration, the paper's
+box and temperature, 70 molecules, 1941 water beads, molality achieved 0.5008873).
+
+| sample | frames | symmetry | pressure |
+| --- | --- | --- | --- |
+| every 50th frame | 1 001 | 0.9162 | 15.315 bar |
+| every 10th frame | 5 001 | 0.9930 | 15.002 bar |
+| every frame | 50 001 | 0.9740 | **14.944 bar** |
+
+**The symmetry ratio is what made this readable, and it earned its place.** At 1 001 frames the two walls disagreed
+by 8%, larger than the effect being measured, which would have made the 15.3 bar figure unusable; at 5 001 and 50 001
+frames the estimator stops moving -- 15.002 against 14.944, 0.4% apart. A measurement whose own guard had not been
+checked would have been reported at the first sample as a number with an error bar nobody had measured.
+
+**The 15% is not sampling, and it is not yet explained.** The leading candidate is the force field's generation: the
+paper is from 2016 and this repository runs Martini 3, so a systematic difference in a computed osmotic pressure is
+what that comparison should produce. That is a *candidate* and not a finding -- nothing of the paper's was used here
+but the box, the wall, the molality and the temperature, and a claim about the force field would need the paper's
+own force field to test. Task 4's citable targets are where that belongs.
+
+**Two corrections to this task's text.** The plan had the force coming from `assess.json` and the manifest; the
+paper's method is that the force is "recomputed from the trajectory", so the measurement reads the run's own
+`plumed.dat` for the grouping, the box centre and KAPPA, the condition record for the dividing area, and
+`prod/md_whole.xtc` for the frames. Reading the walls' own file is deliberate: a second definition of "molecule"
+would let the analysis and the simulation disagree invisibly. And `run` in `validation/osmotic.py` still takes its
+force from the caller, because the worker supplies the attempt's identity there; `divide` is where the same-run
+refusal lives and is tested, so the wiring belongs with the worker rather than here.
+
+**The 0 molal control produces no report at all**, because it has no `plumed.dat`: no solute means no wall, so
+`measure` refuses rather than returning a zero. Its pressure is zero by construction and that is correct, but a
+reader showing six conditions will find a missing file where it expects a number. Giving the control a report that
+*says* zero-by-construction, rather than a missing file, is a Phase 3 decision.
+
+
 ### Task 2.2: the series, as one picture
 
 **Files:**
