@@ -212,11 +212,18 @@ STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS = stage_tables(STAGE_DEFS)
 #: The temperature default is maltose's, from Ebrahimi & Sadeghi 2016, and is a *default* here only because a run type
 #: must start somewhere. The route that queues a series is expected to set it from the dataset it compares against, and
 #: the report records where it came from either way.
+#: **`mdrun_ntomp` is 4, not 8, and that is a measurement about this system.** Eight configurations on this system's
+#: own `md.tpr` with the confinement loaded put four threads ahead of every other count (4782 ns/day against 4713 at
+#: eight, and worse at two and one); a 2502-bead box pays a per-step synchronisation cost that fewer threads do not.
+#: The other adapters keep 8 because their systems are a different size -- this number does not generalise, and it is
+#: here rather than in the runner's `${MDRUN_FLAGS:-...}` fallback because `workflow.py` exports `MDRUN_FLAGS` from
+#: *these* settings, so the fallback is never reached. That cost a cycle: the fallback was edited first and the
+#: running mdrun came back with `-ntomp 8` anyway.
 DEFAULTS = dict(temperature_k=308.15,
                 osmotic_production_ps=osmotic_mdp.DEFAULT_PRODUCTION_PS,
                 osmotic_equilibration_ps=osmotic_mdp.DEFAULT_EQUILIBRATION_PS,
                 osmotic_output_interval_ps=osmotic_mdp.DEFAULT_OUTPUT_INTERVAL_PS,
-                osmotic_molality=1.0, mdrun_ntomp=8, mdrun_ranks=1)
+                osmotic_molality=1.0, mdrun_ntomp=4, mdrun_ranks=1)
 SETTING_SPECS = {
     'temperature_k': ('Temperature of the experimental dataset', 200, 400),
     'osmotic_production_ps': ('Production duration', 1, 2000000),

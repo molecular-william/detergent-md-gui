@@ -331,8 +331,20 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
                 stage_env=environment()
                 stage_env['MDRUN_LAUNCHER']=mdrun_launcher
                 stage_env['MDRUN_FLAGS']=mdrun_flags
+                # **`OMP_NUM_THREADS` and `-ntomp` have to agree, and GROMACS refuses to run when they do not:**
+                # "Environment variable OMP_NUM_THREADS (8) and the number of threads requested on the command line
+                # (4) have different values. Either omit one, or set them both to the same value." `environment()`
+                # hard-codes 8, which was harmless only for as long as every setting was also 8 -- the first run
+                # with `mdrun_ntomp = 4` died in its minimisation because of it. The number is taken from the flags
+                # that were actually built rather than from the setting, so an `auto` bracket that chose differently
+                # cannot put the two out of step, and the recorded environment stays truthful.
+                _flags = (mdrun_flags or '').split()
+                if '-ntomp' in _flags and _flags.index('-ntomp') + 1 < len(_flags):
+                    stage_env['OMP_NUM_THREADS'] = _flags[_flags.index('-ntomp') + 1]
                 entry['environment']['MDRUN_LAUNCHER']=mdrun_launcher
                 entry['environment']['MDRUN_FLAGS']=mdrun_flags
+                if stage_env.get('OMP_NUM_THREADS'):
+                    entry['environment']['OMP_NUM_THREADS']=stage_env['OMP_NUM_THREADS']
                 if shared_path:
                     aa_references.resolve(run_dir.parent,shared['source_run_id'],shared['sha256'])
                     stage_env['AA_REFERENCE_DIR']=str(shared_path)
