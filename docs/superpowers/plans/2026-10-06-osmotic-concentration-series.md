@@ -281,6 +281,54 @@ paper's bar rather than refused.
 
 **Measured (2026-10-06).** Two commits: `9b19d19` the build, `62f6e86` the runner and the freeze.
 
+**Measured (2026-10-08): the mdrun flags, the concurrency, and what PLUMED costs.** Three experiments on this
+system's own `md.tpr`, because "the GPU is not very utilized" turned out to be the right question asked of the
+wrong instrument.
+
+*The flag matrix, without the confinement* -- 8 configurations, 0.5 ns each:
+
+| flags | ns/day | | flags | ns/day |
+| --- | --- | --- | --- | --- |
+| `-ntomp 8 -nb gpu` | 13318 | | `-ntomp 8 -nb cpu` | 8795 |
+| `-ntomp 4 -nb gpu` | **14208** | | `-ntomp 4 -nb cpu` | 6277 |
+| `-ntomp 2 -nb gpu` | 11779 | | `-ntomp 2 -nb cpu` | 3546 |
+| `-ntomp 1 -nb gpu` | 9390 | | `-ntomp 1 -nb cpu` | 2025 |
+
+`-nb gpu` beats `-nb cpu` by 1.6x to 7x, and `-ntomp 4` beats every other thread count. So the flags were already
+close to right and the GPU is not idle because of them; `-ntomp 8` was the one worth changing.
+
+*The same comparison with the confinement PLUMED runs* -- the thing the real conditions carry and the bare benchmark
+did not:
+
+| flags | ns/day |
+| --- | --- |
+| `-ntomp 4 -nb gpu` + PLUMED | 4782 |
+| `-ntomp 8 -nb gpu` + PLUMED | 4713 |
+| `-ntomp 4 -nb cpu` + PLUMED | 3448 |
+| `-ntomp 2 -nb cpu` + PLUMED | 2394 |
+
+**PLUMED costs a factor of three** (14255 -> 4782), which is where the 500 ns conditions spend most of their wall
+clock, and `-ntomp 4` remains the best of the four thread counts once it is loaded. Two hypotheses died here: that
+`-nb cpu` might avoid a host round-trip when a force provider is attached (it does not -- the GPU path is still 1.4x
+better), and that `-ntomp 8` was three times too many (it was 1.5% too many, measured with PLUMED in place).
+
+*Concurrency, on the same machine.* One condition alone measured **~2400 ns/day over a real 500 ns production**.
+Four at once measured ~291 ns/day each sharing cores 0-7, ~130 spread across 72 cores, and ~105 each on its own
+block of eight -- so the aggregate **falls by about 4.6x** and no thread placement recovers it: 32 cores fully busy,
+the GPU at 13%, I/O negligible. The limit is therefore back to one and the series advances through
+`osmotic-chain.py` (a cron driver that queues one condition at a time, retries a condition that failed once, and
+stops for a person after two).
+
+**The concurrency penalty was measured with `-ntomp 8` and a pinning collision, so it is confounded** and should not
+be quoted as a property of the system. `-ntomp 4` halves each run's footprint, so two conditions might coexist
+better than the 4.6x suggests. That is a re-measurement, not a conclusion, and the series' own completion does not
+depend on it.
+
+**Absolute rates from a 0.1-0.5 ns window are optimistic**, and should not be quoted as prices: the same system's
+0.2 ns probe read 4577 ns/day against 2400 measured over a real 500 ns. The matrix ranks the options; only a long
+run prices them.
+
+
 The build writes the mdp set, an index file, the reference bead's itp and `osmotic_condition.json`, and its test asserts
 that the mdps it writes are byte-for-byte `osmotic_mdp`'s -- one source of truth for the method, so the two cannot
 drift.

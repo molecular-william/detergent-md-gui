@@ -276,7 +276,27 @@ PY
 . ./plumed_env.sh
 
 # 5. The stages. `-n` names the one group the mdps refer to by name: `System`, for the thermostat and the barostat.
-#    The index still carries MOL<i> and REFERENCE, but nothing names them any more -- the confinement is PLUMED's,
+#    **Concurrency is what the pinning question was really about, and the answer is that it does not pay here.**
+#    Four conditions at once measured, from PLUMED's own clock: ~291 ns/day each when all four shared cores 0-7,
+#    ~130 spread across all 72, ~105 each on its own block of eight -- against **~2400 ns/day for one condition run
+#    alone with `-pin on`**, which is what the 0.5 molal run measured over its whole 500 ns. So the aggregate falls
+#    by roughly 4.6x when four run together, and no thread placement recovers it: a 2502-bead system pays a per-run
+#    overhead that more runs cannot amortise. The machine's own numbers: 32 cores fully busy, the GPU at 13%, I/O
+#    negligible -- the limit is neither cycles nor the accelerator.
+#    `-pin on` is therefore restored, because serial with it is the only placement this machine has *measured* at
+#    2400 ns/day, and the concurrency limit is back to one. See
+#    `docs/superpowers/plans/2026-10-06-osmotic-concentration-series.md` for the three-way comparison.
+#    **The mdrun flags, measured rather than assumed.** Eight configurations on this system's own `md.tpr`, 0.5 ns
+#    each: `-nb gpu` beat `-nb cpu` by 1.6x to 7x, and `-ntomp 4` beat every other thread count -- so `-nb gpu` was
+#    right and the GPU is not idle because the flags are wrong. Then the same comparison with the confinement
+#    PLUMED actually runs: **PLUMED costs a factor of three** (14255 -> 4782 ns/day at `-ntomp 4 -nb gpu`), which
+#    is where the 500 ns conditions spend most of their wall clock, and `-ntomp 4` is still the best of the four
+#    thread counts once it is loaded. `-ntomp 8` was the only flag worth changing, and it is worth ~1.5%: the bare
+#    benchmark made it look like 6.7%.
+#    Absolute rates from a 0.1-0.5 ns window are optimistic -- a short window is startup-dominated, and the same
+#    system's 0.2 ns probe read 4577 against 2400 measured over a real 500 ns. The matrix ranks the options; only a
+#    long run prices them.
+#    **The index still carries MOL<i> and REFERENCE, but nothing names them any more** -- the confinement is PLUMED's,
 #    and it takes its atoms from plumed.dat rather than from an index group. The equilibration takes no `-t`: a steep
 #    minimization writes no checkpoint -- it has no velocities to carry -- and passing min.cpt is "No such file or
 #    directory" one step after the first mdrun this pipeline ever completed. Production *does* continue from the
@@ -288,11 +308,11 @@ PY
 #    names -- GROMACS warns it is not a strictly correct ensemble, and here that warning is the method rather than a
 #    mistake. More than one warning means something else is wrong, so the count stays at one.
 gmx grompp -f minimization.mdp -p system.top -c solvated.gro -r solvated.gro -n index.ndx -o min.tpr -maxwarn 1
-${MDRUN_LAUNCHER:-}gmx mdrun -deffnm min ${PLUMED} ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v
+${MDRUN_LAUNCHER:-}gmx mdrun -deffnm min ${PLUMED} ${MDRUN_FLAGS:--ntomp 4 -gpu_id 0 -nb gpu -pin on} -v
 gmx grompp -f eq.mdp -p system.top -c min.gro -r min.gro -n index.ndx -o eq.tpr -maxwarn 1
-${MDRUN_LAUNCHER:-}gmx mdrun -deffnm eq ${PLUMED} ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v
+${MDRUN_LAUNCHER:-}gmx mdrun -deffnm eq ${PLUMED} ${MDRUN_FLAGS:--ntomp 4 -gpu_id 0 -nb gpu -pin on} -v
 gmx grompp -f md.mdp -p system.top -c eq.gro -r eq.gro -n index.ndx -t eq.cpt -o md.tpr -maxwarn 1
-${MDRUN_LAUNCHER:-}gmx mdrun -deffnm md ${PLUMED} ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v
+${MDRUN_LAUNCHER:-}gmx mdrun -deffnm md ${PLUMED} ${MDRUN_FLAGS:--ntomp 4 -gpu_id 0 -nb gpu -pin on} -v
 
 # 6. The trajectory the analysis reads, and the counts it should be told were actually built. The build predicted
 #    them; a prediction is not a substitute for the number, and the difference is the whole reason molality is
