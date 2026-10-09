@@ -1,51 +1,118 @@
 import { $, $$, storage } from './shared.js';
 
-// The stylesheet decides the orientation: a rail on a wide window, a row at 900px and below. Assistive
-// technology is told which, because the arrow keys that move between tabs are expected to match the layout.
-const narrow = window.matchMedia('(max-width: 900px)');
+// The two-level navigation is server-rendered: the big tabs are workspace links, the sub-tab row holds the active
+// workspace's panels, and the server has already marked which panel is open. So this module no longer decides what a
+// page contains -- it keeps switching instant once the page is here, and it remembers where the person was.
+//
+// The panels are resolved by `data-tab`, which the template writes from the registry's DOM ids. Those ids are
+// deliberately not the URL slugs; dashboard/web/sections.py carries the reason.
 
-function syncOrientation() {
-  $$('[role=tablist]').forEach(list =>
-    list.setAttribute('aria-orientation', narrow.matches ? 'horizontal' : 'vertical'));
+function subTabs() {
+  return $$('nav.subtabs [role=tab][data-tab]');
 }
 
-// The document is the tab list: the buttons carry role=tab and data-tab, so a tab that is
-// added to dashboard.html works without a second list to keep in step.
-function tabIds() {
-  return $$('[role=tab][data-tab]').map(tab => tab.dataset.tab);
+// /detergent-validation/new-run -> ['detergent-validation', 'new-run']
+function pathParts() {
+  return location.pathname.split('/').filter(Boolean);
 }
 
-export function selectTab(id) {
-  const ids = tabIds();
-  if (!ids.includes(id)) id = ids[0] || 'runs';
-  $$('[role=tab][data-tab]').forEach(tab => {
-    const active = tab.dataset.tab === id;
-    tab.setAttribute('aria-selected', String(active)); tab.tabIndex = active ? 0 : -1;
-    $('#' + tab.dataset.tab).hidden = !active;
+// The previous navigation named a panel only in the fragment, so a real bookmark looks like `/#bonded` -- and every
+// browser test did too. A fragment is never sent to a server, so answering it is the client's job: the shell carries
+// a map from the old name to its address, and this follows it. `replace`, not `assign`, so the old URL does not sit
+// in the history for a person to walk back into.
+function redirectLegacyFragment() {
+  if (!location.hash) return false;
+  const block = document.getElementById('legacy-tabs');
+  if (!block) return false;
+  let targets;
+  try { targets = JSON.parse(block.textContent); } catch (error) { return false; }
+  const target = targets[location.hash.slice(1)];
+  if (!target) return false;
+  location.replace(target);
+  return true;
+}
+
+export function selectTab(id, { push = true } = {}) {
+  const tabs = subTabs();
+  if (!tabs.length) return;
+  const wanted = tabs.find(tab => tab.dataset.tab === id) || tabs[0];
+  tabs.forEach(tab => {
+    const active = tab === wanted;
+    tab.setAttribute('aria-selected', String(active));
+    tab.tabIndex = active ? 0 : -1;
+    const panel = document.getElementById(tab.dataset.tab);
+    // A tab whose panel is missing would otherwise hide every panel on the page and read as a blank workspace.
+    if (panel) panel.hidden = !active;
   });
-  storage.set('tab', id);
-  history.replaceState(null, '', location.pathname + location.search + '#' + id);
-  document.dispatchEvent(new CustomEvent('dashboard:tab',{detail:{id}}));
+  const href = wanted.getAttribute('href');
+  if (push && href && location.pathname !== href) history.pushState(null, '', href);
+  const section = pathParts()[0];
+  if (section) storage.set('tab:' + section, wanted.dataset.tab);
+  document.dispatchEvent(new CustomEvent('dashboard:tab', { detail: { id: wanted.dataset.tab } }));
 }
 
-export function initializeTabs() {
-  $$('[role=tab][data-tab]').forEach((tab, i, tabs) => {
-    tab.addEventListener('click', () => selectTab(tab.dataset.tab));
+function showPanelForPath() {
+  const slug = pathParts()[1];
+  const tab = subTabs().find(candidate => (candidate.getAttribute('href') || '').endsWith('/' + slug));
+  if (tab) selectTab(tab.dataset.tab, { push: false });
+}
+
+// Both lists are horizontal whatever the window width, so assistive technology is told that once rather than being
+// tracked against a breakpoint. The stylesheet wraps the big tabs on a narrow window; wrapping does not make a
+// tablist vertical.
+function syncOrientation() {
+  $$('nav.section-tabs[role=tablist], nav.subtabs[role=tablist]')
+    .forEach(list => list.setAttribute('aria-orientation', 'horizontal'));
+}
+
+// Arrow keys move within a list, which is what a tablist promises whatever its orientation.
+function wireKeyboard(list) {
+  const tabs = $$('[role=tab]', list);
+  tabs.forEach((tab, i) => {
     tab.addEventListener('keydown', event => {
       let target;
-      // Both pairs move through the list: the tablist is vertical on a wide window and a row on a narrow one,
-      // and the stylesheet is what decides which, so the keys that work cannot be a property of the layout.
       if (event.key === 'ArrowRight' || event.key === 'ArrowDown') target = (i + 1) % tabs.length;
       if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') target = (i + tabs.length - 1) % tabs.length;
       if (event.key === 'Home') target = 0;
       if (event.key === 'End') target = tabs.length - 1;
-      if (target !== undefined) { event.preventDefault(); selectTab(tabs[target].dataset.tab); tabs[target].focus(); }
+      if (target === undefined) return;
+      event.preventDefault();
+      const destination = tabs[target];
+      if (destination.dataset.tab) selectTab(destination.dataset.tab);
+      else if (destination.getAttribute('href')) location.assign(destination.getAttribute('href'));
+      destination.focus();
+    });
+  });
+}
+
+export function initializeTabs() {
+  if (redirectLegacyFragment()) return;
+  subTabs().forEach(tab => {
+    tab.addEventListener('click', event => {
+      // The href is real, so a cold request works and the URL means something; intercepting it only spares a
+      // page load for someone already here.
+      event.preventDefault();
+      selectTab(tab.dataset.tab);
     });
   });
   $$('[data-go]').forEach(button => button.onclick = () => selectTab(button.dataset.go));
-  syncOrientation();
-  narrow.addEventListener('change', syncOrientation);
-  selectTab(location.hash.slice(1) || storage.get('tab', 'runs'));
-  window.addEventListener('hashchange', () => selectTab(location.hash.slice(1)));
 
+  const parts = pathParts();
+  const here = parts[0];
+  const remembered = storage.get('workspace', '');
+  if (!here) {
+    // The front door answers with one workspace. This sends a browser that was last in the other one onward.
+    // `replace`, not `assign`: the root is not somewhere anyone chose to be, so it should not enter the history.
+    if (remembered) location.replace('/' + remembered);
+  } else {
+    storage.set('workspace', here);
+    // With no fragment in the URL any more, a remembered panel is what decides -- unless the URL already names one.
+    if (!parts[1] && storage.get('tab:' + here, '')) showPanelForPath();
+  }
+
+  wireKeyboard(document.querySelector('nav.section-tabs[role=tablist]'));
+  wireKeyboard(document.querySelector('nav.subtabs[role=tablist]'));
+  syncOrientation();
+  showPanelForPath();
+  window.addEventListener('popstate', showPanelForPath);
 }

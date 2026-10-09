@@ -16,6 +16,7 @@ from ...execution.adapters.micelle import run_micelle_job
 from ...execution.coordination import admission
 from ...models.molecules import aa as aa_molecules
 from .. import views
+from ..sections import PANELS, SECTIONS, TAB_IDS, legacy_tab_targets, section_by_slug
 from .common import coordinator, json_object, pagination
 
 blueprint = Blueprint('runs', __name__)
@@ -34,9 +35,55 @@ def view_of(c, job, summary=False):
                           ownership=c.ownership(job), busy=c.externally_busy(job),
                           console_log=c.log_path(job), summary=summary)
 
+
+def workspace_context(section, panel):
+    """What the shell needs to render a workspace: the active workspace, its panel, and the registries.
+
+    One place rather than three, because the three routes that render it must not be able to disagree about what the
+    template is handed -- and `legacy_tabs` is what answers the old `/#tab` bookmarks the previous navigation wrote.
+
+    `section` arrives as a URL **slug** and `workspace` is that slug's record. The registry is keyed by short names,
+    so the template reads the record rather than looking itself up -- which it cannot do, and which it tried to do
+    first: `workspaces['detergent-validation']` is a `jinja2.UndefinedError`, not an empty tab row.
+    """
+    return dict(section=section, panel=panel, workspace=section_by_slug(section), workspaces=SECTIONS,
+                panel_info=PANELS, tab_ids=TAB_IDS, legacy_tabs=legacy_tab_targets())
+
+
 @blueprint.get('/')
 def index():
-    return render_template('dashboard.html')
+    """The front door, and the only page whose workspace is not in its URL.
+
+    It renders validation -- a browser with no memory of another workspace lands there -- and the shell replaces the
+    URL with the remembered one if there is one. Rendering rather than redirecting is deliberate: a redirect would
+    put a chosen-looking URL in the history when the root is not somewhere anyone chose to be, and it would give
+    validation two canonical paths instead of one.
+    """
+    return render_template('dashboard.html',
+                           **workspace_context('validation', SECTIONS['validation']['tabs'][0]))
+
+
+@blueprint.get('/<section>')
+def section_view(section):
+    """A workspace, opened on its first panel."""
+    found = section_by_slug(section)
+    if found is None:
+        abort(404)
+    return render_template('dashboard.html', **workspace_context(section, found['tabs'][0]))
+
+
+@blueprint.get('/<section>/<panel>')
+def panel_view(section, panel):
+    """One panel of one workspace.
+
+    A panel this workspace does not have is a **404**, not a substituted tab. The old page answered a tab name it did
+    not recognise with the first tab it had, which is how a wrong link became a wrong page with no report; a URL that
+    names a panel is checkable, so it is checked.
+    """
+    found = section_by_slug(section)
+    if found is None or panel not in found['tabs']:
+        abort(404)
+    return render_template('dashboard.html', **workspace_context(section, panel))
 
 
 @blueprint.get('/api/jobs')

@@ -68,6 +68,26 @@ PLANNED = {
 }
 
 
+#: The DOM id each panel's section already carries. A slug is what a URL says; this is what the template and the
+#: panel JavaScript have always called it, and the two are kept deliberately separate.
+#:
+#: The reason is risk, not tidiness. `tabs.js` resolves a panel with `$('#' + tab.dataset.tab)`, so an id that no
+#: longer matches is a JavaScript failure -- and no Python test sees JavaScript at all. Renaming seven ids across
+#: three thousand lines of panel code to make the DOM match the URLs would trade a URL nobody reads twice for a class
+#: of failure nothing in the suite could catch. The URLs are the slugs; the DOM keeps its names.
+TAB_IDS = {
+    'runs': 'runs',
+    'new-run': 'new',
+    'bead-assignment': 'mappings',
+    'bond-interactions': 'bonded',
+    'combinations': 'compositions',
+    'mapping-validation': 'validation',
+    'osmotic-pressure': 'osmotic-pressure',
+    'complexes': 'pdc',
+    'initial-state': 'initial-state',
+}
+
+
 def section_for(name):
     """The section `name`, or `None`.
 
@@ -109,3 +129,32 @@ def panel_label(slug):
 def panel_glyph(slug):
     """A sub-panel's rail glyph, or an empty string for a panel registered without one."""
     return PANELS.get(slug, ('', ''))[1]
+
+
+def tab_id(slug):
+    """The DOM id a panel's section carries, for the template to write and the JavaScript to resolve.
+
+    Raises rather than defaulting, for the same reason `panel_label` does: a panel whose id is guessed renders a tab
+    that toggles nothing at all, and nothing would report it.
+    """
+    if slug not in TAB_IDS:
+        raise KeyError(f'no DOM id registered for panel {slug!r}')
+    return TAB_IDS[slug]
+
+
+def legacy_tab_targets():
+    """Where an old `/#tab` fragment should land now: `{old DOM id: '/workspace/panel'}`.
+
+    The dashboard used to name its panels in a fragment, so every bookmark and every browser test pointed at one page
+    plus `#bonded` -- and those are real links that someone made. They are answered rather than broken, by the shell,
+    because a fragment is never sent to a server and only the browser can see it.
+
+    Where an id belongs to both workspaces -- `runs` and `new-run` do -- **validation wins**. That is where the old
+    page did most of its work, and a fragment-only link gives no other clue about which one was meant.
+    """
+    targets = {}
+    for name in ('validation', 'simulations'):
+        section = SECTIONS[name]
+        for slug in section['tabs']:
+            targets.setdefault(TAB_IDS[slug], f"/{section['slug']}/{slug}")
+    return targets
