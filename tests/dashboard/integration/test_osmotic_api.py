@@ -151,3 +151,97 @@ def test_a_series_with_no_molality_at_all_is_refused(dashboard, tmp_path):
 
 def test_the_defaults_are_the_papers_own_six():
     assert route.PAPER_MOLALITIES == (0.0, 0.5, 1.0, 1.5, 2.0, 2.5)
+
+
+# --- the panel's reader: GET /api/osmotic/conditions -----------------------------------------------------------
+#
+# The subject here is *which attempt represents a molality*, which is what the first draft of this route got wrong:
+# it returned every directory holding a condition record, which on this workspace is 27 rows for six conditions,
+# thirteen of them abandoned attempts at 0.5 molal sitting beside the one that worked.
+
+def _condition_on_disk(runs, run_id, molality, *, measured=None, written_at=None):
+    """One condition's files, laid out as an osmotic run lays them out."""
+    import json
+    import os
+
+    stage = runs / run_id / '01_simulate'
+    stage.mkdir(parents=True)
+    record = stage / 'osmotic_condition.json'
+    record.write_text(json.dumps({'molality_requested': molality, 'molality_achieved': molality,
+                                  'solute_molecules': 70, 'dividing_area_nm2': 25.4173, 'temperature': 308.15}))
+    if measured is not None:
+        (stage / 'osmotic-pressure.json').write_text(json.dumps(measured))
+    if written_at is not None:
+        os.utime(record, (written_at, written_at))
+    return stage
+
+
+def _measurement(pressure, symmetry=0.9930):
+    return {'pressure_bar': pressure, 'symmetry': symmetry, 'frames': 5001, 'sample_stride': 10,
+            'molecules': 70, 'force_kj_nm': 23.4421}
+
+
+def test_one_row_per_molality_and_the_measured_attempt_represents_it(dashboard, tmp_path):
+    """Three attempts at one molality collapse to the one that has a report, however the others sort."""
+    database, runs = _stores(dashboard, tmp_path)
+    with database, runs:
+        _condition_on_disk(tmp_path / 'runs', 'abandoned001', 0.5, written_at=1_700_000_000)
+        _condition_on_disk(tmp_path / 'runs', 'abandoned002', 0.5, written_at=1_700_000_500)
+        _condition_on_disk(tmp_path / 'runs', 'succeeded001', 0.5, measured=_measurement(14.944), written_at=1_700_000_100)
+        _condition_on_disk(tmp_path / 'runs', 'newest00001', 0.5, written_at=1_700_000_900)
+        with dashboard.client as c:
+            body = c.get('/api/osmotic/conditions').get_json()
+    assert body['attempts_on_disk'] == 4, 'all four are on disk and the count says so'
+    assert body['total'] == 1, 'but one molality is one row'
+    assert body['conditions'][0]['run_id'] == 'succeeded001'
+    assert body['conditions'][0]['measured']['pressure_bar'] == 14.944
+
+
+def test_an_unmeasured_molality_shows_its_newest_attempt(dashboard, tmp_path):
+    """A condition that is running, or whose attempt died, shows as itself -- not as whichever attempt sorts last."""
+    database, runs = _stores(dashboard, tmp_path)
+    with database, runs:
+        _condition_on_disk(tmp_path / 'runs', 'earlier00001', 2.5, written_at=1_700_000_000)
+        _condition_on_disk(tmp_path / 'runs', 'running00001', 2.5, written_at=1_700_000_900)
+        with dashboard.client as c:
+            body = c.get('/api/osmotic/conditions').get_json()
+    assert body['total'] == 1
+    assert body['conditions'][0]['run_id'] == 'running00001'
+    assert body['conditions'][0]['measured'] is None
+    assert body['measured'] == 0
+
+
+def test_the_papers_numbers_are_attached_beside_the_measurement(dashboard, tmp_path):
+    """The target is a citation and an uncertainty, and a ratio exists only where something was measured."""
+    database, runs = _stores(dashboard, tmp_path)
+    with database, runs:
+        _condition_on_disk(tmp_path / 'runs', 'measured0001', 1.0, measured=_measurement(29.877), written_at=1_700_000_000)
+        _condition_on_disk(tmp_path / 'runs', 'unmeasured01', 2.0, written_at=1_700_000_000)
+        with dashboard.client as c:
+            body = c.get('/api/osmotic/conditions').get_json()
+    measured, unmeasured = body['conditions']
+    assert measured['paper'] == {'pressure_bar': 26.54, 'uncertainty_bar': 0.08}
+    assert round(measured['ratio'], 4) == round(29.877 / 26.54, 4)
+    assert unmeasured['paper'] == {'pressure_bar': 56.09, 'uncertainty_bar': 0.16}
+    assert unmeasured['ratio'] is None, 'a ratio against an unmeasured condition would be a number with no subject'
+    assert 'doi:10.1016/j.fluid.2016.02.030' in body['citation']
+    assert body['measured'] == 1 and body['total'] == 2
+
+
+def test_the_control_is_a_row_and_not_a_missing_one(dashboard, tmp_path):
+    """0 molal has no report by construction -- no solute, no wall -- and the panel shows that rather than omitting it.
+
+    A reader that skipped conditions without measurements would drop the control entirely, and a series whose first
+    point is absent reads as one that starts at 0.5.
+    """
+    database, runs = _stores(dashboard, tmp_path)
+    with database, runs:
+        _condition_on_disk(tmp_path / 'runs', 'control00001', 0.0, written_at=1_700_000_000)
+        _condition_on_disk(tmp_path / 'runs', 'measured0001', 0.5, measured=_measurement(14.944), written_at=1_700_000_000)
+        with dashboard.client as c:
+            body = c.get('/api/osmotic/conditions').get_json()
+    assert body['total'] == 2
+    control, first = body['conditions']
+    assert control['molality_requested'] == 0.0 and control['measured'] is None
+    assert 'paper' not in control, 'the paper reports the control as 0.00 and it is not one of the fitted points'
+    assert first['molality_requested'] == 0.5
