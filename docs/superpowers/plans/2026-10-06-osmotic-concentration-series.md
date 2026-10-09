@@ -429,6 +429,38 @@ refusal lives and is tested, so the wiring belongs with the worker rather than h
 reader showing six conditions will find a missing file where it expects a number. Giving the control a report that
 *says* zero-by-construction, rather than a missing file, is a Phase 3 decision.
 
+**Measured (2026-10-08): four conditions, and the offset is not constant.**
+
+| molality | molecules | paper (bar) | measured (bar) | ratio | symmetry |
+| --- | --- | --- | --- | --- | --- |
+| 0.5 | 70 | 13.04 | 14.944 | 1.146 | 0.9740 |
+| 1.0 | 129 | 26.54 | 29.877 | 1.126 | 0.9943 |
+| 1.5 | 180 | 40.58 | 53.762 | 1.325 | 0.9933 |
+| 2.0 | 223 | 56.09 | 97.551 | **1.739** | 0.9991 |
+
+All four are whole-trajectory readings: 50 001 frames each, wall symmetry between 0.97 and 1.00, so the estimator is
+converged and none of this is the sampling that was reported wrongly at the first attempt. **The disagreement grows
+with concentration** -- 13-15% at the two lowest molalities, then 33% and 74%.
+
+**A hint from yesterday is refuted and should not be cited.** From a partial 171 ns reading of 1.0 molal, whose run
+had died in a LINCS constraint failure, the ratio looked like 1.10 and the offset like it might be *shrinking* with
+concentration. The full run gives 1.126, so the first two are flat rather than falling. A truncated run is not a
+preview of the converged number, and labelling it provisional was not enough -- it should not have been offered as a
+direction at all.
+
+**The physical reading, to be tested by the last two points.** At 1.5 molal the slab holds 180 molecules, about 14
+solute beads per nm3 against the water's 8.3 -- the confined solute is denser than the solvent it displaces, so it
+is genuinely pressed against the walls, and a steeper-than-linear rise is what that arrangement should produce. This
+is a reading of the measurement, not an explanation: the paper's model is put under the same confinement and the same
+box, so the divergence is a real difference between the two models at high concentration, and what causes it is
+Task 4's business.
+
+**The stride is now one frame in ten by default** (`DEFAULT_SAMPLE_STRIDE`), because the whole trajectory costs about
+two minutes per condition and buys 0.4%: 15.002 bar at 5 001 frames against 14.944 at all 50 001, with the symmetry
+*better* at the shorter sample (0.9930 against 0.9740). A `frames: 1` payload reproduces the full pass, and the stride
+used is written into every report.
+
+
 
 ### Task 2.2: the series, as one picture
 

@@ -33,6 +33,10 @@ KJ_MOL_NM2_TO_BAR = 1.0e30 / AVOGADRO / 1.0e5
 
 MANIFEST = 'osmotic_condition.json'
 REPORT = 'osmotic-pressure.json'
+#: One frame in ten. On the 0.5 molal run the estimator read 15.002 bar at 5 001 frames against 14.944 at all
+#: 50 001 -- 0.4% -- while taking a tenth of the ~2 minutes a full pass costs per condition. Anyone defending a
+#: number passes `frames: 1`; the stride used is recorded in the report either way.
+DEFAULT_SAMPLE_STRIDE = 10
 WALLS = 'plumed.dat'
 BIAS = 'plumed_bias.dat'
 TRAJECTORY = ('prod/md_whole.xtc', 'md.xtc')
@@ -122,17 +126,25 @@ def publish(work, payload=None):
     and an osmotic run has one stage, so the condition's files are under `01_simulate/`. If that directory is not
     there, `work` itself is used, because a caller that already has the stage directory should not have to pretend.
 
-    `payload` may carry the paper's `target_pressure` for this molality, in which case the residual is written beside
-    the measurement. It is taken from the payload rather than looked up, deliberately: the target for a molecule is
-    citation metadata until someone supplies a measurement and an uncertainty, and inventing a lookup here would make
-    that distinction invisible.
+    **The default is one frame in ten, and the number is measured.** The whole trajectory is 50 001 frames and,
+    through MDAnalysis, about two minutes per condition -- and it buys very little: on the 0.5 molal run the same
+    estimator read 15.002 bar at 5 001 frames and 14.944 at all 50 001, a difference of 0.4%, with the wall symmetry
+    at 0.9930 against 0.9740. A `frames` in the payload overrides it, and `1` means every frame when a number has to
+    be defended. The stride is written into the report so a reader knows what it was taken with.
+
+    `payload` may also carry the paper's `target_pressure` for this molality, in which case the residual is written
+    beside the measurement. It is taken from the payload rather than looked up, deliberately: the target for a
+    molecule is citation metadata until someone supplies a measurement and an uncertainty, and inventing a lookup
+    here would make that distinction invisible.
     """
     work = Path(work)
     stage = work / '01_simulate' if (work / '01_simulate').is_dir() else work
     payload = dict(payload or {})
+    stride = int(payload.get('frames') or DEFAULT_SAMPLE_STRIDE)
     measured = measure(stage,
                        force_constant_kj_mol_nm2=payload.get('force_constant_kj_mol_nm2'),
-                       frames=payload.get('frames'))
+                       frames=stride)
+    measured['sample_stride'] = stride
     if payload.get('target_pressure') is not None:
         measured['target_pressure'] = float(payload['target_pressure'])
         measured['target_residual'] = measured['pressure_bar'] - measured['target_pressure']
