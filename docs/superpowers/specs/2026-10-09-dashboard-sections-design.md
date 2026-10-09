@@ -28,13 +28,16 @@ protein-detergent system walks past a bead-assignment editor to find it.
 
 ## The goal
 
-The dashboard opens on an **overview showing both sections as large panels**, each listing that section's own
-sub-panels. Clicking into one leads to that section's workspace. The **last section opened is remembered**, so the
-dashboard opens where the person was working, and the shell carries a **button to switch to the other section** —
-a person should never have to go back to the overview to get across.
+The dashboard carries **two large tabs across the top**, one for each workspace, and **the sub-panels of whichever
+workspace is active sit in a second row directly beneath them**. Selecting a sub-panel shows that panel below. The
+last workspace visited is remembered, so opening the dashboard returns you to where you were working.
 
-Two buttons were the original proposal and the user replaced them: two panels, each with its sub-panels visible,
-tells someone what is behind the door before they open it.
+There is **no overview page**. An earlier draft put both sections on a landing view as large panels listing their
+sub-panels, and the user replaced it after seeing both rendered: the tabs *are* the switch, and nothing stands
+between opening the dashboard and working. What the overview was for -- saying what each workspace contains before
+you enter it -- the sub-titles on the two big tabs now do in one line each.
+
+The user's words, having compared the two drafts: "Yeah I like this design more."
 
 ## The shape, and why it is cheap
 
@@ -71,16 +74,26 @@ specify; a protein-detergent run cannot be queued without one. That is not a dif
 
 ## The parts
 
-**The overview** at `/`. Both sections as large panels, each showing its own sub-panels as labelled entries, so the
-page states what is behind each door before anyone opens it. The overview is where a first-time reader learns there
-are two halves.
+**The two big tabs**, across the top of every page, in equal halves. Each carries its workspace's name and a
+one-line sub-title saying what is in it, because that sentence is what the abandoned overview was for. The active tab
+is white against the inactive one's grey, by the same convention the panels already use.
 
-**Two section workspaces**, `/validation` and `/simulations`. Each renders the existing shell with a section-scoped
-tab list and the panels that section owns. Each carries a **switch** to the other section, and `/` is always one
-click away — but the last section opened is **remembered**, so opening the dashboard returns you there rather than
-to the overview every time.
+**The sub-tab row**, directly beneath the big tabs inside the same white body, holding the active workspace's
+sub-panels with their glyphs. It is rebuilt when the workspace changes, so it never shows a panel that the workspace
+does not have. Measured in the draft: seven items under detergent validation, four under protein-detergent, one row
+at 1500 px, wrapping rather than overflowing below that.
 
-**Section membership**, as decided:
+**The panel** below the row, one at a time, exactly as the dashboard shows a panel today.
+
+**The last workspace visited is remembered**, and here that is load-bearing rather than convenient: with no overview
+page there is no neutral landing state to fall back on, so the dashboard must open somewhere. It opens where the
+person was.
+
+**The URLs do not change.** The scheme agreed earlier -- `/detergent-validation/new-run` and its siblings -- maps
+onto this layout exactly: the section segment is the big tab, the panel segment is the sub-tab. That the design
+absorbed a change of chrome without touching its URLs is the sign the scheme was right.
+
+## Which panels go where
 
 | panel | validation | simulations |
 | --- | --- | --- |
@@ -150,6 +163,21 @@ shorter than its label — the registry carries both and nothing derives one fro
 the browser rather than the server, because a fragment is never sent to a server. A short redirect on the overview
 maps a known old tab name to its new path; an unknown one lands on the overview, which is a page that at least
 explains where things are. No third "everything" view, and nothing silently substituted.
+
+## The risks, each with what it costs
+
+**The navigation is new chrome, not a moved panel.** This is the one part of the refactor that is not relocating
+existing markup. `layout.css` styles `nav[role=tablist]` as a vertical sidebar inside a two-column `.app-shell`
+grid, at three breakpoints, and it was moved to the right of the content recently. A two-level top bar is a
+different piece of chrome: the grid, the rail, its breakpoint rules and the tab-link styling all change, while the
+panels themselves do not.
+
+**And specificity is the trap in exactly that work.** The draft's first render had the two big tabs stacked in a
+column rather than side by side, because `nav[role=tablist]` outranks a bare class and the draft's `display: flex`
+never applied — `dashboard.css` and `layout.css` both set `max-width` on `main`, and the rail's rules win over a
+later stylesheet unless the override carries an equal-or-higher anchor. Measured: y=211 against y=276 before the fix,
+y=205 for both after. Anyone restyling that navigation should expect this and write the override with the anchor it
+needs, or measure the boxes rather than trusting the appearance.
 
 **The browser tier is the real hazard.** 54 browser tests, one skipped, drive the current single page; a test that
 opens the dashboard and clicks a tab will find neither the tab nor the page it was on. Every one of them needs to know

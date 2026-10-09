@@ -167,66 +167,83 @@ git commit -m "feat: the dashboard's two sections, in one registry rather than i
 
 ---
 
-### Task 1.2: The overview
+### Task 1.2: The two-level navigation
 
-**Objective:** `/` shows both sections as large panels, each with its own sub-panels listed, and nothing else.
+**Objective:** the page carries two large tabs across the top, one per workspace, and beneath them the active
+workspace's sub-tab row. No overview page.
 
 **Files:**
-- Create: `dashboard/web/templates/overview.html`
-- Create: `dashboard/web/routes/home.py` (registered in `dashboard/app.py`'s `for module in (...)` tuple)
-- Test: `tests/dashboard/integration/test_overview.py`
+- Modify: `dashboard/web/templates/dashboard.html` (the shell: `<header>`, and a new two-level nav replacing
+  `nav[role=tablist]` at lines 21-31)
+- Create: `dashboard/web/static/workspaces.css` (the new chrome; linked from the template's head)
+- Modify: `dashboard/web/static/layout.css` (`.app-shell`'s two-column grid is what the vertical rail sat in)
+- Test: `tests/dashboard/browser/test_workspace_navigation.py`
 
-**Step 1: Write the failing test**
+**Step 1: Write the failing test, and write it against boxes rather than appearance**
+
+This is the step that matters, because the failure mode here is invisible in a screenshot. The draft's first render
+had both tabs stacked in a column and *looked* plausible; only the `y` coordinates said otherwise.
 
 ```python
-def test_the_overview_offers_both_sections_and_no_tabs(dashboard):
-    with dashboard.client as c:
-        page = c.get('/')
-    assert page.status_code == 200
-    body = page.get_data(as_text=True)
-    assert 'Detergent validation' in body
-    assert 'Protein-detergent simulations' in body
-    assert '/validation' in body and '/simulations' in body
-    assert 'role="tab"' not in body, 'the overview is a map, not a workspace'
+def test_the_two_workspace_tabs_share_one_row_and_split_it_evenly(page, dashboard_url):
+    page.goto(dashboard_url + '/detergent-validation/runs')
+    tabs = page.locator('.section-tab')
+    expect(tabs).to_have_count(2)
+    boxes = [tabs.nth(i).bounding_box() for i in range(2)]
+    assert abs(boxes[0]['y'] - boxes[1]['y']) < 4, 'the two tabs are on one row'
+    assert abs(boxes[0]['width'] - boxes[1]['width']) < 8, 'and they split it evenly'
+    assert boxes[0]['x'] < boxes[1]['x'], 'in registry order'
 
 
-def test_each_section_panel_lists_that_section_own_sub_panels(dashboard):
-    """The panel says what is behind the door -- that is the whole reason it replaced two buttons."""
-    with dashboard.client as c:
-        body = c.get('/').get_data(as_text=True)
-    assert 'Bond Interactions' in body, 'a validation sub-panel'
-    assert 'Complex' in body, 'a simulations sub-panel'
-    # and nothing from the wrong side is listed under the wrong panel -- assert on the markup around each heading
+def test_the_sub_tab_row_changes_with_the_workspace(page, dashboard_url):
+    page.goto(dashboard_url + '/detergent-validation/runs')
+    validation = page.locator('#subtabs .subtab').count()
+    page.click('.section-tab[data-section=protein-detergent]')
+    expect(page).to_have_url(re.compile(r'/protein-detergent/'))
+    assert page.locator('#subtabs .subtab').count() < validation
+    assert page.locator('#subtabs .subtab[aria-selected=true]').count() == 1
 
 
-def test_each_section_is_reachable_from_the_overview(dashboard):
-    with dashboard.client as c:
-        for path in ('/validation', '/simulations'):
-            assert c.get(path).status_code == 200
+def test_nothing_overflows_sideways_at_a_narrow_window(page, dashboard_url):
+    """A seven-item row has to wrap rather than push the page wide."""
+    page.set_viewport_size({'width': 820, 'height': 900})
+    page.goto(dashboard_url + '/detergent-validation/runs')
+    overflow = page.evaluate('document.documentElement.scrollWidth > window.innerWidth')
+    assert overflow is False
 ```
 
 **Step 2: Run it to verify it fails**
 
-Run: `dashboard/.venv/bin/python -m pytest tests/dashboard/integration/test_overview.py -q`
-Expected: FAIL — `/` renders the whole workspace today, so the `role="tab"` assertion fails first.
+Run: `dashboard/.venv/bin/python -m pytest -m browser tests/dashboard/browser/test_workspace_navigation.py -q`
+Expected: FAIL — there is one vertical rail and no `.section-tab` at all.
 
-**Step 3: Write the overview template and route**
+**Step 3: Write the chrome, with the anchors it needs**
 
-`overview.html` renders, for each section in `SECTIONS`, one large panel carrying the section's label and blurb and a
-list of its sub-panels, each a link into the section. The panel's list is built from `SECTIONS[name]['tabs']`, so a
-tab added to a section appears on the overview without a second list to keep in step — the same property that makes
-the split cheap in the first place. Each panel's heading is itself a link to the section workspace.
+`workspaces.css` styles the two levels. **Write the selectors as `nav.section-tabs[role=tablist]`, not
+`.section-tabs`.** The draft's first version used the bare class and its `display: flex` never applied, because
+`layout.css` styles `nav[role=tablist]` as a vertical sidebar and an attribute selector plus element outranks a
+class. Equal-or-higher specificity is what an override needs; a later stylesheet is not enough. The same applies to
+the sub-tab row and to `.app-shell`, whose two-column grid exists to hold the rail that is being replaced.
 
-**Step 4: Run it to verify it passes**
+Measured in the draft, as the target: both tabs at y=205 and 715 px wide on a 1500 px page, seven sub-tabs under
+validation against four under protein-detergent, and no horizontal overflow at 820 px.
 
-Run: `dashboard/.venv/bin/python -m pytest tests/dashboard/integration/test_overview.py -q`
-Expected: PASS. Record the count.
+**Step 4: Run the fast tier *and* the browser tier**
 
-**Step 5: Commit**
+Run: `dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q`
+Expected: record the counts. The fast tier measured **1208 passed** at `12cd766`; a change to `dashboard.html` and
+`layout.css` is exactly the kind that moves that number, because other tests read the page.
+
+Run: `dashboard/.venv/bin/python -m pytest -m browser -q -n 2`
+Expected: record the counts. The last full run before this work was **53 passed, 1 skipped**, and Task 1.4 exists to
+re-point those tests at the new navigation — so a red tier here is expected until 1.4 lands. Land 1.2 and 1.4
+**together** rather than committing a red tier.
+
+**Step 5: Commit** (with Task 1.4)
 
 ```bash
-git add dashboard/web/routes/home.py dashboard/web/templates/overview.html dashboard/app.py tests/dashboard/integration/test_overview.py
-git commit -m "feat: the dashboard opens on a map -- two sections, their sub-panels, and no workspace behind it"
+git add dashboard/web/templates/dashboard.html dashboard/web/static/workspaces.css dashboard/web/static/layout.css tests/dashboard/browser/
+git commit -m "feat: two workspaces as two big tabs, their sub-panels beneath, and the browser tier re-pointed"
 ```
 
 ---
@@ -380,18 +397,22 @@ The user's decision on 2026-10-09 replaced "always show the overview" with **rem
 added that the shell must carry **a button to switch to the other section** so crossing never requires a trip
 through the overview.
 
-**Step 1: The switch.** In the shell's header, a link labelled with the *other* section's name, plus a link home to
-the overview. A person in the wrong section should see where the other one is without going home first.
+**Step 1: The other workspace is one click away, by construction.** No separate switch is needed any more: the two
+big tabs are always on screen, so switching is clicking the other one. An earlier draft added a "switch" link because
+each workspace was its own page; this layout makes it redundant, and a redundant control that duplicates a visible
+one is worse than none. What the tabs need is only that they read as tabs -- the active one is white, the inactive
+one grey, and both are links so a cold request works.
 
-**Step 2: The section is remembered.** The overview route cannot know what the browser remembers — the section lives
-in `localStorage` on the client — so this is a client-side decision made as early as possible: the shell reads the
-remembered section and, if the page it was served is not that section, navigates. Read `tabs.js` before writing
-this; it already writes `#tab` and one `localStorage` key, and the same `storage` helper is where this belongs.
-Handle the no-preference case by serving the overview, which is what a first visit should get.
+**Step 2: The workspace is remembered, and here it is not a nicety.** With no overview page there is no neutral
+landing state, so the dashboard must open somewhere, and the only defensible answer is where the person was. The
+section lives in `localStorage` on the client, so the decision is made client-side: if nothing is remembered the
+dashboard serves the validation workspace, which is where the bulk of the work is. Read `tabs.js` before writing
+this -- it already writes one `localStorage` key and the same `storage` helper is where this belongs.
 
-**Step 3: The tab is remembered per section.** Key the remembered tab by section, `storage.set('tab:' + section, id)`.
+**Step 3: The panel within a workspace is remembered too**, keyed per workspace: `storage.set('tab:' + section, id)`.
 `selectTab` already falls back to the first tab it finds, so the old unkeyed value degrades safely and needs no
-migration.
+migration. With the fragment in the URL this is a backstop rather than the mechanism -- the URL says which panel,
+the stored value decides when the URL does not.
 
 **Step 4: Run the browser tier, and hard-reload.**
 
