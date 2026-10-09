@@ -109,7 +109,47 @@ about to build — the water box with the detergent molecules in it, before anyt
 writes `solvated.gro` and `system.gro`, and the dashboard already renders structures with NGL, so this is a reader
 and a viewer rather than new machinery. Feasibility is argued in the plan rather than assumed here.
 
-## The risks, each with what it costs
+## The URLs
+
+The user's direction of 2026-10-09 settled this, and it is the decision that closes the "what happens to the old
+page" question rather than deferring it:
+
+    /                                        the overview: both sections as panels
+    /detergent-validation                    its first sub-panel
+    /detergent-validation/runs
+    /detergent-validation/new-run
+    /detergent-validation/bead-assignment
+    /detergent-validation/bond-interactions
+    /detergent-validation/combinations
+    /detergent-validation/mapping-validation
+    /detergent-validation/osmotic-pressure
+    /protein-detergent                       its first sub-panel
+    /protein-detergent/runs
+    /protein-detergent/new-run
+    /protein-detergent/complexes
+    /protein-detergent/initial-state
+
+**Every sub-panel is addressable.** That is the whole point: the current page hides six of seven panels behind
+JavaScript, so a panel has no URL and a bookmark can only name the page. With one URL per panel, a link to the bond
+interactions editor is a link to the bond interactions editor.
+
+**The tab becomes a link, and the client keeps it instant.** Today a tab is a button that toggles `hidden`; with
+these paths it is an `<a href>`. The page must be correct when that link is followed cold — which is the property
+that makes the URL real — and `tabs.js` then intercepts the click and switches in place, so the feel does not change
+for someone clicking around. Progressive enhancement, not a single-page app with URLs bolted on.
+
+This also fixes the silent fallback. `selectTab` currently answers a name it does not know with `ids[0]`, which is
+why the old bookmark discussion had no good answer: the user would have silently received a different tab. A path
+that names a panel the section does not have is now a **404** from the server, which says what happened.
+
+**The section slug is not the section label.** The label is "detergent validation"; the slug is
+`detergent-validation`. The user wrote `protein-detergent`, not `protein-detergent-simulations`, so a slug may be
+shorter than its label — the registry carries both and nothing derives one from the other.
+
+**The old page.** `/` becomes the overview, and an old link of the form `/<panel>` or a saved `#tab` is answered by
+the browser rather than the server, because a fragment is never sent to a server. A short redirect on the overview
+maps a known old tab name to its new path; an unknown one lands on the overview, which is a page that at least
+explains where things are. No third "everything" view, and nothing silently substituted.
 
 **The browser tier is the real hazard.** 54 browser tests, one skipped, drive the current single page; a test that
 opens the dashboard and clicks a tab will find neither the tab nor the page it was on. Every one of them needs to know
@@ -196,38 +236,19 @@ Each step commits on its own and leaves the suite green, so the refactor can sto
    section's `new run` sub-panel, the user wants **a snapshot of the initial state** — the water box with the
    detergent in it — before the run starts. That is not the micelle builder and is not blocked by it.
 
-8. **Still open: what happens to today's single page.** See the elaboration below; the question is what `/` should
-   have to say once the overview exists.
+8. **Settled: today's single page is dissolved, not preserved.** The user's answer was a URL scheme — one path per
+   sub-panel, `dashboard/detergent-validation/new-run` and its siblings — and that answer is better than the three
+   options the design had considered, because it removes the premise of the question. There is no "old page" to
+   retire if every panel it contained has its own address; the page was only ever a container. See **The URLs**
+   above for the scheme and the consequences.
+
+   The reasoning is kept here because it applies to any future page without a URL. Today `/` holds seven tabs and
+   three things depend on it: 54 browser tests that open it and click in it, bookmarks whose fragment `selectTab`
+   wrote into the URL, and the run card's tab jumps, which work only because one page holds every panel. The options
+   were a redirect into the remembered section, keeping the old page as an unlinked "everything" view, or removing
+   it. The middle one was a false economy — it preserves a page whose premise the refactor rejects. Addressable
+   panels make the first and third collapse into the same thing: nothing is lost, because nothing was ever stored
+   on that page except the fact that all seven panels were reachable from it.
 
 9. **The osmotic series lives in validation**, by the user's reasoning that it is sugar work and sugars are
    detergent work.
-
-### Open decision 8, elaborated
-
-Today `/` renders the whole dashboard: seven tabs, all panels, one page. After this change `/` is the overview, and
-that page needs a destination. The question is not cosmetic, because something currently depends on the old page
-existing:
-
-- **The old page is the only page the browser tier knows.** 54 tests open `/` and click tabs in it. Whatever happens
-  to `/`, they must point somewhere real.
-- **Bookmarks and the remembered tab point at it.** `selectTab` writes `#tab` into the URL, so a link someone saved
-  is `/` plus a tab name.
-- **The tabs cross section boundaries freely today.** A run card in the job list switches to the validation tab in
-  place. That is only possible because one page holds every panel, and it is precisely what the split removes.
-
-Three destinations are possible, and they are not equivalent:
-
-- **A redirect from `/` to the remembered section**, so an old bookmark lands in a workspace. Simple, but a
-  bookmarked `#bonded` in someone who last used the simulations section lands where that tab does not exist —
-  `selectTab` would fall back to the section's first tab, silently.
-- **Keeping the old page as a third "everything" view**, reachable but not linked. Nothing breaks, but the
-  two-section structure stops being true: anyone can still see all seven tabs at once and the split becomes a
-  preference rather than the shape of the tool.
-- **Removing it**, so the only way in is the overview — the strictest reading of the two-section design, and the one
-  that makes the structure real at the cost of surprising anyone with an old bookmark.
-
-My own view: the second is a false economy (it preserves a page whose premise the refactor rejects), and the first
-and third differ mainly in how loudly an old link fails. I would take the first with the fallback made *visible* —
-landing in a section and being told the tab you asked for is in the other one, rather than silently getting a
-different tab. But this is the user's call, and it is genuinely their call: it is about how the tool should behave
-for someone who has used it for a year.

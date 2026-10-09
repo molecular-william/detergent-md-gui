@@ -57,10 +57,24 @@ def test_every_section_starts_on_a_tab_it_owns():
         assert section['tabs'][0] in section['tabs']
 
 
-def test_a_panel_belongs_to_at_least_one_section_and_never_to_both_runs_lists():
-    """`runs` and `new` appear in both by design; the panels that are about one molecule do not."""
-    assert tabs_for('validation') >= {'runs', 'new', 'mappings', 'bonded', 'compositions', 'validation'}
-    assert tabs_for('simulations') == ('runs', 'new', 'pdc')
+def test_the_panels_that_are_about_one_molecule_stay_out_of_the_simulations_section():
+    assert tabs_for('validation') >= ('runs', 'new-run', 'bead-assignment', 'bond-interactions',
+                                      'combinations', 'mapping-validation', 'osmotic-pressure')
+    assert tabs_for('simulations') >= ('runs', 'new-run', 'complexes')
+    for panel in ('bead-assignment', 'bond-interactions', 'combinations', 'mapping-validation',
+                  'osmotic-pressure'):
+        assert panel not in tabs_for('simulations')
+    for panel in ('complexes', 'initial-state'):
+        assert panel not in tabs_for('validation')
+
+
+def test_every_slug_is_a_url_segment_and_every_panel_is_labelled():
+    """A slug is what appears in the address bar, so it is checked as one rather than as a display name."""
+    for name, section in SECTIONS.items():
+        assert section['slug'] == section['slug'].lower()
+        assert ' ' not in section['slug'] and '_' not in section['slug']
+        for panel in section['tabs']:
+            assert panel in PANELS, f'{panel} has no label or glyph'
 
 
 def test_an_unknown_section_is_refused_rather_than_defaulted():
@@ -107,17 +121,35 @@ double-quoted precisely so the prose does not need escaping.
 ```python
 SECTIONS = {
     'validation': {
+        'slug': 'detergent-validation',
         'label': 'Detergent validation',
         'blurb': "Build and check a detergent's coarse-grained model: assign beads, fit its bonded terms, combine "
                  "molecules, and compare each against its reference and against measured data.",
-        # `osmotic` is the concentration series built on 2026-10-08; its reader is committed as 2f6162b.
-        'tabs': ('runs', 'new', 'mappings', 'bonded', 'compositions', 'validation', 'osmotic'),
+        # The sub-panels, in the order they appear. Each is also its URL segment: `/detergent-validation/new-run`.
+        # `osmotic-pressure` is the concentration series built on 2026-10-08; its reader is committed as 2f6162b.
+        'tabs': ('runs', 'new-run', 'bead-assignment', 'bond-interactions', 'combinations',
+                 'mapping-validation', 'osmotic-pressure'),
     },
     'simulations': {
+        'slug': 'protein-detergent',
         'label': 'Protein-detergent simulations',
         'blurb': 'Set up and run a protein with its detergent, and read the results.',
-        'tabs': ('runs', 'new', 'pdc'),
+        'tabs': ('runs', 'new-run', 'complexes', 'initial-state'),
     },
+}
+
+#: The human label and glyph for each sub-panel. The slug is the URL and the `data-tab`; nothing derives one from the
+#: other, because `new-run` is a better URL than `new` and `new` is a worse label than "New run".
+PANELS = {
+    'runs': ('Runs', '☰'),
+    'new-run': ('New run', '▶'),
+    'bead-assignment': ('Bead Assignment', '◎'),
+    'bond-interactions': ('Bond Interactions', '⇄'),
+    'combinations': ('Combinations', '⧉'),
+    'mapping-validation': ('Mapping Validation', '✓'),
+    'osmotic-pressure': ('Osmotic Pressure', '△'),
+    'complexes': ('Complexes', '⬡'),
+    'initial-state': ('Initial state', '⬢'),
 }
 ```
 
@@ -199,69 +231,96 @@ git commit -m "feat: the dashboard opens on a map -- two sections, their sub-pan
 
 ---
 
-### Task 1.3: The sections render the workspace
+### Task 1.3: A panel's own URL
 
-**Objective:** `/validation` and `/simulations` render the existing dashboard, scoped to their own tabs.
+**Objective:** `/detergent-validation/new-run` renders the validation section with that panel open; a panel the
+section does not have is a 404 rather than a silently substituted tab.
 
 **Files:**
-- Modify: `dashboard/web/routes/runs.py` (the route that renders `dashboard.html` today — find it, do not guess)
+- Create: `dashboard/web/routes/home.py` (the section routes; the overview's route lives here too)
 - Modify: `dashboard/web/templates/dashboard.html` (the `<nav role="tablist">` block, lines 21-31 today)
+- Modify: `dashboard/web/static/js/tabs.js` (intercept the link so switching stays instant)
 - Test: `tests/dashboard/integration/test_sections_api.py`
 
 **Step 1: Write the failing test**
 
 ```python
-def test_a_section_renders_its_own_tabs_and_not_the_others(dashboard):
-    """The assertion is on the *panels*, not the buttons: a panel present but unreachable is still a panel."""
-    for section, expected, absent in (('validation', ('mappings', 'bonded', 'validation'),
-                                       ('pdc',)),
-                                      ('simulations', ('pdc',), ('mappings', 'bonded', 'compositions'))):
+import pytest
+
+from dashboard.web.sections import SECTIONS
+
+
+@pytest.mark.parametrize('section', sorted(SECTIONS))
+def test_every_panel_in_a_section_has_a_url_that_renders_it(dashboard, section):
+    """The property that makes the URL real: a cold request for a panel returns that panel, open."""
+    for panel in SECTIONS[section]['tabs']:
         with dashboard.client as c:
-            body = c.get(f'/{section}').get_data(as_text=True)
-        for tab in expected:
-            assert f'data-tab="{tab}"' in body, f'{section} should offer {tab}'
-            assert f'id="{tab}"' in body, f'{section} should render the {tab} panel'
-        for tab in absent:
-            assert f'id="{tab}"' not in body, f'{section} should not render the {tab} panel at all'
+            response = c.get(f"/{SECTIONS[section]['slug']}/{panel}")
+        assert response.status_code == 200, f'/{SECTIONS[section]["slug"]}/{panel}'
+        body = response.get_data(as_text=True)
+        assert f'data-tab="{panel}"' in body
+        assert f'id="{panel}"' in body, 'the panel is rendered, not merely linked'
 
 
-def test_the_run_list_is_present_in_both_sections(dashboard):
+def test_a_section_without_a_panel_opens_its_first(dashboard):
     with dashboard.client as c:
-        for section in ('validation', 'simulations'):
-            assert 'id="runs"' in c.get(f'/{section}').get_data(as_text=True)
+        bare = c.get('/detergent-validation')
+        first = c.get(f"/detergent-validation/{SECTIONS['validation']['tabs'][0]}")
+    assert bare.status_code == 200
+    assert bare.get_data(as_text=True) == first.get_data(as_text=True), \
+        'the bare section is the section on its first panel, not a third page'
 
 
-def test_an_unknown_section_is_a_404_and_not_a_workspace(dashboard):
+def test_a_panel_that_is_not_in_the_section_is_a_404(dashboard):
+    """`selectTab` used to answer a name it did not know with the first tab. A URL says what happened instead."""
     with dashboard.client as c:
-        assert c.get('/nonsense').status_code == 404
+        assert c.get('/detergent-validation/complexes').status_code == 404
+        assert c.get('/protein-detergent/bead-assignment').status_code == 404
+        assert c.get('/detergent-validation/nonsense').status_code == 404
+
+
+def test_each_section_renders_only_its_own_panels(dashboard):
+    """Asserted on the panels, not the buttons: a panel present but unreachable is still present in the page."""
+    with dashboard.client as c:
+        validation = c.get('/detergent-validation').get_data(as_text=True)
+        simulations = c.get('/protein-detergent').get_data(as_text=True)
+    assert 'id="bead-assignment"' in validation and 'id="bead-assignment"' not in simulations
+    assert 'id="complexes"' in simulations and 'id="complexes"' not in validation
 ```
 
 **Step 2: Run it to verify it fails**
 
 Run: `dashboard/.venv/bin/python -m pytest tests/dashboard/integration/test_sections_api.py -q`
-Expected: FAIL — `/validation` is a 404, and the single page at `/` renders all seven tabs.
+Expected: FAIL — 404 for every path, because the workspace is served at `/` and nowhere else.
 
-**Step 3: Make the template render a section**
+**Step 3: Write the routes and make the template render a section**
 
-Replace the seven handwritten `<button role="tab">` elements with a loop over the section's tabs, and wrap each
-`<section class="panel" role="tabpanel">` in a membership test on the same list. Read the existing block before
-editing it: the buttons carry `id`, `aria-controls`, `data-tab`, a glyph span and a text span, and every one of those
-is load-bearing — `tabs.js` reads `data-tab` and toggles `hidden` on the element named by it, and the accessibility
-tier asserts the `aria-controls` pairing.
+Three routes: `/` (Task 1.2's overview), `/<section-slug>`, and `/<section-slug>/<panel-slug>`. The last validates
+both slugs against `SECTIONS` and 404s on either miss — the validation is what turns a wrong guess into a clear
+answer. There is no `<int:id>` or free-form path here; the two vocabularies are closed.
 
-The route passes the section; the template reads it. Nothing else about the page changes.
+In the template, the tab buttons become `<a href="/{{ section_slug }}/{{ panel }}">` carrying the same `role="tab"`
+and `data-tab` they carry today, and the panel sections render only for the current section. Read the block before
+editing it — every attribute on those buttons is load-bearing: `tabs.js` reads `data-tab`, the accessibility tier
+asserts the `aria-controls` pairing, and the glyph and text spans are styled.
 
-**Step 4: Run the *whole* fast tier, not just the new tests**
+`tabs.js` then intercepts a click on a tab link, calls `selectTab`, and `history.pushState`s the new path instead of
+following the link — so the URL changes, the panel switches without a reload, and a cold request for the same URL
+still works. Handle the back button (`popstate`) in the same change, or the URL and the page will disagree after a
+back navigation.
+
+**Step 4: Run the *whole* fast tier, not only the new tests**
 
 Run: `dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q`
-Expected: this is where a change to `dashboard.html` shows its blast radius. Record the pass/fail counts it prints.
-The fast tier measured **1208 passed** at `2f6162b`; anything less means a test read the page and found it changed.
+Expected: this is where a change to `dashboard.html` and `tabs.js` shows its blast radius. Record the pass/fail
+counts it prints; the fast tier measured **1208 passed** at `2f6162b` and again at `12cd766`, so anything less means
+a test read a page that changed shape.
 
 **Step 5: Commit**
 
 ```bash
-git add dashboard/web/routes/runs.py dashboard/web/templates/dashboard.html tests/dashboard/integration/test_sections_api.py
-git commit -m "feat: a section renders its own tabs, and a tab that is not in the section is not in the page"
+git add dashboard/web/routes/home.py dashboard/web/templates/dashboard.html dashboard/web/static/js/tabs.js tests/dashboard/integration/test_sections_api.py
+git commit -m "feat: every panel has a URL, and a panel a section does not have is a 404"
 ```
 
 ---
@@ -283,11 +342,13 @@ Run: `grep -rn "goto\|page.goto\|base_url\|live_server" tests/dashboard/browser/
 Do not assume the fixture's name. Every test that navigates goes through it, and that is the single place the
 section is added — a per-test edit of 54 tests is the wrong change.
 
-**Step 2: Make the section a parameter of the fixture, defaulting to `validation`**
+**Step 2: Make the *path* a parameter of the fixture, defaulting to the validation section's runs panel**
 
-The tier's existing tests are almost all about the validation-side panels (bead assignment, bonded terms, the
-mapping comparison), so `validation` is the default that leaves most of them unchanged. Tests about `pdc` ask for
-`simulations` explicitly.
+With one URL per panel there is nothing to click: a test asks for the page it is about. The tier's existing tests
+are almost all about validation-side panels (bead assignment, bonded terms, the mapping comparison), so a default of
+`/detergent-validation/runs` leaves most of them unchanged once the default is applied; a test about the complex
+panel asks for `/protein-detergent/complexes`. This is strictly simpler than the section-plus-tab-click the first
+draft of this plan assumed, and it is simpler precisely because Task 1.3 made the panels addressable.
 
 **Step 3: Run the browser tier**
 
@@ -387,10 +448,12 @@ this list directly, and two of them changed it from what the design first propos
 - **2.6 — detergent design (decision 2).** A panel this section will grow, named by the user as part of what
   validation holds. Nothing is designed here yet; it is recorded so the section's shape accounts for it.
 
-## Phase 3: retire the single page
+## Phase 3: the old links, and the docs
 
-- **3.1 — decide** (open decision 8 in the design) what `/` does with the old content. Acceptance: no route renders
-  all seven tabs, and every old bookmark is either redirected or deliberately refused.
+- **3.1 — the old fragments.** A saved `#bonded` is answered by the browser, not the server, because a fragment is
+  never sent. A short redirect on the overview maps a known old tab name to its new path and sends an unknown one
+  to the overview. Acceptance: `/#bonded` reaches `/detergent-validation/bond-interactions`, and `/#nonsense`
+  reaches the overview rather than a panel nobody asked for.
 - **3.2 — update the docs** that describe the single page, including this repository's `AGENTS.md` handoff and the
   dashboard skill's own reference.
 
