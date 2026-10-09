@@ -29,13 +29,26 @@ def test_every_section_starts_on_a_panel_it_owns():
 def test_the_panels_that_are_about_one_molecule_stay_out_of_the_simulations_section():
     """The heart of the split: a detergent's own model work is not a protein-detergent system's business."""
     assert tabs_for('validation') >= ('runs', 'new-run', 'bead-assignment', 'bond-interactions',
-                                      'combinations', 'mapping-validation', 'osmotic-pressure')
+                                      'combinations', 'mapping-validation')
     assert tabs_for('simulations') >= ('runs', 'new-run', 'complexes')
     for panel in ('bead-assignment', 'bond-interactions', 'combinations', 'mapping-validation',
                   'osmotic-pressure'):
         assert panel not in tabs_for('simulations')
     for panel in ('complexes', 'initial-state'):
         assert panel not in tabs_for('validation')
+
+
+def test_a_planned_panel_is_not_offered_by_any_workspace():
+    """A panel registered in `tabs` renders a live tab, so an unbuilt one must not be there.
+
+    This is the invariant that was violated: `osmotic-pressure` and `initial-state` were listed as tabs while no
+    section existed for either, and a tab whose panel is missing hides every panel on the page when clicked. They
+    belong in `PLANNED` -- named, greyed where the overview lists them, and not clickable -- until their sections
+    are written.
+    """
+    registered = {panel for section in SECTIONS.values() for panel in section['tabs']}
+    for panel in PLANNED:
+        assert panel not in registered, f'{panel} is planned but offered as a tab'
 
 
 def test_both_workspaces_have_their_own_run_list_and_queue_form():

@@ -18,15 +18,18 @@ SECTIONS = {
         'blurb': "Build and check a detergent's coarse-grained model: assign beads, fit its bonded terms, combine "
                  "molecules, and compare each against its reference and against measured data.",
         # The sub-panels, in the order they appear. Each is also its URL segment:
-        # `/detergent-validation/new-run`. `osmotic-pressure` is the maltose concentration series.
+        # `/detergent-validation/new-run`. A panel appears here only once its section exists in
+        # dashboard.html: a registered panel with no section renders a live tab that resolves to no
+        # element, so clicking it hides every panel and leaves a blank workspace. `osmotic-pressure` is
+        # the maltose concentration series and is registered in PLANNED until its section is written.
         'tabs': ('runs', 'new-run', 'bead-assignment', 'bond-interactions', 'combinations',
-                 'mapping-validation', 'osmotic-pressure'),
+                 'mapping-validation'),
     },
     'simulations': {
         'slug': 'protein-detergent',
         'label': 'Protein-detergent simulations',
         'blurb': 'Set up and run a protein with its detergent, and read the results.',
-        'tabs': ('runs', 'new-run', 'complexes', 'initial-state'),
+        'tabs': ('runs', 'new-run', 'complexes'),
     },
 }
 
