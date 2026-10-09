@@ -28,9 +28,13 @@ protein-detergent system walks past a bead-assignment editor to find it.
 
 ## The goal
 
-The dashboard opens on a **landing view with two large buttons**. One leads to the **detergent validation** section,
-one to the **protein-detergent simulations** section. Each section has its own tabs, its own run list, and only the
-panels that belong to it.
+The dashboard opens on an **overview showing both sections as large panels**, each listing that section's own
+sub-panels. Clicking into one leads to that section's workspace. The **last section opened is remembered**, so the
+dashboard opens where the person was working, and the shell carries a **button to switch to the other section** —
+a person should never have to go back to the overview to get across.
+
+Two buttons were the original proposal and the user replaced them: two panels, each with its sub-panels visible,
+tells someone what is behind the door before they open it.
 
 ## The shape, and why it is cheap
 
@@ -59,31 +63,51 @@ So **a section is which `[role=tab]` buttons a page renders.** That is the whole
 endpoints, and every panel's JavaScript. The split is a *view*, and the one job database stays one database —
 two stores would make a run's identity ambiguous the moment someone wanted to refer to it from the other section.
 
+**The two sections do not share their panels.** The one exception is a shared *library* — molecules, catalog,
+maintenance — and the user decided against sharing even that: each section duplicates it, because the two need
+different settings, different defaults and different presets. A single-detergent run has no detergent *count* to
+specify; a protein-detergent run cannot be queued without one. That is not a difference in presentation, so the
+`new run` form is not one form with a conditional — it is two forms, and they will drift apart on purpose.
+
 ## The parts
 
-**The landing** at `/`. Two buttons, each a link to a section. It carries no tab list and no panels; it is a fork in
-the road. It should say, in a line each, what the two sections are for, because a two-button page with no explanation
-is a guess.
+**The overview** at `/`. Both sections as large panels, each showing its own sub-panels as labelled entries, so the
+page states what is behind each door before anyone opens it. The overview is where a first-time reader learns there
+are two halves.
 
-**Two section pages**, `/validation` and `/simulations` (names to be decided — see the decisions). Each renders the
-existing shell with a section-scoped tab list and the panels that section owns. A **section switcher** in the shell
-returns to the landing, so nobody is stranded.
+**Two section workspaces**, `/validation` and `/simulations`. Each renders the existing shell with a section-scoped
+tab list and the panels that section owns. Each carries a **switch** to the other section, and `/` is always one
+click away — but the last section opened is **remembered**, so opening the dashboard returns you there rather than
+to the overview every time.
 
-**Section membership**, as a first proposal:
+**Section membership**, as decided:
 
 | panel | validation | simulations |
 | --- | --- | --- |
-| `runs` — the job list | yes, filtered to its own run types | yes, filtered |
-| `new` — queue a run | yes: Single Molecule Simulations | yes: the complex pipeline's own launch |
+| `runs` — the job list | yes, its own runs only | yes, its own runs only |
+| `new` — queue a run | yes: AA detergent, CG detergent | yes: protein-detergent systems |
 | `mappings` — Bead Assignment | yes | no |
 | `bonded` — Bond Interactions | yes | no |
 | `compositions` — Molecule Combination | yes | no |
 | `validation` — Mapping Validation | yes | no |
+| **osmotic pressure** | yes — sugar work is detergent work | no |
+| **detergent design** (new, future) | yes | no |
 | `pdc` — the complex panel | no | yes |
-| **set up initial state** (new, future) | no | yes |
+| **set up initial state** (new) | no | yes |
 | **future complex analyses** | no | yes |
-| **osmotic pressure** (new, built this week) | yes — it is a molecule against a paper | no |
-| molecules, catalog, maintenance | shared — see the decisions | shared |
+| molecules, catalog, maintenance | **duplicated**, with its own defaults | **duplicated**, with its own defaults |
+
+**The cross-references between sections.** A protein-detergent run consumes a detergent's mapping and its fitted
+terms; the validation section holds the run that produced them. Neither section *opens* the other's runs — a run
+belongs to one workspace — but both show **what is used by what**: a complex run states which detergent runs it
+draws on, and a detergent run states which complex runs use it. This is provenance, which this repository already
+treats as first-class, and it is the one piece of the other section that may appear in yours. It is explicitly not
+a picker: a run from the other section must never enter the `new run` form's list of sources.
+
+**The initial-state preview.** The validation section's `new run` sub-panel should show a snapshot of what it is
+about to build — the water box with the detergent molecules in it, before anything is integrated. The build already
+writes `solvated.gro` and `system.gro`, and the dashboard already renders structures with NGL, so this is a reader
+and a viewer rather than new machinery. Feasibility is argued in the plan rather than assumed here.
 
 ## The risks, each with what it costs
 
@@ -139,18 +163,71 @@ sections need anyway. Rejected for now; the shared entries can be a menu in the 
 
 Each step commits on its own and leaves the suite green, so the refactor can stop after any of them.
 
-## The decisions this needs from you
+## The decisions, and where they stand
 
-Listed in full in the reply; recorded here so the spec stands alone:
+**Decided by the user on 2026-10-09:**
 
-- what the two sections are called, and whether "validation" is the right word for a section that contains a
-  single-molecule *simulation*;
-- whether the detergent-validation section should hold *only* comparisons against a reference and a paper, or the
-  whole single-molecule workflow including the runs that produce them;
-- what the landing does on a second visit — always shown, or remembering the last section;
-- which panels are shared and how they are reached from both sections;
-- how the run list is scoped: filtered per section, or one list that shows both with a section column;
-- what "set up initial state" means for the complex section today, given the micelle builder is paused;
-- whether a run that belongs to one section may be opened from the other;
-- how the existing single page is retired — redirected, kept as a third "everything" view, or removed;
-- and where the osmotic series lives, on the assumption above that it is validation.
+1. **The section names stay** — "detergent validation" and "protein-detergent simulations". The user's reason: a
+   name is very easy to change later, so it is not worth spending the decision on now.
+
+2. **Validation holds the whole detergent workflow**, not only its comparisons: full-atom detergent runs,
+   coarse-grained detergent runs, CG bead mapping, CG interaction parameterisation, detergent design, and its own
+   runs and new-run settings. "Detergent design" does not exist yet and is a panel this section will grow.
+
+3. **The overview is two large panels, not two buttons** — each showing its sub-panels, so the page says what is
+   behind each door. The last section opened is **remembered**, and the shell carries a **switch** to the other
+   section so nobody has to go back to the overview to cross.
+
+4. **The run lists are filtered by section** — the validation list shows no protein-related run and the simulations
+   list shows no detergent-only run. **But both show the cross-references**: which detergent runs a complex run
+   draws on, and which complex runs a detergent run is used by.
+
+5. **A run may not be opened from the other section.** Both sections still *know* about the other's runs — that is
+   what the cross-reference in (4) is — but a run from the other section must not appear in the `new run` form's
+   list of sources.
+
+6. **The shared panels are duplicated, not shared.** Molecules, catalog and maintenance appear in both sections,
+   with their own settings, defaults and presets, because the two workflows differ in ways that are not
+   presentational: a single-detergent run has no detergent *count* to give, and a protein-detergent run cannot be
+   queued without one.
+
+7. **"Set up initial state" is the micelle builder** — the work that is paused, with `micelle/` a partial skeleton
+   and explicitly not a validated model. It belongs to the simulations section. Separately, and in the *validation*
+   section's `new run` sub-panel, the user wants **a snapshot of the initial state** — the water box with the
+   detergent in it — before the run starts. That is not the micelle builder and is not blocked by it.
+
+8. **Still open: what happens to today's single page.** See the elaboration below; the question is what `/` should
+   have to say once the overview exists.
+
+9. **The osmotic series lives in validation**, by the user's reasoning that it is sugar work and sugars are
+   detergent work.
+
+### Open decision 8, elaborated
+
+Today `/` renders the whole dashboard: seven tabs, all panels, one page. After this change `/` is the overview, and
+that page needs a destination. The question is not cosmetic, because something currently depends on the old page
+existing:
+
+- **The old page is the only page the browser tier knows.** 54 tests open `/` and click tabs in it. Whatever happens
+  to `/`, they must point somewhere real.
+- **Bookmarks and the remembered tab point at it.** `selectTab` writes `#tab` into the URL, so a link someone saved
+  is `/` plus a tab name.
+- **The tabs cross section boundaries freely today.** A run card in the job list switches to the validation tab in
+  place. That is only possible because one page holds every panel, and it is precisely what the split removes.
+
+Three destinations are possible, and they are not equivalent:
+
+- **A redirect from `/` to the remembered section**, so an old bookmark lands in a workspace. Simple, but a
+  bookmarked `#bonded` in someone who last used the simulations section lands where that tab does not exist —
+  `selectTab` would fall back to the section's first tab, silently.
+- **Keeping the old page as a third "everything" view**, reachable but not linked. Nothing breaks, but the
+  two-section structure stops being true: anyone can still see all seven tabs at once and the split becomes a
+  preference rather than the shape of the tool.
+- **Removing it**, so the only way in is the overview — the strictest reading of the two-section design, and the one
+  that makes the structure real at the cost of surprising anyone with an old bookmark.
+
+My own view: the second is a false economy (it preserves a page whose premise the refactor rejects), and the first
+and third differ mainly in how loudly an old link fails. I would take the first with the fallback made *visible* —
+landing in a section and being told the tab you asked for is in the other one, rather than silently getting a
+different tab. But this is the user's call, and it is genuinely their call: it is about how the tool should behave
+for someone who has used it for a year.

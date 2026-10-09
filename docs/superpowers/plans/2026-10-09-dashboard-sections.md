@@ -135,20 +135,19 @@ git commit -m "feat: the dashboard's two sections, in one registry rather than i
 
 ---
 
-### Task 1.2: The landing
+### Task 1.2: The overview
 
-**Objective:** `/` shows two buttons and nothing else.
+**Objective:** `/` shows both sections as large panels, each with its own sub-panels listed, and nothing else.
 
 **Files:**
-- Create: `dashboard/web/templates/landing.html`
-- Modify: `dashboard/web/routes/runs.py` (or a new `dashboard/web/routes/home.py`, registered in `dashboard/app.py`'s
-  `for module in (...)` tuple)
-- Test: `tests/dashboard/integration/test_landing.py`
+- Create: `dashboard/web/templates/overview.html`
+- Create: `dashboard/web/routes/home.py` (registered in `dashboard/app.py`'s `for module in (...)` tuple)
+- Test: `tests/dashboard/integration/test_overview.py`
 
 **Step 1: Write the failing test**
 
 ```python
-def test_the_landing_offers_both_sections_and_no_tabs(dashboard):
+def test_the_overview_offers_both_sections_and_no_tabs(dashboard):
     with dashboard.client as c:
         page = c.get('/')
     assert page.status_code == 200
@@ -156,10 +155,19 @@ def test_the_landing_offers_both_sections_and_no_tabs(dashboard):
     assert 'Detergent validation' in body
     assert 'Protein-detergent simulations' in body
     assert '/validation' in body and '/simulations' in body
-    assert 'role="tab"' not in body, 'the landing is a fork in the road, not a workspace'
+    assert 'role="tab"' not in body, 'the overview is a map, not a workspace'
 
 
-def test_each_section_is_reachable_from_the_landing(dashboard):
+def test_each_section_panel_lists_that_section_own_sub_panels(dashboard):
+    """The panel says what is behind the door -- that is the whole reason it replaced two buttons."""
+    with dashboard.client as c:
+        body = c.get('/').get_data(as_text=True)
+    assert 'Bond Interactions' in body, 'a validation sub-panel'
+    assert 'Complex' in body, 'a simulations sub-panel'
+    # and nothing from the wrong side is listed under the wrong panel -- assert on the markup around each heading
+
+
+def test_each_section_is_reachable_from_the_overview(dashboard):
     with dashboard.client as c:
         for path in ('/validation', '/simulations'):
             assert c.get(path).status_code == 200
@@ -167,25 +175,26 @@ def test_each_section_is_reachable_from_the_landing(dashboard):
 
 **Step 2: Run it to verify it fails**
 
-Run: `dashboard/.venv/bin/python -m pytest tests/dashboard/integration/test_landing.py -q`
-Expected: FAIL — 404 for `/`, because the dashboard single page is at `/` today and moving it is Task 1.3.
+Run: `dashboard/.venv/bin/python -m pytest tests/dashboard/integration/test_overview.py -q`
+Expected: FAIL — `/` renders the whole workspace today, so the `role="tab"` assertion fails first.
 
-**Step 3: Write the landing template and route**
+**Step 3: Write the overview template and route**
 
-`landing.html` extends the existing shell's head (read `dashboard.html` for the block names rather than assuming
-them) and renders, for each section in `SECTIONS`, an `<a>` carrying the section's label and blurb. The buttons are
-**links, not JavaScript**: a landing that needs a script to work is a landing that is broken when the script is.
+`overview.html` renders, for each section in `SECTIONS`, one large panel carrying the section's label and blurb and a
+list of its sub-panels, each a link into the section. The panel's list is built from `SECTIONS[name]['tabs']`, so a
+tab added to a section appears on the overview without a second list to keep in step — the same property that makes
+the split cheap in the first place. Each panel's heading is itself a link to the section workspace.
 
 **Step 4: Run it to verify it passes**
 
-Run: `dashboard/.venv/bin/python -m pytest tests/dashboard/integration/test_landing.py -q`
+Run: `dashboard/.venv/bin/python -m pytest tests/dashboard/integration/test_overview.py -q`
 Expected: PASS. Record the count.
 
 **Step 5: Commit**
 
 ```bash
-git add dashboard/web/routes/home.py dashboard/web/templates/landing.html dashboard/app.py tests/dashboard/integration/test_landing.py
-git commit -m "feat: the dashboard opens on a fork -- two sections, and no workspace behind it"
+git add dashboard/web/routes/home.py dashboard/web/templates/overview.html dashboard/app.py tests/dashboard/integration/test_overview.py
+git commit -m "feat: the dashboard opens on a map -- two sections, their sub-panels, and no workspace behind it"
 ```
 
 ---
@@ -296,56 +305,92 @@ git commit -m "test: the browser tier opens the section its subject belongs to"
 
 ---
 
-### Task 1.5: The section switcher, and the tab remembered per section
+### Task 1.5: The switch, and both kinds of remembering
 
-**Objective:** nobody is stranded in a section, and switching does not forget where you were.
+**Objective:** nobody is stranded in a section, the section you were last in is where the dashboard opens, and
+switching does not forget which tab you were on.
 
 **Files:**
 - Modify: `dashboard/web/templates/dashboard.html` (the shell's header)
 - Modify: `dashboard/web/static/js/tabs.js`
 - Test: `tests/dashboard/browser/`
 
-**Step 1:** Add a link back to `/` in the shell, labelled with the *other* section as well as home — a person in the
-wrong section should be able to see where the other one is without going home first.
+The user's decision on 2026-10-09 replaced "always show the overview" with **remember the last section opened**, and
+added that the shell must carry **a button to switch to the other section** so crossing never requires a trip
+through the overview.
 
-**Step 2:** Key the remembered tab by section: `storage.set('tab:' + section, id)`. `selectTab` already falls back
-to the first tab it finds, so the old key degrades safely and needs no migration.
+**Step 1: The switch.** In the shell's header, a link labelled with the *other* section's name, plus a link home to
+the overview. A person in the wrong section should see where the other one is without going home first.
 
-**Step 3:** Run the browser tier, and hard-reload (the skill's rule: a running dashboard freezes Python and models at
-process start but re-reads templates and static files per request — so a template or JS edit reaches the next
-request, but restart after any Python change).
+**Step 2: The section is remembered.** The overview route cannot know what the browser remembers — the section lives
+in `localStorage` on the client — so this is a client-side decision made as early as possible: the shell reads the
+remembered section and, if the page it was served is not that section, navigates. Read `tabs.js` before writing
+this; it already writes `#tab` and one `localStorage` key, and the same `storage` helper is where this belongs.
+Handle the no-preference case by serving the overview, which is what a first visit should get.
+
+**Step 3: The tab is remembered per section.** Key the remembered tab by section, `storage.set('tab:' + section, id)`.
+`selectTab` already falls back to the first tab it finds, so the old unkeyed value degrades safely and needs no
+migration.
+
+**Step 4: Run the browser tier, and hard-reload.**
+
+The skill's rule applies twice over here: a running dashboard freezes Python and models at process start, so
+**restart after the route change**, while templates and static files are re-read per request, so a **hard reload**
+picks up the template and JS edits. A stale page will make this task look broken when it is not.
 
 Run: `dashboard/.venv/bin/python -m pytest -m browser -q -n 2`
 Expected: record the counts.
 
-**Step 4: Commit**
+**Step 5: Commit**
 
 ```bash
 git add dashboard/web/templates/dashboard.html dashboard/web/static/js/tabs.js tests/dashboard/browser/
-git commit -m "feat: a way back to the fork, and the tab you were on remembered per section"
+git commit -m "feat: a way across, and both the section and the tab remembered"
 ```
 
 ---
 
 ## Phase 2: the panels regroup, and the run lists diverge
 
-Named now, detailed when Phase 1 has landed and the decisions are settled.
+Named now, detailed when Phase 1 has landed and the decisions are settled. The user's answers on 2026-10-09 shaped
+this list directly, and two of them changed it from what the design first proposed.
 
-- **2.1 — the run list filtered per section.** Both sections show `id="runs"`; the validation one should not list a
-  protein-detergent complex run and the other should not list a bead-assignment probe. This needs the job store's
-  own run-type vocabulary, which the coordinator already has.
-- **2.2 — the cross-section links.** `main.js`'s `onValidate` and `openBondedModel` switch tabs in place today. From
-  the simulations section they must navigate. Acceptance: a run opened in either section can reach its validation
-  without a dead end, and the tests that pin those links assert the navigation rather than the tab.
-- **2.3 — "Single Molecule Simulations" split from the complex launch.** Both sections have a `new` tab today
-  rendering one form. Either the form is scoped by section or the two become separate panels.
-- **2.4 — the shared panels.** Molecules, catalog and maintenance are reachable from both. A menu in the shell is
-  the proposal; the alternative is duplicating them into both sections.
+- **2.1 — the run list filtered per section.** The validation list must show no protein-related run and the
+  simulations list no detergent-only run. Acceptance: a search of the two lists finds no run of the other kind, and
+  the filter is done from the job store's own run-type vocabulary, not from a suffix guess on the label.
+
+- **2.2 — the cross-references (new, from decision 4).** Each run shows **what it draws on and what uses it**: a
+  complex run names the detergent runs whose mapping and fitted terms it consumed, and a detergent run names the
+  complex runs that use it. This is provenance and the repository already treats it as first-class, so the first
+  step is to *find out whether the link is already in the records* — the complex pipeline queues with a mapping and
+  a solute root, so it may be, in which case this is a reader; if it is not, this task starts by recording it.
+  Acceptance: both directions are visible from the run's own entry, and neither is a picker.
+
+- **2.3 — a run's actions stay inside its own section (decision 5).** `main.js` wires a run card's actions to
+  `selectTab('validation')` and `selectTab('bonded')` in place. Inside the validation section that is still correct;
+  from the simulations list it would be a jump into a workspace that does not own the run. Audit every such wiring
+  and make each one either stay in its section or link to the run's own entry. Acceptance: no control in either
+  section opens a run belonging to the other, and the tests that pin those links assert that.
+
+- **2.4 — two `new run` forms, not one (decision 6).** Molecules, catalog and maintenance are **duplicated** into
+  both sections with their own settings, defaults and presets, because the workflows differ in substance: a
+  single-detergent run has no detergent *count*, and a protein-detergent run cannot be queued without one. The
+  duplication is deliberate and the two forms are expected to drift; what must not drift is the service behind them,
+  which stays one implementation with two sets of default values.
+
+- **2.5 — the initial-state preview (decision 7).** A snapshot of what a run is about to build, in the validation
+  section's `new run` sub-panel: the water box with the detergent in it, before anything is integrated. Feasible
+  without new machinery — the build already writes `solvated.gro` and `system.gro` at prepare time, which is
+  *before* the run is queued, and the dashboard already renders structures with NGL. Acceptance: a prepared,
+  unqueued run shows its box, and the viewer is the same one the mapping overlay uses rather than a second one.
+
+- **2.6 — detergent design (decision 2).** A panel this section will grow, named by the user as part of what
+  validation holds. Nothing is designed here yet; it is recorded so the section's shape accounts for it.
 
 ## Phase 3: retire the single page
 
-- **3.1 — decide** (see the decisions) whether `/` was the old page, a redirect, or is removed. Acceptance: no route
-  renders all seven tabs, and every old bookmark is either redirected or deliberately refused.
+- **3.1 — decide** (open decision 8 in the design) what `/` does with the old content. Acceptance: no route renders
+  all seven tabs, and every old bookmark is either redirected or deliberately refused.
 - **3.2 — update the docs** that describe the single page, including this repository's `AGENTS.md` handoff and the
   dashboard skill's own reference.
 
