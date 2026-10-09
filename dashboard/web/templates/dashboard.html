@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='compositions.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='pdc.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='layout.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='workspaces.css') }}">
   <script src="{{ url_for('catalog.plotly_asset') }}"></script>
   <script src="{{ url_for('static', filename='vendor/ngl.js') }}"></script>
   <script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
@@ -17,21 +18,26 @@
 <body>
 <header><div><span class="eyebrow">LOCAL SIMULATION WORKSPACE</span><h1>Detergent MD</h1><p>Run, inspect, and refine molecular models.</p></div><span id="connection" role="status">Connecting…</span></header>
 <main>
-<div class="app-shell">
-<nav role="tablist" aria-orientation="vertical" aria-label="Workspace">
-  <p class="tab-group" role="presentation">RUN AND READ</p>
-  <button role="tab" id="tab-runs" aria-controls="runs" data-tab="runs"><span class="tab-glyph" aria-hidden="true">☰</span><span class="tab-text">Runs</span></button>
-  <button role="tab" id="tab-new" aria-controls="new" data-tab="new" aria-label="Single Molecule Simulations"><span class="tab-glyph" aria-hidden="true">▶</span><span class="tab-text">Simulate</span></button>
-  <button role="tab" id="tab-validation" aria-controls="validation" data-tab="validation" aria-label="Mapping Validation"><span class="tab-glyph" aria-hidden="true">✓</span><span class="tab-text">Validation</span></button>
-  <button role="tab" id="tab-pdc" aria-controls="pdc" data-tab="pdc" aria-label="Protein-Detergent Complex Simulations"><span class="tab-glyph" aria-hidden="true">⬡</span><span class="tab-text">Complexes</span></button>
-  <p class="tab-group" role="presentation">BUILD A MODEL</p>
-  <button role="tab" id="tab-mappings" aria-label="CG mappings" aria-controls="mappings" data-tab="mappings"><span class="tab-glyph" aria-hidden="true">◎</span><span class="tab-text">Bead Assignment</span></button>
-  <button role="tab" id="tab-bonded" aria-controls="bonded" data-tab="bonded" aria-label="CG Bond Interactions"><span class="tab-glyph" aria-hidden="true">⇄</span><span class="tab-text">Bond Interactions</span></button>
-  <button role="tab" id="tab-compositions" aria-controls="compositions" data-tab="compositions" aria-label="Molecule Combination"><span class="tab-glyph" aria-hidden="true">⧉</span><span class="tab-text">Combinations</span></button>
+<nav class="section-tabs" role="tablist" aria-label="Workspaces">
+  {% for name, each in workspaces.items() %}
+  <a class="section-tab" role="tab" data-section="{{ each.slug }}" href="/{{ each.slug }}/{{ each.tabs[0] }}"
+     aria-selected="{{ 'true' if each.slug == section else 'false' }}">{{ each.label }}<span class="sub">{{ each.blurb }}</span></a>
+  {% endfor %}
 </nav>
+<nav class="subtabs" role="tablist" aria-label="Panels" id="subtabs">
+  {% for slug in workspace.tabs %}
+  <a class="subtab" role="tab" id="tab-{{ tab_ids[slug] }}" data-tab="{{ tab_ids[slug] }}" href="/{{ workspace.slug }}/{{ slug }}"
+     aria-selected="{{ 'true' if slug == panel else 'false' }}" aria-controls="{{ tab_ids[slug] }}">
+    <span class="tab-glyph" aria-hidden="true">{{ panel_info[slug][1] }}</span><span class="tab-text">{{ panel_info[slug][0] }}</span></a>
+  {% endfor %}
+</nav>
+{# The previous navigation wrote its panel into the fragment -- `/#bonded` -- and a fragment never reaches a server,
+   so the shell is the only thing that can answer those links. The map is generated from the registry. #}
+<script type="application/json" id="legacy-tabs">{{ legacy_tabs | tojson }}</script>
+<div class="app-shell">
 <div class="app-content">
 <p id="notice" role="status" class="notice" hidden></p>
-<section id="runs" class="panel" role="tabpanel" aria-labelledby="tab-runs">
+<section id="runs" class="panel" role="tabpanel" aria-labelledby="tab-runs"{% if panel != 'runs' %} hidden{% endif %}>
   <div class="section-heading"><div><h2>Run activity</h2><p>Status updates in the background. Your workspace stays in place.</p></div><button data-go="new">New molecule run</button></div>
   <div class="card"><div class="toolbar">
     <label>Filter status<select id="run-status-filter"><option value="">All statuses</option><option>waiting</option><option>queued</option><option>running</option><option>completed</option><option>failed</option><option>blocked</option><option>cancelled</option></select></label>
@@ -53,7 +59,7 @@
   </section>
   </div>
 </section>
-<section id="new" class="panel" role="tabpanel" aria-labelledby="tab-new" hidden>
+<section id="new" class="panel" role="tabpanel" aria-labelledby="tab-new"{% if panel != 'new-run' %} hidden{% endif %}>
   <div class="section-heading"><div><h2>Single Molecule Simulations</h2><p>Check the inputs and requirements before starting.</p></div></div>
   <form id="run-form" class="new-run-layout">
     <div class="new-run-inputs">
@@ -122,7 +128,7 @@
     </section></aside>
   </form>
 </section>
-<section id="mappings" class="panel" role="tabpanel" aria-labelledby="tab-mappings" hidden>
+<section id="mappings" class="panel" role="tabpanel" aria-labelledby="tab-mappings"{% if panel != 'bead-assignment' %} hidden{% endif %}>
   <div class="section-heading"><div><h2>Design and screen CG mappings</h2><p>Assign heavy atoms to local beads and watch the overlay update live.</p></div></div>
   <section class="card molecule-mapping-workspace" aria-labelledby="molecule-mapping-title">
     <div class="section-heading"><div><h3 id="molecule-mapping-title">Molecule-scoped bead editor</h3><p class="hint">Select heavy atoms on the molecule, group them into beads, and save a new mapping draft when the structure is ready.</p></div></div>
@@ -159,7 +165,7 @@
     </div>
   </section>
 </section>
-<section id="validation" class="panel" role="tabpanel" aria-labelledby="tab-validation" hidden>
+<section id="validation" class="panel" role="tabpanel" aria-labelledby="tab-validation"{% if panel != 'mapping-validation' %} hidden{% endif %}>
   <div class="section-heading"><div><h2>Mapping Validation</h2><p>Does the model we simulate reproduce the atomistic structure it was built from? Every number here compares our model with our own atomistic reference; the reference entry's values are context and set no verdict.</p></div></div>
   <section class="card validation-selectors" aria-labelledby="validation-selectors-title">
     <h3 id="validation-selectors-title">Which comparison</h3>
@@ -258,7 +264,7 @@
   </section>
   <p id="validation-interpretation" class="hint">Every comparison here is against our own atomistic reference.</p>
 </section>
-<section id="compositions" class="panel" role="tabpanel" aria-labelledby="tab-compositions" hidden>
+<section id="compositions" class="panel" role="tabpanel" aria-labelledby="tab-compositions"{% if panel != 'combinations' %} hidden{% endif %}>
   <div class="section-heading"><div><h2>Molecule Combination</h2><p>Attach a reference-backed mapped headgroup to a deterministic Martini carbon tail.</p></div></div>
   <div class="composition-workspace">
     <div class="composition-sidebar">
@@ -293,7 +299,7 @@
     </section>
   </div>
 </section>
-<section id="pdc" class="panel" role="tabpanel" aria-labelledby="tab-pdc" hidden>
+<section id="pdc" class="panel" role="tabpanel" aria-labelledby="tab-pdc"{% if panel != 'complexes' %} hidden{% endif %}>
   <div class="section-heading"><div><h2>Protein-Detergent Complex Simulations</h2><p>Place a membrane protein in a box, build a detergent belt around it, sample it, and assess whether a micelle formed.</p></div></div>
   <div class="pdc-workspace">
     <section class="card pdc-setup" aria-labelledby="pdc-setup-title">
@@ -322,7 +328,7 @@
     </section>
   </div>
 </section>
-<section id="bonded" class="panel" role="tabpanel" aria-labelledby="tab-bonded" hidden>
+<section id="bonded" class="panel" role="tabpanel" aria-labelledby="tab-bonded"{% if panel != 'bond-interactions' %} hidden{% endif %}>
   <div class="section-heading"><div><h2>CG Bond Interactions</h2><p>Edit bonded terms for a selected mapping and save immutable state revisions.</p></div></div>
   <div class="card bonded-workspace">
     <div class="notice bonded-help"><strong>Workflow</strong><p>Choose a mapping and one of its saved states, or start from the mapping draft. Generate a reference-informed draft, select two physical beads in the 3D diagram, then create and edit an interaction in the table. <strong>Save as new state</strong> preserves the selected state unchanged. Generated parameters are hypotheses and short validation is an execution check, not scientific approval.</p><p>Functions select the GROMACS potential form; bond lengths are derived from bead geometry and read-only. Other parameters use the units shown in each row. Constraints and virtual-site parents remain read-only.</p></div>
