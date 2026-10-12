@@ -8,6 +8,7 @@ import uuid
 
 from flask import Blueprint, abort, jsonify, request
 
+from ...execution import protocol
 from ...execution.adapters import osmotic
 from ...execution.coordination import admission
 from ...models.molecules import aa as aa_molecules
@@ -63,12 +64,15 @@ def series_api():
     if not molalities:
         abort(400, 'A series needs at least one molality')
 
-    base = {key: data.get(key) for key in set(osmotic.SETTING_SPECS) | set(osmotic.CHOICE_SPECS)
+    # The settings this run type accepts, asked of the run type: the route assembled the same union of two adapter
+    # tables the runs route did, which is the answer for a run type only by coincidence.
+    adapter = protocol.adapter_for('osmotic')
+    base = {key: data.get(key) for key in {**adapter.settings_specs(), **adapter.choice_specs()}
             if data.get(key) not in (None, '')}
     series_id = uuid.uuid4().hex[:12]
     try:
         for molality in molalities:
-            osmotic.normalize_settings(dict(base, osmotic_molality=molality, series_id=series_id),
+            adapter.normalize_settings(dict(base, osmotic_molality=molality, series_id=series_id),
                                        data.get('profile', 'standard'))
     except ValueError as exc:
         abort(400, str(exc))
