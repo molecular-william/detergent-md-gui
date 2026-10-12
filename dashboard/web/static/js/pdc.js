@@ -5,6 +5,7 @@ export function createPdc() {
   const status = $('#pdc-panel-status'), limitation = $('#pdc-template-limitation');
   const viewer = $('#pdc-viewer'), viewerBasis = $('#pdc-view-basis');
   const strip = $('#pdc-snapshots'), stripBasis = $('#pdc-snapshot-basis');
+  const runSelect = $('#pdc-run');
   const mapping = $('#pdc-mapping'), queue = $('#pdc-queue');
   const importField = $('#pdc-protein-id'), importButton = $('#pdc-import'), importNote = $('#pdc-import-status');
   let catalog = null, currentRun = null;
@@ -56,6 +57,39 @@ export function createPdc() {
     } catch (error) {
       mapping.replaceChildren(new Option('The mapping list could not be read', ''));
     }
+  }
+
+  async function loadRuns() {
+    // The panel's own door to a run, and it has to be the panel's: `setRun` used to have no caller but
+    // `window.pdcSetRun`, a hook that exists for tests, so a reader could not reach the viewer or the series at all.
+    if (!runSelect) return;
+    runSelect.replaceChildren(new Option('Looking for complex runs…', ''));
+    runSelect.disabled = true;
+    let jobs = [];
+    try {
+      // Paged at 20 by default, and an older complex is exactly what a reader compares against, so ask for all.
+      const payload = await (await fetch('/api/jobs?limit=100')).json();
+      jobs = (payload.jobs || []).filter(job => job.run_type === 'pdc');
+    } catch (error) {
+      runSelect.replaceChildren(new Option('The run list could not be read', ''));
+      return;
+    }
+    runSelect.replaceChildren(new Option(jobs.length ? 'Choose a run to view' : 'No complex run yet', ''),
+      ...jobs.map(job => new Option(`${job.id} · ${job.molecule_id || 'molecule'} · ${job.status}`, job.id)));
+    runSelect.disabled = !jobs.length;
+    // A link may name the run it wants. Without one the panel opens on the placeholder rather than loading a system
+    // nobody asked for -- an option that reads as chosen while nothing is shown would be the panel lying.
+    const wanted = new URLSearchParams(location.search).get('run') || '';
+    if (wanted && jobs.some(job => job.id === wanted)) {
+      runSelect.value = wanted;
+      armRun(wanted);
+    }
+  }
+
+  function armRun(id) {
+    // One door, whatever opened it: this list, a link, or the hook the browser tests hold.
+    currentRun = id ? {id} : null;
+    return Promise.all([loadSnapshots(), loadSystem()]);
   }
 
   async function importStructure() {
@@ -138,6 +172,9 @@ export function createPdc() {
   template?.addEventListener('change', loadSystem);
   template?.addEventListener('change', loadMappings);
   protein?.addEventListener('change', loadSystem);
+  // The panel's own selection, and the reason D4 exists: this listener is what makes the viewer reachable without a
+  // test hook.
+  runSelect?.addEventListener('change', () => { armRun(runSelect.value || null); });
   queue?.addEventListener('click', queueBuild);
   importButton?.addEventListener('click', importStructure);
   // A four-character id and a button, so Enter in the field is the same request as the click.
@@ -226,8 +263,9 @@ export function createPdc() {
       + 'water and ions are omitted.');
   }
 
-  return { mount: async () => { await load(); return $('#'+panelIds().complexes); }, loadSystem, loadSnapshots,
-           // The build flow will call this when a stage has produced a system; a test calls it to exercise the
-           // viewer and the series without waiting for a run.
-           setRun: (id) => { currentRun = id ? {id} : null; return Promise.all([loadSnapshots(), loadSystem()]); } };
+  return { mount: async () => { await Promise.all([load(), loadRuns()]); return $('#'+panelIds().complexes); },
+           loadSystem, loadSnapshots,
+           // The same door the panel's own list opens, kept as `window.pdcSetRun` for the tests that arm the viewer
+           // without waiting for a run to exist.
+           setRun: armRun };
 }
