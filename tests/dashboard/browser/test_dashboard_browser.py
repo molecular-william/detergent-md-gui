@@ -92,6 +92,12 @@ def test_delete_mapping_removes_the_saved_candidate(dashboard, live_page):
                                                                 mappings.molecule(), 'DDM')})))
 
     select = page.locator('#mapping-candidate-filter')
+    # The editor wires its controls when the panel mounts, and the rows follow the *editor*, not the click: a click
+    # that lands before the mount produces no rows at all, which is how this test failed after 16 s under two workers
+    # while passing in 8 s alone. Wait for the readiness line its sibling test waits on. The recogniser is already
+    # answered from the test above, so what is left to wait for is the panel being ready -- and a longer timeout is
+    # not what was missing.
+    expect(page.locator('#mapping-editor-status')).to_contain_text('loaded')
     # A fresh workspace has one option and no saved candidate: the placeholder. Nothing to delete yet.
     expect(select.locator('option')).to_have_count(1)
     expect(page.locator('#delete-mapping')).to_be_disabled(), 'a local draft has nothing to delete'
