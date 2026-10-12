@@ -213,20 +213,40 @@ local assets; none exists anywhere in the tree. **Change:** either make each fil
 it and say in the decision record that the numbers live in the adapters; correct `AGENTS.md` to what is present.
 **Acceptance:** a config nothing reads is gone; `AGENTS.md`'s asset list matches the tree.
 
+**Met 2026-10-12** (`600f7b2`, `031c337`). Both files deleted, 403 lines, on the grounds that wiring them up would mean
+choosing them over the measured `-ntomp 4`; the numbers' real homes are named in the commit and in the skill's
+`verification-and-commit-gates.md`. `AGENTS.md` corrected: `archive/` does not exist at all, `martini_v3.itp` does (at
+`resources/forcefields/`, which the old text never said), `martini_v300.zip` / `insane3.py` / `mdp_files/` return 0
+matches, and the 29 MDPs live under `resources/templates/`.
+
 ---
 
 ## Acceptance checklist
 
-- [ ] Exactly one file declares the pytest markers; the gate reports the browser tier for front-end changes.
-- [ ] D2–D5 each have a test that failed before its change; D1's two tests are green.
-- [ ] `workflow.py` imports no adapter directly; all ten call sites ask the protocol.
-- [ ] Adding an analysis kind is one row, and an unknown kind raises rather than inventing a title.
-- [ ] No panel is registered without a section, and the test that proves it is green.
-- [ ] No rendered element has two writers.
-- [ ] No module in the shallow four remains a pass-through.
-- [ ] HTTP URLs, storage keys, manifest fields and stage names are unchanged — checked mechanically, not by memory.
-- [ ] The frozen-route-table diff is empty:
-      `python -c "from dashboard.app import create_app; print(sorted(str(r) for r in create_app().url_map.iter_rules()))"`
+Verified 2026-10-12 at Phase 7's close (`031c337`). Each line carries its measurement, and one is an open defect.
+
+- [x] Exactly one file declares the pytest markers; the gate reports the browser tier for front-end changes.
+      `pytest.ini` owns them; the gate reported the browser tier on the front-end commits of Phases 4-5 (67 passed).
+- [ ] D2–D5 each have a test that failed before its change; D1's two tests are green. **D4 is open, so this is not met.**
+      D2 `tests/dashboard/integration/test_rendered_hosts.py` (refuses two writers for one host; red before the
+      `.analysis-diagnostics` host landed), D3 `tests/dashboard/unit/test_run_view.py` (`2a26fe5`), D5
+      `tests/dashboard/unit/test_workflow_plan_pairs.py` (`d54468f`), D1 fixed in `6d5badd`. **D4 has neither the
+      change nor its test:** `pdc.js:232` is that file's only `setRun` reference, so the complex panel's system
+      viewer and snapshot strip are still armed by `window.pdcSetRun` alone -- and the module's own comment says the
+      build flow will call it, which nothing does. Phase 5 documented the hook as test-only, which is the opposite
+      direction: D4 asks for the hook to stop being the only door.
+- [x] `workflow.py` imports no adapter directly; all ten call sites ask the protocol. Phase 2 (`e74025b`, `35ce0af`).
+- [x] Adding an analysis kind is one row, and an unknown kind raises rather than inventing a title. Phase 3:
+      `analysis/kinds.py` is one table and `test_analysis_kinds.py` generates a row per kind from the four sources.
+- [x] No panel is registered without a section, and the test that proves it is green. Phase 4 (`test_dom_ids.py`).
+- [x] No rendered element has two writers. Phase 5 (`test_rendered_hosts.py`).
+- [x] No module in the shallow four remains a pass-through. Phase 6 (`1da6549`); all four names at 0 references.
+- [x] HTTP URLs, storage keys, manifest fields and stage names are unchanged -- checked mechanically. The same
+      extractor run at `e8b21f7^` (before the plan) and at HEAD: **71/71** HTTP paths, **1/1** storage key, **5/5**
+      stage names. Manifest-field literals read 76 -> 79 and the three are *not* new fields: the same names
+      re-spelled as an explicit dict at one `coordinator.py` call site, with an identical per-file footprint before
+      and after.
+- [x] The frozen-route-table diff is empty: **80** rules, and the HTTP-path set above is identical across the plan.
 
 ## Deliberately not done
 
