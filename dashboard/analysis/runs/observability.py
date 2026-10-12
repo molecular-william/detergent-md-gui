@@ -247,11 +247,6 @@ def unparameterized_observables(run_dir):
     return {'artifact': str(output.relative_to(run_dir)), 'distance_count': len(pairs), 'angle_count': len(triples), 'dihedral_count': len(quads)}
 
 
-def connolly_surfaces(run_dir):
-    from .surfaces import generate
-    return generate(run_dir)
-
-
 def numerical_stability(run_dir):
     """Collect reproducible numerical stability signals from logs and trajectories."""
     logs = [p for p in files.safe_files(run_dir) if p.suffix == '.log']

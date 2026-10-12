@@ -14,7 +14,7 @@ place rather than because someone remembered four.
 from dataclasses import dataclass
 from typing import Callable
 
-from .runs import bartender_fit, bonded_estimate, dihedral_fit, mapping_consistency, observability, osmotic_pressure, overlap, refinement
+from .runs import bartender_fit, bonded_estimate, dihedral_fit, mapping_consistency, observability, osmotic_pressure, overlap, refinement, surfaces
 from .validation import report as carbohydrate_validation
 from .validation import targets
 
@@ -209,7 +209,7 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
             "4_CG_sim/prod/lig_CG.gro",
             "4_CG_sim/prod/lig_CG.xtc",
         ),
-        _sources_only(observability.connolly_surfaces),
+        _sources_only(surfaces.generate),
         "AA/CG solvent-accessible surface overlay",
         "Aligned envelopes should occupy similar regions; a snapshot is not ensemble validation.",
         "nm; visual agreement",

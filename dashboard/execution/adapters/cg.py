@@ -21,7 +21,7 @@ from .. import protocol, tools
 from ..environment import AA_TEMPLATE, FORCE_FIELD, ROOT, TUTORIAL_TEMPLATE, environment, probe_tool, recorded_environment, update_mdp
 from ..stages import Stage, stage_tables
 from . import aa
-from .cg_names import CGNames, require_script_compatibility
+from .cg_names import CGNames
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 # What this module offers to the rest of the application: PROTOCOL (the run-type
@@ -192,7 +192,6 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     if molecule_snapshot is None or not shared_reference:
         raise ValueError('CG preparation requires a molecule snapshot and shared AA reference')
     names = CGNames.for_snapshot(molecule_snapshot)
-    require_script_compatibility(names)
     stage_plan, _, _ = stage_contract(names)
 
     aa_dir = run_dir / '1_AA-reference'

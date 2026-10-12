@@ -143,9 +143,7 @@ def micelle_build_api():
     directory = c.RUNS / jid; directory.mkdir(parents=True, exist_ok=False)
     try:
         result = run_micelle_job(payload, directory)
-        (directory/'logs').mkdir(exist_ok=True)
-        (directory/'logs/console.log').write_text(result.get('stdout','') + result.get('stderr',''))
-        c.database().update(jid, status='completed' if result['status']=='completed' else 'failed', stage='complete' if result['status']=='completed' else 'micelle build', ended_at=c.now(), error=result.get('stderr') if result['status']!='completed' else None, command=' '.join(result['command']))
+        c.database().update(jid, status='completed' if result['status']=='completed' else 'failed', stage='complete' if result['status']=='completed' else 'micelle build', ended_at=c.now(), error=result.get('error'), command=' '.join(result['command']))
     except Exception as exc:
         c.database().update(jid, status='failed', stage='micelle build', ended_at=c.now(), error=str(exc))
     return jsonify(view_of(c, c.lookup(jid))), 201

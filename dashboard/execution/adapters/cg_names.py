@@ -5,12 +5,6 @@ from dataclasses import dataclass
 
 from ...models.molecules.aa import cg_residue_name
 
-# Set to True once the six shipped shell scripts consume MOLECULE_TYPE,
-# INITIAL_ITP, FINAL_ITP and AA_REFERENCE_DIR. Flip by running the shipped
-# migrator (dashboard/execution/scripts/migrate_cg_naming.py) and confirming
-# --check reports "All six CG scripts are migrated."
-SHELL_SCRIPTS_READ_ENV = True
-
 
 @dataclass(frozen=True)
 class CGNames:
@@ -48,15 +42,3 @@ class CGNames:
             'initial_itp': self.initial_itp,
             'final_itp': self.final_itp,
         }
-
-
-def require_script_compatibility(names: CGNames) -> None:
-    """Refuse CG execution if the shipped shell scripts are not migrated."""
-    if SHELL_SCRIPTS_READ_ENV:
-        return
-    if names.residue_name != 'DDM':
-        raise ValueError(
-            f'CG execution for {names.residue_name!r} is not enabled: the shipped '
-            'shell scripts still target DDM. Run '
-            'dashboard/execution/scripts/migrate_cg_naming.py --apply first.'
-        )

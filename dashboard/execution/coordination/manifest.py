@@ -35,18 +35,6 @@ class ManifestCache:
         return data
 
 
-def read_manifest(run_dir: Path) -> dict:
-    run_dir = Path(run_dir)
-    manifest = run_dir / 'manifest.json'
-    if manifest.is_symlink() or not manifest.resolve().is_relative_to(run_dir.resolve()):
-        return {}
-    try:
-        value = json.loads(manifest.read_text())
-    except (OSError, ValueError):
-        return {}
-    return value if isinstance(value, dict) else {}
-
-
 def stage_log_path(run_dir: Path, *, name: str | None = None, recorded: str | None = None,
                    resume_count=None) -> Path | None:
     """The one place a stage log's location is encoded and decoded.
