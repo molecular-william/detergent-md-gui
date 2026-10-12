@@ -42,13 +42,15 @@ dashboard.
   compatible AA topology runs through it; the packaged `molecules/DDM` tree
   supplies the reference example and smoke candidate. `cg.py` is the generic CG
   adapter and the only CG stage pipeline; there is no `ddm` shim.
-- `archive/MemProtMD/` preserves Colab notebooks, legacy scripts, force-field
-  files, example structures, MDP files, and archives. Maintained workflow
-  assets live under `resources/` and `dashboard/`. The historical
-  `memembed -> martinize -> insane -> cg2at` chain is not maintained.
-- `martini_v3.itp`, `martini_v300.zip`, `insane3.py`, and `mdp_files/` are
-  local assets. Detergent support and residue/topology coverage must be
-  verified per molecule.
+- Maintained workflow assets live under `resources/` and `dashboard/`. The
+  historical `memembed -> martinize -> insane -> cg2at` chain is not
+  maintained, and the `archive/MemProtMD/` tree that earlier notes say
+  preserved it is no longer in the repository.
+- The force fields and templates are local: the CG half takes
+  `resources/forcefields/martini_v3.itp`, the atomistic half copies
+  `resources/templates/small_mols_fast_forward/1_AA_reference/charmm36-jul2022.ff`,
+  and the 29 MDP templates live under `resources/templates/`. Detergent
+  support and residue/topology coverage must be verified per molecule.
 - Tool locations are declared in `config/tools.json` and resolved by
   `dashboard/execution/tools.py`: a declared path is verified executable before use,
   and a declaration that cannot be honoured resolves to nothing rather than to a
