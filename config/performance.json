@@ -1,1 +1,0 @@
-{"default":{"gpu_id":"0","nb":"gpu","pme":"gpu","pmefft":"gpu","bonded":"gpu","update":"gpu","pin":"on","ntomp":8,"nstlist":100},"notes":"RTX 2060 CUDA build; benchmark must confirm bonded/update GPU support for each workload. No ntmpi: /usr/local/gromacs/2026.3/bin/gmx is gmx_mpi, an MPI build with no thread-MPI, where -ntmpi aborts mdrun at startup."}
