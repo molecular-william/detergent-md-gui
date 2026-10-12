@@ -70,7 +70,15 @@ export function mountOverlay3d(host, context, onAtom) {
       const molecule = await stage.loadFile(new Blob([payload.pdb], {type: 'text/plain'}), {ext: 'pdb'});
       const beadFile = await stage.loadFile(new Blob([payload.bead_pdb], {type: 'text/plain'}), {ext: 'pdb'});
       if (molecule && molecule.structure) {
-        molecule.addRepresentation('ball+stick', {sele: 'all', colorScheme: 'element', radiusScale: 0.45});
+        molecule.addRepresentation('ball+stick', {sele: 'all', colorScheme: 'element', radiusScale: 0.9});
+        // Every atom carries its mapping id. The PDB's serials ARE those ids -- serials() reads them back for
+        // picking -- so a label of `serial` prints the same number a table row's `atoms` field lists, which is the
+        // whole point of drawing them. `atomindex` would print the structure's own 0-based order and send a reader
+        // to the wrong atom.
+        molecule.addRepresentation('label', {sele: 'all', labelType: 'serial', labelSize: 2,
+                                             labelColor: 'black', labelZOffset: 1.5, fixedSize: true,
+                                             showBackground: true, backgroundColor: 'white',
+                                             backgroundOpacity: 0.75});
       }
       // One representation per size class: a representation has a single radius scale, so beads of different sizes
       // cannot share one. The class is the residue name, which is the form this build's selections resolve.

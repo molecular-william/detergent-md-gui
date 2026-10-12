@@ -1,6 +1,6 @@
 import { $, storage, setText, post, cachedApi, invalidateResource, guarded, DROP, api, notice, panelIds } from './shared.js';
 import { setupBondedWorkspace } from './bonded.js';
-import { createEditor, toggleAtom, clearSelection, clearMapping, groupAtoms, renameBead, removeBead } from './mapping-state.js';
+import { createEditor, toggleAtom, clearSelection, clearMapping, groupAtoms, addBead, renameBead, removeBead } from './mapping-state.js';
 import { mountOverlay3d } from './mapping-ngl.js';
 
 // Candidate edits and local drafts stay inside this workspace.
@@ -58,12 +58,29 @@ export function createMappings() {
     persistEditor(); editorSelection(); validateEditor();
   }
 
+  function selectBead(name) {
+    // One row at a time, and it is what the buttons below the table act on. Clicking the selected row again drops
+    // the selection, so a reader is never stuck holding one they cannot put down.
+    if (!moleculeEditor) return;
+    moleculeEditor.selectedBead = moleculeEditor.selectedBead === name ? null : name;
+    persistEditor(); renderEditor();
+  }
+
+  function updateBeadButtons() {
+    const remove = $('#delete-selected-bead');
+    if (remove) remove.disabled = !moleculeEditor?.selectedBead;
+  }
+
   function renderBeadRows() {
     const table = $('#mapping-bead-rows');
     if (!table) return;
     table.replaceChildren();
     for (const [index, bead] of (moleculeEditor?.candidate.beads || []).entries()) {
       const row = document.createElement('tr');
+      const chosen = moleculeEditor?.selectedBead === bead.name;
+      row.classList.toggle('selected', chosen);
+      row.setAttribute('aria-selected', String(chosen));
+      row.addEventListener('click', () => selectBead(bead.name));
       const fields = ['name', 'size', 'type', 'atoms'];
       for (const field of fields) {
         const cell = document.createElement('td');
@@ -119,7 +136,7 @@ export function createMappings() {
   function renderEditor() {
     if (!moleculeEditor) return;
     $('#mapping-editor-name').value = moleculeEditor.candidate.name || 'New mapping';
-    renderBeadRows(); editorSelection();
+    renderBeadRows(); editorSelection(); updateBeadButtons();
     // The 3D view redraws only when the assignment itself changed, so this costs a request on an edit and nothing
     // on a refresh -- which is what lets it be called from every render rather than from the places that edit.
     if (moleculeOverlay) moleculeOverlay.update(moleculeEditor.candidate);
@@ -215,6 +232,17 @@ export function createMappings() {
       if (!candidate || candidate.molecule_id !== moleculeEditor?.context.molecule_id) return;
       moleculeEditor = createEditor(moleculeEditor.context, candidate);
       renderEditor();
+    };
+    $('#add-bead').onclick = () => {
+      if (!moleculeEditor) { editorMessage('Select a molecule to begin.'); return; }
+      try { addBead(moleculeEditor); persistEditor(); renderEditor(); }
+      catch (error) { editorMessage(error.message); }
+    };
+    $('#delete-selected-bead').onclick = () => {
+      const name = moleculeEditor?.selectedBead;
+      if (!name) { editorMessage('Select a bead row first.'); return; }
+      try { removeBead(moleculeEditor, name); persistEditor(); renderEditor(); }
+      catch (error) { editorMessage(error.message); }
     };
     $('#clear-all-mapping').onclick = () => {
       if (!moleculeEditor || !window.confirm('Remove every bead assignment from this local draft?')) return;

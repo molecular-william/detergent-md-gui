@@ -15,6 +15,7 @@ export function createEditor(context, candidate = null) {
       provenance: {origin: 'manual', references: []},
     }),
     selectedAtoms: new Set(),
+    selectedBead: null,          // the table row the bead buttons act on
     dirty: false,
   };
 }
@@ -32,6 +33,7 @@ export function clearSelection(editor) { editor.selectedAtoms.clear(); return ed
 export function clearMapping(editor) {
   editor.candidate = {...editor.candidate, beads: [], rings: [], connections: [], bonded_options: {}, bonded_overrides: []};
   clearSelection(editor);
+  editor.selectedBead = null;
   editor.dirty = true;
   return editor;
 }
@@ -51,10 +53,23 @@ export function groupAtoms(editor, atomIds, bead, {confirmed = false} = {}) {
   editor.candidate = next; clearSelection(editor); editor.dirty = true; return editor;
 }
 
+export function addBead(editor, name = '') {
+  // An empty bead, for a reader who knows the group before they know its atoms. It maps nothing until the table's
+  // `atoms` field names some, and the checks say so rather than the save button refusing for an unstated reason.
+  const next = structuredClone(editor.candidate);
+  const taken = new Set(next.beads.map(item => String(item.name || '')));
+  let chosen = String(name || '').trim();
+  if (!chosen) { let index = 1; while (taken.has(`B${index}`)) index += 1; chosen = `B${index}`; }
+  if (taken.has(chosen)) throw new Error(`Bead ${chosen} already exists.`);
+  next.beads = [...next.beads, {name: chosen, size: 'S', type: '', atoms: []}];
+  editor.candidate = next; editor.selectedBead = chosen; editor.dirty = true; return editor;
+}
+
 export function renameBead(editor, oldName, newName) {
   const name = String(newName || '').trim(); if (!name) throw new Error('Bead name is required.');
   const next = structuredClone(editor.candidate); const bead = next.beads.find(item => item.name === oldName); if (!bead) throw new Error('Unknown bead.');
   bead.name = name;
+  if (editor.selectedBead === oldName) editor.selectedBead = name;
   for (const item of next.beads) if (item.virtual_site) item.virtual_site.parents = item.virtual_site.parents.map(parent => parent === oldName ? name : parent);
   for (const ring of next.rings || []) { ring.beads = ring.beads.map(parent => parent === oldName ? name : parent); if (ring.virtual_site === oldName) ring.virtual_site = name; }
   next.connections = (next.connections || []).map(pair => pair.map(item => item === oldName ? name : item));
@@ -64,5 +79,6 @@ export function renameBead(editor, oldName, newName) {
 export function removeBead(editor, name) {
   const next = structuredClone(editor.candidate); if (next.beads.some(item => item.virtual_site?.parents.includes(name))) throw new Error('Remove dependent interaction site first.');
   next.beads = next.beads.filter(item => item.name !== name); next.rings = (next.rings || []).filter(ring => ring.virtual_site !== name && !ring.beads.includes(name)); next.connections = (next.connections || []).filter(pair => !pair.includes(name));
+  if (editor.selectedBead === name) editor.selectedBead = null;
   editor.candidate = next; editor.dirty = true; return editor;
 }

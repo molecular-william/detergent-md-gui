@@ -155,6 +155,10 @@
       <div class="mapping-editor-controls">
         <label>Candidate name<input id="mapping-editor-name" maxlength="160" value="New mapping"></label>
         <div class="table-scroll"><table><caption>Bead assignments · heavy atom indices</caption><thead><tr><th>Bead</th><th>Size</th><th>Type</th><th>Atoms</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="mapping-bead-rows"></tbody></table></div>
+        <div class="toolbar mapping-bead-actions">
+          <button type="button" class="secondary" id="add-bead">Add new bead</button>
+          <button type="button" class="secondary" id="delete-selected-bead" disabled>Delete selected bead</button>
+        </div>
         <section class="validation" aria-live="polite"><h3>Checks</h3><p id="mapping-validation-summary" class="validation-summary"></p><ul id="mapping-validation-issues" class="validation-issues"></ul></section>
         <div class="toolbar mapping-primary-actions">
           <button type="button" class="secondary" id="generate-automatic">Generate automatic candidate</button>

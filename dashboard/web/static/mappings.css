@@ -43,5 +43,7 @@
 .validation ul{padding-left:20px;max-height:180px;overflow:auto}
 .validation li{margin:6px 0}
 .invalid-bead{background:#fff2e9}
+.mapping-bead-actions{margin:10px 0 0}
+#mapping-bead-rows tr.selected{background:#eaf1fb;outline:1px solid #bcd2ec}
 @media(max-width:900px){.mapping-editor-layout{grid-template-columns:1fr}.mapping-editor-diagram{min-height:24rem}}
 @media(max-width:520px){.mapping-editor-diagram{min-height:18rem}.mapping-primary-actions{justify-content:stretch}.mapping-primary-actions button{flex:1}}
