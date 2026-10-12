@@ -386,9 +386,28 @@ def _protocol_readiness(metadata):
     molecule_id = metadata.get('molecule_id')
     if not molecule_id:
         return protocol.blocked('molecule_id is required to check an AA to CG run')
-    return readiness(molecule_id, metadata.get('method') or 'gromacs',
-                     metadata.get('profile') or 'standard',
-                     metadata.get('mapping_candidate'), metadata.get('molecule_root'))
+    ready = readiness(molecule_id, metadata.get('method') or 'gromacs',
+                      metadata.get('profile') or 'standard',
+                      metadata.get('mapping_candidate'), metadata.get('molecule_root'))
+    # An AA-to-CG run needs everything the atomistic half needs, because its own reference is built from a molecule
+    # that has to be simulatable. The web route used to collect both answers and merge them by hand, which put a run
+    # type's prerequisites inside a page that happened to ask about it; the rule belongs with the run type, and the
+    # route now asks this one question like every other caller.
+    molecule_root = metadata.get('molecule_root')
+    try:
+        from ...analysis.runs import references as aa_references
+        from ...models.molecules import aa as aa_molecules
+        reference_run_id = metadata.get('reference_run_id')
+        if reference_run_id:
+            selection = aa_molecules.selection(molecule_root, molecule_id)
+            aa_references.resolve(metadata.get('runs_root'), reference_run_id, molecule_snapshot=selection)
+        else:
+            from . import aa
+            ready.setdefault('blockers', []).extend(aa.readiness(molecule_root, molecule_id)['blockers'])
+    except (OSError, ValueError) as exc:
+        ready.setdefault('blockers', []).append(str(exc))
+    ready['ready'] = ready.get('ready', False) and not ready.get('blockers')
+    return ready
 
 
 def _protocol_prepare(run_dir, metadata):

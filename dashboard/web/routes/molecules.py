@@ -5,6 +5,7 @@ from flask import Blueprint, abort, jsonify, request
 
 from ...analysis.runs import references as aa_references
 from ...execution.adapters import aa, cg
+from ...execution.protocol import adapter_for
 from ...models import mappings
 from ...models.mappings import context as mapping_context
 from ...models.molecules import aa as aa_molecules
@@ -79,51 +80,57 @@ def _with_force_fields(result):
 
 @blueprint.get('/api/readiness')
 def readiness_api():
+    """Can this run start, asked of the run type rather than of each adapter in turn.
+
+    This route used to reach past the protocol: `pdc.readiness(...)`, `composition.readiness(...)`,
+    `aa.readiness(...)`, `cg.readiness(...)`, and for `aa_cg` it collected two of those answers and merged them by
+    hand. That put a run type's prerequisites in a page, and gave the same question two places to drift apart. Every
+    branch now builds the metadata a run carries and asks the protocol once.
+
+    Two things stay here because they are the page's business and not the run type's: the *molecule* it inspects, so
+    a reader sees which structure was judged, and the *mapping candidate* it loads from a name, because that is a
+    lookup in the mapping store rather than a rule about runs.
+    """
     c = coordinator()
-    run_type=request.args.get('run_type')
-    if run_type == 'pdc':
-        # The complex panel reads this before it queues a build, so a build that cannot start says why in the panel
-        # rather than in a run that dies at stage one. An empty micelle is a stated choice, so a missing protein is
-        # reported as an absence rather than a blocker.
-        from ...execution.adapters import pdc
-        return jsonify(pdc.readiness(protein=request.args.get('protein') or None,
-                                     template=request.args.get('template') or None,
-                                     project_root=c.ROOT))
-    if run_type == 'cg_composition':
-        from ...execution.adapters.composition import readiness
-        composition_id = request.args.get('composition_id')
-        if not composition_id: return jsonify(ready=False, checks=[], blockers=['Select a saved composition'])
-        return jsonify(readiness(composition_id, c.ROOT))
-    if run_type not in (None,'aa_only','aa_cg'):abort(400,'Unknown run type')
-    if run_type=='aa_only':return jsonify(aa.readiness(c.ROOT/'molecules',request.args.get('molecule_id')))
+    run_type = request.args.get('run_type') or 'aa_cg'
+    if run_type not in ('aa_only', 'aa_cg', 'cg_composition', 'pdc'):
+        abort(400, 'Unknown run type')
+
     molecule = None
-    if 'molecule_id' in request.args:
-        try: molecule = aa_molecules.inspect(c.ROOT/'molecules', request.args['molecule_id'])
+    if run_type in ('aa_only', 'aa_cg') and 'molecule_id' in request.args:
+        try: molecule = aa_molecules.inspect(c.ROOT / 'molecules', request.args['molecule_id'])
         except (OSError, ValueError) as exc: abort(400, str(exc))
         if not molecule['executable']:
             return jsonify(ready=False, checks=[], blockers=molecule['blockers'], molecule=molecule)
+
+    candidate = None
     name = request.args.get('mapping_candidate')
-    try:
-        context = (mapping_context.build_context(c.ROOT / 'molecules', request.args['molecule_id'])
-                   if request.args.get('molecule_id') else None)
-        candidate = mappings.get(name, context=context) if name else None
-    except FileNotFoundError: abort(400, 'Selected mapping is unavailable')
-    except (OSError, ValueError) as exc: abort(400, str(exc))
-    c = coordinator()
-    ready = cg.readiness(request.args.get('molecule_id') or request.args.get('detergent', 'DDM'),
-                               request.args.get('method', 'fast_forward'),
-                               request.args.get('profile', 'standard'),
-                               candidate,
-                               molecule_root=c.ROOT / 'molecules')
-    if run_type=='aa_cg':
+    if name:
         try:
-            if request.args.get('reference_run_id'):
-                selected=aa_molecules.selection(c.ROOT/'molecules',request.args.get('molecule_id'))
-                aa_references.resolve(c.RUNS,request.args['reference_run_id'],molecule_snapshot=selected)
-            else:
-                aa_ready=aa.readiness(c.ROOT/'molecules',request.args.get('molecule_id'))
-                ready.setdefault('blockers',[]).extend(aa_ready['blockers'])
-        except (OSError,ValueError) as exc:ready.setdefault('blockers',[]).append(str(exc))
-        ready['ready']=ready.get('ready',False) and not ready.get('blockers')
-    if molecule: ready['molecule'] = molecule
-    return jsonify(ready)
+            context = (mapping_context.build_context(c.ROOT / 'molecules', request.args['molecule_id'])
+                       if request.args.get('molecule_id') else None)
+            candidate = mappings.get(name, context=context)
+        except FileNotFoundError: abort(400, 'Selected mapping is unavailable')
+        except (OSError, ValueError) as exc: abort(400, str(exc))
+
+    metadata = {
+        # The molecule the coarse-grained half checks, with the same DDM fallback the route has always had: a caller
+        # that asks about a profile rather than a specific molecule is asking about the reference example, and the
+        # protocol requires *some* molecule because a run cannot be checked without one.
+        'molecule_id': request.args.get('molecule_id') or request.args.get('detergent') or 'DDM',
+        'method': request.args.get('method', 'fast_forward'),
+        'profile': request.args.get('profile', 'standard'),
+        'mapping_candidate': candidate,
+        'molecule_root': c.ROOT / 'molecules',
+        'runs_root': c.RUNS,
+        'reference_run_id': request.args.get('reference_run_id'),
+        'composition_id': request.args.get('composition_id'),
+        'protein': request.args.get('protein') or None,
+        'template': request.args.get('template') or None,
+        'project_root': c.ROOT,
+    }
+    # A copy, so decorating the answer for this page cannot reach back into whatever the adapter returned -- an
+    # adapter that hands out a module-level dict would otherwise accumulate a molecule from every request.
+    answer = dict(adapter_for(run_type).readiness(metadata))
+    if molecule: answer['molecule'] = molecule
+    return jsonify(answer)
