@@ -136,16 +136,18 @@ def test_every_panel_is_the_same_width_and_has_no_dead_space_beside_it(dashboard
           return {gap: gap, track: (width - gap * 11) / 12,
                   kids: [...box.children].map(el => el.getBoundingClientRect().width)}; }""", selector)
 
-    cases = (('detergent-validation', 'new', '.new-run-layout', (6, 6)),
-             ('detergent-validation', 'mappings', '.mapping-editor-layout', (7, 5)),
-             ('detergent-validation', 'compositions', '.composition-workspace', (3, 9)),
-             ('protein-detergent', 'pdc', '.pdc-workspace', (3, 9, 12)),
-             ('detergent-validation', 'bonded', '.bonded-columns', (6, 6)))
+    cases = (('detergent-validation', 'new-run', '.new-run-layout', (6, 6)),
+             ('detergent-validation', 'bead-assignment', '.mapping-editor-layout', (7, 5)),
+             ('detergent-validation', 'combinations', '.composition-workspace', (3, 9)),
+             ('protein-detergent', 'complexes', '.pdc-workspace', (3, 9, 12)),
+             ('detergent-validation', 'bond-interactions', '.bonded-columns', (6, 6)))
     for workspace, panel, layout, spans in cases:
+        # `panel` is the URL *slug*, not the DOM id: the registry keeps those two vocabularies apart on purpose, and
+        # using the id here asked for `/detergent-validation/new`, which is not a panel. The diagnostic assertion
+        # below is what named it -- the page reported its own URL rather than a timeout pretending to be a missing
+        # element.
         page.goto(f'{live_page.base_url}/{workspace}/{panel}')
-        # Each workspace builds its layout when its module mounts, which happens after the first paint, so this
-        # waits rather than assuming the element is already there. The previous version of this test got that for
-        # free by clicking each tab and letting the click's handler settle first.
+        assert page.url.rstrip('/').endswith(f'/{workspace}/{panel}'), f'asked for {panel}, landed on {page.url}'
         page.wait_for_selector(layout, timeout=15000)
         measured = track_width(layout)
         assert 'missing' not in measured, f'{panel}: no {layout} in the page'
