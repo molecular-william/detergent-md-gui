@@ -1,4 +1,6 @@
 """Browser acceptance test. Requires installed Playwright + Chromium."""
+import json
+
 import pytest
 from playwright.sync_api import expect
 
@@ -142,17 +144,23 @@ def test_mapping_editor_clear_all_removes_local_assignments(live_page):
     page = live_page.page
     page.goto(f'{live_page.base_url}/detergent-validation/bead-assignment')
     page.get_by_role('tab', name='Bead Assignment', exact=True).click()
+    # The recogniser runs in the server and is this tier's only load-sensitive step: 60 s covered moderate
+    # contention, and under two workers it still timed out while passing in 4 s in isolation. The comment that used
+    # to sit here proposed answering the call from the test instead of waiting longer, and that is what this does --
+    # the candidate is the same one the recogniser would return, computed in Python through the same code path the
+    # server uses, so the editor receives what it would have received without the wait. What the test is about is
+    # that *Clear all* empties the editor, not that the recogniser is fast.
+    candidate = mappings.automatic_candidate(mappings.molecule(), 'DDM')
+    page.route('**/api/mappings/automatic/preview',
+               lambda route: route.fulfill(status=200, content_type='application/json',
+                                           body=json.dumps({'available': True, 'candidate': candidate})))
     page.locator('#generate-automatic').click()
-    # The recogniser runs in the server, and this wait is the tier's one load-sensitive step: 60 s covers
-    # moderate contention, and while a 200 ns atomistic run owns eight threads even that is not always enough,
-    # in which case this test needs an idle machine. (It passes in 4 s in isolation.) Making it independent of
-    # the recogniser means stubbing `generate_baseline` with a candidate the editor accepts, which is its own
-    # small piece of work rather than a timeout to keep raising.
-    page.locator('#mapping-bead-rows tr').first.wait_for(timeout=60000)
+    page.locator('#mapping-bead-rows tr').first.wait_for(timeout=15000)
     expect(page.locator('#mapping-bead-rows tr')).not_to_have_count(0)
     page.on('dialog', lambda dialog: dialog.accept())
     page.locator('#clear-all-mapping').click()
     expect(page.locator('#mapping-bead-rows tr')).to_have_count(0)
+    page.unroute('**/api/mappings/automatic/preview')
 
 
 def test_mapping_editor_disables_save_for_an_identical_saved_mapping(live_page):
