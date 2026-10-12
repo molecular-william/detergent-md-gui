@@ -72,10 +72,10 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
         // A completed coarse-grained run is the only run the comparison can be read from, so that is where the
         // panel is offered from. Whether a comparison was actually published is the panel's own answer to give,
         // and when it was, the control states what it found instead of offering a blank door.
-        const validate = $('.job-validate', card);
-        validate.hidden = !(job.run_type === 'aa_cg' && job.status === 'completed');
-        validate.textContent = consistencyLine(job) || 'Mapping validation';
-        validate.onclick = () => { try { onValidate(job.id); } catch (error) { notice(error.message); } };
+        // The control's *state* is set on every render below, next to the status: it depends on the run's status and
+        // on whether a comparison was published, both of which change after the card is created. Only the handler
+        // belongs here, because the run id it closes over does not change.
+        $('.job-validate', card).onclick = () => { try { onValidate(job.id); } catch (error) { notice(error.message); } };
         $('.job-resume',card).onclick = async () => {
           try { await post(`/api/jobs/${job.id}/resume`,{stage:$('.resume-stage',card).value}); notice('Run resumed; current stage files will be executed.'); await refreshJobs(); }
           catch(error) { notice(error.message); }
@@ -110,6 +110,12 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
       setText($('.job-created', card), job.created ? new Date(job.created).toLocaleString() : '—');
       setText($('.job-status', card), job.status === 'cancelling' ? 'Cancelling…' : job.status);
       $('.job-status', card).dataset.status = job.status;
+      // Re-set on every render, not only at creation: a run that finishes while this page is open must offer its
+      // comparison without a reload, and one whose comparison publishes later must stop reading as a blank door.
+      // The handler is attached once, in the creation block, because the run id it closes over never changes.
+      const validate = $('.job-validate', card);
+      validate.hidden = !(job.run_type === 'aa_cg' && job.status === 'completed');
+      setText(validate, consistencyLine(job) || 'Mapping validation');
       setText($('.job-stage', card), job.stage || 'Queued');
       // A run that declared itself a stub says so on the card, next to the status it
       // would otherwise share with a run that really executed the stage.

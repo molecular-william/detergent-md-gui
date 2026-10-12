@@ -25,7 +25,7 @@ def test_a_run_recorded_under_the_old_stage_name_keeps_its_short_label(dashboard
                        'stages': [{'name': name, 'status': 'completed'} for name in recorded]})
 
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#runs')
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
 
     step = page.locator(f'.job[data-id="{job_id}"] .timeline-step').nth(1)
     expect(step.locator('.timeline-label')).to_have_text('Map')
@@ -50,7 +50,7 @@ def test_runs_views_checkpoints_and_inline_console(dashboard, live_page):
         files.atomic_json(directory/'manifest.json', {'stage_plan': stages, 'stages': [{'name': name, 'status': status} for name, status in zip(stages, states)]})
         (directory/'result.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="400" height="200" fill="#edf3ff"/><text x="30" y="100">Reference comparison</text></svg>')
     page, errors = live_page
-    url = f'{live_page.base_url}/#runs'
+    url = f'{live_page.base_url}/detergent-validation/runs'
     page.goto(url)
     expect(page).to_have_title('Detergent MD · Laboratory')
     expect(page.locator('#jobs > tbody.job')).to_have_count(3)

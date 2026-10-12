@@ -26,7 +26,7 @@ def test_the_force_field_selector_is_the_registry(dashboard, live_page):
     """
     from dashboard.execution import forcefields
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#new')
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
     page.get_by_role('tab', name='New run', exact=True).click()
     page.wait_for_function("() => document.querySelectorAll('#force-field option').length > 1", timeout=30000)
     options = page.evaluate("Array.from(document.querySelectorAll('#force-field option')).map(o => [o.value, o.textContent])")
@@ -51,7 +51,7 @@ def test_the_run_form_accepts_the_temperatures_the_force_fields_use(dashboard, l
     submit event, so the click does nothing, nothing is reported, and the only visible symptom is an empty notice.
     """
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#new')
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
     page.get_by_role('tab', name='New run', exact=True).click()
     # Wait for the server's default to reach the field, which is this claim's precondition. The submit button is
     # deliberately not waited on: readiness may hold it disabled in a bare fixture, and that is a different claim.
@@ -71,7 +71,7 @@ def test_directory_selection_supports_generic_aa_and_ddm_cg_pair(dashboard, live
     monkeypatch.setattr(dashboard.coordinator,'run_job',lambda *args: None)
     dashboard.coordinator.database().replace([])
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#new')
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
     expect(page).to_have_title('Detergent MD · Laboratory')
     expect(page.locator('#molecule-directory')).to_be_visible()
     expect(page.locator('#molecule-directory')).to_have_value('DDM')

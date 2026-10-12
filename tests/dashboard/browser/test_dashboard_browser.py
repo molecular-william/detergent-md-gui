@@ -77,7 +77,7 @@ def test_delete_mapping_removes_the_saved_candidate(dashboard, live_page):
     saved = mappings.save_draft(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
     page, errors = live_page
     page.on('dialog', lambda dialog: dialog.accept())
-    page.goto(f'{live_page.base_url}/#mappings')
+    page.goto(f'{live_page.base_url}/detergent-validation/bead-assignment')
     page.get_by_role('tab', name='Bead Assignment', exact=True).click()
     select = page.locator('#mapping-candidate-filter')
     option = select.locator(f'option[value="{saved["file"]}"]')
@@ -102,7 +102,7 @@ def test_delete_mapping_removes_the_saved_candidate(dashboard, live_page):
 def test_the_candidate_warning_line_stays_hidden_when_nothing_needs_correcting(live_page):
     """The warning element exists for every candidate and only shows when the candidate carries one."""
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#mappings')
+    page.goto(f'{live_page.base_url}/detergent-validation/bead-assignment')
     expect(page.locator('#mapping-editor-warnings')).to_have_count(1)
     expect(page.locator('#mapping-editor-warnings')).to_be_hidden()
     page.locator('#generate-automatic').click()
@@ -116,7 +116,7 @@ def test_the_selectors_sit_above_the_diagram_side_by_side(live_page):
     Measured rather than asserted from markup: a layout change is only real if the boxes moved.
     """
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#mappings')
+    page.goto(f'{live_page.base_url}/detergent-validation/bead-assignment')
     page.get_by_role('tab', name='Bead Assignment', exact=True).click()
     expect(page.locator('#mapping-editor-diagram')).to_be_visible()
 
@@ -140,7 +140,7 @@ def test_the_selectors_sit_above_the_diagram_side_by_side(live_page):
 
 def test_mapping_editor_clear_all_removes_local_assignments(live_page):
     page = live_page.page
-    page.goto(f'{live_page.base_url}/#mappings')
+    page.goto(f'{live_page.base_url}/detergent-validation/bead-assignment')
     page.get_by_role('tab', name='Bead Assignment', exact=True).click()
     page.locator('#generate-automatic').click()
     # The recogniser runs in the server, and this wait is the tier's one load-sensitive step: 60 s covers
@@ -157,7 +157,7 @@ def test_mapping_editor_clear_all_removes_local_assignments(live_page):
 
 def test_mapping_editor_disables_save_for_an_identical_saved_mapping(live_page):
     page = live_page.page
-    page.goto(f'{live_page.base_url}/#mappings')
+    page.goto(f'{live_page.base_url}/detergent-validation/bead-assignment')
     page.get_by_role('tab', name='Bead Assignment', exact=True).click()
     expect(page.locator('#mapping-editor-status')).to_contain_text('loaded')
     page.locator('#generate-automatic').click()

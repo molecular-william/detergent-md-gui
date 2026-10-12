@@ -21,7 +21,7 @@ def test_aa_form_preserves_cg_choices_and_reference_settings(dashboard, live_pag
     # Initial molecule loading refreshes the reference selector after defaults.
     # Wait for that request before selecting a reference to test inheritance.
     with page.expect_response(lambda response: '/api/references?molecule_id=DDM' in response.url):
-        page.goto(url+'#new')
+        page.goto(url + '/detergent-validation/new-run')
     expect(page.locator('[name=aa_nvt_ps]')).to_have_value('100')
     page.locator('[name=reference_run_id]').select_option('111111111111')
     expect(page.locator('[name=temperature_k]')).to_have_value('310')

@@ -36,7 +36,7 @@ def test_an_imported_id_is_offered_and_what_the_file_states_is_said(dashboard, l
     page, errors = live_page
     posted, served = [], []
     serve(page, posted, served)
-    page.goto(f'{live_page.base_url}/#pdc')
+    page.goto(f'{live_page.base_url}/protein-detergent/complexes')
 
     expect(page.locator('#pdc-import')).to_be_visible()
     expect(page.locator('#pdc-protein')).to_have_value('')          # no protein until one is chosen
@@ -67,7 +67,7 @@ def test_a_refused_import_says_why_and_leaves_the_list_as_it_was(dashboard, live
     page, errors = live_page
     posted, served = [], []
     serve(page, posted, served, status=400, body={'error': 'a PDB id is four letters or digits, not "1q;8"'})
-    page.goto(f'{live_page.base_url}/#pdc')
+    page.goto(f'{live_page.base_url}/protein-detergent/complexes')
     expect(page.locator('#pdc-import')).to_be_visible()
 
     page.locator('#pdc-protein-id').fill('1q;8')

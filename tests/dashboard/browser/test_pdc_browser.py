@@ -46,7 +46,7 @@ def test_the_setup_lists_what_can_be_built_and_what_it_is_worth(dashboard, live_
     presenting it as a ready detergent.
     """
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#pdc')
+    page.goto(f'{live_page.base_url}/protein-detergent/complexes')
 
     expect(page.locator('#pdc-template option').first).to_contain_text('registered-template')
     expect(page.locator('#pdc-template')).to_have_value('DDM:DDM')
@@ -64,7 +64,7 @@ def test_the_viewer_says_when_there_is_no_system_and_renders_one_when_there_is(d
     run yet -- the point here is that the viewer renders what the route returns.
     """
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#pdc')
+    page.goto(f'{live_page.base_url}/protein-detergent/complexes')
 
     # A run with no built system: an honest line rather than a blank canvas.
     page.evaluate("window.pdcSetRun('000000000000')")

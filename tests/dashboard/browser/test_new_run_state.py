@@ -19,7 +19,7 @@ def test_new_run_recovers_deleted_clone_and_preserves_settings(dashboard, live_p
         sessionStorage.seeded='1';
     }""")
     url = f'{live_page.base_url}/'
-    page.goto(url+'#new')
+    page.goto(url + '/detergent-validation/new-run')
     page.route(url, record_submit)
     expect(page.locator('[name=clone_of]')).to_have_value('')
     expect(page.locator('#clone-notice')).to_contain_text('no longer available')

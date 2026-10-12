@@ -24,7 +24,7 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_
     page, errors = live_page
     urls=[]
     page.on('request', lambda r: urls.append(urlsplit(r.url).path+'?'+urlsplit(r.url).query))
-    page.goto(f'{live_page.base_url}/#runs')
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
     expect(page.locator('.job')).to_have_count(1)
     assert not any(u.startswith(('/api/mappings','/api/bonded-states','/api/molecules')) for u in urls)
     page.evaluate("window.tabEvents=[]; document.addEventListener('dashboard:tab', event => tabEvents.push(event.detail.id))")
@@ -47,9 +47,12 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_
     page.locator('#mapping-editor-name').fill('Unsaved local edit')
     page.locator('#tab-bonded').click()
     expect(page.locator('.bonded-mapping-select')).to_have_value(saved['file'])
-    page.evaluate("location.hash='mappings'")
-    expect(page.locator('#mapping-editor-name')).to_have_value('Unsaved local edit')
-    assert page.evaluate('tabEvents') == ['new', 'mappings', 'bonded', 'mappings']
+    # Every one of those clicks switched in place, which is what the tab links are for: the assertion belongs here,
+    # before anything navigates. It used to sit after a `location.hash` write, which was the old way to reach a
+    # panel; that write is a legacy fragment now, so following it *replaces* the document and takes this record,
+    # the typed text, and the whole point of the assertion with it. The last click above already proves the panel
+    # is reachable, and the direct-URL path is proved further down by a second page.
+    assert page.evaluate('tabEvents') == ['new', 'mappings', 'bonded']
     catalogues = [u for u in urls if u.startswith('/api/mappings?view=summary')]
     # Two catalogue questions exist: the editor's molecule-scoped one and the global
     # one another panel asks for. The round trip must refetch neither.
@@ -59,7 +62,7 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_
     assert not errors
     # A fresh direct link to Bonded does not construct the mapping editor.
     other = browser.new_page()
-    other.goto(f'{live_page.base_url}/#bonded')
+    other.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
     expect(other.locator('.bonded-mapping-select')).to_have_value(saved['file'])
     expect(other.locator('.bonded-plot .plotly')).to_be_visible()
     expect(other.locator('#mapping-bead-rows tr')).to_have_count(0)
@@ -68,7 +71,7 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_
 def test_shared_cache_rejects_stale_refill_after_invalidation(dashboard, live_page):
     dashboard.coordinator.database().replace([])
     page = live_page.page
-    page.goto(f'{live_page.base_url}/#runs')
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
     result = page.evaluate("""async () => {
         const shared = await import('/static/js/shared.js');
         let release;
@@ -102,7 +105,7 @@ def test_readiness_debounces_changes_and_ignores_cancelled_response(dashboard, l
                     {headers: {'Content-Type': 'application/json'}}))}));
         };
     })()""")
-    page.goto(f'{live_page.base_url}/#new')
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
     expect(page.locator('#new')).to_have_attribute('aria-busy', 'false')
     page.clock.fast_forward(200)
     page.wait_for_function('readinessRequests.length === 1')

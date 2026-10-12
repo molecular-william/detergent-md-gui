@@ -14,7 +14,7 @@ def test_bonded_workspace_filters_states_and_creates_a_new_state_from_two_beads(
     second_state = bonded_states.create(second, 'Second state', topology='[ moleculetype ]\n[ atoms ]', status='complete')
 
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#bonded')
+    page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
     mapping_select = page.locator('.bonded-mapping-select')
     state_select = page.locator('.bonded-state-select')
     mapping_select.select_option(first['file'])

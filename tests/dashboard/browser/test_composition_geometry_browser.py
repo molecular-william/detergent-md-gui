@@ -129,7 +129,7 @@ def test_preview_waits_for_the_catalogue_instead_of_posting_an_empty_fragment(da
     page.route('**/api/compositions/catalog',
                lambda route: route.fulfill(json=catalog) if released['value'] else None)
 
-    page.goto(f'{live_page.base_url}/#compositions')
+    page.goto(f'{live_page.base_url}/detergent-validation/combinations')
     page.get_by_role('tab', name='Combinations', exact=True).click()
     page.wait_for_selector('#composition-preview', timeout=30000)
     page.wait_for_timeout(700)
@@ -182,7 +182,7 @@ def test_every_representation_matches_beads_and_the_view_is_framed(dashboard, li
     regression.
     """
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#compositions')
+    page.goto(f'{live_page.base_url}/detergent-validation/combinations')
     _preview(page)
     _mounted(page)
 
@@ -199,7 +199,7 @@ def test_every_representation_matches_beads_and_the_view_is_framed(dashboard, li
 
 def test_the_panel_mounts_both_fragments_and_the_join_with_the_linkage_beads_highlighted(dashboard, live_page):
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#compositions')
+    page.goto(f'{live_page.base_url}/detergent-validation/combinations')
     _preview(page)
     _mounted(page)
 
@@ -237,7 +237,7 @@ def test_the_panel_mounts_both_fragments_and_the_join_with_the_linkage_beads_hig
 
 def test_choosing_another_endpoint_moves_the_highlight_in_every_view(dashboard, live_page):
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#compositions')
+    page.goto(f'{live_page.base_url}/detergent-validation/combinations')
     _preview(page)
     _mounted(page)
 
@@ -270,7 +270,7 @@ def test_a_response_without_the_structure_file_says_so_instead_of_showing_nothin
         route.fulfill(status=200, content_type='application/json', body=json.dumps(body))
 
     page.route('**/api/compositions/preview', without_pdb)
-    page.goto(f'{live_page.base_url}/#compositions')
+    page.goto(f'{live_page.base_url}/detergent-validation/combinations')
     _preview(page)
 
     expect(page.locator('#composition-geometry-basis')).to_contain_text('Restart the dashboard')
@@ -289,7 +289,7 @@ def test_the_drawn_bead_radii_match_what_the_size_classes_mean(dashboard, live_p
     the T class needs another tail recipe.
     """
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#compositions')
+    page.goto(f'{live_page.base_url}/detergent-validation/combinations')
     _preview(page)
     _mounted(page)
 
@@ -320,7 +320,7 @@ def test_every_panel_draws_the_bonds_that_cross_between_bead_types(dashboard, li
     property to hold is that each panel has a representation covering all of the beads it claims.
     """
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#compositions')
+    page.goto(f'{live_page.base_url}/detergent-validation/combinations')
     _preview(page)
     _mounted(page)
 

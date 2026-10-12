@@ -91,7 +91,7 @@ def publish_surfaces(dashboard, jid):
 def test_the_panel_shows_the_published_comparison_including_the_shape_card(dashboard, live_page):
     publish(dashboard, 'aa11bb22cc33')
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#validation')
+    page.goto(f'{live_page.base_url}/detergent-validation/mapping-validation')
 
     expect(page.locator('#validation-run option')).to_have_count(1)
     page.wait_for_function("() => document.querySelectorAll('#validation-pair-rows tr').length === 2", timeout=30000)
@@ -148,7 +148,7 @@ def test_a_run_with_no_published_comparison_says_so_in_the_panel(dashboard, live
     publish(dashboard, 'dd44ee55ff66')
     (dashboard.coordinator.RUNS / 'dd44ee55ff66/analyses/mapping-consistency/hash/attempt1/result.json').unlink()
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#validation')
+    page.goto(f'{live_page.base_url}/detergent-validation/mapping-validation')
 
     expect(page.locator('#validation-message')).to_be_visible(timeout=30000)
     expect(page.locator('#validation-message')).to_contain_text('No AA vs CG comparison')
@@ -194,7 +194,7 @@ def test_the_across_molecules_card_puts_the_same_bead_types_side_by_side(dashboa
     publish_molecule(dashboard, 'aa11bb22cc33', 'Sucrose', [('A', 'SN6'), ('C', 'SP1r')], [[1, 'A'], [1, 'C']], 0.4230)
     publish_molecule(dashboard, 'bb22cc33dd44', 'Trehalose', [('A', 'SN6'), ('C', 'SP1r')], [[1, 'A'], [1, 'C']], 0.4226)
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#validation')
+    page.goto(f'{live_page.base_url}/detergent-validation/mapping-validation')
 
     # The placeholder row is one row too, so the wait is for the card's own content rather than a row count.
     page.wait_for_function(
@@ -217,7 +217,7 @@ def test_the_across_molecules_card_refuses_to_call_different_edges_a_spread(dash
     publish_molecule(dashboard, 'aa11bb22cc33', 'Maltose', [('B', 'SP1r'), ('C', 'SP1r')], [[1, 'B'], [1, 'C']], 0.3130)
     publish_molecule(dashboard, 'bb22cc33dd44', 'Sucrose', [('A', 'SP1r'), ('C', 'SP1r')], [[1, 'A'], [1, 'C']], 0.4019)
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#validation')
+    page.goto(f'{live_page.base_url}/detergent-validation/mapping-validation')
 
     page.wait_for_function(
         "() => document.querySelector('#validation-across-head').textContent.includes('Sucrose')", timeout=30000)
@@ -235,7 +235,7 @@ def test_the_linkage_is_shown_where_the_pairs_table_cannot_reach_it(dashboard, l
     publish_molecule(dashboard, 'bb22cc33dd44', 'Trehalose', [('B', 'SP1r'), ('A', 'SP4r')], [[1, 'A'], [1, 'B']], 0.34,
                      terms=[('bonds', [(1, 'B'), (2, 'A')], 0.363, 0.363)], other_ring=[('A', 'SN6')])
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#validation')
+    page.goto(f'{live_page.base_url}/detergent-validation/mapping-validation')
 
     page.wait_for_function(
         "() => document.querySelector('#validation-linkage-head').textContent.includes('Trehalose')", timeout=30000)
@@ -261,7 +261,7 @@ def test_a_wrapped_dihedral_shows_its_means_and_withholds_the_percentage(dashboa
                      terms=[('dihedrals', [(1, 'A'), (1, 'B'), (2, 'A'), (2, 'B')], 5.42, -0.05)],
                      other_ring=[('A', 'SN6'), ('B', 'SP4r')])
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#validation')
+    page.goto(f'{live_page.base_url}/detergent-validation/mapping-validation')
 
     page.wait_for_function(
         "() => document.querySelector('#validation-linkage-head').textContent.includes('Sucrose')", timeout=30000)
@@ -282,7 +282,7 @@ def test_the_envelope_analysis_is_drawn_with_its_statistics_and_its_own_figure(d
     publish(dashboard, 'bb22cc33dd44')
     publish_surfaces(dashboard, 'bb22cc33dd44')
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#validation')
+    page.goto(f'{live_page.base_url}/detergent-validation/mapping-validation')
 
     page.wait_for_function(
         "() => document.querySelectorAll('#validation-surface-rows tr').length === 2", timeout=30000)
@@ -303,7 +303,7 @@ def test_a_run_with_no_envelope_analysis_says_so_and_frames_nothing(dashboard, l
     """Never queued is a state the card states, rather than an empty frame a reader reads as broken."""
     publish(dashboard, 'bb22cc33dd44')
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#validation')
+    page.goto(f'{live_page.base_url}/detergent-validation/mapping-validation')
 
     page.wait_for_function(
         "() => document.querySelector('#validation-surface-note').textContent.includes('surfaces')", timeout=30000)
@@ -354,7 +354,7 @@ def test_the_bead_overlap_analysis_is_drawn_with_its_numbers_and_its_own_figure(
     publish(dashboard, 'bb22cc33dd44')
     publish_overlap(dashboard, 'bb22cc33dd44')
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#validation')
+    page.goto(f'{live_page.base_url}/detergent-validation/mapping-validation')
 
     page.wait_for_function(
         "() => !!document.querySelector('#validation-overlap-figure iframe')", timeout=30000)
@@ -377,7 +377,7 @@ def test_a_run_with_no_bead_overlap_analysis_says_so_and_frames_nothing(dashboar
     """Never queued is a state the card states, rather than an empty frame a reader reads as broken."""
     publish(dashboard, 'bb22cc33dd44')
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#validation')
+    page.goto(f'{live_page.base_url}/detergent-validation/mapping-validation')
 
     page.wait_for_function(
         "() => document.querySelector('#validation-overlap-note').textContent.includes('queued by hand')",
@@ -397,7 +397,7 @@ def test_a_published_analysis_whose_figure_is_gone_still_states_its_numbers(dash
     attempt = publish_overlap(dashboard, 'bb22cc33dd44')
     (attempt / 'output/abc123/overlap.html').unlink()
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#validation')
+    page.goto(f'{live_page.base_url}/detergent-validation/mapping-validation')
 
     page.wait_for_function(
         "() => document.querySelector('#validation-overlap-note').textContent.includes('no longer on disk')",
@@ -459,7 +459,7 @@ def test_the_bonded_cross_check_names_the_terms_the_two_sides_disagree_about(das
     publish(dashboard, 'bb22cc33dd44')
     publish_cross_check(dashboard, 'bb22cc33dd44')
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#validation')
+    page.goto(f'{live_page.base_url}/detergent-validation/mapping-validation')
 
     page.wait_for_function(
         "() => document.querySelectorAll('#validation-crosscheck-rows tr').length === 3", timeout=30000)
@@ -488,7 +488,7 @@ def test_a_run_with_no_bonded_cross_check_says_so_and_lists_nothing(dashboard, l
     """Never queued is a state the card states, rather than a table with a placeholder row in it."""
     publish(dashboard, 'bb22cc33dd44')
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#validation')
+    page.goto(f'{live_page.base_url}/detergent-validation/mapping-validation')
 
     page.wait_for_function(
         "() => document.querySelector('#validation-crosscheck-note').textContent.includes('queued by hand')",
@@ -549,7 +549,7 @@ def test_the_dihedral_fit_puts_the_criterion_beside_the_tool_default(dashboard, 
     publish(dashboard, 'bb22cc33dd44')
     publish_dihedral_fit(dashboard, 'bb22cc33dd44')
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#validation')
+    page.goto(f'{live_page.base_url}/detergent-validation/mapping-validation')
 
     page.wait_for_function(
         "() => document.querySelectorAll('#validation-dihedral-rows tr').length === 3", timeout=30000)
@@ -574,7 +574,7 @@ def test_the_dihedral_fit_puts_the_criterion_beside_the_tool_default(dashboard, 
 def test_a_run_with_no_dihedral_fit_says_so_and_lists_nothing(dashboard, live_page):
     publish(dashboard, 'bb22cc33dd44')
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#validation')
+    page.goto(f'{live_page.base_url}/detergent-validation/mapping-validation')
 
     page.wait_for_function(
         "() => document.querySelector('#validation-dihedral-note').textContent.includes('queued by hand')",

@@ -45,7 +45,7 @@ def test_the_panel_offers_the_saved_mappings_and_queues_the_build_it_describes(d
     page, errors = live_page
     posted = {}
     serve(page, posted)
-    page.goto(f'{live_page.base_url}/#pdc')
+    page.goto(f'{live_page.base_url}/protein-detergent/complexes')
 
     select = page.locator('#pdc-mapping')
     expect(select).to_have_value(MAPPING_FILE, timeout=30000)
@@ -70,7 +70,7 @@ def test_a_build_that_is_not_ready_says_why_instead_of_queueing(dashboard, live_
     posted = {}
     serve(page, posted, readiness={'ready': False, 'checks': [],
                                    'blockers': ['Detergent template: not a file: molecules/DDM/nothing.json']})
-    page.goto(f'{live_page.base_url}/#pdc')
+    page.goto(f'{live_page.base_url}/protein-detergent/complexes')
     expect(page.locator('#pdc-mapping')).to_have_value(MAPPING_FILE, timeout=30000)
 
     page.locator('#pdc-queue').click()

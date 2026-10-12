@@ -11,7 +11,7 @@ Usage:
     def test_something(dashboard, live_page):
         dashboard.coordinator.database().replace(jobs)     # seed through the built application
         page, errors = live_page
-        page.goto(f'{live_page.base_url}/#runs')
+        page.goto(f'{live_page.base_url}/detergent-validation/runs')
         expect(page.locator('#jobs')).to_be_visible()
         assert not errors
 

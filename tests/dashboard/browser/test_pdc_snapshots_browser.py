@@ -34,7 +34,7 @@ def serve(page, index=None):
 def test_the_panel_lists_the_series_and_draws_the_numbers_of_the_moment_it_shows(dashboard, live_page):
     page, errors = live_page
     serve(page)
-    page.goto(f'{live_page.base_url}/#pdc')
+    page.goto(f'{live_page.base_url}/protein-detergent/complexes')
 
     page.evaluate("window.pdcSetRun('pdcfixture')")
 
@@ -58,7 +58,7 @@ def test_the_panel_lists_the_series_and_draws_the_numbers_of_the_moment_it_shows
 def test_a_run_with_no_snapshots_says_so_instead_of_showing_an_empty_strip(dashboard, live_page):
     page, errors = live_page
     serve(page, index={'job_id': 'pdcfixture', 'snapshots': []})
-    page.goto(f'{live_page.base_url}/#pdc')
+    page.goto(f'{live_page.base_url}/protein-detergent/complexes')
 
     page.evaluate("window.pdcSetRun('pdcfixture')")
 

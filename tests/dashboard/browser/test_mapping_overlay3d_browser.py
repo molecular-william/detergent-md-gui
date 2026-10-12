@@ -93,7 +93,7 @@ CLICK_EVIDENCE = """(el) => {
 
 
 def _open_editor(page, live_page):
-    page.goto(f'{live_page.base_url}/#mappings')
+    page.goto(f'{live_page.base_url}/detergent-validation/bead-assignment')
     # The mapping tab carries aria-label="CG mappings", so its accessible name is not the text on the button. The
     # id is the one handle that does not depend on how it is labelled.
     page.locator('#tab-mappings').click()

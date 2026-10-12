@@ -21,7 +21,7 @@ def test_run_figure_tabs_zoom_and_mapping_display(dashboard, live_page):
             (directory/(name+'.svg')).write_text('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><circle cx="200" cy="100" r="90" fill="blue"/></svg>')
         (directory/'surface-comparison.html').write_text('<!doctype html><title>Surface comparison</title><h1>Interactive figure</h1>')
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#runs')
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
     first=page.locator('.job[data-id=abcdef123456]');second=page.locator('.job[data-id=abcdef123457]')
     first.locator('.job-analysis summary').click()
     expect(first.locator('.figure-tabs [role=tab]')).to_have_count(3,timeout=15000)
@@ -88,7 +88,7 @@ def test_analysis_display_preserves_missing_values_and_metadata(dashboard, live_
     (metadata / 'score.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"/>')
     (metadata / 'analysis-metadata.json').write_text(json.dumps({'title': 'Wasserstein distance', 'units_or_direction': 'nm; lower is better', 'legacy': False}))
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#runs')
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
     first = page.locator('.job').first
     first.locator('.job-analysis summary').click()
     expect(first.locator('.figure-caption')).to_contain_text('Wasserstein distance')
@@ -115,7 +115,7 @@ def test_an_unclassified_diagnostic_artifact_says_so(dashboard, live_page):
     (assessment / 'distance_diagnostics.json').write_text(json.dumps({'pairs': [
         {'beads': ['B01', 'B02'], 'wasserstein_nm': {'raw_AA': 0.2, 'ring_expanded_AA': 0.3}}]}))
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/#runs')
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
     first = page.locator('.job').first
     first.locator('.job-analysis summary').click()
     expect(first.locator('.distance-diagnostic')).to_contain_text('per-pair classification')
