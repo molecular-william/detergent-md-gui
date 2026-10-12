@@ -104,12 +104,27 @@ def prepare_run(run_dir, **kwargs):
 def _plan_pairs(metadata) -> list[list[str]]:
     """A run's stage plan as `(name, relative)` pairs, whatever shape its adapter declares its stages in.
 
-    The AA and CG adapters declare pairs, the pdc adapter declares `Stage` records, and the prepared manifest
-    records pairs for every run type -- so the conversion lives here rather than in each adapter.
+    Three shapes exist and one of them is a legacy: the AA and CG adapters declare `(name, relative)` pairs, the pdc
+    adapter declares `Stage` records, and manifests written before 2026-10-10 by the CG adapter record *names only*.
+
+    A bare name is resolved through `stage_definitions` rather than guessed, and an entry of no known shape raises.
+    The previous fallback indexed whatever it was handed, so a name list produced `[['A', 'A'], ['t', 'r']]` -- two
+    characters per name -- and returned it as a plan. A silent wrong answer is worse than a refusal, because a caller
+    cannot tell it from a right one.
     """
+    by_name = dict(stage_definitions(metadata)[0])
     pairs = []
     for entry in metadata.get('stage_plan') or plan_for(metadata):
-        pairs.append([entry.name, entry.relative] if isinstance(entry, Stage) else [entry[0], entry[1]])
+        if isinstance(entry, Stage):
+            pairs.append([entry.name, entry.relative])
+        elif isinstance(entry, str):
+            if entry not in by_name:
+                raise ValueError(f'stage plan names {entry!r}, which is not a stage of this run')
+            pairs.append([entry, by_name[entry]])
+        elif isinstance(entry, (list, tuple)) and len(entry) == 2:
+            pairs.append([entry[0], entry[1]])
+        else:
+            raise TypeError(f'cannot read a stage plan entry of type {type(entry).__name__}: {entry!r}')
     return pairs
 
 

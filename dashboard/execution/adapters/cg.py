@@ -279,7 +279,7 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     if mapping_candidate is not None:
         metadata['mapping_candidate'] = mapping_candidate
         metadata['mapping_sha256'] = hashlib.sha256(json.dumps(mapping_candidate, sort_keys=True).encode()).hexdigest()
-    metadata.update(profile=profile, scientifically_validated=False, settings=settings, stage_plan=[name for name, _ in stage_plan])
+    metadata.update(profile=profile, scientifically_validated=False, settings=settings, stage_plan=[[name, relative] for name, relative in stage_plan])
     metadata['cg_names'] = {'residue_name': names.residue_name, 'initial_itp': names.initial_itp, 'final_itp': names.final_itp}
     if shared_reference:
         metadata.update(shared_reference=shared_reference, reference_reused=True, reference_run_id=shared_reference['source_run_id'])
