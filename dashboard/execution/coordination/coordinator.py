@@ -539,8 +539,10 @@ class Coordinator:
                 job['shared_reference']={'source_run_id':reference_run_id,'sha256':reference_snapshot['sha256']}
                 return self.admit_jobs([job],job)
             if resume_of:raise SourceUnavailable('Shared CG resume requires its AA reference source')
-            # The AA source is an aa_only run: it takes the AA half of the composed settings.
-            aa_settings = {key: value for key, value in settings.items() if key in aa.SETTING_SPECS}
+            # The AA source is an aa_only run, so its settings are the ones an aa_only run accepts -- asked of the
+            # run type rather than read off the AA adapter, which is the same answer without the coupling.
+            aa_settings = {key: value for key, value in settings.items()
+                           if key in protocol.adapter_for('aa_only').settings_specs()}
             parent=self.aa_job_record(molecule_id,(str(label)+' · AA source').strip(),aa_settings,profile=profile)
             job.update(status='waiting',stage='Waiting for AA reference',reference_run_id=parent['id'])
             return self.admit_jobs([parent,job],parent,result=job)

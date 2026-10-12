@@ -439,14 +439,32 @@ def _protocol_prepare(run_dir, metadata):
                                         environment=record.get('environment'))
 
 
+def protocol_settings_specs():
+    """The vocabulary this run type accepts, both halves of it, published as one mapping.
+
+    An AA-to-CG run prepares its own atomistic reference from the AA settings and its coarse-grained stages from the
+    CG ones, and `normalize_settings` takes a key from either half. So a caller that reads what this run type
+    publishes has to see both -- it was the *caller's* job to merge the two dialects, and the queue route did exactly
+    that with a set union in a web handler.
+
+    Where both halves bound the same key the AA entry wins, which is the same precedence `normalize_settings` applies
+    when it merges the halves, and the tighter bound: the AA half's `output_interval_ps` floor is 0.002 against the CG
+    half's 0.001, so a form offering the CG one would take a value the normalizer then refuses.
+    """
+    return {**SETTING_SPECS, **aa.SETTING_SPECS}
+
+
 PROTOCOL = protocol.Protocol(
     name='aa_cg',
     stage_contract=_protocol_stage_contract,
     stages=_protocol_stages,
-    settings_specs=lambda: SETTING_SPECS,
+    settings_specs=protocol_settings_specs,
     stage_defaults=lambda: stage_defaults(),
     normalize_settings=lambda settings=None, profile='standard': normalize_settings(settings, profile),
     readiness=_protocol_readiness,
     prepare=_protocol_prepare,
     tool_report=tool_metadata,
+    # The AA half's choices travel with it: this run type accepts `force_field` and `mdrun_nb` because it prepares an
+    # atomistic reference of its own, and `normalize_settings` takes them from the AA half.
+    choice_specs=lambda: aa.CHOICE_SPECS,
 )

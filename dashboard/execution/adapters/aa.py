@@ -436,4 +436,5 @@ PROTOCOL = protocol.Protocol(
     readiness=_protocol_readiness,
     prepare=_protocol_prepare,
     tool_report=tool_metadata,
+    choice_specs=lambda: CHOICE_SPECS,
 )

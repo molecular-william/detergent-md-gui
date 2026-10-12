@@ -15,10 +15,14 @@ Shapes, as of this module:
   molecule-specific script names substituted.
 - ``settings_specs()`` -> ``{key: (label, lo, hi)}``. One shape, so a caller that
   renders or compares bounds never asks which adapter it came from.
+- ``choice_specs()`` -> ``{key: (label, options)}``, the settings whose value is
+  one of a list. Kept apart from the bounded ones because a form renders each in
+  its own control, and empty for a run type that has none.
 - ``normalize_settings(settings, profile)`` -> the settings the run will use,
   range-checked and completed with that run type's defaults. A run type whose
   stages need both an AA and a CG view composes them itself (``aa_cg`` does),
-  rather than making its caller merge two dialects.
+  rather than making its caller merge two dialects. What it accepts and what it
+  publishes are the same vocabulary, which its own test asserts.
 - ``readiness(metadata)`` -> a mapping that always carries ``ready``, ``checks``
   and ``blockers``. Incomplete metadata is a blocker, never an exception: a
   caller that does not know what a run type needs must still get an answer.
@@ -42,8 +46,6 @@ from typing import Callable
 
 from .. import files
 from .stages import Stage
-
-RUN_TYPES = ('aa_only', 'aa_cg', 'cg_composition', 'pdc')
 
 
 def write_prepared_manifest(run_dir, metadata, *, tools, plan, environment=None):
@@ -122,6 +124,15 @@ def finish_prepared_run(run_dir, stages, *, metadata, tools, plan, environment=N
     return write_prepared_manifest(run_dir, metadata, tools=tools, plan=plan, environment=environment)
 
 
+def no_choice_specs() -> Mapping:
+    """The empty vocabulary a run type with no choice-typed settings publishes.
+
+    Named rather than written as a lambda so the dataclass field below has one shared default, and so a caller that
+    asks a run type with no choices gets a declared empty answer instead of an absence.
+    """
+    return {}
+
+
 @dataclass(frozen=True)
 class Protocol:
     """What every run type can be asked, in shapes that do not vary."""
@@ -137,6 +148,10 @@ class Protocol:
     # returns the run's manifest). Callers that only want the side effect are free to ignore it.
     prepare: Callable[..., object]
     tool_report: Callable[[], Mapping]
+    # The settings whose value is one of a list -- the nonbonded scheme, a series id. Kept apart from
+    # `settings_specs` because they are bounded differently and a caller rendering a form needs each in its own
+    # control. Everything that has none takes the shared default instead of repeating an empty mapping.
+    choice_specs: Callable[[], Mapping] = no_choice_specs
 
 
 def blocked(*reasons: str) -> dict:
@@ -176,6 +191,13 @@ _BUILDERS: dict[str, Callable[[], Protocol]] = {
     'pdc': _pdc_protocol,
     'osmotic': _osmotic_protocol,
 }
+
+RUN_TYPES: tuple[str, ...] = tuple(_BUILDERS)
+"""Every run type, derived from the registry rather than listed beside it.
+
+It was a hand-written tuple that omitted `osmotic` -- reachable by name, invisible to anything that walked the
+published tuple. A list that has to agree with a dict is a second source of truth, and this one was already wrong.
+"""
 
 
 def adapter_for(run_type: str) -> Protocol:

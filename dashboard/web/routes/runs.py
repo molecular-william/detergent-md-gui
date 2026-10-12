@@ -11,7 +11,7 @@ from flask import Blueprint, Response, abort, jsonify, render_template, request,
 
 from dashboard import files
 
-from ...execution.adapters import aa, cg
+from ...execution import protocol
 from ...execution.adapters.micelle import run_micelle_job
 from ...execution.coordination import admission
 from ...models.molecules import aa as aa_molecules
@@ -120,12 +120,12 @@ def queue():
         except ValueError as exc: abort(400, str(exc))
     intent=data.get('bonded_intent','fit_and_simulate')
     if intent not in ('fit_and_simulate','fit_only','reuse_state'): abort(400,'Unknown bonded run intent')
-    aa_specs=set(aa.SETTING_SPECS)|set(aa.CHOICE_SPECS)
-    if data.get('run_type')=='pdc':
-        from ...execution.adapters import pdc
-        specs=set(pdc.SETTING_SPECS)
-    else:
-        specs=aa_specs if data.get('run_type')=='aa_only' else set(cg.SETTING_SPECS)|aa_specs
+    # One question to the run type: which settings does it accept? The route used to answer this by unioning the AA
+    # and CG dialect tables itself -- `cg.SETTING_SPECS | aa.SETTING_SPECS | aa.CHOICE_SPECS` for everything that was
+    # not `aa_only` or `pdc`. That is the right answer for the run types composing those two halves and the wrong one
+    # for `osmotic`, whose own settings (the molality above all) are in neither.
+    adapter = protocol.adapter_for(protocol.run_type_of(data))
+    specs = set(adapter.settings_specs()) | set(adapter.choice_specs())
     job = c.create_job(data.get('detergent') or data.get('molecule_id') or data.get('composition_id'), data.get('method'), data.get('label', ''), profile=data.get('profile', 'standard'), settings={k: data.get(k) for k in specs if data.get(k) not in (None, '')}, reference_run_id=data.get('reference_run_id') or None, mapping_candidate=data.get('mapping_candidate'), bonded_state_id=data.get('bonded_state_id') or None, bonded_intent=intent, temporary_validation=str(data.get('temporary_validation','')).lower() in ('1','true','yes'), molecule_id=data.get('molecule_id'),run_type=data.get('run_type'), composition_id=data.get('composition_id'), protein=data.get('protein') or None, template=data.get('template') or None)
     return jsonify(view_of(c, job)), 201
 
