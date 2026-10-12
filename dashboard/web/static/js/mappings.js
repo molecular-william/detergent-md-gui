@@ -1,14 +1,12 @@
 import { $, storage, setText, post, cachedApi, invalidateResource, guarded, DROP, api, notice, panelIds } from './shared.js';
 import { setupBondedWorkspace } from './bonded.js';
 import { createEditor, toggleAtom, clearSelection, clearMapping, groupAtoms, renameBead, removeBead } from './mapping-state.js';
-import { mountDiagram } from './mapping-diagram.js';
 import { mountOverlay3d } from './mapping-ngl.js';
 
 // Candidate edits and local drafts stay inside this workspace.
 export function createMappings() {
   const mappingData = {candidates: [], bead_types: []};
   let moleculeEditor = null;
-  let moleculeDiagram = null;
   let moleculeOverlay = null;
 
   function editorStorageKey(context) {
@@ -46,10 +44,6 @@ export function createMappings() {
   function editorMessage(message) { setText($('#mapping-editor-status'), message); renderWarnings(); }
   function editorSelection() { setText($('#mapping-selection-count'), `${moleculeEditor?.selectedAtoms.size || 0} heavy atoms selected`); }
 
-  function updateDiagram() {
-    moleculeDiagram?.update(moleculeEditor?.candidate || {}, moleculeEditor?.selectedAtoms, moleculeEditor?.selectedBeads);
-  }
-
   function updateBeadField(index, field, value) {
     const bead = moleculeEditor?.candidate.beads[index];
     if (!bead) return;
@@ -61,7 +55,7 @@ export function createMappings() {
       else bead.atoms = value.trim() ? value.trim().split(/[\s,]+/).map(Number) : [];
     } else bead[field] = value;
     moleculeEditor.dirty = true;
-    persistEditor(); updateDiagram(); editorSelection(); validateEditor();
+    persistEditor(); editorSelection(); validateEditor();
   }
 
   function renderBeadRows() {
@@ -125,7 +119,7 @@ export function createMappings() {
   function renderEditor() {
     if (!moleculeEditor) return;
     $('#mapping-editor-name').value = moleculeEditor.candidate.name || 'New mapping';
-    renderBeadRows(); editorSelection(); updateDiagram();
+    renderBeadRows(); editorSelection();
     // The 3D view redraws only when the assignment itself changed, so this costs a request on an edit and nothing
     // on a refresh -- which is what lets it be called from every render rather than from the places that edit.
     if (moleculeOverlay) moleculeOverlay.update(moleculeEditor.candidate);
@@ -149,8 +143,8 @@ export function createMappings() {
 
   async function loadMoleculeEditor(moleculeId) {
     if (!moleculeId) { editorMessage('Select a molecule to begin.'); return; }
-    if (moleculeDiagram) moleculeDiagram.destroy(); moleculeDiagram = null; moleculeEditor = null;
-    // A stage holds a WebGL context and browsers cap how many exist, so the 3D view is disposed with the 2D one.
+    moleculeEditor = null;
+    // A stage holds a WebGL context and browsers cap how many exist, so the 3D view is disposed before this one is replaced.
     if (moleculeOverlay) moleculeOverlay.destroy(); moleculeOverlay = null;
     editorMessage(`Loading ${moleculeId}…`);
     try {
@@ -162,7 +156,7 @@ export function createMappings() {
       ]));
       if (loaded === DROP) return;
       const [source, catalogue] = loaded;
-      if (!source?.context || !source?.scene) { editorMessage('Server did not return a mapping context; reload the page.'); return; }
+      if (!source?.context) { editorMessage('Server did not return a mapping context; reload the page.'); return; }
       mappingData.candidates = catalogue.candidates || [];
       mappingData.bead_types = source.bead_types || catalogue.bead_types || [];
       const key = editorStorageKey(source.context);
@@ -171,15 +165,10 @@ export function createMappings() {
         ? recovered
         : (catalogue.candidates?.[0] ? await loadMapping(catalogue.candidates[0].file) : null);
       moleculeEditor = createEditor(source.context, candidate);
-      moleculeDiagram = mountDiagram($('#mapping-editor-diagram'), source.scene, source.context, id => {
-        toggleAtom(moleculeEditor, id); persistEditor(); editorSelection();
-        moleculeDiagram.update(moleculeEditor.candidate, moleculeEditor.selectedAtoms, moleculeEditor.selectedBeads);
-      });
-      // The same callback from the other view: a bead ticked in three dimensions is the same edit as one picked in
-      // the 2D depiction, because both call the editor rather than keeping a selection of their own.
+      // A bead ticked in the overlay is the same edit as one picked before it: the callback calls the editor rather
+      // than keeping a selection of its own.
       moleculeOverlay = mountOverlay3d($('#mapping-editor-overlay3d'), source.context, id => {
         toggleAtom(moleculeEditor, id); persistEditor(); editorSelection();
-        moleculeDiagram.update(moleculeEditor.candidate, moleculeEditor.selectedAtoms, moleculeEditor.selectedBeads);
       });
       renderEditor();
       
@@ -218,15 +207,6 @@ export function createMappings() {
 
   function setupMoleculeEditorControls() {
     const moleculeSelect = $('#mapping-molecule'); if (!moleculeSelect || moleculeSelect.dataset.ready) return; moleculeSelect.dataset.ready = 'true';
-    $('#mapping-editor-diagram').addEventListener('click', event => {
-      const bead = event.target.closest('[data-bead-name]'); if (!bead || !moleculeEditor) return;
-      const name = bead.dataset.beadName;
-      if (moleculeEditor.selectedBeads.has(name)) moleculeEditor.selectedBeads.delete(name);
-      else moleculeEditor.selectedBeads.add(name);
-      persistEditor();
-      moleculeDiagram?.update(moleculeEditor.candidate, moleculeEditor.selectedAtoms, moleculeEditor.selectedBeads);
-      editorSelection();
-    });
     $('#mapping-editor-name').oninput = event => { if (moleculeEditor) { moleculeEditor.candidate.name = event.target.value; moleculeEditor.dirty = true; persistEditor(); validateEditor(); } };
     moleculeSelect.onchange = () => loadMoleculeEditor(moleculeSelect.value);
     $('#mapping-candidate-filter').onchange = async event => {

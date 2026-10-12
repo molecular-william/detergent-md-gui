@@ -15,7 +15,6 @@ export function createEditor(context, candidate = null) {
       provenance: {origin: 'manual', references: []},
     }),
     selectedAtoms: new Set(),
-    selectedBeads: new Set(),
     dirty: false,
   };
 }
@@ -28,7 +27,7 @@ export function toggleAtom(editor, id) {
   return editor;
 }
 
-export function clearSelection(editor) { editor.selectedAtoms.clear(); editor.selectedBeads.clear(); return editor; }
+export function clearSelection(editor) { editor.selectedAtoms.clear(); return editor; }
 
 export function clearMapping(editor) {
   editor.candidate = {...editor.candidate, beads: [], rings: [], connections: [], bonded_options: {}, bonded_overrides: []};

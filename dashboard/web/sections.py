@@ -15,8 +15,7 @@ SECTIONS = {
     'validation': {
         'slug': 'detergent-validation',
         'label': 'Detergent validation',
-        'blurb': "Build and check a detergent's coarse-grained model: assign beads, fit its bonded terms, combine "
-                 "molecules, and compare each against its reference and against measured data.",
+        'blurb': "Build and check a detergent's coarse-grained model",
         # The sub-panels, in the order they appear. Each is also its URL segment:
         # `/detergent-validation/new-run`. A panel appears here only once its section exists in
         # dashboard.html: a registered panel with no section renders a live tab that resolves to no

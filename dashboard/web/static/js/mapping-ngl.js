@@ -70,7 +70,7 @@ export function mountOverlay3d(host, context, onAtom) {
       const molecule = await stage.loadFile(new Blob([payload.pdb], {type: 'text/plain'}), {ext: 'pdb'});
       const beadFile = await stage.loadFile(new Blob([payload.bead_pdb], {type: 'text/plain'}), {ext: 'pdb'});
       if (molecule && molecule.structure) {
-        molecule.addRepresentation('ball+stick', {sele: 'all', colorScheme: 'element', radiusScale: 0.2});
+        molecule.addRepresentation('ball+stick', {sele: 'all', colorScheme: 'element', radiusScale: 0.45});
       }
       // One representation per size class: a representation has a single radius scale, so beads of different sizes
       // cannot share one. The class is the residue name, which is the form this build's selections resolve.

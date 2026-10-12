@@ -140,13 +140,13 @@ def test_the_selectors_sit_above_the_diagram_side_by_side(live_page):
     page, errors = live_page
     page.goto(f'{live_page.base_url}/detergent-validation/bead-assignment')
     page.get_by_role('tab', name='Bead Assignment', exact=True).click()
-    expect(page.locator('#mapping-editor-diagram')).to_be_visible()
+    expect(page.locator('#mapping-editor-overlay3d')).to_be_visible()
 
     molecule = page.locator('#mapping-molecule').bounding_box()
     candidate = page.locator('#mapping-candidate-filter').bounding_box()
     count = page.locator('#mapping-selection-count').bounding_box()
     group = page.locator('#group-into-bead').bounding_box()
-    diagram = page.locator('#mapping-editor-diagram').bounding_box()
+    diagram = page.locator('#mapping-editor-overlay3d').bounding_box()
 
     assert abs(molecule['y'] - candidate['y']) < 4, 'the two comboboxes share a row'
     assert molecule['x'] < candidate['x'], 'Molecule then Candidate, left to right'
