@@ -437,6 +437,21 @@ reader showing six conditions will find a missing file where it expects a number
 | 1.0 | 129 | 26.54 | 29.877 | 1.126 | 0.9943 |
 | 1.5 | 180 | 40.58 | 53.762 | 1.325 | 0.9933 |
 | 2.0 | 223 | 56.09 | 97.551 | **1.739** | 0.9991 |
+| 2.5 | 262 | 72.72 | 163.099 | **2.243** | 0.9932 |
+
+**The series is complete, and the divergence accelerates.** Five of five conditions measured, every one a converged
+reading. The ratio is flat to within two points across the first two (1.150, 1.126), then climbs without turning:
+1.325, 1.739, and **2.243 at the top concentration** — 163.1 bar against the paper's 72.72. A model that disagreed by
+a constant factor would be a calibration problem; one whose disagreement grows with concentration is a different
+claim about the physics, and the last three points are what say so.
+
+The 2.5 row was taken at the default one-frame-in-ten stride (`sample_stride: 10`, 5 001 frames, 42.5 s) rather than a
+whole-trajectory pass, because that condition has 262 molecules and a full pass costs proportionally more. Its
+symmetry is 0.9932 — the guard that says the sample is not the explanation. The four rows above it are whole-trajectory
+readings of 50 001 frames each, so the two are not strictly like-for-like at the third decimal; at the stride used
+here the same run read 15.002 where the full pass read 14.944, a difference of 0.4%, which is the scale of that
+caveat.
+
 
 All four are whole-trajectory readings: 50 001 frames each, wall symmetry between 0.97 and 1.00, so the estimator is
 converged and none of this is the sampling that was reported wrongly at the first attempt. **The disagreement grows
