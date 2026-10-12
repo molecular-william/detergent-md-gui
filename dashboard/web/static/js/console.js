@@ -1,4 +1,4 @@
-import { $, storage, setText, api, guarded, DROP } from './shared.js';
+import { $, storage, setText, api, guarded, DROP, panelIds } from './shared.js';
 
 // Console selection, byte offsets and pause state belong to this viewer.
 export function createConsoleViewer({ getCards }) {
@@ -34,7 +34,7 @@ export function createConsoleViewer({ getCards }) {
     catch { setText($('#console-status'), 'Copy unavailable. Select the log text or download the full log.'); }
   };
   async function refreshConsole() {
-    if (!selectedRun || consolePaused || $('#runs').hidden || !$('#console-panel').closest('details[open]')) return;
+    if (!selectedRun || consolePaused || $('#'+panelIds().runs).hidden || !$('#console-panel').closest('details[open]')) return;
     const id = selectedRun;
     let result;
     try { result = await guarded(`console:${id}`, () => api(`/api/jobs/${encodeURIComponent(id)}/log?offset=${logOffset}&source=${encodeURIComponent(logSource)}`)); }

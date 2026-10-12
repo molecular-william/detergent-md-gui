@@ -1,3 +1,4 @@
+import { panelIds } from './shared.js';
 import { initializeTabs, selectTab } from './tabs.js';
 import { createRuns } from './runs.js';
 import { createNewRun } from './new-run.js';
@@ -26,9 +27,10 @@ const validation = createMappingValidation();
 const mappings=createMappings();
 document.addEventListener('dashboard:tab', event=>{
   const id=event.detail.id;
-  const loading=id==='runs'?runs.mount():id==='new'?newRun.mount():id==='compositions'?compositions.mount():id==='pdc'?pdc.mount():id==='validation'?validation.mount():mappings.mount(id);
+  const panels=panelIds();
+  const loading=id===panels.runs?runs.mount():id===panels['new-run']?newRun.mount():id===panels.combinations?compositions.mount():id===panels.complexes?pdc.mount():id===panels['mapping-validation']?validation.mount():mappings.mount(id);
   Promise.resolve(loading).catch(error=>{
-    const target=document.querySelector(id==='new'?'#launch-blocker':'#notice');
+    const target=document.querySelector(id===panels['new-run']?'#launch-blocker':'#notice');
     target.textContent=error.message;target.hidden=false;
   });
 });

@@ -1,4 +1,4 @@
-import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResource, guarded, DROP } from './shared.js';
+import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResource, guarded, DROP, panelIds } from './shared.js';
 import { createConsoleViewer } from './console.js';
 import { RunFigureViewer } from './figures.js';
 import { renderDistanceDiagnostics } from './runs-diagnostics.js';
@@ -19,7 +19,7 @@ function consistencyLine(job) {
 export function createRuns({ onClone, onDeleted, onValidate }) {
   function setRunView(view) {
     const selected = ['table', 'grouped', 'dense'].includes(view) ? view : 'table';
-    $('#runs').dataset.view = selected;
+    $('#'+panelIds().runs).dataset.view = selected;
     $$('[data-run-view]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.runView === selected)));
     storage.set('runsView', selected);
   }
@@ -254,7 +254,7 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
   async function poll() {
     if(polling) return;
     clearTimeout(pollTimer);
-    if ($('#runs').hidden || document.hidden || !navigator.onLine) { pollTimer=setTimeout(poll,30000); return; }
+    if ($('#'+panelIds().runs).hidden || document.hidden || !navigator.onLine) { pollTimer=setTimeout(poll,30000); return; }
     polling=true;
     try { await refreshJobs(true); await consoleViewer.refresh(); pollDelay=5000; setText($('#connection'),`Updated ${new Date().toLocaleTimeString()}`); }
     catch(error) { pollDelay=Math.min(pollDelay*2,60000); setText($('#connection'),`Updates unavailable: ${error.message}. Retrying in ${pollDelay/1000}s.`); }

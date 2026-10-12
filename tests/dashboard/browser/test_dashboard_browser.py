@@ -174,6 +174,11 @@ def test_mapping_editor_clear_all_removes_local_assignments(live_page):
     page.route('**/api/mappings/automatic/preview',
                lambda route: route.fulfill(status=200, content_type='application/json',
                                            body=json.dumps({'available': True, 'candidate': candidate})))
+    # The editor wires its controls when the panel mounts, so a click that lands first is a click into nothing and
+    # the rows it would have produced never appear. Wait for the readiness line its sibling test also waits on rather
+    # than for the rows: under two workers this was the tier's one failing test at HEAD as well, and a longer timeout
+    # is not what is missing.
+    expect(page.locator('#mapping-editor-status')).to_contain_text('loaded')
     page.locator('#generate-automatic').click()
     page.locator('#mapping-bead-rows tr').first.wait_for(timeout=15000)
     expect(page.locator('#mapping-bead-rows tr')).not_to_have_count(0)

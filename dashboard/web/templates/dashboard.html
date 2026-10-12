@@ -34,6 +34,9 @@
 {# The previous navigation wrote its panel into the fragment -- `/#bonded` -- and a fragment never reaches a server,
    so the shell is the only thing that can answer those links. The map is generated from the registry. #}
 <script type="application/json" id="legacy-tabs">{{ legacy_tabs | tojson }}</script>
+{# The DOM id each panel's section carries, from the same registry: the modules read their own ids here rather than
+   repeating the literals, so a panel renamed in `sections.py` reaches the JavaScript that addresses it. #}
+<script type="application/json" id="panel-ids">{{ tab_ids | tojson }}</script>
 <div class="app-shell">
 <div class="app-content">
 <p id="notice" role="status" class="notice" hidden></p>
@@ -69,7 +72,7 @@
       <label>Molecule<select name="molecule_id" id="molecule-directory" required aria-describedby="molecule-details"><option value="">Loading molecule directories…</option></select></label>
       <button type="button" id="refresh-molecules" class="secondary">Refresh directories</button>
       <div id="molecule-details" aria-live="polite">Checking input files…</div>
-      <input type="hidden" name="detergent" id="detergent" value="DDM">
+      <input type="hidden" name="detergent" value="DDM">
       <p class="hint">AA runs accept supplied CHARMM36 July 2022 topologies with CHARMM TIP3P water. GROMACS checks parameter compatibility before simulation. CG execution currently supports DDM.</p>
     </section>
     <section class="card" aria-labelledby="execution-title">
@@ -85,13 +88,13 @@
     <p class="hint cg-setting">Candidate screening checks mapping, fitting and comparison using uncalibrated bead types. It does not validate a scientific model.</p>
     <div class="cg-only" id="cg-inputs">
     <label>CG mapping<select name="mapping_candidate" id="run-mapping"><option value="">Select a saved mapping</option></select></label>
-    <label id="composition-run-selector">CG composition<select name="composition_id" id="run-composition"><option value="">Select a saved composition</option></select></label>
+    <label id="composition-run-selector">CG composition<select name="composition_id"><option value="">Select a saved composition</option></select></label>
     <div class="run-config-pair">
     <label>Bonded parameters<select name="bonded_state_id" id="run-bonded-state"><option value="">Fit bonded parameters during this run</option></select></label>
     <label>Bonded workflow<select name="bonded_intent"><option value="fit_and_simulate">Fit and simulate</option><option value="fit_only">Fit only (stop for review)</option><option value="reuse_state">Reuse selected bonded state</option></select></label>
     </div>
     <p id="bonded-run-help" class="hint">Fit and simulate derives bonded parameters from AA, then runs CG. Fit only stops for review in CG Bond Interactions. Reuse uses the selected saved parameter revision.</p>
-    <p id="mapping-run-help" class="hint">Choose a saved candidate for screening. Each run keeps its own mapping snapshot. Structural approval does not establish scientific validation.</p>
+    <p class="hint">Choose a saved candidate for screening. Each run keeps its own mapping snapshot. Structural approval does not establish scientific validation.</p>
     <label>AA reference source<select name="reference_run_id" id="reference-run"><option value="">Run a new AA reference</option></select><button type="button" class="danger secondary" id="delete-reference" hidden>Delete selected AA reference</button></label>
     <p id="reference-help" class="hint">A new AA simulation runs first as a separate job. Compatible completed AA-only references are shared by CG runs without trajectory copies.</p>
     </div>
@@ -208,7 +211,7 @@
     <h4>Solvent-accessible envelope</h4>
     <p class="hint" id="validation-surface-note">No envelope analysis loaded.</p>
     <div class="table-scroll"><table><caption>Mean SASA per model · probe 0.191 nm · nanometres squared</caption>
-      <thead><tr id="validation-surface-head"><th>Model</th><th>Frames</th><th>Duration</th><th>Mean SASA</th><th>SD</th></tr></thead>
+      <thead><tr><th>Model</th><th>Frames</th><th>Duration</th><th>Mean SASA</th><th>SD</th></tr></thead>
       <tbody id="validation-surface-rows"><tr><td colspan="5">No envelope analysis loaded.</td></tr></tbody></table></div>
     <div id="validation-surface-figure"></div>
     <h4>Bead overlap</h4>
@@ -225,7 +228,7 @@
     <h4>Dihedral terms · a criterion against the tool default</h4>
     <p class="hint" id="validation-dihedral-note">No dihedral fit loaded.</p>
     <div class="table-scroll"><table>
-      <caption id="validation-dihedral-caption">Proper dihedrals the run's topology declares, against an AIC/BIC-chosen fit from the same frames</caption>
+      <caption>Proper dihedrals the run's topology declares, against an AIC/BIC-chosen fit from the same frames</caption>
       <thead><tr><th>Beads</th><th>Our φ</th><th>Our k</th><th>n</th><th>Fit keeps</th><th>Fit's n</th><th>Residual</th><th>Verdicts</th></tr></thead>
       <tbody id="validation-dihedral-rows"><tr><td colspan="8">No dihedral fit loaded.</td></tr></tbody></table></div>
     <p class="hint" id="validation-dihedral-limits"></p>
@@ -324,7 +327,7 @@
     </section>
     <section class="card pdc-status" aria-labelledby="pdc-status-title">
       <h3 id="pdc-status-title">Status</h3>
-      <div id="pdc-diagnostics" class="pdc-diagnostics" aria-live="polite">No build yet.</div>
+      <div class="pdc-diagnostics" aria-live="polite">No build yet.</div>
     </section>
   </div>
 </section>

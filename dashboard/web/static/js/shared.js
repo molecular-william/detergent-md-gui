@@ -57,4 +57,14 @@ function invalidateResource(prefix) {
   document.dispatchEvent(new CustomEvent('dashboard:resources-changed',{detail:{prefix}}));
 }
 
-export { loadOnce, cachedApi, invalidateResource, guarded, DROP, $,  $$, storage, setText, notice, api, post, downloadBlob };
+// The DOM id each panel's section carries, written by the template from the registry (`web/sections.py`). A module
+// reads its own id from here instead of repeating the literal, so renaming a panel in the registry reaches every
+// module that addresses it: the vocabulary has one owner, and the modules follow it rather than restating it.
+// Read per call rather than cached: it is a `getElementById` and a nine-key parse, and a latched lookup has a way to
+// be wrong that a fresh one does not.
+const panelIds = () => {
+  const block = document.getElementById('panel-ids');
+  try { return block ? (JSON.parse(block.textContent) || {}) : {}; } catch { return {}; }
+};
+
+export { loadOnce, cachedApi, invalidateResource, guarded, DROP, $,  $$, storage, setText, notice, api, post, downloadBlob, panelIds };

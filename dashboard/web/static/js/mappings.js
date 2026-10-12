@@ -1,4 +1,4 @@
-import { $, storage, setText, post, cachedApi, invalidateResource, guarded, DROP, api, notice } from './shared.js';
+import { $, storage, setText, post, cachedApi, invalidateResource, guarded, DROP, api, notice, panelIds } from './shared.js';
 import { setupBondedWorkspace } from './bonded.js';
 import { createEditor, toggleAtom, clearSelection, clearMapping, groupAtoms, renameBead, removeBead } from './mapping-state.js';
 import { mountDiagram } from './mapping-diagram.js';
@@ -330,13 +330,13 @@ export function createMappings() {
       ]);
       Object.assign(mappingData, catalogue, legacy);
       mappingData.candidates = [...(mappingData.candidates || []), ...(cgCatalogue.models || []).filter(item => item.kind === 'composition').map(item => ({file: `composition:${item.id}`, name: `${item.name} · Composition`, status: item.status}))];
-      if (id === 'mappings') { setupMoleculeEditorControls(); await loadMoleculeList(); }
-      if (id === 'bonded') {
+      if (id === panelIds()['bead-assignment']) { setupMoleculeEditorControls(); await loadMoleculeList(); }
+      if (id === panelIds()['bond-interactions']) {
         bondedWorkspace ||= setupBondedWorkspace(mappingData, {loadMapping});
         await bondedWorkspace.mount();
       }
     } catch (error) {
-      setText(id === 'bonded' ? $('.bonded-panel-message') : $('#mapping-editor-status'), `Could not load mappings: ${error.message}`);
+      setText(id === panelIds()['bond-interactions'] ? $('.bonded-panel-message') : $('#mapping-editor-status'), `Could not load mappings: ${error.message}`);
     } finally { section.setAttribute('aria-busy', 'false'); }
   }
 

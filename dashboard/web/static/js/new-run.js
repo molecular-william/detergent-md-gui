@@ -1,4 +1,4 @@
-import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResource, guarded, DROP } from './shared.js';
+import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResource, guarded, DROP, panelIds } from './shared.js';
 
 // Owns the persisted run form, inherited settings, and readiness checks.
 export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
@@ -256,7 +256,7 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     ++readinessGeneration;
     clearTimeout(readinessTimer);readinessController?.abort();
     $('#start-run').disabled=true;
-    if($('#new').hidden || !mounted || mounting)return;
+    if($('#'+panelIds()['new-run']).hidden || !mounted || mounting)return;
     readinessTimer=setTimeout(()=>checkReadiness(readinessGeneration),150);
   }
   async function checkReadiness(generation) {
@@ -335,7 +335,7 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
   });
   async function mount() {
     if(mounting)return mounting;
-    $('#new').setAttribute('aria-busy','true');$('#start-run').disabled=true;
+    $('#'+panelIds()['new-run']).setAttribute('aria-busy','true');$('#start-run').disabled=true;
     mounting=(async()=>{
       await validateCloneSource();
       await Promise.all([loadMolecules(),loadStageDefaults(),loadRunBondedStates()]);
@@ -349,10 +349,10 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
       refreshStorage();
     })();
     try {await mounting;}
-    finally {mounting=null;$('#new').setAttribute('aria-busy','false');refreshReadiness();}
+    finally {mounting=null;$('#'+panelIds()['new-run']).setAttribute('aria-busy','false');refreshReadiness();}
   }
   document.addEventListener('dashboard:tab',event=>{
-    if(event.detail.id!=='new'){++readinessGeneration;clearTimeout(readinessTimer);readinessController?.abort();}
+    if(event.detail.id!==panelIds()['new-run']){++readinessGeneration;clearTimeout(readinessTimer);readinessController?.abort();}
   });
 
 

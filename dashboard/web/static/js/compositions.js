@@ -1,7 +1,7 @@
-import { $, cachedApi, post, setText, storage } from './shared.js';
+import { $, cachedApi, post, setText, storage, panelIds } from './shared.js';
 
 export function createCompositions({ openBondedModel, openCompositionRun }) {
-  const host = $('#compositions');
+  const host = $('#'+panelIds().combinations);
   const sugar = $('#composition-sugar'), recipe = $('#composition-tail-recipe');
   const carbon = $('#composition-carbon-count'), head = $('#composition-head-endpoint');
   const tail = $('#composition-tail-endpoint'), profile = $('#composition-linkage-profile');

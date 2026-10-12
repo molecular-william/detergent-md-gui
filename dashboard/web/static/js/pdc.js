@@ -1,4 +1,4 @@
-import { $, cachedApi, invalidateResource } from './shared.js';
+import { $, cachedApi, invalidateResource, panelIds } from './shared.js';
 
 export function createPdc() {
   const template = $('#pdc-template'), protein = $('#pdc-protein');
@@ -226,7 +226,7 @@ export function createPdc() {
       + 'water and ions are omitted.');
   }
 
-  return { mount: async () => { await load(); return $('#pdc'); }, loadSystem, loadSnapshots,
+  return { mount: async () => { await load(); return $('#'+panelIds().complexes); }, loadSystem, loadSnapshots,
            // The build flow will call this when a stage has produced a system; a test calls it to exercise the
            // viewer and the series without waiting for a run.
            setRun: (id) => { currentRun = id ? {id} : null; return Promise.all([loadSnapshots(), loadSystem()]); } };
