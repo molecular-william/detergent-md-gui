@@ -1,7 +1,8 @@
-# Tool configuration. pytest.ini stays in place because the documented commands rely on it;
-# the settings below mirror it exactly so `pytest` and `python -m pytest` behave the same
-# whichever file pytest discovers first (pytest.ini wins, and it must keep winning: the two
-# files are meant to agree, not to differ).
+# Tool configuration. pytest's configuration lives in `pytest.ini`, in one place and only there.
+# It used to be mirrored here so that `pytest` and `python -m pytest` behaved the same whichever
+# file was discovered first -- but a mirror is a trap rather than a safeguard: `pytest.ini` wins
+# by discovery order, so an edit to the copy that used to sit below changed nothing at all while
+# looking authoritative. One file, one answer.
 #
 # dashboard/.venv lives *inside* the package directory, so any tool that globs `dashboard/**`
 # walks roughly 20 000 vendored files unless it is excluded here. That is the reason this file
@@ -28,16 +29,3 @@ exclude = [".venv", "dashboard/.venv", "archive", "references", "resources", "to
 #   dashboard/.venv/bin/python -m ruff check dashboard tests --select E,W
 # See docs/decisions/2026-09-24-architecture-decisions.md for why this split was chosen.
 select = ["F", "E9", "I"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests/dashboard"]
-# Measured on this checkout: the whole suite 79.3 s serial / 19.6 s with these flags
-# (loadfile, not load: plain -n interleaves the OpenMP probe subprocesses with Chromium
-# page loads and only reaches 51.7 s). Every test keeps its own tmp_path workspace and
-# binds port 0, so workers cannot collide; the browser tier was verified at -n 2..64.
-# Serial runs (debugging, or the slow tier) take -n 0.
-addopts = "-n 8 --dist loadfile --strict-markers"
-markers = [
-    "browser: rendered dashboard interaction tests (requires installed Playwright and Chrome)",
-    "slow: subprocess, GROMACS, or long-lived worker checks (optional fast-loop exclusion)",
-]
