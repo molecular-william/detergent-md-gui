@@ -1,7 +1,6 @@
 """Browser acceptance test. Requires installed Playwright + Chromium."""
 import json
 
-import pytest
 from playwright.sync_api import expect
 
 from dashboard.models import mappings
@@ -70,23 +69,44 @@ def test_clone_resume_and_analysis_controls(dashboard, live_page):
     assert errors == []
 
 
-@pytest.mark.skip(reason='the filter does not list a candidate saved directly through the store before '
-                         'the page loads its molecule context; needs the page to save it instead. The '
-                         'buttons\' semantics are covered by integration/test_mapping_workspace_api.py')
 def test_delete_mapping_removes_the_saved_candidate(dashboard, live_page):
-    """Delete mapping acts on the edited candidate; Save in-place overwrites instead of adding one."""
-    from dashboard.models import mappings
-    saved = mappings.save_draft(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
+    """Delete mapping acts on the edited candidate; Save in-place overwrites instead of adding one.
+
+    This test was skipped for a while with the reason that the filter does not list a candidate saved directly
+    through the store. That was true, and the reason named the fix: save through the page instead. The filter is
+    filled from the server's catalogue for *this molecule's snapshot*, and the page's own save appends the option it
+    just created -- a candidate written straight into the store is scoped differently and appears in neither list.
+
+    The recogniser is answered from the test rather than waited on, for the reason the sibling test records: it runs
+    in the server, so under load the rows arrive after the assertion has given up. What this test is about is which
+    button is enabled when, not how fast the recogniser is.
+    """
     page, errors = live_page
     page.on('dialog', lambda dialog: dialog.accept())
     page.goto(f'{live_page.base_url}/detergent-validation/bead-assignment')
     page.get_by_role('tab', name='Bead Assignment', exact=True).click()
+    page.route('**/api/mappings/automatic/preview',
+               lambda route: route.fulfill(status=200, content_type='application/json',
+                                           body=json.dumps({'available': True,
+                                                            'candidate': mappings.automatic_candidate(
+                                                                mappings.molecule(), 'DDM')})))
+
     select = page.locator('#mapping-candidate-filter')
-    option = select.locator(f'option[value="{saved["file"]}"]')
-    expect(option).to_have_count(1)
+    # A fresh workspace has one option and no saved candidate: the placeholder. Nothing to delete yet.
+    expect(select.locator('option')).to_have_count(1)
     expect(page.locator('#delete-mapping')).to_be_disabled(), 'a local draft has nothing to delete'
 
-    select.select_option(saved['file'])
+    page.locator('#generate-automatic').click()
+    page.locator('#mapping-bead-rows tr').first.wait_for(timeout=15000)
+    page.locator('#save-mapping-editor').click()
+
+    expect(select.locator('option')).to_have_count(2)
+    saved_file = select.input_value()
+    option = select.locator(f'option[value="{saved_file}"]')
+    expect(option).to_have_count(1)
+
+    # Selecting it is what the operator does; the assertion below depends on the change handler having run.
+    select.select_option(saved_file)
     expect(page.locator('#delete-mapping')).to_be_enabled()
     expect(page.locator('#save-mapping-inplace')).to_be_enabled()
 
@@ -97,7 +117,7 @@ def test_delete_mapping_removes_the_saved_candidate(dashboard, live_page):
 
     page.locator('#delete-mapping').click()
     expect(option).to_have_count(0)
-    expect(page.locator('#mapping-candidate-filter').locator('option')).to_have_count(1)
+    expect(select.locator('option')).to_have_count(1)
     assert errors == []
 
 
