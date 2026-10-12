@@ -59,6 +59,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
   let states = [];
   let selectedState = null;
   let selectedMapping = null;
+  let structure = null;
   let terms = [];
   let selectedBeads = [];
   let selectedTermId = '';
@@ -68,9 +69,29 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
 
   function notice(text) { setText(message, text); }
 
+  async function resolveStructure(mapping) {
+    // A candidate names the molecule it maps, and the panel must draw *that* molecule. Reading one structure for
+    // every candidate drew sucrose's beads on DDM's atoms, because the same atom id is a different atom in another
+    // molecule -- a candidate that maps 23 atoms cannot be measured against an 81-atom reference.
+    //
+    // The context route answers in nanometres and says which molecule it is, so the legacy-Angstrom branch below
+    // fires only for the packaged reference: a candidate that names no molecule, or one whose context cannot be
+    // read. Falling back to the old behaviour beats drawing nothing at all.
+    const moleculeId = mapping?.molecule_id;
+    if (!moleculeId) return mappingData.molecule;
+    try {
+      const payload = await cachedApi('/api/mappings/context?molecule_id=' + encodeURIComponent(moleculeId),
+                                      {maxAge: 60000});
+      return payload?.molecule || payload?.context || mappingData.molecule;
+    } catch (error) {
+      return mappingData.molecule;
+    }
+  }
+
   function structureAtoms() {
-    const atoms = mappingData.molecule?.atoms || [];
-    const legacyAngstrom = !mappingData.molecule?.molecule_id && !mappingData.molecule?.snapshot;
+    const source = structure || mappingData.molecule;
+    const atoms = source?.atoms || [];
+    const legacyAngstrom = !source?.molecule_id && !source?.snapshot;
     const factor = legacyAngstrom ? 0.1 : 1;
     return new Map(atoms.map(atom => [Number(atom.id), {...atom, xyz: (atom.xyz || [0, 0, 0]).map(value => Number(value) * factor)}]));
   }
@@ -235,6 +256,9 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       const mapping = await loadMapping(mappingSelect.value);
       if (token !== generation || !mapping) return;
       selectedMapping = mapping;
+      // Before anything is drawn from it: every geometry below is measured against this molecule's atoms.
+      structure = await resolveStructure(mapping);
+      if (token !== generation) return;
       await loadStates(mapping, token);
       if (token !== generation) return;
       await draw(states.find(state => state.state_id === stateSelect.value), mapping, token);

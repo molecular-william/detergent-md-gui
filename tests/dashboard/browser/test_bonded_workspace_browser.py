@@ -78,3 +78,58 @@ def test_bonded_workspace_filters_states_and_creates_a_new_state_from_two_beads(
     expect(page.locator('.bonded-state-select option')).to_have_count(4)
     assert first_state['state_id'] != second_state['state_id']
     assert errors == []
+
+
+def test_the_diagram_draws_the_candidates_own_molecule_and_not_the_packaged_one(dashboard, live_page):
+    """A non-DDM candidate was drawn on the packaged DDM atoms, so its geometry was another molecule's.
+
+    The panel read its atoms once, from the workspace default -- the packaged DDM reference -- and used that reading
+    for every candidate. A candidate mapping Sucrose's atoms was therefore drawn on DDM's 81: the same atom id is a
+    different atom in a different molecule, so the bead cloud came out 4.4x too long on one axis and 0.4x too short
+    on another. That reads as a scaling error and is not one -- and it is why sucrose, trehalose and maltose all drew
+    as the identical cloud.
+
+    The assertion is against the molecule's own geometry, computed here from the context the panel is given, so it
+    holds for any molecule instead of pinning one molecule's numbers.
+    """
+    from dashboard.models.mappings import context as mapping_context
+
+    context = dashboard.client.get('/api/mappings/context?molecule_id=Sucrose').get_json()['context']
+    candidate = mappings.automatic_candidate(mapping_context.as_structure(context), 'Sucrose')
+    candidate['molecule_id'] = 'Sucrose'
+    candidate['molecule_snapshot'] = context['snapshot']
+    saved = mappings.save_draft(candidate)
+
+    # Every physical bead at the mean of the atoms it maps, in this molecule's own coordinates: what the diagram
+    # would draw if it were drawing the molecule the candidate names.
+    atoms = {atom['id']: atom['xyz'] for atom in context['atoms']}
+    centres = []
+    for bead in saved['beads']:
+        if bead.get('virtual_site'):
+            continue
+        points = [atoms[atom_id] for atom_id in (bead.get('atoms') or []) if atom_id in atoms]
+        if points:
+            centres.append([sum(point[axis] for point in points) / len(points) for axis in range(3)])
+    assert centres, 'the candidate maps no physical bead, so there is no geometry to check'
+    expected = [round(max(centre[axis] for centre in centres) - min(centre[axis] for centre in centres), 3)
+                for axis in range(3)]
+
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
+    page.locator('.bonded-mapping-select').select_option(saved['file'])
+    plot = page.locator('.bonded-plot')
+    expect(plot.locator('.plotly')).to_be_visible()
+
+    drawn = plot.evaluate("""(el) => {
+      const beads = el.data.filter(trace => trace.meta === 'bead');
+      const span = axis => {
+        const values = beads.flatMap(trace => trace[axis] || []);
+        return Math.round((Math.max(...values) - Math.min(...values)) * 1000) / 1000;
+      };
+      return [span('x'), span('y'), span('z')];
+    }""")
+    for axis, want in enumerate(expected):
+        assert abs(drawn[axis] - want) < 0.05, (
+            f'axis {axis}: the diagram draws {drawn[axis]} nm where Sucrose itself spans {want} nm '
+            f'(drawn {drawn}, the molecule its own {expected})')
+    assert errors == []
