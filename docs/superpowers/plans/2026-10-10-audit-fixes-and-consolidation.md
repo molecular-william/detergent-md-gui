@@ -227,14 +227,14 @@ Verified 2026-10-12 at Phase 7's close (`031c337`). Each line carries its measur
 
 - [x] Exactly one file declares the pytest markers; the gate reports the browser tier for front-end changes.
       `pytest.ini` owns them; the gate reported the browser tier on the front-end commits of Phases 4-5 (67 passed).
-- [ ] D2–D5 each have a test that failed before its change; D1's two tests are green. **D4 is open, so this is not met.**
+- [x] D2–D5 each have a test that failed before its change; D1's two tests are green.
       D2 `tests/dashboard/integration/test_rendered_hosts.py` (refuses two writers for one host; red before the
       `.analysis-diagnostics` host landed), D3 `tests/dashboard/unit/test_run_view.py` (`2a26fe5`), D5
-      `tests/dashboard/unit/test_workflow_plan_pairs.py` (`d54468f`), D1 fixed in `6d5badd`. **D4 has neither the
-      change nor its test:** `pdc.js:232` is that file's only `setRun` reference, so the complex panel's system
-      viewer and snapshot strip are still armed by `window.pdcSetRun` alone -- and the module's own comment says the
-      build flow will call it, which nothing does. Phase 5 documented the hook as test-only, which is the opposite
-      direction: D4 asks for the hook to stop being the only door.
+      `tests/dashboard/unit/test_workflow_plan_pairs.py` (`d54468f`), D1 fixed in `6d5badd`. **D4 closed in
+      `cbc8b30`:** the panel fills its own run list (`#pdc-run`, filtered to `run_type === 'pdc'`) and the list arms
+      the viewer -- `setRun` and the control now share one `armRun` -- so `window.pdcSetRun` is no longer the only
+      door. `test_pdc_run_selection_browser.py` drives the panel's own control, and all three of its tests were red
+      first (98 s of timeouts on a control that did not exist); the browser tier went 67 -> 70 with none red.
 - [x] `workflow.py` imports no adapter directly; all ten call sites ask the protocol. Phase 2 (`e74025b`, `35ce0af`).
 - [x] Adding an analysis kind is one row, and an unknown kind raises rather than inventing a title. Phase 3:
       `analysis/kinds.py` is one table and `test_analysis_kinds.py` generates a row per kind from the four sources.
