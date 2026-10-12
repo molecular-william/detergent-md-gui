@@ -1,4 +1,9 @@
-"""Isolated analysis subprocess: sources are copied, outputs never replace them."""
+"""Isolated analysis subprocess: sources are copied, outputs never replace them.
+
+What each kind *is* -- its name, the files it is handed, how it runs and how it reads -- lives in one row of
+`kinds.TABLE`. This module reads the names, the sources and the dispatch from there, so the two shapes it names below
+exist for callers rather than as a second declaration.
+"""
 import fnmatch
 import hashlib
 import importlib.metadata
@@ -13,51 +18,11 @@ from pathlib import Path
 from .. import files
 from ..execution import tools, workflow
 from . import metadata as analysis_metadata
-from .runs import bartender_fit, bonded_estimate, dihedral_fit, mapping_consistency, observability, osmotic_pressure, overlap, refinement
+from .kinds import TABLE
 from .runs import references as aa_references
-from .validation import report as carbohydrate_validation
-from .validation import targets
 
-KINDS = {'plots', 'snapshots', 'surfaces', 'observables', 'stability', 'refinement-score', 'targets', 'carbohydrate-validation', 'mapping-consistency', 'bartender-fit', 'overlap', 'bonded-cross-check', 'dihedral-fit', 'osmotic-pressure'}
-PATTERNS = {
-    'plots': ['*SASA*/AA/*.xvg', '*SASA*/CG/*.xvg'],
-    'snapshots': ['1_AA-reference/prod/lig.gro', '1_AA-reference/prod/lig.xtc'],
-    'surfaces': ['1_AA-reference/prod/lig.gro', '1_AA-reference/prod/lig.xtc', '2_mapping/model.json', '4_CG_sim/prod/lig_CG.gro', '4_CG_sim/prod/lig_CG.xtc'],
-    # The model against the reference it was built from: both ensembles, and the model for the bead names. The
-    # *mapped* trajectory is deliberately not staged -- it is a third thing, and this analysis says nothing about it.
-    'overlap': ['1_AA-reference/prod/lig.gro', '1_AA-reference/prod/lig.xtc', '2_mapping/model.json', '4_CG_sim/prod/lig_CG.gro', '4_CG_sim/prod/lig_CG.xtc'],
-    # Our fitted topology against an independent estimate taken from the frames the fit saw. The draft is staged too,
-    # because a job whose fit stage skipped still has a topology, and the report says which of the two answered.
-    'bonded-cross-check': ['2_mapping/mapped.gro', '2_mapping/mapped.xtc', '2_mapping/model.json',
-                           '3_initial_CG/*_ff_inter.itp', '3_initial_CG/*initial*.itp'],
-    # The same inputs as the cross-check, because it asks the same kind of question of the same frames: what would a
-    # criterion-driven fit say, beside what the run's own tool-chosen terms say.
-    'dihedral-fit': ['2_mapping/mapped.gro', '2_mapping/mapped.xtc', '2_mapping/model.json',
-                     '3_initial_CG/*_ff_inter.itp', '3_initial_CG/*initial*.itp'],
-    # One condition's own files, all of them: the walls the run was built with (`plumed.dat` names the grouping, the
-    # box centre and KAPPA), the record that holds the dividing area, the structure the trajectory is read against,
-    # and the trajectory itself. The walls are staged deliberately rather than re-derived -- the analysis and the
-    # simulation disagreeing about what a molecule is would be invisible in the number.
-    'osmotic-pressure': ['01_simulate/osmotic_condition.json', '01_simulate/plumed.dat',
-                         '01_simulate/solvated.gro', '01_simulate/prod/md_whole.xtc'],
-    'observables': ['2_mapping/mapped.gro', '2_mapping/mapped.xtc', '3_initial_CG/DDM_initial.itp'],
-    'stability': ['*.log', '*.xtc'],
-    'refinement-score': ['5_assessment/validation.json'],
-    'targets': [],
-    'carbohydrate-validation': ['1_AA-reference/prod/lig.gro', '1_AA-reference/prod/lig.xtc',
-                                '2_mapping/model.json', '4_CG_sim/prod/lig_CG.gro', '4_CG_sim/prod/lig_CG.xtc',
-                                '3_initial_CG/*.itp'],
-    # All three ensembles of one consumer run: its atomistic reference, the trajectory mapped onto the beads,
-    # and the simulated coarse-grained trajectory, plus the topology that names the beads.
-    'mapping-consistency': ['1_AA-reference/prod/lig.gro', '1_AA-reference/prod/lig.xtc',
-                            '2_mapping/mapped.gro', '2_mapping/mapped.xtc',
-                            '4_CG_sim/prod/lig_CG.gro', '4_CG_sim/prod/lig_CG.xtc', '3_initial_CG/*.itp'],
-    # The atomistic solute and its trajectory (what the fit is checked against), the mapping that defines the beads,
-    # and the generated topology whose terms the fit is compared with. Optional by design: nothing queues it.
-    'bartender-fit': ['1_AA-reference/prod/lig.gro', '1_AA-reference/prod/lig.xtc', '2_mapping/model.json',
-                      '2_mapping/mapping.ndx', '3_initial_CG/*.itp'],
-}
-
+KINDS = set(TABLE)
+PATTERNS = {name: list(row.sources) for name, row in TABLE.items()}
 
 
 def source_paths(root, kind):
@@ -69,12 +34,12 @@ def source_entries(root,kind):
     run=root.parent if root.name=='stages' else root
     metadata=json.loads((run/'manifest.json').read_text()) if (run/'manifest.json').is_file() else {}
     shared=metadata.get('shared_reference');aa_source=None
-    if kind in ('snapshots','surfaces','carbohydrate-validation','mapping-consistency','bartender-fit'):
+    if TABLE[kind].reads_aa_reference:
         if shared:aa_source,_=aa_references.resolve(run.parent,shared['source_run_id'],shared['sha256'])
         elif metadata.get('run_type')=='aa_only':
             aa_references.verify(run);aa_source=root/'07_reference'
-    if kind == 'snapshots' and not aa_source and not (root/'1_AA-reference/prod/lig.xtc').is_file():
-        patterns = ['1_AA-reference/3-run.xtc', '1_AA-reference/3-run.tpr']
+    if TABLE[kind].legacy_sources and not aa_source and not (root/'1_AA-reference/prod/lig.xtc').is_file():
+        patterns = list(TABLE[kind].legacy_sources)
     entries={str(p.relative_to(root)):p for p in files.safe_files(root) if str(p.relative_to(root)).split('/')[0] not in ('analysis','analyses','analysis_plots','snapshots','inputs','logs') and any(fnmatch.fnmatch(str(p.relative_to(root)),pattern) for pattern in patterns)}
     if aa_source:entries.update({f'1_AA-reference/prod/{name}':aa_source/name for name in ('lig.gro','lig.xtc')})
     return entries
@@ -93,7 +58,7 @@ def execute(request_path):
         try: versions[package] = importlib.metadata.version(package)
         except importlib.metadata.PackageNotFoundError: pass
     gmx = tools.tool_path('gmx')
-    if gmx and kind in ('surfaces','stability','carbohydrate-validation'):
+    if gmx and TABLE[kind].records_gmx_version:
         info = subprocess.run([gmx,'--version'],capture_output=True,text=True,timeout=30,check=True)
         versions['gmx'] = {'path':gmx,'version_output':info.stdout}
     started = time.monotonic()
@@ -105,7 +70,7 @@ def execute(request_path):
             provenance=str(path.relative_to(run)) if path.is_relative_to(run) else 'shared/'+str(path.relative_to(run.parent))
             sources[provenance] = files.sha256(target)
         # Refinement depends on the latest completed diagnostic reports, with legacy fallback.
-        if kind == 'refinement-score':
+        if TABLE[kind].takes_dependencies:
             for name in ('numerical_stability.json', 'experimental_targets.json'):
                 path = request.get('dependencies', {}).get(name)
                 path = run/path if path else root/'analysis'/name
@@ -116,20 +81,9 @@ def execute(request_path):
         baseline = files.hashes(work)
         files.atomic_json(attempt/'sources.json', sources)
         progress('Calculating ' + kind)
-        if kind == 'targets': result = targets.build(work, request.get('payload', {}))
-        elif kind == 'refinement-score': result = refinement.score(work)
-        elif kind == 'carbohydrate-validation': result = carbohydrate_validation.run(work, request.get('payload', {}))
-        elif kind == 'mapping-consistency': result = mapping_consistency.publish(work, request.get('payload', {}))
-        elif kind == 'bartender-fit': result = bartender_fit.run(work, request.get('payload', {}))
-        elif kind == 'overlap': result = overlap.publish(work, request.get('payload', {}))
-        elif kind == 'bonded-cross-check': result = bonded_estimate.cross_check(work, request.get('payload', {}))
-        elif kind == 'dihedral-fit': result = dihedral_fit.publish(work, request.get('payload', {}))
-        elif kind == 'osmotic-pressure': result = osmotic_pressure.publish(work, request.get('payload', {}))
-        else:
-            function = {'plots': observability.sasa_plot, 'snapshots': observability.generate,
-                        'surfaces': observability.connolly_surfaces, 'observables': observability.unparameterized_observables,
-                        'stability': observability.numerical_stability}[kind]
-            result = function(work)
+        # One call for every kind: the row holds the dispatch, and the analyses that read only the sources they were
+        # handed are adapted to this shape where they are declared rather than by a branch here.
+        result = TABLE[kind].run(work, request.get('payload', {}))
         files.atomic_json(work/'analysis-metadata.json', analysis_metadata.describe(kind, result))
         progress('Publishing immutable results')
         source_key = hashlib.sha256(json.dumps([sources,request.get('payload',{}),request.get('code_signature')],sort_keys=True).encode()).hexdigest()

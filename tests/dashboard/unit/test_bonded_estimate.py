@@ -3,14 +3,13 @@
 The reference pinning against shaker's own numbers is `test_bonded_estimate_reference.py`; this file is the arithmetic
 underneath it, so a factor-of-3283 error and a circular-mean error each fail here first.
 """
-import inspect
 import json
 
 import MDAnalysis as mda
 import numpy as np
 import pytest
 
-from dashboard.analysis import metadata, worker
+from dashboard.analysis import worker
 from dashboard.analysis.runs import bonded_estimate
 
 
@@ -257,12 +256,18 @@ def test_a_run_with_neither_a_fit_nor_a_draft_is_refused(tmp_path):
 
 
 def test_the_cross_check_kind_is_registered_in_all_four_places():
-    """KINDS, PATTERNS, DESCRIPTIONS and the dispatch arm -- all four, because a kind missing the last one is
-    accepted by the queue and then produces nothing at all, which reads as a stuck worker rather than a missing line.
+    """One row holds all four: the name, the sources, the dispatch and the description.
+
+    This used to assert the kind separately in `worker.KINDS`, in `worker.PATTERNS`, in `metadata.DESCRIPTIONS` and as
+    an `elif kind == ...` line in the worker's own source -- four places to keep in step, where a kind missing the last
+    one was accepted by the queue and then produced nothing at all, which reads as a stuck worker rather than a missing
+    line. The row is the same claim with one thing to keep right, and `row.run` is what the dispatch arm used to be.
     """
-    assert 'bonded-cross-check' in worker.KINDS
-    assert worker.PATTERNS['bonded-cross-check'] == [
+    from dashboard.analysis.kinds import TABLE
+    row = TABLE['bonded-cross-check']
+    assert 'bonded-cross-check' in worker.KINDS and row.name == 'bonded-cross-check'
+    assert list(row.sources) == [
         '2_mapping/mapped.gro', '2_mapping/mapped.xtc', '2_mapping/model.json',
         '3_initial_CG/*_ff_inter.itp', '3_initial_CG/*initial*.itp']
-    assert 'bonded-cross-check' in metadata.DESCRIPTIONS
-    assert "kind == 'bonded-cross-check'" in inspect.getsource(worker)
+    assert callable(row.run), 'the dispatch is the row'
+    assert row.title != 'Bonded Cross Check', 'a title the code invents is the fallback this replaced'

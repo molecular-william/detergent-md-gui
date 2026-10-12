@@ -5,14 +5,13 @@ amplitudes and phases, because every step of the workflow -- histogram, inversio
 in that direction. A factor-of-57 error in the degrees/radians conversion survives every test that only looks at the
 residual, and dies here.
 """
-import inspect
 import json
 
 import MDAnalysis as mda
 import numpy as np
 import pytest
 
-from dashboard.analysis import metadata, worker
+from dashboard.analysis import worker
 from dashboard.analysis.runs import dihedral_fit
 
 R_GAS = dihedral_fit.R_GAS
@@ -322,11 +321,17 @@ def test_a_run_with_no_topology_is_refused(tmp_path):
 
 
 def test_the_dihedral_fit_kind_is_registered_in_all_four_places():
-    """KINDS, PATTERNS, DESCRIPTIONS and the dispatch arm. The fourth is the one whose absence lets a job queue
-    successfully and then produce nothing at all, which reads as a stuck worker rather than a missing line."""
-    assert 'dihedral-fit' in worker.KINDS
-    assert worker.PATTERNS['dihedral-fit'] == [
+    """One row holds all four: the name, the sources, the dispatch and the description.
+
+    The fourth place used to be an `elif kind == ...` line in the worker's source, and a kind missing it was accepted
+    by the queue and then produced nothing at all -- which reads as a stuck worker rather than a missing line. It is
+    `row.run` now.
+    """
+    from dashboard.analysis.kinds import TABLE
+    row = TABLE['dihedral-fit']
+    assert 'dihedral-fit' in worker.KINDS and row.name == 'dihedral-fit'
+    assert list(row.sources) == [
         '2_mapping/mapped.gro', '2_mapping/mapped.xtc', '2_mapping/model.json',
         '3_initial_CG/*_ff_inter.itp', '3_initial_CG/*initial*.itp']
-    assert 'dihedral-fit' in metadata.DESCRIPTIONS
-    assert "kind == 'dihedral-fit'" in inspect.getsource(worker)
+    assert callable(row.run), 'the dispatch is the row'
+    assert row.title != 'Dihedral Fit', 'a title the code invents is the fallback this replaced'

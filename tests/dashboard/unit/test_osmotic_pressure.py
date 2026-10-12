@@ -214,20 +214,20 @@ def test_the_kind_is_registered_in_all_four_places():
     """A kind missing the fourth is accepted by the queue and then produces nothing -- learned here the hard way, so
     the four are asserted together rather than discovered one at a time as each failure surfaces.
 
-    The fourth is the dispatch arm, which has no name to look up; its source is read for the branch. That is a text
-    check and it can be fooled by a comment, but the alternative is running a job to find out.
+    The fourth is the dispatch arm, which used to have no name to look up -- its source was read for the branch, a
+    text check that a comment can fool. It is `row.run` now, so the arm is compared with the function it must be.
     """
-    import inspect
-
-    from dashboard.analysis import metadata as analysis_metadata
     from dashboard.analysis import worker
+    from dashboard.analysis.kinds import TABLE
 
-    assert 'osmotic-pressure' in worker.KINDS
-    assert worker.PATTERNS['osmotic-pressure'] == ['01_simulate/osmotic_condition.json', '01_simulate/plumed.dat',
-                                                   '01_simulate/solvated.gro', '01_simulate/prod/md_whole.xtc']
-    title, note, units = analysis_metadata.DESCRIPTIONS['osmotic-pressure']
+    row = TABLE['osmotic-pressure']
+    assert 'osmotic-pressure' in worker.KINDS and row.name == 'osmotic-pressure'
+    assert list(row.sources) == ['01_simulate/osmotic_condition.json', '01_simulate/plumed.dat',
+                                 '01_simulate/solvated.gro', '01_simulate/prod/md_whole.xtc']
+    note, units = row.ideal_result, row.units_or_direction
     assert 'bar' in units
     assert 'converged' in note
-    assert "kind == 'osmotic-pressure'" in inspect.getsource(worker)
-    # The module the branch calls has to be importable from it, which is the failure a missing import looks like.
-    assert callable(worker.osmotic_pressure.publish)
+    # The arm is the function it has to be, compared rather than read out of a source file. A dispatch that names a
+    # module the worker cannot import is the failure this catches, and comparing the callable catches it exactly.
+    from dashboard.analysis.runs import osmotic_pressure
+    assert row.run is osmotic_pressure.publish

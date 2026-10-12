@@ -14,8 +14,15 @@ def test_legacy_metadata_is_explicit():
 
 
 def test_carbohydrate_evidence_metadata_names_physical_measurements():
-    assert describe('mapped_geometry')['title'] == 'Carbohydrate geometry and volume'
-    assert 'osmotic' in describe('osmotic_pressure')['title'].lower()
+    """The evidence sections the carbohydrate profile requires carry their own text, apart from the analysis kinds.
+
+    These three are sections a report must contain, not analyses the worker can be asked to run, and they used to be
+    described through the *kinds'* describer -- which is how a mapping of fourteen kinds came to hold seventeen
+    entries, and why nothing noticed the three it should not have had.
+    """
+    from dashboard.analysis.metadata import EVIDENCE_SECTIONS
+    assert EVIDENCE_SECTIONS['mapped_geometry'][0] == 'Carbohydrate geometry and volume'
+    assert 'osmotic' in EVIDENCE_SECTIONS['osmotic_pressure'][0].lower()
 
 
 def test_the_bartender_fit_is_described_like_every_other_published_analysis():
