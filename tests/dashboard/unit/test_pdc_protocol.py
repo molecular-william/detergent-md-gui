@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from dashboard.execution import protocol, workflow
+from dashboard.execution import protocol
 from dashboard.execution.adapters import pdc
 
 TEMPLATE = {
@@ -90,20 +90,30 @@ def test_readiness_names_what_a_build_is_missing(tmp_path):
 
 
 def test_a_pdc_job_is_prepared_by_the_pdc_builder(tmp_path):
-    """The dispatch, end to end: `prepare_run` writes a run whose manifest names the pdc stages."""
+    """The dispatch, end to end: the pdc protocol writes a run whose manifest names the pdc stages."""
     molecule_tree(tmp_path)
     run = tmp_path / 'run'
     run.mkdir()
 
-    workflow.prepare_run(run, run_type='pdc', protein='molecules/DDM/protein.pdb',
-                         template='molecules/DDM/micelle_template.json',
-                         settings={'seed': 20260930, 'aggregation_number': 8},
-                         project_root=str(tmp_path))
+    protocol.adapter_for('pdc').prepare(run, {
+        'protein': 'molecules/DDM/protein.pdb',
+        'template': 'molecules/DDM/micelle_template.json',
+        'settings': {'seed': 20260930, 'aggregation_number': 8},
+        'project_root': str(tmp_path)})
 
     manifest = json.loads((run / 'manifest.json').read_text())
     assert manifest['run_type'] == 'pdc'
     assert manifest['stage_plan'] == [[stage.name, stage.relative] for stage in pdc.STAGES]
-    assert (run / 'inputs' / '1_system' / 'prepare_system.sh').is_file()
-    assert (run / 'inputs' / '1_system' / pdc.SETTINGS_NAME).is_file()
-    assert manifest['input_snapshot_sha256'], 'the snapshot the resume path verifies against'
+    # The pdc build writes its stages at the run root rather than under `stages/`, which is why the analysis layout
+    # resolves both spellings. This is the layout a real completed build has -- checked against `8a73fe6448f2`.
+    assert (run / '1_system' / 'prepare_system.sh').is_file()
+    assert (run / '1_system' / pdc.SETTINGS_NAME).is_file()
+    # This test used to run through `workflow.prepare_run`, which copied the stages to `inputs/` and wrote an
+    # `input_snapshot_sha256` from them. No pdc run has either: the coordinator has always prepared a pdc build
+    # through this protocol, so the copy was a property of a path the application never takes for this run type.
+    # What that costs is real and recorded rather than fixed here -- `prepare_resume` verifies a resumed run's
+    # `inputs/` against that hash, so a pdc run cannot be resumed. It is a pre-existing gap in the pdc adapter, not
+    # something this change introduced, and it is not the CG path this work is about.
+    assert not (run / 'inputs').exists(), 'if this starts existing, pdc gained a snapshot and resume can be fixed'
+    assert 'input_snapshot_sha256' not in manifest
     assert set(manifest['tools']) == {'gmx', 'martinize2'}

@@ -1,3 +1,4 @@
+import dataclasses
 import os
 
 from dashboard.execution.coordination import coordinator as backend
@@ -196,11 +197,12 @@ class OperationsTests(unittest.TestCase):
     def test_new_layout_worker_records_stage_outputs_and_logs(self):
         job=dict(self.job,id='abcdef123456',status='queued',layout_version=2)
         self.dashboard.coordinator.database().insert(job)
-        def prepare(root,**kwargs):
+        def prepare(root, metadata):
             stage=root/'stages/mini'; stage.mkdir(parents=True)
             (stage/'run.sh').write_text('echo stage-output; echo result > result.txt')
             files.atomic_json(root/'manifest.json',{'stages':[],'stage_plan':['mini']})
-        with patch.object(cg,'readiness',return_value={'ready':True}), patch.object(workflow,'prepare_run',prepare), patch.object(workflow,'stage_definitions',lambda metadata: ([('mini','mini/run.sh')], {}, {'mini':('result.txt',)})):
+        # The protocol object is what the coordinator resolves; its `prepare` is bound when the adapter builds it.
+        with patch.object(cg,'readiness',return_value={'ready':True}), patch.object(cg,'PROTOCOL',dataclasses.replace(cg.PROTOCOL,prepare=prepare)), patch.object(workflow,'stage_definitions',lambda metadata: ([('mini','mini/run.sh')], {}, {'mini':('result.txt',)})):
             self.dashboard.coordinator.run_job(job['id'])
         job=self.dashboard.coordinator.lookup(job['id']); self.assertEqual(job['status'],'completed',job.get('error'))
         manifest=json.loads((self.dashboard.coordinator.run_path(job)/'manifest.json').read_text())

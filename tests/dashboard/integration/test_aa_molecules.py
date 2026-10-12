@@ -1,3 +1,5 @@
+import dataclasses
+
 from dashboard.execution.adapters import cg
 from dashboard.execution.coordination import coordinator as backend
 from dashboard.models import mappings
@@ -178,11 +180,11 @@ class MoleculeDirectoryTests(unittest.TestCase):
     def test_mismatched_prepared_source_fails_and_keeps_selection_provenance(self):
         from dashboard import files
         self.install_ddm(); job=self.queue_ddm()
-        def prepare(directory, **kwargs):
+        def prepare(directory, metadata):
             aa=directory/'stages/1_AA-reference'; aa.mkdir(parents=True)
             (aa/'molecule.pdb').write_text('wrong source')
             files.atomic_json(directory/'manifest.json',{'stages':[]})
-        with patch.object(cg,'readiness',return_value={'ready':True}), patch.object(backend.workflow,'prepare_run',prepare):
+        with patch.object(cg,'readiness',return_value={'ready':True}), patch.object(cg,'PROTOCOL',dataclasses.replace(cg.PROTOCOL,prepare=prepare)):
             self.dashboard.coordinator.run_job(job['id'],self.dashboard.coordinator.WORKERS[job['id']])
         manifest=json.loads((self.dashboard.coordinator.RUNS/job['id']/'manifest.json').read_text())
         self.assertEqual(manifest['status'],'failed')

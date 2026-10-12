@@ -1,6 +1,7 @@
 from dashboard.execution.coordination import coordinator as backend
 
 """Run-type admission and the fixed AA-source/CG-consumer lifecycle."""
+import dataclasses
 import json
 import shutil
 
@@ -107,13 +108,15 @@ def test_cg_worker_does_not_pass_reference_run_id_to_preparation(dashboard, serv
     monkeypatch.setattr(cg, 'readiness', lambda *a, **k: {'ready': True})
     captured = {}
 
-    def prepare(root, *, detergent, profile, settings, mapping_candidate,
-                bonded_state_snapshot, bonded_intent, shared_reference,
-                reference_root, molecule_snapshot, molecule_root):
-        captured.update(shared_reference=shared_reference, reference_root=reference_root)
+    def prepare(root, metadata):
+        captured.update(shared_reference=metadata.get('shared_reference'),
+                        reference_root=metadata.get('reference_root'))
+        root.mkdir(parents=True, exist_ok=True)
         files.atomic_json(root / 'manifest.json', {'stages': []})
 
-    monkeypatch.setattr(backend.workflow, 'prepare_run', prepare)
+    # The protocol object is what the coordinator resolves, and its `prepare` is bound when the adapter builds it,
+    # so patching the adapter's private function would have no effect. Replacing the protocol replaces the door.
+    monkeypatch.setattr(cg, 'PROTOCOL', dataclasses.replace(cg.PROTOCOL, prepare=prepare))
     monkeypatch.setattr(backend.workflow, 'run', lambda *args, **kwargs: None)
     with dashboard.app.test_request_context():
         job = dashboard.coordinator.create_job(

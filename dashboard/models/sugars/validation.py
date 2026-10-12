@@ -2,8 +2,11 @@
 
 from copy import deepcopy
 
-from ..mappings.identity import candidate_identity
-from ..mappings.schema import RING_SCALES
+# `mappings` imports this module (its package `__init__` re-exports the three names below), so importing anything from
+# it at module scope makes the pair circular and the outcome depend on which package a program touches first: entered
+# from `mappings` it resolves, entered from here `from ..mappings.schema import ...` runs that `__init__`, which asks
+# for `derive_representation` from a module still on its import line. It held for as long as an unrelated import
+# happened to pull `mappings` first. Both names are taken inside the functions that use them instead.
 
 PHYSICAL_ONLY = 'physical_only_ring_constrained'
 TC4 = 'tc4'
@@ -20,6 +23,7 @@ def representation_modes():
 
 
 def validate_representation(mapping, mode):
+    from ..mappings.schema import RING_SCALES
     if mode not in {TC4, PHYSICAL_ONLY}:
         raise ValueError(f'Unknown carbohydrate representation: {mode}')
     if not isinstance(mapping, dict) or not isinstance(mapping.get('beads'), list):
@@ -51,6 +55,7 @@ def validate_representation(mapping, mode):
 
 def derive_representation(mapping, mode):
     """Return a deterministic validation snapshot without mutating ``mapping``."""
+    from ..mappings.identity import candidate_identity
     validate_representation(mapping, TC4 if mode == PHYSICAL_ONLY else mode)
     result = deepcopy(mapping)
     if mode == TC4:

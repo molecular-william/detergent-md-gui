@@ -411,10 +411,32 @@ def _protocol_readiness(metadata):
 
 
 def _protocol_prepare(run_dir, metadata):
+    """Prepare an AA-to-CG run the way every other run type is prepared: fill `stages/`, then finish the run.
+
+    This used to be two steps in two modules -- the coordinator assembled the arguments, and `workflow.prepare_run`
+    built the stage directory, copied it to `inputs/` and wrote the manifest. Both halves live here now, which is what
+    makes `adapter_for('aa_cg').prepare(run_dir, metadata)` mean the same thing as it does for every other run type:
+    a run directory in, a prepared run out.
+    """
     keys = ('structure', 'detergent', 'profile', 'settings', 'mapping_candidate',
             'bonded_state_snapshot', 'bonded_intent', 'shared_reference',
             'reference_root', 'molecule_snapshot', 'molecule_root')
-    prepare(run_dir, **{key: metadata[key] for key in keys if key in metadata})
+    values = {key: metadata[key] for key in keys if key in metadata}
+    # The CG settings dialect is its own vocabulary. A key from the AA half that this run type does not use is dropped
+    # rather than refused, because those settings describe the reference it consumes instead of the run it builds --
+    # `normalize_settings` would otherwise take them, since it accepts both dialects by design. The coordinator applied
+    # this filter before calling the old entry point; it belongs with the run type that declares the dialect.
+    if values.get('settings'):
+        values['settings'] = {key: value for key, value in values['settings'].items() if key in SETTING_SPECS}
+    stages = Path(run_dir) / 'stages'
+    stages.mkdir(parents=True, exist_ok=True)
+    prepare(stages, **values)
+    # `prepare` leaves its record beside the stages, including the tool versions it used; the run's manifest is written
+    # from that record, and the record itself is not a stage input.
+    record = json.loads((stages / 'manifest.json').read_text())
+    return protocol.finish_prepared_run(run_dir, stages, metadata=record, tools=record.get('tools', {}),
+                                        plan=protocol.plan_pairs(record),
+                                        environment=record.get('environment'))
 
 
 PROTOCOL = protocol.Protocol(

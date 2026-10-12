@@ -376,9 +376,20 @@ class Coordinator:
                                    'molecule_id': job.get('molecule_id'),
                                    'molecule_root': self.ROOT / 'molecules'})
                     elif not in_place:
-                        kwargs=dict(detergent=job['detergent'],profile=job.get('profile','standard'),settings={k:v for k,v in job.get('settings',{}).items() if k in cg.SETTING_SPECS},mapping_candidate=job.get('mapping_snapshot'),bonded_state_snapshot=job.get('bonded_state_snapshot'),bonded_intent=job.get('bonded_intent','fit_and_simulate'),molecule_snapshot=job.get('molecule_snapshot'),molecule_root=self.ROOT / 'molecules')
-                        if job.get('shared_reference'):kwargs.update(shared_reference=job['shared_reference'],reference_root=self.RUNS)
-                        workflow.prepare_run(work, **kwargs)
+                        # The same door the four branches above use. The run type's own prepare now owns the stage
+                        # directory, the `inputs/` copy and the manifest, and applies its own settings dialect -- the
+                        # coordinator used to filter the settings and assemble the arguments before calling into the
+                        # orchestrator, which put a run type's vocabulary in the queue.
+                        protocol.adapter_for(protocol.run_type_of(job)).prepare(work, {
+                            'detergent': job['detergent'], 'profile': job.get('profile', 'standard'),
+                            'settings': job.get('settings') or {},
+                            'mapping_candidate': job.get('mapping_snapshot'),
+                            'bonded_state_snapshot': job.get('bonded_state_snapshot'),
+                            'bonded_intent': job.get('bonded_intent', 'fit_and_simulate'),
+                            'molecule_snapshot': job.get('molecule_snapshot'),
+                            'molecule_root': self.ROOT / 'molecules',
+                            **({'shared_reference': job['shared_reference'], 'reference_root': self.RUNS}
+                               if job.get('shared_reference') else {})})
                 finally:
                     if source_lease: source_lease.close()
                 prepared = json.loads((work/'manifest.json').read_text())

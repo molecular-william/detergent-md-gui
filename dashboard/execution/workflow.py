@@ -11,7 +11,6 @@ from pathlib import Path, PurePosixPath
 
 from .. import files
 from . import protocol
-from .adapters import cg
 from .adapters.cg_names import CGNames
 from .coordination.manifest import stage_log_path
 from .environment import environment, execution_root, recorded_environment
@@ -55,8 +54,15 @@ def declared_output_hashes(directory, patterns, recorded=None):
     return result
 
 
-def validate_stage_inputs(name, directory, required=None):
-    missing = missing_files(directory, (cg.REQUIRED_INPUTS if required is None else required).get(name, ()))
+def validate_stage_inputs(name, directory, required):
+    """Refuse a stage whose declared inputs are not on disk.
+
+    `required` is the run type's own contract (`stage_definitions(metadata)[1]`), passed in rather than defaulted: it
+    used to fall back to the CG adapter's table for every run type, which meant an AA-only stage was checked against a
+    contract that was not its own. The only caller supplies the right one, so the fallback was dead code that would
+    have been wrong if it had ever run.
+    """
+    missing = missing_files(directory, required.get(name, ()))
     if name == 'AA reference' and (directory / 'system_EMPTY.top').is_file():
         includes = re.findall(r'^\s*#include\s+"([^"]+)"', (directory / 'system_EMPTY.top').read_text(), re.M)
         missing += missing_files(directory, includes)
@@ -66,7 +72,7 @@ def validate_stage_inputs(name, directory, required=None):
 
 def _run_type(metadata) -> str:
     """The adapter that owns a run; absent means the historical combined AA-to-CG job."""
-    return metadata.get('run_type') or 'aa_cg'
+    return protocol.run_type_of(metadata)
 
 
 def stage_definitions(metadata):
@@ -77,55 +83,6 @@ def stage_definitions(metadata):
 def plan_for(metadata) -> tuple[Stage, ...]:
     """Return the resolved immutable stage declarations for a run."""
     return protocol.adapter_for(_run_type(metadata)).stages(metadata)
-
-
-def prepare_run(run_dir, **kwargs):
-    """New layout; all executable relative paths remain inside stages/."""
-    if kwargs.get('composition_id'):
-        from .adapters import composition
-        composition.prepare_run(run_dir, kwargs['composition_id'], kwargs.get('settings'))
-        return
-    stages = run_dir / 'stages'; stages.mkdir()
-    # A pdc run is the one type whose inputs are a protein and a detergent template rather than a molecule
-    # snapshot, so it builds its own stages; the AA and CG types share cg.prepare's machinery.
-    if _run_type(kwargs) == 'pdc':
-        from .adapters import pdc
-        pdc.prepare(stages, **kwargs)
-    else:
-        cg.prepare(stages, **kwargs)
-    metadata = json.loads((stages / 'manifest.json').read_text())
-    (stages / 'manifest.json').unlink()
-    shutil.copytree(stages, run_dir / 'inputs')
-    protocol.write_prepared_manifest(run_dir, metadata, tools=metadata.get('tools', {}),
-                                     plan=_plan_pairs(metadata),
-                                     environment=metadata.get('environment'))
-
-
-def _plan_pairs(metadata) -> list[list[str]]:
-    """A run's stage plan as `(name, relative)` pairs, whatever shape its adapter declares its stages in.
-
-    Three shapes exist and one of them is a legacy: the AA and CG adapters declare `(name, relative)` pairs, the pdc
-    adapter declares `Stage` records, and manifests written before 2026-10-10 by the CG adapter record *names only*.
-
-    A bare name is resolved through `stage_definitions` rather than guessed, and an entry of no known shape raises.
-    The previous fallback indexed whatever it was handed, so a name list produced `[['A', 'A'], ['t', 'r']]` -- two
-    characters per name -- and returned it as a plan. A silent wrong answer is worse than a refusal, because a caller
-    cannot tell it from a right one.
-    """
-    by_name = dict(stage_definitions(metadata)[0])
-    pairs = []
-    for entry in metadata.get('stage_plan') or plan_for(metadata):
-        if isinstance(entry, Stage):
-            pairs.append([entry.name, entry.relative])
-        elif isinstance(entry, str):
-            if entry not in by_name:
-                raise ValueError(f'stage plan names {entry!r}, which is not a stage of this run')
-            pairs.append([entry, by_name[entry]])
-        elif isinstance(entry, (list, tuple)) and len(entry) == 2:
-            pairs.append([entry[0], entry[1]])
-        else:
-            raise TypeError(f'cannot read a stage plan entry of type {type(entry).__name__}: {entry!r}')
-    return pairs
 
 
 def resumable_stages(run_dir, metadata=None):
@@ -152,10 +109,7 @@ def prepare_resume(run_dir, source, from_stage):
     shutil.copytree(source / 'inputs', run_dir / 'inputs')
     shutil.copytree(source / 'inputs', run_dir / 'stages')
     metadata = {k: v for k,v in old.items() if k not in ('stages','status','error','ended_at','started_at','id')}
-    if old.get('run_type')=='aa_only':
-        from .adapters import aa
-        tools=aa.tool_metadata()
-    else:tools=cg.tool_metadata()
+    tools=protocol.adapter_for(protocol.run_type_of(old)).tool_report()
     metadata.update(tools=tools, environment=recorded_environment(), source_manifest_sha256=files.sha256(source/'manifest.json'), stages=[], resume_of=source.name, resume_from=from_stage, reference_reused=old.get('reference_reused',False))
     plan, _, required_outputs = stage_definitions(old)
     for name, relative in plan:
