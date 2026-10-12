@@ -11,9 +11,12 @@ from playwright.sync_api import expect
 
 def test_the_complex_tab_opens_a_panel_that_says_what_it_would_build(dashboard, live_page):
     page, errors = live_page
-    page.goto(live_page.base_url)
+    # The tab lives in the protein-detergent workspace. Before the split one page held every panel, so opening the
+    # root and clicking the tab reached it; now the root is the detergent-validation workspace and the panel is
+    # rendered hidden there, which is why this navigates to the panel's own URL.
+    page.goto(live_page.base_url + '/protein-detergent/complexes')
 
-    tab = page.get_by_role('tab', name='Protein-Detergent Complex Simulations', exact=True)
+    tab = page.get_by_role('tab', name='Complexes', exact=True)
     expect(tab).to_be_visible()
     tab.click()
 

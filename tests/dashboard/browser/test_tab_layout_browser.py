@@ -87,8 +87,8 @@ def test_the_tabs_are_a_rail_on_a_wide_window_and_say_so(dashboard, live_page):
     # The visible label is short; the accessible name is the one the workflow is known by, so a reader who knows
     # the old name still finds it and no existing lookup by role and name breaks.
     assert page.evaluate("() => document.querySelector('#tab-new .tab-text').textContent") == 'Simulate'
-    expect(page.get_by_role('tab', name='Single Molecule Simulations', exact=True)).to_be_visible()
-    expect(page.get_by_role('tab', name='Protein-Detergent Complex Simulations', exact=True)).to_be_visible()
+    expect(page.get_by_role('tab', name='New run', exact=True)).to_be_visible()
+    expect(page.get_by_role('tab', name='Complexes', exact=True)).to_be_visible()
     assert page.evaluate("() => document.querySelectorAll('nav[role=tablist] .tab-group').length") == 2
     assert errors == []
 
@@ -113,7 +113,7 @@ def test_a_medium_window_keeps_the_icons_so_the_table_keeps_its_room(dashboard, 
     page.goto(live_page.base_url)
 
     assert not page.locator('#tab-new .tab-text').is_visible(), 'the labels fold away before the content does'
-    expect(page.get_by_role('tab', name='Single Molecule Simulations', exact=True)).to_be_visible()
+    expect(page.get_by_role('tab', name='New run', exact=True)).to_be_visible()
     assert width(page, 'nav[role=tablist]') == 64
     rail = page.locator('nav[role=tablist]').bounding_box()
     content = page.locator('.app-content').bounding_box()

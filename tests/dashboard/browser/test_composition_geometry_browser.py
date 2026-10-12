@@ -130,7 +130,7 @@ def test_preview_waits_for_the_catalogue_instead_of_posting_an_empty_fragment(da
                lambda route: route.fulfill(json=catalog) if released['value'] else None)
 
     page.goto(f'{live_page.base_url}/#compositions')
-    page.get_by_role('tab', name='Molecule Combination', exact=True).click()
+    page.get_by_role('tab', name='Combinations', exact=True).click()
     page.wait_for_selector('#composition-preview', timeout=30000)
     page.wait_for_timeout(700)
     assert page.locator('#composition-preview').is_disabled(), 'the button must not be live before its inputs are'
@@ -139,7 +139,7 @@ def test_preview_waits_for_the_catalogue_instead_of_posting_an_empty_fragment(da
     # Release the catalogue. The button becomes live, and what it posts names a real fragment.
     released['value'] = True
     page.reload()
-    page.get_by_role('tab', name='Molecule Combination', exact=True).click()
+    page.get_by_role('tab', name='Combinations', exact=True).click()
     page.wait_for_function("() => !document.querySelector('#composition-preview').disabled", timeout=30000)
     _preview(page)
     _mounted(page)

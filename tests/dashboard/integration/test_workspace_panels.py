@@ -56,6 +56,22 @@ def test_each_workspace_offers_only_its_own_panels(dashboard):
     assert '/detergent-validation/complexes' not in validation
 
 
+def test_the_front_door_renders_its_sub_tabs(dashboard):
+    """The section tabs come from the registry and the sub-tab row from the *resolved* workspace.
+
+    Those are two different lookups, and when they disagree the page renders its two workspace tabs above an empty
+    row -- which is how this broke: the front door passed the registry's key where a slug was expected, so the
+    template iterated an undefined value and Jinja said nothing. Counting the rows is the assertion that would have
+    caught it, and asserting only that the two workspace tabs are present (the first version of this test) is not.
+    """
+    with dashboard.client as c:
+        body = c.get('/').get_data(as_text=True)
+    assert body.count('class="subtab"') == len(SECTIONS['validation']['tabs']), (
+        'the front door must render every sub-tab of the workspace it opens on')
+    for slug in SECTIONS['validation']['tabs']:
+        assert f'/detergent-validation/{slug}' in body
+
+
 def test_the_front_door_answers_with_a_workspace_and_names_its_panel(dashboard):
     """`/` renders rather than redirects, so the client can send a returning browser to its own workspace."""
     with dashboard.client as c:

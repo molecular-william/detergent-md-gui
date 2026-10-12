@@ -11,8 +11,8 @@ def test_the_workflow_is_named_for_single_molecules(dashboard, live_page):
     """The tab and the panel heading say which workflow this is, now that there are two."""
     page, errors = live_page
     page.goto(live_page.base_url)
-    expect(page.get_by_role('tab', name='Single Molecule Simulations', exact=True)).to_be_visible()
-    page.get_by_role('tab', name='Single Molecule Simulations', exact=True).click()
+    expect(page.get_by_role('tab', name='New run', exact=True)).to_be_visible()
+    page.get_by_role('tab', name='New run', exact=True).click()
     expect(page.locator('#new h2')).to_have_text('Single Molecule Simulations')
     assert errors == []
 
@@ -27,7 +27,7 @@ def test_the_force_field_selector_is_the_registry(dashboard, live_page):
     from dashboard.execution import forcefields
     page, errors = live_page
     page.goto(f'{live_page.base_url}/#new')
-    page.get_by_role('tab', name='Single Molecule Simulations', exact=True).click()
+    page.get_by_role('tab', name='New run', exact=True).click()
     page.wait_for_function("() => document.querySelectorAll('#force-field option').length > 1", timeout=30000)
     options = page.evaluate("Array.from(document.querySelectorAll('#force-field option')).map(o => [o.value, o.textContent])")
     assert [value for value, _ in options] == list(forcefields.names())
@@ -52,7 +52,7 @@ def test_the_run_form_accepts_the_temperatures_the_force_fields_use(dashboard, l
     """
     page, errors = live_page
     page.goto(f'{live_page.base_url}/#new')
-    page.get_by_role('tab', name='Single Molecule Simulations', exact=True).click()
+    page.get_by_role('tab', name='New run', exact=True).click()
     # Wait for the server's default to reach the field, which is this claim's precondition. The submit button is
     # deliberately not waited on: readiness may hold it disabled in a bare fixture, and that is a different claim.
     page.wait_for_function("() => document.querySelector('[name=temperature_k]').value === '303.15'", timeout=30000)

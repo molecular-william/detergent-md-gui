@@ -42,11 +42,17 @@ def workspace_context(section, panel):
     One place rather than three, because the three routes that render it must not be able to disagree about what the
     template is handed -- and `legacy_tabs` is what answers the old `/#tab` bookmarks the previous navigation wrote.
 
-    `section` arrives as a URL **slug** and `workspace` is that slug's record. The registry is keyed by short names,
-    so the template reads the record rather than looking itself up -- which it cannot do, and which it tried to do
-    first: `workspaces['detergent-validation']` is a `jinja2.UndefinedError`, not an empty tab row.
+    `section` arrives as a URL **slug** and `workspace` is that slug's record. An unknown slug raises rather than
+    resolving to `None`, and that guard is the fix for a real failure: the front door passed the registry's *key*
+    where a slug was expected, `section_by_slug` returned `None`, and the template's `{% for slug in workspace.tabs %}`
+    iterated an undefined value -- which Jinja does silently. The page rendered its two workspace tabs and an empty
+    row beneath them, with no error in the console and no test noticing. A `TypeError` here is a far better outcome
+    than a page that is quietly missing a third of itself.
     """
-    return dict(section=section, panel=panel, workspace=section_by_slug(section), workspaces=SECTIONS,
+    found = section_by_slug(section)
+    if found is None:
+        raise ValueError(f'no workspace has the slug {section!r}')
+    return dict(section=section, panel=panel, workspace=found, workspaces=SECTIONS,
                 panel_info=PANELS, tab_ids=TAB_IDS, legacy_tabs=legacy_tab_targets())
 
 
@@ -60,7 +66,8 @@ def index():
     validation two canonical paths instead of one.
     """
     return render_template('dashboard.html',
-                           **workspace_context('validation', SECTIONS['validation']['tabs'][0]))
+                           **workspace_context(SECTIONS['validation']['slug'],
+                                               SECTIONS['validation']['tabs'][0]))
 
 
 @blueprint.get('/<section>')

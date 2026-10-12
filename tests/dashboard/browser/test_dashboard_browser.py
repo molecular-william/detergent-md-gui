@@ -14,17 +14,17 @@ def test_tab_switch_preserves_form_and_mapping_edits(dashboard, live_page):
     page.goto(live_page.base_url)
     expect(page.locator('.job-title')).to_contain_text('DDM')
     page.locator('.job summary').nth(1).click()
-    page.get_by_role('tab', name='Single Molecule Simulations', exact=True).click()
+    page.get_by_role('tab', name='New run', exact=True).click()
     page.locator('[name=label]').fill('My unsent run')
     page.locator('#method').select_option('bartender')
     dashboard.coordinator.database().update(job['id'], error='Updated failure explanation')
     page.get_by_role('tab', name='Runs', exact=True).click()
     expect(page.locator('.job-error')).to_have_text('Updated failure explanation')
-    page.get_by_role('tab', name='Single Molecule Simulations', exact=True).click()
+    page.get_by_role('tab', name='New run', exact=True).click()
     expect(page.locator('[name=label]')).to_have_value('My unsent run')
     expect(page.locator('#method')).to_have_value('bartender')
     expect(page.locator('.job').first.locator('details').filter(has_text='Commands')).to_have_attribute('open', '')
-    page.get_by_role('tab', name='CG mappings', exact=True).click()
+    page.get_by_role('tab', name='Bead Assignment', exact=True).click()
     expect(page.locator('#mapping-editor-status')).to_contain_text('loaded')
     page.locator('#generate-automatic').click()
     page.locator('#mapping-bead-rows tr').first.wait_for(timeout=30000)
@@ -36,7 +36,7 @@ def test_tab_switch_preserves_form_and_mapping_edits(dashboard, live_page):
     expect(page.locator('#mapping-validation-issues')).to_contain_text('Repeated atom assignments')
     page.get_by_role('tab', name='Runs', exact=True).click()
     expect(page.locator('.job').first.locator('details').filter(has_text='Commands')).to_have_attribute('open', '')
-    page.get_by_role('tab', name='CG mappings', exact=True).click()
+    page.get_by_role('tab', name='Bead Assignment', exact=True).click()
     expect(page.locator('#mapping-editor-name')).to_have_value('My edited mapping')
     assert errors == []
 
@@ -78,7 +78,7 @@ def test_delete_mapping_removes_the_saved_candidate(dashboard, live_page):
     page, errors = live_page
     page.on('dialog', lambda dialog: dialog.accept())
     page.goto(f'{live_page.base_url}/#mappings')
-    page.get_by_role('tab', name='CG mappings', exact=True).click()
+    page.get_by_role('tab', name='Bead Assignment', exact=True).click()
     select = page.locator('#mapping-candidate-filter')
     option = select.locator(f'option[value="{saved["file"]}"]')
     expect(option).to_have_count(1)
@@ -117,7 +117,7 @@ def test_the_selectors_sit_above_the_diagram_side_by_side(live_page):
     """
     page, errors = live_page
     page.goto(f'{live_page.base_url}/#mappings')
-    page.get_by_role('tab', name='CG mappings', exact=True).click()
+    page.get_by_role('tab', name='Bead Assignment', exact=True).click()
     expect(page.locator('#mapping-editor-diagram')).to_be_visible()
 
     molecule = page.locator('#mapping-molecule').bounding_box()
@@ -141,7 +141,7 @@ def test_the_selectors_sit_above_the_diagram_side_by_side(live_page):
 def test_mapping_editor_clear_all_removes_local_assignments(live_page):
     page = live_page.page
     page.goto(f'{live_page.base_url}/#mappings')
-    page.get_by_role('tab', name='CG mappings', exact=True).click()
+    page.get_by_role('tab', name='Bead Assignment', exact=True).click()
     page.locator('#generate-automatic').click()
     # The recogniser runs in the server, and this wait is the tier's one load-sensitive step: 60 s covers
     # moderate contention, and while a 200 ns atomistic run owns eight threads even that is not always enough,
@@ -158,7 +158,7 @@ def test_mapping_editor_clear_all_removes_local_assignments(live_page):
 def test_mapping_editor_disables_save_for_an_identical_saved_mapping(live_page):
     page = live_page.page
     page.goto(f'{live_page.base_url}/#mappings')
-    page.get_by_role('tab', name='CG mappings', exact=True).click()
+    page.get_by_role('tab', name='Bead Assignment', exact=True).click()
     expect(page.locator('#mapping-editor-status')).to_contain_text('loaded')
     page.locator('#generate-automatic').click()
     page.locator('#mapping-bead-rows tr').first.wait_for(timeout=30000)

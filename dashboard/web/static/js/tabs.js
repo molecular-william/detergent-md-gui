@@ -87,6 +87,12 @@ function wireKeyboard(list) {
 
 export function initializeTabs() {
   if (redirectLegacyFragment()) return;
+  // A fragment-only navigation -- someone following `/#bonded`, or a test doing the same -- does not reload the
+  // page, so nothing above runs again. Without this listener the old links work on a cold load and do nothing on a
+  // same-page one, which is the difference between a bookmark and a click.
+  window.addEventListener('hashchange', () => {
+    if (!redirectLegacyFragment()) showPanelForPath();
+  });
   subTabs().forEach(tab => {
     tab.addEventListener('click', event => {
       // The href is real, so a cold request works and the URL means something; intercepting it only spares a
