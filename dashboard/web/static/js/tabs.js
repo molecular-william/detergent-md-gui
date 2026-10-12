@@ -119,6 +119,12 @@ export function initializeTabs() {
   wireKeyboard(document.querySelector('nav.section-tabs[role=tablist]'));
   wireKeyboard(document.querySelector('nav.subtabs[role=tablist]'));
   syncOrientation();
-  showPanelForPath();
+  // Announce the open panel once, whatever the URL says. Every panel is mounted by a `dashboard:tab` listener in
+  // main.js, and that event fires only from selectTab -- so a page whose URL names no panel (the root, which is the
+  // front door and the common case) must still announce the one that is open, or nothing mounts and every panel on
+  // the page stays empty. The server has already marked it with aria-selected, so this reads it back rather than
+  // deciding again; the first tab is the fallback for a page that somehow marked none.
+  const openPanel = subTabs().find(tab => tab.getAttribute('aria-selected') === 'true') || subTabs()[0];
+  if (openPanel) selectTab(openPanel.dataset.tab, { push: false });
   window.addEventListener('popstate', showPanelForPath);
 }
