@@ -164,6 +164,8 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
       }
       const tasksKey = JSON.stringify([job.analyses || [], job.artifact_revision, job.stages]);
       if (card.dataset.tasks !== tasksKey) {
+        // Sole writer of the task list. The diagnostics box beside it has its own host and its own module; sharing
+        // this one made the two erase each other on the same refresh.
         const taskList = $('.analysis-tasks',card); taskList.replaceChildren();
         for (const task of job.analyses || []) {
           const row = document.createElement('p'); row.textContent = `${task.kind} · ${task.status} · ${task.progress || task.error || ''}`;

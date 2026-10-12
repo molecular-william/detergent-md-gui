@@ -8,7 +8,10 @@ import { $, api } from './shared.js';
  * because the endpoint returns 404 for runs without diagnostics.
  */
 export async function renderDistanceDiagnostics(card, job) {
-  const host = $('.analysis-tasks', card); if (!host) return;
+  // Sole writer of the diagnostics host. It used to write into the task list beside it, which `runs.js` fills on the
+  // same refresh -- so whichever of the two wrote second erased the other, and the card's contents depended on
+  // whether the diagnostics had been fetched yet rather than on the run.
+  const host = $('.analysis-diagnostics', card); if (!host) return;
   if (host.dataset.distanceRun === job.id) return;
   let response;
   try { response = await api(`/api/jobs/${job.id}/distance-diagnostics`); }
