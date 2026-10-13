@@ -66,7 +66,15 @@
 #run-form .leg label{display:flex;flex-direction:column;gap:2px;font-weight:650}
 #run-form .leg .hint{display:block;font-weight:400}
 #run-form .new-pdc-limitation{color:#7a4b00}
-/* The count carries a number field and a coarse slider, so the shared 6.5 rem cap on a setting control is lifted
-   for this pair alone -- stated at the control's own specificity, or the cap wins. */
-#run-form .setting-control .new-pdc-count-range{max-width:12rem}
-@media(max-width:700px){#run-form .setting-control .new-pdc-count-range{max-width:100%}}
+/* The fields that read as a pair share one row, so the card uses its width instead of stacking one per line.
+   T10's proof is geometric (equal y inside the column), not visual -- see the browser test. */
+#run-form .new-pdc-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px;align-items:start;margin:12px 0}
+/* Normalise the cell margins: the shared `label{margin:12px 0}` would push a label cell 12 px below a div cell in
+   the same grid row. The row's own margin sits on the pair instead. */
+#run-form .new-pdc-pair > *{margin-top:0}
+#run-form .new-pdc-download{display:flex;flex-direction:column;gap:4px}
+#run-form .new-pdc-download button{align-self:flex-start}
+#run-form .new-pdc-subunits{margin-top:10px}
+#run-form .new-pdc-backmap{display:flex;align-items:center;gap:8px;margin-top:12px;font-weight:650}
+#run-form .new-pdc-backmap input{width:auto}
+@media(max-width:700px){#run-form .new-pdc-pair{grid-template-columns:1fr}}

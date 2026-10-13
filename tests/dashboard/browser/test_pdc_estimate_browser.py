@@ -81,11 +81,15 @@ def open_panel(page, base_url, *, protein=PROTEIN['id']):
 
 
 def move_count(page, value):
-    """Move the coarse count slider, which is how a reader changes the question while an answer is in flight."""
+    """Move the count, which is how a reader changes the question while an answer is in flight.
+
+    The count is a number input now -- the coarse range slider went in T10 -- and the panel re-asks the estimate on
+    its `input` event, so dispatching one is the same gesture the slider used to make.
+    """
     page.evaluate("""value => {
-        const range = document.querySelector('#new-count-range');
-        range.value = String(value);
-        range.dispatchEvent(new Event('input', {bubbles: true}));
+        const count = document.querySelector('#new-count');
+        count.value = String(value);
+        count.dispatchEvent(new Event('input', {bubbles: true}));
     }""", value)
 
 

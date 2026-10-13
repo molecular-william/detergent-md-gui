@@ -443,6 +443,16 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
 
   const detergent = () => chosen.get(field('molecule_id').value) || null;
   const templateEntry = () => (catalogue?.templates || []).find(item => item.id === field('template').value) || null;
+  // The protein entry and the chains it declares: a deposited OPM entry can be an assembly (1AT9 is a trimer), and
+  // the catalogue is where that list is read. Absent `chains` means the entry states none, which is not the same as
+  // an empty selection -- the whole structure is simulated, as it was before the picker existed.
+  const proteinEntry = () => (catalogue?.proteins || []).find(item => item.id === field('protein').value) || null;
+  const chainEntries = () => proteinEntry()?.chains || [];
+  const selectedChains = () => {
+    const select = field('protein_chains');
+    return select ? [...select.selectedOptions].map(option => option.value) : [];
+  };
+  const backmapping = () => !!field('backmap')?.checked;
   // The select's option value is the catalogue entry's id (`DDM:DDM`), which is what the Complexes panel's own picker
   // carries; what a run is *prepared* with is the template file, and `pdc.prepare`/`pdc.readiness` resolve that path
   // against the project root. So the path travels from the entry, never from the option's value.
@@ -536,11 +546,32 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     }
   }
 
-  function syncCount() {
-    const count = field('aggregation_number'), range = pdcNode('.new-pdc-count-range');
-    if (!count || !range) return;
-    const value = Number(count.value) || Number(range.min);
-    range.value = String(Math.min(Math.max(value, Number(range.min)), Number(range.max)));
+  // Which subunits the run simulates. The build, the estimate and the back-map all take the file, so the selection
+  // has to reach all three -- a picker that does not move the estimate would describe a different structure than the
+  // one simulated, which is the defect this guards against. The default is every chain the entry declares.
+  function describeChains() {
+    const chains = chainEntries(), chosen = selectedChains(), hasProtein = !!field('protein').value;
+    if (!hasProtein) { say('.new-pdc-subunits-note', ''); return; }
+    say('.new-pdc-subunits-note', chains.length
+      ? `${chosen.length} of ${chains.length} subunits selected`
+        + (chosen.length ? `: ${chosen.join(', ')}` : ' — choose at least one')
+        + '. The build, the estimate and the back-map all use this selection.'
+      : 'This entry states no chains, so the whole structure is simulated.');
+  }
+
+  function syncChains() {
+    const block = pdcNode('.new-pdc-subunits'), select = field('protein_chains');
+    if (!block || !select) return;
+    const chains = chainEntries(), hasProtein = !!field('protein').value;
+    // A selection that still names a chain this entry has keeps its place; a newly chosen entry defaults to all.
+    const keep = new Set(selectedChains());
+    block.hidden = !(hasProtein && chains.length);
+    select.replaceChildren(...chains.map(chain => {
+      const option = new Option(chain, chain);
+      option.selected = keep.size ? keep.has(chain) : true;
+      return option;
+    }));
+    describeChains();
   }
 
   // The count is an input in both modes -- it is the belt's size with a protein and the micelle's without -- and
@@ -555,6 +586,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       ? (mapping.selectedOptions[0]?.textContent || mapping.value) : 'None: centres-only recorded');
     setText(summary('protein'), hasProtein
       ? (field('protein').selectedOptions[0]?.textContent || field('protein').value) : 'none · empty micelle');
+    const chains = chainEntries(), chosen = selectedChains();
+    setText(summary('subunits'), !hasProtein ? 'n/a · empty micelle'
+      : chains.length ? `${chosen.length}/${chains.length} · ${chosen.join(', ') || 'none'}`
+      : 'whole structure');
     setText(summary('count'), String(count));
     setText(summary('sampling'), `${field('pdc_assessment_ns').value || '—'} ns assessment · `
       + `${field('pdc_extension_ns').value || '—'} ns extension`);
@@ -603,6 +638,23 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
           : `Self-assembly: the ${count} detergents start at random and CG MD settles the micelle.`));
     setText(summary('placement'), pre ? 'Pre-assembled micelle · CHARMM-GUI' : 'Self-assembly · MemProtMD');
     setText(summary('seed'), field('pdc_seed').value || 'not set — the run cannot start');
+    // What the run will and will not produce, stated in the review so a reader cannot mistake a run without
+    // back-mapping for one with it. The workflow strip's own step says the same.
+    const backmap = backmapping();
+    setText(summary('backmap'), backmap
+      ? 'CG2AT2 to atomistic (−o align)'
+      : 'off — the run stops coarse-grained, with no atomistic structure produced');
+    say('.new-pdc-backmap-note', backmap
+      ? 'On: the extended CG state is converted to atomistic with CG2AT2 (-o align).'
+      : 'Off: the back-map stage records skipped and the run stops coarse-grained, with no atomistic structure produced.');
+    const backStep = pdcNode('.new-pdc-backmap-step');
+    if (backStep) {
+      backStep.querySelector('strong').textContent = backmap ? '6 · Extend, then back-map' : '6 · Extend (no back-map)';
+      backStep.querySelector('span').textContent = backmap
+        ? 'Continuation from the surviving checkpoint, then CG2AT2 with -o align: the final CG state becomes atomistic.'
+        : 'Continuation from the surviving checkpoint only. Back-mapping is switched off, so the run stops '
+          + 'coarse-grained and produces no atomistic structure.';
+    }
     const number = item && item.aggregation_number != null ? String(item.aggregation_number) : null;
     // The estimate is the server's: the review shows the answer the route gave (or its refusal), and with no
     // protein there is no slab to size, so the detergent's own measured micelle size stands instead.
@@ -668,9 +720,20 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       renderEstimate(); syncSummary();
       return;
     }
+    // The estimate must describe what will be simulated, so the same subunit selection goes with the question. An
+    // entry that declares chains but has none chosen is a run that cannot start; there is no honest slab to size.
+    const chains = selectedChains();
+    if (chainEntries().length && !chains.length) {
+      estimateState = {kind: 'idle', summary: '', body: null, reason: ''};
+      renderEstimate(); syncSummary();
+      return;
+    }
     estimateState = {kind: 'loading', summary: 'Sizing…', body: null, reason: ''};
     renderEstimate(); syncSummary();
     const query = new URLSearchParams({molecule_id: molecule, aggregation_number: field('aggregation_number').value});
+    // Only a whole-file run omits this: a present selection is always sent, so the numbers beside it are the ones
+    // for the structure the run will build.
+    if (chains.length) query.set('chains', chains.join(','));
     // A catalogue id can be an absolute path (an imported structure lives outside the repository), and the route
     // reads such a path with its leading slash stripped: `catalogue_protein` compares both sides without one. That
     // is also the only spelling that answers directly -- a percent-encoded leading slash decodes to `//` in the
@@ -706,6 +769,11 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       return 'Choose a detergent: this panel offers only what detergents.json files, and molecules/ has none of them.';
     }
     if (!field('template').value) return 'Choose a detergent template: the build places the detergent the template names.';
+    // Which subunits is a choice the run has to carry: with none chosen there is no protein to build, and the
+    // estimate beside it would describe a structure nobody asked for.
+    if (field('protein').value && chainEntries().length && !selectedChains().length) {
+      return 'Choose at least one subunit: the build, the estimate and the back-map all use this selection.';
+    }
     if (!String(field('pdc_seed').value || '').trim()) {
       return 'Choose a random seed. Detergents are placed at random, so a build with no seed cannot be compared with another.';
     }
@@ -782,7 +850,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       : `Imported ${body.pdbid}` + (body.half_thickness_nm != null
           ? ` — its file states a ${body.half_thickness_nm} nm half-thickness.`
           : ' — its file states no membrane, so the build would use the protein-extent box.'));
-    syncSummary(); checkReadiness();
+    syncChains(); syncSummary(); loadEstimate(); checkReadiness();
   }
 
   field('molecule_id').addEventListener('change', () => {
@@ -790,7 +858,12 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     loadMappings().then(() => { syncSummary(); loadEstimate(); return checkReadiness(); }).catch(error => say('.new-pdc-detergent', error.message));
   });
   field('template').addEventListener('change', () => { describeTemplate(); store(); syncSummary(); checkReadiness(); });
-  field('protein').addEventListener('change', () => { store(); syncSummary(); loadEstimate(); checkReadiness(); });
+  field('protein').addEventListener('change', () => { syncChains(); store(); syncSummary(); loadEstimate(); checkReadiness(); });
+  // The subunit selection is part of the question the estimate answers, so every change to it is asked again -- the
+  // numbers must move with the choice, or the block is describing a different structure than the run.
+  field('protein_chains')?.addEventListener('change', () => {
+    describeChains(); store(); syncSummary(); loadEstimate(); checkReadiness();
+  });
   field('mapping_candidate').addEventListener('change', () => { store(); syncSummary(); loadEstimate(); checkReadiness(); });
   // Every number the adapter reads. `input` keeps the summary and the gate current while a value is typed -- a
   // number input fires `change` only on blur, so a gate that listened for that alone would leave the reader looking
@@ -802,13 +875,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     input.addEventListener('input', () => { syncSummary(); store(); refreshReadinessSoon(); });
     input.addEventListener('change', () => { syncSummary(); store(); checkReadiness(); });
   }
-  field('aggregation_number').addEventListener('input', syncCount);
-  // The count is part of the question the estimate answers, so every change to it is asked again -- typed or slid.
   field('aggregation_number').addEventListener('input', loadEstimate);
   field('pdc_placement_mode')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
-  pdcNode('.new-pdc-count-range')?.addEventListener('input', event => {
-    field('aggregation_number').value = event.target.value; syncCount(); syncSummary(); store(); loadEstimate();
-  });
+  field('backmap')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
   pdcNode('.new-pdc-import-button')?.addEventListener('click', importStructure);
   field('pdbid')?.addEventListener('keydown', event => {
     if (event.key === 'Enter') { event.preventDefault(); importStructure(); }
@@ -826,6 +895,12 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
                        template: templatePath(), protein: field('protein').value || null,
                        label: field('label').value || ''};
       if (field('mapping_candidate').value) payload.mapping_candidate = field('mapping_candidate').value;
+      // Which subunits the build prepares the protein from, and whether the run ends atomistic: both are settings
+      // the adapter reads, sent only when they mean something -- an empty micelle has no chains to select, and the
+      // back-map choice is always stated so a run without it cannot be read as a run with it.
+      const chains = selectedChains();
+      if (field('protein').value && chains.length) payload.protein_chains = chains;
+      payload.backmap = backmapping();
       // The style is a choice the adapter reads through its own placement-mode alias, so it travels under the
       // panel's spelling (`pdc_placement_mode`) exactly as the seed does.
       payload.pdc_placement_mode = placementMode();
@@ -861,7 +936,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       // build with no seed cannot be compared with another. Cleared by hand it stays empty and the gate names it.
       const seedInput = field('pdc_seed');
       if (seedInput && seedInput.value === '') seedInput.value = String(todaySeed());
-      syncCount();
+      syncChains();
       await loadMappings();
       mounted = true;
       syncSummary();

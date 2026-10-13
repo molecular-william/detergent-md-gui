@@ -279,8 +279,11 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
     """The payload is the adapter's own vocabulary, and nothing else is on it.
 
     A control whose value no stage consumes is a control that lies, so this pins the key set: the run type, the
-    detergent, its template and mapping, the protein (or its absence), the label, and the settings under the names
-    `pdc.SETTING_SPECS` declares.
+    detergent, its template and mapping, the protein (or its absence), the label, whether the run is back-mapped,
+    and the settings under the names `pdc.SETTING_SPECS` declares.
+
+    This fixture's protein declares no chains, so `protein_chains` is absent: a whole-file run carries no subunit
+    selection, and `test_pdc_subunits_browser.py` pins the payload when an entry does declare them.
     """
     page, errors = live_page
     posted = {}
@@ -309,6 +312,7 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
     assert posted == {
         'run_type': 'pdc', 'molecule_id': 'DDM', 'template': 'molecules/DDM/micelle_template.json',
         'protein': 'molecules/1qj8/1qj8.pdb', 'label': 'pdc panel test', 'pdc_placement_mode': 'lattice',
+        'backmap': True,
         'aggregation_number': 220, 'pdc_assessment_ns': 100, 'pdc_extension_ns': 900, 'pdc_seed': 20260928,
         'salt_molar': 0.15, 'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
         'selection_threshold_fraction': 0.1, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20,

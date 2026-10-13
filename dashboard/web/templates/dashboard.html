@@ -75,9 +75,11 @@
     <section class="card" aria-labelledby="new-detergent-title">
       <span class="eyebrow">DETERGENT</span><h3 id="new-detergent-title">Choose a detergent</h3>
       <p class="hint">Detergents only, filtered by the registry in <code>detergents.json</code>: a molecule that registry does not name cannot be chosen here, because the belt is built from the detergent's own beads.</p>
-      <label>Detergent<select name="molecule_id" id="new-detergent" required aria-describedby="new-detergent-detail"><option value="">Loading detergents…</option></select></label>
+      <div class="new-pdc-pair new-pdc-detergent-pair">
+        <label>Detergent<select name="molecule_id" id="new-detergent" required aria-describedby="new-detergent-detail"><option value="">Loading detergents…</option></select></label>
+        <label>Detergent template<select name="template" id="new-template" required aria-describedby="new-template-limitation"><option value="">Loading templates…</option></select></label>
+      </div>
       <p id="new-detergent-detail" class="hint new-pdc-detergent" role="status">Reading the detergent registry…</p>
-      <label>Detergent template<select name="template" id="new-template" required aria-describedby="new-template-limitation"><option value="">Loading templates…</option></select></label>
       <p id="new-template-limitation" class="hint new-pdc-limitation"></p>
       <label>CG mapping<select name="mapping_candidate" id="new-mapping"><option value="">Select a saved mapping</option></select></label>
       <p class="hint">Mappings for other molecules are not offered here: the belt is built from this detergent's beads.</p>
@@ -85,22 +87,31 @@
     <section class="card" aria-labelledby="new-protein-title">
       <span class="eyebrow">MEMBRANE PROTEIN</span><h3 id="new-protein-title">Choose or download a structure</h3>
       <p class="hint">OPM structures arrive already oriented in the membrane, which is the step MemProtMD spends Memembed on. Choosing no structure is an empty-micelle build, not a missing input.</p>
-      <label>Protein<select name="protein" id="new-protein"><option value="">No protein · empty micelle</option></select></label>
-      <label>Download from OPM<input name="pdbid" id="new-protein-id" type="text" maxlength="4" placeholder="1qj8" autocomplete="off" spellcheck="false" aria-describedby="new-import-status"></label>
-      <button type="button" class="secondary new-pdc-import-button" id="new-import">Download</button>
+      <div class="new-pdc-pair new-pdc-protein-pair">
+        <label>Protein<select name="protein" id="new-protein"><option value="">No protein · empty micelle</option></select></label>
+        <div class="new-pdc-download">
+          <label>Download from OPM<input name="pdbid" id="new-protein-id" type="text" maxlength="4" placeholder="1qj8" autocomplete="off" spellcheck="false" aria-describedby="new-import-status"></label>
+          <button type="button" class="secondary new-pdc-import-button" id="new-import">Download</button>
+        </div>
+      </div>
       <p id="new-import-status" class="hint new-pdc-import-status" role="status">An import reports the half-thickness it found, or says plainly that the file states no membrane.</p>
+      <div class="new-pdc-subunits" hidden>
+        <label>Subunits<select name="protein_chains" multiple size="4" aria-describedby="new-subunits-note"></select></label>
+        <p id="new-subunits-note" class="hint new-pdc-subunits-note" role="status"></p>
+      </div>
     </section>
     <section class="card" aria-labelledby="new-config-title">
       <span class="eyebrow">RUN CONFIGURATION</span><h3 id="new-config-title" class="new-pdc-config-title">Detergent belt and sampling</h3>
       <p class="hint">This workspace runs protein-detergent systems only, so the panel asks only what that pipeline reads: no AA reference, no mapping screen, no bonded fit. The detergent's own topology file is its parameterisation.</p>
-      <label>Initialisation style<select name="pdc_placement_mode" id="new-placement" aria-describedby="new-placement-note"><option value="lattice">Pre-assembled micelle · CHARMM-GUI</option><option value="self-assembly">Self-assembly · MemProtMD</option></select></label>
+      <div class="new-pdc-pair new-pdc-config-pair">
+        <label>Initialisation style<select name="pdc_placement_mode" id="new-placement" aria-describedby="new-placement-note"><option value="lattice">Pre-assembled micelle · CHARMM-GUI</option><option value="self-assembly">Self-assembly · MemProtMD</option></select></label>
+        <label><span class="new-pdc-count-label" id="new-count-label">Detergents in the belt</span>
+          <span class="setting-control">
+            <input name="aggregation_number" id="new-count" type="number" min="1" max="1000" step="1" aria-describedby="new-count-help">
+          </span>
+        </label>
+      </div>
       <p id="new-placement-note" class="hint new-pdc-placement-note" role="status">Pre-assembled micelle (CHARMM-GUI style): the detergents are initialised in a micelle structure around the protein, so the belt is exactly the count you ask for.</p>
-      <label><span class="new-pdc-count-label" id="new-count-label">Detergents in the belt</span>
-        <span class="setting-control">
-          <input name="aggregation_number" id="new-count" type="number" min="1" max="1000" step="1" aria-describedby="new-count-help">
-          <input id="new-count-range" class="new-pdc-count-range" type="range" min="20" max="400" step="1" value="150" aria-label="Detergent count, coarsely">
-        </span>
-      </label>
       <p class="hint" id="new-count-help">This input is here in both modes: around a protein it is the belt's size, with no protein it is the micelle's.</p>
       <div class="new-pdc-belt-block" id="new-belt-block">
         <div class="new-pdc-estimate-card" role="status" aria-live="polite">
@@ -126,14 +137,18 @@
         <p class="hint">The registry carries that number per entry, with the citation that states it; the slot is filled from the entry and never from this panel's arithmetic. An entry without one says so rather than guessing.</p>
       </div>
       <p class="hint new-pdc-estimate-note" role="status"></p>
-      <div class="leg">
-        <label>CG assessment leg (ns)<input name="pdc_assessment_ns" id="new-assessment-ns" type="number" min="1" max="100000" step="1"></label>
-        <span class="hint">The first CG leg, and it is named for what happens to it: its end state is judged. Detergents not in the micelle are removed, and losing more than 10% of the requested count re-runs this leg from scratch with new velocities, up to three attempts.</span>
+      <div class="new-pdc-pair new-pdc-legs">
+        <div class="leg">
+          <label>CG assessment leg (ns)<input name="pdc_assessment_ns" id="new-assessment-ns" type="number" min="1" max="100000" step="1"></label>
+          <span class="hint">The first CG leg, and it is named for what happens to it: its end state is judged. Detergents not in the micelle are removed, and losing more than 10% of the requested count re-runs this leg from scratch with new velocities, up to three attempts.</span>
+        </div>
+        <div class="leg">
+          <label>CG extension leg (ns)<input name="pdc_extension_ns" id="new-extension-ns" type="number" min="1" max="1000000" step="1"></label>
+          <span class="hint">Continues the system that survived, from its checkpoint (<code>gmx convert-tpr -extend</code>), so the total CG sampling is the two legs together — 1 µs by default. The assessment re-runs at the end, and this is the state that gets back-mapped.</span>
+        </div>
       </div>
-      <div class="leg">
-        <label>CG extension leg (ns)<input name="pdc_extension_ns" id="new-extension-ns" type="number" min="1" max="1000000" step="1"></label>
-        <span class="hint">Continues the system that survived, from its checkpoint (<code>gmx convert-tpr -extend</code>), so the total CG sampling is the two legs together — 1 µs by default. The assessment re-runs at the end, and this is the state that gets back-mapped.</span>
-      </div>
+      <label class="new-pdc-backmap">Back-map to atomistic (CG2AT2)<input name="backmap" type="checkbox" checked></label>
+      <p class="hint new-pdc-backmap-note" role="status">On: the extended CG state is converted to atomistic with CG2AT2 (<code>-o align</code>). Off: the back-map stage records <code>skipped</code> and the run stops coarse-grained, with no atomistic structure produced.</p>
       <details id="new-advanced"><summary>Salt, seed and box</summary>
         <div class="settings-grid">
           <label>Salt concentration (M)<span class="setting-control"><input name="salt_molar" type="number" min="0" max="5" step="0.01"></span></label>
@@ -159,7 +174,7 @@
         <li class="new-pdc-selfassembly"><strong>3 · Self-assemble</strong><span>Detergents placed at random around the protein, then CG MD lets the belt find its own arrangement — MemProtMD's self-assembly route, rather than placing a pre-formed belt.</span></li>
         <li><strong>4 · Sample</strong><span>CG MD: minimisation, then equilibration, then the assessment leg.</span></li>
         <li><strong>5 · Judge</strong><span>Detergents in the micelle are counted, the rest removed; losing more than 10% of the requested count re-runs the leg, up to three attempts.</span></li>
-        <li><strong>6 · Extend, then back-map</strong><span>Continuation from the surviving checkpoint, then CG2AT2 with <code>-o align</code>.</span></li>
+        <li class="new-pdc-backmap-step"><strong>6 · Extend, then back-map</strong><span>Continuation from the surviving checkpoint, then CG2AT2 with <code>-o align</code>.</span></li>
       </ul>
       <p class="hint new-pdc-workflow-note" role="status">With a protein, steps 3 and 5 use the protein's hydrophobic surface. For an empty micelle, step 3 is the micelle on its own and step 5's protein clause does not apply.</p>
       <p class="hint">Memembed is skipped, and that is a saving rather than a gap: an OPM structure is already oriented in the membrane, which is the step it would do.</p>
@@ -170,12 +185,13 @@
       <dt>Detergent</dt><dd data-new-summary="detergent">—</dd>
       <dt>Mapping</dt><dd data-new-summary="mapping">—</dd>
       <dt>Protein</dt><dd data-new-summary="protein">none · empty micelle</dd>
+      <dt class="new-pdc-subunits-label">Subunits</dt><dd data-new-summary="subunits">—</dd>
       <dt>Initialisation</dt><dd data-new-summary="placement">—</dd>
       <dt>Detergents</dt><dd data-new-summary="count">—</dd>
       <dt class="new-pdc-estimate-label">Estimate</dt><dd data-new-summary="estimate">—</dd>
       <dt>Sampling</dt><dd data-new-summary="sampling">—</dd>
       <dt>Seed</dt><dd data-new-summary="seed">—</dd>
-      <dt>Back-map</dt><dd>CG2AT2, <code>-o align</code></dd>
+      <dt>Back-map</dt><dd data-new-summary="backmap">CG2AT2 to atomistic</dd>
     </dl>
     <p class="hint review-note">Execution success does not establish scientific validation.</p>
     <p id="launch-blocker" class="hint" role="status"></p>
