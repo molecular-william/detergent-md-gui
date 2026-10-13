@@ -1,10 +1,15 @@
 """Browser proof that the mapping editor's 3D overlay draws the molecule and its beads where they are.
 
-The panel's 2D depiction has always drawn a bead as a circle at the mean of the atoms it maps. The 3D view makes
-the same claim with spheres, and the claim is the whole point of the view: a sphere that sits somewhere other than
-its atoms' centre would say something false about the mapping. So the assertions here are about geometry rather
-than about mounting: the sphere's position is compared with the mean of the atoms the mapping gives that bead, read
-from the structure the viewer is actually holding.
+The bead editor draws each bead as a sphere at the mean of the atoms it maps, in the same three dimensions as the
+molecule. That is the whole point of the view: a sphere that sat somewhere other than its atoms' centre would say
+something false about the mapping. So the assertions here are about geometry rather than about mounting: the
+sphere's position is compared with the mean of the atoms the mapping gives that bead, read from the structure the
+viewer is actually holding.
+
+Reads go through `_drawn`, not a bare `evaluate`. `update()` clears the viewer's components before it rebuilds them,
+so a read that lands in that window finds an empty list -- which is exactly how this file failed once, under load,
+with `Cannot read properties of undefined`. The read retries until the state it needs exists, and still fails loudly
+if the view never draws: a widened timeout would only decide how long the failure takes.
 
 The candidate is created through the panel's own route into the fixture's workspace, so nothing here touches a
 developer's data and the fixture runs the current code.
@@ -25,10 +30,12 @@ STAGE = """(el) => {
             opacity: (repr.parameters ?? {}).opacity }))};
 }"""
 
-# Each bead atom's position beside the mean of the molecule atoms that bead maps: the claim under test.
+# Each bead atom's position beside the mean of the molecule atoms that bead maps: the claim under test. Guarded,
+# because a component list that has just been cleared is a state this read can meet.
 CENTRES = """(el) => {
   const stage = el.overlayStage;
-  const molecule = stage.compList[0].structure, beads = stage.compList[1].structure;
+  const molecule = stage?.compList?.[0]?.structure, beads = stage?.compList?.[1]?.structure;
+  if (!molecule || !beads) return null;
   const out = [];
   for (let index = 0; index < beads.atomCount; index += 1) {
     const bead = beads.getAtomProxy(index);
@@ -92,6 +99,21 @@ CLICK_EVIDENCE = """(el) => {
 }"""
 
 
+def _drawn(page, expression, ready=lambda value: bool(value), tries=24, pause_ms=250):
+    """Read the viewer once it is holding what the read needs.
+
+    `update()` rebuilds the components on every assignment change: it clears them first, so a read inside that window
+    meets an empty list. Retrying the read is the remedy, and it is bounded -- if the view never draws, this raises
+    with the expression that timed out rather than letting a later assertion fail for an unrelated reason.
+    """
+    for _ in range(tries):
+        value = page.locator(OVERLAY).evaluate(expression)
+        if ready(value):
+            return value
+        page.wait_for_timeout(pause_ms)
+    raise AssertionError(f'the viewer never held what this read needs: {expression.strip()[:70]}')
+
+
 def _open_editor(page, live_page):
     page.goto(f'{live_page.base_url}/detergent-validation/bead-assignment')
     # The mapping tab carries aria-label="CG mappings", so its accessible name is not the text on the button. The
@@ -110,7 +132,7 @@ def test_the_overlay_draws_the_molecule_and_one_sphere_per_bead(dashboard, live_
     _open_editor(page, live_page)
 
     expect(page.locator(OVERLAY).locator('canvas')).to_be_visible()
-    state = page.locator(OVERLAY).evaluate(STAGE)
+    state = _drawn(page, STAGE, lambda value: value and value['components'] >= 2 and all(value['atoms']))
     heavy = [atom for atom in context['atoms'] if atom['heavy']]
     with_atoms = [bead for bead in candidate['beads'] if bead.get('atoms')]
     assert state['atoms'] == [len(heavy), len(with_atoms)], state
@@ -123,7 +145,7 @@ def test_every_sphere_sits_at_the_centre_of_the_atoms_its_bead_maps(dashboard, l
     context, candidate = _seed_candidate(dashboard)
     _open_editor(page, live_page)
 
-    drawn = page.locator(OVERLAY).evaluate(CENTRES)
+    drawn = _drawn(page, CENTRES)
     positions = {atom['id']: [value * 10 for value in atom['xyz']] for atom in context['atoms']}
     expected = []
     for bead in candidate['beads']:
@@ -147,7 +169,7 @@ def test_the_spheres_are_drawn_translucent_and_sized_by_their_class(dashboard, l
     _seed_candidate(dashboard)
     _open_editor(page, live_page)
 
-    reps = page.locator(OVERLAY).evaluate(STAGE)['beadReps']
+    reps = _drawn(page, STAGE, lambda value: value and value['beadReps'])['beadReps']
     assert reps, reps
     for rep in reps:
         assert rep['sele'] in ('R', 'S', 'T'), rep
@@ -165,7 +187,7 @@ def test_clicking_a_sphere_selects_the_atoms_that_bead_maps(dashboard, live_page
     # Scrolled into view first: this point is in viewport coordinates, and an element far down the page would
     # otherwise be clicked about a thousand pixels away from where the sphere is.
     page.locator(OVERLAY).scroll_into_view_if_needed()
-    evidence = page.locator(OVERLAY).evaluate(CLICK_EVIDENCE)
+    evidence = _drawn(page, CLICK_EVIDENCE)
     assert evidence, 'no sphere was found to click'
     page.mouse.click(evidence['point'][0], evidence['point'][1])
     try:
