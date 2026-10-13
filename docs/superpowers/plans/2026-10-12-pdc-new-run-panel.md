@@ -1,6 +1,9 @@
 # A New Run panel for Protein-Detergent Simulations
 
-Status: **draft for approval.** Nothing here is built. The HTML mock of the panel is beside this plan at
+Status: **T1, T2, T3, T6 and T7 built and committed (2026-10-13).** T4's OPM download was wired by T2's own work — the
+panel drives the existing import, including its half-thickness honesty — so it is done in substance. **T5** (end to end)
+and **T8** (the registry's experimental numbers) remain open, and T8 waits on the user's experimental aggregation
+numbers. The HTML mock of the panel is beside this plan at
 `docs/superpowers/drafts/2026-10-12-pdc-new-run-panel-draft.html`.
 
 Redlines from the first review (2026-10-13) are folded in: the workflow chain this panel states, the two pipeline
@@ -153,12 +156,23 @@ Files: `dashboard/web/sections.py`, `dashboard/models/molecules/…` (or the rou
 `dashboard/web/routes/molecules.py`. Tests: a unit test that both workspaces label their new-run panel differently,
 and one that a non-detergent is refused and DDM allowed. Acceptance: no other panel's label moves.
 
+**Done (2026-10-13).** `detergents.json` — 95 entries, no reader before this — is read by
+`models/molecules/detergent_registry.py`; `GET /api/detergents` resolves it against the molecules on disk; `sections.py`
+gains `panel_labels`. Measured: 21 tests, 7 of them browser, for T1 and T2 together — a molecule the registry does not
+name is refused by name, and every other panel's label is asserted unchanged.
+
 **T2 — the panel's pdc mode.** The template gains a pdc fieldset, rendered only for that workspace; `new-run.js`
 branches on its workspace slug, drops the controls listed above and shows the pdc ones. Files:
 `dashboard/web/templates/dashboard.html`, `dashboard/web/static/js/new-run.js`, `dashboard/web/static/new-run.css`.
 Tests: browser — opening `/protein-detergent/new-run` shows no "Run type", no "Method", no "AA reference source", no
 "Bonded parameters", and does show the detergent list, the protein picker, the count and the settings; opening
 `/detergent-validation/new-run` is unchanged.
+
+**Done (2026-10-13).** The pdc fieldset renders for the protein-detergent workspace only; Run type, Method, AA
+reference source and Bonded parameters are gone, and the count stays an input in both modes. Measured: the two columns
+sit side by side at 1700 px (`816|816` of a 1652 px form) and at 1280 px (`606|606` of 1232), and stack below the 900 px
+breakpoint (1000 px). Two tests found two real defects rather than papering over them: the template heading read
+whichever panel was open, and the select carried a catalogue id where prepare needs the template's file path.
 
 **Two columns, and how this panel already gets them.** The form is `#run-form.new-run-layout`: `layout.css` gives it a
 12-column grid and `.new-run-inputs` / `.new-run-settings` span 6 each, and the app links `layout.css` *after*
@@ -171,6 +185,13 @@ exist.
 construction, so the arithmetic is pinned independently of `gmx sasa`. Files: new module under
 `dashboard/models/` (or `analysis/runs/`), `dashboard/web/routes/pdc.py`, its tests. Acceptance: a protein with no
 membrane annotation is refused with a reason, not given a made-up slab.
+
+**Done (2026-10-13).** The module is `analysis/runs/encapsulation.py`, the route
+`GET /api/pdc/proteins/<entry>/encapsulation`. Measured: 34 tests, 25 unit and 9 integration; the load-bearing fixture
+is derived by hand (2 x 4*pi*(0.175 + 0.191)^2 = 3.366681 nm^2 against a measured 3.366681, the residue being the
+Fibonacci mesh's float32). A modified residue (MSE) was recorded as *not* counted as apolar at this commit — that
+defect is fixed in the commit that follows — and the panel wiring is `ed7441a`: 7 browser tests, browser tier 93,
+rendering the server's answer verbatim and recomputing nothing.
 
 **T4 — the OPM download inside the panel.** Reuse `/api/pdc/proteins/import` (it exists, and the Complexes panel
 already drives it), including its honesty: an import that finds no membrane annotation says so. Files:
@@ -188,11 +209,29 @@ protein, the same seed reproduces the placement, a different seed does not, and 
 the system. Acceptance: the existing placed-belt build still runs, so this lands as a mode and not as a replacement
 until a real run says the self-assembled belt is better.
 
+**Done (2026-10-13).** `pdc_placement.place_detergents` gains `mode=`: `lattice` (unchanged, still the default, so no
+existing build moves) and `self-assembly`, a seeded cloud inside the placement box, rejection-sampled against protein
+clearance (0.5 nm) and the builder's own pairwise gate (0.25 nm). Measured on a 4x4x2 nm protein fixture, 20
+detergents, seed 11: protein clearance 0.5717 nm, closest detergent pair 0.3836 nm, every centre inside the placement
+box; seed 11 reproduces byte-identically and seed 12 does not; the lattice mode's centres are byte-equal to
+`pack_micelle`'s. T6 and T7 landed as one commit, both touching `adapters/pdc.py`: 23 tests, 14 of them for the stage
+chain.
+
 **T7 — minimisation and equilibration before the assessment leg** (change 2). Files:
 `dashboard/execution/adapters/pdc.py` (`STAGES`), its MDP templates under `resources/templates/`, stage tests. Tests:
 the stage plan gains one pair per step in order (minimisation, NVT, NPT, then assessment), each stage records
 `skipped` when it has nothing to do, and the chain's added cost is stated in the plan once measured. Acceptance: a
 diagnostic run reaches the assessment leg; the equilibrium legs are reported with their wall time, not assumed cheap.
+
+**Done (2026-10-13).** `pdc.STAGES` gains three pairs in order ahead of "CG assessment MD", every pre-existing stage
+name and relative path unchanged (a test pins it, because `pdc_extension.py`, the snapshot scripts, `analysis/kinds.py`
+and `routes/pdc.py` name `1_system/2_assessment/...` literally). Measured, on a 400-bead water box: grompp
+1.6 / 1.3 / 1.2 s, minimisation 2000 steep steps 2.5 s, NVT 1000 steps 2.5 s, NPT 100 steps 2.8 s. The default chain
+is 5 ns of equilibration, split 0.5 ns NVT + 4.5 ns NPT after the AA half's shape; dt 0.005 ps is the standing
+CG-equilibration decision, and the couplings and cut-offs are the CG half's own. Full fast tier 1298 passed, browser
+tier 82, ruff clean on `dashboard` and `tests`. One gap recorded rather than papered over: the assessment script still
+equilibrated of its own accord, so a run equilibrated twice — collapsed in `60283f5`, which also renamed the shared
+stage scripts to pdc's own.
 
 **T8 — the registry's experimental numbers, and the empty-micelle branch.** `detergents.json` gains
 `aggregation_number` + `aggregation_number_source` per entry, absent meaning not recorded; the detergent route returns

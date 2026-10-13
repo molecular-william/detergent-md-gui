@@ -114,7 +114,7 @@ pdc.prepare(run, template='molecules/DDM/micelle_template.json',
                       'snapshot_interval_ns': 20.0, 'snapshot_cap': 20, 'pdc_assessment_ns': 2}
             , project_root=Path.cwd(), mapping='mapping_candidate_2bcc24c3e5f149fab1e4f11f5d80ae0e.json')
 PY
-cd <run>/1_system && bash prepare_system.sh && cd ../2_assessment && bash assessment.sh
+cd <run>/1_system && bash prepare_system.sh && cd ../2_assessment && bash pdc_assessment.sh
 ```
 
 **Verification:** `logs/solvation.log` shows solvation, ions, minimisation, equilibration and production steps; the
@@ -126,8 +126,9 @@ to Task 2.1.
 **Objective:** stages 3 (assessment), 4 (extension), 5 (final assessment) and 6 (back-map) each run once in the
 harness, and each defect they reveal becomes a task here.
 
-**Method:** `cd <run>/3_assessment && bash assess.sh`, then `4_extension/extension.sh`, then `5_assessment/assess.sh`,
-then `6_backmap/backmap.sh` (the last one needs the vendored CG2AT2 at `tools/cg2at/cg2at`). Record for each: exit
+**Method:** `cd <run>/3_assessment && bash pdc_assess.sh`, then `4_extension/pdc_extension.sh`, then
+`5_assessment/pdc_assess.sh`, then `6_backmap/pdc_backmap.sh` (the last one needs the vendored CG2AT2 at
+`tools/cg2at/cg2at`). Record for each: exit
 code, the artefact it wrote, and the first error if any. Do **not** batch the fixes: each defect gets its own test
 and its own commit, in the pattern of Phase 1.
 

@@ -181,9 +181,64 @@ def test_an_atom_whose_element_has_no_radius_here_is_refused_with_its_name():
 
 def test_the_apolar_mask_is_the_plan_s_eight_residues_by_their_one_letter_code():
     residues = ['ALA', 'VAL', 'LEU', 'ILE', 'MET', 'PHE', 'TRP', 'PRO',     # apolar
-                'SER', 'THR', 'LYS', 'GLU', 'ASP', 'GLY', 'MSE', 'UNK']     # not apolar here
+                'SER', 'THR', 'LYS', 'GLU', 'ASP', 'GLY', 'UNK']            # not apolar here
 
-    assert encapsulation.apolar_mask(residues) == [True] * 8 + [False] * 8
+    assert encapsulation.apolar_mask(residues) == [True] * 8 + [False] * 7
+
+
+def test_modified_residues_with_an_apolar_parent_are_apolar_too():
+    """The defect this exists for: a deposited structure rarely carries plain MET, and an MSE counted as polar
+    undercounts every SeMet-phased one. Each code below names its parent in the table; the mask reads it through."""
+    modified = ['MSE', 'FME', 'MED', 'NLE', 'NVA', 'ABA', 'AIB',
+                'DAL', 'DVA', 'DLE', 'DIL', 'DPN', 'DPR', 'DTR']
+
+    assert encapsulation.apolar_mask(modified) == [True] * len(modified)
+
+
+def test_modified_residues_whose_parent_is_polar_or_that_add_polarity_are_not_apolar():
+    """SEP, TPO and CSO add a phosphate or a hydroxyl and their parents are polar besides; HYP's parent (proline) is
+    apolar but it adds a hydroxyl, and KCX and MLY modify a polar lysine. None is nonpolar surface."""
+    assert encapsulation.apolar_mask(['SEP', 'TPO', 'CSO', 'HYP', 'KCX', 'MLY']) == [False] * 6
+
+
+def test_every_modified_code_in_the_table_has_an_apolar_parent():
+    """The rule the table exists for, checked mechanically: a code is folded in only if its parent is one of the eight
+    apolar residues. A future entry with a polar parent fails here rather than overcounting a belt."""
+    assert set(encapsulation.MODIFIED_APOLAR.values()) <= set(encapsulation.APOLAR_CODES)
+    assert set(encapsulation.MODIFIED_APOLAR) == {
+        'MSE', 'FME', 'MED', 'NLE', 'NVA', 'ABA', 'AIB', 'DAL', 'DVA', 'DLE', 'DIL', 'DPN', 'DPR', 'DTR'}
+
+
+def test_a_selenomethionine_and_a_norleucine_inside_the_slab_add_their_area():
+    """The whole point: modified residues with an apolar parent are apolar surface, so inside the slab each adds its
+    own sphere -- where before the fix they were counted as polar and contributed nothing. Two isolated atoms, both
+    inside the slab, both folded in: the sum is both spheres and only those."""
+    residues = ['MSE', 'NLE']
+    numbers = encapsulation.estimate([[0.0, 0.0, 0.0], [9.0, 0.0, 0.0]], [0.264, 0.264],
+                                     encapsulation.apolar_mask(residues),
+                                     centre_nm=0.0, half_thickness_nm=1.0,
+                                     head_radii_nm=[0.230], requested=10, probe_nm=PROBE)
+
+    assert numbers['apolar_area_nm2'] == pytest.approx(2 * sphere_area(0.264), rel=1e-6)
+
+
+def test_a_polar_modified_residue_inside_the_slab_adds_nothing():
+    """SEP (phosphoserine) adds a phosphate, so it is not apolar surface even inside the slab: the sum is the MSE
+    sphere beside it and nothing of SEP's."""
+    residues = ['MSE', 'SEP']
+    numbers = encapsulation.estimate([[0.0, 0.0, 0.0], [9.0, 0.0, 0.0]], [0.264, 0.264],
+                                     encapsulation.apolar_mask(residues),
+                                     centre_nm=0.0, half_thickness_nm=1.0,
+                                     head_radii_nm=[0.230], requested=10, probe_nm=PROBE)
+
+    assert numbers['apolar_area_nm2'] == pytest.approx(sphere_area(0.264), rel=1e-6)
+
+
+def test_the_method_states_that_apolar_parented_modified_residues_are_folded_in():
+    """The prose travels with the number, so it must say what the arithmetic did with a modified residue."""
+    assert 'modified residue' in encapsulation.ESTIMATE_METHOD
+    assert 'apolar parent' in encapsulation.ESTIMATE_METHOD
+    assert 'MSE' in encapsulation.ESTIMATE_METHOD
 
 
 def test_a_structure_is_read_in_nanometres_with_a_radius_per_atom(tmp_path):

@@ -36,13 +36,43 @@ ATOM_RADII_NM = AA_RADII
 SIZE_RADII_NM = recognition.RADII_NM
 
 # The plan's apolar set, as one-letter codes. A structure states a residue as its standard three-letter code, so the
-# map below is what turns a name into the code the set is written in. A residue that is not one of the twenty
-# standard codes -- a modified residue such as MSE -- is not in the set and is counted as not apolar.
+# map below is what turns a name into the code the set is written in.
 APOLAR_CODES = frozenset('AVLIMFWP')
 ONE_LETTER = {
     'ALA': 'A', 'ARG': 'R', 'ASN': 'N', 'ASP': 'D', 'CYS': 'C', 'GLN': 'Q', 'GLU': 'E', 'GLY': 'G',
     'HIS': 'H', 'ILE': 'I', 'LEU': 'L', 'LYS': 'K', 'MET': 'M', 'PHE': 'F', 'PRO': 'P', 'SER': 'S',
     'THR': 'T', 'TRP': 'W', 'TYR': 'Y', 'VAL': 'V',
+}
+# Modified residues that present the same nonpolar surface as the residue they modify, each named with its parent's
+# one-letter code so a reader can check the chemistry against the parent's entry above. A code is here ONLY if its
+# parent is one of APOLAR_CODES: a modification of a polar residue would put polar atoms into a sum about nonpolar
+# surface, the opposite error to the one this table fixes. The entries, with parents:
+#
+#   MSE selenomethionine  -- methionine with its sulfur replaced by selenium (M); the most common modified residue
+#                            in deposited structures, and the one whose absence undercounts every SeMet-phased one.
+#   FME N-formylmethionine-- the initiator, methionine carrying a formyl on the backbone nitrogen (M); a backbone
+#                            modification that adds no side-chain polarity.
+#   MED D-methionine      -- the D-form of methionine (M).
+#   NLE norleucine        -- leucine with the branched side chain straightened into n-butyl (L).
+#   NVA norvaline         -- valine missing the gamma methyl, a straight propyl chain (V).
+#   ABA 2-aminobutyric acid -- alanine with one more methylene in the side chain (A).
+#   AIB 2-aminoisobutyric acid -- alanine with two methyls on the alpha carbon (A).
+#   DAL, DVA, DLE, DIL, DPN, DPR, DTR -- the D-forms of alanine, valine, leucine, isoleucine, phenylalanine, proline
+#                            and tryptophan (A, V, L, I, F, P, W). A D-alanine is as nonpolar as an L-alanine, and
+#                            these appear in membrane-active peptides. The repository's own residue dictionary
+#                            (dashboard/web/static/vendor/ngl.js) spells D-phenylalanine and D-methionine DPN and MED;
+#                            there is no DPH spelling for D-phenylalanine, and DPH is phenytoin in the PDB chemical
+#                            component dictionary, so folding it in would count a drug as protein surface.
+#
+# Deliberately NOT here, though a reader may expect them:
+#   HYP hydroxyproline    -- parent proline (P) IS apolar, but HYP adds a hydroxyl, so it presents polar surface and
+#                            folding it in would overcount. It is the one apolar-parent case the rule excludes.
+#   SEP phosphoserine, TPO phosphothreonine, CSO S-hydroxycysteine, KCX N-carbamoyl-lysine, MLY N-dimethyl-lysine --
+#                            each adds polarity (a phosphate, a hydroxyl, or a carbamoyl group) and each modifies a
+#                            residue that is already polar (S, T, C, K), so none can be nonpolar surface.
+MODIFIED_APOLAR = {
+    'MSE': 'M', 'FME': 'M', 'MED': 'M', 'NLE': 'L', 'NVA': 'V', 'ABA': 'A', 'AIB': 'A',
+    'DAL': 'A', 'DVA': 'V', 'DLE': 'L', 'DIL': 'I', 'DPN': 'F', 'DPR': 'P', 'DTR': 'W',
 }
 # A deterministic Fibonacci point mesh. The area is a ratio of reachable points, so this is a resolution knob and
 # not a random draw: the same structure always gives the same number.
@@ -56,7 +86,11 @@ ESTIMATE_METHOD = (
     'passed in explicitly from surfaces.AA_RADII), summed over the transmembrane slab |z - centre| <= half_thickness '
     'with the centre at the origin, which is where OPM centres the bilayer. The slab area is the sum of the atoms '
     'whose residue is apolar (A, V, L, I, M, F, W, P, by standard three-letter code) and whose own z lies inside the '
-    'slab; the rest of the structure still occludes them. head_area = pi * r_head^2, where r_head is the radius of '
+    'slab; the rest of the structure still occludes them. A modified residue with an apolar parent (one of those '
+    'eight) is folded into the apolar set as if it were the parent -- MSE, FME and MED (methionine), NLE (leucine), '
+    'NVA (valine), ABA and AIB (alanine), and the D-forms DAL, DVA, DLE, DIL, DPN, DPR, DTR -- while a modified '
+    'residue whose parent is polar, or that adds a polar group such as a hydroxyl or a phosphate, is not apolar. '
+    'head_area = pi * r_head^2, where r_head is the radius of '
     'the largest head bead of the detergent mapping\u2019s head group -- the convention taken for a multi-bead head '
     'group -- from its Martini 3 size class (R 0.264, S 0.230, T 0.191 nm). '
     'needed = apolar_area / head_area; fraction = requested * head_area / apolar_area.'
@@ -98,8 +132,22 @@ def atom_radii_nm(atom_names):
 
 
 def apolar_mask(residue_names):
-    """Which atoms sit in an apolar residue: A, V, L, I, M, F, W, P, by the residue's standard three-letter code."""
-    return [ONE_LETTER.get(str(name).strip().upper()) in APOLAR_CODES for name in residue_names]
+    """Which atoms sit in an apolar residue: A, V, L, I, M, F, W, P by standard three-letter code, plus the nonpolar
+    modified residues whose parent is one of those eight.
+
+    A modified residue that adds no polarity sits in the same class as the residue it modifies -- an MSE is a
+    methionine with selenium for sulfur, so the surface it presents is methionine's. A modified residue whose parent
+    is polar, or that adds a polar group, is not apolar and must not be folded in: this sum is about nonpolar surface,
+    and folding polar atoms into it is the opposite error to the undercount it fixes.
+    """
+    mask = []
+    for name in residue_names:
+        code = str(name).strip().upper()
+        parent = ONE_LETTER.get(code)
+        if parent is None:
+            parent = MODIFIED_APOLAR.get(code)
+        mask.append(parent in APOLAR_CODES)
+    return mask
 
 
 def slab_area(areas_nm2, positions_nm, apolar, *, centre_nm, half_thickness_nm):

@@ -72,6 +72,19 @@ def test_the_estimate_comes_back_with_its_numbers_its_method_and_its_caveat(dash
     assert 'flat surface' in body['caveat'] and 'roughly the right order' in body['caveat']
 
 
+def test_the_route_s_method_says_apolar_parented_modified_residues_are_folded_in(dashboard, monkeypatch):
+    """The route returns the prose beside the number; that prose must state the modified-residue folding so a reader
+    of the panel is told what the arithmetic did."""
+    _import(dashboard, monkeypatch, '1qj8', MEMBRANE)
+    _mapping(dashboard)
+
+    method = dashboard.client.get(_url('1qj8')).get_json()['method']
+
+    assert 'modified residue' in method
+    assert 'apolar parent' in method
+    assert 'MSE' in method
+
+
 def test_the_slab_the_route_uses_is_the_thickness_the_protein_states(dashboard, monkeypatch):
     """Two structures, two stated thicknesses, two areas -- the slab is read, not assumed."""
     _import(dashboard, monkeypatch, '1qj8', MEMBRANE)
