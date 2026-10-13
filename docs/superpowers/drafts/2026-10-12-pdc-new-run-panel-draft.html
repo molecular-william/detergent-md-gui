@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DRAFT · Protein-Detergent Simulations — new run panel</title>
+<!-- The real stylesheets, from the dashboard that is already running, so this mock is styled by the app itself
+     rather than by a copy of its CSS that could drift. If the dashboard is down, the structure still reads. -->
+<link rel="stylesheet" href="http://127.0.0.1:5000/static/layout.css">
+<link rel="stylesheet" href="http://127.0.0.1:5000/static/new-run.css">
+<style>
+  body.pdc-draft{padding:24px;background:#eef2f7;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+  .draft-banner{border:1px solid #e0b34d;background:#fff8e6;border-radius:8px;padding:10px 14px;margin:0 0 18px;max-width:1400px}
+  .draft-banner strong{color:#7a4b00}
+  .draft-note{font-size:.85rem;color:#5b6572}
+  /* Fallbacks, in case the dashboard is not running when this file is opened. */
+  .card{background:#fff;border:1px solid #d5dee8;border-radius:8px;padding:14px}
+  .eyebrow{display:block;font-size:.7rem;letter-spacing:.12em;color:#5b6572;margin-bottom:4px}
+  .hint{color:#5b6572;font-size:.85rem}
+  .estimate{border:1px solid #cfd9e6;background:#f7fafd;border-radius:8px;padding:12px;margin-top:12px}
+  .estimate .verdict{font-weight:600;margin:0 0 6px}
+  .estimate .verdict.short{color:#a8480d}
+  .estimate .verdict.enough{color:#1c7a3e}
+  .estimate table{border-collapse:collapse;font-size:.86rem;margin-top:6px}
+  .estimate td{padding:2px 14px 2px 0}
+  input[type=range]{width:260px;vertical-align:middle}
+</style>
+</head>
+<body class="pdc-draft">
+<main>
+<div class="draft-banner">
+  <strong>DRAFT — a mock of the proposed panel, not the panel.</strong>
+  <p>Nothing here is wired: no run is queued, no request is sent. The estimate below is computed in this file from the
+  formula in the plan so you can move the count and watch it react; the real numbers come from the server.
+  Plan: <code>docs/superpowers/plans/2026-10-12-pdc-new-run-panel.md</code>.</p>
+</div>
+
+<div class="section-heading"><div><h2>Protein-Detergent Simulations</h2>
+<p>Place a membrane protein in a box, build a detergent belt around it, sample it, and assess whether a micelle formed.</p></div></div>
+
+<form class="new-run-layout" onsubmit="return false">
+<div class="new-run-inputs">
+
+  <section class="card">
+    <span class="eyebrow">DETERGENT</span><h3>Choose a detergent</h3>
+    <p class="hint">Detergents only. The list is the registry in <code>detergents.json</code>, so a molecule that is not
+    a detergent cannot be chosen here. Every entry needs a saved CG mapping: the belt is built from the detergent's own
+    beads, not from a generic template.</p>
+    <label>Detergent<select id="detergent">
+      <option>DDM · n-Dodecyl-β-D-maltoside</option>
+      <option>SB3-12 · 3-(Dodecyldimethylammonio)propanesulfonate</option>
+      <option>SB3-14 · 3-(Tetradecyldimethylammonio)propanesulfonate</option>
+      <option>C10-Betaine · N-Decyl-N,N-dimethylglycine</option>
+    </select></label>
+    <label>Detergent template<select>
+      <option>DDM skeleton · registered-template</option>
+    </select></label>
+    <p class="hint" style="color:#7a4b00">This template is a skeleton, and its own file says so: the repository has no
+    fitted DDM parameter set, so a build from it is a setup exercise rather than a detergent model.</p>
+    <label>CG mapping<select id="mapping">
+      <option>DDM draft from the automatic recogniser (Martini 3)</option>
+    </select></label>
+    <p class="hint">Mappings for other molecules are not offered here.</p>
+  </section>
+
+  <section class="card">
+    <span class="eyebrow">MEMBRANE PROTEIN</span><h3>Choose or download a structure</h3>
+    <p class="hint">Structures live in the OPM catalogue, which carries each protein's own membrane annotation: the
+    half-thickness used by the estimate below, and the box the protein-extent build falls back to when a structure
+    states no membrane.</p>
+    <label>Protein<select id="protein">
+      <option>No protein · empty micelle</option>
+      <option>1qj8 · bacterial outer membrane protein</option>
+    </select></label>
+    <label>Download from OPM<input id="pdbid" type="text" maxlength="4" placeholder="1qj8" autocomplete="off" spellcheck="false"></label>
+    <button type="button" class="secondary">Download</button>
+    <p class="hint" role="status">An import reports the half-thickness it found, or says plainly that the file states
+    no membrane.</p>
+  </section>
+
+  <section class="card">
+    <span class="eyebrow">RUN CONFIGURATION</span><h3>Detergent belt and sampling</h3>
+    <p class="hint">This workspace runs protein-detergent systems only, so this panel asks only what that pipeline
+    reads: no AA reference, no mapping screen, no bonded fit. The detergent's own topology file is its
+    parameterization.</p>
+
+    <label>Detergents in the belt
+      <span class="setting-control">
+        <input id="count" type="number" min="1" max="1000" step="1" value="150">
+        <input id="slider" type="range" min="20" max="400" step="1" value="150">
+      </span>
+    </label>
+
+    <div class="estimate" id="estimate" aria-live="polite">
+      <p class="verdict enough" id="verdict">150 detergents cover about 80% of the apolar slab.</p>
+      <p class="hint" id="shortfall"></p>
+      <table>
+        <tr><td>Apolar area of the transmembrane slab</td><td><strong id="apolar">41.2</strong> nm²</td></tr>
+        <tr><td>Head-group area of one DDM bead</td><td><strong id="head">0.219</strong> nm²</td></tr>
+        <tr><td>Estimated need</td><td><strong id="need">188</strong> detergents</td></tr>
+        <tr><td>What you are asking for</td><td><strong id="have">79.7%</strong> of that area</td></tr>
+      </table>
+      <p class="draft-note">A flat-area estimate from the structure: no curvature, no packing, no shape. It sizes an
+      input and never decides that a micelle forms — the run's own assessment decides that, and reports it.
+      <em>Illustrative numbers for this mock.</em></p>
+    </div>
+
+    <details open>
+      <summary>Assessment and sampling</summary>
+      <div class="settings-grid">
+        <label>CG assessment (ns)<span class="setting-control"><input type="number" value="100"></span></label>
+        <label>CG extension (ns)<span class="setting-control"><input type="number" value="900"></span></label>
+        <label>Salt concentration (M)<span class="setting-control"><input type="number" step="0.01" value="0.15"></span></label>
+        <label>Random seed<span class="setting-control"><input type="number" value="20260928"></span></label>
+      </div>
+    </details>
+
+    <details>
+      <summary>Box and assessment details</summary>
+      <div class="settings-grid">
+        <label>Box margin (nm)<span class="setting-control"><input type="number" step="0.1" value="2.0"></span></label>
+        <label>Initial z box (nm)<span class="setting-control"><input type="number" step="0.1" value="6.0"></span></label>
+        <label>Micelle contact distance (nm)<span class="setting-control"><input type="number" step="0.1" value="0.6"></span></label>
+        <label>Removal threshold (fraction)<span class="setting-control"><input type="number" step="0.01" value="0.10"></span></label>
+        <label>Snapshot interval (ns)<span class="setting-control"><input type="number" step="1" value="20"></span></label>
+        <label>Snapshots per stage (cap)<span class="setting-control"><input type="number" value="20"></span></label>
+      </div>
+    </details>
+
+    <label>Run label <input type="text" maxlength="160" placeholder="Optional label for this run"></label>
+  </section>
+</div>
+
+<aside class="new-run-settings">
+  <section class="card run-review">
+    <div class="review-heading"><h3>Review before launch</h3>
+      <span class="review-status" role="status">Checking readiness…</span></div>
+    <dl class="review-grid">
+      <dt>Detergent</dt><dd>DDM</dd>
+      <dt>Mapping</dt><dd>DDM draft from the automatic recogniser</dd>
+      <dt>Protein</dt><dd>1qj8 · half-thickness 1.35 nm</dd>
+      <dt>Detergents</dt><dd id="summary-count">150</dd>
+      <dt>Estimate</dt><dd id="summary-estimate">about 80% of the apolar slab</dd>
+      <dt>Sampling</dt><dd>100 ns assessment · 900 ns extension</dd>
+    </dl>
+    <p class="hint review-note">Execution success does not establish scientific validation.</p>
+    <p class="hint" role="status">Ready. This mock does not start anything.</p>
+    <button type="submit" class="primary" disabled>Start run</button>
+  </section>
+</aside>
+</form>
+
+<script>
+// The plan's formula, computed here so the control can be judged. head_area = pi * r_head^2, with r_head from the
+// head bead's Martini size class in the mapping; the apolar slab area is what the server would measure.
+const APOLAR_NM2 = 41.2;          // illustrative: gmx sasa over the transmembrane slab, apolar residues only
+const HEAD_RADIUS_NM = 0.264;     // the mapping's head bead, size class R
+const HEAD_AREA_NM2 = Math.PI * HEAD_RADIUS_NM * HEAD_RADIUS_NM;
+const NEED = Math.ceil(APOLAR_NM2 / HEAD_AREA_NM2);
+
+function render(value) {
+  const fraction = value * HEAD_AREA_NM2 / APOLAR_NM2;
+  const enough = fraction >= 1;
+  document.getElementById('count').value = value;
+  document.getElementById('slider').value = value;
+  document.getElementById('have').textContent = (fraction * 100).toFixed(1) + '%';
+  document.getElementById('summary-count').textContent = value;
+  document.getElementById('summary-estimate').textContent = 'about ' + Math.round(fraction * 100) + '% of the apolar slab';
+  const verdict = document.getElementById('verdict');
+  verdict.className = 'verdict ' + (enough ? 'enough' : 'short');
+  verdict.textContent = enough
+    ? value + ' detergents cover the apolar slab (' + Math.round(fraction * 100) + '%).'
+    : value + ' detergents cover about ' + Math.round(fraction * 100) + '% of the apolar slab.';
+  document.getElementById('shortfall').textContent = enough ? '' :
+    'The estimate asks for about ' + NEED + '; below that, expect bare patches rather than a belt.';
+}
+document.getElementById('apolar').textContent = APOLAR_NM2.toFixed(1);
+document.getElementById('head').textContent = HEAD_AREA_NM2.toFixed(3);
+document.getElementById('need').textContent = NEED;
+document.getElementById('slider').addEventListener('input', event => render(Number(event.target.value)));
+document.getElementById('count').addEventListener('change', event => render(Number(event.target.value) || 1));
+render(150);
+</script>
+</main>
+</body>
+</html>
