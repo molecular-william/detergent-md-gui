@@ -25,7 +25,7 @@
   .eyebrow{display:block;font-size:.7rem;letter-spacing:.12em;color:#5b6572;margin-bottom:4px}
   .hint{color:#5b6572;font-size:.85rem}
   .workflow{display:flex;flex-wrap:wrap;gap:6px;align-items:stretch;margin:8px 0 0;padding:0;list-style:none}
-  .workflow li{border:1px solid #cfd9e6;background:#f7fafd;border-radius:8px;padding:8px 10px;font-size:.82rem;max-width:15rem}
+  .workflow li{border:1px solid #cfd9e6;background:#f7fafd;border-radius:8px;padding:8px 10px;font-size:.82rem;max-width:100%}
   .workflow li strong{display:block;font-size:.86rem}
   .workflow li span{color:#5b6572}
   .workflow li.optional{border-style:dashed}
@@ -97,49 +97,31 @@
   </section>
 
   <section class="card">
-    <span class="eyebrow">WORKFLOW</span><h3>What this run will do</h3>
-    <ul class="workflow">
-      <li class="optional"><strong>1 · Prepare (optional)</strong><span>PDB2PQR for missing side chains and protonation,
-        then energy minimisation in water. MemProtMD ships this as its own workflow; a structure that needs it is
-        prepared once and reused.</span></li>
-      <li><strong>2 · Coarse-grain</strong><span><code>martinize2</code>, Martini 3, elastic network over Cα pairs
-        within 1.0 nm at 1000 kJ/mol.</span></li>
-      <li id="step-selfassembly"><strong>3 · Self-assemble</strong><span>Detergents placed at random around the protein,
-        then CG MD lets the belt find its own arrangement — MemProtMD's self-assembly route, rather than placing a
-        pre-formed belt.</span></li>
-      <li><strong>4 · Sample</strong><span>CG MD: minimisation, then equilibration, then the assessment leg.</span></li>
-      <li><strong>5 · Judge</strong><span>Detergents in the micelle are counted, the rest removed; losing more than 10%
-        of the requested count re-runs the leg, up to three attempts.</span></li>
-      <li><strong>6 · Extend, then back-map</strong><span>Continuation from the surviving checkpoint, then CG2AT2 with
-        <code>-o align</code>.</span></li>
-    </ul>
-    <p class="hint" role="status" id="workflow-note">With a protein, steps 3 and 5 use the protein's hydrophobic surface.
-    For an empty micelle, step 3 is the micelle on its own and step 5's protein clause does not apply.</p>
-  </section>
-
-  <section class="card">
     <span class="eyebrow">RUN CONFIGURATION</span><h3 id="config-title">Detergent belt and sampling</h3>
     <p class="hint">This workspace runs protein-detergent systems only, so the panel asks only what that pipeline reads:
     no AA reference, no mapping screen, no bonded fit. The detergent's topology file is its parameterization.</p>
 
+    <label><span id="count-label">Detergents in the belt</span>
+      <span class="setting-control">
+        <input id="count" type="number" min="1" max="1000" step="1" value="150">
+        <input id="slider" type="range" min="20" max="400" step="1" value="150">
+      </span>
+    </label>
+    <p class="hint">This input is here in both modes: around a protein it is the belt's size, with no protein it is the
+    micelle's.</p>
+
     <div id="empty-block" hidden>
       <p class="hint">An empty micelle has no belt to size, so there is no coverage estimate here. What is worth knowing
-      is the detergent's own measured micelle size, beside the count you ask for:</p>
+      beside the count is the detergent's own measured micelle size:</p>
       <table class="estimate" style="width:auto">
         <tr><td>Experimental aggregation number (DDM)</td><td><strong>— not recorded yet</strong></td></tr>
-        <tr><td>Requested here</td><td><strong id="empty-count">150</strong></td></tr>
+        <tr><td>Requested above</td><td><strong id="empty-count">150</strong></td></tr>
       </table>
       <p class="draft-note">The registry entry carries the experimental number and its citation. Until an entry has one,
       this says so: a micelle size quoted without a source is indistinguishable from one this panel guessed.</p>
     </div>
 
     <div id="belt-block">
-      <label>Detergents in the belt
-        <span class="setting-control">
-          <input id="count" type="number" min="1" max="1000" step="1" value="150">
-          <input id="slider" type="range" min="20" max="400" step="1" value="150">
-        </span>
-      </label>
       <div class="estimate" id="estimate" aria-live="polite">
         <p class="verdict enough" id="verdict">150 detergents cover about 80% of the apolar slab.</p>
         <p class="hint" id="shortfall"></p>
@@ -187,6 +169,27 @@
 </div>
 
 <aside class="new-run-settings">
+  <section class="card">
+    <span class="eyebrow">WORKFLOW</span><h3>What this run will do</h3>
+    <ul class="workflow">
+      <li class="optional"><strong>1 · Prepare (optional)</strong><span>PDB2PQR for missing side chains and protonation,
+        then energy minimisation in water. MemProtMD ships this as its own workflow; a structure that needs it is
+        prepared once and reused.</span></li>
+      <li><strong>2 · Coarse-grain</strong><span><code>martinize2</code>, Martini 3, elastic network over Cα pairs
+        within 1.0 nm at 1000 kJ/mol.</span></li>
+      <li id="step-selfassembly"><strong>3 · Self-assemble</strong><span>Detergents placed at random around the protein,
+        then CG MD lets the belt find its own arrangement — MemProtMD's self-assembly route, rather than placing a
+        pre-formed belt.</span></li>
+      <li><strong>4 · Sample</strong><span>CG MD: minimisation, then equilibration, then the assessment leg.</span></li>
+      <li><strong>5 · Judge</strong><span>Detergents in the micelle are counted, the rest removed; losing more than 10%
+        of the requested count re-runs the leg, up to three attempts.</span></li>
+      <li><strong>6 · Extend, then back-map</strong><span>Continuation from the surviving checkpoint, then CG2AT2 with
+        <code>-o align</code>.</span></li>
+    </ul>
+    <p class="hint" role="status" id="workflow-note">With a protein, steps 3 and 5 use the protein's hydrophobic surface.
+    For an empty micelle, step 3 is the micelle on its own and step 5's protein clause does not apply.</p>
+  </section>
+
   <section class="card run-review">
     <div class="review-heading"><h3>Review before launch</h3>
       <span class="review-status" role="status">Checking readiness…</span></div>
@@ -238,6 +241,7 @@ function showProtein(hasProtein) {
   document.getElementById('belt-block').hidden = !hasProtein;
   document.getElementById('empty-block').hidden = hasProtein;
   document.getElementById('config-title').textContent = hasProtein ? 'Detergent belt and sampling' : 'Micelle and sampling';
+  document.getElementById('count-label').textContent = hasProtein ? 'Detergents in the belt' : 'Detergents in the micelle';
   document.getElementById('summary-protein').textContent = hasProtein ? '1qj8 · half-thickness 1.35 nm' : 'none · empty micelle';
   document.getElementById('summary-estimate-label').textContent = hasProtein ? 'Estimate' : 'Experiments';
   const value = Number(document.getElementById('count').value) || 1;

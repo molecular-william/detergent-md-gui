@@ -84,10 +84,12 @@ oriented in the membrane. That is the step OPM does for us.
 
 Choosing **No protein · empty micelle** changes the screen, not the pipeline:
 
-- No belt, so **no encapsulation estimate**, no protein fields, and no belt heading. The count stays: it is the
-  micelle's size.
+- No belt, so **no encapsulation estimate**, no protein fields, and no belt heading. The count stays **as an input**:
+  it is the micelle's size — the first mock hid it inside the belt block, which the review caught.
 - In the estimate's place, the detergent's **experimental aggregation number** from the registry, beside the count.
 - The workflow strip greys the protein clauses in steps 3 and 5 and says why.
+- The workflow card sits at the **top of the right column**, above the review: what will run is read before the resolved
+  values, which is the order the second review asked for.
 
 ### The registry carries the experimental number, with its citation
 
