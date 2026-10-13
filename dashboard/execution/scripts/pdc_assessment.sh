@@ -1,6 +1,12 @@
 #!/bin/bash
-# CG assessment phase for a protein-detergent complex: solvent, ions, then the sampling the micelle criterion is
-# judged on.
+# CG production for a protein-detergent complex: the sampling the micelle criterion is judged on.
+#
+# Production only. The three legs in front of this stage -- `2_minimisation`, `3_nvt`, `4_npt` -- solvate, minimise
+# and equilibrate the built system, and this stage samples the system the NPT leg left. It used to do all of that
+# itself from `1_system/system.gro`, so a run equilibrated twice and the legs' own output fed nothing.
+#
+# The system is copied in by the prelude the pdc adapter emits from this stage's own declaration, which is why the
+# grompp below names `system.gro` and `system.top` rather than a path into `4_npt`.
 #
 # The mdrun budget and the scheme choices arrive as environment -- MDRUN_LAUNCHER is an mpirun prefix or empty,
 # MDRUN_FLAGS the flags -- because these stages are scripts rather than generated commands. The defaults below are
@@ -8,21 +14,13 @@
 #
 # No -ntmpi anywhere: /usr/local/gromacs/2026.3/bin/gmx is a symlink to gmx_mpi, an MPI build with no thread-MPI,
 # where that flag aborts mdrun before the first step. -ntomp is valid for both builds.
-#
-# Solvation is not restated here: pdc_solvate.py calls pdc_solvation, which is the tested place that decides the
-# water bead radius, the ion names and the group genion may replace.
 set -euxo pipefail
 
-python pdc_solvate.py --topology system.top --structure ../1_system/system.gro
-
-gmx grompp -f minimization.mdp -p system.top -c system.gro -o min.tpr -maxwarn 1
-${MDRUN_LAUNCHER:-}gmx mdrun -deffnm min ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v
-
-gmx grompp -f equilibration.mdp -p system.top -c min.gro -o eq.tpr -maxwarn 1
-${MDRUN_LAUNCHER:-}gmx mdrun -deffnm eq ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v
-
 mkdir -p prod
-gmx grompp -f assessment.mdp -p system.top -c eq.gro -t eq.cpt -o prod/run.tpr -maxwarn 1
+# The velocities the NPT leg equilibrated are in its checkpoint, and a leg the run asked none of leaves none: the
+# file is read when it is there rather than declared as an input no skip path could satisfy.
+if [ -f ../4_npt/system.cpt ]; then CHECKPOINT="-t ../4_npt/system.cpt"; else CHECKPOINT=""; fi
+gmx grompp -f assessment.mdp -p system.top -c system.gro $CHECKPOINT -o prod/run.tpr -maxwarn 1
 ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm prod/run ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v
 
 # The trajectory is written molecule-whole below, because the criterion and the viewer both need molecules that

@@ -86,12 +86,12 @@ def test_every_stage_name_that_existed_before_is_still_here_with_its_own_directo
     relative = {record.name: record.relative for record in pdc.STAGES}
 
     assert relative['System preparation'] == '1_system/prepare_system.sh'
-    for name, path in (('CG assessment MD', '2_assessment/assessment.sh'),
-                       ('Micelle assessment', '3_assessment/assess.sh'),
-                       ('CG extension MD', '4_extension/extension.sh'),
-                       ('Final assessment', '5_assessment/assess.sh'),
-                       ('Back-mapping (CG2AT2)', '6_backmap/backmap.sh')):
-        assert relative[name] == path, 'the assessment, extension and back-map stages keep the names a run reads'
+    for name, path in (('CG assessment MD', '2_assessment/pdc_assessment.sh'),
+                       ('Micelle assessment', '3_assessment/pdc_assess.sh'),
+                       ('CG extension MD', '4_extension/pdc_extension.sh'),
+                       ('Final assessment', '5_assessment/pdc_assess.sh'),
+                       ('Back-mapping (CG2AT2)', '6_backmap/pdc_backmap.sh')):
+        assert relative[name] == path, 'each stage keeps its own directory, and runs a script this workflow owns'
 
 
 def test_each_leg_runs_its_own_mdp_template_from_the_resources(tmp_path):

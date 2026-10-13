@@ -1,6 +1,6 @@
 """Judge the micelle at the end of a phase, and say what would survive if the rest were removed.
 
-Run by `3_assessment/assess.sh` and `5_assessment/assess.sh`. The verdict comes from `pdc_assessment`, which is the
+Run by `3_assessment/pdc_assess.sh` and `5_assessment/pdc_assess.sh`. The verdict comes from `pdc_assessment`, which is the
 one implementation of the design spec's criterion; this module's job is to read the system the stage produced,
 select each detergent's tail beads, and write the three declared outputs.
 

@@ -1,8 +1,10 @@
 """Fill a protein-detergent system with Martini water and 0.15 M NaCl, and record what arrived.
 
-Run by `2_assessment/assessment.sh`. The commands come from `pdc_solvation`, which is the tested place that
-decides the bead radius, the ion names and the water group `genion` is allowed to replace; this module runs them,
-pipes the group in, and reads the composition back off the topology that results.
+Run by the Energy minimisation leg, which is the stage that solvates the built system, and by `pdc_extension.py`
+when the criterion left detergents outside the micelle and the removal path rebuilds the kept system. The commands
+come from `pdc_solvation`, which is the tested place that decides the bead radius, the ion names and the water group
+`genion` is allowed to replace; this module runs them, pipes the group in, and reads the composition back off the
+topology that results.
 
     python pdc_solvate.py [--salt-molar 0.15]
 

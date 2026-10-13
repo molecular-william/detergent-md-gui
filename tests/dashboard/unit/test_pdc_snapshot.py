@@ -207,6 +207,6 @@ def test_a_phase_says_what_it_started_from(tmp_path):
 def test_the_extension_script_names_the_structure_it_started_from():
     """The restart path rebuilds the system, so the script has to say so; `prod/start.gro` is not there to find."""
     root = Path(__file__).resolve().parents[3]
-    text = (root / 'dashboard/execution/scripts/extension.sh').read_text()
+    text = (root / 'dashboard/execution/scripts/pdc_extension.sh').read_text()
 
     assert '--start system.gro' in text, 'the extension phase would record no start frame'

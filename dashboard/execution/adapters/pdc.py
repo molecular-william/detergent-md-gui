@@ -92,9 +92,11 @@ LEGS = {
 EQUILIBRATION_TEMPLATE = ROOT / 'resources/templates/protein_detergent'
 
 # The protocol's own steps, named as stages so the executor, the manifest and the panel all speak the same words.
-# The assessment leg's own directory names are historic and stay: `pdc_extension.py`, the snapshot scripts and the web
-# route all name `1_system`, `2_assessment` and `3_assessment` literally, so the equilibration legs take directories
-# of their own around them rather than renumbering a contract other modules read.
+# Every stage that is not generated at prepare time runs a script of this workflow's own, named `pdc_...`: the
+# assessment leg's directory names are historic and stay -- `pdc_extension.py`, the snapshot scripts and the web
+# route all name `1_system`, `2_assessment` and `3_assessment` literally -- while the file inside the directory is
+# pdc's: a pdc stage used to be the CG half's script under the CG half's name (`assessment.sh`, `extension.sh`,
+# `backmap.sh`, and a stage file literally called `assess.sh`).
 STAGES = (
     Stage('System preparation', '1_system/prepare_system.sh',
           ('protein.pdb', 'system_EMPTY.top', 'detergent.itp', *FORCEFIELD_FILES),
@@ -115,22 +117,26 @@ STAGES = (
           ('../3_nvt/system.gro', '../3_nvt/system.top', '../3_nvt/' + DETERGENT_TOPOLOGY,
            *('../3_nvt/' + name for name in FORCEFIELD_FILES), 'npt.mdp'),
           ('system.tpr', 'system.gro', 'system.edr', 'system.log', 'system.cpt', 'system.xtc')),
-    Stage('CG assessment MD', '2_assessment/assessment.sh',
-          ('../1_system/system.gro', '../1_system/system.top', '../1_system/' + DETERGENT_TOPOLOGY,
-           *('../1_system/' + name for name in FORCEFIELD_FILES), 'assessment.mdp'),
+    # And the counterpart of change 2: this leg is production only, and it samples the system the NPT leg left. It
+    # used to solvate, minimise and equilibrate the built system itself -- the same work the three legs above do, so
+    # every run equilibrated twice and the legs' output fed nothing. Its declaration is the NPT leg's own system, so
+    # the copy of it is emitted from here like every other stage's.
+    Stage('CG assessment MD', '2_assessment/pdc_assessment.sh',
+          ('../4_npt/system.gro', '../4_npt/system.top', '../4_npt/' + DETERGENT_TOPOLOGY,
+           *('../4_npt/' + name for name in FORCEFIELD_FILES), 'assessment.mdp'),
           ('prod/run.gro', 'prod/run.tpr', 'prod/run.xtc', 'prod/run.cpt')),
-    Stage('Micelle assessment', '3_assessment/assess.sh',
+    Stage('Micelle assessment', '3_assessment/pdc_assess.sh',
           ('../2_assessment/prod/run.gro', '../2_assessment/prod/run.xtc'),
           ('assessment.json', 'kept.gro', 'removed.json')),
-    Stage('CG extension MD', '4_extension/extension.sh',
+    Stage('CG extension MD', '4_extension/pdc_extension.sh',
           ('../2_assessment/prod/run.tpr', '../2_assessment/prod/run.cpt', '../2_assessment/system.top',
            '../1_system/' + DETERGENT_TOPOLOGY, *('../1_system/' + name for name in FORCEFIELD_FILES),
            'extension.mdp'),
           ('prod/run.gro', 'prod/run.xtc')),
-    Stage('Final assessment', '5_assessment/assess.sh',
+    Stage('Final assessment', '5_assessment/pdc_assess.sh',
           ('../4_extension/prod/run.gro', '../4_extension/prod/run.xtc'),
           ('assessment.json',)),
-    Stage('Back-mapping (CG2AT2)', '6_backmap/backmap.sh',
+    Stage('Back-mapping (CG2AT2)', '6_backmap/pdc_backmap.sh',
           ('../4_extension/prod/run.gro', '../1_system/protein.pdb'),
           ('cg2at_input.pdb', 'FINAL/final_cg2at_aligned.pdb', 'backmap.log')),
 )
@@ -337,16 +343,17 @@ def _extension_stage(run_dir: Path, settings: dict):
     stage.mkdir(parents=True, exist_ok=True)
     shutil.copy2(run_dir / Path(assessment.relative).parent / 'assessment.mdp', stage / 'extension.mdp')
     update_mdp(stage / 'extension.mdp', {'gen-vel': 'no'})
-    shutil.copy2(SCRIPTS / Path(extension.relative).name, stage / Path(extension.relative).name)
+    shutil.copy2(SCRIPTS / _STAGE_SOURCES[extension.relative], stage / Path(extension.relative).name)
     # The removal path rebuilds the system from the kept coordinates, so this stage needs the same mdps and water the
-    # assessment phase was prepared with, plus the two helpers that do it.
+    # solvation step uses, plus the two helpers that rebuild it.
     for target, source in (('minimization.mdp', 'minimization.mdp'), ('equilibration.mdp', 'eq.mdp'),
                            ('inputs/water.gro', 'water.gro')):
         (stage / target).parent.mkdir(exist_ok=True)
         shutil.copy2(TUTORIAL_TEMPLATE / '4_CG_sim' / 'inputs' / source, stage / target)
-    # `ions.mdp` comes from the assessment phase rather than the template, because the template has none: solvation is
-    # the phase that runs it, and the removal path re-solvates.
-    shutil.copy2(run_dir / Path(assessment.relative).parent / 'ions.mdp', stage / 'ions.mdp')
+    # `ions.mdp` is the fix-up tpr `genion` fits ions to, and the removal path re-solvates, so this stage writes it
+    # itself. It used to read the assessment phase's copy, which existed because that phase solvated -- work the
+    # equilibration legs do, so the assessment phase is production only now and carries no solvation input at all.
+    (stage / 'ions.mdp').write_text(IONS_MDP)
     shutil.copy2(SCRIPTS / 'pdc_extension.py', stage / 'pdc_extension.py')
     shutil.copy2(SCRIPTS / 'pdc_solvate.py', stage / 'pdc_solvate.py')
     extension_ps = round(float(settings['extension_ns']) * 1000)
@@ -355,7 +362,13 @@ def _extension_stage(run_dir: Path, settings: dict):
 
 
 def _assessment_stage(run_dir: Path, settings: dict):
-    """The assessment phase's inputs: the MDPs for the requested duration, the water, and the two helpers.
+    """The assessment phase's inputs: one mdp, for the requested duration, and nothing else.
+
+    Production only, because the three legs in front of this stage are what solvates, minimises and equilibrates.
+    It used to carry the solvation, minimisation and equilibration mdps and the water they run on, and to run them
+    itself -- which equilibrated every run twice and left the legs' own output feeding nothing. What it reads
+    instead is the system the NPT leg left, named on its own declaration, so the copy of it is emitted from that
+    declaration like every other stage's.
 
     The duration is converted into steps with the *template's* own `dt`, and the integration settings come from
     `cg.mdp_integration`, so the coarse-grained half of a solved CG run and this stage cannot disagree about the
@@ -368,16 +381,10 @@ def _assessment_stage(run_dir: Path, settings: dict):
     assessment = stage_by_name('CG assessment MD')
     stage = run_dir / Path(assessment.relative).parent
     stage.mkdir(parents=True, exist_ok=True)
-    source_inputs = TUTORIAL_TEMPLATE / '4_CG_sim' / 'inputs'
-    for target, source in (('minimization.mdp', 'minimization.mdp'), ('equilibration.mdp', 'eq.mdp'),
-                           ('assessment.mdp', 'md.mdp'), ('inputs/water.gro', 'water.gro')):
-        (stage / target).parent.mkdir(exist_ok=True)
-        shutil.copy2(source_inputs / source, stage / target)
+    shutil.copy2(TUTORIAL_TEMPLATE / '4_CG_sim' / 'inputs' / 'md.mdp', stage / 'assessment.mdp')
     steps = round(float(settings['assessment_ns']) * 1000 / _mdp_number(stage / 'assessment.mdp', 'dt'))
     update_mdp(stage / 'assessment.mdp', cg_adapter.mdp_integration(stage, stage / '1_AA-reference', steps))
-    (stage / 'ions.mdp').write_text(IONS_MDP)
-    shutil.copy2(SCRIPTS / Path(assessment.relative).name, stage / Path(assessment.relative).name)
-    shutil.copy2(SCRIPTS / 'pdc_solvate.py', stage / 'pdc_solvate.py')
+    shutil.copy2(SCRIPTS / _STAGE_SOURCES[assessment.relative], stage / Path(assessment.relative).name)
     return steps
 
 _STAGE_SCRIPT = """#!/bin/sh
@@ -483,16 +490,17 @@ def _equilibration_scripts(run_dir: Path, settings: dict) -> dict:
     return steps
 
 
-# Which file in `scripts/` each stage's script comes from. Stage 1's and the three equilibration legs' are generated
-# at prepare time -- stage 1's because it has to carry the interpreter and the project root the run was prepared with,
-# and the legs' because they are the same three commands with the run's own numbers in them.
-_STAGE_SOURCES = {
-    '2_assessment/assessment.sh': 'assessment.sh',
-    '3_assessment/assess.sh': 'pdc_assess.sh',
-    '4_extension/extension.sh': 'extension.sh',
-    '5_assessment/assess.sh': 'pdc_assess.sh',
-    '6_backmap/backmap.sh': 'backmap.sh',
-}
+# The stages whose script is written at prepare time rather than copied from `scripts/`: stage 1's, because it has
+# to carry the interpreter and the project root the run was prepared with, and the three equilibration legs',
+# because they are the same three commands with the run's own numbers in them.
+GENERATED_STAGES = ('1_system/prepare_system.sh', '2_minimisation/minimise.sh', '3_nvt/equilibrate.sh',
+                    '4_npt/equilibrate.sh')
+
+# Which file in `scripts/` each stage's script comes from. A stage that is not generated runs a script of this
+# workflow's own, so the file carries the stage's own name -- derived rather than listed, because a translation
+# table between two names is a place the two can disagree.
+_STAGE_SOURCES = {stage.relative: Path(stage.relative).name for stage in STAGES
+                  if stage.relative not in GENERATED_STAGES}
 
 
 def settings_from(payload: dict) -> dict:
@@ -826,11 +834,19 @@ def _protocol_prepare(run_dir, metadata):
     prepare(run_dir, **{key: value for key, value in values.items() if value})
 
 
+# The choices a panel offers as a select rather than a number. `runs.py:queue` keeps only the keys an adapter
+# advertises here or in `SETTING_SPECS`, so a choice the panel sends and the adapter does not advertise is dropped
+# before the job is created -- silently, with no error, only a job built on the default. That is what happened to the
+# placement mode: the panel sent `pdc_placement_mode: 'self-assembly'`, the route kept it out, and every run was built
+# on the lattice whatever the reader chose. The values are the ones `pdc_placement.canonical_mode` accepts.
+CHOICE_SPECS = {'pdc_placement_mode': ('Initialisation', ('lattice', 'self-assembly'))}
+
 PROTOCOL = protocol.Protocol(
     name='pdc',
     stage_contract=stage_contract,
     stages=stages,
     settings_specs=lambda: SETTING_SPECS,
+    choice_specs=lambda: CHOICE_SPECS,
     stage_defaults=stage_defaults,
     normalize_settings=normalize_settings,
     readiness=_protocol_readiness,

@@ -16,8 +16,11 @@ set -euxo pipefail
 # A protein-free complex run has nothing to align: this stage exists to put the protein's atoms back, and there are
 # none. That is not a failure and not a blocked run -- nothing was attempted -- so the stage skips, says why, and the
 # run carries on. The contract's fourth outcome, `skipped` (exit 4).
-PROTEIN=$(/mnt/data/wee/detergent-md-gui/dashboard/.venv/bin/python -c \
-  "import json;print(json.load(open('../1_system/pdc-settings.json')).get('protein') or '')")
+# The interpreter is the one the pdc adapter stamps into this line at prepare time: `python` on PATH is a different
+# installation from the application's, which is why a bare `python` never appears in a copied stage script.
+python -c "import json;print(json.load(open('../1_system/pdc-settings.json')).get('protein') or '')" > protein.txt
+PROTEIN=$(cat protein.txt)
+rm -f protein.txt
 if [ -z "$PROTEIN" ]; then
   echo '{"skipped": true, "reason": "the run has no protein, so there is nothing to align"}' > skip.json
   echo "skipped: the run has no protein, so there is nothing to align" >&2

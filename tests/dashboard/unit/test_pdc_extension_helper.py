@@ -156,13 +156,17 @@ def test_the_removal_reduces_the_detergent_row_and_leaves_the_solvent_alone():
 
 
 def test_the_extension_stage_can_re_solvate_after_a_removal(tmp_path):
-    """The removal path rebuilds the system, and solvation runs `ions.mdp`: without it the stage dies at grompp."""
+    """The removal path rebuilds the system, and solvation runs `ions.mdp`: without it the stage dies at grompp.
+
+    The stage writes that mdp itself now. It used to borrow the assessment phase's copy, which was there because
+    that phase solvated -- work the three equilibration legs do, so the phase it borrowed from is production only
+    and carries no solvation input at all.
+    """
     from dashboard.execution.adapters import pdc
 
     phase = tmp_path / Path(pdc.stage_by_name('CG assessment MD').relative).parent
     phase.mkdir(parents=True, exist_ok=True)
     (phase / 'assessment.mdp').write_text('; the assessment phase mdp\n')
-    (phase / 'ions.mdp').write_text('; the mdp that solvation runs\n')
 
     pdc._extension_stage(tmp_path, {'extension_ns': 2.0})
 
@@ -170,6 +174,7 @@ def test_the_extension_stage_can_re_solvate_after_a_removal(tmp_path):
     for name in ('extension.mdp', 'minimization.mdp', 'equilibration.mdp', 'ions.mdp', 'inputs/water.gro',
                  'pdc_solvate.py'):
         assert (stage / name).is_file(), name
+    assert (stage / 'ions.mdp').read_text() == pdc.IONS_MDP, 'the stage writes the fix-up mdp it runs'
 
 
 def test_the_restart_topology_is_dry_because_the_restart_solvates_again():

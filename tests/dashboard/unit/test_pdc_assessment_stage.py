@@ -89,14 +89,20 @@ def test_the_assessment_mdp_carries_the_cg_halfs_own_integration_settings(tmp_pa
     assert numbers['nstenergy'] == '100'
 
 
-def test_the_stage_script_solvates_through_the_tested_builder(tmp_path):
-    stage = prepared(tmp_path)
-    script = (stage / Path(pdc.stage_by_name('CG assessment MD').relative).name).read_text()
+def test_the_stage_script_is_the_workflows_own_and_is_production_only(tmp_path):
+    """It is `pdc_assessment.sh`, and it is the production leg the three equilibration legs feed.
 
-    assert 'python pdc_solvate.py' in script
-    assert 'gmx solvate' not in script, 'the water radius and the ion names belong to pdc_solvation'
-    assert (stage / 'pdc_solvate.py').is_file()
-    assert 'python pdc_snapshot.py' in script and '--phase assessment' in script
+    It used to solvate, minimise and equilibrate from the built system -- work the legs in front of it now do, and
+    doing it here again equilibrated every run twice (`test_pdc_assessment_production.py`).
+    """
+    stage = prepared(tmp_path)
+    relative = Path(pdc.stage_by_name('CG assessment MD').relative)
+
+    assert relative.name == 'pdc_assessment.sh', 'a stage runs a script this workflow owns'
+    script = (stage / relative.name).read_text()
+    assert 'python pdc_solvate.py' not in script and 'gmx solvate' not in script
+    assert not (stage / 'pdc_solvate.py').exists(), "solvation is the minimisation leg's"
+    assert 'pdc_snapshot.py' in script and '--phase assessment' in script
     assert (stage / 'pdc_snapshot.py').is_file()
 
 
@@ -112,14 +118,20 @@ def test_the_script_takes_its_mdrun_budget_from_the_environment_and_never_passes
 
 
 def test_the_assessment_stage_has_every_input_it_declares(tmp_path):
+    """One mdp, and the NPT leg's system -- the equilibration legs own everything else.
+
+    The stage used to carry the minimisation, equilibration and ion mdps and the water they need, because it ran
+    them. It does not, so they are gone: a file left beside a stage that cannot use it is a reader's wrong turn.
+    """
     stage = prepared(tmp_path)
 
-    for name in ('assessment.mdp', 'minimization.mdp', 'equilibration.mdp', 'ions.mdp'):
-        assert (stage / name).is_file(), f'{name} is an input of this stage and is missing'
-    assert (stage / 'inputs' / 'water.gro').is_file()
+    assert (stage / 'assessment.mdp').is_file()
     for name in pdc.stage_by_name('CG assessment MD').inputs:
         if not name.startswith('../'):
             assert (stage / name).is_file()
+    for name in ('minimization.mdp', 'equilibration.mdp', 'ions.mdp', 'pdc_solvate.py'):
+        assert not (stage / name).exists(), f'{name} was the work the three legs now do'
+    assert not (stage / 'inputs' / 'water.gro').exists()
 
 
 def test_the_back_map_stage_now_has_a_tool_and_an_invocation(tmp_path):
