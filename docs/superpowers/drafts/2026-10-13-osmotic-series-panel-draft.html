@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DRAFT · Osmotic Series — set-up panel</title>
+<!-- The real stylesheets from the running dashboard, in the app's own head order: new-run.css before layout.css.
+     That order is load-bearing -- layout.css's `#run-form.new-run-layout` sets the 12-column grid and the two halves
+     span 6 each; linked the other way round, new-run.css's two-column grid wins, each `span 6` half spans everything,
+     and the panel stacks into one column. -->
+<link rel="stylesheet" href="http://127.0.0.1:5000/static/new-run.css">
+<link rel="stylesheet" href="http://127.0.0.1:5000/static/layout.css">
+<style>
+  body.osmotic-draft{padding:24px;background:#eef2f7;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+  .draft-banner{border:1px solid #e0b34d;background:#fff8e6;border-radius:8px;padding:10px 14px;margin:0 0 18px}
+  .draft-banner strong{color:#7a4b00}
+  .draft-note{font-size:.85rem;color:#5b6572}
+  /* Fallbacks, in case the dashboard is not running when this file is opened. The media query repeats the app's own
+     rule at 1100 px, so the mock stacks where the app stacks rather than pinning two columns at every width. */
+  .panel{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:16px;align-content:start}
+  .panel > *{grid-column:span 12}
+  #run-form.new-run-layout{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:20px;align-items:start}
+  .new-run-inputs{grid-column:span 6}
+  .new-run-settings{grid-column:span 6}
+  @media(max-width:1100px){.new-run-inputs,.new-run-settings{grid-column:span 12}}
+  .card{background:#fff;border:1px solid #d5dee8;border-radius:8px;padding:14px;margin-bottom:14px}
+  .eyebrow{display:block;font-size:.7rem;letter-spacing:.12em;color:#5b6572;margin-bottom:4px}
+  .hint{color:#5b6572;font-size:.85rem}
+  .setting-control{display:inline-flex;gap:6px;align-items:center}
+  .row{display:grid;grid-template-columns:84px minmax(0,1fr) auto;gap:8px;align-items:center;margin:4px 0}
+  .row input[type=number]{width:100%;max-width:6.5rem}
+  .row .molality-cell{display:flex;align-items:center;gap:6px;font-size:.85rem;color:#5b6572;min-width:0}
+  .conc-list{margin:10px 0 6px;padding:0;list-style:none}
+  .conc-list li{border:1px solid #e2e8f0;border-radius:7px;padding:6px 8px;margin:0 0 4px;background:#fbfcfe}
+  .conc-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px}
+  .tally{border:1px solid #cfd9e6;background:#f7fafd;border-radius:8px;padding:10px 12px;margin-top:10px;font-size:.88rem}
+  .tally strong{font-size:.95rem}
+  .bad{border-left:4px solid #c0392b;background:#fdf1f0;border-radius:6px;padding:8px 10px;margin:8px 0;font-size:.85rem;color:#7d2b22}
+  .bad strong{display:block;color:#c0392b}
+  .ok{border-left:4px solid #1c7a3e;background:#f0f8f3;border-radius:6px;padding:8px 10px;margin:8px 0;font-size:.85rem;color:#215c38}
+  .warn{border-left:4px solid #e0b34d;background:#fff8e6;border-radius:6px;padding:8px 10px;margin:8px 0;font-size:.85rem;color:#7a4b00}
+  .setup-table{border-collapse:collapse;font-size:.86rem;margin-top:6px;width:100%}
+  .setup-table td{padding:3px 10px 3px 0;vertical-align:top}
+  .setup-table td:first-child{color:#5b6572;white-space:nowrap}
+  .setup-table code{font-size:.82rem}
+  table.series{border-collapse:collapse;font-size:.84rem;margin-top:6px;width:100%}
+  table.series th,table.series td{padding:3px 8px 3px 0;text-align:left;border-bottom:1px solid #e8eef5}
+  table.series th{color:#5b6572;font-weight:600;font-size:.76rem;letter-spacing:.04em}
+  .review-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .review-heading h3{margin:0}
+  .review-status{font-size:12px;font-weight:700;color:#5b6572;white-space:nowrap}
+  .review-status.ready{color:#286644}.review-status.blocked{color:#c0392b}
+  .review-grid{display:grid;grid-template-columns:110px minmax(0,1fr);gap:7px 12px;margin:16px 0}
+  .review-grid dt{color:#5b6572;font-size:12px}
+  .review-grid dd{margin:0;font-size:13px;font-weight:650;overflow-wrap:anywhere}
+  details summary{cursor:pointer;font-weight:600}
+  button.primary,button.secondary{padding:6px 12px;border-radius:7px;border:1px solid #c4cfdd;background:#fff;cursor:pointer}
+  button.primary{background:#2f6fb3;border-color:#2f6fb3;color:#fff;width:100%}
+  button.primary[disabled]{background:#b9c6d6;border-color:#b9c6d6;cursor:not-allowed}
+</style>
+</head>
+<body class="osmotic-draft">
+<section class="panel">
+<div class="draft-banner">
+  <strong>DRAFT — a mock of the proposed panel, not the panel.</strong>
+  <p>Nothing is wired: no run is queued, no request is sent. The controls work in this file so the behaviour can be
+  judged — add and remove a concentration and watch the count and the total ns; choose a sugar the repository cannot
+  build and read the refusal. Every value shown is the one the existing pipeline uses, named with the key it reads
+  (<code>osmotic_molality</code>, <code>osmotic_production_ps</code>, <code>temperature_k</code>, …). The series state
+  at the bottom is the real
+  <code>GET /api/osmotic/conditions</code> answer for the completed maltose series.</p>
+</div>
+
+<div class="section-heading"><div><h2>Osmotic Series</h2>
+<p>Set up a concentration series for one carbohydrate: one confined box per molality, run one at a time, and the wall
+force divided by the box's xy area to give an osmotic pressure.</p></div></div>
+
+<form id="run-form" class="new-run-layout" onsubmit="return false">
+<div class="new-run-inputs">
+
+  <section class="card">
+    <span class="eyebrow">THE SUGAR</span><h3>Which carbohydrate this series is for</h3>
+    <p class="hint">The solute is one mapped molecule. The box is sized from the mapping's own beads
+    (<code>osmotic.solute_bead_radii</code> reads <code>RADII_NM</code> for each non-virtual bead), so a carbohydrate
+    with no saved CG mapping has no box to build and is not offered a run.</p>
+    <label>Sugar<select id="sugar">
+      <option value="Maltose" data-mapping="yes" data-solute="yes" data-blocks=""
+        data-mapping-name="Maltose carbohydrate paper draft">Maltose · 8 beads, mapping + solute files</option>
+      <option value="Sucrose" data-mapping="yes" data-solute="no"
+        data-blocks="Solute files not prepared: /workspace/osmotic/sucrose is missing solute.gro, solute.itp, water.gro, martini_v3.0.0_solvents_v1.itp. The mapping is also provisional — the recogniser maps one hexopyranose ring and preserves the rest as a draft (AGENTS.md), so a generated Sucrose mapping is a diagnostic input, not an official Martini parameter set."
+        data-mapping-name="Sucrose carbohydrate paper draft">Sucrose · mapping exists, no solute files</option>
+      <option value="Trehalose" data-mapping="yes" data-solute="no"
+        data-blocks="Solute files not prepared: /workspace/osmotic/trehalose is missing solute.gro, solute.itp, water.gro, martini_v3.0.0_solvents_v1.itp."
+        data-mapping-name="Trehalose carbohydrate paper draft">Trehalose · mapping exists, no solute files</option>
+      <option value="Glucose" data-mapping="no" data-solute="no"
+        data-blocks="No saved CG mapping. Glucose is named by resources/validation/carbohydrates/targets-v1.json (glucose-martini3-paper-v1, a measured partition free energy) but has no folder under molecules/ and no mapping candidate, so its beads have no radii and the box cannot be sized."
+        data-mapping-name="">Glucose · no CG mapping (refused)</option>
+    </select></label>
+    <label>CG mapping<select id="mapping">
+      <option id="mapping-option">Maltose carbohydrate paper draft</option>
+    </select></label>
+    <p class="hint">This is what <code>mapping_candidate</code> carries; <code>create_job</code> resolves it to the
+    mapping snapshot the build sizes the box from.</p>
+    <p class="hint">Temperature of the experimental dataset
+    <span class="setting-control"><input id="temperature" type="number" step="0.01" value="308.15"></span> K.
+    It is <code>temperature_k</code> (200–400 K); 308.15 K is maltose's, from Ebrahimi &amp; Sadeghi 2016. A series is
+    compared against the dataset it matches, so this is not a default to leave alone.</p>
+    <div id="sugar-status" class="ok" role="status"><strong>Ready.</strong> One mapping, its solute files present in
+      <code>/workspace/osmotic/maltose</code>, and the box sized from 8 beads.</div>
+  </section>
+
+  <section class="card">
+    <span class="eyebrow">THE SERIES</span><h3>How many conditions, at which concentrations</h3>
+    <p class="hint">One run per molality, all sharing a series id. The defaults are the six the route's own
+    <code>PAPER_MOLALITIES</code> names: the five measured points at 308.15 K plus the 0.0 control. Molality is
+    confined to the paper's 0.0–2.5 range (<code>osmotic_box.MOLALITY_RANGE</code>).</p>
+
+    <ul class="conc-list" id="concentrations"></ul>
+    <div class="conc-actions">
+      <button type="button" class="secondary" id="add-row">+ Add a concentration</button>
+      <button type="button" class="secondary" id="reset-rows">Reset to the paper's six</button>
+    </div>
+
+    <label style="display:block;margin-top:12px">Duration per condition
+      <span class="setting-control"><input id="duration" type="number" min="1" step="1" value="500"> ns</span>
+    </label>
+    <p class="hint">Sent as <code>osmotic_production_ps</code> (500 ns = 500000 ps). 500 ns is the paper's own bar
+    (Methods 5.3) and what every measured condition in the completed series ran. Equilibration is the paper's 10 ns
+    (<code>osmotic_equilibration_ps</code> = 10000) and the trajectory interval is 10 ps
+    (<code>osmotic_output_interval_ps</code>) — both standing, not on this panel.</p>
+
+    <div class="tally" id="tally" aria-live="polite">
+      <strong id="count-line">6 runs · 3000 ns</strong>
+      <div class="hint" id="count-detail">0.0, 0.5, 1.0, 1.5, 2.0, 2.5 molal · 500 ns each · about 1.3 days at the
+      measured 2400 ns/day for one condition alone.</div>
+    </div>
+    <div id="range-warning" class="warn" hidden role="status"></div>
+  </section>
+
+  <details open>
+    <summary>The physical setup the run will use</summary>
+    <section class="card" style="margin-top:10px">
+      <p class="hint">Read-only, and shown rather than offered: every one of these is fixed by the method or the
+      pipeline, and a control for a value nobody would change from run to run is a control that lies.</p>
+      <table class="setup-table">
+        <tr><td>Box</td><td>5.04156 × 5.04156 × 10.08312 nm (256.286 nm³) — <code>osmotic_box.BOX_NM</code>, the paper's
+          box, fixed for the whole series</td></tr>
+        <tr><td>Dividing area</td><td>25.41733 nm² — <code>osmotic_box.dividing_area_nm2()</code>; the force is divided by
+          this, and the build records it so the analysis never recomputes it</td></tr>
+        <tr><td>Confinement</td><td>flat within 2.52078 nm of the box centre, 1000 kJ/mol/nm² beyond it — the paper's
+          flat-bottom, exactly the quarter box</td></tr>
+        <tr><td>Walls</td><td>PLUMED, one <code>UPPER_WALLS</code>/<code>LOWER_WALLS</code> pair per molecule at
+          <code>KAPPA = 500</code> — half the paper's 1000 kJ/mol/nm² because PLUMED writes
+          <code>V = KAPPA·(x−AT)²</code></td></tr>
+        <tr><td>Restraint</td><td>the reference bead <code>REF</code>: zero size, zero charge, restrained to the box
+          centre in z at 10000 kJ/mol/nm² with <code>refcoord-scaling = all</code> —
+          <code>osmotic.REFERENCE_RESTRAINT</code></td></tr>
+        <tr><td>Salt</td><td>none added — the osmometry it compares against measured salt-free solutions</td></tr>
+        <tr><td>Seed</td><td>placement <code>random.Random(20261006)</code> in the runner; the mdps fix
+          <code>gen-seed = -1</code>. Not a control: a series is comparable because its conditions share these</td></tr>
+        <tr><td>mdrun</td><td><code>-ntomp 4 -nb gpu -gpu_id 0 -pin on</code>, 1 MPI rank —
+          <code>mdrun_ntomp</code> 4 is the measured best for this ~2500-bead box with the confinement loaded</td></tr>
+      </table>
+    </section>
+  </details>
+</div>
+
+<aside class="new-run-settings">
+  <section class="card">
+    <span class="eyebrow">SERIES BEHAVIOUR</span><h3>How the series runs</h3>
+    <p><strong>One condition at a time.</strong> <code>config/dashboard.json</code> sets
+    <code>max_concurrent_runs: 1</code> and the coordinator refuses a second run while one is busy. That is a
+    measurement and not a preference: four conditions at once measured ~4.6× slower in aggregate (~291 ns/day each)
+    against ~2400 ns/day for one run alone, and no thread placement recovered it.</p>
+    <p style="margin-top:12px"><strong>If one condition fails,</strong> the rest of the series still runs. The queue
+    route creates every condition up front and refuses before creating anything if any is wrong, so once the series
+    exists a failed condition does not cancel its siblings — and the reader reports the gap rather than drawing a
+    curve through it.</p>
+    <label style="display:flex;gap:8px;align-items:center;margin-top:8px"><input type="radio" name="onfail"
+      value="carry" checked> Carry on — the remaining conditions run; a gap is reported</label>
+    <label style="display:flex;gap:8px;align-items:center;margin-top:4px"><input type="radio" name="onfail"
+      value="stop"> Stop the series on the first failure — queues one condition at a time</label>
+    <p class="hint">Starting a series does not start anything until Start run is pressed, and this panel never queues
+    without that.</p>
+  </section>
+
+  <section class="card run-review">
+    <div class="review-heading"><h3>Review before launch</h3>
+      <span class="review-status ready" id="review-status" role="status">Ready</span></div>
+    <dl class="review-grid">
+      <dt>Sugar</dt><dd id="summary-sugar">Maltose</dd>
+      <dt>Mapping</dt><dd id="summary-mapping">Maltose carbohydrate paper draft</dd>
+      <dt>Solute files</dt><dd id="summary-solute">/workspace/osmotic/maltose · 4 of 4 present</dd>
+      <dt>Conditions</dt><dd id="summary-count">6</dd>
+      <dt>Concentrations</dt><dd id="summary-conc">0.0, 0.5, 1.0, 1.5, 2.0, 2.5 molal</dd>
+      <dt>Duration</dt><dd id="summary-duration">500 ns each · 3000 ns total</dd>
+      <dt>Temperature</dt><dd id="summary-temp">308.15 K</dd>
+      <dt>Series id</dt><dd><code>assigned at queue time</code></dd>
+    </dl>
+    <p class="hint">Execution success does not establish scientific validation. A completed series proves the
+    calculation ran; agreement with the paper's points is evidence about the model and the mapping at once.</p>
+    <p class="hint" id="review-note" role="status">Queues 6 conditions as 6 jobs sharing one series id. This mock does
+    not start anything.</p>
+    <button type="submit" class="primary" id="start" disabled>Start series</button>
+  </section>
+
+  <section class="card">
+    <span class="eyebrow">THE SERIES AS IT STANDS</span><h3>Maltose, measured</h3>
+    <p class="hint">Read from <code>GET /api/osmotic/conditions</code> — the existing reader, rendered and not
+    recomputed. The control has no measurement by construction: no solute, so no wall to push against.</p>
+    <table class="series">
+      <thead><tr><th>molal</th><th>molecules</th><th>measured</th><th>paper</th><th>ratio</th></tr></thead>
+      <tbody>
+        <tr><td>0.0</td><td>0</td><td>— control</td><td>—</td><td>—</td></tr>
+        <tr><td>0.5</td><td>70</td><td>15.002 bar</td><td>13.04 ± 0.04</td><td>1.15</td></tr>
+        <tr><td>1.0</td><td>129</td><td>29.877 bar</td><td>26.54 ± 0.08</td><td>1.13</td></tr>
+        <tr><td>1.5</td><td>180</td><td>53.762 bar</td><td>40.58 ± 0.12</td><td>1.32</td></tr>
+        <tr><td>2.0</td><td>223</td><td>97.551 bar</td><td>56.09 ± 0.16</td><td>1.74</td></tr>
+        <tr><td>2.5</td><td>262</td><td>163.099 bar</td><td>72.72 ± 0.20</td><td>2.24</td></tr>
+      </tbody>
+    </table>
+    <p class="draft-note">The 0.5 row is the whole-trajectory reading (14.944 bar at 50 001 frames); the stored report
+    is the one-frame-in-ten sample at 15.002 bar. The divergence grows with concentration — that is a reading of the
+    measurement, and the panel makes no claim about the model from it.</p>
+  </section>
+</aside>
+</form>
+</section>
+
+<script>
+'use strict';
+// --- the concentrations, the count, and the duration -------------------------------------------------------------
+const PAPER = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5];   // routes/osmotic.PAPER_MOLALITIES
+const LO = 0.0, HI = 2.5;                       // osmotic_box.MOLALITY_RANGE
+const NS_PER_DAY = 2400.0;                      // measured, one condition alone
+const list = document.getElementById('concentrations');
+
+function row(value, index) {
+  const li = document.createElement('li');
+  li.className = 'conc-row';
+  li.innerHTML =
+    '<div class="row">' +
+      '<input type="number" min="0" max="2.5" step="0.1" value="' + value + '" aria-label="molality">' +
+      '<span class="molality-cell">molal' +
+        ' <span class="row-note"></span></span>' +
+      '<button type="button" class="secondary remove" aria-label="Remove this concentration">Remove</button>' +
+    '</div>';
+  li.querySelector('input').addEventListener('input', recount);
+  li.querySelector('.remove').addEventListener('click', () => { li.remove(); recount(); });
+  return li;
+}
+
+let invalidRows = 0;
+
+function recount() {
+  const rows = [...list.querySelectorAll('.conc-row')];
+  const bad = [];
+  const values = [];
+  rows.forEach((li, i) => {
+    const raw = li.querySelector('input').value;
+    const value = raw.trim() === '' ? NaN : Number(raw);
+    const note = li.querySelector('.row-note');
+    const out = !Number.isFinite(value) || value < LO || value > HI;
+    li.querySelector('input').classList.toggle('bad-value', out);
+    if (out) {
+      note.textContent = '— outside the paper\'s ' + LO.toFixed(1) + '–' + HI.toFixed(1) + ' range';
+      note.style.color = '#c0392b';
+      bad.push(raw === '' ? '(blank)' : raw);
+    } else {
+      note.textContent = value === 0 ? '— the pure-solvent control' : '';
+      note.style.color = '';
+      values.push(value);
+    }
+  });
+
+  const duration = Math.max(1, Number(document.getElementById('duration').value) || 0);
+  const count = values.length;
+  const total = count * duration;
+  const days = total / NS_PER_DAY;
+
+  document.getElementById('count-line').textContent =
+    count + (count === 1 ? ' run · ' : ' runs · ') + total.toLocaleString() + ' ns';
+  document.getElementById('count-detail').textContent = count
+    ? values.map(v => v.toFixed(1)).join(', ') + ' molal · ' + duration + ' ns each · about ' +
+      days.toFixed(1) + ' days at the measured 2400 ns/day for one condition alone.'
+    : 'No concentration is set, so there is no series to queue.';
+  document.getElementById('summary-count').textContent = count;
+  document.getElementById('summary-conc').textContent = count ? values.map(v => v.toFixed(1)).join(', ') + ' molal' : '—';
+  document.getElementById('summary-duration').textContent = duration + ' ns each · ' + total.toLocaleString() + ' ns total';
+
+  const warning = document.getElementById('range-warning');
+  invalidRows = bad.length;
+  if (bad.length) {
+    warning.hidden = false;
+    warning.innerHTML = '<strong>Refused:</strong> ' + bad.join(', ') +
+      ' is outside the paper\'s ' + LO.toFixed(1) + '–' + HI.toFixed(1) +
+      ' molal range (<code>osmotic_molality</code>, 0.0–2.5). The route checks every condition before it creates ' +
+      'anything, so one value out of range refuses the whole series — nothing is queued until it is corrected.';
+  } else {
+    warning.hidden = true;
+  }
+  checkReady();
+}
+
+function fill(values) {
+  list.innerHTML = '';
+  values.forEach((v, i) => list.appendChild(row(v, i)));
+  recount();
+}
+
+document.getElementById('add-row').addEventListener('click', () => {
+  const last = [...list.querySelectorAll('.conc-row')].pop();
+  const start = last ? Math.min(HI, (Number(last.querySelector('input').value) || 0) + 0.5) : 0.5;
+  list.appendChild(row(start.toFixed(1)));
+  recount();
+});
+document.getElementById('reset-rows').addEventListener('click', () => fill(PAPER));
+document.getElementById('duration').addEventListener('input', recount);
+
+// --- the sugar gate: a saved CG mapping, then the solute files ---------------------------------------------------
+const sugar = document.getElementById('sugar');
+const status = document.getElementById('sugar-status');
+const start = document.getElementById('start');
+const reviewStatus = document.getElementById('review-status');
+const reviewNote = document.getElementById('review-note');
+
+function currentSugar() { return sugar.selectedOptions[0]; }
+
+function checkReady() {
+  const option = currentSugar();
+  const mapped = option.dataset.mapping === 'yes';
+  const solutes = option.dataset.solute === 'yes';
+  const blocked = mapped && !solutes;
+  const refused = !mapped;
+  const count = Number(document.getElementById('summary-count').textContent) || 0;
+
+  if (refused) {
+    status.className = 'bad';
+    status.innerHTML = '<strong>Refused — no saved CG mapping.</strong> ' + option.dataset.blocks;
+    reviewStatus.className = 'review-status blocked';
+    reviewStatus.textContent = 'Blocked';
+    reviewNote.textContent = 'Start is disabled: this carbohydrate has no mapping, so the box cannot be sized.';
+  } else if (blocked) {
+    status.className = 'bad';
+    status.innerHTML = '<strong>Blocked — the solute files are not there.</strong> ' + option.dataset.blocks;
+    reviewStatus.className = 'review-status blocked';
+    reviewStatus.textContent = 'Blocked';
+    reviewNote.textContent = 'Start is disabled: the run would fail in prepare, where the missing file is named.';
+  } else if (!count) {
+    status.className = 'ok';
+    status.innerHTML = '<strong>Ready.</strong> The mapping and its solute files are present.';
+    reviewStatus.className = 'review-status blocked';
+    reviewStatus.textContent = 'No series';
+    reviewNote.textContent = 'Start is disabled: add at least one concentration.';
+  } else if (invalidRows) {
+    status.className = 'ok';
+    status.innerHTML = '<strong>Ready.</strong> The mapping and its solute files are present.';
+    reviewStatus.className = 'review-status blocked';
+    reviewStatus.textContent = 'Refused';
+    reviewNote.textContent = 'Start is disabled: ' + invalidRows +
+      ' concentration is outside the paper\'s range, and the route refuses the whole series rather than part of it.';
+  } else {
+    status.className = 'ok';
+    status.innerHTML = '<strong>Ready.</strong> One mapping, its solute files present in ' +
+      '<code>/workspace/osmotic/' + option.value.toLowerCase() + '</code>, and the box sized from the mapping\'s beads.';
+    reviewStatus.className = 'review-status ready';
+    reviewStatus.textContent = 'Ready';
+    reviewNote.textContent = 'Queues ' + count + ' conditions as ' + count +
+      ' jobs sharing one series id. This mock does not start anything.';
+  }
+  start.disabled = refused || blocked || !count || invalidRows > 0;
+}
+
+function renderSugar() {
+  const option = currentSugar();
+  const mappingSelect = document.getElementById('mapping');
+  if (option.dataset.mapping === 'yes') {
+    mappingSelect.innerHTML = '<option>' + option.dataset.mappingName + '</option>';
+    mappingSelect.disabled = false;
+  } else {
+    mappingSelect.innerHTML = '<option>— none offered —</option>';
+    mappingSelect.disabled = true;
+  }
+  document.getElementById('summary-sugar').textContent = option.value;
+  document.getElementById('summary-mapping').textContent = option.dataset.mappingName || '— none —';
+  document.getElementById('summary-solute').textContent = option.dataset.solute === 'yes'
+    ? '/workspace/osmotic/' + option.value.toLowerCase() + ' · 4 of 4 present'
+    : '— not prepared —';
+  checkReady();
+}
+
+sugar.addEventListener('change', renderSugar);
+document.getElementById('temperature').addEventListener('input', e => {
+  document.getElementById('summary-temp').textContent = (Number(e.target.value) || 0).toFixed(2) + ' K';
+});
+
+fill(PAPER);
+renderSugar();
+</script>
+</body>
+</html>
