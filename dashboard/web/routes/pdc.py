@@ -1,6 +1,7 @@
 """Protein-detergent complex endpoints: the catalogue the panel builds its setup from, and the system it built."""
 import json
 from pathlib import Path
+from urllib.parse import unquote
 
 from flask import Blueprint, Response, abort, current_app, jsonify, request
 
@@ -14,6 +15,9 @@ blueprint = Blueprint('pdc', __name__)
 SETUP_STAGE = '1_system'
 SYSTEM_STRUCTURE = 'system.gro'
 SNAPSHOT_INDEX = 'snapshots.json'
+# The centre of the transmembrane slab along z. An OPM structure arrives already oriented, with the bilayer the
+# xy-plane through the origin, so the centre is a property of the coordinate frame rather than a number to measure.
+SLAB_CENTRE_NM = 0.0
 
 
 def setup_root(job_id) -> Path:
@@ -118,3 +122,115 @@ def pdc_system_pdb(job_id):
     except (OSError, ValueError) as error:
         abort(404, f'no built system to show yet: {error}')
     return Response(pdc_view.system_pdb(atoms), mimetype='text/plain')
+
+
+def catalogue_protein(root, entry):
+    """One protein from the catalogue, by whichever of its names the caller used, or a refusal that says which.
+
+    An entry's id and path are file paths, and a path is not a natural URL segment: an absolute one loses its
+    leading slash on the way through a URL -- `%2F` is decoded before routing, so the doubled slash is redirected
+    away -- which is why the comparison ignores a leading slash on either side. The stem resolves too, which is
+    what a caller who has not read the catalogue will reach for. Two entries that answer to the same name are
+    refused rather than picked between: they are two different structures, and a slab read from the wrong one would
+    be indistinguishable from a right one.
+    """
+    wanted = unquote(entry).lstrip('/')
+    matches = [item for item in pdc.catalog(root)['proteins']
+               if wanted in (str(item.get('id') or '').lstrip('/'), str(item.get('path') or '').lstrip('/'),
+                             item.get('name'))]
+    if not matches:
+        abort(404, f'no protein entry named {entry!r} in the catalogue')
+    if len(matches) > 1:
+        abort(400, f'{len(matches)} catalogue entries answer to {entry!r}; name the protein by its id')
+    return matches[0]
+
+
+def saved_mappings(molecule_id):
+    """Every saved CG mapping for a molecule, as `(file name, record)`.
+
+    Read the way a run reads one -- `pdc.prepare` resolves a mapping through the same store, by file name -- and
+    without the mapping validator: this is a question about a bead's size class, and an unrelated validation finding
+    must not hide the mapping that would actually build a run.
+    """
+    from ...models.mappings import store
+
+    found = []
+    for name, path in store.candidate_paths().items():
+        try:
+            record = json.loads(Path(path).read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(record, dict) and record.get('molecule_id') == molecule_id:
+            found.append((name, record))
+    return found
+
+
+@blueprint.get('/api/pdc/proteins/<path:entry>/encapsulation')
+def pdc_encapsulation(entry):
+    """The hydrophobic-surface sizing aid: the numbers, with the method and caveat they came from.
+
+    The panel renders what the server decided rather than repeating the arithmetic in JavaScript. A protein whose
+    structure states no membrane has no slab and is refused with that reason; a detergent with no saved mapping has
+    no head bead size class and is refused with that one. `molecule_id` is the detergent, `aggregation_number` the
+    count the reader asked for.
+    """
+    from ...analysis.runs import encapsulation
+
+    root = coordinator().ROOT
+    protein = catalogue_protein(root, entry)
+    half_thickness = protein.get('half_thickness_nm')
+    if half_thickness is None:
+        return jsonify({'error': f'{protein["name"]} states no membrane annotation, so it has no transmembrane slab '
+                                 'to size a belt against'}), 400
+    molecule_id = (request.args.get('molecule_id') or '').strip()
+    if not molecule_id:
+        return jsonify({'error': 'molecule_id is required: the estimate needs the detergent whose head bead it '
+                                 'sizes'}), 400
+    requested = request.args.get('aggregation_number', '')
+    try:
+        requested = int(requested)
+    except (TypeError, ValueError):
+        return jsonify({'error': f'aggregation_number must be a whole number of detergents, not {requested!r}'}), 400
+    if requested < 1:
+        return jsonify({'error': 'aggregation_number must be at least 1'}), 400
+
+    mappings = saved_mappings(molecule_id)
+    if not mappings:
+        return jsonify({'error': f'{molecule_id} has no saved CG mapping, so its head bead\u2019s size class -- and '
+                                 'with it the area one detergent covers -- cannot be resolved'}), 400
+    head_radii, footprints = [], {}
+    for name, record in mappings:
+        try:
+            radii = encapsulation.mapping_head_radii(record)
+        except ValueError as error:
+            return jsonify({'error': f'the saved mapping {name} names no head bead this can size: {error}'}), 400
+        head_radii.extend(radii)
+        footprints[name] = max(radii)
+    # Only the largest head bead sets the footprint, so two mappings that agree about it can both be used; two that
+    # disagree leave the estimate with no single radius, and picking one would hide a real disagreement.
+    if len(set(footprints.values())) != 1:
+        detail = '; '.join(f'{name} says {radius:.3f} nm' for name, radius in sorted(footprints.items()))
+        return jsonify({'error': f'the saved mappings for {molecule_id} disagree about the head bead\u2019s size '
+                                 f'class: {detail}'}), 400
+
+    location = Path(protein['path'])
+    structure = location if location.is_absolute() else Path(root) / location
+    try:
+        atoms = encapsulation.read_structure(structure)
+        numbers = encapsulation.estimate(atoms['positions_nm'], atoms['radii_nm'],
+                                         encapsulation.apolar_mask(atoms['residues']),
+                                         centre_nm=SLAB_CENTRE_NM, half_thickness_nm=half_thickness,
+                                         head_radii_nm=head_radii, requested=requested,
+                                         residues=atoms['residues'])
+    except (OSError, ValueError) as error:
+        return jsonify({'error': f'{protein["name"]} could not be sized: {error}'}), 400
+    return jsonify({'protein': {'name': protein['name'], 'id': protein['id'], 'source': protein.get('source'),
+                                'half_thickness_nm': half_thickness},
+                    'molecule_id': molecule_id,
+                    'mappings': sorted(name for name, _ in mappings),
+                    'slab': {'axis': 'z', 'centre_nm': SLAB_CENTRE_NM, 'half_thickness_nm': half_thickness},
+                    'atoms': numbers['atoms'], 'apolar_area_nm2': numbers['apolar_area_nm2'],
+                    'head_radius_nm': numbers['head_radius_nm'], 'head_area_nm2': numbers['head_area_nm2'],
+                    'requested': numbers['requested'], 'needed': numbers['needed'],
+                    'fraction': numbers['fraction'],
+                    'method': encapsulation.ESTIMATE_METHOD, 'caveat': encapsulation.ESTIMATE_CAVEAT})
