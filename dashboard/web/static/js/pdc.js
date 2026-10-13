@@ -132,6 +132,33 @@ export function createPdc() {
           : ' — its file states no membrane, so a build would use the protein-extent box.');
   }
 
+  // The build's numbers as the route and the pdc adapter read them. The catalogue publishes the builders' names
+  // (`assessment_ns`), the queue route advertises and filters by the panel's `pdc_` spellings, and the adapter
+  // requires a seed -- so today's date supplies one a reader did not have to choose. `protein` is a path or null:
+  // the route reads `protein` and ignores anything else, and a build with no seed never passes admission.
+  const SETTING_ALIASES = {assessment_ns: 'pdc_assessment_ns', extension_ns: 'pdc_extension_ns'};
+  const NUMBER_KEYS = ['aggregation_number', 'salt_molar', 'box_margin_nm', 'initial_z_nm', 'contact_nm',
+                       'selection_threshold_fraction', 'snapshot_interval_ns', 'snapshot_cap'];
+
+  function todaySeed() {
+    const now = new Date();
+    return Number(`${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`);
+  }
+
+  function buildPayload(entry) {
+    const defaults = catalog?.defaults || {};
+    const payload = {run_type: 'pdc', molecule_id: entry.molecule, method: 'bartender',
+                     template: entry.template, mapping_candidate: mapping.value,
+                     protein: protein?.value || null, pdc_seed: todaySeed()};
+    for (const [from, to] of Object.entries(SETTING_ALIASES)) {
+      if (defaults[from] != null) payload[to] = defaults[from];
+    }
+    for (const key of NUMBER_KEYS) {
+      if (defaults[key] != null) payload[key] = defaults[key];
+    }
+    return payload;
+  }
+
   async function queueBuild() {
     // Readiness is read before the POST, so a build that cannot start says why here rather than in a run that dies at
     // stage one. The settings are the catalogue's own defaults: the same ones the pipeline is prepared with.
@@ -151,13 +178,13 @@ export function createPdc() {
       return;
     }
     if (status) status.textContent = 'Queueing the build…';
-    const payload = {...(catalog?.defaults || {}), molecule_id: chosen.molecule, run_type: 'pdc', method: 'bartender',
-                     template: chosen.template, mapping_candidate: mapping.value,
-                     protein_free: !(protein?.value || '')};
+    // The route that accepts a queue POST is `/` (`runs.py:queue`). This used to POST `/api/jobs`, which registers
+    // GET only and answers 405, so the button never queued anything.
+    const payload = buildPayload(chosen);
     let response, body = {};
     try {
-      response = await fetch('/api/jobs', {method: 'POST', headers: {'Content-Type': 'application/json'},
-                                           body: JSON.stringify(payload)});
+      response = await fetch('/', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                   body: JSON.stringify(payload)});
       body = await response.json().catch(() => ({}));
     } catch (error) {
       if (status) status.textContent = 'The build could not be queued: the coordinator did not answer.';

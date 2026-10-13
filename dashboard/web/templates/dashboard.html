@@ -93,6 +93,8 @@
     <section class="card" aria-labelledby="new-config-title">
       <span class="eyebrow">RUN CONFIGURATION</span><h3 id="new-config-title" class="new-pdc-config-title">Detergent belt and sampling</h3>
       <p class="hint">This workspace runs protein-detergent systems only, so the panel asks only what that pipeline reads: no AA reference, no mapping screen, no bonded fit. The detergent's own topology file is its parameterisation.</p>
+      <label>Initialisation style<select name="pdc_placement_mode" id="new-placement" aria-describedby="new-placement-note"><option value="lattice">Pre-assembled micelle · CHARMM-GUI</option><option value="self-assembly">Self-assembly · MemProtMD</option></select></label>
+      <p id="new-placement-note" class="hint new-pdc-placement-note" role="status">Pre-assembled micelle (CHARMM-GUI style): the detergents are initialised in a micelle structure around the protein, so the belt is exactly the count you ask for.</p>
       <label><span class="new-pdc-count-label" id="new-count-label">Detergents in the belt</span>
         <span class="setting-control">
           <input name="aggregation_number" id="new-count" type="number" min="1" max="1000" step="1" aria-describedby="new-count-help">
@@ -111,6 +113,7 @@
         </tbody></table>
         <p class="hint">The registry carries that number per entry, with the citation that states it; the slot is filled from the entry and never from this panel's arithmetic. An entry without one says so rather than guessing.</p>
       </div>
+      <p class="hint new-pdc-estimate-note" role="status"></p>
       <div class="leg">
         <label>CG assessment leg (ns)<input name="pdc_assessment_ns" id="new-assessment-ns" type="number" min="1" max="100000" step="1"></label>
         <span class="hint">The first CG leg, and it is named for what happens to it: its end state is judged. Detergents not in the micelle are removed, and losing more than 10% of the requested count re-runs this leg from scratch with new velocities, up to three attempts.</span>
@@ -130,7 +133,7 @@
           <label>Snapshot interval (ns)<span class="setting-control"><input name="snapshot_interval_ns" type="number" min="0.1" max="1000" step="0.1"></span></label>
           <label>Snapshots per stage (cap)<span class="setting-control"><input name="snapshot_cap" type="number" min="1" max="200" step="1"></span></label>
         </div>
-        <p class="hint">The seed is required and has no default: detergents are placed at random, and two builds are comparable only when both record the seed they placed with. The rest are the protocol's own numbers, recorded in every run's manifest.</p>
+        <p class="hint">The seed defaults to today's date (YYYYMMDD). Detergents are placed at random in the self-assembly style, so two builds are comparable only when both record the seed they placed with; clearing it stops the run rather than letting one be chosen for it. The rest are the protocol's own numbers, recorded in every run's manifest.</p>
       </details>
       <label>Run label <input name="label" maxlength="160" placeholder="Optional label for this run"></label>
     </section>
@@ -155,9 +158,11 @@
       <dt>Detergent</dt><dd data-new-summary="detergent">—</dd>
       <dt>Mapping</dt><dd data-new-summary="mapping">—</dd>
       <dt>Protein</dt><dd data-new-summary="protein">none · empty micelle</dd>
+      <dt>Initialisation</dt><dd data-new-summary="placement">—</dd>
       <dt>Detergents</dt><dd data-new-summary="count">—</dd>
       <dt class="new-pdc-estimate-label">Estimate</dt><dd data-new-summary="estimate">—</dd>
       <dt>Sampling</dt><dd data-new-summary="sampling">—</dd>
+      <dt>Seed</dt><dd data-new-summary="seed">—</dd>
       <dt>Back-map</dt><dd>CG2AT2, <code>-o align</code></dd>
     </dl>
     <p class="hint review-note">Execution success does not establish scientific validation.</p>

@@ -417,9 +417,24 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
                    'box_margin_nm', 'initial_z_nm', 'contact_nm', 'selection_threshold_fraction',
                    'snapshot_interval_ns', 'snapshot_cap'];
   // The catalogue publishes the settings under the builders' names; the panel's controls carry the pipeline's.
-  const DEFAULT_ALIASES = {assessment_ns: 'pdc_assessment_ns', extension_ns: 'pdc_extension_ns'};
+  const DEFAULT_ALIASES = {assessment_ns: 'pdc_assessment_ns', extension_ns: 'pdc_extension_ns',
+                           placement_mode: 'pdc_placement_mode'};
   let catalogue = null, detergents = [], chosen = new Map();
   let mounted = false, mounting = null, generation = 0;
+
+  // Which generator places the detergents, and it is a choice a reader can see: `lattice` initialises a
+  // pre-assembled micelle around the protein (CHARMM-GUI's Micelle Builder), so the belt is exactly the count
+  // that was asked for; `self-assembly` places that many at random and lets CG MD settle the belt (MemProtMD's
+  // route). The adapter's own default is the pre-assembled one and the select leads with it.
+  const PREASSEMBLED = 'lattice';
+  const placementMode = () => field('pdc_placement_mode')?.value || PREASSEMBLED;
+  const preassembled = () => placementMode() === PREASSEMBLED;
+  // Today's date as YYYYMMDD: the seed a build falls back to. It makes a build reproducible and two of a day's
+  // builds comparable without anyone choosing a number, and it sits inside the adapter's own range.
+  function todaySeed() {
+    const now = new Date();
+    return Number(`${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`);
+  }
 
   const detergent = () => chosen.get(field('molecule_id').value) || null;
   const templateEntry = () => (catalogue?.templates || []).find(item => item.id === field('template').value) || null;
@@ -548,6 +563,41 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       ? "With a protein, steps 3 and 5 use the protein's hydrophobic surface."
       : "Empty micelle: step 3 is the micelle on its own, and step 5's protein clause does not apply.");
     pdcNode('.new-pdc-selfassembly')?.classList.toggle('optional', !hasProtein);
+    // The choice has to mean something on the screen, so the strip, the count's own note and the review all say
+    // which style is in force. A pre-assembled belt is the count asked for; a self-assembled one starts there.
+    const pre = preassembled();
+    say('.new-pdc-placement-note', pre
+      ? 'Pre-assembled micelle (CHARMM-GUI style): the detergents are initialised in a micelle structure, so the '
+        + (hasProtein ? 'belt is exactly the count you ask for.' : 'micelle is exactly the count you ask for.')
+      : 'Self-assembly (MemProtMD): the detergents start at random and CG MD settles the '
+        + (hasProtein ? 'belt, so the count is where the belt starts rather than where it ends.'
+                      : 'micelle, so the count is where the micelle starts rather than where it ends.'));
+    const step = pdcNode('.new-pdc-selfassembly');
+    if (step) {
+      step.querySelector('strong').textContent = pre ? (hasProtein ? '3 · Place the belt' : '3 · Build the micelle')
+                                                     : '3 · Self-assemble';
+      step.querySelector('span').textContent = pre
+        ? (hasProtein
+            ? "Detergent molecules are initialised as a pre-assembled micelle around the protein: the belt is "
+              + "exactly the count you ask for, as CHARMM-GUI's Micelle Builder builds it."
+            : "The micelle is initialised pre-assembled with exactly the count you ask for, as CHARMM-GUI's Micelle "
+              + 'Builder builds it.')
+        : (hasProtein
+            ? 'Detergents are placed at random around the protein, then CG MD lets the belt find its own '
+              + "arrangement — MemProtMD's self-assembly route. The count is where the belt starts, not where it ends."
+            : "The detergents start at random, then CG MD settles the micelle — MemProtMD's self-assembly route.");
+    }
+    say('.new-pdc-estimate-note', pre
+      ? (hasProtein
+          ? `Pre-assembled micelle: the belt is exactly the ${count} detergents you ask for. The coverage number is `
+            + "a flat-area sizing of that input; the run's own assessment, not this panel, decides whether a micelle formed."
+          : `Pre-assembled micelle: the micelle is initialised with exactly the ${count} detergents you ask for.`)
+      : (hasProtein
+          ? `Self-assembly: the belt starts from ${count} detergents placed at random and CG MD settles it, so the `
+            + "final belt size is the MD's to decide. The coverage number sizes the starting count."
+          : `Self-assembly: the ${count} detergents start at random and CG MD settles the micelle.`));
+    setText(summary('placement'), pre ? 'Pre-assembled micelle · CHARMM-GUI' : 'Self-assembly · MemProtMD');
+    setText(summary('seed'), field('pdc_seed').value || 'not set — the run cannot start');
     const number = item && item.aggregation_number != null ? String(item.aggregation_number) : null;
     setText(summary('estimate'), hasProtein
       ? 'Not published yet: the server route that sizes it is not built.'
@@ -661,6 +711,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     input.addEventListener('change', () => { syncSummary(); store(); checkReadiness(); });
   }
   field('aggregation_number').addEventListener('input', syncCount);
+  field('pdc_placement_mode')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
   pdcNode('.new-pdc-count-range')?.addEventListener('input', event => {
     field('aggregation_number').value = event.target.value; syncCount(); syncSummary(); store();
   });
@@ -681,6 +732,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
                        template: templatePath(), protein: field('protein').value || null,
                        label: field('label').value || ''};
       if (field('mapping_candidate').value) payload.mapping_candidate = field('mapping_candidate').value;
+      // The style is a choice the adapter reads through its own placement-mode alias, so it travels under the
+      // panel's spelling (`pdc_placement_mode`) exactly as the seed does.
+      payload.pdc_placement_mode = placementMode();
       for (const key of NUMBERS) {
         const value = field(key)?.value;
         if (value !== '' && value != null) payload[key] = Number(value);
@@ -709,6 +763,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
         }
       }
       fillDefaults();
+      // The seed defaults to today's date: the adapter requires one, the control sits in a collapsed block, and a
+      // build with no seed cannot be compared with another. Cleared by hand it stays empty and the gate names it.
+      const seedInput = field('pdc_seed');
+      if (seedInput && seedInput.value === '') seedInput.value = String(todaySeed());
       syncCount();
       await loadMappings();
       mounted = true;

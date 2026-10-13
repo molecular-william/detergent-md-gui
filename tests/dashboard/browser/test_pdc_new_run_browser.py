@@ -87,10 +87,11 @@ def test_the_panel_asks_for_the_pdc_inputs_and_for_nothing_else(dashboard, live_
                  'selection_threshold_fraction', 'snapshot_interval_ns', 'snapshot_cap'):
         assert page.locator(f'[name={name}]').count() == 1, f'{name} is not offered, or is offered twice'
 
-    # The workflow card is the top of the right column: what will run is read before the resolved values.
+    # The workflow card is the top of the right column: what will run is read before the resolved values. With no
+    # protein and the pre-assembled default, step 3 states the style it is really running.
     workflow = page.locator('.new-run-settings .card').first
     expect(workflow).to_contain_text('What this run will do')
-    expect(workflow).to_contain_text('Self-assemble')
+    expect(workflow.locator('.new-pdc-selfassembly strong')).to_have_text('3 · Build the micelle')
     assert errors == [], errors
 
 
@@ -168,22 +169,109 @@ def test_the_count_stays_an_input_in_both_modes_and_the_empty_micelle_has_no_est
     assert errors == [], errors
 
 
-def test_the_launch_gate_names_the_seed_it_cannot_run_without(dashboard, live_page):
-    """`pdc.validate_payload` requires a seed and has no default, so the panel names it rather than disabling silently."""
+def test_the_seed_defaults_to_today_and_the_gate_still_names_it_when_cleared(dashboard, live_page):
+    """The seed is prefilled with today's date, but `pdc.validate_payload` still requires one, so clearing it by
+    hand re-arms the launch blocker rather than disabling the button silently."""
     page, errors = live_page
     serve_catalogue(page, proteins=CATALOG['proteins'])
     page.route(re.compile(r'/api/readiness\?'), lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
     open_panel(page, live_page.base_url)
     page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
 
+    today = page.evaluate("() => { const d = new Date(); const pad = n => String(n).padStart(2, '0');"
+                          "return Number(`${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`); }")
+    expect(page.locator('[name=pdc_seed]')).to_have_value(str(today))
+    expect(page.locator('[data-new-summary=seed]')).to_have_text(str(today))
+    expect(page.locator('#start-run')).to_be_enabled()
+    expect(page.locator('#review-status')).to_have_text('Inputs ready')
+
+    # Emptied by hand, the gate names the seed again. The seed lives in the collapsed advanced block.
+    page.locator('#new-advanced summary').click()
+    page.locator('[name=pdc_seed]').fill('')
     expect(page.locator('#launch-blocker')).to_contain_text('Choose a random seed')
     expect(page.locator('#start-run')).to_be_disabled()
     expect(page.locator('#review-status')).to_have_text('Action required')
+    assert errors == [], errors
 
-    enter_seed(page, '20260928')
-    expect(page.locator('#launch-blocker')).to_have_text('')
+
+def test_the_initialisation_style_is_offered_with_the_pre_assembled_micelle_as_default(dashboard, live_page):
+    """Two styles, named for the papers behind them: CHARMM-GUI's pre-assembled micelle (the default, the builder's
+    tested path) and MemProtMD's self-assembly."""
+    page, errors = live_page
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    open_panel(page, live_page.base_url)
+
+    style = page.locator('#new-placement')
+    expect(style).to_be_visible()
+    assert style.input_value() == 'lattice', 'the builder’s established lattice path is the default'
+    options = page.evaluate("Array.from(document.querySelectorAll('#new-placement option')).map(o => o.value)")
+    assert options == ['lattice', 'self-assembly'], options
+    expect(page.locator('.new-pdc-placement-note')).to_contain_text('CHARMM-GUI')
+    assert errors == [], errors
+
+
+def test_the_style_decides_whether_the_belt_is_the_count_or_settles_from_it(dashboard, live_page):
+    """With a protein the pre-assembled belt *is* the count asked for; self-assembly starts from it and lets MD
+    settle it. Both the estimate note and the review summary say which is in force."""
+    page, errors = live_page
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    open_panel(page, live_page.base_url)
+    page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
+
+    expect(page.locator('[data-new-summary=placement]')).to_have_text('Pre-assembled micelle · CHARMM-GUI')
+    expect(page.locator('.new-pdc-estimate-note')).to_contain_text('exactly the 150 detergents')
+    expect(page.locator('.new-pdc-selfassembly strong')).to_have_text('3 · Place the belt')
+
+    page.locator('#new-placement').select_option('self-assembly')
+    expect(page.locator('[data-new-summary=placement]')).to_have_text('Self-assembly · MemProtMD')
+    expect(page.locator('.new-pdc-placement-note')).to_contain_text('settles')
+    expect(page.locator('.new-pdc-estimate-note')).to_contain_text('placed at random')
+    expect(page.locator('.new-pdc-selfassembly strong')).to_have_text('3 · Self-assemble')
+    assert errors == [], errors
+
+
+def test_the_empty_micelle_branch_works_in_both_styles(dashboard, live_page):
+    """No protein stays a valid build for either style: the empty branch is shown, and the style sentence adapts."""
+    page, errors = live_page
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    open_panel(page, live_page.base_url)
+
+    expect(page.locator('#new-empty-block')).to_be_visible()
+    expect(page.locator('#new-belt-block')).to_be_hidden()
+    expect(page.locator('.new-pdc-estimate-note')).to_contain_text('exactly the 150 detergents')
+
+    page.locator('#new-placement').select_option('self-assembly')
+    expect(page.locator('#new-empty-block')).to_be_visible()
+    expect(page.locator('#new-belt-block')).to_be_hidden()
+    expect(page.locator('.new-pdc-estimate-note')).to_contain_text('settles the micelle')
+    expect(page.locator('[data-new-summary=placement]')).to_have_text('Self-assembly · MemProtMD')
+    assert errors == [], errors
+
+
+def test_the_panel_sends_the_initialisation_style_it_shows(dashboard, live_page):
+    """The choice reaches the payload under the adapter's placement-mode alias, beside the same settings the rest of
+    the panel sends."""
+    page, errors = live_page
+    posted = {}
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    page.route(re.compile(r'/api/readiness\?'), lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+
+    def queue(route):
+        if route.request.method != 'POST':
+            route.fallback()
+            return
+        posted.update(route.request.post_data_json or {})
+        route.fulfill(status=201, json={'id': 'pdcqueued1', 'run_type': 'pdc'})
+
+    page.route(re.compile(r'^http://127\.0\.0\.1:\d+/$'), queue)
+    open_panel(page, live_page.base_url)
+    page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
+    page.locator('#new-placement').select_option('self-assembly')
     expect(page.locator('#start-run')).to_be_enabled()
-    expect(page.locator('#review-status')).to_have_text('Inputs ready')
+    page.locator('#start-run').click()
+
+    expect(page.locator('#notice')).to_contain_text('Run queued.', timeout=30000)
+    assert posted['pdc_placement_mode'] == 'self-assembly', posted
     assert errors == [], errors
 
 
@@ -220,7 +308,7 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
     expect(page.locator('#notice')).to_contain_text('Run queued.', timeout=30000)
     assert posted == {
         'run_type': 'pdc', 'molecule_id': 'DDM', 'template': 'molecules/DDM/micelle_template.json',
-        'protein': 'molecules/1qj8/1qj8.pdb', 'label': 'pdc panel test',
+        'protein': 'molecules/1qj8/1qj8.pdb', 'label': 'pdc panel test', 'pdc_placement_mode': 'lattice',
         'aggregation_number': 220, 'pdc_assessment_ns': 100, 'pdc_extension_ns': 900, 'pdc_seed': 20260928,
         'salt_molar': 0.15, 'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
         'selection_threshold_fraction': 0.1, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20,

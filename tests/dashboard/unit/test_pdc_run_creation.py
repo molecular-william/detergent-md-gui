@@ -55,3 +55,26 @@ def test_a_complex_build_with_no_template_is_not_ready_and_says_so(tmp_path):
     assert response.status_code == 200, response.get_data(as_text=True)
     assert response.json['ready'] is False
     assert any('Detergent template' in blocker for blocker in response.json['blockers'])
+
+
+def test_the_complex_build_payload_is_the_one_the_queue_route_reads(tmp_path):
+    """The Complexes panel's build posts the shape `queue()` reads: `protein` (a path or null), a seed the adapter
+    requires, and settings under the adapter's own names -- not `protein_free`, which nothing consumes.
+
+    The panel used to POST `/api/jobs`, which registers GET only and answers 405, so this pins the route and the
+    payload it can actually accept."""
+    app = create_app(Paths(workspace=tmp_path / 'pdc-build'), {'TESTING': True, 'DISABLE_COORDINATOR': True})
+    client = app.test_client()
+    protein = tmp_path / 'prot.pdb'
+    protein.write_text('ATOM      1  CA  ALA A   1       0.000   0.000   0.000\n')
+
+    response = client.post('/', json={'molecule_id': 'DDM', 'run_type': 'pdc', 'method': 'bartender',
+                                      'template': 'molecules/DDM/micelle_template.json', 'protein': str(protein),
+                                      'pdc_seed': 20261013, 'pdc_assessment_ns': 100, 'pdc_extension_ns': 900,
+                                      'aggregation_number': 150})
+
+    assert response.status_code == 201, response.get_data(as_text=True)
+    job = response.json
+    assert job['protein'] == str(protein), 'the route reads `protein`; `protein_free` would reach nothing'
+    assert job['settings']['seed'] == 20261013, 'the adapter requires a seed'
+    assert job['settings']['assessment_ns'] == 100 and job['settings']['extension_ns'] == 900
