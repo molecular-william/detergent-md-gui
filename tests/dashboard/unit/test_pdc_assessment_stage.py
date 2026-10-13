@@ -1,9 +1,10 @@
 """The CG assessment phase: what the stage runs, and how long for.
 
-Stage 2 is where a pdc build first does dynamics, so its inputs are the ones a reader will want to check: the
-duration converted into steps at the template's own timestep, the mdrun budget taken from the environment rather
-than restated, and solvation delegated to the builder that decides the water radius, the ion names and the group
-`genion` may replace.
+The assessment leg is where a pdc build does its 100 ns of sampling, so its inputs are the ones a reader will want to
+check: the duration converted into steps at the template's own timestep, the mdrun budget taken from the environment
+rather than restated, and solvation delegated to the builder that decides the water radius, the ion names and the group
+`genion` may replace. The three equilibration legs the pipeline gained in front of it are
+`test_pdc_equilibration_stages.py`.
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ TEMPLATE = {
 }
 PROTEIN = 'molecules/DDM/protein.pdb'
 TEMPLATE_PATH = 'molecules/DDM/micelle_template.json'
-ASSESSMENT = Path(pdc.STAGES[1].relative).parent
+ASSESSMENT = Path(pdc.stage_by_name('CG assessment MD').relative).parent
 
 
 def molecule_tree(tmp_path: Path) -> Path:
@@ -90,7 +91,7 @@ def test_the_assessment_mdp_carries_the_cg_halfs_own_integration_settings(tmp_pa
 
 def test_the_stage_script_solvates_through_the_tested_builder(tmp_path):
     stage = prepared(tmp_path)
-    script = (stage / Path(pdc.STAGES[1].relative).name).read_text()
+    script = (stage / Path(pdc.stage_by_name('CG assessment MD').relative).name).read_text()
 
     assert 'python pdc_solvate.py' in script
     assert 'gmx solvate' not in script, 'the water radius and the ion names belong to pdc_solvation'
@@ -101,7 +102,7 @@ def test_the_stage_script_solvates_through_the_tested_builder(tmp_path):
 
 def test_the_script_takes_its_mdrun_budget_from_the_environment_and_never_passes_ntmpi(tmp_path):
     stage = prepared(tmp_path)
-    script = (stage / Path(pdc.STAGES[1].relative).name).read_text()
+    script = (stage / Path(pdc.stage_by_name('CG assessment MD').relative).name).read_text()
     executed = '\n'.join(line for line in script.splitlines() if not line.strip().startswith('#'))
 
     assert '-ntmpi' not in executed, 'gmx here is an MPI-only build: -ntmpi aborts mdrun before the first step'
@@ -116,13 +117,13 @@ def test_the_assessment_stage_has_every_input_it_declares(tmp_path):
     for name in ('assessment.mdp', 'minimization.mdp', 'equilibration.mdp', 'ions.mdp'):
         assert (stage / name).is_file(), f'{name} is an input of this stage and is missing'
     assert (stage / 'inputs' / 'water.gro').is_file()
-    for name in pdc.STAGES[1].inputs:
+    for name in pdc.stage_by_name('CG assessment MD').inputs:
         if not name.startswith('../'):
             assert (stage / name).is_file()
 
 
 def test_the_back_map_stage_now_has_a_tool_and_an_invocation(tmp_path):
-    stage = prepared(tmp_path).parent / Path(pdc.STAGES[5].relative)
+    stage = prepared(tmp_path).parent / Path(pdc.stage_by_name('Back-mapping (CG2AT2)').relative)
 
     script = stage.read_text()
     assert '-fg martini_3-0_charmm36' in script and '-silent' in script

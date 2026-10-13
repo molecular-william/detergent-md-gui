@@ -202,6 +202,9 @@ def build(stage: Path) -> int:
     settings = read_settings(stage)
     template = micelle_registry.load_template(resolve(settings, 'template', stage))
     template_issues = list(micelle_registry.validate_template(template))
+    # Which generator places the detergents is a decision the build carries, so it is read here and written into the
+    # report --- the run's provenance is not something a reader should have to re-derive from the coordinates.
+    mode = pdc_placement.canonical_mode(settings.get('placement_mode', pdc_placement.DEFAULT_PLACEMENT_MODE))
     report = {
         'stage': 'system-preparation',
         'protein': settings['protein'],
@@ -211,6 +214,7 @@ def build(stage: Path) -> int:
         'detergent_residue': template.residue,
         'aggregation_number': settings['aggregation_number'],
         'seed': settings['seed'],
+        'placement_mode': mode,
         'radius_nm': settings['radius_nm'],
         'box_margin_nm': settings['box_margin_nm'],
         'initial_z_nm': settings['initial_z_nm'],
@@ -231,10 +235,13 @@ def build(stage: Path) -> int:
         beads, command = cg_protein(stage, resolve(settings, 'protein', stage))
     points = [list(bead['position']) for bead in beads]
     placement = pdc_placement.place_detergents(points, template, settings['aggregation_number'],
-                                               settings['seed'], radius_nm=settings['radius_nm'])
+                                               settings['seed'], radius_nm=settings['radius_nm'], mode=mode,
+                                               margin_nm=settings['box_margin_nm'],
+                                               initial_z_nm=settings['initial_z_nm'])
     report.update({
         'cg_command': command,
         'protein_beads': len(points),
+        'placement_mode': placement['mode'],
         'protein_clearance_nm': placement['protein_clearance_nm'],
         'placement_issues': placement['issues'],
     })
@@ -297,11 +304,15 @@ def _detergent_model(stage: Path) -> dict | None:
 
 
 def _record_placement(stage: Path, template, settings: dict) -> None:
-    """The state before a single step of dynamics: the frame a reader judges the placement from."""
+    """The state before a single step of dynamics: the frame a reader judges the placement from.
+
+    The title carries the mode, so a picture cannot be mistaken for one the other generator built.
+    """
     from dashboard.execution.scripts import pdc_snapshot
     pdc_snapshot.write_snapshot(stage, 'placement', stage / 'system.gro',
                                 title=f'placed system before dynamics ({template.name}, '
-                                      f'AN={settings["aggregation_number"]})')
+                                      f'AN={settings["aggregation_number"]}, '
+                                      f'mode={settings.get("placement_mode", pdc_placement.DEFAULT_PLACEMENT_MODE)})')
 
 
 def main(argv=None) -> int:

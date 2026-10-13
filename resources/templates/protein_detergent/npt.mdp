@@ -1,0 +1,53 @@
+; Martini 3 NPT equilibration for a protein-detergent complex: the pressure leg, after the NVT one.
+;
+; `dt = 0.005` ps, the same standing 5 fs equilibration step as the NVT leg. `c-rescale` is the *equilibration*
+; pressure coupling both Martini 3 papers describe; the assessment leg's production template moves to
+; Parrinello-Rahman at the same 1 bar, which is why this file and that one differ in exactly that line.
+;
+; `gen-vel = no` with `continuation = yes`: this leg continues the NVT leg's velocities (the checkpoint, when the
+; NVT leg left one) rather than drawing its own from the thermostat.
+;
+; `nsteps` is stamped from the run at prepare time (`pdc_npt_ps`), and 0 steps is a stage with nothing to do.
+integrator               = md
+dt                       = 0.005
+nsteps                   = 900000
+nstcomm                  = 100
+comm-grps                = System
+comm-mode                = Linear
+nstxout                  = 0
+nstvout                  = 0
+nstfout                  = 0
+nstlog                   = 1000
+nstenergy                = 100
+nstxtcout                = 100
+xtc-precision            = 100
+cutoff-scheme            = Verlet
+nstlist                  = 20
+ns_type                  = grid
+pbc                      = xyz
+verlet-buffer-tolerance  = -1
+rlist                    = 1.35
+coulombtype              = reaction-field
+rcoulomb                 = 1.1
+epsilon_r                = 15
+epsilon_rf               = 0
+vdw_type                 = cutoff
+vdw-modifier             = Potential-shift-verlet
+rvdw                     = 1.1
+tcoupl                   = v-rescale
+tc-grps                  = System
+tau-t                    = 1.0
+ref-t                    = 300
+pcoupl                   = c-rescale
+pcoupltype               = isotropic
+tau-p                    = 4.0
+ref-p                    = 1.0
+compressibility          = 4.5e-5
+gen-vel                  = no
+gen-temp                 = 300
+continuation             = yes
+constraints              = none
+constraint-algorithm     = lincs
+lincs-iter               = 1
+lincs-order              = 4
+lincs-warnangle          = 30

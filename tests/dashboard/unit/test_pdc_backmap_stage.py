@@ -30,11 +30,11 @@ def prepared(tmp_path: Path) -> Path:
     run.mkdir()
     pdc.prepare(run, protein='molecules/DDM/protein.pdb', template='molecules/DDM/micelle_template.json',
                 settings={'seed': 20260930, 'aggregation_number': 4}, project_root=tmp_path)
-    return run / Path(pdc.STAGES[5].relative).parent
+    return run / Path(pdc.stage_by_name('Back-mapping (CG2AT2)').relative).parent
 
 
 def test_the_back_map_uses_the_align_method_and_the_martini_3_database(tmp_path):
-    script = (prepared(tmp_path) / Path(pdc.STAGES[5].relative).name).read_text()
+    script = (prepared(tmp_path) / Path(pdc.stage_by_name('Back-mapping (CG2AT2)').relative).name).read_text()
     executed = ' '.join(line for line in script.splitlines() if not line.strip().startswith('#'))
 
     assert '-o align' in executed
@@ -43,7 +43,7 @@ def test_the_back_map_uses_the_align_method_and_the_martini_3_database(tmp_path)
 
 
 def test_the_stage_never_lets_the_tool_ask_a_question(tmp_path):
-    script = (prepared(tmp_path) / Path(pdc.STAGES[5].relative).name).read_text()
+    script = (prepared(tmp_path) / Path(pdc.stage_by_name('Back-mapping (CG2AT2)').relative).name).read_text()
     executed = ' '.join(line for line in script.splitlines() if not line.strip().startswith('#'))
 
     assert '-silent' in executed, 'without it CG2AT2 prompts, and a stage that prompts hangs'
@@ -51,7 +51,7 @@ def test_the_stage_never_lets_the_tool_ask_a_question(tmp_path):
 
 
 def test_the_stage_names_the_tool_it_is_waiting_for_rather_than_failing_obscurely(tmp_path):
-    script = (prepared(tmp_path) / Path(pdc.STAGES[5].relative).name).read_text()
+    script = (prepared(tmp_path) / Path(pdc.stage_by_name('Back-mapping (CG2AT2)').relative).name).read_text()
 
     assert 'CG2AT="${CG2AT:-tools/cg2at/cg2at}"' in script
     assert 'not there' in script and 'exit 3' in script
@@ -73,7 +73,7 @@ def protein_free(tmp_path: Path) -> Path:
     run.mkdir()
     pdc.prepare(run, protein_free=True, template='molecules/DDM/micelle_template.json',
                 settings={'seed': 20260930, 'aggregation_number': 4}, project_root=tmp_path)
-    return run / Path(pdc.STAGES[5].relative).parent
+    return run / Path(pdc.stage_by_name('Back-mapping (CG2AT2)').relative).parent
 
 
 def test_a_protein_free_run_skips_the_back_map_and_says_why(tmp_path):
@@ -83,7 +83,7 @@ def test_a_protein_free_run_skips_the_back_map_and_says_why(tmp_path):
     import subprocess
 
     stage = protein_free(tmp_path)
-    script = stage / Path(pdc.STAGES[5].relative).name
+    script = stage / Path(pdc.stage_by_name('Back-mapping (CG2AT2)').relative).name
     result = subprocess.run(['bash', str(script)], cwd=stage, capture_output=True, text=True)
 
     assert result.returncode == 4, result.stderr

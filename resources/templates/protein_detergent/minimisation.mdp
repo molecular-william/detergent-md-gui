@@ -1,0 +1,26 @@
+; Martini 3 energy minimisation for a protein-detergent complex, before any dynamics.
+;
+; The coarse-grained half of this run minimises with `steep`; the step count is the run's own
+; (`pdc_minimisation_steps`) and the adapter stamps it in, so a run that asks for 0 steps is a stage with nothing to
+; do rather than a stage that runs 200,000 steps of nothing.
+;
+; The neighbour list and the Verlet buffer tolerance are the ones the coarse-grained equilibration and production
+; templates use (rlist 1.35 nm with the buffer disabled and rcoulomb/rvdw 1.1), so the minimisation and the dynamics
+; that follow it share one cut-off convention rather than two. Reaction field at epsilon_r 15 is the CG half's
+; electrostatics everywhere else in this pipeline.
+integrator               = steep
+nsteps                   = 200000
+nstlog                   = 100
+cutoff-scheme            = Verlet
+nstlist                  = 20
+ns_type                  = grid
+pbc                      = xyz
+verlet-buffer-tolerance  = -1
+rlist                    = 1.35
+coulombtype              = reaction-field
+rcoulomb                 = 1.1
+epsilon_r                = 15
+epsilon_rf               = 0
+vdw_type                 = cutoff
+vdw-modifier             = Potential-shift-verlet
+rvdw                     = 1.1

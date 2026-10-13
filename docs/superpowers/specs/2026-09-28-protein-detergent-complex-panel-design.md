@@ -44,7 +44,8 @@ in common with the single-molecule pipeline, and pretending otherwise would put 
 ## Inputs
 
 Protein structure (PDB), detergent template id, aggregation number, integer seed, salt concentration (default
-0.15 M), CG durations (default 100 ns assessment + 900 ns extension), stage settings for the mdrun budget, and an
+0.15 M), CG durations (default 100 ns assessment + 900 ns extension), the placement mode (lattice, the default, or
+self-assembly — §3), stage settings for the mdrun budget, and an
 optional display name. Every build is immutable and seeded; no global RNG. A protein-free build supplies no
 protein and skips the protein stages.
 
@@ -65,13 +66,26 @@ from the atomistic structure so the restraint set is reproducible from the input
 
 ### 3. Detergent placement around the protein
 
-The micelle builder's deterministic lattice, scoring and bounded repacking, with the protein in place: exact
-aggregation count, headgroup-outward orientation, and the builder's hard overlap gates. Protein-relative
-clearance is the builder's minimum-distance gate; no hydrophobic-belt check exists in this code, and the belt is
-defined by `2026-10-05-membrane-frame-pdc-design.md`. A placement that cannot satisfy
-the gates writes diagnostics and produces no run, as in the original design. For a protein-free build the same
-placement runs with the protein-relative terms switched off, so an empty micelle is one code path rather than a
-second builder.
+Two modes, both seeded and both recorded on the run (`placement_mode`); a build states which one it used.
+
+- **Self-assembly — the requested route.** The detergents are placed **at random** inside the box the protein is
+  inserted into (§1): uniform positions, rejection-sampled so that none is within the placement clearance of the
+  protein and no two are within the builder's overlap gate, and CG MD then lets the belt find its own arrangement.
+  This is MemProtMD's Self Assembly route (`PDB -> Memembed -> martinize2 -> self-assemble -> CGMD -> CG2AT`) applied
+  at the build. The seed is the whole of the randomness, so the same seed rebuilds the same placement and a different
+  seed rebuilds a different one; the placement region is §1's box, so what the detergents fill is what the box states.
+- **Lattice — kept as the other mode.** The micelle builder's deterministic lattice, scoring and bounded repacking,
+  with the protein in place: exact aggregation count, headgroup-outward orientation, and the builder's hard overlap
+  gates. The seed chooses the lattice's phase, and this is the placement every existing run had.
+
+In both modes, protein-relative clearance is the builder's minimum-distance gate; no hydrophobic-belt check exists in
+this code, and the belt is defined by `2026-10-05-membrane-frame-pdc-design.md`. A placement that cannot satisfy the
+gates writes diagnostics and produces no run, as in the original design. For a protein-free build the same placement
+runs with the protein-relative terms switched off, so an empty micelle — placed by either mode — is one code path
+rather than a second builder.
+
+Lattice stays the default, so no existing build's placement moves; self-assembly is selected explicitly until a real
+run says the self-assembled belt is better.
 
 ### 4. Box extension in z
 

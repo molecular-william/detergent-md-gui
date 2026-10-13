@@ -62,7 +62,7 @@ def staged(tmp_path: Path, atoms, **settings):
     run.mkdir()
     pdc.prepare(run, protein='molecules/DDM/protein.pdb', template='molecules/DDM/micelle_template.json',
                 settings={'seed': 20260930, 'aggregation_number': 2, **settings}, project_root=tmp_path)
-    stage = run / Path(pdc.STAGES[2].relative).parent
+    stage = run / Path(pdc.stage_by_name('Micelle assessment').relative).parent
     gro(stage / 'prod' / 'run.gro', atoms)
     return run, stage
 
@@ -173,7 +173,7 @@ def test_the_template_declares_the_tail_beads_the_run_records(tmp_path):
 def test_both_assessment_stages_carry_the_same_script(tmp_path):
     run, _ = staged(tmp_path, protein() + detergent(1, 0.0) + detergent(2, 0.2))
 
-    for stage in (pdc.STAGES[2], pdc.STAGES[4]):
+    for stage in (pdc.stage_by_name('Micelle assessment'), pdc.stage_by_name('Final assessment')):
         script = (run / stage.relative).read_text()
         executed = '\n'.join(line for line in script.splitlines() if not line.strip().startswith('#'))
         assert 'python pdc_assess.py' in executed

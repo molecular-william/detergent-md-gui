@@ -159,14 +159,14 @@ def test_the_extension_stage_can_re_solvate_after_a_removal(tmp_path):
     """The removal path rebuilds the system, and solvation runs `ions.mdp`: without it the stage dies at grompp."""
     from dashboard.execution.adapters import pdc
 
-    phase = tmp_path / Path(pdc.STAGES[1].relative).parent
+    phase = tmp_path / Path(pdc.stage_by_name('CG assessment MD').relative).parent
     phase.mkdir(parents=True, exist_ok=True)
     (phase / 'assessment.mdp').write_text('; the assessment phase mdp\n')
     (phase / 'ions.mdp').write_text('; the mdp that solvation runs\n')
 
     pdc._extension_stage(tmp_path, {'extension_ns': 2.0})
 
-    stage = tmp_path / Path(pdc.STAGES[3].relative).parent
+    stage = tmp_path / Path(pdc.stage_by_name('CG extension MD').relative).parent
     for name in ('extension.mdp', 'minimization.mdp', 'equilibration.mdp', 'ions.mdp', 'inputs/water.gro',
                  'pdc_solvate.py'):
         assert (stage / name).is_file(), name

@@ -18,7 +18,7 @@ TEMPLATE = {
     'topology': 'results/MMFF/lig1.itp',
     'beads': [{'name': 'TAIL1', 'type': 'C1', 'role': 'tail'}],
 }
-EXTENSION = Path(pdc.STAGES[3].relative).parent
+EXTENSION = Path(pdc.stage_by_name('CG extension MD').relative).parent
 
 
 def molecule_tree(tmp_path: Path) -> Path:
@@ -68,7 +68,7 @@ def test_the_extension_length_is_the_runs_setting_in_the_units_convert_tpr_takes
 
 def test_the_script_hands_both_paths_to_the_helper(tmp_path):
     stage = prepared(tmp_path)
-    script = (stage / Path(pdc.STAGES[3].relative).name).read_text()
+    script = (stage / Path(pdc.stage_by_name('CG extension MD').relative).name).read_text()
     executed = '\n'.join(line for line in script.splitlines() if not line.strip().startswith('#'))
 
     assert 'python pdc_extension.py' in executed and '--assessment ../3_assessment' in executed
@@ -80,7 +80,7 @@ def test_the_script_hands_both_paths_to_the_helper(tmp_path):
 
 def test_the_stage_passes_no_ntmpi_and_leaves_the_budget_to_the_helper(tmp_path):
     stage = prepared(tmp_path)
-    script = (stage / Path(pdc.STAGES[3].relative).name).read_text()
+    script = (stage / Path(pdc.stage_by_name('CG extension MD').relative).name).read_text()
     executed = '\n'.join(line for line in script.splitlines() if not line.strip().startswith('#'))
     helper = (stage / 'pdc_extension.py').read_text()
 
@@ -92,7 +92,7 @@ def test_the_extension_stage_declares_the_inputs_it_reads(tmp_path):
     stage = prepared(tmp_path)
 
     assert (stage / 'extension.mdp').is_file() and (stage / 'extension.ps').is_file()
-    for name in pdc.STAGES[3].inputs:
+    for name in pdc.stage_by_name('CG extension MD').inputs:
         if not name.startswith('../'):
             assert (stage / name).is_file(), f'{name} is declared an input of this stage'
 

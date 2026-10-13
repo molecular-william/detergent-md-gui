@@ -42,7 +42,12 @@ DETERGENT_GEOMETRY = 'detergent_CG.json'
 
 DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900,
             'selection_threshold_fraction': 0.10, 'attempts_max': 3, 'box_margin_nm': 2.0,
-            'initial_z_nm': 6.0, 'contact_nm': 0.6, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20}
+            'initial_z_nm': 6.0, 'contact_nm': 0.6, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20,
+            'minimisation_steps': 200000, 'nvt_ps': 500, 'npt_ps': 4500,
+            # Which generator places the detergents. A string, not a number, so it has no SETTING_SPECS bound and is
+            # validated in `validate_payload` instead; its presence here is what lets a caller's choice survive the
+            # settings filter and reach the build. `lattice` is the default so no existing run's placement moves.
+            'placement_mode': 'lattice'}
 _PROTEIN_LIMIT = 50
 
 # One shape across every run type: (label, lo, hi). Numbers only; a choice would need the registry, so it is
@@ -59,13 +64,57 @@ SETTING_SPECS = {
     'selection_threshold_fraction': ('Removal threshold (fraction)', 0.0, 1.0),
     'snapshot_interval_ns': ('Snapshot interval (ns)', 0.1, 1000.0),
     'snapshot_cap': ('Snapshots per stage (cap)', 1, 200),
+    # The three equilibration legs, in steps of steepest descent and picoseconds of MD. `0` is a request for none of
+    # that leg rather than a very short one: the stage has nothing to do, records `skipped`, and the run carries on.
+    'pdc_minimisation_steps': ('CG minimisation steps', 0, 1000000),
+    'pdc_nvt_ps': ('CG NVT equilibration (ps)', 0, 1000000),
+    'pdc_npt_ps': ('CG NPT equilibration (ps)', 0, 1000000),
 }
 
+# What each equilibration leg's generated script has to know: the mdp it runs, the setting that turns into steps, and
+# what the stage says when the run asks for none of it. Keyed by the stage's own name, so the declaration in `STAGES`
+# and the script builder cannot name two different legs.
+LEGS = {
+    'Energy minimisation': {
+        'key': 'minimisation', 'mdp': 'minimisation.mdp', 'setting': 'minimisation_steps', 'solvate': True,
+        'purpose': 'solvate the built system, add its ions, and relax it before any dynamics',
+        'reason': 'the run asks for 0 minimisation steps, so this stage has nothing to do'},
+    'NVT equilibration': {
+        'key': 'nvt', 'mdp': 'nvt.mdp', 'setting': 'nvt_ps', 'seed_velocities': True,
+        'purpose': 'hold the system at fixed volume while the thermostat brings it to 300 K',
+        'reason': 'the run asks for a 0 ps NVT equilibration, so this stage has nothing to do'},
+    'NPT equilibration': {
+        'key': 'npt', 'mdp': 'npt.mdp', 'setting': 'npt_ps', 'checkpoint': '../3_nvt/system.cpt',
+        'purpose': 'hold the system at 1 bar so the box reaches its density before production',
+        'reason': 'the run asks for a 0 ps NPT equilibration, so this stage has nothing to do'},
+}
+# The legs' mdp templates, one per leg, under the resources tree with every other template a run copies.
+EQUILIBRATION_TEMPLATE = ROOT / 'resources/templates/protein_detergent'
+
 # The protocol's own steps, named as stages so the executor, the manifest and the panel all speak the same words.
+# The assessment leg's own directory names are historic and stay: `pdc_extension.py`, the snapshot scripts and the web
+# route all name `1_system`, `2_assessment` and `3_assessment` literally, so the equilibration legs take directories
+# of their own around them rather than renumbering a contract other modules read.
 STAGES = (
     Stage('System preparation', '1_system/prepare_system.sh',
           ('protein.pdb', 'system_EMPTY.top', 'detergent.itp', *FORCEFIELD_FILES),
           ('system.gro', 'system.top', 'prepare_report.json')),
+    # Change 2 of the new-run panel plan: the built system used to go straight into 100 ns of CG MD, and now the
+    # standard sequence for a CG system built from a mapping goes in front of it -- minimisation, then NVT, then NPT.
+    # A leg the run asks none of records `skipped` (exit 4) rather than leaving the chain.
+    Stage('Energy minimisation', '2_minimisation/minimise.sh',
+          ('../1_system/system.gro', '../1_system/system.top', '../1_system/' + DETERGENT_TOPOLOGY,
+           *('../1_system/' + name for name in FORCEFIELD_FILES), 'minimisation.mdp', 'ions.mdp',
+           'inputs/water.gro'),
+          ('system.tpr', 'system.gro', 'system.edr', 'system.log', 'solvation.json')),
+    Stage('NVT equilibration', '3_nvt/equilibrate.sh',
+          ('../2_minimisation/system.gro', '../2_minimisation/system.top', '../2_minimisation/' + DETERGENT_TOPOLOGY,
+           *('../2_minimisation/' + name for name in FORCEFIELD_FILES), 'nvt.mdp'),
+          ('system.tpr', 'system.gro', 'system.edr', 'system.log', 'system.cpt', 'system.xtc')),
+    Stage('NPT equilibration', '4_npt/equilibrate.sh',
+          ('../3_nvt/system.gro', '../3_nvt/system.top', '../3_nvt/' + DETERGENT_TOPOLOGY,
+           *('../3_nvt/' + name for name in FORCEFIELD_FILES), 'npt.mdp'),
+          ('system.tpr', 'system.gro', 'system.edr', 'system.log', 'system.cpt', 'system.xtc')),
     Stage('CG assessment MD', '2_assessment/assessment.sh',
           ('../1_system/system.gro', '../1_system/system.top', '../1_system/' + DETERGENT_TOPOLOGY,
            *('../1_system/' + name for name in FORCEFIELD_FILES), 'assessment.mdp'),
@@ -85,6 +134,24 @@ STAGES = (
           ('../4_extension/prod/run.gro', '../1_system/protein.pdb'),
           ('cg2at_input.pdb', 'FINAL/final_cg2at_aligned.pdb', 'backmap.log')),
 )
+
+
+def stage_by_name(name: str) -> Stage:
+    """One stage of this protocol, by name.
+
+    The plan's positions are data and they move: this module reached the assessment and extension stages as
+    `STAGES[1]` and `STAGES[3]` until three equilibration legs landed in front of them and moved every index. A
+    caller that knows *which* stage it means should say so rather than count.
+    """
+    for stage in STAGES:
+        if stage.name == name:
+            return stage
+    raise KeyError(f'this protocol has no stage named {name!r}')
+
+
+def _stage_directory(run_dir: Path, name: str) -> Path:
+    """One stage's directory, named by the stage so a caller cannot count its way to the wrong one."""
+    return run_dir / Path(stage_by_name(name).relative).parent
 
 
 def validate_payload(payload):
@@ -109,7 +176,14 @@ def validate_payload(payload):
         raise ValueError('pdc salt concentration must be a number') from exc
     if salt < 0:
         raise ValueError('pdc salt concentration cannot be negative')
+    # Which generator places the detergents: a choice, so it is checked where the builder's own vocabulary is known
+    # rather than in a numeric SETTING_SPECS bound. The import is lazy because `pdc_placement` pulls `micelle/__init__`
+    # (the builder CLI, ~115 ms) and the route layer imports this module at startup; the placement module is otherwise
+    # only reached through `prepare`.
+    from .pdc_placement import DEFAULT_PLACEMENT_MODE, canonical_mode
+    placement_mode = canonical_mode(payload.get('placement_mode', DEFAULT_PLACEMENT_MODE))
     return {'seed': seed, 'aggregation_number': aggregation, 'salt_molar': salt,
+            'placement_mode': placement_mode,
             'template': payload.get('template'), 'protein': payload.get('protein') or None}
 
 
@@ -216,8 +290,11 @@ def protein_frame(entry):
 
 
 # The panel sends its own field names (`pdc_seed`), the adapter's settings use the builders' (`seed`); one small
-# map keeps that translation out of the dispatch.
-_ALIASES = {'pdc_seed': 'seed', 'pdc_assessment_ns': 'assessment_ns', 'pdc_extension_ns': 'extension_ns'}
+# map keeps that translation out of the dispatch. The placement mode is a choice, so the panel's spelling of it
+# translates here too and `validate_payload` is where it is checked.
+_ALIASES = {'pdc_seed': 'seed', 'pdc_assessment_ns': 'assessment_ns', 'pdc_extension_ns': 'extension_ns',
+            'pdc_placement_mode': 'placement_mode',
+            'pdc_minimisation_steps': 'minimisation_steps', 'pdc_nvt_ps': 'nvt_ps', 'pdc_npt_ps': 'npt_ps'}
 
 # `genion` fits ions to a topology and needs a tpr, not a trajectory: this is the shortest MDP that makes one, and
 # it is written beside the stage so the solvation step cannot depend on a template that moved.
@@ -255,11 +332,12 @@ def _extension_stage(run_dir: Path, settings: dict):
     """
     from ..environment import update_mdp
 
-    stage = run_dir / Path(STAGES[3].relative).parent
+    extension, assessment = stage_by_name('CG extension MD'), stage_by_name('CG assessment MD')
+    stage = run_dir / Path(extension.relative).parent
     stage.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(run_dir / Path(STAGES[1].relative).parent / 'assessment.mdp', stage / 'extension.mdp')
+    shutil.copy2(run_dir / Path(assessment.relative).parent / 'assessment.mdp', stage / 'extension.mdp')
     update_mdp(stage / 'extension.mdp', {'gen-vel': 'no'})
-    shutil.copy2(SCRIPTS / Path(STAGES[3].relative).name, stage / Path(STAGES[3].relative).name)
+    shutil.copy2(SCRIPTS / Path(extension.relative).name, stage / Path(extension.relative).name)
     # The removal path rebuilds the system from the kept coordinates, so this stage needs the same mdps and water the
     # assessment phase was prepared with, plus the two helpers that do it.
     for target, source in (('minimization.mdp', 'minimization.mdp'), ('equilibration.mdp', 'eq.mdp'),
@@ -268,7 +346,7 @@ def _extension_stage(run_dir: Path, settings: dict):
         shutil.copy2(TUTORIAL_TEMPLATE / '4_CG_sim' / 'inputs' / source, stage / target)
     # `ions.mdp` comes from the assessment phase rather than the template, because the template has none: solvation is
     # the phase that runs it, and the removal path re-solvates.
-    shutil.copy2(run_dir / Path(STAGES[1].relative).parent / 'ions.mdp', stage / 'ions.mdp')
+    shutil.copy2(run_dir / Path(assessment.relative).parent / 'ions.mdp', stage / 'ions.mdp')
     shutil.copy2(SCRIPTS / 'pdc_extension.py', stage / 'pdc_extension.py')
     shutil.copy2(SCRIPTS / 'pdc_solvate.py', stage / 'pdc_solvate.py')
     extension_ps = round(float(settings['extension_ns']) * 1000)
@@ -287,7 +365,8 @@ def _assessment_stage(run_dir: Path, settings: dict):
     from ..environment import update_mdp
     from . import cg as cg_adapter
 
-    stage = run_dir / Path(STAGES[1].relative).parent
+    assessment = stage_by_name('CG assessment MD')
+    stage = run_dir / Path(assessment.relative).parent
     stage.mkdir(parents=True, exist_ok=True)
     source_inputs = TUTORIAL_TEMPLATE / '4_CG_sim' / 'inputs'
     for target, source in (('minimization.mdp', 'minimization.mdp'), ('equilibration.mdp', 'eq.mdp'),
@@ -297,7 +376,7 @@ def _assessment_stage(run_dir: Path, settings: dict):
     steps = round(float(settings['assessment_ns']) * 1000 / _mdp_number(stage / 'assessment.mdp', 'dt'))
     update_mdp(stage / 'assessment.mdp', cg_adapter.mdp_integration(stage, stage / '1_AA-reference', steps))
     (stage / 'ions.mdp').write_text(IONS_MDP)
-    shutil.copy2(SCRIPTS / Path(STAGES[1].relative).name, stage / Path(STAGES[1].relative).name)
+    shutil.copy2(SCRIPTS / Path(assessment.relative).name, stage / Path(assessment.relative).name)
     shutil.copy2(SCRIPTS / 'pdc_solvate.py', stage / 'pdc_solvate.py')
     return steps
 
@@ -314,8 +393,99 @@ cd "$(dirname "$0")"
 PYTHONPATH={root}${{PYTHONPATH:+:$PYTHONPATH}} {python} -m dashboard.execution.scripts.pdc_build --stage .
 """
 
-# Which file in `scripts/` each stage's script comes from. Stage 1's is generated at prepare time, because it has
-# to carry the interpreter and the project root the run was prepared with.
+# The template each equilibration leg's script is generated from. Every leg is the same work -- grompp, then mdrun --
+# so the three differences are filled in rather than written three times. `_stamp_interpreter` points the `python`
+# line at this application's interpreter and puts the project root on the import path, and `_stage_declared_inputs`
+# inserts the copies of the leg's declared inputs, both at prepare time.
+_LEG_SCRIPT = """#!/bin/bash
+# {label} for a protein-detergent complex run: {purpose}.
+#
+# The mdrun budget and the scheme choices arrive as environment -- MDRUN_LAUNCHER is an mpirun prefix or empty,
+# MDRUN_FLAGS the flags -- because this stage is a script rather than a generated command. No -ntmpi appears in the
+# executed lines: this host's `gmx` is an MPI-only build where that flag aborts mdrun before the first step, while
+# -ntomp is valid for every build.
+#
+# The contract's fourth outcome is `skipped`, and for a leg it is a real answer: a run may ask for none of it, and the
+# adapter stamps the step count into {mdp}, so the number this stage acts on is the number in the file it runs.
+set -euxo pipefail
+
+# Nothing to do says so, and why, in `skip.json` beside the script -- which is where the executor reads the reason.
+STEPS=$(awk -F= '/^[[:space:]]*nsteps[[:space:]]*=/ {{print $2+0; exit}}' {mdp})
+if [ "${{STEPS:-0}}" -eq 0 ]; then
+  echo '{{"skipped": true, "reason": "{reason}"}}' > skip.json
+  echo "skipped: {reason}" >&2
+  exit 4
+fi
+
+{solvation}{checkpoint}gmx grompp -f {mdp} -p system.top -c system.gro{checkpoint_flag} -o system.tpr -maxwarn 1
+${{MDRUN_LAUNCHER:-}}gmx mdrun -deffnm system ${{MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on}} -v
+"""
+
+# The first leg's opening act: the system the build leaves is dry, and these are the commands that fill it. They come
+# from `pdc_solvation` -- the tested place that decides the water bead radius, the ion names and the group `genion` may
+# replace -- rather than from this script.
+_LEG_SOLVATION = """# The built system is dry, so solvation and ions are this leg's opening act.
+python pdc_solvate.py --topology system.top --structure system.gro --salt-molar {salt}
+
+"""
+# The last leg carries the velocities the NVT leg equilibrated. A leg the run asked none of leaves no checkpoint, so
+# the file is read when it is there rather than declared as an input that no skip path could satisfy.
+_LEG_CHECKPOINT = """# The checkpoint the leg before this one left, when it left one: those are the velocities the thermostat equilibrated.
+if [ -f {checkpoint} ]; then CHECKPOINT="-t {checkpoint}"; else CHECKPOINT=""; fi
+
+"""
+
+
+def _equilibration_scripts(run_dir: Path, settings: dict) -> dict:
+    """The three legs that equilibrate the built system, before the assessment leg samples it.
+
+    Each leg runs *its template's own mdp*: the timestep, the couplings, the cut-offs and the thermostat all come from
+    `resources/templates/protein_detergent/`, so a leg's physics is checkable without reading this module. The adapter
+    writes only the run's own numbers into the copy it hands the stage -- the duration, and for the velocity-drawing
+    leg the seed those velocities come from -- and `0` is a request for none of that leg, which the stage records as
+    `skipped` rather than as a run of zero steps.
+
+    The first leg solvates, because the system a build leaves is dry and solvation is what every stage after it needs.
+    Returns each leg's step count, so the run's record carries what the chain costs before it costs it.
+    """
+    from ..environment import update_mdp
+
+    steps = {}
+    for name, leg in LEGS.items():
+        stage = stage_by_name(name)
+        directory = _stage_directory(run_dir, name)
+        directory.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(EQUILIBRATION_TEMPLATE / leg['mdp'], directory / leg['mdp'])
+        wanted = int(float(settings[leg['setting']]))
+        # The template decides the unit: a duration becomes steps at *the template's* own dt, so lowering a template's
+        # dt cannot silently shorten the leg the run asked for. The minimisation's setting is already a step count.
+        count = (wanted if leg['setting'] == 'minimisation_steps'
+                 else round(wanted / _mdp_number(directory / leg['mdp'], 'dt')))
+        changes = {'nsteps': count}
+        if leg.get('seed_velocities'):
+            changes['gen-seed'] = int(settings['seed'])
+        update_mdp(directory / leg['mdp'], changes)
+        solvation, checkpoint, checkpoint_flag = '', '', ''
+        if leg.get('solvate'):
+            shutil.copy2(SCRIPTS / 'pdc_solvate.py', directory / 'pdc_solvate.py')
+            (directory / 'ions.mdp').write_text(IONS_MDP)
+            (directory / 'inputs').mkdir(exist_ok=True)
+            shutil.copy2(TUTORIAL_TEMPLATE / '4_CG_sim' / 'inputs' / 'water.gro',
+                         directory / 'inputs' / 'water.gro')
+            solvation = _LEG_SOLVATION.format(salt=float(settings['salt_molar']))
+        if leg.get('checkpoint'):
+            checkpoint = _LEG_CHECKPOINT.format(checkpoint=leg['checkpoint'])
+            checkpoint_flag = ' $CHECKPOINT'
+        (directory / Path(stage.relative).name).write_text(_LEG_SCRIPT.format(
+            label=name, purpose=leg['purpose'], mdp=leg['mdp'], reason=leg['reason'],
+            solvation=solvation, checkpoint=checkpoint, checkpoint_flag=checkpoint_flag))
+        steps[leg['key']] = count
+    return steps
+
+
+# Which file in `scripts/` each stage's script comes from. Stage 1's and the three equilibration legs' are generated
+# at prepare time -- stage 1's because it has to carry the interpreter and the project root the run was prepared with,
+# and the legs' because they are the same three commands with the run's own numbers in them.
 _STAGE_SOURCES = {
     '2_assessment/assessment.sh': 'assessment.sh',
     '3_assessment/assess.sh': 'pdc_assess.sh',
@@ -399,7 +569,7 @@ def _stamp_interpreter(script, root):
 
 
 def prepare(run_dir, *, protein=None, template=None, settings=None, project_root=None, mapping=None, **kwargs):
-    """Write the six stage directories and everything the system-preparation stage needs to start.
+    """Write the stage directories and everything the first stage needs to start.
 
     `protein` and `template` are paths relative to `project_root` -- the spelling `catalog` reports, so the panel's
     own choice can be handed straight in. `mapping` is a saved CG mapping for the detergent: with it, the run's
@@ -451,11 +621,11 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         source = _STAGE_SOURCES.get(stage.relative)
         if source:
             shutil.copy2(SCRIPTS / source, directory / Path(stage.relative).name)
-    for stage in (STAGES[2], STAGES[4]):
-        shutil.copy2(SCRIPTS / 'pdc_assess.py', run_dir / Path(stage.relative).parent / 'pdc_assess.py')
+    for name in ('Micelle assessment', 'Final assessment'):
+        shutil.copy2(SCRIPTS / 'pdc_assess.py', _stage_directory(run_dir, name) / 'pdc_assess.py')
     # The frame sampler is copied beside every stage that has a trajectory to read.
-    for stage in (STAGES[1], STAGES[2], STAGES[3], STAGES[4]):
-        shutil.copy2(SCRIPTS / 'pdc_snapshot.py', run_dir / Path(stage.relative).parent / 'pdc_snapshot.py')
+    for name in ('CG assessment MD', 'Micelle assessment', 'CG extension MD', 'Final assessment'):
+        shutil.copy2(SCRIPTS / 'pdc_snapshot.py', _stage_directory(run_dir, name) / 'pdc_snapshot.py')
 
     system = run_dir / Path(STAGES[0].relative).parent
     forced = {}
@@ -513,6 +683,7 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         label=STAGES[0].name, report=REPORT_NAME, root=str(root), python=sys.executable))
     assessment_steps = _assessment_stage(run_dir, numbers)
     extension_ps = _extension_stage(run_dir, numbers)
+    equilibration_steps = _equilibration_scripts(run_dir, numbers)
     # One record, and it is the one the pipeline reads: `workflow.prepare_run` takes this manifest, adds the run's
     # snapshots and tools, and moves it to the run root. A tool that is not resolvable is recorded as unresolved
     # rather than raising here, because readiness is the layer that blocks a run for it.
@@ -541,7 +712,8 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         {'run_type': 'pdc', 'stage_plan': _plan(), 'settings': numbers,
          'protein': str(protein) if protein else '', 'template': str(template),
          'template_issues': template_issues,
-         'assessment_steps': assessment_steps, 'extension_ps': extension_ps, 'tools': recorded_tools,
+         'assessment_steps': assessment_steps, 'extension_ps': extension_ps,
+         'equilibration_steps': equilibration_steps, 'tools': recorded_tools,
          'limitations': ['the detergent is one centre per molecule: the shipped templates carry no bead shape',
                          'the assessment, removal, extension and back-mapping stage scripts are task B7b']})
     manifest.setdefault('stages', [])
@@ -549,14 +721,14 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
 
 
 def _plan():
-    """The six stages as `(name, relative)` pairs, the spelling a run's manifest records."""
+    """Every stage as `(name, relative)` pairs, in the order they run, the spelling a run's manifest records."""
     return [[stage.name, stage.relative] for stage in STAGES]
 
 
 def stage_contract(metadata=None):
     """The contract in the shape the other run types publish: `(plan, inputs, outputs)`.
 
-    The pdc stages are the same six for every payload -- nothing here is per molecule yet -- so the metadata is
+    The pdc stages are the same for every payload -- nothing here is per molecule yet -- so the metadata is
     accepted and unused, rather than the caller having to know which run types need it.
     """
     return (_plan(),

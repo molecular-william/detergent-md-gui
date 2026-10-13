@@ -45,7 +45,7 @@ def test_an_unknown_run_type_still_raises():
         protocol.adapter_for('protein_detergent')
 
 
-def test_the_contract_publishes_the_six_stages_as_pairs():
+def test_the_contract_publishes_the_plan_as_pairs():
     plan, inputs, outputs = protocol.adapter_for('pdc').stage_contract({})
 
     assert plan == [[stage.name, stage.relative] for stage in pdc.STAGES]

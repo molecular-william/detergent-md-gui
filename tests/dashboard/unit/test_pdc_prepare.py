@@ -91,7 +91,7 @@ def test_every_stage_has_a_script_and_the_back_map_names_its_tool(tmp_path):
     for stage in pdc.STAGES:
         script = (run / Path(stage.relative)).read_text()
         assert script.startswith('#!'), f'{stage.name} has no runnable script'
-    backmap = (run / Path(pdc.STAGES[5].relative)).read_text()
+    backmap = (run / Path(pdc.stage_by_name('Back-mapping (CG2AT2)').relative)).read_text()
     assert 'CG2AT' in backmap and '-o align' in backmap, 'the back-map names its tool and its method'
 
 
@@ -230,7 +230,12 @@ def test_a_protein_free_build_writes_topologies_with_no_protein_row(tmp_path):
 
 
 def test_every_copied_stage_script_runs_under_this_interpreters_own_python(tmp_path):
-    """`python` on PATH is not the venv that carries this repository, which cost a run at its second stage."""
+    """`python` on PATH is not the venv that carries this repository, which cost a run at its second stage.
+
+    A stage that calls python at all has to call *this* interpreter -- which is what the check reads out of its
+    executed lines. The generated equilibration legs call none: they are grompp and mdrun, with the step count read
+    by awk, so there is no interpreter in them to get wrong.
+    """
     import sys
 
     root = molecule_tree(tmp_path)
@@ -242,7 +247,9 @@ def test_every_copied_stage_script_runs_under_this_interpreters_own_python(tmp_p
         text = script.read_text()
         assert '\npython ' not in text and not text.startswith('python '), \
             f'{script.name} still calls a bare python'
-        assert sys.executable in text or not text.startswith('#!'), f'{script.name} names no interpreter'
+        executed = '\n'.join(line for line in text.splitlines() if not line.strip().startswith('#'))
+        if 'python ' in executed:
+            assert sys.executable in text, f'{script.name} calls a python that is not this application\'s'
 
 
 def test_each_stage_copies_in_the_inputs_it_declares(tmp_path):
@@ -334,7 +341,8 @@ def test_a_stage_that_runs_grompp_gets_every_include_of_its_topology(tmp_path):
     pdc_build.write_topologies(system, None, detergent, 6)
     includes = re.findall(r'#include "([^"]+)"', (system / 'system.top').read_text())
 
-    for stage in (pdc.STAGES[1], pdc.STAGES[3]):
+    for stage in (pdc.stage_by_name('Energy minimisation'), pdc.stage_by_name('NPT equilibration'),
+                  pdc.stage_by_name('CG assessment MD'), pdc.stage_by_name('CG extension MD')):
         declared = {str(entry).split('/')[-1] for entry in stage.inputs}
         copied = (tmp_path / 'run' / stage.relative).read_text()
         for include in includes:

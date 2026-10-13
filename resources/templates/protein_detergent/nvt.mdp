@@ -1,0 +1,52 @@
+; Martini 3 NVT equilibration for a protein-detergent complex: fixed volume, v-rescale at 300 K.
+;
+; `dt = 0.005` ps is the standing project decision for the coarse-grained *equilibration* half -- the Martini 3
+; Methods exclude equilibration from the 20 fs production rule without naming their own step, and 5 fs is what this
+; project chose. Production stays 20 fs.
+;
+; The cut-offs, the reaction-field electrostatics and the thermostat are the ones the coarse-grained templates in
+; `small_mols_fast_forward/4_CG_sim/inputs/` already use, so this leg and the assessment leg cannot disagree about
+; the potential they sample. `pcoupl = no` is what makes it NVT; the NPT leg follows it and holds the pressure.
+;
+; `nsteps` and `gen-seed` are stamped from the run at prepare time (`pdc_nvt_ps` and the run's seed), and 0 steps is
+; a stage with nothing to do.
+integrator               = md
+dt                       = 0.005
+nsteps                   = 100000
+nstcomm                  = 100
+comm-grps                = System
+comm-mode                = Linear
+nstxout                  = 0
+nstvout                  = 0
+nstfout                  = 0
+nstlog                   = 1000
+nstenergy                = 100
+nstxtcout                = 100
+xtc-precision            = 100
+cutoff-scheme            = Verlet
+nstlist                  = 20
+ns_type                  = grid
+pbc                      = xyz
+verlet-buffer-tolerance  = -1
+rlist                    = 1.35
+coulombtype              = reaction-field
+rcoulomb                 = 1.1
+epsilon_r                = 15
+epsilon_rf               = 0
+vdw_type                 = cutoff
+vdw-modifier             = Potential-shift-verlet
+rvdw                     = 1.1
+tcoupl                   = v-rescale
+tc-grps                  = System
+tau-t                    = 1.0
+ref-t                    = 300
+pcoupl                   = no
+gen-vel                  = yes
+gen-temp                 = 300
+gen-seed                 = 20260911
+continuation             = no
+constraints              = none
+constraint-algorithm     = lincs
+lincs-iter               = 1
+lincs-order              = 4
+lincs-warnangle          = 30
