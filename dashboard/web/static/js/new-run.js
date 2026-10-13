@@ -421,6 +421,11 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
                            placement_mode: 'pdc_placement_mode'};
   let catalogue = null, detergents = [], chosen = new Map();
   let mounted = false, mounting = null, generation = 0;
+  // The coverage estimate is the server's answer. `estimateState` is the last one rendered; `estimateRequest`
+  // numbers the questions asked, so the answer to an older question can be recognised and dropped rather than put
+  // on screen -- a reader moving the count must not see a slow earlier answer land on a newer question.
+  let estimateState = {kind: 'idle', summary: '', body: null, reason: ''};
+  let estimateRequest = 0;
 
   // Which generator places the detergents, and it is a choice a reader can see: `lattice` initialises a
   // pre-assembled micelle around the protein (CHARMM-GUI's Micelle Builder), so the belt is exactly the count
@@ -599,11 +604,98 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     setText(summary('placement'), pre ? 'Pre-assembled micelle · CHARMM-GUI' : 'Self-assembly · MemProtMD');
     setText(summary('seed'), field('pdc_seed').value || 'not set — the run cannot start');
     const number = item && item.aggregation_number != null ? String(item.aggregation_number) : null;
+    // The estimate is the server's: the review shows the answer the route gave (or its refusal), and with no
+    // protein there is no slab to size, so the detergent's own measured micelle size stands instead.
     setText(summary('estimate'), hasProtein
-      ? 'Not published yet: the server route that sizes it is not built.'
+      ? (estimateState.summary || '—')
       : `experimental aggregation number ${number ?? 'not recorded yet'}`);
     say('.new-pdc-empty-number', number ?? '— not recorded yet');
     say('.new-pdc-empty-count', String(count));
+  }
+
+  // The coverage estimate the plan asks for, rendered from the route's answer rather than computed here: the
+  // numbers, the method the route states and its caveat, or -- when the route refuses -- the route's own reason.
+  // No arithmetic of the panel's own reaches the screen: `fraction`, `needed` and the areas are the server's, and
+  // all this does is format them. The two initialisation styles keep their own sentences (`.new-pdc-estimate-note`,
+  // set in `syncSummary`), so a pre-assembled belt still *is* the count and a self-assembled one still starts there.
+  function renderEstimate() {
+    const verdict = pdcNode('.new-pdc-verdict'), table = pdcNode('.new-pdc-estimate-table');
+    const state = estimateState;
+    if (state.kind === 'answer') {
+      const body = state.body;
+      const fraction = Number(body.fraction);
+      const percent = Math.round(fraction * 100);
+      const enough = fraction >= 1;
+      if (verdict) {
+        verdict.className = `new-pdc-verdict ${enough ? 'enough' : 'short'}`;
+        verdict.textContent = enough
+          ? `${body.requested} detergents cover the apolar slab (${percent}%).`
+          : `${body.requested} detergents cover about ${percent}% of the apolar slab.`;
+      }
+      say('.new-pdc-shortfall', enough ? ''
+        : `The estimate asks for about ${Math.round(body.needed)}; below that, expect bare patches rather than a belt.`);
+      say('.new-pdc-apolar', `${Number(body.apolar_area_nm2).toFixed(1)} nm²`);
+      say('.new-pdc-head', `${Number(body.head_area_nm2).toFixed(3)} nm²`);
+      say('.new-pdc-need', `${Math.round(body.needed)} detergents`);
+      say('.new-pdc-have', `${(fraction * 100).toFixed(1)}%`);
+      say('.new-pdc-method', body.method || '');
+      say('.new-pdc-caveat', body.caveat || '');
+      if (table) table.hidden = false;
+      return;
+    }
+    // A refusal states the server's reason and nothing else: no number is shown beside it, so the box can never be
+    // read as a sizing the panel worked out, and it is never left blank.
+    if (verdict) {
+      verdict.className = state.kind === 'refused' ? 'new-pdc-verdict refused' : 'new-pdc-verdict';
+      verdict.textContent = state.kind === 'refused' ? state.reason
+        : state.kind === 'loading' ? 'Sizing the belt from the protein’s transmembrane slab…'
+        : 'Choose a protein and a detergent to size the belt.';
+    }
+    say('.new-pdc-shortfall', '');
+    say('.new-pdc-method', '');
+    say('.new-pdc-caveat', '');
+    if (table) table.hidden = true;
+  }
+
+  // One question, one request: which protein, which detergent, how many. The question is numbered, and an answer
+  // whose number is no longer the latest is dropped -- that is what keeps a slow earlier request from overwriting
+  // the answer to a later one while the reader moves the count.
+  async function loadEstimate() {
+    const entry = field('protein').value, molecule = field('molecule_id').value;
+    const mine = ++estimateRequest;
+    if (!entry || !molecule) {
+      estimateState = {kind: 'idle', summary: '', body: null, reason: ''};
+      renderEstimate(); syncSummary();
+      return;
+    }
+    estimateState = {kind: 'loading', summary: 'Sizing…', body: null, reason: ''};
+    renderEstimate(); syncSummary();
+    const query = new URLSearchParams({molecule_id: molecule, aggregation_number: field('aggregation_number').value});
+    // A catalogue id can be an absolute path (an imported structure lives outside the repository), and the route
+    // reads such a path with its leading slash stripped: `catalogue_protein` compares both sides without one. That
+    // is also the only spelling that answers directly -- a percent-encoded leading slash decodes to `//` in the
+    // path, and the server answers that with a redirect rather than the estimate.
+    const entry_id = String(entry).replace(/^\/+/, '');
+    let response, body = {};
+    try {
+      response = await fetch(`/api/pdc/proteins/${encodeURIComponent(entry_id)}/encapsulation?${query}`);
+      body = await response.json().catch(() => ({}));
+    } catch (error) {
+      if (mine !== estimateRequest) return;
+      estimateState = {kind: 'refused', summary: 'estimate unavailable', body: null,
+                       reason: 'The estimate could not be read: the coordinator did not answer.'};
+      renderEstimate(); syncSummary();
+      return;
+    }
+    if (mine !== estimateRequest) return;
+    if (!response.ok) {
+      const reason = body.error || `the estimate was refused (status ${response.status})`;
+      estimateState = {kind: 'refused', summary: reason, body: null, reason};
+    } else {
+      estimateState = {kind: 'answer', body,
+                       summary: `about ${Math.round(Number(body.fraction) * 100)}% of the apolar slab`, reason: ''};
+    }
+    renderEstimate(); syncSummary();
   }
 
   // What the panel can see and the server cannot: a build places detergents at random, so a run with no seed is not
@@ -695,11 +787,11 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
 
   field('molecule_id').addEventListener('change', () => {
     describeDetergent(); store();
-    loadMappings().then(() => { syncSummary(); return checkReadiness(); }).catch(error => say('.new-pdc-detergent', error.message));
+    loadMappings().then(() => { syncSummary(); loadEstimate(); return checkReadiness(); }).catch(error => say('.new-pdc-detergent', error.message));
   });
   field('template').addEventListener('change', () => { describeTemplate(); store(); syncSummary(); checkReadiness(); });
-  field('protein').addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
-  field('mapping_candidate').addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
+  field('protein').addEventListener('change', () => { store(); syncSummary(); loadEstimate(); checkReadiness(); });
+  field('mapping_candidate').addEventListener('change', () => { store(); syncSummary(); loadEstimate(); checkReadiness(); });
   // Every number the adapter reads. `input` keeps the summary and the gate current while a value is typed -- a
   // number input fires `change` only on blur, so a gate that listened for that alone would leave the reader looking
   // at a blocker they had already cleared (and one readiness fetch per keystroke is noise, so it is debounced);
@@ -711,9 +803,11 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     input.addEventListener('change', () => { syncSummary(); store(); checkReadiness(); });
   }
   field('aggregation_number').addEventListener('input', syncCount);
+  // The count is part of the question the estimate answers, so every change to it is asked again -- typed or slid.
+  field('aggregation_number').addEventListener('input', loadEstimate);
   field('pdc_placement_mode')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
   pdcNode('.new-pdc-count-range')?.addEventListener('input', event => {
-    field('aggregation_number').value = event.target.value; syncCount(); syncSummary(); store();
+    field('aggregation_number').value = event.target.value; syncCount(); syncSummary(); store(); loadEstimate();
   });
   pdcNode('.new-pdc-import-button')?.addEventListener('click', importStructure);
   field('pdbid')?.addEventListener('keydown', event => {
@@ -771,6 +865,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       await loadMappings();
       mounted = true;
       syncSummary();
+      loadEstimate();
       checkReadiness();
     })();
     try { await mounting; }

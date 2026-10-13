@@ -103,7 +103,19 @@
       </label>
       <p class="hint" id="new-count-help">This input is here in both modes: around a protein it is the belt's size, with no protein it is the micelle's.</p>
       <div class="new-pdc-belt-block" id="new-belt-block">
-        <p class="hint">The coverage estimate is computed by the server from the protein's transmembrane slab and this detergent's head bead, and it says what it is: a flat-area sizing of an input, never a verdict that a micelle forms. That route is not published yet, so no number is shown here rather than one this panel worked out for itself.</p>
+        <div class="new-pdc-estimate-card" role="status" aria-live="polite">
+          <p class="new-pdc-verdict">Choose a protein and a detergent to size the belt.</p>
+          <p class="hint new-pdc-shortfall"></p>
+          <table class="new-pdc-estimate-table" hidden><tbody>
+            <tr><td>Apolar area of the transmembrane slab</td><td><strong class="new-pdc-apolar">—</strong></td></tr>
+            <tr><td>Head-group area of one detergent bead</td><td><strong class="new-pdc-head">—</strong></td></tr>
+            <tr><td>Estimated need</td><td><strong class="new-pdc-need">—</strong></td></tr>
+            <tr><td>What you are asking for</td><td><strong class="new-pdc-have">—</strong> of that area</td></tr>
+          </tbody></table>
+          <p class="hint new-pdc-method"></p>
+          <p class="hint new-pdc-caveat"></p>
+          <p class="hint">The number is the server's, from the protein's transmembrane slab and this detergent's head bead, with the method it states and its own caveat: a flat-area sizing of an input, never a verdict that a micelle forms.</p>
+        </div>
       </div>
       <div class="new-pdc-empty-block" id="new-empty-block" hidden>
         <p class="hint">An empty micelle has no belt to size, so there is no coverage estimate. What is worth knowing beside the count is the detergent's own measured micelle size.</p>

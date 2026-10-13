@@ -52,8 +52,15 @@
 .new-pdc-workflow li strong{display:block;font-size:13px}
 .new-pdc-workflow li span{color:var(--muted)}
 .new-pdc-workflow li.optional{border-style:dashed}
-.new-pdc-estimate{border-collapse:collapse;font-size:13px;margin-top:8px}
-.new-pdc-estimate td{padding:2px 14px 2px 0}
+.new-pdc-estimate,.new-pdc-estimate-table{border-collapse:collapse;font-size:13px;margin-top:8px}
+.new-pdc-estimate td,.new-pdc-estimate-table td{padding:2px 14px 2px 0}
+/* The coverage estimate the server sizes: its verdict, its numbers, its method and its caveat, in one box. */
+.new-pdc-estimate-card{border:1px solid var(--line);background:#f7fafd;border-radius:8px;padding:12px;margin-top:10px}
+.new-pdc-verdict{font-weight:600;margin:0 0 6px}
+.new-pdc-verdict.short{color:#a8480d}
+.new-pdc-verdict.enough{color:#1c7a3e}
+.new-pdc-verdict.refused{color:var(--danger)}
+.new-pdc-method,.new-pdc-caveat{margin:8px 0 0;font-size:12px}
 .new-pdc-belt-block,.new-pdc-empty-block{margin-top:10px}
 #run-form .leg{margin-top:12px}
 #run-form .leg label{display:flex;flex-direction:column;gap:2px;font-weight:650}
