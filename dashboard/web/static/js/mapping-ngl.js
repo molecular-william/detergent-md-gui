@@ -14,6 +14,14 @@ const VDW_CARBON = 1.70;                        // NGL's van der Waals radius fo
 const SIZE_RADII = {R: 2.64, S: 2.30, T: 1.91}; // Martini's molecular-volume classes, as the composition panel draws
 const BEAD_COLOURS = {R: 0x4a5568, S: 0x2b6cb0, T: 0xb7791f};
 const BEAD_OPACITY = 0.35;                      // translucent enough to read the atoms through a sphere
+// Every atom carries its mapping id. The PDB's serials ARE those ids -- serials() reads them back for picking --
+// so a label of `serial` prints the same number a table row's `atoms` field lists, which is the whole point of
+// drawing them. `atomindex` would print the structure's own 0-based order and send a reader to the wrong atom.
+// The parameters live here rather than inline because the panel can add this representation again after removing
+// it: two spellings of it would drift, and the drift would be in what the numbers mean.
+const LABEL_PARAMETERS = {sele: 'all', labelType: 'serial', labelSize: 2, labelColor: 'black',
+                          labelZOffset: 1.5, fixedSize: true, showBackground: true,
+                          backgroundColor: 'white', backgroundOpacity: 0.75};
 
 function serials(pdb) {
   // The written serials, in file order, so a structure index can be turned back into a mapping atom id.
@@ -32,6 +40,26 @@ export function mountOverlay3d(host, context, onAtom) {
   let signature = null;          // the bead assignment currently drawn, so an unchanged one costs no request
   let atomIds = [];              // structure index -> mapping atom id
   let beads = [];                // the spheres as the server described them, in file order
+  let labelsWanted = true;       // whether every atom is numbered; the panel's default, and what a toggle sets
+  let labelComponent = null;     // the component the numbers are drawn on, null until a structure is loaded
+  let labelRepresentation = null; // the numbers themselves, held so they can be taken away without a refetch
+
+  function applyLabels() {
+    // Safe at any point in the panel's life, including before the first structure arrives: with no component here
+    // the wanted state is simply kept, and update() applies it when it next builds the components. That is what
+    // lets the panel restore the reader's choice at mount, ahead of the request that draws the molecule.
+    if (!labelComponent) return;
+    if (labelsWanted && !labelRepresentation) {
+      labelRepresentation = labelComponent.addRepresentation('label', LABEL_PARAMETERS);
+    } else if (!labelsWanted && labelRepresentation) {
+      // The representation goes, not the component: the molecule and the beads stay where they are, so a toggle
+      // costs no request and moves nothing.
+      labelComponent.removeRepresentation(labelRepresentation);
+      labelRepresentation = null;
+    } else return;
+    // This build renders on demand, so a change nothing asks it to redraw is a change nobody sees.
+    stage.viewer.requestRender();
+  }
 
   function note(message) {
     if (message) host.dataset.overlayStatus = message;
@@ -64,21 +92,17 @@ export function mountOverlay3d(host, context, onAtom) {
     } catch (error) { note(error.message); return; }
     note('');
     stage.removeAllComponents();
+    // Everything that pointed at the old components points at nothing now: removeAllComponents() disposed them.
+    labelComponent = null; labelRepresentation = null;
     atomIds = serials(payload.pdb);
     beads = payload.spheres || [];
     try {
       const molecule = await stage.loadFile(new Blob([payload.pdb], {type: 'text/plain'}), {ext: 'pdb'});
       const beadFile = await stage.loadFile(new Blob([payload.bead_pdb], {type: 'text/plain'}), {ext: 'pdb'});
       if (molecule && molecule.structure) {
+        labelComponent = molecule;
         molecule.addRepresentation('ball+stick', {sele: 'all', colorScheme: 'element', radiusScale: 0.9});
-        // Every atom carries its mapping id. The PDB's serials ARE those ids -- serials() reads them back for
-        // picking -- so a label of `serial` prints the same number a table row's `atoms` field lists, which is the
-        // whole point of drawing them. `atomindex` would print the structure's own 0-based order and send a reader
-        // to the wrong atom.
-        molecule.addRepresentation('label', {sele: 'all', labelType: 'serial', labelSize: 2,
-                                             labelColor: 'black', labelZOffset: 1.5, fixedSize: true,
-                                             showBackground: true, backgroundColor: 'white',
-                                             backgroundOpacity: 0.75});
+        applyLabels();
       }
       // One representation per size class: a representation has a single radius scale, so beads of different sizes
       // cannot share one. The class is the residue name, which is the form this build's selections resolve.
@@ -129,7 +153,12 @@ export function mountOverlay3d(host, context, onAtom) {
 
   return {
     update,
+    // The panel's toggle. `true` numbers every heavy atom by its mapping id, `false` takes the numbers away; both
+    // act on the structure already loaded, so flipping it is instant and costs no request. Before anything is
+    // drawn it only records the choice, which update() applies.
+    setLabels(visible) { labelsWanted = !!visible; applyLabels(); },
     destroy() {
+      labelComponent = null; labelRepresentation = null;
       try { stage.dispose(); } catch (error) { /* a disposed stage is not an error worth showing */ }
       host.replaceChildren();
     },

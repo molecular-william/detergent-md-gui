@@ -103,3 +103,88 @@ def test_add_and_delete_beads_sit_below_the_table_and_act_on_the_selection(dashb
     expect(rows).to_have_count(before)
     expect(delete).to_be_disabled()
     assert errors == []
+
+
+def _label_representations(page):
+    """The label representations the viewer is holding right now, read from the stage it publishes."""
+    return [item for item in page.locator(OVERLAY).evaluate(REPRESENTATIONS) or [] if item['type'] == 'label']
+
+
+def test_the_atom_numbers_can_be_turned_off_and_on_again_without_a_reload(dashboard, live_page):
+    """The numbering is a toggle, and flipping it must not cost a request or a redraw of the molecule.
+
+    The molecule file is fetched once, by `update()`, and only when the assignment changed; a toggle acts on the
+    structure the viewer is already holding. So the request count is part of the claim, not decoration: it is what
+    separates "the numbers were turned off" from "the view was rebuilt without them".
+    """
+    seed_candidate(dashboard)
+    page, errors = live_page
+    open_editor(page, live_page)
+
+    requests = []
+    page.on('request', lambda request: requests.append(request.url) if '/api/mappings/overlay3d' in request.url else None)
+    page.wait_for_function("() => document.querySelector('#mapping-editor-overlay3d')?.overlayStage", timeout=30000)
+    before = len(requests)
+
+    numbers = page.get_by_role('checkbox', name='Number atoms')
+    expect(numbers).to_be_visible()
+    # The default is on, which is what the test above pins: an editor that opened unnumbered would send a reader
+    # looking for a control before they could match a table row against the picture.
+    expect(numbers).to_be_checked()
+    labels = _label_representations(page)
+    assert labels, 'the overlay opened unnumbered'
+    assert labels[0]['labelType'] == 'serial', labels
+
+    numbers.uncheck()
+    expect(numbers).not_to_be_checked()
+    assert _label_representations(page) == [], 'the numbers survived being turned off'
+    # Gone means gone: the molecule is still drawn, so removing the numbers took nothing else with it.
+    assert page.locator(OVERLAY).evaluate("(el) => (el.overlayStage.compList[0].reprList || [])"
+                                          ".map(repr => repr.getType())") == ['ball+stick']
+
+    numbers.check()
+    expect(numbers).to_be_checked()
+    labels = _label_representations(page)
+    assert labels and labels[0]['labelType'] == 'serial', labels
+    # Neither direction asked the server for anything: no refetch, no flicker, no window where the molecule is gone.
+    assert len(requests) == before, requests
+    assert errors == []
+    # Leave the reader's default where the rest of the file expects to find it.
+    expect(numbers).to_be_checked()
+
+
+def test_the_numbering_choice_survives_a_reload(dashboard, live_page):
+    """A reloaded page comes up the way it was left, and the checkbox says so before the molecule is drawn.
+
+    The reload is a fresh document on the same origin, and the template carries no `checked` attribute, so an
+    unchecked box here can only have been read back out of storage -- which is the claim under test.
+    """
+    seed_candidate(dashboard)
+    page, errors = live_page
+    open_editor(page, live_page)
+
+    expect(page.get_by_role('checkbox', name='Number atoms')).to_be_checked()
+    page.get_by_role('checkbox', name='Number atoms').uncheck()
+    assert _label_representations(page) == []
+
+    page.reload()
+    # The panel mounts itself from the URL and loads the first molecule, so its "loaded" line is the wait: the
+    # restore happens on that mount, ahead of the structure.
+    expect(page.locator('#mapping-editor-status')).to_contain_text('loaded', timeout=30000)
+    expect(page.get_by_role('checkbox', name='Number atoms')).not_to_be_checked()
+
+    # Same molecule as before the reload, so the overlay drawn on this fresh page can be read the same way.
+    page.locator('#mapping-molecule').select_option(MOLECULE)
+    page.locator('#mapping-bead-rows tr').first.wait_for(timeout=30000)
+    page.wait_for_function("() => document.querySelector('#mapping-editor-overlay3d')?.overlayStage"
+                           "?.compList.length", timeout=30000)
+    assert _label_representations(page) == [], 'the reloaded page drew the numbers back'
+    assert page.locator(OVERLAY).evaluate("(el) => (el.overlayStage.compList[0].reprList || [])"
+                                          ".map(repr => repr.getType())") == ['ball+stick']
+    assert errors == []
+
+    # And the reload is not a one-way door: ticking it here numbers the molecule this page is holding, and that
+    # choice is what the next load reads back.
+    page.get_by_role('checkbox', name='Number atoms').check()
+    assert len(_label_representations(page)) == 1
+    assert page.evaluate("localStorage.getItem('ddm.mappingAtomLabels')") == 'true'

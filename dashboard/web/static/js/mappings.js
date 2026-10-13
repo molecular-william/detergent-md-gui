@@ -19,6 +19,25 @@ export function createMappings() {
     if (key) storage.set(key, moleculeEditor.candidate);
   }
 
+  // Whether the 3D view numbers the heavy atoms. One key rather than one per molecule: it is a reading aid, so it
+  // follows the reader rather than the molecule, and a molecule switch must not silently turn it back on.
+  function atomLabelsWanted() { return storage.get('mappingAtomLabels', true) !== false; }
+  function setAtomLabels(visible) {
+    storage.set('mappingAtomLabels', visible);
+    // The overlay redraws the structure it already holds, so this costs no request and the second half of the
+    // panel's own view does not blink.
+    if (moleculeOverlay) moleculeOverlay.setLabels(visible);
+  }
+  function restoreAtomLabels() {
+    const box = $('#mapping-atom-labels');
+    const wanted = atomLabelsWanted();
+    if (box) box.checked = wanted;
+    // Called before the first draw, so this only records the choice; the overlay applies it when the structure
+    // arrives. That is what makes a reloaded page come up numbered, or not, without a second request.
+    if (moleculeOverlay) moleculeOverlay.setLabels(wanted);
+    return wanted;
+  }
+
   async function loadMapping(file) {
     if (!file) return null;
     if (file.startsWith('composition:')) {
@@ -187,6 +206,9 @@ export function createMappings() {
       moleculeOverlay = mountOverlay3d($('#mapping-editor-overlay3d'), source.context, id => {
         toggleAtom(moleculeEditor, id); persistEditor(); editorSelection();
       });
+      // The reader's choice of numbers is restored onto the fresh overlay before the first draw, so a reloaded page
+      // comes up the way it was left without a second request to undo a default.
+      restoreAtomLabels();
       renderEditor();
       
       editorMessage(`${source.context.name || moleculeId} loaded · ${source.context.atoms.length} atoms · ${source.context.source_quality.bond_order} bond graph`);
@@ -244,6 +266,11 @@ export function createMappings() {
       try { removeBead(moleculeEditor, name); persistEditor(); renderEditor(); }
       catch (error) { editorMessage(error.message); }
     };
+    // The numbering toggle beside the bead table. It redraws nothing and fetches nothing: the atoms the numbers
+    // hang on are already in the view, so this only adds or removes the representation drawn over them.
+    restoreAtomLabels();
+    const atomLabels = $('#mapping-atom-labels');
+    if (atomLabels) atomLabels.onchange = () => setAtomLabels(atomLabels.checked);
     $('#clear-all-mapping').onclick = () => {
       if (!moleculeEditor || !window.confirm('Remove every bead assignment from this local draft?')) return;
       clearMapping(moleculeEditor); renderEditor(); editorMessage('All bead assignments cleared from the local draft.');
