@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Run view panel · draft for review</title>
+
+<!-- The application's own stylesheets, in the application's own head order (`dashboard/web/templates/dashboard.html:6-13`).
+     `layout.css` is second to last and states the twelve-column measure a panel's cards sit on; a per-panel stylesheet
+     that states a competing grid loses to it only because of that order. Keeping the order is what makes this draft
+     measure the shape the built panel will have. -->
+<link rel="stylesheet" href="../../../dashboard/web/static/dashboard.css">
+<link rel="stylesheet" href="../../../dashboard/web/static/runs.css">
+<link rel="stylesheet" href="../../../dashboard/web/static/new-run.css">
+<link rel="stylesheet" href="../../../dashboard/web/static/mappings.css">
+<link rel="stylesheet" href="../../../dashboard/web/static/compositions.css">
+<link rel="stylesheet" href="../../../dashboard/web/static/pdc.css">
+
+<!-- Stand-in A: what `run-view.css` will hold, linked here — after `pdc.css`, before `layout.css`, which is where a
+     per-panel stylesheet goes. It states a two-column grid, deliberately the shape `new-run.css:2` states for
+     `#run-form.new-run-layout`: the rule the measure is supposed to beat. -->
+<style id="run-view-css">
+  .run-view-layout{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:20px;align-items:start}
+  .run-view-layout .card{margin:0 0 16px}
+  .run-view-list{display:flex;flex-direction:column;gap:4px;margin:10px 0 0;padding:0;list-style:none}
+  .run-view-list button{display:block;width:100%;text-align:left;padding:8px 10px;border:1px solid var(--line);
+    border-radius:8px;background:#fff;cursor:pointer;font:inherit;line-height:1.35}
+  .run-view-list button[aria-pressed="true"]{background:#eef4ff;border-color:var(--accent)}
+  .run-view-list .id{font-weight:700;font-variant-numeric:tabular-nums}
+  .run-view-list .meta{display:block;font-size:12px;color:var(--muted)}
+  .run-view-structures{width:100%;border-collapse:collapse;font-size:12px}
+  .run-view-structures th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);
+    padding:8px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .run-view-structures td{padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+  .run-view-structures tr[aria-selected="true"]{background:#eef4ff}
+  .run-view-structures code{font-size:12px;overflow-wrap:anywhere}
+  .run-view-viewer{height:420px;min-height:300px;border:1px solid var(--line);border-radius:8px;background:#f7f9fc}
+  .run-view-frames{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .run-view-frames button{padding:4px 10px;border:1px solid var(--line);border-radius:999px;background:#fff;cursor:pointer;font:inherit}
+  .run-view-frames button[aria-pressed="true"]{background:#1b4b8f;border-color:#1b4b8f;color:#fff}
+  .run-view-readout{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:12px 0 0;padding:10px;
+    background:#f7f9fc;border:1px solid var(--line);border-radius:8px;font-size:12px;font-variant-numeric:tabular-nums}
+  .run-view-readout b{display:block;font-size:15px}
+  .run-view-readout .bad{color:var(--danger)}
+  .run-view-readout .ok{color:#286644}
+  .run-view-figures{margin:8px 0 0;padding-left:20px;font-size:13px;overflow-wrap:anywhere}
+  .run-view-figures li{margin:4px 0}
+  .run-view-guard{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0 0;font-size:13px}
+  .run-view-guard input{margin:0}
+</style>
+
+<link rel="stylesheet" href="../../../dashboard/web/static/layout.css">
+<link rel="stylesheet" href="../../../dashboard/web/static/workspaces.css">
+
+<!-- Stand-in B: the spans that will be added to `layout.css` beside `.pdc-workspace`'s (`layout.css:61-63`), and the
+     measure rule that has to beat stand-in A. Same selectors as A, later in the document: this is the order the
+     head-order check below measures. -->
+<style id="layout-css-standin">
+  .run-view-layout{grid-template-columns:repeat(12,minmax(0,1fr))}
+  .run-view-runs{grid-column:span 4}
+  .run-view-stage{grid-column:span 8}
+  .run-view-notes{grid-column:span 12}
+  @media (max-width:1100px){ .run-view-runs,.run-view-stage,.run-view-notes{grid-column:span 12} }
+</style>
+
+<!-- Mock chrome only. Nothing here belongs in the application. -->
+<style id="mock-chrome">
+  main{padding-top:0}
+  .draft-banner{background:#fffbe6;border:1px solid #e6d78a;border-radius:10px;padding:14px 16px;margin:0 0 20px}
+  .draft-banner h2{margin:0 0 6px;font-size:17px}
+  .draft-banner ul{margin:8px 0 0;padding-left:20px;font-size:13px}
+  .draft-banner li{margin:3px 0}
+  .draft-block{position:relative;border-top:2px dashed var(--line);padding-top:14px;margin-top:26px}
+  .draft-block:first-of-type{border-top:0}
+  .draft-tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--accent);border:1px solid var(--line);border-radius:999px;padding:2px 10px;margin-bottom:8px}
+  .geometry{font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere;
+    background:#f7f9fc;border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0 0}
+</style>
+
+<script src="../../../dashboard/web/static/vendor/ngl.js"></script>
+</head>
+<body>
+<main>
+<header>
+  <div><span class="eyebrow">LOCAL SIMULATION WORKSPACE</span><h1>Detergent MD</h1>
+    <p>Run, inspect, and refine molecular models.</p></div>
+  <span id="connection" role="status">Draft · opened from disk</span>
+</header>
+
+<div class="draft-banner">
+  <h2>Draft for review — a Run view panel, in both workspaces</h2>
+  <p class="hint">Nothing here is built. This page is the layout to judge; the plan beside it
+    (<code>docs/superpowers/plans/2026-10-13-run-view-panel.md</code>) carries the scope and the decisions.</p>
+  <ul>
+    <li><b>Real:</b> the stylesheets (the application's own, in its own order), the run rows (the 14 runs in
+      <code>workspace/dashboard/runs/</code> on 2026-10-13: 6 osmotic, 6 AA-only, 2 AA–CG), every structure path and
+      atom count, the figure names, and the model's own bonds of run <code>22075892b606</code>.</li>
+    <li><b>Placeholder:</b> the frame strip's three buttons. No route serves a single trajectory frame today, and no
+      run has a <code>snapshots/</code> directory — the strip says so and the buttons say
+      <code>placeholder</code> on them.</li>
+    <li><b>Substituted so the page opens from disk:</b> a browser cannot <code>fetch</code> a run's file over
+      <code>file://</code>, so the two structures are embedded in the page instead of fetched through
+      <code>/api/jobs/&lt;id&gt;/artifacts/&lt;rel&gt;?inline=1</code>. They are the runs' own files: run
+      <code>22075892b606</code>'s 8 mapped beads with the seven bonds its <code>LIG1.itp</code> declares, and run
+      <code>03875cf39790</code>'s molecule. One edit was made to the second — its element column. See the note under
+      the first block.</li>
+  </ul>
+</div>
+
+<div class="app-shell">
+<nav role="tablist" aria-label="Panels" id="mock-rail">
+  <span class="tab-group">RUN AND READ</span>
+  <button type="button" aria-selected="false"><span class="tab-glyph">☰</span><span class="tab-text">Runs</span></button>
+  <button type="button" aria-selected="true"><span class="tab-glyph">⬓</span><span class="tab-text">Run view</span></button>
+  <span class="tab-group">BUILD A MODEL</span>
+  <button type="button" aria-selected="false"><span class="tab-glyph">▶</span><span class="tab-text">New run</span></button>
+  <button type="button" aria-selected="false"><span class="tab-glyph">◎</span><span class="tab-text">Bead Assignment</span></button>
+</nav>
+<div class="app-content">
+
+<!-- ============================ BLOCK 1: an AA run, Detergent validation ============================ -->
+<div class="draft-block">
+<span class="draft-tag">Detergent validation · an AA run selected</span>
+<section class="panel" id="block-validation-aa" aria-label="Run view panel in Detergent validation, an AA run selected">
+  <div class="section-heading">
+    <div><h2>Run view</h2><p>One run, its structures, its frames and its figures — drawn from what the run wrote.</p></div>
+    <button type="button" class="secondary" data-go="runs">Open the zoomable figures in Runs</button>
+  </div>
+
+  <div id="run-view" class="run-view-layout">
+    <div class="run-view-runs">
+      <section class="card" aria-labelledby="choose-run-title">
+        <span class="eyebrow">DETERGENT VALIDATION</span>
+        <h3 id="choose-run-title">Choose a run</h3>
+        <div class="toolbar">
+          <label>Run type
+            <select><option>All types in this workspace · 14</option><option>AA run only · 6</option>
+              <option selected>AA–CG run · 2</option><option>CG composition · 0</option><option>Osmotic series · 6</option></select>
+          </label>
+          <label>Status
+            <select><option selected>completed</option><option>All statuses</option><option>running</option><option>failed</option></select>
+          </label>
+          <label>Search runs<input type="search" placeholder="id, label or molecule" value=""></label>
+        </div>
+        <ul class="run-view-list" aria-label="Runs in this workspace">
+          <li><button type="button" aria-pressed="false"><span class="id">22075892b606</span>
+            <span class="meta">E3 Maltose CG consistency, 200 ns at 20 fs · Maltose · aa_cg · completed</span></button></li>
+          <li><button type="button" aria-pressed="false"><span class="id">a2a457cf9413</span>
+            <span class="meta">E2 Sucrose CG geometry, 200 ns at 20 fs · Sucrose · aa_cg · completed</span></button></li>
+          <li><button type="button" aria-pressed="true"><span class="id">03875cf39790</span>
+            <span class="meta">Sucrose · CHARMM36m (Feb 2026, CGenFF 4.6) — paper protocol, 200 ns · Sucrose · aa_only · completed</span></button></li>
+          <li><button type="button" aria-pressed="false"><span class="id">13ba0a087fad</span>
+            <span class="meta">sucrose AA 200 ns (ensemble reference) · Sucrose · aa_only · completed</span></button></li>
+          <li><button type="button" aria-pressed="false"><span class="id">38f54e67f13d</span>
+            <span class="meta">E1 second AA reference, seed 20260930, 2.7 nm box · Sucrose · aa_only · completed</span></button></li>
+          <li><button type="button" aria-pressed="false"><span class="id">a54ac8f64710</span>
+            <span class="meta">E3 Maltose AA reference, 200 ns · Maltose · aa_only · completed</span></button></li>
+          <li><button type="button" aria-pressed="false"><span class="id">0bfa1a39ef76</span>
+            <span class="meta">E3 Trehalose AA reference, 200 ns · Trehalose · aa_only · completed</span></button></li>
+          <li><button type="button" aria-pressed="false"><span class="id">dbc366ae772b</span>
+            <span class="meta">DDM AA reference, 200 ns · DDM · aa_only · completed</span></button></li>
+        </ul>
+        <p class="hint" role="status">Showing 8 of 12 runs in this workspace's scope (6 AA-only, 2 AA–CG, 0 CG
+          composition; 6 osmotic series runs are outside it). <code>/api/jobs</code> pages at 20 and caps
+          <code>limit</code> at 100, and has no run-type filter — this list asks for one page of 100 and says what it
+          holds. A workspace past 100 runs is truncated until the route grows a filter (T5).</p>
+      </section>
+
+      <section class="card" aria-labelledby="holds-title">
+        <h3 id="holds-title">What this run holds</h3>
+        <p class="hint">Every file a stage wrote, in the run's own order. <code>.gro</code> carries coordinates and no
+          bonds; a <code>.pdb</code> may carry them as <code>CONECT</code>.</p>
+        <table class="run-view-structures">
+          <caption class="sr-only">Structure files in run 03875cf39790</caption>
+          <thead><tr><th>File</th><th>Beads / atoms</th><th>Bonds</th></tr></thead>
+          <tbody>
+            <tr aria-selected="true"><td><code>stages/07_reference/lig.gro</code><br><span class="hint">the published AA reference</span></td><td>45</td><td>none recorded</td></tr>
+            <tr><td><code>stages/common/molecule/MMFF/lig1.pdb</code><br><span class="hint">the molecule input</span></td><td>45</td><td>no CONECT — all-atom, so NGL's own</td></tr>
+            <tr><td><code>stages/06_production/run.gro</code><br><span class="hint">whole box</span></td><td>1,527</td><td>none recorded</td></tr>
+            <tr><td><code>stages/05_npt/run.gro</code></td><td>1,527</td><td>none recorded</td></tr>
+            <tr><td><code>stages/04_nvt/run.gro</code></td><td>1,527</td><td>none recorded</td></tr>
+            <tr><td><code>stages/03_minimization/run.gro</code></td><td>1,527</td><td>none recorded</td></tr>
+            <tr><td><code>stages/02_ions/system.gro</code></td><td>1,527</td><td>none recorded</td></tr>
+            <tr><td><code>stages/01_solvation/system.gro</code></td><td>1,527</td><td>none recorded</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+
+    <div class="run-view-stage">
+      <section class="card" aria-labelledby="structure-title-aa">
+        <h3 id="structure-title-aa">Structure</h3>
+        <p class="hint" id="aa-what">Loading the run's molecule…</p>
+        <div class="run-view-viewer" id="viewer-aa" role="img" aria-label="Structure from run 03875cf39790"></div>
+        <div class="run-view-readout" id="readout-aa" aria-live="polite"></div>
+        <p class="hint">Read back from the component the viewer loaded, not from what this panel asked for: a selection
+          that matches nothing and an inference that adds bonds both render as a plausible picture with a clean console.</p>
+        <p class="hint">The element column is the one edit made for this draft. The run's molecule PDB writes
+          <code>LIG</code> in the element field (columns 77–78), which this viewer reads as <em>lithium</em> — a
+          covalent radius three times carbon's, and a bond guess to match. The draft corrects the field from the atom
+          name so the picture shows the chemistry the file actually holds. Worth checking when the panel is built:
+          whether the run's own files reach the viewer with that field saying what it means.</p>
+      </section>
+
+      <section class="card" aria-labelledby="frames-title-aa">
+        <h3 id="frames-title-aa">Frames</h3>
+        <div class="run-view-frames" role="group" aria-label="Frames through the run">
+          <button type="button" disabled title="placeholder — no frame route exists">0 ps · placeholder</button>
+          <button type="button" disabled title="placeholder — no frame route exists">50 ps · placeholder</button>
+          <button type="button" disabled title="placeholder — no frame route exists">100 ps · placeholder</button>
+        </div>
+        <p class="hint" role="status">This run recorded no frame snapshots, and the strip says so instead of showing
+          three buttons that do nothing. The trajectory is <code>stages/07_reference/lig.xtc</code>; no route serves a
+          single frame of it, and the panel does not parse one in the browser. The <code>snapshots</code> analysis
+          writes these PDBs — it looks in <code>1_AA-reference/prod/</code>, a layout an AA-only run does not have, so
+          it has produced nothing for any of the 14 runs on disk. T4 makes it read this layout; then these buttons are
+          real, served through <code>/api/jobs/&lt;id&gt;/artifacts/snapshots/AA-first.pdb?inline=1</code>.</p>
+      </section>
+
+      <section class="card" aria-labelledby="figures-title-aa">
+        <h3 id="figures-title-aa">Figures</h3>
+        <p class="hint">This run published none. The six AA-only runs on disk publish none either — every figure in
+          the workspace belongs to an AA–CG run, whose assessment stage draws them.</p>
+        <p class="hint">When a run does have figures, they are listed here from
+          <code>/api/jobs/&lt;id&gt;/figures</code> and opened inline through the artifact route; the zoomable, pannable
+          gallery stays where it already is, in the Runs panel.</p>
+      </section>
+    </div>
+
+    <div class="run-view-notes">
+      <section class="card" aria-labelledby="notes-title-aa">
+        <h3 id="notes-title-aa">What this view is, and what it is not</h3>
+        <p class="hint">It draws files the run wrote. A <code>.gro</code> taken into this viewer is drawn without
+          bonds — the format carries none and this viewer's GRO parser infers none — so the caption names the file
+          rather than implying a connectivity. An all-atom <code>.pdb</code> with no <code>CONECT</code> is drawn with
+          the viewer's own distance guess, which on real chemistry reproduces the molecule. Anything coarse-grained, or
+          any file that carries <code>CONECT</code>, is loaded with the guess switched off.</p>
+        <p class="hint">A structure appearing here is not a statement about the model, and a completed run is not a
+          validated model: the mapping-validation panel is where a model is compared with its reference.</p>
+      </section>
+    </div>
+  </div>
+</section>
+</div>
+
+<!-- ============================ BLOCK 2: an AA-CG run, Detergent validation ============================ -->
+<div class="draft-block">
+<span class="draft-tag">Detergent validation · an AA–CG run selected — the CG half</span>
+<section class="panel" id="block-validation-cg" aria-label="Run view panel with an AA-CG run selected">
+  <div class="section-heading">
+    <div><h2>Run view</h2><p>One run, its structures, its frames and its figures — drawn from what the run wrote.</p></div>
+  </div>
+
+  <div id="run-view-cg" class="run-view-layout">
+    <div class="run-view-runs">
+      <section class="card" aria-labelledby="choose-run-title-2">
+        <span class="eyebrow">DETERGENT VALIDATION</span>
+        <h3 id="choose-run-title-2">Choose a run</h3>
+        <p class="hint" role="status">Run <code>22075892b606</code> selected · <code>E3 Maltose CG consistency,
+          200 ns at 20 fs</code> · Maltose · <code>aa_cg</code> · completed. Arrived by
+          <code>/detergent-validation/run-view?run=22075892b606</code>, the deep link the Runs table's
+          <b>View run</b> link writes.</p>
+      </section>
+
+      <section class="card" aria-labelledby="holds-title-2">
+        <h3 id="holds-title-2">What this run holds</h3>
+        <table class="run-view-structures">
+          <caption class="sr-only">Structure files in run 22075892b606</caption>
+          <thead><tr><th>File</th><th>Beads</th><th>Bonds</th></tr></thead>
+          <tbody>
+            <tr aria-selected="true"><td><code>stages/2_mapping/mapped.gro</code><br><span class="hint">the mapped model the run simulated</span></td><td>8</td><td>none recorded</td></tr>
+            <tr><td><code>stages/4_CG_sim/min.gro</code><br><span class="hint">whole CG box</span></td><td>280</td><td>none recorded</td></tr>
+            <tr><td><code>stages/4_CG_sim/eq.gro</code></td><td>280</td><td>none recorded</td></tr>
+            <tr><td><code>stages/4_CG_sim/md.gro</code></td><td>280</td><td>none recorded</td></tr>
+            <tr><td><code>stages/4_CG_sim/solvated.gro</code></td><td>280</td><td>none recorded</td></tr>
+            <tr><td><code>stages/4_CG_sim/boxed.gro</code></td><td>8</td><td>none recorded</td></tr>
+          </tbody>
+        </table>
+        <p class="hint">Every one of these is coordinates only. The model's own connectivity is in
+          <code>stages/3_initial_CG/LIG1.itp</code>: one <code>[ bonds ]</code> line and six
+          <code>[ constraints ]</code> lines — the seven edges a viewer should draw, and the seven the picture beside
+          this table draws. Bead size classes come from the run's own
+          <code>stages/2_mapping/model.json</code>.</p>
+      </section>
+    </div>
+
+    <div class="run-view-stage">
+      <section class="card" aria-labelledby="structure-title-cg">
+        <h3 id="structure-title-cg">Structure</h3>
+        <p class="hint" id="cg-what">Loading the run's mapped model…</p>
+        <div class="run-view-viewer" id="viewer-cg" role="img" aria-label="Coarse-grained structure from run 22075892b606"></div>
+        <div class="run-view-readout" id="readout-cg" aria-live="polite"></div>
+        <p class="run-view-guard">
+          <label><input type="checkbox" id="guard-cg" checked> Honour the file's <code>CONECT</code> and never guess
+            (<code>inferBonds: 'none'</code>)</label>
+        </p>
+        <p class="hint">Untick it and the same eight beads and the same seven <code>CONECT</code> records are loaded the
+          way <code>compositions.js</code> and <code>mapping-ngl.js</code> load theirs — with the viewer's distance
+          guess left on. The readout above shows both numbers. This is the whole point of the panel's bond rule: a
+          coarse-grained bead is a radius stand-in, so the guess is generous and the extra edges are head beads onto
+          tail beads.</p>
+        <p class="hint">What the run's own <code>mapped.gro</code> gives today is the third number — coordinates with
+          no bond records at all, which this viewer draws as eight loose beads. Drawing them properly is the one new
+          route the plan asks for (T3): the run's own <code>[ bonds ]</code> and <code>[ constraints ]</code> written
+          as <code>CONECT</code>, the same writer the PDC snapshots already use.</p>
+      </section>
+
+      <section class="card" aria-labelledby="frames-title-cg">
+        <h3 id="frames-title-cg">Frames</h3>
+        <div class="run-view-frames" role="group" aria-label="Frames through the run">
+          <button type="button" disabled title="placeholder — no frame route exists">0 ps · placeholder</button>
+          <button type="button" disabled title="placeholder — no frame route exists">100 ps · placeholder</button>
+          <button type="button" disabled title="placeholder — no frame route exists">200 ps · placeholder</button>
+        </div>
+        <p class="hint" role="status">No frame snapshots recorded. This run's CG trajectories are
+          <code>stages/4_CG_sim/eq.xtc</code> and <code>stages/4_CG_sim/md.xtc</code>, and its AA half belongs to the
+          run it reused — <code>stages/1_AA-reference/</code> holds only the stage script, so the frame producer's
+          <code>1_AA-reference/prod/lig.xtc</code> is not here either.</p>
+      </section>
+
+      <section class="card" aria-labelledby="figures-title-cg">
+        <h3 id="figures-title-cg">Figures</h3>
+        <p class="hint">Five, straight from the run's assessment and topology stages.</p>
+        <ul class="run-view-figures">
+          <li><code>stages/3_initial_CG/fitted_interactions.png</code></li>
+          <li><code>stages/5_assessment/score_matrix_LIG1.png</code></li>
+          <li><code>stages/5_assessment/interaction_distributions_LIG1.png</code></li>
+          <li><code>stages/5_assessment/distance_distributions_LIG1.png</code></li>
+          <li><code>stages/5_assessment/distance_matrix_stratified_LIG1.png</code></li>
+        </ul>
+        <p class="hint">Also <code>surface-comparison.html</code> under <code>analyses/surfaces/</code> — a
+          self-contained page the artifact route serves with the sandboxed CSP its Plotly scene needs. Each is opened
+          inline here through <code>/api/jobs/&lt;id&gt;/artifacts/&lt;rel&gt;?inline=1</code>; the zoomable gallery is
+          the Runs panel's.</p>
+      </section>
+    </div>
+
+    <div class="run-view-notes">
+      <section class="card" aria-labelledby="notes-title-cg">
+        <h3 id="notes-title-cg">What this view is, and what it is not</h3>
+        <p class="hint">A coarse-grained bead has no element and no chemistry: the sphere size is a size class the
+          mapping states, and the bonds are the ones the run's topology declares. Both are drawn from the run's own
+          files, and the caption says which. Nothing here is drawn from a distance guess, in either half.</p>
+      </section>
+    </div>
+  </div>
+</section>
+</div>
+
+<!-- ============================ BLOCK 3: the protein-detergent workspace ============================ -->
+<div class="draft-block">
+<span class="draft-tag">Protein-detergent simulations · the PDC branch</span>
+<section class="panel" id="block-pdc" aria-label="Run view panel in Protein-detergent simulations">
+  <div class="section-heading">
+    <div><h2>Run view</h2><p>One run, its structures, its frames and its figures — drawn from what the run wrote.</p></div>
+  </div>
+
+  <div id="run-view-pdc" class="run-view-layout">
+    <div class="run-view-runs">
+      <section class="card">
+        <span class="eyebrow">PROTEIN-DETERGENT SIMULATIONS</span>
+        <h3>Choose a run</h3>
+        <p class="hint">This workspace's scope is the protein-detergent complex runs it queues, and nothing else — an
+          AA-only or osmotic run is not this workspace's to show.</p>
+        <ul class="run-view-list" aria-label="Runs in this workspace">
+          <li><button type="button" disabled>No complex run in this workspace.</button></li>
+        </ul>
+        <p class="hint" role="status">Fourteen runs exist and every one of them is outside this scope: six osmotic
+          series runs and eight single-molecule runs (6 AA-only, 2 AA–CG) — those belong to Detergent validation. Every
+          PDC run was deleted today, so the panel's empty state is the live state. T5's run-type filter on
+          <code>/api/jobs</code> is what makes this list one request instead of a page of 100 filtered in the browser.</p>
+      </section>
+    </div>
+
+    <div class="run-view-stage">
+      <section class="card">
+        <h3>Complex runs are drawn in Complexes</h3>
+        <p class="hint">This is the overlap the plan names rather than discovering later. Complexes
+          (<code>#pdc</code>) already draws a run's built system and its whole snapshot series, each button carrying the
+          criterion numbers of its own moment — the placement, each phase's end state, and the frames between. A second
+          strip here would be the same strip.</p>
+        <p class="hint">So for a <code>pdc</code> run this panel draws nothing and says where to look, carrying the run
+          across: <a href="/protein-detergent/complexes?run=&lt;id&gt;">Open this run in Complexes</a>. That link is the
+          contract Complexes already implements — it reads <code>?run=</code> at mount and arms the viewer, so a reader
+          arrives on the run already drawn rather than on a placeholder.</p>
+        <p class="hint"><b>The decision for you:</b> keep it delegated (this panel is a door), or make this panel the
+          one place a run is looked at and leave Complexes with only its build door. The second is a bigger change: the
+          snapshot strip's criterion numbers are read from the PDC snapshot index, which is PDC's own.</p>
+      </section>
+    </div>
+
+    <div class="run-view-notes">
+      <section class="card">
+        <h3>Why one panel and not two</h3>
+        <p class="hint">Same component, two scopes. The registry (<code>dashboard/web/sections.py</code>) declares
+          <code>run-view</code> in both workspaces' <code>tabs</code>; the panel reads the workspace it was mounted
+          under and scopes its run list to that workspace's run types. One viewer means one bond rule — and the second
+          copy is always the one that forgets it.</p>
+      </section>
+    </div>
+  </div>
+</section>
+</div>
+
+<!-- ============================ the checks this draft runs on itself ============================ -->
+<div class="draft-block">
+<span class="draft-tag">Measured in this page, at load</span>
+<section class="panel" id="block-checks">
+  <div class="section-heading"><div><h2>Head-order check</h2><p>The two columns, measured — and measured again with the
+    two stylesheet blocks the wrong way round.</p></div></div>
+  <div class="card">
+    <p class="hint">The page links the application's stylesheets in the application's order
+      (<code>dashboard.css</code>, <code>runs.css</code>, <code>new-run.css</code>, <code>mappings.css</code>,
+      <code>compositions.css</code>, <code>pdc.css</code>, <b>the panel's own block</b>, <code>layout.css</code>,
+      <code>workspaces.css</code>, <b>the span block</b>). Both blocks state the same selector — the panel's
+      <code>grid-template-columns</code>, and the measure's — so only the order decides which wins. This is the shape
+      the application has: <code>new-run.css</code> states a competing two-column grid for
+      <code>#run-form.new-run-layout</code> and loses to <code>layout.css</code> for exactly this reason.</p>
+    <div class="geometry" id="geometry-readout" role="status">Measuring…</div>
+    <div class="geometry" id="geometry-live" role="status">Measuring…</div>
+    <p class="hint">Below 1100 px the spans go to twelve and the columns stack, as every other workspace does. The
+      second block above tracks the window you are reading this in; the first was measured where the page was opened.
+      Read the page at 1200 px or wider and both show the columns side by side.</p>
+    <p class="hint"><b>Recorded when this draft was checked, at a 1600 px window</b> (1585 px panel, 0 px horizontal
+      overflow): 12 tracks of 109.75 px; left column 499 px at x 24; right column 1018 px at x 543 — side by side,
+      499 | 1018 of the 1517 px of columns. With the two stylesheet blocks the other way round: the grid still lists
+      12 tracks but <b>4 of them are 0 px</b> and the other 8 are 164.63 px, and the left column collapses from 499 px
+      to 60 px while the right takes 1457 px. Same stylesheet text, same selectors, same window — only the order
+      changed. At 1100 px and below the spans go to twelve and both orders stack, which is why the check is run wide.
+      This is the arrangement the application already has: <code>new-run.css:2</code> states a competing two-column
+      grid for <code>#run-form.new-run-layout</code> and <code>layout.css:50-53</code> states the twelve-column
+      measure for the same selector; at equal specificity the later of the two wins, and <code>layout.css</code> is
+      linked second to last on purpose.</p>
+  </div>
+</section>
+</div>
+
+<div class="draft-block">
+<span class="draft-tag">For your review</span>
+<section class="panel" id="block-review">
+  <div class="section-heading"><div><h2>Decisions taken, and the ones to judge</h2>
+    <p>Change the specification first, then the code.</p></div></div>
+  <div class="card">
+    <h3>Taken, with the reversal cost in the plan</h3>
+    <ul>
+      <li><b>One panel</b> (<code>run-view</code>) registered in both workspaces, scoped to each workspace's own run
+        types. Two panels would be two viewers and two bond rules.</li>
+      <li><b>Structures come from the artifact route</b> — the only door that exists for a run's own stage files.</li>
+      <li><b>Figures are listed here, zoomed in Runs.</b> No second gallery.</li>
+      <li><b>No frames</b>, because no route serves one. The strip says so rather than offering buttons that fail.</li>
+      <li><b>The bond rule:</b> <code>inferBonds: 'none'</code> whenever a file carries <code>CONECT</code> <em>or</em>
+        is coarse-grained; the viewer's own guess only for an all-atom file with no <code>CONECT</code>. The readout
+        reports what the renderer resolved.</li>
+      <li><b>PDC runs delegate to Complexes</b>, which already draws them.</li>
+    </ul>
+    <h3>To judge</h3>
+    <ol>
+      <li><b>The two NGL views that still invent bonds.</b> <code>mapping-ngl.js</code> loads the molecule PDB and the
+        bead PDB with default parameters, and <code>compositions.js</code> loads a preview PDB the server writes
+        <em>with</em> <code>CONECT</code> and doubles it with the distance guess. Fix both in the same change as this
+        panel (one guard, one implementation), or leave them and fix only the new one? <em>My recommendation: fix
+        them.</em></li>
+      <li><b>Frames.</b> Make the frame producer read the AA-only layout so the strip is real for the six AA-only runs,
+        or ship the strip empty with its reason? <em>My recommendation: make it read the layout — the ask names
+        frames.</em></li>
+      <li><b>PDC.</b> Keep it delegated, or make this panel the one place a run is looked at?</li>
+      <li><b>A seventh tab in Detergent validation.</b> The rail was built for seven, so nothing moves — but "Run view"
+        now sits beside "Runs". Keep both, or put this inside Runs?</li>
+      <li><b>CG bead radii.</b> Size the spheres from the run's own <code>model.json</code> size classes, or draw them
+        uniform and say so?</li>
+    </ol>
+  </div>
+</section>
+</div>
+
+</div><!-- /.app-content -->
+</div><!-- /.app-shell -->
+</main>
+
+<script>
+// ---------------------------------------------------------------------------------------------------------------
+// The two structures, embedded so the page opens from a file. In the built panel both are fetched through
+// `/api/jobs/<id>/artifacts/<rel>?inline=1`.
+// ---------------------------------------------------------------------------------------------------------------
+
+// Run 22075892b606's own mapped beads (`stages/2_mapping/mapped.gro`: 8 beads, B01..B08, residue LIG1) at their
+// coordinates in Angstrom, with the seven edges its `stages/3_initial_CG/LIG1.itp` declares as `[ bonds ]` +
+// `[ constraints ]` written as CONECT — exactly what T3's route will write.
+const CG_PDB = [
+  'CRYST1   24.809   24.809   24.809  90.00  90.00  90.00 P 1           1',
+  'HETATM    1 B01  LIG1 A   1      10.690  14.860   9.350  1.00  0.00           C',
+  'HETATM    2 B02  LIG1 A   1      12.260  13.820  11.770  1.00  0.00           C',
+  'HETATM    3 B03  LIG1 A   1      10.340  11.800  11.110  1.00  0.00           C',
+  'HETATM    4 B04  LIG1 A   1      11.090  13.490  10.740  1.00  0.00           C',
+  'HETATM    5 B05  LIG1 A   1      13.690  13.340  14.030  1.00  0.00           C',
+  'HETATM    6 B06  LIG1 A   1      14.360  10.830  14.940  1.00  0.00           C',
+  'HETATM    7 B07  LIG1 A   1      11.510  10.580  15.210  1.00  0.00           C',
+  'HETATM    8 B08  LIG1 A   1      13.180  11.580  14.730  1.00  0.00           C',
+  'CONECT    1    2',
+  'CONECT    1    3',
+  'CONECT    2    3',
+  'CONECT    2    5',
+  'CONECT    5    6',
+  'CONECT    5    7',
+  'CONECT    6    7',
+  'END', ''].join('\n');
+
+// The same coordinates with no bond records — what the run's `mapped.gro` gives the viewer today.
+const CG_PDB_NO_BONDS = CG_PDB.split('\n').filter(line => !line.startsWith('CONECT')).join('\n');
+
+// Run 03875cf39790's molecule (`stages/common/molecule/MMFF/lig1.pdb`, 45 atoms, no CONECT). One change: the element
+// column, which that file writes as `LIG` and this viewer reads as lithium. Derived from the atom name.
+const AA_PDB = [
+  'TITLE     molecule input of run 03875cf39790, element column corrected',
+  'HETATM    1  O   LIG1    1       4.150  -0.908   2.539  1.00  0.00           O',
+  'HETATM    2  C   LIG1    1       2.774  -1.268   2.508  1.00  0.00           C',
+  'HETATM    3  C1  LIG1    1       1.914  -0.017   2.542  1.00  0.00           C',
+  'HETATM    4  O1  LIG1    1       2.130   0.751   1.356  1.00  0.00           O',
+  'HETATM    5  C2  LIG1    1       0.896   1.371   0.977  1.00  0.00           C',
+  'HETATM    6  C3  LIG1    1       1.080   2.858   1.257  1.00  0.00           C',
+  'HETATM    7  O2  LIG1    1      -0.104   3.597   0.983  1.00  0.00           O',
+  'HETATM    8  O3  LIG1    1       0.652   1.232  -0.440  1.00  0.00           O',
+  'HETATM    9  C4  LIG1    1       0.777  -0.115  -0.934  1.00  0.00           C',
+  'HETATM   10  O4  LIG1    1      -0.456  -0.599  -1.465  1.00  0.00           O',
+  'HETATM   11  C5  LIG1    1      -0.930   0.248  -2.520  1.00  0.00           C',
+  'HETATM   12  C6  LIG1    1      -2.304  -0.241  -2.958  1.00  0.00           C',
+  'HETATM   13  O5  LIG1    1      -3.235  -0.071  -1.894  1.00  0.00           O',
+  'HETATM   14  C7  LIG1    1       0.050   0.229  -3.681  1.00  0.00           C',
+  'HETATM   15  O6  LIG1    1      -0.410   1.116  -4.697  1.00  0.00           O',
+  'HETATM   16  C8  LIG1    1       1.438   0.655  -3.224  1.00  0.00           C',
+  'HETATM   17  O7  LIG1    1       2.369   0.436  -4.287  1.00  0.00           O',
+  'HETATM   18  C9  LIG1    1       1.844  -0.179  -2.021  1.00  0.00           C',
+  'HETATM   19  O8  LIG1    1       3.100   0.270  -1.506  1.00  0.00           O',
+  'HETATM   20 C10  LIG1    1      -0.201   0.807   1.896  1.00  0.00           C',
+  'HETATM   21  O9  LIG1    1      -1.417   0.423   1.254  1.00  0.00           O',
+  'HETATM   22 C11  LIG1    1       0.453  -0.382   2.551  1.00  0.00           C',
+  'HETATM   23 O10  LIG1    1      -0.007  -0.565   3.887  1.00  0.00           O',
+  'HETATM   24  H   LIG1    1       4.236  -0.129   1.961  1.00  0.00           H',
+  'HETATM   25  H1  LIG1    1       2.568  -1.908   3.369  1.00  0.00           H',
+  'HETATM   26  H2  LIG1    1       2.596  -1.838   1.591  1.00  0.00           H',
+  'HETATM   27  H3  LIG1    1       2.186   0.610   3.398  1.00  0.00           H',
+  'HETATM   28  H4  LIG1    1       1.887   3.272   0.641  1.00  0.00           H',
+  'HETATM   29  H5  LIG1    1       1.355   3.022   2.303  1.00  0.00           H',
+  'HETATM   30  H6  LIG1    1      -0.253   3.526   0.024  1.00  0.00           H',
+  'HETATM   31  H7  LIG1    1       1.056  -0.788  -0.122  1.00  0.00           H',
+  'HETATM   32  H8  LIG1    1      -1.049   1.268  -2.137  1.00  0.00           H',
+  'HETATM   33  H9  LIG1    1      -2.278  -1.304  -3.217  1.00  0.00           H',
+  'HETATM   34 H10  LIG1    1      -2.674   0.325  -3.815  1.00  0.00           H',
+  'HETATM   35 H11  LIG1    1      -2.789  -0.386  -1.089  1.00  0.00           H',
+  'HETATM   36 H12  LIG1    1       0.100  -0.776  -4.113  1.00  0.00           H',
+  'HETATM   37 H13  LIG1    1       0.307   1.175  -5.352  1.00  0.00           H',
+  'HETATM   38 H14  LIG1    1       1.465   1.724  -2.995  1.00  0.00           H',
+  'HETATM   39 H15  LIG1    1       3.244   0.678  -3.936  1.00  0.00           H',
+  'HETATM   40 H16  LIG1    1       1.981  -1.216  -2.342  1.00  0.00           H',
+  'HETATM   41 H17  LIG1    1       2.931   0.573  -0.598  1.00  0.00           H',
+  'HETATM   42 H18  LIG1    1      -0.466   1.542   2.661  1.00  0.00           H',
+  'HETATM   43 H19  LIG1    1      -1.801   1.231   0.870  1.00  0.00           H',
+  'HETATM   44 H20  LIG1    1       0.264  -1.303   1.992  1.00  0.00           H',
+  'HETATM   45 H21  LIG1    1      -0.973  -0.665   3.839  1.00  0.00           H',
+  'END', ''].join('\n');
+
+const conectCount = text => (text.match(/^CONECT/gm) || []).length;
+
+function readout(host, cells) {
+  host.replaceChildren();
+  for (const [label, value, cls] of cells) {
+    const cell = document.createElement('span');
+    cell.innerHTML = `<span class="hint"></span><b class="${cls || ''}"></b>`;
+    cell.querySelector('.hint').textContent = label;
+    cell.querySelector('b').textContent = value;
+    host.append(cell);
+  }
+}
+
+// The panel's rule, in one place: a file that carries CONECT is drawn from it and never guessed; a coarse-grained
+// structure is never guessed either; only an all-atom file with no CONECT keeps the viewer's own inference.
+function loadParameters(text, {coarseGrained}) {
+  if (/^CONECT/m.test(text)) return {ext: 'pdb', inferBonds: 'none', reason: "the file carries CONECT — drawn from it, guess off"};
+  if (coarseGrained) return {ext: 'pdb', inferBonds: 'none', reason: 'coarse-grained — a bead is a radius stand-in, guess off'};
+  return {ext: 'pdb', inferBonds: 'all', reason: "all-atom with no CONECT — the viewer's own bonds reproduce the chemistry"};
+}
+
+async function draw(host) {
+  const stage = new NGL.Stage(host, {backgroundColor: 'white'});
+  host.runViewStage = stage;
+  return stage;
+}
+
+async function show(stage, text, {coarseGrained, forceGuess}) {
+  stage.removeAllComponents();
+  const parameters = loadParameters(text, {coarseGrained});
+  if (forceGuess) { parameters.inferBonds = 'all'; parameters.reason = "guess left ON"; }
+  const component = await stage.loadFile(new Blob([text], {type: 'text/plain'}), {ext: parameters.ext, inferBonds: parameters.inferBonds});
+  component.addRepresentation('ball+stick', {radiusScale: coarseGrained ? 0.75 : 0.55, aspectRatio: 2});
+  component.autoView();
+  return {atoms: component.structure.atomCount, bonds: component.structure.bondCount,
+          fromFile: conectCount(text), reason: parameters.reason};
+}
+
+async function main() {
+  // ---- the AA half -----------------------------------------------------------------------------------------
+  const aa = document.getElementById('viewer-aa');
+  const aaWhat = document.getElementById('aa-what');
+  const aaReadout = document.getElementById('readout-aa');
+  try {
+    const stage = await draw(aa);
+    const resolved = await show(stage, AA_PDB, {coarseGrained: false});
+    aaWhat.textContent = 'Run 03875cf39790 · stages/common/molecule/MMFF/lig1.pdb · all-atom, no CONECT.';
+    readout(aaReadout, [
+      ['atoms drawn', String(resolved.atoms)],
+      ['bonds from the file', String(resolved.fromFile)],
+      ["bonds the viewer resolved", String(resolved.bonds), 'ok'],
+      ['how the bonds were decided', resolved.reason],
+    ]);
+  } catch (error) {
+    aaWhat.textContent = `This page could not start a 3D view: ${error.message}. The file's own numbers, which do not `
+      + 'need a renderer, still hold.';
+    readout(aaReadout, [
+      ['atoms in the file', String((AA_PDB.match(/^HETATM/gm) || []).length)],
+      ['bonds from the file', String(conectCount(AA_PDB))],
+      ['how the bonds would be decided', loadParameters(AA_PDB, {coarseGrained: false}).reason],
+      ['bonds the viewer resolved', 'no renderer', 'bad'],
+    ]);
+  }
+
+  // ---- the CG half -----------------------------------------------------------------------------------------
+  const cg = document.getElementById('viewer-cg');
+  const cgWhat = document.getElementById('cg-what');
+  const cgReadout = document.getElementById('readout-cg');
+  const guard = document.getElementById('guard-cg');
+  let cgStage = null;
+  try { cgStage = await draw(cg); } catch (error) { /* reported below */ }
+
+  async function refreshCg() {
+    if (!cgStage) {
+      cgWhat.textContent = 'This page could not start a 3D view. The file\'s own numbers still hold.';
+      readout(cgReadout, [
+        ['beads in the file', String((CG_PDB.match(/^HETATM/gm) || []).length)],
+        ['bonds the file states', String(conectCount(CG_PDB))],
+        ['bonds with no bond records at all', '0', 'bad'],
+        ['how they would be decided', loadParameters(CG_PDB, {coarseGrained: true}).reason],
+      ]);
+      return;
+    }
+    const guarded = await show(cgStage, CG_PDB, {coarseGrained: true, forceGuess: !guard.checked});
+    const plain = await show(cgStage, CG_PDB_NO_BONDS, {coarseGrained: true, forceGuess: !guard.checked});
+    await show(cgStage, CG_PDB, {coarseGrained: true, forceGuess: !guard.checked});
+    cgWhat.textContent = 'Run 22075892b606 · stages/2_mapping/mapped.gro, 8 beads (B01–B08), with the seven edges '
+      + 'stages/3_initial_CG/LIG1.itp declares.';
+    readout(cgReadout, [
+      ['atoms drawn', String(guarded.atoms)],
+      ['bonds the file states', String(guarded.fromFile)],
+      ['bonds resolved, guard ' + (guard.checked ? 'on' : 'OFF'), String(guarded.bonds), guard.checked ? 'ok' : 'bad'],
+      ['bonds resolved with no bond records at all', String(plain.bonds)],
+      ['how they were decided', guarded.reason],
+    ]);
+  }
+  guard.addEventListener('change', () => { refreshCg().catch(() => {}); });
+  await refreshCg();
+
+  // ---- the head-order check --------------------------------------------------------------------------------
+  // Measure the two columns, then move the span block (stand-in B) ahead of the panel's own block (stand-in A) and
+  // measure again. Same selectors, only the order changes.
+  const readoutHost = document.getElementById('geometry-readout');
+
+  function measure() {
+    const root = document.querySelector('#run-view.run-view-layout');
+    const left = root.querySelector('.run-view-runs');
+    const right = root.querySelector('.run-view-stage');
+    const notes = root.querySelector('.run-view-notes');
+    const rect = element => { const r = element.getBoundingClientRect(); return {x: Math.round(r.x), w: Math.round(r.width)}; };
+    // The explicit track count: a computed grid-template-columns serialises one `minmax(` per track, or one length
+    // per track when the tracks are definite.
+    const tracks = getComputedStyle(root).gridTemplateColumns;
+    const trackWidths = tracks.trim().split(/\s+/).filter(track => /px$/.test(track));
+    const zeroTracks = trackWidths.filter(track => parseFloat(track) === 0).length;
+    const distinct = [...new Set(trackWidths.filter(track => parseFloat(track) > 0).map(track => Math.round(parseFloat(track)) + 'px'))];
+    const columns = trackWidths.length;
+    const trackLine = `${trackWidths.length} tracks · ${zeroTracks} of them 0 px · ${distinct.join(', ')}`;
+    const l = rect(left), r = rect(right), n = rect(notes), page = {w: Math.round(document.documentElement.clientWidth)};
+    const sideBySide = r.x >= l.x + l.w - 1;
+    const stacked = r.x <= l.x + 1 && r.x < l.x + l.w;
+    const narrow = Math.min(l.w, r.w);
+    const verdict = sideBySide
+      ? (narrow < 120 ? `BROKEN — side by side, but the narrow column has collapsed to ${narrow} px`
+                      : `SIDE BY SIDE (${l.w} | ${r.w} of ${l.w + r.w} px of columns)`)
+      : (stacked ? 'STACKED' : 'OVERLAPPING / other');
+    return {columns, trackLine, l, r, n, page, sideBySide, stacked, verdict,
+            overflow: Math.round(document.documentElement.scrollWidth) - page.w};
+  }
+
+  function report(label, m) {
+    const line = [
+      `${label}`,
+      `  panel          width ${m.page.w} px · horizontal overflow ${m.overflow} px`,
+      `  grid tracks    ${m.trackLine}`,
+      `  left column    x ${m.l.x} · width ${m.l.w}`,
+      `  right column   x ${m.r.x} · width ${m.r.w}`,
+      `  bottom row     x ${m.n.x} · width ${m.n.w}`,
+      `  verdict        ${m.verdict}`,
+    ].join('\n');
+    return line;
+  }
+
+  const styleA = document.getElementById('run-view-css');
+  const styleB = document.getElementById('layout-css-standin');
+  const correct = measure();
+  // Reverse the order: the span block before the panel's own block.
+  styleB.remove();
+  styleA.before(styleB);
+  void document.body.offsetWidth;
+  const reversed = measure();
+  // Put it back: the span block belongs after the last stylesheet link (workspaces.css), as it will sit at the end of
+  // layout.css's section of the head.
+  styleB.remove();
+  const links = document.querySelectorAll('head link[rel=stylesheet]');
+  links[links.length - 1].after(styleB);
+
+  const liveHost = document.getElementById('geometry-live');
+  function liveReport() {
+    const m = measure();
+    liveHost.textContent = 'At this window: '
+      + `panel ${m.page.w} px · tracks ${m.trackLine} · left ${m.l.w} px at x ${m.l.x} · right ${m.r.w} px at x ${m.r.x}`
+      + ` · bottom row ${m.n.w} px · horizontal overflow ${m.overflow} px · ${m.verdict}`;
+  }
+  window.addEventListener('resize', liveReport);
+  liveReport();
+
+  readoutHost.textContent = report('Application head order (the panel\'s block before layout.css):', correct)
+    + '\n\n' + report('With the two blocks the wrong way round:', reversed)
+    + '\n\n' + 'Same stylesheet text in both runs. Only the order decided it, which is why the built panel keeps '
+    + 'layout.css second to last.';
+}
+
+main().catch(error => {
+  const host = document.getElementById('geometry-readout');
+  if (host) host.textContent = `The page's own checks could not run: ${error.message}`;
+});
+</script>
+</body>
+</html>
