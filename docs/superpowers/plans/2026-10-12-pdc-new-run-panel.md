@@ -3,6 +3,10 @@
 Status: **draft for approval.** Nothing here is built. The HTML mock of the panel is beside this plan at
 `docs/superpowers/drafts/2026-10-12-pdc-new-run-panel-draft.html`.
 
+Redlines from the first review (2026-10-13) are folded in: the workflow chain this panel states, the two pipeline
+changes it implies (self-assembly, and minimisation + equilibration before the assessment leg), the empty-micelle
+screen, the registry's experimental aggregation number, and two columns for the layout.
+
 ## Why a separate panel
 
 `#new` today serves four run types through one form: `aa_only`, `aa_cg`, `cg_composition`, and now protein-detergent.
@@ -26,7 +30,10 @@ For a protein-detergent run most of that form is not merely redundant, it is una
 | CG mapping | `/api/mappings?molecule_id=<detergent>` | keep, narrowed to that detergent |
 | Membrane protein | `/api/pdc/catalog` proteins, with an **OPM download** | add to this panel |
 | Detergent count | `aggregation_number` (default 150, 1..1000) | keep, moved up: it is the headline number |
-| Encapsulation estimate | **new computation**, see below | add |
+| Encapsulation estimate | **new computation**, see below | add — **protein runs only**: an empty micelle has no belt to size |
+| Experimental aggregation number | `detergents.json`, per entry, with its citation | **add**: shown beside the count, and it is what the empty-micelle screen shows instead of an estimate |
+| Protein preparation | PDB2PQR, then energy minimisation | **add**, optional: MemProtMD ships this as its own workflow |
+| Elastic network | `martinize2 -elastic -ef 1000 -el 10` | already in the spec; shown as a step so the strip states what runs |
 | Assessment / extension duration | `pdc_assessment_ns` 100, `pdc_extension_ns` 900 | keep |
 | Salt | `salt_molar` 0.15 | keep |
 | Seed | `pdc_seed` (required; no default, so two builds are comparable or not at all) | keep |
@@ -40,6 +47,55 @@ For a protein-detergent run most of that form is not merely redundant, it is una
 Panel heading becomes **Protein-Detergent Simulations**, parallel to "Single Molecule Simulations" on the other
 workspace. Proposed wording decision, easy to overrule: the heading changes, the rail tab keeps its short label
 ("New run"), because the rail is 200 px wide and a five-word tab wraps there.
+
+## The workflow this panel describes
+
+The panel states the chain it runs, because half its fields only mean something inside that chain. It follows
+MemProtMD's own two routes (README, `pstansfeld/MemProtMD`), quoted rather than paraphrased:
+
+- **Self Assembly**: `PDB -> Memembed -> martinize2 -> self-assemble -> CGMD -> CG2AT`
+- **Energy Minimise**: `PDB -> PDB2PQR -> minimisation` — a separate workflow there, optional here.
+
+| step | tool | notes |
+| --- | --- | --- |
+| 1 Prepare (optional) | PDB2PQR, then EM in water | missing side chains and protonation; prepared once and reused by later runs |
+| 2 Coarse-grain | `martinize2` | Martini 3, elastic network over Cα pairs within 1.0 nm at 1000 kJ/mol — already the spec's protocol |
+| 3 Self-assemble | our builder, then CG MD | detergents placed at random; the belt finds its own arrangement (change 1 below) |
+| 4 Sample | `gmx mdrun` | minimisation, equilibration, then the assessment leg — **none of which the protocol does today** (change 2) |
+| 5 Judge | `pdc_assessment` | micelle counted, the rest removed, >10% removed re-runs the leg up to three times |
+| 6 Extend, back-map | `gmx convert-tpr -extend`, then CG2AT2 | `-o align`; the extended state is what gets back-mapped |
+
+**Memembed is skipped, and the plan says so rather than leaving a silent gap:** our input is an OPM structure, already
+oriented in the membrane. That is the step OPM does for us.
+
+### Two changes to the pipeline, both bigger than a panel
+
+1. **Self-assembly instead of placing a pre-formed belt.** The spec's protocol step 3 places detergents on the micelle
+   builder's deterministic lattice and then repacks. MemProtMD's self-assembly route — and the requested workflow —
+   places them **at random** and lets CG MD form the belt. That is a change to the build the pdc pipeline drives, so it
+   needs its own task and its own test rather than a control in this panel. Both cases use it: an empty micelle
+   self-assembles the same way, which is how a reference micelle is normally made.
+2. **Minimisation and equilibration before the assessment leg.** The protocol goes from the built system straight into
+   100 ns of CG MD. EM, then NVT, then NPT is the standard sequence for a CG system built from a mapping, and MemProtMD
+   minimises too. This changes `pdc.STAGES`, so it is a pipeline task with a measured acceptance: one stage per step,
+   recording `skipped` where it has nothing to do.
+
+### A run with no protein
+
+Choosing **No protein · empty micelle** changes the screen, not the pipeline:
+
+- No belt, so **no encapsulation estimate**, no protein fields, and no belt heading. The count stays: it is the
+  micelle's size.
+- In the estimate's place, the detergent's **experimental aggregation number** from the registry, beside the count.
+- The workflow strip greys the protein clauses in steps 3 and 5 and says why.
+
+### The registry carries the experimental number, with its citation
+
+`detergents.json` entries grow `aggregation_number` and `aggregation_number_source`. The rule is the project's
+existing one: a checked-in value is **citation metadata until a molecule-specific measurement and its uncertainty are
+supplied**, so a number without a source is not written down at all. Until an entry has one, the panel shows "not
+recorded yet" — a micelle size quoted without a source would be indistinguishable from one the panel guessed. DDM's
+entry has no number today, and the mock says exactly that.
 
 ## The encapsulation estimate — new work, and what it is not
 
@@ -102,6 +158,13 @@ Tests: browser — opening `/protein-detergent/new-run` shows no "Run type", no 
 "Bonded parameters", and does show the detergent list, the protein picker, the count and the settings; opening
 `/detergent-validation/new-run` is unchanged.
 
+**Two columns, and how this panel already gets them.** The form is `#run-form.new-run-layout`: `layout.css` gives it a
+12-column grid and `.new-run-inputs` / `.new-run-settings` span 6 each, and the app links `layout.css` *after*
+`new-run.css` so that rule wins. The mock missed both — the form carried no `id`, and its stylesheets were linked in
+the other order — and stacked into one column; it now carries the id and keeps the app's head order. The browser test
+should assert the two halves sit side by side (different `x`, each about half the form's width), not merely that both
+exist.
+
 **T3 — the estimate.** The function, its route, and a test with a hand-made structure whose apolar area is known by
 construction, so the arithmetic is pinned independently of `gmx sasa`. Files: new module under
 `dashboard/models/` (or `analysis/runs/`), `dashboard/web/routes/pdc.py`, its tests. Acceptance: a protein with no
@@ -114,6 +177,28 @@ half-thickness it found.
 
 **T5 — end to end.** Fill the panel for a real detergent and protein, and reach the readiness line; queue nothing.
 Files: one browser test. Acceptance: the readiness blockers name what is missing and nothing else.
+
+**T6 — self-assembly in the build.** Placing detergents at random instead of on the builder's lattice (change 1), with
+the seed recorded so a build is reproducible and a different seed is a different build. Files: the pdc builder,
+`docs/superpowers/specs/2026-09-28-protein-detergent-complex-panel-design.md` (protocol step 3 rewritten, its lattice
+step kept as the other mode). Tests: a build places exactly N detergents inside the box with no overlap on the
+protein, the same seed reproduces the placement, a different seed does not, and the manifest records which mode built
+the system. Acceptance: the existing placed-belt build still runs, so this lands as a mode and not as a replacement
+until a real run says the self-assembled belt is better.
+
+**T7 — minimisation and equilibration before the assessment leg** (change 2). Files:
+`dashboard/execution/adapters/pdc.py` (`STAGES`), its MDP templates under `resources/templates/`, stage tests. Tests:
+the stage plan gains one pair per step in order (minimisation, NVT, NPT, then assessment), each stage records
+`skipped` when it has nothing to do, and the chain's added cost is stated in the plan once measured. Acceptance: a
+diagnostic run reaches the assessment leg; the equilibrium legs are reported with their wall time, not assumed cheap.
+
+**T8 — the registry's experimental numbers, and the empty-micelle branch.** `detergents.json` gains
+`aggregation_number` + `aggregation_number_source` per entry, absent meaning not recorded; the detergent route returns
+them; the panel shows the number beside the count and, with no protein, shows it *instead of* the estimate. Files:
+`detergents.json`, the detergent route, `new-run.js`, the template, tests. Tests: a browser test that an entry with no
+number renders "not recorded yet" and one with a number renders both the number and its source; and that choosing
+"No protein · empty micelle" hides the estimate and the protein clauses and keeps the count. Acceptance: no number is
+written into the file that does not carry a source.
 
 ## Not doing
 
