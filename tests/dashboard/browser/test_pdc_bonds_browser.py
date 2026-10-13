@@ -17,14 +17,8 @@ The frame is a fixture rather than a run: the eleven beads of one DDM molecule a
 from the same geometry -- 3 nm apart, so no two beads in different molecules are near enough for the guess. No test
 reads the developer's workspace.
 """
-from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CONSTRAINTS, ddm_moleculetype
+from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CONSTRAINTS, DDM_PLACEMENT, ddm_moleculetype, ddm_system_gro
 
-#: One DDM molecule's eleven beads, in nanometres, in the order the moleculetype lists them. These are the
-#: coordinates a run's placement frame held -- the distances the viewer's guess was measured on.
-MOLECULE = ((-1.302, -1.022, 2.508), (-1.286, -1.023, 2.481), (-1.276, -1.046, 2.496),
-            (-1.288, -1.030, 2.495), (-1.277, -1.022, 2.456), (-1.264, -1.040, 2.439),
-            (-1.246, -1.043, 2.461), (-1.262, -1.035, 2.452), (-1.331, -1.099, 2.601),
-            (-1.330, -1.077, 2.567), (-1.313, -1.043, 2.544))
 MOLECULES = 6
 SPACING_NM = 3.0
 
@@ -32,7 +26,7 @@ INDEX = {
     'job_id': 'pdcbonds',
     'snapshots': [
         {'name': 'placement', 'time_ps': None, 'pdb': 'snapshots/placement.pdb', 'stage': '1_system',
-         'atoms': len(MOLECULE) * MOLECULES, 'verdict': None},
+         'atoms': len(DDM_PLACEMENT) * MOLECULES, 'verdict': None},
     ],
 }
 
@@ -66,10 +60,10 @@ def written_snapshot(tmp_path):
     stage = tmp_path / '1_system'
     stage.mkdir()
     (stage / 'detergent_CG.itp').write_text(ddm_moleculetype())
-    lines = ['protein-detergent complex (DDM, AN=6)', str(len(MOLECULE) * MOLECULES)]
+    lines = ['protein-detergent complex (DDM, AN=6)', str(len(DDM_PLACEMENT) * MOLECULES)]
     serial = 0
     for molecule in range(MOLECULES):
-        for name, xyz in zip(DDM_BEADS, MOLECULE):
+        for name, xyz in zip(DDM_BEADS, DDM_PLACEMENT):
             serial += 1
             lines.append(gro_line(2 + molecule, 'DDM', name, serial,
                                   (xyz[0] + molecule * SPACING_NM, xyz[1], xyz[2])))
@@ -81,6 +75,18 @@ def written_snapshot(tmp_path):
     return stage, (stage / record['pdb']).read_text()
 
 
+def register_built_run(dashboard, job_id='00000000abcd'):
+    """A pdc run whose setup stage holds a built system, registered the way the store registers one."""
+    stage = dashboard.coordinator.RUNS / job_id / 'stages' / '1_system'
+    stage.mkdir(parents=True)
+    (stage / 'detergent_CG.itp').write_text(ddm_moleculetype())
+    (stage / 'system.gro').write_text(ddm_system_gro(MOLECULES))
+    dashboard.coordinator.database().insert({'id': job_id, 'run_type': 'pdc', 'status': 'running',
+                                             'stage': '1_system', 'molecule_id': 'DDM',
+                                             'created': '2026-10-13T00:00:00+00:00'})
+    return job_id
+
+
 def model_bonds():
     """The model's own bonds over the frame, by the bead serial the writer gives each bead."""
     pairs = set()
@@ -90,6 +96,24 @@ def model_bonds():
             pair = (offset + first, offset + second)
             pairs.add((min(pair), max(pair)))
     return pairs
+
+
+#: The reader's own complaint, by bead serial: the first molecule's head bead drawn onto its first and second tail
+#: bead. The moleculetype bonds neither -- its one head-to-tail bond is S1A-TAIL3 (atom 1 to atom 11).
+FORBIDDEN = {'S1A-TAIL1': (1, 9), 'S1A-TAIL2': (1, 10)}
+
+
+def assert_drawn_bonds(measured):
+    """Hold a viewer's drawn bonds to the model: the count, the pairs, and no head-onto-tail guess among them."""
+    drawn = {tuple(pair) for pair in measured['pairs']}
+    model = model_bonds()
+    named = [name for name, pair in FORBIDDEN.items() if pair in drawn]
+
+    assert measured['count'] == len(model), (
+        f'the panel drew {measured["count"]} bonds where the model has {len(model)}: '
+        f'{len(drawn - model)} of them are not the model\'s, and {named} among them')
+    assert not named, f'the panel drew {named}, which the moleculetype does not bond'
+    assert drawn == model, f'the drawn bonds are not the model\'s: {sorted(drawn ^ model)}'
 
 
 def test_the_panel_draws_the_models_bonds_rather_than_guessing_them(dashboard, live_page, tmp_path):
@@ -106,19 +130,30 @@ def test_the_panel_draws_the_models_bonds_rather_than_guessing_them(dashboard, l
     button.click()
     page.wait_for_function(
         "() => document.querySelector('#pdc-viewer').pdcStage?.compList[0]?.structure?.atomCount === "
-        f'{len(MOLECULE) * MOLECULES}', timeout=30000)
+        f'{len(DDM_PLACEMENT) * MOLECULES}', timeout=30000)
 
-    measured = page.locator('#pdc-viewer').evaluate(MEASURE)
-    drawn = {tuple(pair) for pair in measured['pairs']}
-    model = model_bonds()
-    # The reader's own complaint, by bead serial: the first molecule's head bead drawn onto its first and second
-    # tail bead. The moleculetype bonds neither -- its one head-to-tail bond is S1A-TAIL3 (atom 1 to atom 11).
-    forbidden = {'S1A-TAIL1': (1, 9), 'S1A-TAIL2': (1, 10)}
-    named = [name for name, pair in forbidden.items() if pair in drawn]
+    assert_drawn_bonds(page.locator('#pdc-viewer').evaluate(MEASURE))
+    assert errors == []
 
-    assert measured['count'] == len(model), (
-        f'the panel drew {measured["count"]} bonds where the model has {len(model)}: '
-        f'{len(drawn - model)} of them are not the model\'s, and {named} among them')
-    assert not named, f'the panel drew {named}, which the moleculetype does not bond'
-    assert drawn == model, f'the drawn bonds are not the model\'s: {sorted(drawn ^ model)}'
+
+def test_the_built_system_view_draws_the_models_bonds_too(dashboard, live_page):
+    """The other door into the same viewer: the route's built system, not a snapshot.
+
+    Measured on the tree before this: `/api/pdc/<run>/system.pdb` served `1_system/system.gro` through the writer
+    with no topology, so the file gave every molecule its own residue but carried no CONECT records -- and the
+    panel, which switches NGL's distance-based guess off only when the file has them, drew 90 bonds where the
+    model has 60. The route now hands the writer the run's own moleculetype, and the panel's existing rule draws
+    the model, so the two doors show the same 60 bonds.
+    """
+    page, errors = live_page
+    job_id = register_built_run(dashboard)
+    page.goto(f'{live_page.base_url}/protein-detergent/complexes')
+    page.get_by_role('tab', name='Complexes', exact=True).click()
+
+    page.evaluate(f"window.pdcSetRun('{job_id}')")
+    page.wait_for_function(
+        "() => document.querySelector('#pdc-viewer').pdcStage?.compList[0]?.structure?.atomCount === "
+        f'{len(DDM_PLACEMENT) * MOLECULES}', timeout=30000)
+
+    assert_drawn_bonds(page.locator('#pdc-viewer').evaluate(MEASURE))
     assert errors == []

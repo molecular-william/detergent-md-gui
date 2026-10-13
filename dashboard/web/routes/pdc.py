@@ -109,19 +109,42 @@ def pdc_snapshot(job_id, relative):
     return Response(snapshot_file(setup_root(job_id), relative).read_text(), mimetype='text/plain')
 
 
+def detergent_topology(root: Path):
+    """The run's detergent moleculetype, read from the stage that holds the system or from the one that wrote it.
+
+    The location is the snapshot writer's own rule (`pdc_snapshot.topology_path`), so the built-system view and a
+    snapshot of the same run draw the same bonds rather than two readings of where a run keeps its topology. A
+    moleculetype that cannot be read is reported as none -- a view with coordinates still has something to show, and
+    the writer then says the file records no bonds instead of leaving NGL to guess them.
+    """
+    from ...execution.scripts import pdc_snapshot
+
+    path = pdc_snapshot.topology_path(Path(root) / SETUP_STAGE)
+    if path is None:
+        return None
+    try:
+        return pdc_view.read_moleculetype(path)
+    except (OSError, ValueError):
+        return None
+
+
 @blueprint.get('/api/pdc/<job_id>/system.pdb')
 def pdc_system_pdb(job_id):
     """The built system as a viewer file. 404 with a reason until a build has produced one.
 
-    The panel shows the system as set up rather than as imagined, so this serves the coordinates a stage wrote and
-    nothing else. Before that stage has run there is no picture to show, and saying so is better than an empty box.
+    The panel shows the system as set up rather than as imagined, so this serves the coordinates a stage wrote,
+    through the same writer the snapshots use: one residue per molecule, and the run's own moleculetype's bonds as
+    CONECT records. Without them the panel falls back to NGL's distance-based guess -- measured at 90 bonds on a
+    frame the model bonds 60 ways. Before that stage has run there is no picture to show, and saying so is better
+    than an empty box.
     """
-    structure = setup_root(job_id) / SETUP_STAGE / SYSTEM_STRUCTURE
+    root = setup_root(job_id)
+    structure = root / SETUP_STAGE / SYSTEM_STRUCTURE
     try:
         atoms = pdc_view.read_gro(structure)
     except (OSError, ValueError) as error:
         abort(404, f'no built system to show yet: {error}')
-    return Response(pdc_view.system_pdb(atoms), mimetype='text/plain')
+    return Response(pdc_view.system_pdb(atoms, topology=detergent_topology(root)), mimetype='text/plain')
 
 
 def catalogue_protein(root, entry):

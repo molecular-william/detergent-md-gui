@@ -221,11 +221,11 @@ export function createPdc() {
     if (!stageRef) return;
     stageRef.removeAllComponents();
     // NGL invents bonds from interatomic distances unless the file tells it otherwise: `inferBonds` defaults to
-    // `'all'`. Every bead here is written as a radius stand-in element, so on a snapshot the guess was generous --
-    // 90 bonds drawn on a placement frame the model bonds 60 ways, head beads onto tail beads among them. The
-    // snapshot PDBs carry the model's own bonds as CONECT records, and where they do, the guess is switched off so
-    // the reader sees the topology that was simulated. A file with no records of its own (the built system the route
-    // serves straight from `system.gro`) keeps NGL's own bonds rather than drawing none.
+    // `'all'`. Every bead here is written as a radius stand-in element, so the guess is generous -- 90 bonds drawn
+    // on a placement frame the model bonds 60 ways, head beads onto tail beads among them. Both files this panel
+    // loads carry the model's own bonds as CONECT records (a snapshot, and the built system the route serves out of
+    // `system.gro`), and where they do, the guess is switched off so the reader sees the topology that was
+    // simulated. A file that carries no records of its own keeps NGL's own bonds rather than drawing none.
     const parameters = {ext: 'pdb'};
     if (/^CONECT/m.test(text)) parameters.inferBonds = 'none';
     const component = stageRef.loadFile(new Blob([text], {type: 'text/plain'}), parameters);

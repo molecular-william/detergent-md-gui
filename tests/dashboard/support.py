@@ -28,7 +28,43 @@ DDM_CONSTRAINTS = ((1, 2), (1, 3), (2, 3), (5, 6), (5, 7), (6, 7))
 
 __all__ = ['PROJECT_ROOT', 'FAST_FORWARD_ROOT', 'Dashboard', 'build', 'physical_mapping',
            'write_aa_fixture', 'cg_fixture_run', 'QuietHandler', 'fast_forward_source',
-           'DDM_BEADS', 'DDM_BONDS', 'DDM_CONSTRAINTS', 'ddm_moleculetype']
+           'DDM_BEADS', 'DDM_BONDS', 'DDM_CONSTRAINTS', 'DDM_PLACEMENT', 'ddm_moleculetype',
+           'ddm_system_gro', 'gro_atom_line']
+
+
+#: One DDM molecule's eleven beads, in nanometres, in the order the moleculetype lists them. These are the
+#: coordinates a run's placement frame held -- the distances a viewer's distance-based bond guess was measured on.
+DDM_PLACEMENT = ((-1.302, -1.022, 2.508), (-1.286, -1.023, 2.481), (-1.276, -1.046, 2.496),
+                 (-1.288, -1.030, 2.495), (-1.277, -1.022, 2.456), (-1.264, -1.040, 2.439),
+                 (-1.246, -1.043, 2.461), (-1.262, -1.035, 2.452), (-1.331, -1.099, 2.601),
+                 (-1.330, -1.077, 2.567), (-1.313, -1.043, 2.544))
+
+
+def gro_atom_line(residue_id, residue, name, serial, xyz) -> str:
+    """One .gro atom line, in the format's fixed-width fields: 5, 5, 5, 5, then three 8.3f values."""
+    return (f'{residue_id:5d}{str(residue)[:5]:<5}{str(name)[:5]:>5}{serial:5d}'
+            + ''.join(f'{value:8.3f}' for value in xyz))
+
+
+def ddm_system_gro(molecules, *, protein_beads=0, spacing_nm=3.0) -> str:
+    """A built system's .gro text: `protein_beads` protein beads, then `molecules` DDM molecules.
+
+    One place for the coordinates the panel's assertion and the route's share, so both describe the same system.
+    Each molecule sits `spacing_nm` from the next, so no bead of one is near enough for a viewer's distance-based
+    guess to join it to another -- which is what makes a drawn bond count a statement about the model.
+    """
+    lines = ['protein-detergent complex (DDM)', str(protein_beads + len(DDM_PLACEMENT) * molecules)]
+    serial = 0
+    for _ in range(protein_beads):
+        serial += 1
+        lines.append(gro_atom_line(1, 'PRO', 'BB', serial, (0.0, 0.0, 0.0)))
+    for molecule in range(molecules):
+        for name, xyz in zip(DDM_BEADS, DDM_PLACEMENT):
+            serial += 1
+            lines.append(gro_atom_line(2 + molecule, 'DDM', name, serial,
+                                       (xyz[0] + molecule * spacing_nm, xyz[1], xyz[2])))
+    lines.append('   30.00000   10.00000   10.00000')
+    return '\n'.join(lines) + '\n'
 
 
 def ddm_moleculetype() -> str:

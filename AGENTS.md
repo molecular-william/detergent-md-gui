@@ -89,13 +89,13 @@ Sucrose diagnostic records in the operations note = preserved examples, not a su
 
 ## Verify
 ```
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q     # fast tier: 1348, ~14 s
-dashboard/.venv/bin/python -m pytest -m browser -q -n 6                   # browser tier: 93, ~53 s
+dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q     # fast tier: 1394, ~14 s
+dashboard/.venv/bin/python -m pytest -m browser -q -n 6                   # browser tier: 106, ~57 s
 dashboard/.venv/bin/python -m pytest -m slow -q -n 0                      # slow tier: 7
 dashboard/.venv/bin/python -m ruff check dashboard tests                  # gate: F, E9, I must exit 0
 ```
-Suite = 1,455 tests (1,355 fast + 93 browser + 7 slow), measured 2026-10-13. Browser tier at `-n 2` takes 109 s for
-the same 93; this box has 72 cores.
+Suite = 1,507 tests (1,394 fast + 106 browser + 7 slow), measured 2026-10-13. Browser tier at `-n 2` takes 109 s for
+the same 106; this box has 72 cores.
 Repo-wide `ruff check .` exits 1 on the ~23 pre-existing `micelle/` findings, unchanged.
 
 <!-- gitnexus:start -->
