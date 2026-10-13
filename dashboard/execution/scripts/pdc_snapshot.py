@@ -11,12 +11,32 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 from dashboard.execution.adapters import pdc_view
 
 DIRECTORY = 'snapshots'
 INDEX_NAME = 'snapshots.json'
+#: The run's detergent moleculetype, written into the system stage and copied into every stage that simulates.
+DETERGENT_TOPOLOGY = 'detergent_CG.itp'
+
+
+def topology_path(stage: Path) -> Path | None:
+    """The detergent moleculetype the run used: beside the stage, or in the run's other stages.
+
+    A stage that simulates carries its own copy of the topology, and a phase that only judges carries none --
+    measured: `3_assessment` and `5_assessment` run the snapshot script and write a picture of their phase, but the
+    stage declaration copies `detergent_CG.itp` only into the stages that run dynamics, so a search of the stage
+    alone would leave their pictures with no bonds in them. `None` is the answer when the run has none at all, and
+    the picture then claims no bonds rather than being left to a viewer's guess.
+    """
+    stage = Path(stage)
+    candidates = [stage / DETERGENT_TOPOLOGY, *sorted(stage.resolve().parent.glob(f'*/{DETERGENT_TOPOLOGY}'))]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def index(stage: Path) -> dict:
@@ -136,18 +156,34 @@ def main(argv=None) -> int:
 def write_snapshot(stage: Path, name: str, structure: Path, *, title: str, time_ps: float | None = None,
                    criterion: dict | None = None, detergent_residue: str = 'DDM',
                    include_water: bool = False) -> dict:
-    """Write one PDB and add it to the stage's index, with the numbers the moment was judged on."""
+    """Write one PDB and add it to the stage's index, with the numbers the moment was judged on.
+
+    The picture carries the model's own bonds: the run's detergent moleculetype is found beside the stage (or in the
+    stage that wrote it) and its `[ bonds ]` and `[ constraints ]` are written as CONECT records, once per detergent
+    molecule. Measured: without them a viewer guessed -- 90 bonds drawn on a frame the model bonds 60 ways -- so a
+    topology that cannot be read is reported rather than passed over, and the file says what it is missing.
+    """
     stage = Path(stage)
     structure = Path(structure)
     atoms = pdc_view.read_gro(structure)
+    topology = None
+    path = topology_path(stage)
+    if path is not None:
+        try:
+            topology = pdc_view.read_moleculetype(path)
+        except (OSError, ValueError) as error:
+            # A derived picture is not worth failing a stage that has already done its work, and a file that names
+            # no bonds is better than one that claims the wrong ones; the log and the REMARK both say so.
+            print(f'pdc_snapshot: {path} could not be read for its bonds: {error}', file=sys.stderr)
     directory = stage / DIRECTORY
     directory.mkdir(exist_ok=True)
     target = directory / f'{name}.pdb'
     target.write_text(pdc_view.system_pdb(atoms, detergent_residue=detergent_residue,
-                                          include_water=include_water, title=title))
+                                          include_water=include_water, title=title, topology=topology))
     record = {'name': name, 'time_ps': time_ps, 'pdb': str(target.relative_to(stage)),
               'source': str(structure), 'source_sha256': hashlib.sha256(structure.read_bytes()).hexdigest(),
-              'atoms': len(atoms), 'water_and_ions': include_water, 'verdict': criterion}
+              'atoms': len(atoms), 'water_and_ions': include_water,
+              'topology': str(path) if topology else None, 'verdict': criterion}
     document = index(stage)
     document['snapshots'] = [entry for entry in document['snapshots'] if entry.get('name') != name] + [record]
     (stage / INDEX_NAME).write_text(json.dumps(document, indent=2, sort_keys=True))

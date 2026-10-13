@@ -18,8 +18,36 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 #: The vendored Fast_Forward tree; not part of every checkout, which is why lookups may return None.
 FAST_FORWARD_ROOT = PROJECT_ROOT / 'resources/parameterizers/fast_forward/fast_forward'
 
+#: One DDM molecule as a run's own `detergent_CG.itp` declares it: eleven beads, and the ten bonded terms that
+#: hold them together -- four `[ bonds ]` and the six `[ constraints ]` the head's ring is pinned by. The numbers
+#: are the run's (so a reader can check them against a stage's file); the bead types are not, because no test
+#: reads a type and a type nothing reads is a chance to drift.
+DDM_BEADS = ('S1A', 'S1B', 'S1C', 'S1VS', 'S2A', 'S2B', 'S2C', 'S2VS', 'TAIL1', 'TAIL2', 'TAIL3')
+DDM_BONDS = ((1, 11), (2, 5), (9, 10), (10, 11))
+DDM_CONSTRAINTS = ((1, 2), (1, 3), (2, 3), (5, 6), (5, 7), (6, 7))
+
 __all__ = ['PROJECT_ROOT', 'FAST_FORWARD_ROOT', 'Dashboard', 'build', 'physical_mapping',
-           'write_aa_fixture', 'cg_fixture_run', 'QuietHandler', 'fast_forward_source']
+           'write_aa_fixture', 'cg_fixture_run', 'QuietHandler', 'fast_forward_source',
+           'DDM_BEADS', 'DDM_BONDS', 'DDM_CONSTRAINTS', 'ddm_moleculetype']
+
+
+def ddm_moleculetype() -> str:
+    """The detergent moleculetype, in the shape a run's file has -- including the sections a viewer ignores.
+
+    One place for it, because three tests need the same model: the reader that parses it, the writer that puts its
+    bonds into a PDB, and the panel that draws them all have to agree about what the molecule is.
+    """
+    atoms = '\n'.join(f'{index} SP1r 1 DDM {name} {index} 0 54' for index, name in enumerate(DDM_BEADS, 1))
+    constraints = '\n'.join(f'{first} {second} 1 0.361013007037' for first, second in DDM_CONSTRAINTS)
+    bonds = '\n'.join(f'{first} {second} 1 0.429374836245 5000' for first, second in DDM_BONDS)
+    return ('; Automatic bonded draft\n[ moleculetype ]\nDDM 1\n\n'
+            f'[ atoms ]\n{atoms}\n\n'
+            f'[ constraints ]\n{constraints}\n\n'
+            f'[ bonds ]\n{bonds}\n\n'
+            '[ angles ]\n2 1 3 1 49.887304076 25\n2 1 11 1 146.614164146 25\n\n'
+            '[ dihedrals ]\n2 5 7 6 1 5 10 1\n\n'
+            '[ virtual_sitesn ]\n4 1 1 2 3\n\n'
+            '[ exclusions ]\n4 1 2 3\n')
 
 
 def physical_mapping():

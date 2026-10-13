@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from dashboard.execution.scripts import pdc_snapshot
+from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CONSTRAINTS, ddm_moleculetype
 
 
 def gro_line(residue_id: int, residue: str, name: str, serial: int, xyz) -> str:
@@ -210,3 +211,89 @@ def test_the_extension_script_names_the_structure_it_started_from():
     text = (root / 'dashboard/execution/scripts/pdc_extension.sh').read_text()
 
     assert '--start system.gro' in text, 'the extension phase would record no start frame'
+
+
+def beads(molecules: int):
+    """`molecules` detergents of eleven beads, in the moleculetype's order, each its own residue number."""
+    return [(2 + molecule, 'DDM', name, (molecule * 3.0 + index * 0.3, 0.0, 0.0))
+            for molecule in range(molecules) for index, name in enumerate(DDM_BEADS)]
+
+
+def conect_pairs(lines) -> list[tuple[int, int]]:
+    """The CONECT records of a PDB, as the bead serials they join."""
+    return [(int(line[6:11]), int(line[11:16])) for line in lines if line.startswith('CONECT')]
+
+
+def test_the_picture_gives_every_detergent_its_own_residue_and_the_models_own_bonds(tmp_path):
+    """Two claims about the file a viewer reads, both measured against what a reader saw.
+
+    Measured: the placement PDB wrote six detergents as *one* residue with no CONECT records, so the file itself
+    said "one molecule" and NGL -- which guesses bonds from interatomic distances when a file carries none -- drew
+    90 bonds on a frame the model bonds 60 ways, head beads onto tail beads among them. The residue number now
+    separates the molecules, and the moleculetype's own ten bonds per molecule are written as CONECT records.
+    """
+    stage = tmp_path / '1_system'
+    stage.mkdir()
+    (stage / 'detergent_CG.itp').write_text(ddm_moleculetype())
+    structure = gro_file(stage / 'system.gro', beads(3))
+
+    record = pdc_snapshot.write_snapshot(stage, 'placement', structure, title='placed system')
+    lines = (stage / record['pdb']).read_text().splitlines()
+
+    residues = {line[22:26].strip() for line in lines if line.startswith('HETATM')}
+    assert len(residues) == 3, f'the file still says one molecule: residue numbers {sorted(residues)}'
+    assert len(conect_pairs(lines)) == 3 * 10, 'ten bonds per detergent: four [ bonds ] and six [ constraints ]'
+    expected = [pair for molecule in range(3)
+                for first, second in (*DDM_BONDS, *DDM_CONSTRAINTS)
+                for pair in [(molecule * 11 + first, molecule * 11 + second)]]
+    assert sorted(conect_pairs(lines)) == sorted(expected), 'the records are not the moleculetype\'s bonds'
+    assert [line for line in lines if line.startswith('CONECT')][0] == 'CONECT    1   11'
+    assert any('ELEMENTS ARE RADIUS STAND-INS' in line for line in lines)
+    assert any("BONDS ARE THE MODEL'S OWN" in line and '[ constraints ]' in line for line in lines), \
+        'the remarks have to say where the bonds came from'
+
+
+def test_a_phase_that_only_judges_takes_the_topology_from_the_runs_other_stages(tmp_path):
+    """Measured: `3_assessment` and `5_assessment` hold the snapshot script and write a picture of their phase,
+    but the stage declaration copies `detergent_CG.itp` only into the stages that simulate. A search of the stage
+    alone would leave those pictures with no bonds in them at all.
+    """
+    run = tmp_path / 'run'
+    (run / '1_system').mkdir(parents=True)
+    (run / '1_system' / 'detergent_CG.itp').write_text(ddm_moleculetype())
+    stage = run / '3_assessment'
+    stage.mkdir()
+
+    record = pdc_snapshot.write_snapshot(stage, '3_assessment', gro_file(stage / 'system.gro', beads(2)),
+                                         title='assessed')
+    lines = (stage / record['pdb']).read_text().splitlines()
+
+    assert len(conect_pairs(lines)) == 2 * 10
+
+
+def test_a_run_with_no_topology_says_so_rather_than_leaving_a_viewer_to_invent_them(tmp_path):
+    stage = tmp_path / 'run' / '1_system'
+    stage.mkdir(parents=True)
+
+    record = pdc_snapshot.write_snapshot(stage, 'placement', gro_file(stage / 'system.gro', beads(2)),
+                                         title='placed system')
+    text = (stage / record['pdb']).read_text()
+
+    assert not conect_pairs(text.splitlines()), 'a bond nothing declares is a bond the picture invented'
+    assert 'NO BONDS RECORDED' in text
+    assert 'ELEMENTS ARE RADIUS STAND-INS' in text
+
+
+def test_a_structure_whose_beads_are_not_the_moleculetype_is_left_unbonded(tmp_path):
+    """A picture is not worth failing a stage over, and a bond drawn between the wrong beads is worse than none."""
+    stage = tmp_path / '1_system'
+    stage.mkdir()
+    (stage / 'detergent_CG.itp').write_text(ddm_moleculetype())
+    structure = gro_file(stage / 'system.gro', [(2, 'DDM', name, (index * 0.3, 0.0, 0.0))
+                                                for index, name in enumerate(DDM_BEADS[:4], 1)])
+
+    record = pdc_snapshot.write_snapshot(stage, 'placement', structure, title='placed system')
+    text = (stage / record['pdb']).read_text()
+
+    assert not conect_pairs(text.splitlines())
+    assert 'NO BONDS RECORDED' in text
