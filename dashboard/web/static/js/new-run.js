@@ -448,10 +448,12 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // an empty selection -- the whole structure is simulated, as it was before the picker existed.
   const proteinEntry = () => (catalogue?.proteins || []).find(item => item.id === field('protein').value) || null;
   const chainEntries = () => proteinEntry()?.chains || [];
-  const selectedChains = () => {
-    const select = field('protein_chains');
-    return select ? [...select.selectedOptions].map(option => option.value) : [];
-  };
+  // The subunit ticks: one checkbox per declared chain, each carrying the chain id as its value. Read through
+  // `form.elements` rather than a pdc-only id, because `test_dom_ids.py` renders only `/` and a panel-only id must
+  // not appear in a selector. A ticked box is part of the selection; none ticked is the empty selection the gate
+  // refuses rather than a run with nothing to build.
+  const chainBoxes = () => [...form.elements].filter(el => el.name === 'protein_chains');
+  const selectedChains = () => chainBoxes().filter(el => el.checked).map(el => el.value);
   const backmapping = () => !!field('backmap')?.checked;
   // The select's option value is the catalogue entry's id (`DDM:DDM`), which is what the Complexes panel's own picker
   // carries; what a run is *prepared* with is the template file, and `pdc.prepare`/`pdc.readiness` resolve that path
@@ -560,16 +562,22 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   }
 
   function syncChains() {
-    const block = pdcNode('.new-pdc-subunits'), select = field('protein_chains');
-    if (!block || !select) return;
+    const block = pdcNode('.new-pdc-subunits'), list = pdcNode('.new-pdc-chain-list');
+    if (!block || !list) return;
     const chains = chainEntries(), hasProtein = !!field('protein').value;
-    // A selection that still names a chain this entry has keeps its place; a newly chosen entry defaults to all.
+    // A tick on a chain this entry still has keeps its place; a newly chosen entry defaults to every chain, so the
+    // default run is still the whole file.
     const keep = new Set(selectedChains());
     block.hidden = !(hasProtein && chains.length);
-    select.replaceChildren(...chains.map(chain => {
-      const option = new Option(chain, chain);
-      option.selected = keep.size ? keep.has(chain) : true;
-      return option;
+    list.replaceChildren(...chains.map(chain => {
+      const label = document.createElement('label');
+      label.className = 'new-pdc-chain';
+      const box = document.createElement('input');
+      box.type = 'checkbox'; box.name = 'protein_chains'; box.value = chain;
+      box.checked = keep.size ? keep.has(chain) : true;
+      const text = document.createElement('span'); text.textContent = chain;
+      label.append(box, text);
+      return label;
     }));
     describeChains();
   }
@@ -859,9 +867,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   });
   field('template').addEventListener('change', () => { describeTemplate(); store(); syncSummary(); checkReadiness(); });
   field('protein').addEventListener('change', () => { syncChains(); store(); syncSummary(); loadEstimate(); checkReadiness(); });
-  // The subunit selection is part of the question the estimate answers, so every change to it is asked again -- the
-  // numbers must move with the choice, or the block is describing a different structure than the run.
-  field('protein_chains')?.addEventListener('change', () => {
+  // The subunit ticks are rebuilt whenever the chosen entry changes, so the listener sits on the group that holds
+  // them: a per-box handler would be lost with the box it was bound to. Every tick is a change to the question the
+  // estimate answers, so the route is asked again and the numbers move with the choice.
+  pdcNode('.new-pdc-chain-list')?.addEventListener('change', () => {
     describeChains(); store(); syncSummary(); loadEstimate(); checkReadiness();
   });
   field('mapping_candidate').addEventListener('change', () => { store(); syncSummary(); loadEstimate(); checkReadiness(); });

@@ -1,13 +1,16 @@
 """T9: choosing which subunits go into the simulation, and the estimate moving with the choice.
 
 A deposited OPM entry can be an assembly -- 1AT9 is a trimer, 5,334 ATOM atoms across chains A/B/C -- and the
-estimate and the build both take the whole file unless the panel narrows it. So this pins three claims:
+estimate and the build both take the whole file unless the panel narrows it. The selection is a row of tick boxes,
+one per chain the entry declares, each carrying its chain id; this pins four claims:
 
-- the picker appears for an entry that declares chains, defaulting to all of them (the whole file, as before);
+- the ticks appear for an entry that declares chains, every one ticked (the whole file, as before);
 - the estimate is *asked for the same selection*, and its numbers move with it. A picker that leaves the block
   unchanged is the defect this test exists to catch: chain A alone is a smaller slab than all three, so the two
   selections cannot render the same number;
-- the run carries `protein_chains`, and a run that states no selection is the whole file.
+- the run carries `protein_chains`; a run with no protein, or one whose entry declares none, is the whole file;
+- no tick at all is a run with no protein to build, so the launch is blocked with the reason rather than queued
+  with an empty selection.
 
 The numbers are the ones the plan records for 1AT9 measured: chain A alone is 38 nm^2, all three are 75.285 nm^2.
 They are served as a fixture keyed on the request's `chains` query, so the assertion is on what the panel asked for
@@ -80,23 +83,39 @@ def open_panel(page, base_url, *, protein=TRIMER['id']):
         page.locator('#new-protein').select_option(protein)
 
 
-def test_the_picker_defaults_to_every_chain_the_entry_declares(dashboard, live_page):
-    """An assembly entry offers its chains, all of them chosen: the default run is still the whole file."""
+def ticks(page):
+    """The tick boxes as rendered: each chain id with whether it is ticked."""
+    return page.evaluate("Array.from(document.querySelectorAll('[name=protein_chains]')).map(b => [b.value, b.checked])")
+
+
+def tick(page, *chains):
+    """Tick exactly the named chains and untick the rest -- the reader's gesture on the checkbox row.
+
+    Every box is set before any event fires: setting one box and dispatching immediately would ask the route about a
+    half-applied selection (`A,C` while moving from all to `A`), which is a state no reader ever causes. Setting the
+    boxes first also means each `change` describes the same, final selection.
+    """
+    page.evaluate("""chains => {
+        const want = new Set(chains);
+        const boxes = [...document.querySelectorAll('[name=protein_chains]')];
+        for (const box of boxes) box.checked = want.has(box.value);
+        for (const box of boxes) box.dispatchEvent(new Event('change', {bubbles: true}));
+    }""", list(chains))
+
+
+def test_the_ticks_default_to_every_chain_the_entry_declares(dashboard, live_page):
+    """An assembly entry offers a tick per chain, all ticked: the default run is still the whole file."""
     page, errors = live_page
     serve(page)
     open_panel(page, live_page.base_url)
 
     block = page.locator('#new .new-pdc-subunits')
     expect(block).to_be_visible()
-    options = page.evaluate("Array.from(document.querySelectorAll('[name=protein_chains] option')).map(o => o.value)")
-    assert options == ['A', 'B', 'C'], options
-    chosen = page.evaluate("Array.from(document.querySelectorAll('[name=protein_chains] option:checked'))"
-                           ".map(o => o.value)")
-    assert chosen == ['A', 'B', 'C'], chosen
+    assert ticks(page) == [['A', True], ['B', True], ['C', True]], ticks(page)
     expect(page.locator('.new-pdc-subunits-note')).to_contain_text('3 of 3 subunits selected')
     expect(page.locator('[data-new-summary=subunits]')).to_contain_text('3/3')
 
-    # No protein, or an entry that declares none, is the whole-file run: no picker to make a choice against.
+    # No protein, or an entry that declares none, is the whole-file run: no ticks to make a choice against.
     page.locator('#new-protein').select_option('')
     expect(block).to_be_hidden()
     assert errors == [], errors
@@ -106,8 +125,8 @@ def test_the_estimate_is_asked_for_the_chosen_subunits_and_its_numbers_move(dash
     """The load-bearing claim: A alone and A+B+C cannot show the same slab.
 
     The estimate block is the server's, so the panel's job is to ask the route for the same selection it will
-    simulate. If the numbers do not move with the picker, the run and its estimate describe two different runs --
-    which is exactly the bug this test exists to catch.
+    simulate. If the numbers do not move with the ticks, the run and its estimate describe two different runs -- which
+    is exactly the bug this test exists to catch.
     """
     page, errors = live_page
     asked = []
@@ -119,21 +138,34 @@ def test_the_estimate_is_asked_for_the_chosen_subunits_and_its_numbers_move(dash
     assert asked and asked[-1] == 'A,B,C', asked
 
     # Chain A alone: the selection shrinks and the block must shrink with it.
-    page.locator('[name=protein_chains]').select_option(['A'])
+    tick(page, 'A')
     expect(page.locator('.new-pdc-apolar')).to_have_text('38.0 nm²')
     assert asked[-1] == 'A', asked
     expect(page.locator('.new-pdc-subunits-note')).to_contain_text('1 of 3 subunits selected: A')
 
-    # And back to all three: the first number returns, so the block tracks the picker rather than a cached answer.
-    page.locator('[name=protein_chains]').select_option(['A', 'B', 'C'])
+    # And back to all three: the first number returns, so the block tracks the ticks rather than a cached answer.
+    tick(page, 'A', 'B', 'C')
     expect(page.locator('.new-pdc-apolar')).to_have_text('75.3 nm²')
     assert asked[-1] == 'A,B,C', asked
     assert {'A', 'A,B,C'} <= set(asked), asked
     assert errors == [], errors
 
 
+def test_no_tick_blocks_the_launch_with_a_reason(dashboard, live_page):
+    """An entry that declares chains and no tick is a run with no protein to build: the gate names it, not a queue."""
+    page, errors = live_page
+    serve(page)
+    open_panel(page, live_page.base_url)
+
+    tick(page)
+    expect(page.locator('.new-pdc-subunits-note')).to_contain_text('choose at least one')
+    expect(page.locator('#launch-blocker')).to_contain_text('Choose at least one subunit')
+    expect(page.locator('#start-run')).to_be_disabled()
+    assert errors == [], errors
+
+
 def test_the_run_carries_the_subunit_selection_it_shows(dashboard, live_page):
-    """The picker is the run's protein preparation, so the selection travels as `protein_chains`."""
+    """The ticks are the run's protein preparation, so the selection travels as `protein_chains`."""
     page, errors = live_page
     posted = {}
     serve(page)
@@ -151,7 +183,7 @@ def test_the_run_carries_the_subunit_selection_it_shows(dashboard, live_page):
     open_panel(page, live_page.base_url)
 
     # Chain A alone, then queued: the payload carries exactly that.
-    page.locator('[name=protein_chains]').select_option(['A'])
+    tick(page, 'A')
     expect(page.locator('#start-run')).to_be_enabled()
     page.locator('#start-run').click()
     expect(page.locator('#notice')).to_contain_text('Run queued.', timeout=30000)
@@ -161,7 +193,7 @@ def test_the_run_carries_the_subunit_selection_it_shows(dashboard, live_page):
     # to the runs list, so the panel is opened again before the second queue.
     posted.clear()
     page.get_by_role('tab', name='New run', exact=True).click()
-    page.locator('[name=protein_chains]').select_option(['A', 'B', 'C'])
+    tick(page, 'A', 'B', 'C')
     page.locator('#start-run').click()
     expect(page.locator('#notice')).to_contain_text('Run queued.', timeout=30000)
     assert posted['protein_chains'] == ['A', 'B', 'C'], posted

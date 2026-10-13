@@ -61,6 +61,11 @@
 .new-pdc-verdict.enough{color:#1c7a3e}
 .new-pdc-verdict.refused{color:var(--danger)}
 .new-pdc-method,.new-pdc-caveat{margin:8px 0 0;font-size:12px}
+/* The explanation behind the verdict and the numbers waits until the reader asks: the same `<details>` disclosure
+   the advanced settings use, so a reader recognises it. The verdict and the table stay out of it. */
+#run-form .new-pdc-explanation{margin-top:10px}
+#run-form .new-pdc-explanation summary{font-size:12px;cursor:pointer}
+#run-form .new-pdc-explanation p{margin:6px 0 0}
 .new-pdc-belt-block,.new-pdc-empty-block{margin-top:10px}
 #run-form .leg{margin-top:12px}
 #run-form .leg label{display:flex;flex-direction:column;gap:2px;font-weight:650}
@@ -72,9 +77,20 @@
 /* Normalise the cell margins: the shared `label{margin:12px 0}` would push a label cell 12 px below a div cell in
    the same grid row. The row's own margin sits on the pair instead. */
 #run-form .new-pdc-pair > *{margin-top:0}
+/* The caption sits above the row; the row is the three controls -- the OPM id, its button and the chain ticks -- and
+   the browser tier measures it: the controls share a line (their vertical centres agree, since a 13 px checkbox and a
+   43 px text field cannot share a top), and none reaches past the left column. */
 #run-form .new-pdc-download{display:flex;flex-direction:column;gap:4px}
-#run-form .new-pdc-download button{align-self:flex-start}
-#run-form .new-pdc-subunits{margin-top:10px}
+#run-form .new-pdc-opm{font-weight:650;white-space:nowrap}
+#run-form .new-pdc-opm-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+#run-form .new-pdc-opm-row input{max-width:5.5rem}
+#run-form .new-pdc-opm-row button{align-self:center}
+#run-form .new-pdc-subunits{display:flex;align-items:center;gap:6px;margin-top:0}
+#run-form .new-pdc-subunits-label{font-size:12px;color:var(--muted);white-space:nowrap}
+#run-form .new-pdc-chain-list{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+/* The shared `label{margin:12px 0}` would push each tick a line below the field beside it; the row's own gap places it. */
+#run-form .new-pdc-chain{display:flex;align-items:center;gap:3px;margin:0;font-weight:650}
+#run-form .new-pdc-chain input{width:auto;margin:0}
 #run-form .new-pdc-backmap{display:flex;align-items:center;gap:8px;margin-top:12px;font-weight:650}
 #run-form .new-pdc-backmap input{width:auto}
 @media(max-width:700px){#run-form .new-pdc-pair{grid-template-columns:1fr}}

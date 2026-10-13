@@ -239,3 +239,38 @@ def test_an_older_answer_never_overwrites_a_newer_one(dashboard, live_page):
     expect(page.locator('.new-pdc-verdict')).to_contain_text('300 detergents cover about 90%')
     assert '10%' not in page.locator('#new-belt-block').inner_text(), 'the stale answer overwrote the newer one'
     assert errors == [], errors
+
+
+def test_the_explanation_starts_hidden_and_opens_when_the_reader_asks(dashboard, live_page):
+    """The verdict and the table are the answer; the method, its caveat and the note about what the estimate is not
+    wait behind a disclosure until the reader asks for them.
+
+    Asserted by visibility, not by text: the prose is in the DOM whether the disclosure is open or closed, so a
+    `to_contain_text` would pass on a collapsed panel. The table and the verdict are the half that stays out.
+    """
+    page, errors = live_page
+    serve(page, lambda route: route.fulfill(json=estimate_body()))
+    open_panel(page, live_page.base_url)
+
+    # What a reader sees without asking: the verdict, the numbers, and the summary to open.
+    expect(page.locator('.new-pdc-verdict')).to_be_visible()
+    expect(page.locator('.new-pdc-estimate-table')).to_be_visible()
+    explanation = page.locator('.new-pdc-explanation')
+    expect(explanation).to_be_visible()
+    assert not explanation.evaluate('el => el.open'), 'the explanation is open before anyone asked for it'
+
+    # The explanatory prose is in the DOM and not visible.
+    expect(page.locator('.new-pdc-method')).to_be_hidden()
+    expect(page.locator('.new-pdc-caveat')).to_be_hidden()
+    expect(page.locator('.new-pdc-about')).to_be_hidden()
+
+    # Opening it shows every sentence, and leaves the verdict and the numbers where they were.
+    explanation.locator('summary').click()
+    assert explanation.evaluate('el => el.open')
+    expect(page.locator('.new-pdc-method')).to_be_visible()
+    expect(page.locator('.new-pdc-method')).to_contain_text('Shrake-Rupley')
+    expect(page.locator('.new-pdc-caveat')).to_be_visible()
+    expect(page.locator('.new-pdc-about')).to_be_visible()
+    expect(page.locator('.new-pdc-verdict')).to_be_visible()
+    expect(page.locator('.new-pdc-estimate-table')).to_be_visible()
+    assert errors == [], errors

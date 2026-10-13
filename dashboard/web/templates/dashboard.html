@@ -89,16 +89,22 @@
       <p class="hint">OPM structures arrive already oriented in the membrane, which is the step MemProtMD spends Memembed on. Choosing no structure is an empty-micelle build, not a missing input.</p>
       <div class="new-pdc-pair new-pdc-protein-pair">
         <label>Protein<select name="protein" id="new-protein"><option value="">No protein · empty micelle</option></select></label>
+        {# One row: the OPM id, its button, then a tick per chain the entry declares. The build, the estimate and the
+           back-map all read that selection, so the ticks sit beside the control that brings a structure in. #}
         <div class="new-pdc-download">
-          <label>Download from OPM<input name="pdbid" id="new-protein-id" type="text" maxlength="4" placeholder="1qj8" autocomplete="off" spellcheck="false" aria-describedby="new-import-status"></label>
-          <button type="button" class="secondary new-pdc-import-button" id="new-import">Download</button>
+          <label class="new-pdc-opm" for="new-protein-id">Download from OPM</label>
+          <div class="new-pdc-opm-row">
+            <input name="pdbid" id="new-protein-id" type="text" maxlength="4" placeholder="1qj8" autocomplete="off" spellcheck="false" aria-describedby="new-import-status">
+            <button type="button" class="secondary new-pdc-import-button" id="new-import">Download</button>
+            <div class="new-pdc-subunits" role="group" aria-label="Subunits" hidden>
+              <span class="new-pdc-subunits-label" aria-hidden="true">Subunits</span>
+              <div class="new-pdc-chain-list"></div>
+            </div>
+          </div>
         </div>
       </div>
       <p id="new-import-status" class="hint new-pdc-import-status" role="status">An import reports the half-thickness it found, or says plainly that the file states no membrane.</p>
-      <div class="new-pdc-subunits" hidden>
-        <label>Subunits<select name="protein_chains" multiple size="4" aria-describedby="new-subunits-note"></select></label>
-        <p id="new-subunits-note" class="hint new-pdc-subunits-note" role="status"></p>
-      </div>
+      <p id="new-subunits-note" class="hint new-pdc-subunits-note" role="status"></p>
     </section>
     <section class="card" aria-labelledby="new-config-title">
       <span class="eyebrow">RUN CONFIGURATION</span><h3 id="new-config-title" class="new-pdc-config-title">Detergent belt and sampling</h3>
@@ -123,9 +129,12 @@
             <tr><td>Estimated need</td><td><strong class="new-pdc-need">—</strong></td></tr>
             <tr><td>What you are asking for</td><td><strong class="new-pdc-have">—</strong> of that area</td></tr>
           </tbody></table>
-          <p class="hint new-pdc-method"></p>
-          <p class="hint new-pdc-caveat"></p>
-          <p class="hint">The number is the server's, from the protein's transmembrane slab and this detergent's head bead, with the method it states and its own caveat: a flat-area sizing of an input, never a verdict that a micelle forms.</p>
+          <details class="new-pdc-explanation">
+            <summary>How this estimate is worked out</summary>
+            <p class="hint new-pdc-method"></p>
+            <p class="hint new-pdc-caveat"></p>
+            <p class="hint new-pdc-about">The number is the server's, from the protein's transmembrane slab and this detergent's head bead, with the method it states and its own caveat: a flat-area sizing of an input, never a verdict that a micelle forms.</p>
+          </details>
         </div>
       </div>
       <div class="new-pdc-empty-block" id="new-empty-block" hidden>
