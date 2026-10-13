@@ -223,7 +223,12 @@ DEFAULTS = dict(temperature_k=308.15,
                 osmotic_production_ps=osmotic_mdp.DEFAULT_PRODUCTION_PS,
                 osmotic_equilibration_ps=osmotic_mdp.DEFAULT_EQUILIBRATION_PS,
                 osmotic_output_interval_ps=osmotic_mdp.DEFAULT_OUTPUT_INTERVAL_PS,
-                osmotic_molality=1.0, mdrun_ntomp=4, mdrun_ranks=1)
+                osmotic_molality=1.0, mdrun_ntomp=4, mdrun_ranks=1,
+                # **The retry ceiling, and a series' policy on a condition that ends failed.** Three is the house
+                # ceiling -- `attempts_max = 3` in `pdc.DEFAULTS` and the loop bound in `pdc_extension.py`. Both are
+                # advertised because a setting the adapter does not name is dropped by the queueing routes without
+                # complaint, and a default the routes do not keep is a capability that never leaves the form.
+                osmotic_attempts_max=3, series_on_failure='carry_on')
 SETTING_SPECS = {
     'temperature_k': ('Temperature of the experimental dataset', 200, 400),
     'osmotic_production_ps': ('Production duration', 1, 2000000),
@@ -232,6 +237,9 @@ SETTING_SPECS = {
     'osmotic_molality': ('Molality', 0.0, 2.5),
     'mdrun_ntomp': ('mdrun OpenMP threads per rank', 1, 72),
     'mdrun_ranks': ('mdrun MPI ranks', 1, 72),
+    # A count, not a duration: an attempt either happened or did not, so a fractional value is refused rather than
+    # silently floored (see `normalize_settings`). The runner also carries a default, for a script run by hand.
+    'osmotic_attempts_max': ('Attempts before a condition ends failed', 1, 10),
 }
 #: The files one molecule's solver needs, in `solute_root`. Named rather than discovered, so a missing one is a
 #: blocker with its name in it instead of a failure halfway through a build. The last is the Martini solvent
@@ -245,7 +253,12 @@ SOLUTE_FILES = ('solute.gro', 'solute.itp', 'water.gro', 'martini_v3.0.0_solvent
 #: here for the same reason and one more: it is what `prepare` reads to find the molecule's files, and a run whose
 #: files could not be found afterwards would be a run type that cannot be resumed.
 CHOICE_SPECS = {'series_id': ('The series this condition belongs to', ()),
-                'solute_root': ('Directory holding the solute, its topology and the water tile', ())}
+                'solute_root': ('Directory holding the solute, its topology and the water tile', ()),
+                # A series is many runs, so what one condition's failure does to the others is a policy the series
+                # carries rather than a property of a condition. `carry_on` is the existing batch route's contract
+                # (every condition is created up front, so a failure does not cancel queued siblings); `stop` is the
+                # other choice the user asked be offered, and the driver that can honour it is a later task.
+                'series_on_failure': ('What a series does when a condition ends failed', ('carry_on', 'stop'))}
 
 
 def stage_defaults(profile='standard'):
@@ -279,7 +292,11 @@ def normalize_settings(settings=None, profile='standard'):
         if not math.isfinite(value) or not low <= value <= high:
             raise ValueError(f'{key} must be between {low} and {high}')
         result[key] = value
-    for key in ('mdrun_ntomp', 'mdrun_ranks'):
+    # An attempt count is a count. `2.5` is refused rather than floored: three-and-a-half attempts is not a thing a
+    # reader can reconcile with the `attempts.json` the runner writes.
+    if result['osmotic_attempts_max'] != int(result['osmotic_attempts_max']):
+        raise ValueError('osmotic_attempts_max must be a whole number of attempts')
+    for key in ('mdrun_ntomp', 'mdrun_ranks', 'osmotic_attempts_max'):
         result[key] = int(result[key])
     # The mdps refuse a duration that is not a whole number of output intervals, and so does this: two conditions with
     # different averaging windows are not comparable, and the earlier the refusal the cheaper it is.
@@ -396,6 +413,11 @@ def prepare(run_dir, metadata):
     # the environment, which does not set it: the first real run placed its molecules and then died with
     # `ModuleNotFoundError: No module named 'dashboard'` on the very next line.
     script = (SCRIPTS / 'osmotic_simulation.sh').read_text()
+    # The retry ceiling reaches the runner the way `REPO_ROOT` does: a stage script is a file read at prepare time, so
+    # a per-run value is written into it here. The runner keeps its own `${OSMOTIC_ATTEMPTS_MAX:-3}` for a script run
+    # by hand; this replaces the whole assignment so the run's own setting is the one it uses.
+    script = script.replace('OSMOTIC_ATTEMPTS_MAX="${OSMOTIC_ATTEMPTS_MAX:-3}"',
+                            f'OSMOTIC_ATTEMPTS_MAX="{int(settings["osmotic_attempts_max"])}"')
     (stage / 'run.sh').write_text(script.replace('REPO_ROOT="${REPO_ROOT:-.}"', f'REPO_ROOT="{ROOT}"'))
     # The molecule's files go to **both** places, and each has a reason: `inputs/` is what the prepared manifest
     # hashes, so the run's own record covers which molecule was simulated; `solute/` beside the stage is the layout

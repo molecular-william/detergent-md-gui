@@ -1,0 +1,80 @@
+/* The Osmotic Series panel.
+ *
+ * The two-column layout is stated here rather than borrowed from `#run-form.new-run-layout`: that rule is
+ * anchored on the new-run form's own id, and a second element carrying it would be a second `#run-form` in the
+ * document. Everything else -- `.card`, `.section-heading`, `.eyebrow`, `.hint`, `.setting-control` -- is the
+ * app's own, because a panel is one measure and a card is a card on it.
+ *
+ * `layout.css` is linked after this file and gives `.panel > *` a twelve-column span, so the form below spans
+ * the measure and the two halves sit on it six apiece, the way the new-run panel's do.
+ */
+.osmotic-layout{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:20px;align-items:start}
+.osmotic-inputs,.osmotic-settings{min-width:0}
+.osmotic-inputs{grid-column:span 6}
+.osmotic-settings{grid-column:span 6}
+@media(max-width:1100px){.osmotic-inputs,.osmotic-settings{grid-column:span 12}}
+
+/* The panel's cards are the app's cards; the app's margin for one doubles with the grid's gap. */
+.osmotic-layout .card{margin:0 0 16px}
+.osmotic-settings .card{margin:0 0 16px}
+/* Long file names and topologies sit in this panel's prose, so every block of it wraps rather than widening the
+   page. `min-width:0` is not needed on a block, only on the grid and flex children above. */
+.osmotic-layout p,.osmotic-layout li,.osmotic-layout dd,.osmotic-layout td{overflow-wrap:anywhere}
+
+/* The sugar gate's answer, and the two ways it can refuse. */
+.osmotic-sugar-status{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:10px 0 0;font-size:13px;overflow-wrap:anywhere}
+.osmotic-sugar-status.ok{border-left:4px solid #1c7a3e;background:#f0f8f3;color:#215c38}
+.osmotic-sugar-status.bad{border-left:4px solid var(--danger);background:#fdf1f0;color:#7d2b22}
+.osmotic-sugar-status strong{display:block}
+
+/* The concentrations: one row per molality, each removable. */
+.osmotic-concentrations{margin:10px 0 6px;padding:0;list-style:none}
+.osmotic-conc-row{border:1px solid var(--line);border-radius:7px;padding:6px 8px;margin:0 0 4px;background:#fbfcfe;
+  display:grid;grid-template-columns:minmax(0,6.5rem) minmax(0,1fr) auto;gap:8px;align-items:center}
+.osmotic-conc-row input{width:100%;min-width:0}
+.osmotic-conc-row input.bad-value{border-color:var(--danger);background:#fdf1f0}
+.osmotic-molality-note{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);min-width:0}
+.osmotic-molality-note .osmotic-row-note{overflow-wrap:anywhere}
+.osmotic-conc-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px}
+.osmotic-duration{display:block;margin-top:12px}
+
+/* The tally is the count and the total, and it is live: it is the number the review repeats. */
+.osmotic-tally{border:1px solid #cfd9e6;background:#f7fafd;border-radius:8px;padding:10px 12px;margin-top:10px;font-size:13px}
+.osmotic-tally strong{display:block;font-size:15px;margin-bottom:3px}
+.osmotic-range-warning,.osmotic-sugar-status+.warn{border-left:4px solid #e0b34d;background:#fff8e6;border-radius:6px;
+  padding:8px 10px;margin:8px 0 0;font-size:12px;color:#7a4b00;overflow-wrap:anywhere}
+.osmotic-range-warning strong{color:#a9761a}
+
+/* The physical setup: shown, never offered. */
+.osmotic-setup{margin-top:4px}
+.osmotic-setup summary{cursor:pointer;font-weight:600}
+.osmotic-setup-table{border-collapse:collapse;font-size:12.5px;margin-top:6px;width:100%}
+.osmotic-setup-table td{padding:3px 10px 3px 0;vertical-align:top;overflow-wrap:anywhere}
+.osmotic-setup-table td:first-child{color:var(--muted);white-space:nowrap}
+.osmotic-setup-table code{font-size:12px}
+
+/* The failure choice. A radio that cannot act is disabled and carries its reason beside it.
+   The label is a two-column grid rather than a flex row: a bare text node inside a flex container is an
+   anonymous flex item whose line did not shrink, so the label's text ran past the card and widened the page by
+   43 px at every width. An explicit span with `min-width:0` is the shape that wraps. */
+.osmotic-onfail-group{display:grid;gap:4px;margin:8px 0}
+.osmotic-onfail-option{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:start;font-size:13px}
+.osmotic-onfail-option input{margin-top:3px}
+.osmotic-onfail-option span{min-width:0;overflow-wrap:anywhere}
+.osmotic-onfail-option:has(input:disabled){opacity:.62}
+.osmotic-stop-reason{color:#a9761a}
+
+/* The review, on the app's own review shapes. */
+.osmotic-review-status{font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap}
+.osmotic-review-status.ready{color:#286644}
+.osmotic-review-status.blocked{color:var(--danger)}
+.osmotic-review-grid{display:grid;grid-template-columns:110px minmax(0,1fr);gap:7px 12px;margin:16px 0}
+.osmotic-review-grid dt{color:var(--muted);font-size:12px}
+.osmotic-review-grid dd{margin:0;font-size:13px;font-weight:650;overflow-wrap:anywhere}
+.osmotic-start{width:100%}
+
+/* The series as it stands: a table of what the route reported, drawn nowhere near a curve. */
+.osmotic-reader{overflow-x:auto}
+.osmotic-series-table{border-collapse:collapse;font-size:12.5px;margin-top:6px;width:100%}
+.osmotic-series-table th,.osmotic-series-table td{padding:3px 8px 3px 0;text-align:left;border-bottom:1px solid var(--line)}
+.osmotic-series-table th{color:var(--muted);font-weight:600;font-size:11px;letter-spacing:.04em}

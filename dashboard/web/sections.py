@@ -20,9 +20,10 @@ SECTIONS = {
         # `/detergent-validation/new-run`. A panel appears here only once its section exists in
         # dashboard.html: a registered panel with no section renders a live tab that resolves to no
         # element, so clicking it hides every panel and leaves a blank workspace. `osmotic-pressure` is
-        # the maltose concentration series and is registered in PLANNED until its section is written.
+        # the sugar concentration series; it was registered in PLANNED until its section existed, and
+        # the panel is now built: the set-up door, and the reader for the series the route reports.
         'tabs': ('runs', 'new-run', 'bead-assignment', 'bond-interactions', 'combinations',
-                 'mapping-validation'),
+                 'mapping-validation', 'osmotic-pressure'),
         # The heading the panel carries in *this* workspace, for a panel whose heading is not its rail label. The
         # rail is 220 px wide and both workspaces call this panel "New run", which is not the same thing as the
         # heading above it: the two workspaces queue different pipelines, and the heading is where that is said.
@@ -48,7 +49,7 @@ PANELS = {
     'bond-interactions': ('Bond Interactions', '⇄'),
     'combinations': ('Combinations', '⧉'),
     'mapping-validation': ('Mapping Validation', '✓'),
-    'osmotic-pressure': ('Osmotic Pressure', '△'),
+    'osmotic-pressure': ('Osmotic Series', '△'),
     'complexes': ('Complexes', '⬡'),
     'initial-state': ('Initial state', '⬢'),
 }
@@ -63,7 +64,7 @@ PANEL_BLURBS = {
     'bond-interactions': 'fitted terms, and the cross-check against the reference',
     'combinations': 'building a system from several molecules',
     'mapping-validation': 'a mapping against its reference, and across molecules',
-    'osmotic-pressure': 'the maltose concentration series against the measured values',
+    'osmotic-pressure': 'a sugar concentration series: set one up, and read the series as it stands',
     'complexes': 'build and inspect a system',
     'initial-state': 'the micelle builder',
 }
@@ -71,7 +72,6 @@ PANEL_BLURBS = {
 #: Panels that are named but not built. The overview lists them as planned rather than hiding them, so the section's
 #: shape accounts for work that is coming.
 PLANNED = {
-    'osmotic-pressure': 'not built yet; the reader exists and is tested',
     'initial-state': 'the micelle builder is paused, and is not a validated model',
     'detergent-design': 'not built yet; named so the shape accounts for it',
 }

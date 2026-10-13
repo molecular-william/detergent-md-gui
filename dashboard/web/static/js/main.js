@@ -6,6 +6,7 @@ import { createMappings } from './mappings.js';
 import { createCompositions } from './compositions.js';
 import { createPdc } from './pdc.js';
 import { createMappingValidation } from './mapping-validation.js';
+import { createOsmoticSeries } from './osmotic.js';
 
 const runs = createRuns({
   onClone: source => newRun.cloneRun(source),
@@ -24,11 +25,12 @@ const compositions = createCompositions({
 });
 const pdc = createPdc();
 const validation = createMappingValidation();
+const osmotic = createOsmoticSeries();
 const mappings=createMappings();
 document.addEventListener('dashboard:tab', event=>{
   const id=event.detail.id;
   const panels=panelIds();
-  const loading=id===panels.runs?runs.mount():id===panels['new-run']?newRun.mount():id===panels.combinations?compositions.mount():id===panels.complexes?pdc.mount():id===panels['mapping-validation']?validation.mount():mappings.mount(id);
+  const loading=id===panels.runs?runs.mount():id===panels['new-run']?newRun.mount():id===panels.combinations?compositions.mount():id===panels.complexes?pdc.mount():id===panels['mapping-validation']?validation.mount():id===panels['osmotic-pressure']?osmotic.mount():mappings.mount(id);
   Promise.resolve(loading).catch(error=>{
     const target=document.querySelector(id===panels['new-run']?'#launch-blocker':'#notice');
     target.textContent=error.message;target.hidden=false;

@@ -18,7 +18,7 @@ NARROW = {'width': 820, 'height': 900}
 
 # The panels of each workspace, in its own order, by DOM id. The two navigations are different lists, which is the
 # point of the split: `runs` and `new` appear in both because they are different run lists and different forms.
-VALIDATION = ('runs', 'new', 'mappings', 'bonded', 'compositions', 'validation')
+VALIDATION = ('runs', 'new', 'mappings', 'bonded', 'compositions', 'validation', 'osmotic-pressure')
 SIMULATIONS = ('runs', 'new', 'pdc')
 
 
@@ -137,6 +137,7 @@ def test_every_panel_is_the_same_width_and_has_no_dead_space_beside_it(dashboard
                   kids: [...box.children].map(el => el.getBoundingClientRect().width)}; }""", selector)
 
     cases = (('detergent-validation', 'new-run', '.new-run-layout', (6, 6)),
+             ('detergent-validation', 'osmotic-pressure', '.osmotic-layout', (6, 6)),
              ('detergent-validation', 'bead-assignment', '.mapping-editor-layout', (7, 5)),
              ('detergent-validation', 'combinations', '.composition-workspace', (3, 9)),
              ('protein-detergent', 'complexes', '.pdc-workspace', (3, 9, 12)),

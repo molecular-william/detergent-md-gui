@@ -56,6 +56,54 @@ def test_settings_are_range_checked_and_a_ragged_duration_is_refused():
         osmotic.normalize_settings({'osmotic_molality': 'a lot'})
 
 
+def test_the_retry_ceiling_and_the_series_policy_are_advertised_where_the_routes_read_them():
+    """`runs.py:queue` and the series route both keep a setting only when the run type advertises it, so the keys
+    the panel posts have to be in the route's own union or they are silently dropped."""
+    advertised = set(osmotic.SETTING_SPECS) | set(osmotic.CHOICE_SPECS)
+
+    assert {'osmotic_attempts_max', 'series_on_failure'} <= advertised
+    # And both carry a default, because a default is what makes the retry a capability rather than a claim.
+    values = osmotic.stage_defaults()['values']
+    assert values['osmotic_attempts_max'] == 3
+    assert values['series_on_failure'] == 'carry_on'
+    assert osmotic.DEFAULTS['osmotic_attempts_max'] == 3
+    assert osmotic.DEFAULTS['series_on_failure'] == 'carry_on'
+
+
+def test_the_retry_ceiling_is_bounded_and_a_fractional_attempt_is_refused():
+    """Three is the house ceiling (`pdc.DEFAULTS`), and an attempt count is a count: 2.5 attempts is not one."""
+    assert osmotic.normalize_settings({'osmotic_attempts_max': 5})['osmotic_attempts_max'] == 5
+    assert isinstance(osmotic.normalize_settings({})['osmotic_attempts_max'], int)
+
+    with pytest.raises(ValueError, match='between 1 and 10'):
+        osmotic.normalize_settings({'osmotic_attempts_max': 0})
+    with pytest.raises(ValueError, match='whole number'):
+        osmotic.normalize_settings({'osmotic_attempts_max': 2.5})
+
+
+def test_a_series_carries_on_by_default_and_may_be_told_to_stop():
+    """`carry_on` is the existing route's contract; `stop` is the other choice, and anything else is refused."""
+    assert osmotic.normalize_settings({})['series_on_failure'] == 'carry_on'
+    assert osmotic.normalize_settings({'series_on_failure': 'stop'})['series_on_failure'] == 'stop'
+
+    with pytest.raises(ValueError, match='must be one of'):
+        osmotic.normalize_settings({'series_on_failure': 'abandon'})
+
+
+def test_prepare_bakes_the_retry_ceiling_into_the_runner(tmp_path):
+    """The runner is a shell script and gets the ceiling the way it gets `REPO_ROOT` -- written in at prepare time.
+
+    A default in `DEFAULTS` alone would be advertised and then never reach the process that retries.
+    """
+    osmotic.prepare(tmp_path, {'molecule_id': 'Maltose', 'solute_root': str(solute_root(tmp_path)),
+                               'mapping_snapshot': MAPPING,
+                               'settings': {'osmotic_molality': 1.0, 'osmotic_attempts_max': 5}})
+
+    runner = (tmp_path / '01_simulate' / 'run.sh').read_text()
+    assert 'OSMOTIC_ATTEMPTS_MAX="5"' in runner
+    assert 'OSMOTIC_ATTEMPTS_MAX="${OSMOTIC_ATTEMPTS_MAX:-3}"' not in runner
+
+
 def test_readiness_names_the_blocker_rather_than_saying_no(tmp_path):
     """A blocker with the file name in it is what a caller can act on."""
     bare = osmotic.readiness({'molecule_id': 'Maltose'})

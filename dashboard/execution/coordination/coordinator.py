@@ -307,6 +307,10 @@ class Coordinator:
                         status,error='failed',f'Manifest finalization failed: {exc}'
                 self.database().update(jid,status=status,stage='complete' if status=='completed' else self.lookup(jid).get('stage','input'),ended_at=self.now(),error=error,
                            reference_eligible=bool(status=='completed' and job.get('run_type')=='aa_only'))
+                # The one place a condition becomes terminally `failed`, after its retries are exhausted. A series
+                # that asked to stop ends here; a series that carries on is left exactly as the route left it.
+                if status == 'failed':
+                    self.stop_series(jid)
                 self.artifact_index(self.lookup(jid), refresh=True)
             finally:
                 if worker.lease_file: worker.lease_file.close()
@@ -659,3 +663,60 @@ class Coordinator:
             self.database().update(jid, status='cancelling')
             worker.cancel.set()
             return self.lookup(jid), 202
+
+
+    def stop_series(self, jid):
+        """End a series when one of its conditions ends failed and the series asked to stop.
+
+        `series_on_failure` is the run type's own setting -- `carry_on` is the historical behaviour and the
+        default, `stop` is the other choice. It rides in the condition's `settings`, where the queue route already
+        put it and where `series_id` lets a sibling be found: the same string the run type records for its own
+        series, so no second registry exists to keep in step.
+
+        A sibling this coordinator owns a worker for is stopped exactly the way `/control/<id>/cancel` stops a run
+        -- through that worker's own cancel event, because only the current worker owns its subprocess groups and a
+        stored PID must never be signalled. A sibling with no worker is a queued condition this server will not
+        start, so it is marked `cancelled` and says why. Either way the conditions that did not run are recorded on
+        the failed run as the gap they are.
+        """
+        with self.JOBS_LOCK:
+            job = self.lookup(jid)
+            if job.get('run_type') != 'osmotic' or job.get('status') != 'failed':
+                return []
+            settings = job.get('settings') or {}
+            series_id = settings.get('series_id')
+            # The choice is the run's, not the code's: absent means the route's own answer, which is to carry on.
+            if not series_id or str(settings.get('series_on_failure') or 'carry_on') != 'stop':
+                return []
+            stopped = []
+            for sibling in self.database().all():
+                if sibling.get('id') == jid:
+                    continue
+                if (sibling.get('settings') or {}).get('series_id') != series_id:
+                    continue
+                if sibling.get('status') not in ('queued', 'waiting', 'running'):
+                    continue
+                if sibling['id'] in self.WORKERS:
+                    self.WORKERS[sibling['id']].cancel.set()
+                    self.database().update(sibling['id'], status='cancelling')
+                elif sibling.get('status') in ('queued', 'waiting'):
+                    # No worker will ever start it, so marking it cancelled is the honest terminal state.
+                    self.database().update(sibling['id'], status='cancelled', stage='Series stopped',
+                                           ended_at=self.now(), error=self._series_stop_reason(settings))
+                else:
+                    # `running` but held by a worker this coordinator does not own: it cannot be stopped from here,
+                    # so it is left alone rather than recorded as cancelled while a process is still on it.
+                    continue
+                stopped.append({'id': sibling['id'],
+                                'molality': (sibling.get('settings') or {}).get('osmotic_molality')})
+            if stopped:
+                self.database().update(jid, series_stopped=stopped)
+            return stopped
+
+
+    @staticmethod
+    def _series_stop_reason(settings):
+        """Why a sibling was cancelled, naming the condition that ended the series where its molality is known."""
+        molality = settings.get('osmotic_molality')
+        named = f'{float(molality):g} molal' if isinstance(molality, (int, float)) else 'a sibling condition'
+        return f'Series stopped: the {named} condition ended failed, so this condition was not run'

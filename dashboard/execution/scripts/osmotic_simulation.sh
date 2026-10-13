@@ -307,12 +307,79 @@ PY
 #    where they are rather than removed mid-flight. `-maxwarn 1` is for the Berendsen barostat the paper's method
 #    names -- GROMACS warns it is not a strictly correct ensemble, and here that warning is the method rather than a
 #    mistake. More than one warning means something else is wrong, so the count stays at one.
+#    **A failed mdrun is resumed from its own checkpoint, bounded at OSMOTIC_ATTEMPTS_MAX (default 3).** The
+#    condition is one stage made of three mdrun calls, so the ceiling bounds *this condition's* attempts: one stage is
+#    launched at most OSMOTIC_ATTEMPTS_MAX times, and the last failure ends the condition `failed`. The resume is
+#    `-cpi`, the same flag the pdc extension stage continues with (`pdc_extension.py`: `mdrun -deffnm run -cpi
+#    run.cpt`), and the two cases are not the same work:
+#
+#      * **a checkpoint exists** (`eq.cpt`, `md.cpt` -- mdrun writes one at its own interval) -- the stage died
+#        mid-run, so the retry continues from the state it left rather than repeating what it had already
+#        integrated. That is the case the retry exists for: a 500 ns production can die at 171 ns, and its sibling
+#        condition of the same series survived the identical 500 ns, so the failure is stochastic rather than a
+#        property of the inputs.
+#      * **no checkpoint exists** -- the stage died before mdrun wrote its first one, or before it ran at all. There
+#        is nothing to continue *from*, so the stage restarts cleanly from its own tpr. GROMACS is explicit that a
+#        missing checkpoint is not an error -- `gmx mdrun -h`: "if no checkpoint file is found, GROMACS just assumes a
+#        normal run and starts from the first step of the .tpr file" -- and the retry must not fail on a file that
+#        was never written. Minimization is always this case: `integrator = steep` writes no checkpoint, because a
+#        minimization has no velocities to carry.
+#    Every attempt is recorded in `attempts.json` -- the stage, the attempt number, the checkpoint, whether it
+#    resumed and the outcome -- the shape `pdc_extension.py` writes.
+OSMOTIC_ATTEMPTS_MAX="${OSMOTIC_ATTEMPTS_MAX:-3}"
+
+# One attempt's record, appended per attempt rather than written at the end, so it survives the condition being
+# killed. Read back with `python -c "import json;print(json.load(open('attempts.json')))"`.
+record_attempt() {
+    python - "$1" "$2" "$3" "$4" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+stage, attempt, resumed, outcome = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+path = Path('attempts.json')
+data = json.loads(path.read_text()) if path.is_file() else {'attempts': []}
+data.setdefault('attempts', []).append({
+    'attempt': attempt,
+    'stage': stage,
+    'checkpoint': f'{stage}.cpt',
+    'resumed': resumed == 'yes',
+    'attempts_max': int(os.environ.get('OSMOTIC_ATTEMPTS_MAX', '3')),
+    'outcome': outcome,
+})
+path.write_text(json.dumps(data, indent=2, sort_keys=True) + '\n')
+PY
+}
+
+run_stage() {
+    local stage="$1" attempt=1 resumed outcome
+    while [ "$attempt" -le "$OSMOTIC_ATTEMPTS_MAX" ]; do
+        if [ -f "$stage.cpt" ]; then resumed=yes; else resumed=no; fi
+        if [ "$resumed" = no ]; then
+            # Nothing to continue from: drop this stage's own partial output first, so the fresh run does not append
+            # to a failed attempt's truncated trajectory and splice two runs into one file. Only the failed stage's
+            # files are touched -- never another stage's, and never the tpr the grompp above just wrote.
+            rm -f "$stage.trr" "$stage.xtc" "$stage.edr" "$stage.log" "$stage.gro"
+        fi
+        outcome=ok
+        ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm "$stage" -cpi "$stage.cpt" \
+            ${PLUMED} ${MDRUN_FLAGS:--ntomp 4 -gpu_id 0 -nb gpu -pin on} -v || outcome=failed
+        record_attempt "$stage" "$attempt" "$resumed" "$outcome"
+        if [ "$outcome" = ok ]; then return 0; fi
+        echo "### $stage failed on attempt $attempt of $OSMOTIC_ATTEMPTS_MAX" >&2
+        attempt=$((attempt + 1))
+    done
+    echo "### $stage failed after $OSMOTIC_ATTEMPTS_MAX attempts: the condition ends failed" >&2
+    return 1
+}
+
 gmx grompp -f minimization.mdp -p system.top -c solvated.gro -r solvated.gro -n index.ndx -o min.tpr -maxwarn 1
-${MDRUN_LAUNCHER:-}gmx mdrun -deffnm min ${PLUMED} ${MDRUN_FLAGS:--ntomp 4 -gpu_id 0 -nb gpu -pin on} -v
+run_stage min
 gmx grompp -f eq.mdp -p system.top -c min.gro -r min.gro -n index.ndx -o eq.tpr -maxwarn 1
-${MDRUN_LAUNCHER:-}gmx mdrun -deffnm eq ${PLUMED} ${MDRUN_FLAGS:--ntomp 4 -gpu_id 0 -nb gpu -pin on} -v
+run_stage eq
 gmx grompp -f md.mdp -p system.top -c eq.gro -r eq.gro -n index.ndx -t eq.cpt -o md.tpr -maxwarn 1
-${MDRUN_LAUNCHER:-}gmx mdrun -deffnm md ${PLUMED} ${MDRUN_FLAGS:--ntomp 4 -gpu_id 0 -nb gpu -pin on} -v
+run_stage md
 
 # 6. The trajectory the analysis reads, and the counts it should be told were actually built. The build predicted
 #    them; a prediction is not a substitute for the number, and the difference is the whole reason molality is
