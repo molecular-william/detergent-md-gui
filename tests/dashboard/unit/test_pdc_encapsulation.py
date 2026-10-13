@@ -305,3 +305,90 @@ def test_the_head_radii_come_from_the_mappings_own_head_beads():
 def test_a_mapping_with_no_head_bead_is_refused_with_a_reason():
     with pytest.raises(ValueError, match='head'):
         encapsulation.mapping_head_radii({'beads': [{'name': 'TAIL1', 'type': 'C1', 'size': 'R'}]})
+
+
+# --- the selection: a structure can be an assembly, and only some of it is simulated ---------------------------------
+
+# Two subunits, each a chain of two apolar atoms 0.9 nm apart inside a 1.0 nm slab, and the two subunits 10 nm apart
+# -- far enough that neither occludes the other, so the area is additive and known by construction.
+MULTICHAIN = (
+    'REMARK      1/2 of bilayer thickness:   10.0\n'
+    'ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\n'
+    'ATOM      2  CA  ALA A   2       0.000   0.000   9.000  1.00  0.00           C\n'
+    'ATOM      3  CA  LEU B   1     100.000   0.000   0.000  1.00  0.00           C\n'
+    'ATOM      4  CA  LEU B   2     100.000   0.000   9.000  1.00  0.00           C\n'
+    'END\n')
+
+
+def test_read_structure_reports_the_chains_a_file_names(tmp_path):
+    path = tmp_path / 'assembly.pdb'
+    path.write_text(MULTICHAIN)
+
+    atoms = encapsulation.read_structure(path)
+
+    assert atoms['chains_available'] == ['A', 'B']
+    assert len(atoms['positions_nm']) == 4
+
+
+def test_read_structure_filters_to_the_chosen_chains_before_the_surface_is_computed(tmp_path):
+    """The plan's requirement: the area describes the object that will be simulated, not the file it came from."""
+    path = tmp_path / 'assembly.pdb'
+    path.write_text(MULTICHAIN)
+
+    atoms = encapsulation.read_structure(path, chains=['A'])
+
+    assert atoms['chains'] == ['A', 'A']
+    assert atoms['residues'] == ['ALA', 'ALA']
+    assert len(atoms['positions_nm']) == 2, 'the other subunit never reaches the SASA'
+    assert atoms['chains_available'] == ['A', 'B'], 'what the file has is still reported'
+    assert atoms['narrowed'] is True
+
+
+# A file like 1AT9: the subunits in named chains, and a placeholder in no chain at all. The whole-file estimate
+# counts it (it occludes), so selecting every chain must keep it -- only a strict subset may drop it.
+WITH_PLACEHOLDER = (
+    'ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\n'
+    'ATOM      2  CA  LEU B   1     100.000   0.000   0.000  1.00  0.00           C\n'
+    'HETATM    3  O   DUM     1      50.000   0.000   0.000  1.00  0.00           O\n'
+    'END\n')
+
+
+def test_selecting_every_declared_chain_is_the_whole_file_and_only_a_subset_narrows(tmp_path):
+    """1AT9's 1,610 chain-less DUM placeholders are why the trimer's number is not 2x a subunit's: every declared
+    chain selected is the whole file, exactly as a caller that chose nothing gets."""
+    path = tmp_path / 'assembly.pdb'
+    path.write_text(WITH_PLACEHOLDER)
+
+    whole = encapsulation.read_structure(path)
+    every = encapsulation.read_structure(path, chains=['A', 'B'])
+    one = encapsulation.read_structure(path, chains=['A'])
+
+    assert len(whole['positions_nm']) == 3 and whole['narrowed'] is False
+    assert len(every['positions_nm']) == 3, 'every declared chain is the whole file, chain-less records included'
+    assert every['narrowed'] is False
+    assert [chain for chain in one['chains']] == ['A'] and one['narrowed'] is True
+    assert len(one['positions_nm']) == 1, 'a strict subset is the only thing that drops the chain-less record'
+
+
+def test_a_requested_chain_the_structure_does_not_name_is_reported_rather_than_dropped():
+    """A chain that is not there must not be silently ignored: it sizes a different object than the one asked for."""
+    assert encapsulation.unknown_chains(['A', 'B'], ['A', 'Z']) == ['Z']
+    assert encapsulation.unknown_chains(['A', 'B'], ['A', 'B']) == []
+    assert encapsulation.unknown_chains([], ['A']) == ['A']
+
+
+def test_the_selection_is_the_area_of_the_chosen_chains_and_not_of_the_others(tmp_path):
+    path = tmp_path / 'assembly.pdb'
+    path.write_text(MULTICHAIN)
+
+    def sized(atoms):
+        return encapsulation.estimate(atoms['positions_nm'], atoms['radii_nm'],
+                                      encapsulation.apolar_mask(atoms['residues']),
+                                      centre_nm=0.0, half_thickness_nm=1.0,
+                                      head_radii_nm=[0.230], requested=10, probe_nm=PROBE)
+
+    everything = sized(encapsulation.read_structure(path))
+    one = sized(encapsulation.read_structure(path, chains=['B']))
+
+    assert one['atoms'] == 2 and everything['atoms'] == 4
+    assert everything['apolar_area_nm2'] == pytest.approx(2 * one['apolar_area_nm2'], rel=1e-4)

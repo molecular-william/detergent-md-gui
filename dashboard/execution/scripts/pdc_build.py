@@ -29,12 +29,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-from dashboard.execution.adapters import pdc, pdc_box, pdc_placement, pdc_protein, pdc_view
+from dashboard.execution.adapters import pdc, pdc_box, pdc_import, pdc_placement, pdc_protein, pdc_view
 from dashboard.execution.adapters.pdc import DETERGENT_GEOMETRY, DETERGENT_TOPOLOGY, REPORT_NAME, SETTINGS_NAME
 from micelle import output as micelle_output
 from micelle import registry as micelle_registry
 
 CG_DIRECTORY = 'cg'
+# Where the protein's chosen chains are written when the run carries a selection. martinize2 reads this rather than
+# the whole file, which is what makes a deposited assembly runnable as one of its subunits.
+SELECTED_PROTEIN = 'protein_selected.pdb'
 
 LIMITATIONS = [
     'the detergent is one centre per molecule, not its bead geometry: the shipped templates carry no bead shape',
@@ -59,6 +62,33 @@ def resolve(settings: dict, key: str, stage: Path) -> Path:
     if not path.is_file():
         raise SystemExit(f'{key} is missing: {path}')
     return path
+
+
+def select_protein(stage: Path, protein_path: Path, chains) -> tuple[Path, list[str]]:
+    """The protein file martinize2 reads: the chosen chains, written beside the stage, or the file as it is.
+
+    With no selection, or a selection that names every chain the file declares, the file is used unchanged -- which
+    is every existing run's build, and what a picker that chooses all the subunits means. A *strict* subset is
+    written to `protein_selected.pdb` and martinize2 is pointed at that, so a deposited trimer builds as the monomer
+    that was asked for. A chain the file does not name is refused rather than dropped: the stage is a separate
+    process and re-checks the selection against the file rather than trusting the settings.
+    """
+    selected = [str(chain) for chain in (chains or [])]
+    if not selected:
+        return Path(protein_path), []
+    text = Path(protein_path).read_text(errors='replace')
+    available = pdc_import.structure_chains(text)
+    missing = [chain for chain in selected if chain not in set(available)]
+    if missing:
+        named = ', '.join(available) or 'none'
+        raise ValueError(f'the protein {Path(protein_path).name} names no chain(s) {", ".join(missing)}; it names '
+                         f'{named}')
+    if set(selected) >= set(available):
+        # Every declared chain: not a narrowing, so nothing is filtered and nothing is rewritten.
+        return Path(protein_path), []
+    target = stage / SELECTED_PROTEIN
+    target.write_text(pdc_import.filter_chains(text, selected))
+    return target, selected
 
 
 def write_report(stage: Path, report: dict) -> None:
@@ -209,6 +239,9 @@ def build(stage: Path) -> int:
         'stage': 'system-preparation',
         'protein': settings['protein'],
         'protein_free': not (settings.get('protein') or '').strip(),
+        # Which subunits go into the system: the selection, or `all` -- the whole file -- for a run that did not choose.
+        'protein_chains': (settings.get('protein_chains') or 'all'),
+        'protein_input': None,
         'template': str(settings['template']),
         'detergent': template.name,
         'detergent_residue': template.residue,
@@ -232,7 +265,10 @@ def build(stage: Path) -> int:
     beads, command = ([], None)
     requested_protein = (settings.get('protein') or '').strip()
     if requested_protein:
-        beads, command = cg_protein(stage, resolve(settings, 'protein', stage))
+        protein_input, selected_chains = select_protein(stage, resolve(settings, 'protein', stage),
+                                                        settings.get('protein_chains'))
+        report['protein_input'] = protein_input.name if selected_chains else None
+        beads, command = cg_protein(stage, protein_input)
     points = [list(bead['position']) for bead in beads]
     placement = pdc_placement.place_detergents(points, template, settings['aggregation_number'],
                                                settings['seed'], radius_nm=settings['radius_nm'], mode=mode,

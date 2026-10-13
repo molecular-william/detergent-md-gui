@@ -47,7 +47,13 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             # Which generator places the detergents. A string, not a number, so it has no SETTING_SPECS bound and is
             # validated in `validate_payload` instead; its presence here is what lets a caller's choice survive the
             # settings filter and reach the build. `lattice` is the default so no existing run's placement moves.
-            'placement_mode': 'lattice'}
+            'placement_mode': 'lattice',
+            # Which subunits go into the simulation, and whether the back-map runs. `protein_chains` is `None` for
+            # every chain -- so an existing caller, which never sends it, keeps the whole file -- and a list of ids
+            # when a caller chooses; `backmap` is `True` so nothing existing stops comparing its CG system with the
+            # atomistic one it came from. Both are choices rather than numbers and are validated in
+            # `validate_payload` (shape) and `prepare` (against the file).
+            'protein_chains': None, 'backmap': True}
 _PROTEIN_LIMIT = 50
 
 # One shape across every run type: (label, lo, hi). Numbers only; a choice would need the registry, so it is
@@ -160,11 +166,61 @@ def _stage_directory(run_dir: Path, name: str) -> Path:
     return run_dir / Path(stage_by_name(name).relative).parent
 
 
+def normalize_chains(value):
+    """A chain selection as a list of ids, or `None` for every chain.
+
+    Two spellings reach here: the panel sends a list, and a query or a form may send `"A,B"`. An empty selection, or
+    none at all, is `None` -- every chain -- which is what keeps an existing caller's build unchanged. Anything else
+    is refused rather than coerced: a number or a dict is not a chain, and a dropped one would build a system the
+    caller did not ask for.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = [part.strip() for part in value.split(',')]
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f'a protein chain selection must be a list of chain ids, not {value!r}')
+    chains = [str(chain).strip() for chain in value]
+    if not all(chains):
+        raise ValueError('a protein chain selection cannot name an empty chain id')
+    return chains or None
+
+
+def protein_chains_of(path):
+    """The chain ids a protein file names, read through the importer's own reader.
+
+    One reader for the catalogue, the estimate and the build, so no two of them can disagree about what a file's
+    chains are.
+    """
+    return pdc_import.structure_chains(Path(path).read_text(errors='replace'))
+
+
+def validate_chains(protein_path, requested):
+    """The validated selection, or a refusal naming every chain the file does not have.
+
+    A chain the file does not name is refused rather than dropped: a run built from the rest of the structure would
+    look like the selection the reader made, and a trimer runnable as a monomer is exactly the case where the two
+    must not be confused.
+    """
+    if not requested:
+        return None
+    available = protein_chains_of(protein_path)
+    missing = [str(chain) for chain in requested if str(chain) not in set(available)]
+    if missing:
+        named = ', '.join(available) or 'none'
+        raise ValueError(f'the protein {Path(protein_path).name} names no chain(s) {", ".join(missing)}; it names '
+                         f'{named}')
+    return [str(chain) for chain in requested]
+
+
 def validate_payload(payload):
     """The choices a build must carry, checked where the protocol can see them.
 
     Numbers that also appear in SETTING_SPECS are range-checked there; this validates what they mean: a seed that
-    is a positive integer rather than a float, and an aggregation number that is a count rather than a size.
+    is a positive integer rather than a float, an aggregation number that is a count rather than a size, and the two
+    choices that are not numbers -- which generator places the detergents, which subunits go into the system, and
+    whether the back-map runs. The chain list's ids are checked against the file in `prepare`, which is the first
+    place the file is resolved.
     """
     if not isinstance(payload, dict):
         raise ValueError('pdc payload must be an object')
@@ -188,8 +244,12 @@ def validate_payload(payload):
     # only reached through `prepare`.
     from .pdc_placement import DEFAULT_PLACEMENT_MODE, canonical_mode
     placement_mode = canonical_mode(payload.get('placement_mode', DEFAULT_PLACEMENT_MODE))
+    backmap = payload.get('backmap', DEFAULTS['backmap'])
+    if not isinstance(backmap, bool):
+        raise ValueError(f'the pdc back-map setting must be true or false, not {backmap!r}')
+    chains = normalize_chains(payload.get('protein_chains'))
     return {'seed': seed, 'aggregation_number': aggregation, 'salt_molar': salt,
-            'placement_mode': placement_mode,
+            'placement_mode': placement_mode, 'protein_chains': chains, 'backmap': backmap,
             'template': payload.get('template'), 'protein': payload.get('protein') or None}
 
 
@@ -254,12 +314,24 @@ def _protein_entry(path, root, source):
 
     `half_thickness_nm` is present on every entry and `None` when the structure states nothing, because a key that
     sometimes exists is a key every reader has to guess about -- and "states nothing" is a real answer that has to be
-    distinguishable from "nobody looked".
+    distinguishable from "nobody looked". `chains` is read the same way and at the same time -- the list the import
+    recorded from the file's own coordinate records -- with one fallback: an imported sidecar written before chains
+    were recorded, or a hand-made one, has the file read for them rather than the entry reporting none, because a
+    picker that is dead for every existing import is worse than reading the file the estimate and the build read
+    anyway. A packaged protein has no sidecar and stays unread, exactly as its thickness does; an empty list is a
+    file that names no chain, which is stated rather than invented.
     """
     sidecar = pdc_import.read_sidecar(path) if source == 'imported' else None
     location = _portable(path, root)
+    chains = (sidecar or {}).get('chains')
+    if source == 'imported' and chains is None:
+        try:
+            chains = pdc_import.structure_chains(path.read_text(errors='replace'))
+        except OSError:
+            chains = None
     return {'id': location, 'name': path.stem, 'path': location, 'source': source,
-            'half_thickness_nm': (sidecar or {}).get('half_thickness_nm')}
+            'half_thickness_nm': (sidecar or {}).get('half_thickness_nm'),
+            'chains': chains}
 
 
 def _portable(path, root):
@@ -598,7 +670,7 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     numbers = settings_from(supplied)
     from .pdc_placement import DEFAULT_RADIUS_NM
     numbers.update({'seed': choices['seed'], 'aggregation_number': choices['aggregation_number'],
-                    'salt_molar': choices['salt_molar'],
+                    'salt_molar': choices['salt_molar'], 'backmap': choices['backmap'],
                     'radius_nm': numbers.get('radius_nm') or round(float(DEFAULT_RADIUS_NM), 6)})
 
     run_dir = Path(run_dir)
@@ -609,6 +681,11 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         raise ValueError(f'the pdc protein is not a file: {protein_path}')
     if not template_path.is_file():
         raise ValueError(f'the pdc template is not a file: {template_path}')
+    # The chain selection is checked against the file it selects from, which is the first place the file is resolved:
+    # a chain the structure does not name is refused here, with the file's own list, rather than reaching the build
+    # and quietly simulating something else. A protein-free build has nothing to select and records no selection.
+    selected_chains = validate_chains(protein_path, choices['protein_chains']) if protein_path is not None else None
+    numbers['protein_chains'] = selected_chains
 
     from micelle import registry
     record = registry.load_template(template_path)
@@ -839,7 +916,13 @@ def _protocol_prepare(run_dir, metadata):
 # before the job is created -- silently, with no error, only a job built on the default. That is what happened to the
 # placement mode: the panel sent `pdc_placement_mode: 'self-assembly'`, the route kept it out, and every run was built
 # on the lattice whatever the reader chose. The values are the ones `pdc_placement.canonical_mode` accepts.
-CHOICE_SPECS = {'pdc_placement_mode': ('Initialisation', ('lattice', 'self-assembly'))}
+#
+# `protein_chains` and `backmap` are choices with no enumerable domain here -- the first is the chains the chosen
+# protein happens to name, the second is a boolean -- so their options are declared empty or as the two booleans, and
+# their values are checked in `validate_payload` and `prepare` where the protein and the builder are known.
+CHOICE_SPECS = {'pdc_placement_mode': ('Initialisation', ('lattice', 'self-assembly')),
+                'protein_chains': ('Protein chains', ()),
+                'backmap': ('Back-mapping (CG2AT2)', (True, False))}
 
 PROTOCOL = protocol.Protocol(
     name='pdc',

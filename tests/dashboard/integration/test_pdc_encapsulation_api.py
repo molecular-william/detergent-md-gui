@@ -179,3 +179,80 @@ def test_the_entry_can_be_addressed_by_the_catalogue_id_a_panel_sends(dashboard,
     assert response.status_code == 200, response.get_data(as_text=True)
     assert response.get_json()['atoms'] == 3
     assert response.get_json()['protein']['id'] == entry['id']
+
+
+# --- the chain selection: an assembly can be sized as the object that will be simulated ---------------------------
+
+# Two subunits, each two apolar atoms inside a 1.0 nm slab and 0.9 nm apart, and the two subunits 10 nm apart so
+# neither occludes the other: the areas are additive and known by construction.
+ASSEMBLY = (
+    'REMARK      1/2 of bilayer thickness:   10.0\n'
+    'ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\n'
+    'ATOM      2  CA  ALA A   2       0.000   0.000   9.000  1.00  0.00           C\n'
+    'ATOM      3  CA  LEU B   1     100.000   0.000   0.000  1.00  0.00           C\n'
+    'ATOM      4  CA  LEU B   2     100.000   0.000   9.000  1.00  0.00           C\n'
+    'END\n')
+
+
+def test_the_route_sizes_only_the_chains_the_caller_selected(dashboard, monkeypatch):
+    _import(dashboard, monkeypatch, '1at9', ASSEMBLY)
+    _mapping(dashboard)
+
+    whole = dashboard.client.get(_url('1at9')).get_json()
+    one = dashboard.client.get(_url('1at9') + '&chains=A').get_json()
+
+    assert whole['atoms'] == 4 and one['atoms'] == 2, 'the other subunit never reaches the surface'
+    assert whole['apolar_area_nm2'] == pytest.approx(2 * one['apolar_area_nm2'], rel=1e-4)
+    assert one['chains'] == {'selected': ['A'], 'available': ['A', 'B'], 'narrowed': True}
+    assert whole['chains'] == {'selected': 'all', 'available': ['A', 'B'], 'narrowed': False}, \
+        'an existing caller asks for nothing and keeps the whole file'
+
+
+def test_a_chain_the_protein_does_not_have_is_refused_with_a_reason(dashboard, monkeypatch):
+    _import(dashboard, monkeypatch, '1at9', ASSEMBLY)
+    _mapping(dashboard)
+
+    response = dashboard.client.get(_url('1at9') + '&chains=A,Z')
+
+    assert response.status_code == 400
+    error = response.get_json()['error']
+    assert 'Z' in error and 'no chain' in error.lower(), error
+
+
+# Like 1AT9: a chain-less placeholder HETATM beside the subunits. The whole-file estimate counts it, so selecting
+# every declared chain must be the whole file -- and only a strict subset may drop it. This is the 1AT9 acceptance
+# in miniature: A alone is a strict subset and is smaller; A+B is every chain and is the file.
+WITH_PLACEHOLDER = (
+    'REMARK      1/2 of bilayer thickness:   10.0\n'
+    'ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\n'
+    'ATOM      2  CA  ALA A   2       0.000   0.000   9.000  1.00  0.00           C\n'
+    'ATOM      3  CA  LEU B   1     100.000   0.000   0.000  1.00  0.00           C\n'
+    'ATOM      4  CA  LEU B   2     100.000   0.000   9.000  1.00  0.00           C\n'
+    'HETATM    5  O   DUM     1      50.000   0.000   0.000  1.00  0.00           O\n'
+    'END\n')
+
+
+def test_naming_every_declared_chain_is_the_whole_file(dashboard, monkeypatch):
+    """The panel's default selection is every chain; its estimate must be the whole-file number, unchanged."""
+    _import(dashboard, monkeypatch, '1at9', WITH_PLACEHOLDER)
+    _mapping(dashboard)
+
+    whole = dashboard.client.get(_url('1at9')).get_json()
+    every = dashboard.client.get(_url('1at9') + '&chains=A,B').get_json()
+    one = dashboard.client.get(_url('1at9') + '&chains=A').get_json()
+
+    assert every['atoms'] == whole['atoms'] == 5
+    assert every['apolar_area_nm2'] == pytest.approx(whole['apolar_area_nm2'])
+    assert every['chains']['narrowed'] is False
+    assert one['atoms'] == 2 and one['chains']['narrowed'] is True
+
+
+def test_a_multi_chain_selection_is_a_comma_separated_list_the_route_reads(dashboard, monkeypatch):
+    _import(dashboard, monkeypatch, '1at9', ASSEMBLY)
+    _mapping(dashboard)
+
+    both = dashboard.client.get(_url('1at9') + '&chains=A,B').get_json()
+    single = dashboard.client.get(_url('1at9') + '&chains=B').get_json()
+
+    assert both['atoms'] == 4 and both['chains']['selected'] == ['A', 'B']
+    assert both['apolar_area_nm2'] == pytest.approx(single['apolar_area_nm2'] / 0.5, rel=1e-4)

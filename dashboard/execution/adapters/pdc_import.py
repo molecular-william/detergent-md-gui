@@ -60,6 +60,36 @@ def membrane_statement(text):
     return {'half_thickness_nm': half} if half is not None else None
 
 
+def structure_chains(text):
+    """The chain ids the structure's coordinate records name, sorted, and empty when it names none.
+
+    Read from the same place the half-thickness is: the file's own text. Both record types carry a chain, so a ligand
+    in its own chain is listed -- and it is selectable with it. A blank chain column names no chain, which is
+    reported as an empty list rather than a guessed `A`: an invented id is indistinguishable from a read one once a
+    selection is built on it. A structure is not refused for it, because nothing here has to choose.
+    """
+    seen = set()
+    for line in text.splitlines():
+        if line[:6].strip() in ('ATOM', 'HETATM'):
+            chain = line[21:22].strip()
+            if chain:
+                seen.add(chain)
+    return sorted(seen)
+
+
+def filter_chains(text, chains):
+    """The structure's text with only the chosen chains' coordinate records kept.
+
+    Every non-coordinate line is kept, so a statement the file carries (its membrane remark above all) survives the
+    filter and a reader downstream sees the same thing. A coordinate record whose chain is not among the chosen ones
+    is dropped rather than rewritten: the file names the object, and this is the object.
+    """
+    wanted = {str(chain) for chain in chains}
+    kept = [line for line in text.splitlines()
+            if line[:6].strip() not in ('ATOM', 'HETATM') or line[21:22].strip() in wanted]
+    return '\n'.join(kept) + ('\n' if kept and text.endswith('\n') else '')
+
+
 def import_structure(pdbid, dest_dir, *, fetcher=None, fetched_at=None):
     """Write the structure and its sidecar into `dest_dir`, and return the sidecar's record.
 
@@ -75,9 +105,10 @@ def import_structure(pdbid, dest_dir, *, fetcher=None, fetched_at=None):
     dest = Path(dest_dir)
     dest.mkdir(parents=True, exist_ok=True)
     structure_path(dest, pdbid).write_bytes(payload)
+    text = payload.decode('utf-8', 'replace')
     record = {'pdbid': pdbid, 'source_url': url, 'sha256': hashlib.sha256(payload).hexdigest(),
-              'bytes': len(payload), 'fetched_at': stamp,
-              **(membrane_statement(payload.decode('utf-8', 'replace')) or {})}
+              'bytes': len(payload), 'fetched_at': stamp, 'chains': structure_chains(text),
+              **(membrane_statement(text) or {})}
     sidecar_path(dest, pdbid).write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')
     return record
 

@@ -172,7 +172,9 @@ def pdc_encapsulation(entry):
     The panel renders what the server decided rather than repeating the arithmetic in JavaScript. A protein whose
     structure states no membrane has no slab and is refused with that reason; a detergent with no saved mapping has
     no head bead size class and is refused with that one. `molecule_id` is the detergent, `aggregation_number` the
-    count the reader asked for.
+    count the reader asked for, and `chains` (comma-separated, or repeated) the subunits to size -- so the number
+    describes the object that will be simulated rather than the whole deposited file. A chain the structure does not
+    have is refused, not dropped.
     """
     from ...analysis.runs import encapsulation
 
@@ -213,10 +215,22 @@ def pdc_encapsulation(entry):
         return jsonify({'error': f'the saved mappings for {molecule_id} disagree about the head bead\u2019s size '
                                  f'class: {detail}'}), 400
 
+    chains = requested_chains(request)
     location = Path(protein['path'])
     structure = location if location.is_absolute() else Path(root) / location
     try:
-        atoms = encapsulation.read_structure(structure)
+        atoms = encapsulation.read_structure(structure, chains=chains)
+    except (OSError, ValueError) as error:
+        return jsonify({'error': f'{protein["name"]} could not be read: {error}'}), 400
+    # A chain that is not in the file would size a different object than the one asked for. `chains_available` is the
+    # whole file's chain list, so this is answered even when the selection came back empty.
+    if chains is not None:
+        missing = encapsulation.unknown_chains(atoms['chains_available'], chains)
+        if missing:
+            available = ', '.join(atoms['chains_available']) or 'none'
+            return jsonify({'error': f'{protein["name"]} names no chain(s) {", ".join(missing)}; it names '
+                                     f'{available}'}), 400
+    try:
         numbers = encapsulation.estimate(atoms['positions_nm'], atoms['radii_nm'],
                                          encapsulation.apolar_mask(atoms['residues']),
                                          centre_nm=SLAB_CENTRE_NM, half_thickness_nm=half_thickness,
@@ -228,9 +242,23 @@ def pdc_encapsulation(entry):
                                 'half_thickness_nm': half_thickness},
                     'molecule_id': molecule_id,
                     'mappings': sorted(name for name, _ in mappings),
+                    'chains': {'selected': chains or 'all', 'available': atoms['chains_available'],
+                               'narrowed': atoms['narrowed']},
                     'slab': {'axis': 'z', 'centre_nm': SLAB_CENTRE_NM, 'half_thickness_nm': half_thickness},
                     'atoms': numbers['atoms'], 'apolar_area_nm2': numbers['apolar_area_nm2'],
                     'head_radius_nm': numbers['head_radius_nm'], 'head_area_nm2': numbers['head_area_nm2'],
                     'requested': numbers['requested'], 'needed': numbers['needed'],
                     'fraction': numbers['fraction'],
                     'method': encapsulation.ESTIMATE_METHOD, 'caveat': encapsulation.ESTIMATE_CAVEAT})
+
+
+def requested_chains(source):
+    """The subunits a caller asked the estimate to size, or `None` for the whole structure.
+
+    `chains` is the panel's name and `protein_chains` the run's, accepted so the estimate and the build are asked the
+    same question; the value is comma-separated or repeated. Absent is `None`, and `None` is every chain, which is
+    what keeps an existing caller's number unchanged.
+    """
+    raw = source.args.getlist('chains') or source.args.getlist('protein_chains')
+    chains = [part.strip() for value in raw for part in value.split(',') if part.strip()]
+    return chains or None

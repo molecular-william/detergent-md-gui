@@ -138,3 +138,34 @@ def test_an_entry_that_states_nothing_gives_no_frame_rather_than_a_guessed_one(t
     assert pdc.protein_frame(catalogue['1qj8']) is None
     assert pdc.protein_frame(catalogue['protein']) is None
     assert pdc.protein_frame(None) is None
+
+
+def test_the_catalogue_entry_carries_the_chains_the_sidecar_recorded(tmp_path):
+    """The chain list is read where the half-thickness is -- at import -- and travels with it into the catalogue."""
+    workspace = _workspace(tmp_path)
+    (workspace / 'proteins' / '1qj8.json').write_text(
+        json.dumps({'pdbid': '1qj8', 'half_thickness_nm': 1.18, 'chains': ['A', 'B']}))
+
+    catalogue = _catalogue(tmp_path, workspace)
+
+    assert catalogue['1qj8']['chains'] == ['A', 'B']
+    assert catalogue['protein']['chains'] is None, \
+        'a packaged protein has no sidecar, so its chains are unread rather than guessed'
+
+
+def test_a_sidecar_that_recorded_no_chains_has_the_file_read_for_them(tmp_path):
+    """An import written before chains were recorded, or a hand-made sidecar, would otherwise leave every existing
+    entry without a chain list -- and a picker with nothing to offer. The file is read instead: not guessed, read."""
+    catalogue = _catalogue(tmp_path, _workspace(tmp_path))
+
+    assert catalogue['1qj8']['chains'] == ['A'], 'the fixture file names chain A'
+    assert catalogue['protein']['chains'] is None, 'a packaged protein has no sidecar and stays unread'
+
+
+def test_a_file_that_names_no_chain_says_so_rather_than_guessing_one(tmp_path):
+    workspace = _workspace(tmp_path)
+    (workspace / 'proteins' / '1qj8.pdb').write_text('ATOM      1  N   ALA     1       1.000   2.000   3.000\n')
+
+    catalogue = _catalogue(tmp_path, workspace)
+
+    assert catalogue['1qj8']['chains'] == []

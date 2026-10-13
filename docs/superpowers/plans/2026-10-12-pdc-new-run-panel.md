@@ -241,6 +241,26 @@ number renders "not recorded yet" and one with a number renders both the number 
 "No protein · empty micelle" hides the estimate and the protein clauses and keeps the count. Acceptance: no number is
 written into the file that does not carry a source.
 
+## Second review (2026-10-13): subunit choice, denser layout, optional back-map
+
+Four asks, three of them with a server half.
+
+**T9 — choose which subunits go into the simulation.** A deposited OPM entry can be an assembly: 1AT9 is a trimer (5,334
+ATOM atoms in chains A/B/C at 1,778 each), and the estimate and the build both take the whole file today. The entry's
+chain list is read where its half-thickness is read (`pdc_import.py` sidecar), the panel offers a selection defaulting
+to all chains, the run carries `protein_chains`, the build prepares the protein from the chosen chains only, and the
+estimate is asked for the same selection so its numbers describe what will be simulated.
+*Acceptance, measured on 1AT9 and already known:* chain A alone ≈ 38 nm² / ≈228 detergents, A+B+C = 75.285 nm² / 453.
+
+**T10 — use the horizontal space.** Pair the fields that read as a pair: Detergent with Detergent template, Protein with
+Download from OPM, Initialisation style with Detergents in the micelle, CG assessment leg with CG extension leg. Drop
+the count slider — the number input stays. The existing two-column assertions must keep passing, and each new pair is
+asserted by geometry (same row, within a tolerance) rather than by eye.
+
+**T11 — back-mapping is optional.** CG2AT2 becomes a toggle, on by default so nothing existing moves. Switched off, the
+back-map stage records `skipped` = exit 4 with its reason in `skip.json`, as the house contract requires, and the run
+still terminates `complete`. The panel carries the toggle and says in the review what the run will and will not produce.
+
 ## Not doing
 
 - Not removing the Complexes panel's build door, and not changing what it sends.

@@ -68,3 +68,42 @@ def test_a_fetch_that_failed_leaves_no_structure_and_no_sidecar(tmp_path):
     with pytest.raises(OSError):
         pdc_import.import_structure('1qj8', tmp_path, fetcher=broken)
     assert list(tmp_path.iterdir()) == []
+
+
+# The chain list is read where the half-thickness is: the file's own text. An assembly deposits its subunits in
+# named chains, so the ids travel with the coordinates and the import records them beside the thickness it stated.
+
+MULTICHAIN = ('REMARK      1/2 of bilayer thickness:   11.8\n'
+              'ATOM      1  N   ALA A   1       1.000   2.000   3.000  1.00  0.00           N\n'
+              'ATOM      2  N   ALA B   1       1.000   2.000   3.000  1.00  0.00           N\n'
+              'HETATM    3  O   HOH C   1       1.000   2.000   3.000  1.00  0.00           O\n')
+
+
+def test_the_structures_chains_are_read_out_of_its_own_coordinate_records():
+    """Both record types carry a chain, so a ligand in its own chain is listed too -- and is selectable with it."""
+    assert pdc_import.structure_chains(MULTICHAIN) == ['A', 'B', 'C']
+
+
+def test_a_structure_that_names_no_chain_says_so_rather_than_guessing_one():
+    """A blank chain column is a real answer, not a defect to paper over with an invented 'A'."""
+    blank = 'ATOM      1  N   ALA     1       1.000   2.000   3.000\n'
+
+    assert pdc_import.structure_chains(blank) == []
+
+
+def test_the_import_records_the_chain_list_beside_the_half_thickness(tmp_path):
+    record = pdc_import.import_structure('1qj8', tmp_path, fetcher=lambda url: MULTICHAIN.encode(),
+                                         fetched_at='2026-10-05T18:00:00+00:00')
+
+    assert record['chains'] == ['A', 'B', 'C']
+    assert record['half_thickness_nm'] == 1.18, 'the two statements come from one read of the file'
+    assert json.loads((tmp_path / '1qj8.json').read_text())['chains'] == ['A', 'B', 'C']
+
+
+def test_the_filter_keeps_the_chosen_chains_and_the_files_own_statements():
+    """What the build points martinize2 at: the chosen chains' records, and every non-coordinate line kept."""
+    filtered = pdc_import.filter_chains(MULTICHAIN, ['A'])
+
+    assert pdc_import.structure_chains(filtered) == ['A']
+    assert 'REMARK      1/2 of bilayer thickness' in filtered, 'the header a reader needs survives the filter'
+    assert 'ALA B' not in filtered and 'HOH C' not in filtered

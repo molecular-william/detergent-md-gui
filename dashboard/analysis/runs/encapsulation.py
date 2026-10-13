@@ -93,7 +93,11 @@ ESTIMATE_METHOD = (
     'head_area = pi * r_head^2, where r_head is the radius of '
     'the largest head bead of the detergent mapping\u2019s head group -- the convention taken for a multi-bead head '
     'group -- from its Martini 3 size class (R 0.264, S 0.230, T 0.191 nm). '
-    'needed = apolar_area / head_area; fraction = requested * head_area / apolar_area.'
+    'needed = apolar_area / head_area; fraction = requested * head_area / apolar_area. '
+    'When the caller narrows to a strict subset of the chains the '
+    'structure declares, the structure is filtered to those chains before the surface is computed, so the number '
+    'describes the subunit that will be simulated and not the whole deposited file; naming every chain is the whole '
+    'file, exactly as naming none is.'
 )
 
 ESTIMATE_CAVEAT = (
@@ -269,8 +273,18 @@ def size_radius_nm(size):
                          f'(it carries {sorted(SIZE_RADII_NM)})') from None
 
 
-def read_structure(path):
+def read_structure(path, chains=None):
     """A deposited structure's heavy atoms: positions in nanometres, radii, and the names a mask is built from.
+
+    `chains` is the selection. A selection that is a *strict subset* of the chains the structure declares narrows the
+    atoms to those chains, so a caller that asks for one subunit of an assembly sizes that subunit and not the file --
+    the SASA then sees only the atoms that go into the run. A selection that names every chain the structure declares
+    is not a narrowing: the object is the whole file, which is what a caller that never chose keeps and what a picker
+    that chooses all of them means -- so a chain-less record (a placeholder HETATM in a file like 1AT9) is kept with
+    it, exactly as the whole-file estimate keeps it. `narrowed` says which of the two happened.
+    `chains_available` always reports every chain the file names, whatever was selected, so a caller can refuse a
+    chain the structure does not have rather than being handed an empty structure. A structure that names no chain
+    returns an empty `chains_available`; nothing is guessed.
 
     One reader, so no caller carries its own copy of the element rule. MDAnalysis reads the file -- the library the
     other surface computation here already uses -- and `atom_radii_nm` turns each atom's name into the radius
@@ -280,10 +294,33 @@ def read_structure(path):
     import MDAnalysis
 
     universe = MDAnalysis.Universe(str(path))
-    names = [str(atom.name) for atom in universe.atoms]
-    return {'atom_names': names, 'residues': [str(atom.resname) for atom in universe.atoms],
-            'positions_nm': [[float(value) / _ANGSTROM for value in atom.position] for atom in universe.atoms],
+    identifiers = [str(atom.chainID) for atom in universe.atoms]
+    available = sorted({chain for chain in identifiers if chain})
+    indices = range(len(identifiers))
+    narrowed = False
+    if chains is not None and not {str(chain) for chain in chains} >= set(available):
+        wanted = {str(chain) for chain in chains}
+        indices = [index for index, chain in enumerate(identifiers) if chain in wanted]
+        narrowed = True
+    names = [str(universe.atoms[index].name) for index in indices]
+    return {'atom_names': names,
+            'residues': [str(universe.atoms[index].resname) for index in indices],
+            'chains': [identifiers[index] for index in indices],
+            'chains_available': available,
+            'narrowed': narrowed,
+            'positions_nm': [[float(value) / _ANGSTROM for value in universe.atoms[index].position]
+                             for index in indices],
             'radii_nm': atom_radii_nm(names)}
+
+
+def unknown_chains(available, requested):
+    """The requested chains the structure does not name, sorted; empty when every one is present.
+
+    A refusal rather than a filter: a chain that is not there would silently size or build a different object than
+    the one that was asked for, and in the number or the structure that comes back the two are indistinguishable.
+    """
+    present = {str(chain) for chain in (available or [])}
+    return sorted({str(chain) for chain in (requested or [])} - present)
 
 
 def mapping_head_radii(mapping):

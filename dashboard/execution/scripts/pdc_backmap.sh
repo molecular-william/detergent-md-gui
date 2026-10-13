@@ -13,11 +13,21 @@
 # coverage in CG2AT2's database is therefore unverified, and this script says so rather than implying otherwise.
 set -euxo pipefail
 
+# Back-mapping is a toggle now, on by default. A run that switched it off records the contract's fourth outcome --
+# `skipped` (exit 4) with its reason in `skip.json` beside the script -- and the run still terminates `complete`,
+# because nothing was attempted and nothing is owed. The setting arrives in the same settings file this stage already
+# reads for the protein; the interpreter is the one the pdc adapter stamps into this line at prepare time, so a bare
+# `python` never appears in a copied stage script.
+BACKMAP=$(python -c "import json;print(json.load(open('../1_system/pdc-settings.json')).get('backmap', True))")
+if [ "$BACKMAP" != "True" ]; then
+  echo '{"skipped": true, "reason": "the run switched back-mapping off, so this stage has nothing to do"}' > skip.json
+  echo "skipped: the run switched back-mapping off, so this stage has nothing to do" >&2
+  exit 4
+fi
+
 # A protein-free complex run has nothing to align: this stage exists to put the protein's atoms back, and there are
 # none. That is not a failure and not a blocked run -- nothing was attempted -- so the stage skips, says why, and the
 # run carries on. The contract's fourth outcome, `skipped` (exit 4).
-# The interpreter is the one the pdc adapter stamps into this line at prepare time: `python` on PATH is a different
-# installation from the application's, which is why a bare `python` never appears in a copied stage script.
 python -c "import json;print(json.load(open('../1_system/pdc-settings.json')).get('protein') or '')" > protein.txt
 PROTEIN=$(cat protein.txt)
 rm -f protein.txt
