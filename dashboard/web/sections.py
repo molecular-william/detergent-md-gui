@@ -23,12 +23,19 @@ SECTIONS = {
         # the maltose concentration series and is registered in PLANNED until its section is written.
         'tabs': ('runs', 'new-run', 'bead-assignment', 'bond-interactions', 'combinations',
                  'mapping-validation'),
+        # The heading the panel carries in *this* workspace, for a panel whose heading is not its rail label. The
+        # rail is 220 px wide and both workspaces call this panel "New run", which is not the same thing as the
+        # heading above it: the two workspaces queue different pipelines, and the heading is where that is said.
+        # A panel left out of this map keeps its rail label (`panel_label` falls back), so adding an entry cannot
+        # move another panel's name.
+        'panel_labels': {'new-run': 'Single Molecule Simulations'},
     },
     'simulations': {
         'slug': 'protein-detergent',
         'label': 'Protein-detergent simulations',
         'blurb': 'Set up and run a protein with its detergent, and read the results.',
         'tabs': ('runs', 'new-run', 'complexes'),
+        'panel_labels': {'new-run': 'Protein-Detergent Simulations'},
     },
 }
 
@@ -117,15 +124,28 @@ def tabs_for(name):
     return tuple(section['tabs']) if section else ()
 
 
-def panel_label(slug):
-    """A sub-panel's display name.
+def panel_label(slug, section=None):
+    """A sub-panel's display name in one workspace, or its rail label when no workspace is named.
+
+    Without `section` this is the rail's own word for the panel: short, and the same in both workspaces -- both
+    call this panel "New run". With a workspace's **slug** it is the heading the panel carries *there*, which is
+    where a workspace says what it actually runs: "Single Molecule Simulations" under validation against
+    "Protein-Detergent Simulations" under simulations. Headings are registered per workspace because the registry
+    was keyed by panel slug alone, so `simulations.new-run` had no way to differ from `validation.new-run`.
 
     Raises rather than defaulting: a panel with no label is a registry error, and returning the slug would ship a
-    page showing `new-run` where a person expects "New run".
+    page showing `new-run` where a person expects "New run". A workspace this registry does not have also raises,
+    for the same reason a route 404s on an unknown slug -- a heading resolved from an unknown workspace would be a
+    guess.
     """
     if slug not in PANELS:
         raise KeyError(f'no label registered for panel {slug!r}')
-    return PANELS[slug][0]
+    if section is None:
+        return PANELS[slug][0]
+    for name, record in SECTIONS.items():
+        if section in (name, record['slug']):
+            return record.get('panel_labels', {}).get(slug) or PANELS[slug][0]
+    raise KeyError(f'no workspace has the slug or name {section!r}')
 
 
 def panel_glyph(slug):

@@ -111,3 +111,37 @@ def test_an_unknown_section_is_refused_rather_than_defaulted():
     assert section_by_slug('nonsense') is None
     assert section_by_slug('detergent-validation') is SECTIONS['validation']
     assert section_by_slug('protein-detergent') is SECTIONS['simulations']
+
+
+def test_the_two_workspaces_label_their_new_run_panel_differently():
+    """The rail's word for a panel is shared; the heading above it is where a workspace says what it runs.
+
+    `New run` fits a 200 px rail and is right in both workspaces, so it stays the panel's label. The heading is not
+    the same thing: the two workspaces queue different pipelines, and "Single Molecule Simulations" against
+    "Protein-Detergent Simulations" is where a reader learns which one they are in.
+    """
+    assert panel_label('new-run') == 'New run'
+    assert panel_label('new-run', 'detergent-validation') == 'Single Molecule Simulations'
+    assert panel_label('new-run', 'protein-detergent') == 'Protein-Detergent Simulations'
+
+
+def test_no_other_panel_label_moves_when_one_workspace_names_a_panel():
+    """A per-workspace label is a list of exceptions: a panel left out of it keeps its rail label, by name."""
+    for section in SECTIONS.values():
+        for panel in section['tabs']:
+            if panel in section.get('panel_labels', {}):
+                continue
+            assert panel_label(panel, section['slug']) == PANELS[panel][0], \
+                f'{panel} in {section["slug"]} was renamed without being registered'
+    assert panel_label('runs', 'protein-detergent') == 'Runs'
+    assert panel_label('complexes', 'protein-detergent') == 'Complexes'
+    with pytest.raises(KeyError):
+        panel_label('not-a-panel', 'protein-detergent')
+
+
+def test_a_per_workspace_label_names_a_panel_that_workspace_owns():
+    """The overview of a workspace lists its panels; a label for a panel it does not have is a dead entry."""
+    for name, section in SECTIONS.items():
+        for panel in section.get('panel_labels', {}):
+            assert panel in section['tabs'], f'{name} labels {panel}, which is not one of its panels'
+            assert panel in PANELS, f'{panel} is labelled per workspace but has no rail label or glyph'

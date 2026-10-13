@@ -42,3 +42,24 @@
 #run-provenance summary{font-size:12px}
 #run-provenance h4{font-size:13px;margin:14px 0 6px}
 @media(max-width:900px){.run-review{position:static}}
+/* --- The protein-detergent workspace's New Run panel ----------------------------------------------------------
+   The same form and the same two halves: `layout.css` gives `#run-form.new-run-layout` its twelve columns and the
+   6 + 6 spans, and it is linked after this file, which is what puts the halves side by side. What is added here are
+   the shapes this fieldset has no equivalent of -- the workflow strip that states what will run, and the two
+   branches the detergent count is read in. */
+.new-pdc-workflow{display:flex;flex-direction:column;gap:6px;margin:10px 0 0;padding:0;list-style:none}
+.new-pdc-workflow li{border:1px solid var(--line);background:#f7fafd;border-radius:8px;padding:8px 10px;font-size:12px}
+.new-pdc-workflow li strong{display:block;font-size:13px}
+.new-pdc-workflow li span{color:var(--muted)}
+.new-pdc-workflow li.optional{border-style:dashed}
+.new-pdc-estimate{border-collapse:collapse;font-size:13px;margin-top:8px}
+.new-pdc-estimate td{padding:2px 14px 2px 0}
+.new-pdc-belt-block,.new-pdc-empty-block{margin-top:10px}
+#run-form .leg{margin-top:12px}
+#run-form .leg label{display:flex;flex-direction:column;gap:2px;font-weight:650}
+#run-form .leg .hint{display:block;font-weight:400}
+#run-form .new-pdc-limitation{color:#7a4b00}
+/* The count carries a number field and a coarse slider, so the shared 6.5 rem cap on a setting control is lifted
+   for this pair alone -- stated at the control's own specificity, or the cap wins. */
+#run-form .setting-control .new-pdc-count-range{max-width:12rem}
+@media(max-width:700px){#run-form .setting-control .new-pdc-count-range{max-width:100%}}

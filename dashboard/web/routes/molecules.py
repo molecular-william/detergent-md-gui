@@ -9,6 +9,7 @@ from ...execution.protocol import adapter_for
 from ...models import mappings
 from ...models.mappings import context as mapping_context
 from ...models.molecules import aa as aa_molecules
+from ...models.molecules import detergent_registry
 from .common import coordinator
 
 blueprint = Blueprint('molecules', __name__)
@@ -35,6 +36,19 @@ def references_api():
 def molecules_api():
     c = coordinator()
     return jsonify(molecules=aa_molecules.catalogue(c.ROOT/'molecules'))
+
+
+@blueprint.get('/api/detergents')
+def detergents_api():
+    """The molecules the detergent registry names, for the protein-detergent panel's list.
+
+    `molecules/` ships DDM beside Maltose, Sucrose and Trehalose, and the pdc pipeline builds its belt out of a
+    detergent's own beads: a sugar offered here would be a run that cannot be built. The filter is the registry's
+    own file (`detergents.json`), read at request time, so the list cannot drift from the file it comes from --
+    and so adding an entry to that file is enough for the panel to offer it.
+    """
+    c = coordinator()
+    return jsonify(detergents=detergent_registry.select(aa_molecules.catalogue(c.ROOT/'molecules'), c.ROOT))
 
 
 def _requested_profile(default='standard'):
