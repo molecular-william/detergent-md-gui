@@ -43,7 +43,7 @@ the settings the existing pipeline reads, each under its own name.
 | --- | --- | --- |
 | Sugar | `molecule_id` (route body) | **add** — the run's solute |
 | CG mapping for that sugar | `mapping_candidate` (route body; `create_job` resolves it to `mapping_snapshot`, which `prepare` sizes the box from) | **add** |
-| Concentrations | `molalities` (route body; each job carries one as `osmotic_molality`) | **add** — the headline control |
+| Concentrations | `molalities` (route body; each job carries one as `osmotic_molality`) | **add** — the headline control; the panel's default is the **five measured points** `(0.5, 1.0, 1.5, 2.0, 2.5)`, the 0.0 control skipped (see below) |
 | Duration per condition | `osmotic_production_ps` (`osmotic.DEFAULTS`, default 500000) | **add** |
 | Equilibration | `osmotic_equilibration_ps` (default 10000) | show, advanced block |
 | Trajectory output interval | `osmotic_output_interval_ps` (default 10.0) | show, advanced block |
@@ -107,12 +107,16 @@ decisions:
 
 ## The series: the concentrations, the duration, the count
 
-Three controls, and the default is the series that already exists.
+Three controls, and the default is the five measured conditions.
 
 - **Concentrations** — an editable list, one row per molality, each row removable and a button to add one. The
-  default is the six the route already defaults to, `routes/osmotic.PAPER_MOLALITIES = (0.0, 0.5, 1.0, 1.5, 2.0,
-  2.5)`: the five measured points Ebrahimi & Sadeghi report at 308.15 K, **plus the 0.0 control**. Each value is
-  bounded by `osmotic_box.MOLALITY_RANGE = (0.0, 2.5)` and by the setting's own spec
+  default is **the five measured points Ebrahimi & Sadeghi report at 308.15 K**, `(0.5, 1.0, 1.5, 2.0, 2.5)`, and
+  **not** the six the route falls back to. **The 0.0 control is skipped by default**: it is the same for every sugar,
+  so it is not this series' business to run it — the panel says so where the set is shown, and a run that does want it
+  can add a 0.0 row back. (The route's own fallback stays `routes/osmotic.PAPER_MOLALITIES = (0.0, 0.5, 1.0, 1.5,
+  2.0, 2.5)`; it is read only when a caller sends no `molalities`, and this panel always sends its set, so the panel's
+  five is what is queued. The panel changes its own default, not the route's.) Each value is bounded by
+  `osmotic_box.MOLALITY_RANGE = (0.0, 2.5)` and by the setting's own spec
   `osmotic_molality: ('Molality', 0.0, 2.5)`; a value outside it is refused by the route with the bound named
   (`test_a_molality_the_build_cannot_place_is_refused_and_the_series_is_not_half_created`), so the panel refuses it at
   the row and says which value and which bound.
@@ -120,14 +124,15 @@ Three controls, and the default is the series that already exists.
   Default **500 ns** (`osmotic_mdp.DEFAULT_PRODUCTION_PS` = 500000 ps): the paper's own bar, Methods 5.3, and what
   all five measured conditions in the completed series ran.
 - **The count** — a running `N runs · total ns`, recomputed on every add, remove and edit. It mirrors the route's own
-  `count` and the plan's own bar: six conditions at 500 ns is 3000 ns, and at the measured ~2400 ns/day for one
-  condition run alone that is about 1.25 days of wall clock.
+  `count` and the plan's own bar: five conditions at 500 ns is **2500 ns**, and at the measured ~2400 ns/day for one
+  condition run alone that is about 1.04 days of wall clock.
 
-The 0.0 control is a row like any other. It is worth saying what it is: with no solute there is no `plumed.dat`
-(`osmotic_mdp.plumed_walls` refuses a zero molecule count) and therefore no `osmotic-pressure.json` — no wall to
-push against. `condition_for` reports it as `measured: null`, and the reader shows the row rather than dropping it
-(`test_the_control_is_a_row_and_not_a_missing_one`). The completed control ran 2 ns rather than 500; the panel gives
-the series one duration and takes the control with it, which is the simpler contract and is flagged below.
+The 0.0 control, when it is added back, is a row like any other — but it is a row with no measurement. With no solute
+there is no `plumed.dat` (`osmotic_mdp.plumed_walls` refuses a zero molecule count) and therefore no
+`osmotic-pressure.json` — no wall to push against — so `condition_for` reports it as `measured: null` and the reader
+shows the row rather than dropping it (`test_the_control_is_a_row_and_not_a_missing_one`). The completed control ran
+2 ns rather than 500; the panel gives the series one duration and takes a control row with it, which is the simpler
+contract.
 
 ## Series behaviour, stated rather than implied
 
@@ -135,12 +140,27 @@ the series one duration and takes the control with it, which is the simpler cont
   to start a second run while one is busy ("Simulation capacity is busy"). The runner records the measurement behind
   that limit — ~2400 ns/day for one condition alone against ~291 each for four sharing cores — so the panel states
   the number and does not offer a fan-out.
-- **On failure of one condition**, the rest of the series **carries on**. This is the existing route's contract and
-  not a new one: `POST /api/osmotic/series` creates every condition up front and refuses *before* creating anything if
-  any of them is wrong, so once the series exists a failed condition does not cancel its siblings. The reader already
-  reports a gap rather than drawing a curve through it (the plan's Task 2.2). A "stop the series on the first failure"
-  option is offered, and taking it means queueing one condition at a time instead of as a batch — a driver, which is
-  a task below rather than a checkbox the route already honours.
+- **A failed condition is retried from the run's last usable checkpoint, up to three attempts, before it is called
+  failed.** Resume, not restart: the retry continues the failed stage from the checkpoint GROMACS already wrote
+  (`gmx mdrun -cpi <file>`), rather than repeating work the run had already done. Three is the house ceiling,
+  `attempts_max = 3` in `pdc.DEFAULTS` and the loop bound in `dashboard/execution/scripts/pdc_extension.py`
+  (`limit = int(settings.get('attempts_max', 3))`). **This half is new work and it is a task below (T7).** The osmotic
+  runner today does not resume: `dashboard/execution/scripts/osmotic_simulation.sh` runs
+  `gmx mdrun -deffnm min|eq|md` with no checkpoint continue, and its one checkpoint use is `-t eq.cpt` handed to
+  `grompp` for the production tpr, which inherits the equilibration's velocities rather than resuming a crashed run.
+  The mechanism (`-cpi`) exists in the repository only in the pdc extension stage (`pdc_extension.py:163`, and the
+  comment in `pdc_extension.sh`). What the run type does today is the coordinator's **stage-boundary** resume
+  (`workflow.prepare_resume`): a failed stage is re-run from its own staged inputs, from its start rather than from
+  its last checkpoint. So the panel's retry wording is the target T7 lands; the panel does not claim a resume the
+  runner cannot yet deliver.
+- **On failure of one condition, the rest of the series carries on — the default.** This is the existing route's
+  contract and not a new one: `POST /api/osmotic/series` creates every condition up front and refuses *before*
+  creating anything if any of them is wrong, so once the series exists a failed condition does not cancel its
+  siblings. The reader reports a gap rather than drawing a curve through it (the plan's Task 2.2).
+- **Stopping the series on the first condition that ends failed (after its retries) is the other choice.** Taking it
+  means queueing one condition at a time instead of as a batch, so it is a driver — a task below (T8), not a checkbox
+  the route already honours — because the batch route cannot stop siblings that are already queued. Both halves stay
+  offered, as the user asked; carrying on is the default.
 
 ## The physical setup the pipeline reads, shown with the values the run will use
 
@@ -192,12 +212,15 @@ missing mapping*; with the fixture's four `SOLUTE_FILES` present and a candidate
 the targets registry with no folder is returned as named-but-not-buildable with that reason.
 Acceptance: no molecule on disk without a mapping is ever reported `ready: true`.
 
-**T3 — the concentrations and the count.** The editable list: add, remove, edit, a Reset to `PAPER_MOLALITIES`, a
-per-row bound check against 0.0–2.5, and a live count and total ns.
-Tests: browser — adding a row raises the count by one and the total by the duration; removing one lowers both;
-duration 500 with four rows reads `4 runs · 2000 ns`; a row of 3.0 is refused with the bound named and excluded from
-the count; Reset restores exactly `(0.0, 0.5, 1.0, 1.5, 2.0, 2.5)`.
-Acceptance: the count equals `len(molalities)` and the total equals `len(molalities) * duration` in every state.
+**T3 — the concentrations and the count.** The editable list: add, remove, edit, a Reset to the panel's default set,
+a per-row bound check against 0.0–2.5, and a live count and total ns. The default is the five measured points
+`(0.5, 1.0, 1.5, 2.0, 2.5)`; 0.0 is skipped and can be added back as a row.
+Tests: browser — the default set is the five measured points and carries no 0.0; adding a row raises the count by one
+and the total by the duration; removing one lowers both; duration 500 with four rows reads `4 runs · 2000 ns`; a row
+of 3.0 is refused with the bound named and excluded from the count; Reset restores exactly `(0.5, 1.0, 1.5, 2.0,
+2.5)`; adding a 0.0 row back is accepted, counted, and shown with its 0.0-control note.
+Acceptance: the count equals `len(molalities)` and the total equals `len(molalities) * duration` in every state; the
+default never contains 0.0.
 
 **T4 — the refusal.** The sugar selector's blocked and refused states: a sugar with a mapping but no `solute_root`
 (or a missing `SOLUTE_FILES` entry) blocks with that file named; a sugar with no saved CG mapping is refused with that
@@ -210,7 +233,7 @@ Acceptance: the refusal always names the object that is missing, never a generic
 values, series id) and a Start that posts `{molecule_id, mapping_candidate, molalities, osmotic_production_ps,
 temperature_k, solute_root, series_id?}` to `POST /api/osmotic/series` and reports the returned `count` and
 `series_id`. Start is disabled unless the catalogue says ready.
-Tests: browser — with a ready sugar the review reads the six conditions and 3000 ns and Start is enabled; the posted
+Tests: browser — with a ready sugar the review reads the five conditions and 2500 ns and Start is enabled; the posted
 body carries `molalities` as the numbers on screen; pressing Start against a stub reports the count and creates
 nothing in the fixture's store without it.
 Acceptance: the panel sends exactly the keys the route reads, and nothing the route would refuse.
@@ -222,16 +245,33 @@ Tests: browser — the six rows of the completed series render with the control 
 rather than interpolated.
 Acceptance: the panel recomputes none of the numbers; it renders the route's answer.
 
-**T7 — "stop the series on the first failure", if the user wants it.** The batch route cannot stop siblings that are
-already queued, so this is a small driver that queues one condition and waits, plus the panel control. Files: the
-driver (a script beside the runners), the panel, tests that it queues the second only after the first terminates and
-stops on a failed status.
+**T7 — the retry: resume a failed condition from its last usable checkpoint, bounded at three attempts.** *New work:
+the osmotic runner does not resume today.* `osmotic_simulation.sh` gains the continue — `gmx mdrun -cpi <stage>.cpt`
+on the failed stage, the mechanism the pdc extension stage already uses (`pdc_extension.py:163`) — and the runner
+writes an attempt record per retry (attempt number, the stage resumed, the checkpoint used, the outcome), the shape
+`pdc_extension.py` writes to `attempts.json`. The loop is bounded at three (`attempts_max = 3`, the `pdc.DEFAULTS`
+precedent). Minimization is the one stage a retry cannot resume mid-way — it writes no checkpoint (the runner's own
+note: it has no velocities to carry) — so a minimization failure re-runs from its inputs.
+Tests: a script-level test reads the executed mdrun lines and asserts the retry passes `-cpi` to the failed stage's
+checkpoint; a stage-transition test asserts the third failure ends the condition `failed` and no fourth mdrun is
+launched.
+Acceptance: with the runner changed, a condition whose `md.cpt` exists is continued rather than restarted, and the
+attempt ceiling is three.
+
+**T8 — "stop the series on the first failed condition", if the user wants it.** The batch route cannot stop siblings
+that are already queued, so this is a small driver that queues one condition and waits, plus the panel control (the
+second radio). The driver applies T7's retry before it declares a condition failed, then stops or carries on. Files:
+the driver (a script beside the runners), the panel, tests that it queues the second only after the first terminates
+and stops on a failed status.
 Acceptance: with the option off, the panel posts to the existing route unchanged and nothing new runs.
 
 ## Not doing
 
 - Not removing or changing `POST /api/osmotic/series`, `GET /api/osmotic/conditions`, the adapter, the runner or the
   analysis. The panel is a door onto what exists.
+- Not putting the retry or the stop-on-failure choice inside the route: the route creates jobs and returns, and a
+  failed condition's resume is the runner's (`-cpi`, T7) and the driver's (T8). The panel's retry wording describes
+  the runner, not a control the route honours.
 - Not adding a control for a value the run type does not read (method, profile, threads, box, kappa, salt, seed).
 - Not claiming the series validates a mapping. It executes a method and measures a pressure; the residual against the
   paper's points is evidence about both the model and the mapping at once.

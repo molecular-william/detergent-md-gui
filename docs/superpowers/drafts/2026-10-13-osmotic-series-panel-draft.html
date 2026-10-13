@@ -110,14 +110,17 @@ force divided by the box's xy area to give an osmotic pressure.</p></div></div>
 
   <section class="card">
     <span class="eyebrow">THE SERIES</span><h3>How many conditions, at which concentrations</h3>
-    <p class="hint">One run per molality, all sharing a series id. The defaults are the six the route's own
-    <code>PAPER_MOLALITIES</code> names: the five measured points at 308.15 K plus the 0.0 control. Molality is
-    confined to the paper's 0.0–2.5 range (<code>osmotic_box.MOLALITY_RANGE</code>).</p>
+    <p class="hint">One run per molality, all sharing a series id. The default is the <strong>five measured points</strong>
+    at 308.15 K — <code>0.5, 1.0, 1.5, 2.0, 2.5</code> molal. The <strong>0.0 control is skipped</strong>: it is the
+    same for every sugar, so it is not this series' business to run it — and <em>Add a concentration</em> puts it back
+    for a run that wants it. Molality is confined to the paper's 0.0–2.5 range
+    (<code>osmotic_box.MOLALITY_RANGE</code>); the route's own fallback <code>PAPER_MOLALITIES</code> still names all
+    six, but the panel always sends its set.</p>
 
     <ul class="conc-list" id="concentrations"></ul>
     <div class="conc-actions">
       <button type="button" class="secondary" id="add-row">+ Add a concentration</button>
-      <button type="button" class="secondary" id="reset-rows">Reset to the paper's six</button>
+      <button type="button" class="secondary" id="reset-rows">Reset to the five measured points</button>
     </div>
 
     <label style="display:block;margin-top:12px">Duration per condition
@@ -129,8 +132,8 @@ force divided by the box's xy area to give an osmotic pressure.</p></div></div>
     (<code>osmotic_output_interval_ps</code>) — both standing, not on this panel.</p>
 
     <div class="tally" id="tally" aria-live="polite">
-      <strong id="count-line">6 runs · 3000 ns</strong>
-      <div class="hint" id="count-detail">0.0, 0.5, 1.0, 1.5, 2.0, 2.5 molal · 500 ns each · about 1.3 days at the
+      <strong id="count-line">5 runs · 2,500 ns</strong>
+      <div class="hint" id="count-detail">0.5, 1.0, 1.5, 2.0, 2.5 molal · 500 ns each · about 1.0 days at the
       measured 2400 ns/day for one condition alone.</div>
     </div>
     <div id="range-warning" class="warn" hidden role="status"></div>
@@ -171,14 +174,19 @@ force divided by the box's xy area to give an osmotic pressure.</p></div></div>
     <code>max_concurrent_runs: 1</code> and the coordinator refuses a second run while one is busy. That is a
     measurement and not a preference: four conditions at once measured ~4.6× slower in aggregate (~291 ns/day each)
     against ~2400 ns/day for one run alone, and no thread placement recovered it.</p>
-    <p style="margin-top:12px"><strong>If one condition fails,</strong> the rest of the series still runs. The queue
-    route creates every condition up front and refuses before creating anything if any is wrong, so once the series
-    exists a failed condition does not cancel its siblings — and the reader reports the gap rather than drawing a
-    curve through it.</p>
+    <p style="margin-top:12px"><strong>A failed condition is resumed, not restarted.</strong> It continues from the
+    run's last usable checkpoint (<code>gmx mdrun -cpi</code>) and is <strong>retried up to 3 times</strong> before it
+    is called failed. Three is the house ceiling — <code>attempts_max = 3</code>, as in the PDC pipeline. Resuming is
+    new work: the osmotic runner passes no <code>-cpi</code> today, so this is the target the runner task lands, not a
+    control it already honours.</p>
+    <p style="margin-top:12px"><strong>Then, if a condition still ends failed</strong> (after its retries), the series
+    does one of two things — and carrying on is the default. The queue route creates every condition up front and
+    refuses before creating anything if any is wrong, so once the series exists a failed condition does not cancel its
+    siblings, and the reader reports the gap rather than drawing a curve through it.</p>
     <label style="display:flex;gap:8px;align-items:center;margin-top:8px"><input type="radio" name="onfail"
       value="carry" checked> Carry on — the remaining conditions run; a gap is reported</label>
     <label style="display:flex;gap:8px;align-items:center;margin-top:4px"><input type="radio" name="onfail"
-      value="stop"> Stop the series on the first failure — queues one condition at a time</label>
+      value="stop"> Stop the series on the first failed condition — queues one condition at a time</label>
     <p class="hint">Starting a series does not start anything until Start run is pressed, and this panel never queues
     without that.</p>
   </section>
@@ -190,15 +198,16 @@ force divided by the box's xy area to give an osmotic pressure.</p></div></div>
       <dt>Sugar</dt><dd id="summary-sugar">Maltose</dd>
       <dt>Mapping</dt><dd id="summary-mapping">Maltose carbohydrate paper draft</dd>
       <dt>Solute files</dt><dd id="summary-solute">/workspace/osmotic/maltose · 4 of 4 present</dd>
-      <dt>Conditions</dt><dd id="summary-count">6</dd>
-      <dt>Concentrations</dt><dd id="summary-conc">0.0, 0.5, 1.0, 1.5, 2.0, 2.5 molal</dd>
-      <dt>Duration</dt><dd id="summary-duration">500 ns each · 3000 ns total</dd>
+      <dt>Conditions</dt><dd id="summary-count">5</dd>
+      <dt>Concentrations</dt><dd id="summary-conc">0.5, 1.0, 1.5, 2.0, 2.5 molal</dd>
+      <dt>Duration</dt><dd id="summary-duration">500 ns each · 2,500 ns total</dd>
+      <dt>On failure</dt><dd id="summary-onfail">Resume from the last checkpoint, up to 3 attempts · then carry on</dd>
       <dt>Temperature</dt><dd id="summary-temp">308.15 K</dd>
       <dt>Series id</dt><dd><code>assigned at queue time</code></dd>
     </dl>
     <p class="hint">Execution success does not establish scientific validation. A completed series proves the
     calculation ran; agreement with the paper's points is evidence about the model and the mapping at once.</p>
-    <p class="hint" id="review-note" role="status">Queues 6 conditions as 6 jobs sharing one series id. This mock does
+    <p class="hint" id="review-note" role="status">Queues 5 conditions as 5 jobs sharing one series id. This mock does
     not start anything.</p>
     <button type="submit" class="primary" id="start" disabled>Start series</button>
   </section>
@@ -229,7 +238,10 @@ force divided by the box's xy area to give an osmotic pressure.</p></div></div>
 <script>
 'use strict';
 // --- the concentrations, the count, and the duration -------------------------------------------------------------
-const PAPER = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5];   // routes/osmotic.PAPER_MOLALITIES
+// The panel's default: the five measured points. The 0.0 control is skipped — it is the same for every sugar and is
+// not the sugar series' business to run; `+ Add a concentration` puts it back. (routes/osmotic.PAPER_MOLALITIES still
+// names all six; the route reads it only when a caller sends no molalities, and this panel always sends its own set.)
+const DEFAULT_SERIES = [0.5, 1.0, 1.5, 2.0, 2.5];
 const LO = 0.0, HI = 2.5;                       // osmotic_box.MOLALITY_RANGE
 const NS_PER_DAY = 2400.0;                      // measured, one condition alone
 const list = document.getElementById('concentrations');
@@ -266,7 +278,7 @@ function recount() {
       note.style.color = '#c0392b';
       bad.push(raw === '' ? '(blank)' : raw);
     } else {
-      note.textContent = value === 0 ? '— the pure-solvent control' : '';
+      note.textContent = value === 0 ? '— the 0.0 control: no measurement, and the same for every sugar' : '';
       note.style.color = '';
       values.push(value);
     }
@@ -313,7 +325,7 @@ document.getElementById('add-row').addEventListener('click', () => {
   list.appendChild(row(start.toFixed(1)));
   recount();
 });
-document.getElementById('reset-rows').addEventListener('click', () => fill(PAPER));
+document.getElementById('reset-rows').addEventListener('click', () => fill(DEFAULT_SERIES));
 document.getElementById('duration').addEventListener('input', recount);
 
 // --- the sugar gate: a saved CG mapping, then the solute files ---------------------------------------------------
@@ -393,8 +405,18 @@ document.getElementById('temperature').addEventListener('input', e => {
   document.getElementById('summary-temp').textContent = (Number(e.target.value) || 0).toFixed(2) + ' K';
 });
 
-fill(PAPER);
+// The retry is a standing default (resume from the last checkpoint, up to 3 attempts); the series-level choice after
+// the retries is what the radios below pick between, and the review echoes whichever is selected.
+function updateOnFail() {
+  const value = document.querySelector('input[name=onfail]:checked').value;
+  document.getElementById('summary-onfail').textContent = 'Resume from the last checkpoint, up to 3 attempts · ' +
+    (value === 'stop' ? 'then stop the series' : 'then carry on');
+}
+document.querySelectorAll('input[name=onfail]').forEach(r => r.addEventListener('change', updateOnFail));
+
+fill(DEFAULT_SERIES);
 renderSugar();
+updateOnFail();
 </script>
 </body>
 </html>
