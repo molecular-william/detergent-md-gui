@@ -19,6 +19,7 @@ from .. import files
 from ..execution import tools, workflow
 from . import metadata as analysis_metadata
 from .kinds import TABLE
+from .runs import layout
 from .runs import references as aa_references
 
 KINDS = set(TABLE)
@@ -83,7 +84,18 @@ def execute(request_path):
         progress('Calculating ' + kind)
         # One call for every kind: the row holds the dispatch, and the analyses that read only the sources they were
         # handed are adapted to this shape where they are declared rather than by a branch here.
-        result = TABLE[kind].run(work, request.get('payload', {}))
+        #
+        # A kind whose producer finds nothing to work on is not a failure. `layout.NoTrajectory` is the one such
+        # refusal: a run with no trajectory has nothing to sample, and saying so is the honest outcome rather than
+        # an error. It is recorded as the workflow contract's skip -- exit 4, with the producer's own reason in
+        # `skip.json` beside the request -- so the coordinator records `skipped` and the run is left alone.
+        try:
+            result = TABLE[kind].run(work, request.get('payload', {}))
+        except layout.NoTrajectory as nothing_to_do:
+            files.atomic_json(attempt/'skip.json', {'kind': kind, 'reason': str(nothing_to_do)})
+            progress('Skipped: ' + str(nothing_to_do)[:200])
+            print(f'Skipped: {nothing_to_do}', flush=True)
+            sys.exit(workflow.SKIPPED_EXIT_CODE)
         files.atomic_json(work/'analysis-metadata.json', analysis_metadata.describe(kind, result))
         progress('Publishing immutable results')
         source_key = hashlib.sha256(json.dumps([sources,request.get('payload',{}),request.get('code_signature')],sort_keys=True).encode()).hexdigest()

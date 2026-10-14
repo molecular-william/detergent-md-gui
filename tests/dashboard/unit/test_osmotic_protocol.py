@@ -50,17 +50,17 @@ def test_the_defaults_are_the_papers_durations_and_a_temperature_that_says_where
 
 
 def test_settings_are_range_checked_and_a_ragged_duration_is_refused():
-    assert osmotic.normalize_settings({'osmotic_molality': 2.5})['osmotic_molality'] == pytest.approx(2.5)
-    assert isinstance(osmotic.normalize_settings({})['mdrun_ntomp'], int)
+    assert osmotic.normalize_settings({'molalities': [2.5]})['molalities'] == [2.5]
+    assert isinstance(osmotic.normalize_settings({'molalities': [1.0]})['mdrun_ntomp'], int)
 
     with pytest.raises(ValueError, match='between 0.0 and 2.5'):
-        osmotic.normalize_settings({'osmotic_molality': 3.0})
+        osmotic.normalize_settings({'molalities': [3.0]})
     with pytest.raises(ValueError, match='whole number of output intervals'):
-        osmotic.normalize_settings({'osmotic_production_ps': 5005.0})
+        osmotic.normalize_settings({'molalities': [1.0], 'osmotic_production_ps': 5005.0})
     with pytest.raises(ValueError, match='Unknown osmotic setting'):
-        osmotic.normalize_settings({'nope': 1})
+        osmotic.normalize_settings({'molalities': [1.0], 'nope': 1})
     with pytest.raises(ValueError, match='must be numeric'):
-        osmotic.normalize_settings({'osmotic_molality': 'a lot'})
+        osmotic.normalize_settings({'molalities': ['a lot']})
 
 
 def test_the_retry_ceiling_and_the_series_policy_are_advertised_where_the_routes_read_them():
@@ -79,22 +79,22 @@ def test_the_retry_ceiling_and_the_series_policy_are_advertised_where_the_routes
 
 def test_the_retry_ceiling_is_bounded_and_a_fractional_attempt_is_refused():
     """Three is the house ceiling (`pdc.DEFAULTS`), and an attempt count is a count: 2.5 attempts is not one."""
-    assert osmotic.normalize_settings({'osmotic_attempts_max': 5})['osmotic_attempts_max'] == 5
-    assert isinstance(osmotic.normalize_settings({})['osmotic_attempts_max'], int)
+    assert osmotic.normalize_settings({'molalities': [1.0], 'osmotic_attempts_max': 5})['osmotic_attempts_max'] == 5
+    assert isinstance(osmotic.normalize_settings({'molalities': [1.0]})['osmotic_attempts_max'], int)
 
     with pytest.raises(ValueError, match='between 1 and 10'):
-        osmotic.normalize_settings({'osmotic_attempts_max': 0})
+        osmotic.normalize_settings({'molalities': [1.0], 'osmotic_attempts_max': 0})
     with pytest.raises(ValueError, match='whole number'):
-        osmotic.normalize_settings({'osmotic_attempts_max': 2.5})
+        osmotic.normalize_settings({'molalities': [1.0], 'osmotic_attempts_max': 2.5})
 
 
 def test_a_series_carries_on_by_default_and_may_be_told_to_stop():
     """`carry_on` is the existing route's contract; `stop` is the other choice, and anything else is refused."""
-    assert osmotic.normalize_settings({})['series_on_failure'] == 'carry_on'
-    assert osmotic.normalize_settings({'series_on_failure': 'stop'})['series_on_failure'] == 'stop'
+    assert osmotic.normalize_settings({'molalities': [1.0]})['series_on_failure'] == 'carry_on'
+    assert osmotic.normalize_settings({'molalities': [1.0], 'series_on_failure': 'stop'})['series_on_failure'] == 'stop'
 
     with pytest.raises(ValueError, match='must be one of'):
-        osmotic.normalize_settings({'series_on_failure': 'abandon'})
+        osmotic.normalize_settings({'molalities': [1.0], 'series_on_failure': 'abandon'})
 
 
 def test_prepare_bakes_the_retry_ceiling_into_the_runner(tmp_path):
@@ -104,7 +104,7 @@ def test_prepare_bakes_the_retry_ceiling_into_the_runner(tmp_path):
     """
     osmotic.prepare(tmp_path, {'molecule_id': 'Maltose', 'solute_root': str(solute_root(tmp_path)),
                                'mapping_snapshot': MAPPING,
-                               'settings': {'osmotic_molality': 1.0, 'osmotic_attempts_max': 5}})
+                               'settings': {'molalities': [1.0], 'osmotic_attempts_max': 5}})
 
     runner = (tmp_path / '01_simulate' / 'run.sh').read_text()
     assert 'OSMOTIC_ATTEMPTS_MAX="5"' in runner
@@ -140,7 +140,7 @@ def test_prepare_builds_a_run_the_executor_could_start(tmp_path):
     """The substance: the inputs exist, every condition has its own directory, and the manifest is written."""
     record = osmotic.prepare(tmp_path, {'molecule_id': 'Maltose', 'solute_root': str(solute_root(tmp_path)),
                                         'mapping_snapshot': MAPPING,
-                                        'settings': {'osmotic_molality': 1.0}, 'profile': 'standard'})
+                                        'settings': {'molalities': [1.0]}, 'profile': 'standard'})
 
     assert [condition['molality_achieved'] for condition in record['conditions']] == \
            [pytest.approx(1.0, rel=0.01)]

@@ -18,6 +18,9 @@ molecules are near enough for a distance-based guess. It carries the model's own
 bead's size class as its stand-in element -- the convention `models/compositions/topology.py` writes and the
 documented meaning of the element column these files carry. No test reads the developer's workspace.
 """
+import re
+from pathlib import Path
+
 from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CONSTRAINTS, DDM_PLACEMENT
 
 MOLECULES = 6
@@ -125,6 +128,85 @@ def measured_radii_nm(measured):
     to distinguish from a bead drawn at its own size class.
     """
     return [None if value is None else round(value / NANOMETRE_TO_ANGSTROM, 4) for value in measured['radii']]
+
+
+#: The two buffers the `ball+stick` representation draws from, read off the representation itself. NGL keeps the
+#: balls in a sphere buffer and the sticks in a cylinder buffer, and the cylinder one is the one that carries its
+#: two ends (`position1`/`position2`); each buffer's own `radius` attribute is the radius its impostor shader draws
+#: with -- in Angstroms, times the view matrix, which is 1 -- so this measures what is drawn rather than what was
+#: asked for. The two are told apart by that attribute and not by index, because an index is a fact about NGL's
+#: internals while the two ends are a fact about a bond.
+MEASURE_DRAWN = """
+(el) => {
+  const buffers = el.pdcStage.compList[0].reprList[0].repr.bufferList;
+  const radii = (buffer) => {
+    const attribute = buffer.geometry.attributes.radius;
+    return attribute && attribute.array ? Array.from(attribute.array) : null;
+  };
+  const stick = buffers.find(buffer => buffer.geometry.attributes.position1);
+  const ball = buffers.find(buffer => buffer !== stick);
+  return {buffers: buffers.length, ball: radii(ball), stick: radii(stick),
+          radiusParameters: el.pdcStage.compList[0].reprList[0].parameters};
+}
+"""
+#: The module's own two numbers, read from the file rather than restated: this test holds what is *drawn* to what
+#: `ngl-beads.js` says the app draws, and `test_ngl_beads.py` holds that file's numbers to their reasons.
+MODULE = Path(__file__).resolve().parents[3] / 'dashboard/web/static/js/ngl-beads.js'
+ASPECT = re.search(r'BEAD_ASPECT_RATIO\s*=\s*([0-9.]+)', MODULE.read_text())
+assert ASPECT, 'ngl-beads.js states no BEAD_ASPECT_RATIO'
+ASPECT_RATIO = float(ASPECT.group(1))
+STICK_FRACTION = 1 / ASPECT_RATIO
+
+
+def distinct(values):
+    """The drawn radii that are actually there, to four decimals, with how many vertices carry each."""
+    counts = {}
+    for value in values:
+        key = round(value, 4)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def measure_drawn(page):
+    """The drawn ball and stick radii, once both buffers exist (a representation builds them asynchronously)."""
+    page.wait_for_function("""() => {
+      const component = document.querySelector('#pdc-viewer').pdcStage.compList[0];
+      const representation = component && component.reprList[0] && component.reprList[0].repr;
+      if (!representation || !representation.bufferList) return false;
+      const withRadii = representation.bufferList.filter(buffer => buffer.geometry.attributes.radius);
+      return withRadii.length === 2;
+    }""", timeout=30000)
+    return page.locator('#pdc-viewer').evaluate(MEASURE_DRAWN)
+
+
+def test_the_sticks_are_thinner_and_the_balls_are_not_shrunk(dashboard, live_page):
+    """Measured on the drawn buffers: the balls keep the model's own radius, the sticks are a quarter of it.
+
+    This is the user's ask of 2026-10-14 -- "maybe the bonds can look a bit thinner" -- measured where a picture is
+    actually decided, the radii the impostor shaders are handed. Before the change the same measurement was ball
+    2.64 A / stick 1.32 A for the tail beads (and 2.30 / 1.15 for the sugar ones); the sticks are half of that now
+    and the balls are unchanged, because `radiusScale` thins the stick while `aspectRatio` buys the ball back.
+    """
+    page, errors = live_page
+    open_panel(page, live_page)
+    drawn = measure_drawn(page)
+
+    assert drawn['buffers'] == 2, 'ball+stick draws from two buffers: one for the balls, one for the sticks'
+    ball_radii = sorted(distinct(drawn['ball']))
+    stick_radii = sorted(distinct(drawn['stick']))
+    model = sorted(round(radius * NANOMETRE_TO_ANGSTROM, 2) for radius in RADII_NM.values())  # T 1.91, S 2.30, R 2.64
+
+    # The balls are the model's own radii -- nothing was shrunk to thin the sticks -- and there is one per class.
+    assert ball_radii == model, f'the drawn balls are not the model radii: {ball_radii} against {model}'
+    # The sticks are the module's fraction of exactly those radii: every drawn stick radius, divided by the
+    # module's own fraction, is a radius the file states a bead class has.
+    assert sorted(set(round(value / STICK_FRACTION, 4) for value in stick_radii)) == [2.30, 2.64], (
+        f'the drawn sticks are not the module\'s fraction of the beads: {stick_radii} at 1/{ASPECT_RATIO}')
+    # And the amount is pinned, not just the relationship: 1.32 A and 1.15 A were the drawn stick radii before.
+    assert stick_radii == [0.575, 0.66], f'the drawn sticks are not half of what they were: {stick_radii}'
+    assert drawn['radiusParameters']['radiusScale'] == STICK_FRACTION
+    assert drawn['radiusParameters']['aspectRatio'] == ASPECT_RATIO
+    assert errors == []
 
 
 def test_the_panel_draws_each_bead_at_its_own_size_class_radius(dashboard, live_page):

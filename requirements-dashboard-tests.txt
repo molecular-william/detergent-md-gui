@@ -1,8 +1,20 @@
 # Dashboard test dependencies.
-# The dashboard's scientific/runtime dependencies are provisioned separately.
+# The dashboard's scientific/runtime dependencies are provisioned separately
+# (MDAnalysis, numpy, scipy, matplotlib, plotly, ... -- see docs/PROJECT_GUIDE.md).
 # pytest-xdist is the optional test-runner accelerator; playwright and vermouth
 # are imported by tests that exercise a rendered browser or the sugar topology
 # path, so a fresh checkout needs them to run the full suite.
+#
+# mdtraj is not a test-only import. The pdc CG stage asks martinize2 for the
+# protein's secondary structure with the bare `-dssp` flag, and vermouth answers
+# that flag with mdtraj and with nothing else: `AnnotateDSSP(executable=None)`
+# binds `run_mdtraj` when mdtraj can be imported, and otherwise runs an external
+# DSSP binary, of which vermouth trusts only versions 2.2.1 and 3.0.0. So this is
+# the one dependency that route needs, and without it the stage falls back to
+# MDAnalysis' own DSSP and the route the Martini 3 tutorial documents is never
+# taken (`unit/test_pdc_cg_step.py` covers both). It is declared here because this
+# file is the repository's one requirements file.
 pytest-xdist>=3.6,<4
 playwright>=1.40
 vermouth>=0.15
+mdtraj>=1.9,<2

@@ -11,7 +11,7 @@ import MDAnalysis as mda
 import numpy as np
 import pytest
 
-from dashboard.analysis.runs import observability
+from dashboard.analysis.runs import layout, observability
 from tests.dashboard import support
 
 
@@ -126,7 +126,8 @@ def test_a_series_never_asks_for_more_frames_than_the_trajectory_has(tmp_path):
 
 
 def test_a_run_with_no_trajectory_is_refused(tmp_path):
-    with pytest.raises(ValueError, match='no trajectory to review'):
+    """Refused as a value error, and as the resolver's own type: that is what a caller records a skip from."""
+    with pytest.raises(layout.NoTrajectory, match='no trajectory to review'):
         observability.generate(tmp_path)
 
 

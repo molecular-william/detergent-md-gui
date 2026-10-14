@@ -22,8 +22,19 @@ SECTIONS = {
         # element, so clicking it hides every panel and leaves a blank workspace. `osmotic-pressure` is
         # the sugar concentration series; it was registered in PLANNED until its section existed, and
         # the panel is now built: the set-up door, and the reader for the series the route reports.
-        'tabs': ('runs', 'new-run', 'bead-assignment', 'bond-interactions', 'combinations',
+        #
+        # `run-view` sits directly after `runs` because it is the other half of reading a run: the table
+        # lists them, this panel draws one. It is registered in *both* workspaces on purpose -- one
+        # component, scoped to each workspace's own run types (`run_types` below), so there is one
+        # bond rule rather than a second viewer that forgets it.
+        'tabs': ('runs', 'run-view', 'new-run', 'bead-assignment', 'bond-interactions', 'combinations',
                  'mapping-validation', 'osmotic-pressure'),
+        # The run types this workspace's Run view panel offers. The panel asks `/api/jobs` for each of
+        # these by name -- the run-type filter on the route, so the list is one workspace's runs and not
+        # a page of every run narrowed afterwards in the browser. Read from here rather than written in
+        # the JavaScript for the reason the whole registry exists: a second copy drifts, and this one
+        # decides what a reader can reach.
+        'run_types': ('aa_only', 'aa_cg', 'cg_composition', 'osmotic'),
         # The heading the panel carries in *this* workspace, for a panel whose heading is not its rail label. The
         # rail is 220 px wide and both workspaces call this panel "New run", which is not the same thing as the
         # heading above it: the two workspaces queue different pipelines, and the heading is where that is said.
@@ -35,8 +46,11 @@ SECTIONS = {
         'slug': 'protein-detergent',
         'label': 'Protein-detergent simulations',
         'blurb': 'Set up and run a protein with its detergent, and read the results.',
-        'tabs': ('runs', 'new-run', 'complexes'),
+        'tabs': ('runs', 'run-view', 'new-run', 'complexes'),
         'panel_labels': {'new-run': 'Protein-Detergent Simulations'},
+        # This workspace queues protein-detergent complexes and nothing else, so its Run view offers a
+        # `pdc` run -- and delegates the drawing of one to the Complexes panel rather than repeating it.
+        'run_types': ('pdc',),
     },
 }
 
@@ -44,6 +58,7 @@ SECTIONS = {
 #: defined. The keys are the slugs used in `SECTIONS['tabs']`.
 PANELS = {
     'runs': ('Runs', '☰'),
+    'run-view': ('Run view', '⬓'),
     'new-run': ('New run', '▶'),
     'bead-assignment': ('Bead Assignment', '◎'),
     'bond-interactions': ('Bond Interactions', '⇄'),
@@ -59,6 +74,7 @@ PANELS = {
 #: is written where the panel is registered.
 PANEL_BLURBS = {
     'runs': 'every run in this workspace, with what it draws on and what uses it',
+    'run-view': 'one run, its structures, its frames and its figures',
     'new-run': 'a run, with a snapshot of the box before it starts',
     'bead-assignment': 'the CG mapping editor',
     'bond-interactions': 'fitted terms, and the cross-check against the reference',
@@ -86,6 +102,7 @@ PLANNED = {
 #: of failure nothing in the suite could catch. The URLs are the slugs; the DOM keeps its names.
 TAB_IDS = {
     'runs': 'runs',
+    'run-view': 'runview',
     'new-run': 'new',
     'bead-assignment': 'mappings',
     'bond-interactions': 'bonded',
@@ -162,6 +179,22 @@ def tab_id(slug):
     if slug not in TAB_IDS:
         raise KeyError(f'no DOM id registered for panel {slug!r}')
     return TAB_IDS[slug]
+
+
+def run_types_for(section):
+    """The run types a workspace's Run view offers, in the order the panel lists them.
+
+    The panel asks `/api/jobs` for each of these by name, so this is what decides which runs a reader can reach
+    from a workspace -- and why it is registered per workspace rather than written in the panel's JavaScript: a
+    second copy of the list is a second place for a run type to go missing. A workspace this registry does not have
+    raises, for the same reason a route 404s on an unknown slug: a scope resolved from an unknown workspace would
+    be a guess. A workspace registered without a scope answers `()`, which the panel renders as "no run type in
+    this workspace" rather than as every run of every kind.
+    """
+    for name, record in SECTIONS.items():
+        if section in (name, record['slug']):
+            return tuple(record.get('run_types', ()))
+    raise KeyError(f'no workspace has the slug or name {section!r}')
 
 
 def legacy_tab_targets():

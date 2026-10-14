@@ -43,6 +43,10 @@ class Kind:
     records_gmx_version: bool = False
     #: The kind's request may name dependencies: already-published reports it is scored against.
     takes_dependencies: bool = False
+    #: The kind runs for a run because the run can answer it, without anyone asking. Only the frames are registered
+    #: so: looking at a trajectory is what every completed run owes its reader, and a run with nothing to sample is
+    #: not an error -- the producer refuses it in its own words and the attempt is recorded as a skip.
+    runs_for_every_run: bool = False
 
 
 TABLE: dict[str, Kind] = {row.name: row for row in (
@@ -197,7 +201,8 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         "Trajectory snapshots",
         "Snapshots provide visual inspection and are not a distributional validation.",
         "coordinates",
-        reads_aa_reference=True, legacy_sources=('1_AA-reference/3-run.xtc', '1_AA-reference/3-run.tpr')),
+        reads_aa_reference=True, legacy_sources=('1_AA-reference/3-run.xtc', '1_AA-reference/3-run.tpr'),
+        runs_for_every_run=True),
     Kind(
         'stability',
         ("*.log", "*.xtc"),
@@ -228,3 +233,13 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         "Targets describe the comparison protocol; they are not a quality score.",
         "protocol metadata"),
 )}
+
+
+def for_every_run() -> tuple[str, ...]:
+    """The kinds a run runs for itself, in table order.
+
+    `analysis_coordinator` queues these for a run whose stages are finished, so a person does not have to know the
+    kind's name to get the artifact it publishes. It is a facet of the row -- the one place a kind is registered --
+    rather than a list kept beside the table, because a second list is a second thing to keep in step.
+    """
+    return tuple(name for name, row in TABLE.items() if row.runs_for_every_run)

@@ -70,10 +70,72 @@ def test_the_series_carries_its_concentrations_in_order_and_each_gets_its_own_di
     assert [condition['molality'] for condition in osmotic.conditions_of(settings)] == [0.5, 1.0, 2.5]
 
 
-def test_a_lone_molality_is_a_one_condition_series():
-    """`osmotic_molality` stays what it always was -- the molality of a run that names no series."""
-    assert osmotic.normalize_settings({'osmotic_molality': 0.5})['molalities'] == [0.5]
-    assert osmotic.normalize_settings({})['molalities'] == [osmotic.DEFAULTS['osmotic_molality']]
+def test_a_lone_molality_in_the_series_list_is_a_one_condition_series():
+    """A series of one is still a series: ONE run that owns the one concentration, not a special case."""
+    assert osmotic.normalize_settings({'molalities': [0.5]})['molalities'] == [0.5]
+
+
+def test_the_run_type_publishes_no_single_molality_setting():
+    """The old shape's own field is gone, which is what makes the reader's marker one-sided.
+
+    `osmotic_molality` is the setting every sibling job of the old series carried. It is no longer part of this run
+    type's vocabulary at all, so a record that carries it cannot have been built by this run type -- and a record
+    this run type builds always carries `molalities` instead.
+    """
+    assert 'osmotic_molality' not in osmotic.SETTING_SPECS
+    assert 'osmotic_molality' not in osmotic.DEFAULTS
+    assert 'osmotic_molality' not in osmotic.stage_defaults()['values']
+
+
+def test_a_payload_that_names_no_concentrations_is_refused_with_the_new_shape():
+    """The one thing this run type accepts: one run owning N concentrations.
+
+    Every payload below is the shape the hand-queued one-condition runs had -- a single molality, no series -- and
+    each is refused with a reason that names what to send instead. There is no default: completing a single
+    concentration here is exactly what made a condition look like a series.
+    """
+    for settings in ({}, {'osmotic_molality': 0.5}, {'molalities': []}, {'molalities': ''}):
+        with pytest.raises(ValueError) as refused:
+            osmotic.normalize_settings(settings)
+        assert 'molalities' in str(refused.value), settings
+        assert 'one run owning' in str(refused.value), settings
+
+
+def test_the_refusal_names_both_shapes_so_a_caller_knows_what_to_send():
+    """A refusal that names only the old shape is a no; this one says what to send instead."""
+    reason = osmotic.series_shape_reason()
+
+    assert 'molalities' in reason and 'one run owning' in reason
+    assert 'sibling' in reason, 'the old shape is named too'
+    assert osmotic.refuse_legacy_shape({'molalities': [0.5]}) is None
+    assert osmotic.refuse_legacy_shape({}) is not None
+
+
+def test_a_reader_tells_an_old_record_from_a_series_by_its_settings():
+    """The marker, one-sided: only a series carries `molalities`, and only an old record carries the scalar.
+
+    `series_of` is the reader -- the concentrations for a series, `None` for a record that predates the shape -- so
+    the two shapes are not left looking identical in the store.
+    """
+    new = osmotic.normalize_settings({'molalities': [0.5, 1.0]})
+    old = {'osmotic_molality': 0.5, 'series_id': '108c31827410'}
+
+    assert 'molalities' not in old and 'osmotic_molality' not in new
+    assert [condition['molality'] for condition in osmotic.series_of(new)] == [0.5, 1.0]
+    assert osmotic.series_of(old) is None
+
+
+def test_the_shared_admission_refuses_an_osmotic_payload_that_names_no_series():
+    """The coordinator's front door holds the same rule, so a payload that skips the series route is refused too."""
+    from dashboard.execution.coordination import admission
+
+    with pytest.raises(ValueError, match='molalities'):
+        admission.validate_run_type({'run_type': 'osmotic', 'settings': {'solute_root': '/tmp/solute'}})
+    with pytest.raises(ValueError, match='molalities'):
+        admission.validate_run_type({'run_type': 'osmotic', 'solute_root': '/tmp/solute', 'osmotic_molality': 1.0})
+    # The new shape is admitted, and the run type's other rule -- the solute it is built from -- still holds.
+    admission.validate_run_type({'run_type': 'osmotic',
+                                 'settings': {'solute_root': '/tmp/solute', 'molalities': [0.5, 1.0]}})
 
 
 def test_a_molality_the_box_cannot_place_is_refused_and_the_bound_is_named():
@@ -84,10 +146,8 @@ def test_a_molality_the_box_cannot_place_is_refused_and_the_bound_is_named():
         osmotic.normalize_settings({'molalities': [-0.5]})
 
 
-def test_an_empty_series_and_a_repeated_molality_are_both_refused():
+def test_a_repeated_molality_is_refused_because_it_would_be_one_directory_twice():
     """Two conditions at one molality would be one directory and one measurement reported twice."""
-    with pytest.raises(ValueError, match='at least one molality'):
-        osmotic.normalize_settings({'molalities': []})
     with pytest.raises(ValueError, match='twice'):
         osmotic.normalize_settings({'molalities': [1.0, 1.0]})
     with pytest.raises(ValueError, match='must be numeric'):
@@ -208,6 +268,31 @@ def test_the_series_policy_travels_into_the_run_the_runner_reads(tmp_path):
     assert manifest['series_on_failure'] == 'stop'
     # The runner reads the policy from that file by name, so the name is part of the contract.
     assert osmotic.CONDITIONS_MANIFEST == 'conditions.json'
+
+
+# --- the declaration: what the driver is GIVEN, not what it works in ------------------------------------------
+
+def test_the_stage_declares_the_given_files_as_inputs_and_the_conditions_as_outputs():
+    """A stage's inputs are what it must be given, not what it happens to look at.
+
+    The conditions are the driver's own OUTPUT -- it works in them, and their trajectories are written where it
+    stands. So the declaration names the pristine `../inputs/` copies as inputs -- the series manifest, the mdps,
+    the reference bead and the solute files, kilobytes in all -- and the conditions as outputs. Nothing under the
+    stage's own `conditions/` directory is declared as an input, which is what keeps the declared set the settings,
+    the solute files and the mdps rather than the trajectories they produce.
+
+    **What this does not cover, and why.** The executor records a stage's inputs by hashing the stage *directory*
+    (`workflow.py`: `entry['inputs_sha256'] = files.hashes(script.parent)`), so a resume still re-hashes whatever the
+    conditions hold, declared here or not. Making the recorded hash follow this declaration is a change in
+    `workflow.py`, and this test pins the adapter's half of the invariant rather than claiming the other half.
+    """
+    inputs = osmotic.STAGE_DEFS[0].inputs
+    outputs = osmotic.STAGE_DEFS[0].outputs
+
+    assert inputs and all(pattern.startswith('../inputs/') for pattern in inputs), inputs
+    assert not [pattern for pattern in inputs if pattern.startswith('conditions/')], inputs
+    assert outputs and all(pattern.startswith('conditions/') for pattern in outputs), outputs
+    assert 'conditions/*/prod/md_whole.xtc' in outputs, 'the trajectory is the producer\'s output, not its input'
 
 
 def test_a_zero_molality_condition_is_still_the_control(tmp_path):

@@ -91,6 +91,7 @@ def test_the_standard_profile_is_admitted_because_the_run_type_answers_for_itsel
 
     with dashboard.client as c:
         response = c.post(SERIES, json={'molecule_id': 'Maltose', 'mapping_candidate': mapping['file'],
+                                        'molalities': [1.0],
                                         'solute_root': str(_solute_files(dashboard))})
 
     assert response.status_code == 201, response.get_data(as_text=True)

@@ -76,6 +76,12 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
         // on whether a comparison was published, both of which change after the card is created. Only the handler
         // belongs here, because the run id it closes over does not change.
         $('.job-validate', card).onclick = () => { try { onValidate(job.id); } catch (error) { notice(error.message); } };
+        // The door from the table to the Run view panel (`D10`): a link, not a search. It names the run in the
+        // query string, and the panel reads `?run=` at mount -- the same deep-link contract Complexes already
+        // implements -- so a reader arrives on the run already drawn. The workspace segment comes from this
+        // page's own URL because Runs lives in both workspaces and the link must stay in the one being read.
+        const viewRun = $('.job-view-run', card);
+        if (viewRun) viewRun.href = `/${location.pathname.split('/').filter(Boolean)[0] || 'detergent-validation'}/run-view?run=${job.id}`;
         $('.job-resume',card).onclick = async () => {
           try { await post(`/api/jobs/${job.id}/resume`,{stage:$('.resume-stage',card).value}); notice('Run resumed; current stage files will be executed.'); await refreshJobs(); }
           catch(error) { notice(error.message); }

@@ -26,9 +26,17 @@ def validate_run_type(data):
     if kind not in (None, 'aa_only', 'aa_cg', 'cg_composition', 'pdc', 'osmotic'):
         raise ValueError('Unknown run type')
     if kind == 'osmotic':
+        settings = data.get('settings') or data
+        # **The shape first, and from the run type itself.** A payload that names no concentrations is the shape each
+        # sibling job of the old series had, and it is refused here so a payload that reaches the coordinator without
+        # passing through the series route cannot create one. The rule and its wording live in the adapter
+        # (`refuse_legacy_shape`) and are imported rather than restated: one vocabulary, one refusal sentence.
+        from ..adapters import osmotic as osmotic_adapter
+        refused = osmotic_adapter.refuse_legacy_shape(settings)
+        if refused:
+            raise ValueError(refused)
         # The one thing a condition cannot be built without: the directory its own files are copied out of. Checked
         # here as well as in the route, because a payload can reach the coordinator without passing through it.
-        settings = data.get('settings') or data
         if settings.get('solute_root') in (None, ''):
             raise ValueError('Osmotic runs require solute_root: the molecule, its topology and the water tile')
         # This run type is not a *shared reference* consumer: its solute comes from a mapping, and the mapping

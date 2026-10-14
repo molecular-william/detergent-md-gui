@@ -240,7 +240,7 @@ DEFAULTS = dict(temperature_k=308.15,
                 osmotic_production_ps=osmotic_mdp.DEFAULT_PRODUCTION_PS,
                 osmotic_equilibration_ps=osmotic_mdp.DEFAULT_EQUILIBRATION_PS,
                 osmotic_output_interval_ps=osmotic_mdp.DEFAULT_OUTPUT_INTERVAL_PS,
-                osmotic_molality=1.0, mdrun_ntomp=4, mdrun_ranks=1,
+                mdrun_ntomp=4, mdrun_ranks=1,
                 # **The retry ceiling, and a series' policy on a condition that ends failed.** Three is the house
                 # ceiling -- `attempts_max = 3` in `pdc.DEFAULTS` and the loop bound in `pdc_extension.py`. Both are
                 # advertised because a setting the adapter does not name is dropped by the queueing routes without
@@ -251,7 +251,6 @@ SETTING_SPECS = {
     'osmotic_production_ps': ('Production duration', 1, 2000000),
     'osmotic_equilibration_ps': ('Equilibration duration', 1, 100000),
     'osmotic_output_interval_ps': ('Trajectory output interval', 0.002, 10000),
-    'osmotic_molality': ('Molality', 0.0, 2.5),
     'mdrun_ntomp': ('mdrun OpenMP threads per rank', 1, 72),
     'mdrun_ranks': ('mdrun MPI ranks', 1, 72),
     # A count, not a duration: an attempt either happened or did not, so a fractional value is refused rather than
@@ -294,6 +293,53 @@ CONDITIONS_DIRECTORY = 'conditions'
 CARBOHYDRATE_REGISTRY = Path('resources/validation/carbohydrates/targets-v1.json')
 
 
+# --- the one shape this run type accepts, and how a reader tells the shapes apart -------------------------------
+#
+# A series used to be N sibling `osmotic` jobs, one concentration each. The series is the run now: ONE run whose
+# settings carry `molalities`, the concentrations it owns. The old shape cannot be built again -- `osmotic_molality`
+# is not even a setting any more -- and a payload that names no concentrations is refused rather than completed with
+# a default, because the default is what made a one-condition run look like a series.
+
+#: The shape, in the words a refusal uses. Named once so the route, the coordinator's admission and the run type's
+#: own setting check all refuse a caller with the same sentence -- and a sentence that says what to send instead.
+SERIES_SHAPE = 'one run owning N concentrations, listed in `molalities` (e.g. [0.5, 1.0])'
+#: The shape it replaced, named in the same refusal so the refusal is not just a no.
+SIBLING_SHAPE = 'N sibling `osmotic` jobs, one molality each'
+
+
+def series_shape_reason():
+    """What a payload that names no concentrations is refused with: the shape, and what it is not."""
+    return (f'an osmotic run is {SERIES_SHAPE}. It is not {SIBLING_SHAPE} -- the six hand-queued one-condition '
+            f'runs on this workspace were made that way, and `max_concurrent_runs: 1` could never run them as a '
+            f'series. Queue the whole series as one run, with the concentrations in `{SERIES_KEY}`.')
+
+
+def refuse_legacy_shape(settings):
+    """None when `settings` describe the one shape this run type accepts, otherwise the reason it is refused.
+
+    **How a reader tells an old record from a new one.** One-sided, and that is the point: a record this run type
+    builds always carries `molalities`; a record built before the series existed carries a single `osmotic_molality`
+    and no `molalities`, and `osmotic_molality` is not a published setting any more. So `molalities` present means
+    series, `molalities` absent means the old shape -- and this function is the cheap half a caller can ask
+    (`admission.validate_run_type` does, before anything is built). `series_of` below is the reader's half.
+    """
+    values = (settings or {}).get(SERIES_KEY)
+    if values in (None, '', []):
+        return series_shape_reason()
+    return None
+
+
+def series_of(settings):
+    """The conditions a record's settings name, or None when the record predates the series shape.
+
+    The reader's half of the marker above. `None` means an old single-condition job, never "a series with no
+    concentrations": `normalize_settings` refuses to build one of those, so the two states cannot be confused.
+    """
+    if refuse_legacy_shape(settings):
+        return None
+    return series_conditions((settings or {})[SERIES_KEY])
+
+
 def condition_directory(index, molality):
     """The directory one concentration is built and run in, named so a reader can see which it is."""
     return f'{index:02d}_{float(molality):g}molal'
@@ -306,22 +352,23 @@ def series_conditions(molalities):
 
 
 def conditions_of(settings):
-    """The conditions a run's own settings describe, in the caller's order, with the single-molality fallback."""
-    molalities = (settings or {}).get(SERIES_KEY)
-    if molalities in (None, ''):
-        molalities = [(settings or {}).get('osmotic_molality', DEFAULTS['osmotic_molality'])]
-    return series_conditions(molalities)
+    """The ordered conditions a run's settings describe; a record that names no series is refused, not defaulted."""
+    conditions = series_of(settings)
+    if conditions is None:
+        raise ValueError(series_shape_reason())
+    return conditions
 
 
-def _molalities(requested, single):
+def _molalities(requested):
     """The series' concentrations: ordered, each inside the range the box can place, and none repeated.
 
-    `osmotic_molality` is what a run that names no series carries, and it stays the fallback so a one-condition
-    run is a series of one rather than a special case. Two conditions at one molality are refused rather than
-    merged: they would be one directory and one measurement reported twice.
+    A record that names none is refused rather than defaulted to one concentration -- the fallback that used to be
+    here is what let a single-condition run look like a series. Two conditions at one molality are refused rather
+    than merged: they would be one directory and one measurement reported twice.
     """
-    values = [single] if requested in (None, '') else (
-        requested if isinstance(requested, (list, tuple)) else str(requested).replace(',', ' ').split())
+    if requested in (None, '', []):
+        raise ValueError(series_shape_reason())
+    values = requested if isinstance(requested, (list, tuple)) else str(requested).replace(',', ' ').split()
     low, high = osmotic_box.MOLALITY_RANGE
     numbers = []
     for value in values:
@@ -414,6 +461,12 @@ def normalize_settings(settings=None, profile='standard'):
         raise ValueError('osmotic settings must be an object')
     result = dict(stage_defaults(profile)['values'])
     requested = dict(settings or {})
+    # **The shape, before anything else.** A payload that names no concentrations is refused here rather than
+    # completed with a default -- and refused before the vocabulary loop, so the reason is the shape's rather than
+    # "Unknown osmotic setting" for whatever key the old shape happened to use.
+    refused = refuse_legacy_shape(requested)
+    if refused:
+        raise ValueError(refused)
     # **The concentrations come out first, and the shape is why.** `molalities` is a list, and a list has no
     # place in the published vocabulary -- a bounded scalar or one of an enumerated set -- so the loop below
     # would answer it with "Unknown osmotic setting" rather than with anything about the values in it.
@@ -436,9 +489,9 @@ def normalize_settings(settings=None, profile='standard'):
         if not math.isfinite(value) or not low <= value <= high:
             raise ValueError(f'{key} must be between {low} and {high}')
         result[key] = value
-    # The series, completed the same way every other setting is: the run type's own default when the caller named
-    # none, and a list of floats in the caller's order when it did.
-    result[SERIES_KEY] = _molalities(molalities, result['osmotic_molality'])
+    # The series, in the caller's order: the run type's own check, so a value outside the box's range is refused
+    # with the bound named and a record that names no series is refused with the shape named.
+    result[SERIES_KEY] = _molalities(molalities)
     # An attempt count is a count. `2.5` is refused rather than floored: three-and-a-half attempts is not a thing a
     # reader can reconcile with the `attempts.json` the runner writes.
     if result['osmotic_attempts_max'] != int(result['osmotic_attempts_max']):
@@ -525,10 +578,10 @@ def readiness(metadata):
     # The concentrations: the list is the run's own plan, so a value the box cannot place is refused here as
     # well as in the setting's own range check -- which only the route applies.
     settings = metadata.get('settings') or {}
+    molalities = []
     conditions = []
     try:
-        molalities = _molalities(settings.get(SERIES_KEY), settings.get('osmotic_molality',
-                                                                        DEFAULTS['osmotic_molality']))
+        molalities = _molalities(settings.get(SERIES_KEY))
         conditions = series_conditions(molalities)
     except ValueError as exc:
         molalities = []

@@ -135,22 +135,32 @@ REVIEW_SOURCES = (
 )
 
 
+class NoTrajectory(ValueError):
+    """A run offers no trajectory for a caller to review.
+
+    A subclass of `ValueError`, so a reader that refused such a run as a value error still does -- and so a caller
+    that has something else to say about it can say it. The analysis layer catches *this* type to record a **skip**
+    rather than a failure: a run with nothing to sample has not failed at sampling, and `frame_source`'s own message
+    is what the record carries.
+    """
+
+
 def frame_source(root):
     """`(trajectory, structure, role)` for the one trajectory this run offers to review, by the order above.
 
     Which layout the run was written in is the run's own answer and not a stage name a caller supplies: an AA-only
     run publishes under `07_reference/`, a CG consumer keeps its output under `4_CG_sim/`, and the work directory
     an analysis subprocess is handed holds the same files at its root rather than under `stages/`. A run with no
-    trajectory at all is an error that names every spelling it looked for, so a report can say what is missing
-    instead of drawing nothing. Nothing here opens a file; the caller does.
+    trajectory at all is a `NoTrajectory` that names every spelling it looked for, so a report can say what is
+    missing instead of drawing nothing. Nothing here opens a file; the caller does.
     """
     root = Path(root)
     for trajectory_role, structure_role in REVIEW_SOURCES:
         if not _any_present(root, trajectory_role):
             continue
         return resolve(root, trajectory_role), resolve(root, structure_role), trajectory_role
-    raise ValueError(f'{root} offers no trajectory to review; looked for '
-                     + ', then '.join(_looked_for(trajectory) for trajectory, _ in REVIEW_SOURCES))
+    raise NoTrajectory(f'{root} offers no trajectory to review; looked for '
+                       + ', then '.join(_looked_for(trajectory) for trajectory, _ in REVIEW_SOURCES))
 
 
 def summary(root, topology_name=None):

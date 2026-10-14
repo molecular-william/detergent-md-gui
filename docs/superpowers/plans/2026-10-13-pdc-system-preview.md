@@ -3,7 +3,8 @@
 Status: **proposal, nothing built.** This is a plan and a mock for review; the panel, the route and the service
 described here do not exist yet. The mock is beside this plan at
 `docs/superpowers/drafts/2026-10-13-pdc-system-preview-draft.html` and carries five real placement frames, generated
-for it by the pipeline's own code (see *What the mock is, and what it is not*).
+for it by the pipeline's own code and **re-derived 2026-10-14 through the placement's orientation fix** (see *The two
+changes the user asked for (2026-10-14)*).
 
 The ask, verbatim: *"I would like for the 'new run' in 'protein-detergent' to have a panel that shows a preview of the
 system."*
@@ -86,26 +87,28 @@ So the honest sentence for the panel is: *the expensive half is the coarse-grain
 and its chain ticks, so it is cached; the placement and everything the reader can still move are milliseconds.* The
 mock carries that sentence in the card's *Cost* and *Kept* rows and the longer version in its disclosure.
 
-## The two changes the user asked for (2026-10-14)
+## The two changes the user asked for (2026-10-14, first round: bead size and orientation)
 
 The report, verbatim: *"for the pdc system preview, I would like the beads to look twice as big, and I see that
 currently the head of the detergent is facing the interior of the micelle, not the tail, so you should account for
 that."* Both are landed; the second turned out not to be a picture at all.
 
-### 1. The beads are drawn twice as large
+### 1. The beads are drawn at the model's own radius, doubled for the preview
 
-One number in the mock: `radiusScale` 0.75 → **1.5** in its `show()`. NGL multiplies the ball's own radius by it, so
-1.5 is twice 0.75; the sticks scale with the ball, so the model's own `CONECT` bonds stay visible.
+The picture's bead size is now the module's, `dashboard/web/static/js/ngl-beads.js`: each bead is drawn at the radius
+its size class has in the model (R 0.264 / S 0.230 / T 0.191 nm, `models/sugars/recognition.RADII_NM`) times a scale
+of **2**, the preview's reading aid. The scale is a separate knob from the table on purpose — moving it cannot
+corrupt the radii the model states — and the module's tests hold the table, the stand-ins and the scale.
 
-**The app's viewer is a second place this number lives, and it is not changed here.** `pdc.js` draws the built system
-with `ball+stick, {radiusScale: 0.75, aspectRatio: 2}` — the mock copied that — so the panel's card (T3) must carry
-**1.5** when it is built, or the preview and the run view will draw the same frame at two different sizes. Flagged
-rather than silently inherited; `pdc.js` is outside this change's scope.
+**Measured in a browser, not eyeballed**, off the two buffers the `ball+stick` representation draws from (the
+sphere's `radius` attribute is the drawn ball, the cylinder's is the drawn stick; both are in Ångströms and the view
+matrix is 1). On a run-shaped frame — every bead written with the `C` stand-in, so every bead an R — the ball is
+drawn at **5.28 Å** in the preview (2 × the model's 2.64 Å) and the stick at **1.32 Å**.
 
-The mock now says what the size is, in the two places a reader meets it: a *No bead sizes* line in the card's list —
-a coarse-grained bead carries no element and no van der Waals radius, so the radius is chosen for reading, not
-measured, and nothing in the picture says a head bead is bigger than a tail bead — and a comment in the viewer's own
-code.
+**The run view draws the same bead at the model's own radius** (`BEAD_RADIUS_SCALE` = 1): the panel and the preview
+therefore differ by exactly the factor the module states, and neither keeps its own copy of the table. The earlier
+draft of this section had `pdc.js` at `radiusScale: 0.75` and the card at 1.5; both are now the module's parameters,
+so the two cannot drift and the built card has nothing to remember.
 
 ### 2. The orientation was the placement's, not the picture's — and it is fixed
 
@@ -139,17 +142,60 @@ centre, tails **−0.845 nm**, in **150/150** detergents on both generators (lat
 Fixed rather than reported, because it is a defect in **every run's own first snapshot**, not only in the preview: the
 placement the run records is the placement the run simulates from.
 
-### What the mock's frames are now, and what they are not
+## The two changes the user asked for (2026-10-14, second round: thinner bonds, and the frames re-derived)
 
-They are kept and labelled: real output of the placement code **before** this fix, showing a micelle inside out, and
-they are the record of the defect and of its size. Regenerating them is not a re-run: the frames carry the detergent
-model only up to each molecule's own rotation, so the model's original coordinate frame is not recoverable from them,
-and re-deriving would draw a *different* legal frame (a different rotation about each molecule's axis), not the one
-they hold. What the fix does to them is measured and small in every way except orientation: frame D after the fix has
-the same **1650 beads**, the same **3 154 lines**, the same **156 136 bytes**, and the same `CONECT` and `REMARK`
-lines — **1 650 lines differ, exactly the `HETATM` records**, because every bead rotated about its own detergent's
-centre. So every other number the mock prints (bead counts, box, clearance, byte counts) is untouched by the fix and
-still stands. The mock's banner and its card say which frames these are.
+The report, verbatim: *"For the pdc system preview, maybe the bonds can look a bit thinner. Also in the mock, the
+detergent head is facing the interior of the micelle, which should be reversed."* The first is a drawing number; the
+second was the pre-fix record still being the picture on the page.
+
+### 3. The bonds are thinner, and the beads are the size they were
+
+`ball+stick` draws the ball at `atomRadius × radiusScale × aspectRatio` and the stick at `atomRadius × radiusScale` —
+the two knobs are independent, which is what makes this a one-number change: holding `radiusScale × aspectRatio = 1`
+keeps the ball at the bead's own radius while `radiusScale` thins every bond. It went from **1/2 to 1/4** in
+`ngl-beads.js` (`BEAD_STICK_FRACTION`, with `BEAD_ASPECT_RATIO` 4 buying the ball back), and the mock's own copy of
+the numbers moved with it.
+
+**Measured in a browser on the drawn buffers**, before → after: the ball **2.64 Å** (R; 2.30 S, 1.91 T) unchanged in
+both, the stick **1.32 Å → 0.66 Å** for a tail bond and **1.15 Å → 0.575 Å** for a sugar bond — exactly half, with the
+ball untouched. In the mock, which draws the preview's 2× scale, the ball is 5.28 Å and the stick went 1.32 Å → 0.66 Å.
+A browser test reads both numbers off the buffers
+(`tests/dashboard/browser/test_pdc_bead_radii_browser.py`), and a fast-tier test holds the mock's copy of the numbers
+to the module's (`tests/dashboard/unit/test_ngl_beads.py`), so the picture the reader approves and the panel that gets
+built cannot draw one bead two ways.
+
+### 4. The frames are the fixed orientation now — re-derived through the code, not rotated by hand
+
+The five frames were regenerated on 2026-10-14: `pdc.prepare` into a scratch directory (the protein copied in, the
+mapping read, nothing written under `workspace/`), `pdc_build.build` — **exit 0 for all five**, because the three
+defects the first draft had to work around are fixed in the tree, which is why the frames now come from the build's own
+code path — then `pdc_placement.place_detergents` → `pdc_build.stamp` → `pdc_view.system_pdb`. Measured:
+
+| frame | the lines that differ from the pre-fix frame | everything else |
+| --- | --- | --- |
+| C (1AT9 chain A, self-assembly, 150) | 1 650, all `HETATM`, all detergent beads — the 542 protein records and the 1 500 `CONECT` records identical | 3 696 lines, 198 961 bytes — same |
+| G (A+B+C, self-assembly, 150) | 1 650, all `HETATM`, all detergent beads — the 1 626 protein records and the `CONECT` records identical | 4 780 lines, 284 604 bytes — same |
+| D (empty micelle, lattice, 150) | 1 650, all `HETATM` | 3 154 lines, 156 136 bytes — same |
+| E (empty micelle, self-assembly, 150) | 1 650, all `HETATM` | 3 154 lines, 156 141 bytes — same |
+| F (empty micelle, lattice, 60) | 660, all `HETATM` | 1 264 lines, 62 626 bytes — same |
+
+So every other number the mock prints — bead counts, box, clearance, byte counts — is the number it printed before, and
+the mock's `META` did not have to change at all. **The proof, three ways.** (1) Each frame re-derived a second time in a
+fresh interpreter and a separate scratch tree is **byte-identical** (sha256), so what is embedded is the code's output
+and not an edit of it. (2) Against the pre-fix frames the differing lines are exactly the detergent `HETATM` records;
+the molecule centres move by at most 5×10⁻⁵ nm and every intramolecular distance is preserved to 2×10⁻⁴ nm — a rigid
+rotation about each molecule's own centre, which is what the fix is — with the protein records byte-identical. (3) The
+orientation itself, measured on the regenerated frames: each molecule's head beads lie **0.3167 nm outward** of its own
+centre along the placement direction and its tails **−0.8447 nm**, in **660 of 660** molecules; the pre-fix frames read
+−0.3167 and +0.8447, 0 of 660. Two cross-checks: the same geometry survives the build's own `system.gro` (every
+coordinate agrees to within half the `.gro`'s rounding step, 0.0005 nm), and in a browser, on the file the mock
+actually loads, every detergent's head is the outer one — 150/150 on the empty-micelle frame, and 150/150 with the head
+mean further from the protein than the tail mean on the trimer frame.
+
+**The pre-fix frames are kept as a record** — of the defect and of its size, the −0.3167 / +0.8447 above — but they are
+no longer what the page shows. They were not patched in place: the model's own coordinate frame is not recoverable from
+a stamped frame, so the corrected frames had to be re-derived, which is what the paragraph above measures. What the fix
+does *not* change is any number the mock prints.
 
 ## What the preview is, exactly
 
@@ -229,7 +275,19 @@ outside it, right where the sites land. The honest belt for a membrane protein i
 the protein's own transverse radius plus the clearance it must keep: a cylinder at **r = 3.72 nm** (3.220 + 0.5),
 sampled at 150 angles across the file's own bilayer half-thickness (1.48 nm, its own remark), measures **0.550 nm** —
 it passes. The repo already models that frame (`micelle/orientation.py`'s axis/span/origin from the OPM metadata,
-`micelle/geometry.candidate_score`'s belt band) and the placement does not call any of it.
+`micelle/geometry.candidate_score`'s belt band) and at the time of this measurement the placement did not call any of
+it.
+
+**Correction, 2026-10-14: the placement calls it now, and this is what that changes.** `pdc_build.build` reads the
+frame from the protein file's own REMARK and hands it to `pdc_placement.place_detergents`, which places the lattice as
+a **band** in that frame when the file states a membrane (`SHAPE_BAND`, the site's heading being its own outward
+direction). Measured today on the build's own coarse-grained chain A (542 beads), seed 20261013, 150 detergents:
+shape `belt-band`, band radius **3.6408 nm**, slab radius 3.1408 nm, clearance from the protein **0.5436 nm —
+valid**. The same call with `frame=None` — a protein whose file states no membrane, which is every packaged protein —
+is the sphere and still refuses at 0.174 nm. So the refusal the mock demonstrates belongs to the sphere, not to 1AT9's
+own file, and the mock's branch says so in place; a band frame is not in the mock, which is why that branch shows a
+refusal state rather than a picture. Nothing else in this section changes: the sphere's numbers, the samplers'
+guarantee and the note that self-assembly passing proves nothing about a band all stand.
 
 **And self-assembly passing is not evidence the lattice could.** `_self_assemble` *rejects* every draw that lands
 within `min_clearance_nm` of the protein before accepting it, so it can only hand back a placement that satisfies the
@@ -340,8 +398,10 @@ broken step or beside it.
 **A fourth defect in these same frames was not a deviation at all, and it is fixed rather than listed: the
 placement's own orientation.** Every detergent in all five frames was stamped head-inward, tails-outward — the
 inverse of a micelle — because `pdc_build.stamp` rotated the molecule's tail-ward axis onto a direction the
-placement means as "outward". Measured, fixed and test-pinned above, under *The two changes the user asked for*.
-The frames are kept as the record of it.
+placement means as "outward". Measured, fixed and test-pinned above, under *The two changes the user asked for*; the
+frames in the mock are the **fixed** ones as of 2026-10-14, re-derived through the corrected code with only their
+detergent `HETATM` records changed, and the pre-fix measurement (−0.3167 / +0.8447 nm) is kept as the record of the
+defect.
 
 As a check on the panel's other half, the estimate route's own numbers for this protein and detergent (computed with
 `analysis/runs/encapsulation`'s functions, the same ones the route calls): 1AT9 chain A **37.94 nm²** apolar, **228**
@@ -399,9 +459,11 @@ inside a 759 px host until it was asked to resize), the staleness rule from deci
 (browser): the two halves still sit side by side at 1700 px and 1280 px with the card present (equal widths, different
 x); the paired rows still share a y; changing the count re-derives and changing a subunit tick marks the frame stale
 rather than redrawing; a refusal shows the reason and no canvas.
-The card's viewer draws beads at **twice `pdc.js`'s radius** (`radiusScale` 1.5 against that file's 0.75, the user's
-ask); if the panel ships at the app's 0.75 the preview and the run view will disagree about the size of the same bead,
-so either both move or the difference is stated.
+The card's viewer draws what `ngl-beads.js` draws, through that module's own parameters: the model's radius per size
+class, times the preview's scale of **2**, with bonds at `BEAD_STICK_FRACTION` (a quarter of the bead since
+2026-10-14) and `aspectRatio` **4** to keep the ball at the model's radius. The mock carries its own copy of those
+numbers — a standalone page cannot import a module — and `tests/dashboard/unit/test_ngl_beads.py` holds the two copies
+together, so the card has nothing of its own to remember.
 
 **T4 — the three defects above**, as their own change: a `.gro`-or-`.pdb` reader in `cg_protein`, the missing
 `-maxwarn`/`-ss` in `pdc_protein.martinize_command`, and `filter_chains`' treatment of `HETATM`. Each with a test;
@@ -421,9 +483,20 @@ and `test_the_self_assembly_direction_is_outward_too` (the convention the stamp 
 placement, the end-to-end shape of what a reader saw), both in `tests/dashboard/unit/test_pdc_build_stamp.py`.
 Acceptance met: on the frame the mock holds, all 1 650 detergent beads rotate about their own molecule's centre and
 nothing else moves; on a fresh lattice and a fresh self-assembled cloud, 150/150 detergents have their heads outward.
-Two notes for whoever reads this next: the mock's five frames predate the fix and say so; and `pdc_view.system_pdb`
-truncates bead names to four characters, so `TAIL1`/`TAIL2`/`TAIL3` all print as `TAIL` in the viewer file — harmless
-to the picture (they are bonded and drawn identically) but a real collision for anything that reads names back.
+Two notes for whoever reads this next: **the mock's five frames are the fixed ones** (re-derived 2026-10-14, see
+*The two changes the user asked for, second round*), and the pre-fix measurement is kept in this plan as the record of
+the defect rather than in the draft; and `pdc_view.system_pdb` truncates bead names to four characters, so
+`TAIL1`/`TAIL2`/`TAIL3` all print as `TAIL` in the viewer file — harmless to the picture (they are bonded and drawn
+identically) but a real collision for anything that reads names back.
+
+**T7 — the thinner bonds and the frames: DONE, 2026-10-14.** `ngl-beads.js`'s `BEAD_STICK_FRACTION` is 1/4 with
+`BEAD_ASPECT_RATIO` 4 (the product is 1, so the ball keeps the model's radius), the mock draws through the same
+numbers, and the draft's frames were re-derived through the fixed code. Tests:
+`test_the_ball_keeps_the_models_radius_and_the_stick_is_a_quarter_of_it` and
+`test_the_mock_draws_the_same_bead_and_bond_as_the_module` (both fast tier, `tests/dashboard/unit/test_ngl_beads.py`),
+and `test_the_sticks_are_thinner_and_the_balls_are_not_shrunk` (browser tier,
+`tests/dashboard/browser/test_pdc_bead_radii_browser.py`), which reads the drawn radii off the buffers the
+representation draws from.
 
 ## Not doing
 
@@ -436,22 +509,32 @@ to the picture (they are bonded and drawn identically) but a real collision for 
 
 ## Verification
 
-- `node --check` on every inline script of the mock, re-run after the bead-size change (it caught a real syntax error
-  once: an unterminated template literal that silently stopped the whole preview script).
+- `node --check` on every inline script of the mock, re-run after each change to its viewer (it caught a real syntax
+  error once: an unterminated template literal that silently stopped the whole preview script). All five frames are
+  `text/plain` data blocks and are not code.
 - The mock's own measurement script, printed on the page, measured in a browser at 1700 × 1000 and at 1280 × 800 with
   the app's stylesheets and `vendor/ngl.js` from the running dashboard.
-- The frames: generated by `pdc_placement` / `pdc_box` / `pdc_build.stamp` / `pdc_view.system_pdb` themselves, with
-  their bead and byte counts printed in the mock and in this plan; each frame's residue composition checked in the
-  browser (1 650 `DET` for an empty micelle; 230 `PRO` + 150 `DET` for chain A).
-- **The orientation (2026-10-14), measured rather than argued:** every frame's head beads 0.317 nm inward of each
-  detergent's own centre and its tails 0.845 nm outward, in 660 of 660 molecules; every lattice centre exactly 3.000 nm
-  from the micelle's centre; frame D re-derived from the pipeline line-for-line (3 153 of 3 154, the difference being
-  the title). After the fix, the same frame has its 1 650 beads rotated and nothing else, the same byte count
-  (156 136), and a fresh lattice and a fresh cloud both give 150/150 heads outward. All of it from a fresh interpreter
-  against the checked-out tree — not from a long-lived session, whose stale import first reported the fix as having
-  changed nothing.
-- Tests: `tests/dashboard/unit/test_pdc_placement.py` and `tests/dashboard/unit/test_pdc_build_stamp.py` (see T6),
-  which pass; the fast tier as a whole was **not** green when this landed, because another workstream was mid-flight in
+- The frames: re-derived 2026-10-14 through `pdc_placement` / `pdc_box` / `pdc_build.stamp` / `pdc_view.system_pdb` (see
+  *The two changes the user asked for, second round*), with their bead and byte counts printed in the mock and in this
+  plan; each frame's residue composition checked (230 `PRO` residues / 542 beads + 150 `DET` for chain A; 1 626 + 150 for
+  the trimer; 1 650 `DET` for an empty micelle).
+- **The orientation (2026-10-14), measured rather than argued:** on the pre-fix frames every detergent's head beads lay
+  0.3167 nm **inward** of its own centre and its tails 0.8447 nm outward, in 0 of 660 molecules outward; every lattice
+  centre sat exactly 3.000 nm from the micelle's centre. On the frames this plan now describes — the same inputs, the
+  same seed, re-derived through the fixed stamp — every molecule's head beads lie 0.3167 nm **outward** and its tails
+  0.8447 nm inward, **660 of 660**, with only the detergent `HETATM` records changed and every byte count identical. A
+  fresh derive in a second interpreter and a second scratch tree is byte-identical (sha256); the build's own
+  `system.gro` agrees with the derived frames to within half its rounding step (0.0005 nm); and a browser reading the
+  frame the mock loads finds 150/150 heads outward (empty micelle) and 150/150 heads further from the protein than the
+  tails (trimer). All of it from fresh interpreters against the checked-out tree — not from a long-lived session, whose
+  stale import first reported the fix as having changed nothing.
+- The drawn bead sizes, measured in a browser off the two buffers the representation draws from: the ball 2.64 Å (R),
+  2.30 (S) and 1.91 (T) — the model's own radii, unchanged by the thinner bonds — and the stick halved from 1.32 Å to
+  0.66 Å (tail) and 1.15 Å to 0.575 Å (sugar). The mock draws the same bead at twice those radii (5.28 Å) with the
+  same stick, measured on the page itself.
+- Tests: `tests/dashboard/unit/test_pdc_placement.py` and `tests/dashboard/unit/test_pdc_build_stamp.py` (see T6) and
+  `tests/dashboard/unit/test_ngl_beads.py` (see T7), which pass; the fast tier as a whole was **not** green when the
+  orientation landed, because another workstream was mid-flight in
   the same checkout (`osmotic.py` rewritten under a running test, T4's `cg_protein` tests written against a reader not
   yet in the tree). Recorded rather than tidied: the failures were in files this change does not touch, and the
   failing set changed between two consecutive runs of the same command.

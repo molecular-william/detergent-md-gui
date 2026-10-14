@@ -30,11 +30,23 @@ export function setBeadRadiusScale(value) {
 }
 
 //: `ball+stick` draws the ball at `atomRadius x radiusScale x aspectRatio` and the stick at
-//: `atomRadius x radiusScale` (measured in the vendored build), so folding the aspect ratio into the radius scale
-//: is what makes the drawn ball's radius the model's radius. The aspect ratio stays the app's 2 for the sticks,
-//: and a structure's radii stay the model's -- the correction is in the representation, not in the data.
-export const BEAD_ASPECT_RATIO = 2;
-export const BEAD_RADIUS_PARAMETERS = {radiusType: 'explicit', radiusScale: 1 / BEAD_ASPECT_RATIO,
+//: `atomRadius x radiusScale` -- measured in this vendored build by reading the two buffers the representation
+//: draws from, the sphere's and the cylinder's own `radius` attribute, in Angstroms, which is what the impostor
+//: shaders take. So the aspect ratio is what the ball buys back and the radius scale is the one number the ball and
+//: the stick share: holding `radiusScale x aspectRatio = 1` draws the ball at the model's own radius while the
+//: radius scale -- and with it every bond -- stays free to thin. A structure's radii stay the model's; the
+//: correction is in the representation, not in the data.
+//:
+//: The sticks are drawn at a quarter of the bead, which is half of the half they were drawn at before: measured
+//: on a run-shaped frame (every bead written with the `C` stand-in, so every bead an R at 2.64 A), the ball was
+//: 2.64 A and the stick 1.32 A, and the bonds read as chunky beside the balls. `BEAD_STICK_FRACTION` is the one
+//: number to move to thin or thicken every bond a bead view draws, and the aspect ratio has to move with it -- its
+//: reciprocal -- for the ball to stay the model's size. NGL takes an aspect ratio from 1 to 10, so the fraction's
+//: floor is 0.1; `radiusScale` itself may be anything above 0.001.
+export const BEAD_ASPECT_RATIO = 4;
+//: The drawn stick's radius, as a fraction of the bead's own radius.
+export const BEAD_STICK_FRACTION = 1 / BEAD_ASPECT_RATIO;
+export const BEAD_RADIUS_PARAMETERS = {radiusType: 'explicit', radiusScale: BEAD_STICK_FRACTION,
                                        aspectRatio: BEAD_ASPECT_RATIO};
 
 const ANGSTROM_PER_NANOMETRE = 10;

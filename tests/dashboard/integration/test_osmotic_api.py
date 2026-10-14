@@ -59,12 +59,17 @@ def _payload():
     return {'molecule_id': 'Maltose', 'method': 'fast_forward', 'temperature_k': 308.15}
 
 
-def test_the_default_series_is_the_papers_six_molalities_in_one_run(dashboard, tmp_path):
-    """One job, and its settings are the whole series: the concentrations in the caller's order, one series id."""
+def test_the_papers_six_molalities_ride_on_one_run(dashboard, tmp_path):
+    """One job, and its settings are the whole series: the concentrations in the caller's order, one series id.
+
+    The caller names them. There is no default set filled in behind its back, because a series is only comparable
+    if every condition in it was named -- see `test_a_payload_that_names_no_concentrations_is_refused`.
+    """
     calls = []
     database, runs = _stores(dashboard, tmp_path)
     with database, runs, _stub_create_job(dashboard, calls), dashboard.client as c:
-        r = c.post(SERIES, json=dict(_payload(), solute_root=str(tmp_path)))
+        r = c.post(SERIES, json=dict(_payload(), solute_root=str(tmp_path),
+                                     molalities=[0.0, 0.5, 1.0, 1.5, 2.0, 2.5]))
 
     assert r.status_code == 201, r.get_data(as_text=True)
     body = r.json
@@ -82,6 +87,46 @@ def test_the_default_series_is_the_papers_six_molalities_in_one_run(dashboard, t
     assert '6 conditions' in call['label']
 
 
+def test_a_payload_that_names_no_concentrations_is_refused_and_names_the_new_shape(dashboard, tmp_path):
+    """The old shape is a payload with no `molalities`, and it is refused rather than completed with a default.
+
+    This is what the route used to do: fill in the paper's own six. A payload that named none and a payload that
+    asked for those six were then indistinguishable, and the run recorded a series nobody had named.
+    """
+    calls = []
+    database, runs = _stores(dashboard, tmp_path)
+    with database, runs, _stub_create_job(dashboard, calls), dashboard.client as c:
+        before = c.get('/api/jobs?limit=100').json['jobs']
+        r = c.post(SERIES, json=dict(_payload(), solute_root=str(tmp_path)))
+        after = c.get('/api/jobs?limit=100').json['jobs']
+
+    assert r.status_code == 400, r.get_data(as_text=True)
+    text = r.get_data(as_text=True)
+    assert 'molalities' in text and 'one run owning' in text, text
+    assert calls == [], 'a refused series creates nothing'
+    assert len(after) == len(before)
+
+
+def test_the_generic_queue_route_cannot_build_the_old_shape(dashboard, tmp_path):
+    """The same rule at the coordinator's front door, which is the door a payload can reach without this route.
+
+    `molalities` is in neither of the run type's published tables, so the generic queue route drops it -- and what
+    is left is a payload with no concentrations, which is exactly the shape each sibling job of the old series had.
+    Queued through `/` with a scalar molality, it is refused with the same reason, and nothing is created.
+    """
+    database, runs = _stores(dashboard, tmp_path)
+    with database, runs, dashboard.client as c:
+        before = c.get('/api/jobs?limit=100').json['jobs']
+        r = c.post('/', json={'run_type': 'osmotic', 'molecule_id': 'Maltose', 'method': 'fast_forward',
+                              'solute_root': str(tmp_path), 'osmotic_molality': 1.0})
+        after = c.get('/api/jobs?limit=100').json['jobs']
+
+    assert r.status_code == 400, r.get_data(as_text=True)
+    text = r.get_data(as_text=True)
+    assert 'molalities' in text and 'one run owning' in text, text
+    assert len(after) == len(before)
+
+
 def test_a_shared_reference_is_refused_because_the_solute_comes_from_a_mapping(dashboard, tmp_path):
     """The refusal that taught this file what the run type is. A condition does not consume the AA trajectory: its
     solute is a mapped molecule, and the mapping candidate records which run it was made from."""
@@ -89,7 +134,8 @@ def test_a_shared_reference_is_refused_because_the_solute_comes_from_a_mapping(d
     with database, runs, dashboard.client as c:
         reference = _completed_reference(dashboard)
         before = c.get('/api/jobs?limit=100').json['jobs']
-        r = c.post(SERIES, json=dict(_payload(), solute_root=str(tmp_path), reference_run_id=reference))
+        r = c.post(SERIES, json=dict(_payload(), solute_root=str(tmp_path), molalities=[1.0],
+                                     reference_run_id=reference))
         after = c.get('/api/jobs?limit=100').json['jobs']
 
     assert r.status_code == 400, r.get_data(as_text=True)
@@ -178,10 +224,17 @@ def test_a_series_with_no_molality_at_all_is_refused(dashboard, tmp_path):
         r = c.post(SERIES, json=dict(_payload(), solute_root=str(tmp_path), molalities=[]))
 
     assert r.status_code == 400
-    assert 'at least one molality' in r.get_data(as_text=True)
+    assert 'molalities' in r.get_data(as_text=True)
 
 
-def test_the_defaults_are_the_papers_own_six():
+def test_the_papers_six_are_a_documented_set_and_not_a_default():
+    """The paper's molalities are the common case, not a fallback: the route fills nothing in behind a caller.
+
+    The constant stays, because the panel's own note names it as the source of its six rows -- and the panel sends
+    its own five regardless. That nothing is completed from it is asserted where it is observable, at the route:
+    `test_a_payload_that_names_no_concentrations_is_refused_and_names_the_new_shape` posts no concentrations and
+    gets the shape reason rather than these six.
+    """
     assert route.PAPER_MOLALITIES == (0.0, 0.5, 1.0, 1.5, 2.0, 2.5)
 
 

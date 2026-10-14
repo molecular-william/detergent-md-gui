@@ -10,6 +10,12 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='compositions.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='pdc.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='osmotic.css') }}">
+  {# The Run view panel's own sheet. It goes after the other per-panel sheets and *before* `layout.css`,
+     which is deliberate and load-bearing: this sheet states the panel's own two-column grid, and
+     `layout.css` states the twelve-column measure the two columns are hung on. At equal specificity the
+     later rule wins, so the measure is last and the panel's own rule loses to it -- the same order
+     `new-run.css` sits in. Reversing the two stacks the columns, measured in the plan's draft. #}
+  <link rel="stylesheet" href="{{ url_for('static', filename='run-view.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='layout.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='workspaces.css') }}">
   <script src="{{ url_for('catalog.plotly_asset') }}"></script>
@@ -61,6 +67,106 @@
     <pre id="console-output" tabindex="0" aria-label="Console output">Choose a run to inspect its console.</pre>
     <p class="hint">Showing up to 256 KB. Scroll up to read; return to the bottom to follow new output. Pausing affects this display only.</p>
   </section>
+  </div>
+</section>
+{# The Run view panel. One section, rendered in both workspaces and hidden unless this workspace opened it;
+   the run types it offers arrive from the registry (`run_view_scope`), so the module never has to work out
+   which workspace it was mounted in. It draws a run's own stage files through the artifact route, lists its
+   figures, delegates a `pdc` run to Complexes rather than duplicating it, and plays a run's sampled frames on
+   the transport row below the canvas. Every id below is read by `run-view.js` and styled by `run-view.css`;
+   `tests/dashboard/integration/test_dom_ids.py` fails if an id is rendered and read by nothing. #}
+<section id="runview" class="panel" role="tabpanel" aria-labelledby="tab-runview"{% if panel != 'run-view' %} hidden{% endif %}>
+  <div class="section-heading">
+    <div><h2>Run view</h2><p>One run, its structures, its frames and its figures — drawn from what the run wrote.</p></div>
+    <button type="button" class="secondary" data-go="runs">Open the zoomable figures in Runs</button>
+  </div>
+  <script type="application/json" id="run-view-scope">{{ run_view_scope | tojson }}</script>
+  <div class="run-view-layout">
+    <div class="run-view-runs">
+      <section class="card" aria-labelledby="run-view-choose-title">
+        <span class="eyebrow">THIS WORKSPACE</span>
+        <h3 id="run-view-choose-title">Choose a run</h3>
+        <p class="hint">Only this workspace's own run types are offered, and the list asks the route for each of
+          them by name rather than paging every run and narrowing it here.</p>
+        <div class="toolbar run-view-filters">
+          <label>Run type<select id="run-view-type"></select></label>
+          <label>Status<select id="run-view-status">
+            <option value="completed" selected>completed</option>
+            <option value="">All statuses</option>
+            <option value="running">running</option>
+            <option value="queued">queued</option>
+            <option value="failed">failed</option>
+          </select></label>
+          <label>Search runs<input id="run-view-search" type="search" maxlength="160" placeholder="id, label or molecule"></label>
+        </div>
+        <ul id="run-view-list" class="run-view-list" aria-label="Runs in this workspace"></ul>
+        <p id="run-view-count" class="hint" role="status">Reading the run list…</p>
+      </section>
+      <section class="card" aria-labelledby="run-view-holds-title">
+        <h3 id="run-view-holds-title">What this run holds</h3>
+        <p class="hint">The structure files a stage wrote, in this run's own directory. A <code>.gro</code> carries
+          coordinates and no bonds; a <code>.pdb</code> may carry the model's own bonds as <code>CONECT</code>.
+          Pick a row to draw it. The run's sampled frames, when its <code>snapshots</code> analysis has published
+          them, are listed first because they are the file the transport row plays.</p>
+        <div class="table-scroll"><table class="run-view-structures">
+          <caption class="sr-only">Structure files in the selected run</caption>
+          <thead><tr><th scope="col">File</th><th scope="col">Bonds</th></tr></thead>
+          <tbody id="run-view-holds"><tr><td colspan="2">No run selected.</td></tr></tbody>
+        </table></div>
+        <p id="run-view-identity" class="hint" role="status"></p>
+      </section>
+    </div>
+
+    <div class="run-view-stage">
+      <section class="card" aria-labelledby="run-view-structure-title">
+        <h3 id="run-view-structure-title">Structure</h3>
+        <p id="run-view-what" class="hint">Choose a run to draw what it holds.</p>
+        <p id="run-view-delegation" class="hint" role="status" hidden></p>
+        <div id="run-view-viewer" class="run-view-viewer" role="img" aria-label="Structure from the selected run"></div>
+        {# D11: two play buttons and the frame slider, one line, directly under the canvas. Nothing else in the
+           row; `flex-wrap: nowrap` is the whole point of the rule. Disabled with its reason when the file on
+           screen holds a single frame (D17). #}
+        <div id="run-view-transport" class="run-view-transport" role="group" aria-label="Playback" hidden>
+          <button type="button" class="transport-reverse" id="run-view-reverse" aria-label="Play in reverse" aria-pressed="false">◀</button>
+          <button type="button" class="transport-forward" id="run-view-forward" aria-label="Play forward" aria-pressed="false">▶</button>
+          <label class="transport-frame">Frame
+            <input type="range" id="run-view-frame" min="0" max="0" step="1" value="0" aria-describedby="run-view-transport-note">
+            <span id="run-view-frame-readout" class="transport-frame-readout">frame 0 of 0</span>
+          </label>
+        </div>
+        <p id="run-view-transport-note" class="hint" role="status"></p>
+        <div id="run-view-readout" class="run-view-readout" aria-live="polite"></div>
+        <p class="hint">Read back from the component the viewer loaded, not from what this panel asked for: a
+          selection that matches nothing and an inference that adds bonds both render as a plausible picture with a
+          clean console.</p>
+      </section>
+      <section class="card" aria-labelledby="run-view-frames-title">
+        <h3 id="run-view-frames-title">Frames</h3>
+        <div id="run-view-frames" class="run-view-frames" role="group" aria-label="Frames through the run"></div>
+        <p id="run-view-frames-note" class="hint" role="status"></p>
+      </section>
+      <section class="card" aria-labelledby="run-view-figures-title">
+        <h3 id="run-view-figures-title">Figures</h3>
+        <ul id="run-view-figures" class="run-view-figures"></ul>
+        <p id="run-view-figures-note" class="hint" role="status"></p>
+      </section>
+    </div>
+
+    <div class="run-view-notes">
+      <section class="card" aria-labelledby="run-view-notes-title">
+        <h3 id="run-view-notes-title">What this view is, and what it is not</h3>
+        <p class="hint">It draws files the run wrote, through the run's artifact route. A <code>.gro</code> taken
+          into this viewer is drawn without bonds — the format carries none and this viewer's <code>GRO</code>
+          parser infers none — so the caption names the file rather than implying a connectivity. An all-atom
+          <code>.pdb</code> with no <code>CONECT</code> is drawn with the viewer's own distance guess, which on real
+          chemistry reproduces the molecule. Anything coarse-grained, or any file that carries <code>CONECT</code>,
+          is loaded with that guess switched off.</p>
+        <p class="hint">A structure appearing here is not a statement about the model, and a completed run is not a
+          validated model: the Mapping Validation panel is where a model is compared with its reference. Figures are
+          listed here and zoomed in the Runs panel; a protein-detergent run is drawn in Complexes, which already
+          carries each snapshot's criterion numbers.</p>
+      </section>
+    </div>
   </div>
 </section>
 <section id="new" class="panel" role="tabpanel" aria-labelledby="tab-new"{% if panel != 'new-run' %} hidden{% endif %}>
@@ -636,7 +742,7 @@
 <template id="job-template">
   <tbody class="job">
     <tr class="run-row">
-      <td class="run-summary" data-label="Run"><div class="run-identity"><h3 class="job-title"></h3><span class="job-meta hint"></span></div><ol class="workflow-timeline" aria-label="Workflow stage checkpoints"></ol><button class="secondary job-validate" hidden></button></td>
+      <td class="run-summary" data-label="Run"><div class="run-identity"><h3 class="job-title"></h3><span class="job-meta hint"></span></div><ol class="workflow-timeline" aria-label="Workflow stage checkpoints"></ol><button class="secondary job-validate" hidden></button><a class="button secondary job-view-run" href="#">View run</a></td>
       <td class="run-status" data-label="Status"><span class="badge job-status"></span><span class="badge execution-note" hidden></span><span class="job-stage"></span><span class="job-eta hint"></span></td>
       <td class="job-molecule" data-label="Molecule"></td><td class="job-method" data-label="Method"></td><td class="job-created" data-label="Created"></td><td class="job-elapsed" data-label="Duration"></td>
       <td class="run-actions" data-label="Actions"><div class="toolbar"><button class="secondary job-clone" title="Clone with changed settings">Clone</button><button class="secondary job-cancel" hidden>Cancel</button><button class="secondary job-retry" hidden>Retry</button><button class="danger secondary job-delete" hidden>Delete</button></div><div class="resume-control" hidden><label>Resume from stage<select class="resume-stage"></select></label><button class="secondary job-resume" hidden>Resume</button></div></td>

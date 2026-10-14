@@ -257,8 +257,15 @@
           single frame of it, and the panel does not parse one in the browser. The <code>snapshots</code> analysis
           writes these PDBs — it looks in <code>1_AA-reference/prod/</code>, a layout an AA-only run does not have, so
           it has produced nothing for any of the 14 runs on disk. T4 makes it read this layout — and write one
-          multi-model <code>snapshots/AA-frames.pdb</code> sample series beside the labelled moments — so then these
-          buttons are real, served through <code>/api/jobs/&lt;id&gt;/artifacts/snapshots/AA-first.pdb?inline=1</code>.
+          multi-model <code>AA-frames.pdb</code> sample series beside the labelled moments — so then these buttons are
+          real. <b>Corrected 2026-10-14:</b> the frames now exist without anyone asking (the <code>snapshots</code>
+          kind runs for every run that reaches a terminal state and skips with a reason where there is no trajectory),
+          and they are published the way every analysis is: inside the kind's own content-addressed attempt, at
+          <code>analyses/snapshots/&lt;signature&gt;/&lt;attempt&gt;/&lt;output_directory&gt;/snapshots/AA-frames.pdb</code>
+          — there is no run-root <code>snapshots/</code> path, and the panel resolves the newest
+          <code>analyses/snapshots/*/*/result.json</code> and joins its <code>output_directory</code> rather than
+          asking the producer to publish outside its attempt
+          (<code>references/published-analysis-addressing.md</code>).
           <b>What the strip does while the playhead moves (D16):</b> the strip and the row read the same frames. A
           strip button sets the frame and stops there, and its pressed state moves only while the playhead sits
           <em>exactly</em> on that frame — the panel never paints a saved moment as "current" while the playhead is
@@ -602,9 +609,10 @@
         them.</em></li>
       <li><b>Frames.</b> Make the frame producer read the AA-only layout so the strip is real for the six AA-only runs,
         or ship the strip empty with its reason? <em>My recommendation: make it read the layout — the ask names
-        frames — and write one multi-model <code>snapshots/AA-frames.pdb</code> sample series beside the three labelled
+        frames — and write one multi-model <code>AA-frames.pdb</code> sample series beside the three labelled
         moments, so the transport row has a run to play instead of three frames. How many samples? My recommendation is
-        40, evenly spaced, with the stride stated on the panel.</em></li>
+        40, evenly spaced, with the stride stated on the panel.</em> <b>Done 2026-10-14:</b> the kind runs by default and
+        publishes inside its own attempt; the reader resolves <code>analyses/snapshots/*/*/result.json</code>.</li>
       <li><b>PDC.</b> Keep it delegated, or make this panel the one place a run is looked at?</li>
       <li><b>A seventh tab in Detergent validation.</b> The rail was built for seven, so nothing moves — but "Run view"
         now sits beside "Runs". Keep both, or put this inside Runs?</li>

@@ -7,6 +7,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import weakref
 from pathlib import Path, PurePosixPath
 
 from .. import files
@@ -22,6 +23,34 @@ def stage_command(name, script):
     if name == 'AA reference' and script.name == 'run_1mol_AA_system.sh':
         command += ['molecule.pdb', 'spc216.gro', 'SOL', '3']
     return command
+
+
+#: Notified with a run's directory once all of its stages have been attempted. The analysis layer registers its own
+#: handler here rather than this module importing it: an analysis's frames are published by the analysis layer, whose
+#: worker already imports this module, so reaching for it from here is the cycle the two are arranged to avoid.
+#: Registration is weak, so an application that has gone stops being notified, and a handler for a run it does not
+#: own answers with nothing.
+_run_completed = []
+
+
+def on_run_completed(listener):
+    """Register `listener(run_dir)`, called once a run's stages are all attempted. Returns it, so it can decorate."""
+    try:
+        reference = weakref.WeakMethod(listener)
+    except TypeError:  # a plain function rather than a bound method: kept by reference
+        reference = weakref.ref(listener)
+    _run_completed.append(reference)
+    return listener
+
+
+def run_completed(run_dir):
+    """Tell every registered listener that a run's stages are all attempted, and forget the ones that are gone."""
+    for reference in list(_run_completed):
+        listener = reference()
+        if listener is None:
+            _run_completed.remove(reference)
+        else:
+            listener(Path(run_dir))
 
 
 def missing_files(directory, patterns):
@@ -359,6 +388,9 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
         data = json.loads((run_dir/'manifest.json').read_text())
         data.update(status='completed', ended_at=datetime.datetime.now(datetime.timezone.utc).isoformat())
         files.atomic_json(run_dir/'manifest.json', data)
+        # A run publishes its frames without anyone asking: this is where the stage plan is finished and the run's
+        # own manifest says so, and the notification is what the analysis layer queues the run's own kinds from.
+        run_completed(run_dir)
 
 
 class Cancelled(RuntimeError):

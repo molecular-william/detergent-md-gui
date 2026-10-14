@@ -17,6 +17,88 @@ from dashboard.models.compositions.topology import render_pdb  # noqa: E402
 from dashboard.models.sugars import RADII_NM  # noqa: E402
 
 SOURCE = PROJECT_ROOT / 'dashboard/web/static/js/ngl-beads.js'
+#: The mock of the new-run panel's preview, which draws the same beads and bonds without importing this module (a
+#: standalone page carries no ES modules), so its copy of these numbers is held here like the table above.
+DRAFT = PROJECT_ROOT / 'docs/superpowers/drafts/2026-10-13-pdc-system-preview-draft.html'
+
+
+def _constants(text, names):
+    """`NAME = <number>` or `NAME = <number> / <other name>` out of a file, resolved in the order given."""
+    values = {}
+    for name in names:
+        match = re.search(rf'{name}\s*=\s*([^;]+);', text)
+        assert match, f'{name} is not in this file'
+        values[name] = _resolve(match.group(1), values)
+    return values
+
+
+def _resolve(expression, values):
+    """A one-term expression: a literal, a name already read, or a literal over one."""
+    expression = expression.strip()
+    if expression in values:
+        return values[expression]
+    if re.fullmatch(r'[0-9.]+', expression):
+        return float(expression)
+    match = re.fullmatch(r'([0-9.]+)\s*/\s*([A-Za-z_][A-Za-z0-9_]*)', expression)
+    assert match and match.group(2) in values, f'cannot resolve {expression!r}'
+    return float(match.group(1)) / values[match.group(2)]
+
+
+def _table_body(text, name):
+    """One `{...}` table's own body, out of the file's text, so two copies can be compared as written."""
+    match = re.search(rf'{name}\s*=\s*\{{([^}}]*)\}}', text)
+    assert match, f'{name} is not in this file'
+    return match.group(1).replace(' ', '')
+
+
+def _drawn_parameters(text):
+    """The `radiusScale`/`aspectRatio` a file draws a bead view with, resolved from its own constants.
+
+    Read from the *given* text rather than from `SOURCE`: a helper that silently reads one file while being handed
+    another is how a comparison between two copies passes without comparing anything.
+    """
+    values = _constants(text, ('BEAD_ASPECT_RATIO', 'BEAD_STICK_FRACTION'))
+    body = _table_body(text, 'BEAD_RADIUS_PARAMETERS')
+    drawn = {}
+    for key in ('radiusScale', 'aspectRatio'):
+        match = re.search(rf'\b{key}\s*:\s*([^,}}]+)', body)
+        assert match, f'{key} is not in BEAD_RADIUS_PARAMETERS'
+        drawn[key] = _resolve(match.group(1), values)
+    return values['BEAD_ASPECT_RATIO'], values['BEAD_STICK_FRACTION'], drawn
+
+
+def test_the_ball_keeps_the_models_radius_and_the_stick_is_a_quarter_of_it():
+    """The two knobs are independent, and the numbers say which is which: `radiusScale x aspectRatio` is 1.
+
+    `ball+stick` draws the ball at `atomRadius x radiusScale x aspectRatio` and the stick at
+    `atomRadius x radiusScale`, so the product being 1 is what keeps the drawn ball at the radius the model states
+    while the radius scale -- and with it every bond -- thins. Both numbers are pinned: 1/4 is half of the 1/2 these
+    views drew at before 2026-10-14, and the aspect ratio's own reciprocal is what makes the product 1.
+    """
+    aspect, fraction, drawn = _drawn_parameters(SOURCE.read_text())
+    assert (aspect, fraction) == (4, 0.25), f'the drawn stick is not a quarter of the bead: 1/{aspect}'
+    assert drawn == {'radiusScale': fraction, 'aspectRatio': aspect}, drawn
+    assert drawn['radiusScale'] * drawn['aspectRatio'] == 1, 'the ball would not be drawn at the model\'s radius'
+
+
+def test_the_mock_draws_the_same_bead_and_bond_as_the_module():
+    """The mock's copy of these numbers is the module's, because the preview and the run view draw one bead.
+
+    A standalone page cannot import the module, so the numbers are repeated -- and a second copy is a second model
+    unless something holds the two together. This is that hold: the radii table, the element stand-ins, the scale
+    the preview adds for reading and the two representation parameters all have to be the module's.
+    """
+    module = SOURCE.read_text()
+    draft = DRAFT.read_text()
+    assert _table_body(draft, 'BEAD_RADII_NM') == _table_body(module, 'BEAD_RADII_NM')
+    assert _table_body(draft, 'SIZE_ELEMENTS') == _table_body(module, 'SIZE_ELEMENTS')
+    # The module's own scale is `1` -- the run view draws the model's radius -- and the preview doubles it.
+    assert re.search(r'BEAD_RADIUS_SCALE\s*=\s*1\s*;', module)
+    preview = re.search(r'PREVIEW_BEAD_SCALE\s*=\s*([0-9.]+);', draft)
+    assert preview, 'the mock states no PREVIEW_BEAD_SCALE'
+    assert float(preview.group(1)) == 2, 'the preview no longer draws the bead twice as large'
+    assert _drawn_parameters(draft) == _drawn_parameters(module)
+
 
 
 def _table(name):

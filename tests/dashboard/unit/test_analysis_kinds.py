@@ -63,6 +63,19 @@ def test_every_kind_is_described_by_its_own_row():
         assert described['units_or_direction'] == row.units_or_direction, name
 
 
+def test_the_kinds_a_run_runs_for_itself_are_the_frames():
+    """One kind is registered as running for a run without anyone asking: the frames a reader looks at.
+
+    The registration is a facet of the row rather than a fifth list of kinds, so the readers of the vocabulary
+    (`worker.KINDS`, `worker.PATTERNS`, the dispatch and `metadata.describe`) cannot disagree with it about which
+    analyses a run owes its reader.
+    """
+    from dashboard.analysis.kinds import TABLE, for_every_run
+    assert for_every_run() == ('snapshots',)
+    assert TABLE['snapshots'].runs_for_every_run
+    assert [name for name, row in TABLE.items() if row.runs_for_every_run] == ['snapshots']
+
+
 def test_the_evidence_section_descriptions_are_not_analysis_kinds():
     """Three descriptions name the carbohydrate report's evidence sections, not analyses.
 

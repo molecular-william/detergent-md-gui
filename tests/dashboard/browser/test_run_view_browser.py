@@ -1,0 +1,546 @@
+"""The Run view panel, driven in a browser: one run, its own structures, its figures, and where it delegates.
+
+Every run here is a fixture this test builds in its own workspace -- nothing reads the developer's `workspace/`,
+which holds surviving runs as evidence rather than as a fixture. The structures are the *shape* a live run has
+(the plans' own layout: `stages/07_reference/lig.gro` for an AA run, `stages/2_mapping/mapped.gro` plus a bead PDB
+for a CG one, `snapshots/CG-frames.pdb` for a published frame series), and every number asserted is read back off
+the component the viewer loaded rather than off the parameters the panel asked for.
+
+Two of the four traps the plan measured are proved here, on real NGL objects:
+
+1. **A CG file that carries `CONECT` must be loaded with the bond inference OFF.** The vendored build parses
+   `CONECT` into its `bondStore` and *then* still runs its distance guess (`inferBonds` defaults to `'all'`), so a
+   file whose model bonds 7 ways is drawn 14 ways unless the guard is on. The assertion is the drawn bond count and
+   the pairs, read from `structure.bondStore` -- not the flag that was sent.
+2. **Coarse-grained beads must be drawn at the radii the model's size classes give them**, through the one helper
+   `ngl-beads.js` holds, not at their stand-in element's. The radii are read back off the loaded structure, the way
+   `test_pdc_bead_radii_browser.py` reads them, and held to the model's own table.
+
+The third and fourth traps belong with the transport row and are proved in `test_run_view_transport_browser.py`.
+"""
+from playwright.sync_api import expect
+
+AA_RUN = 'aa00aa000001'
+CG_RUN = 'cc00cc000002'
+FRAMES_RUN = 'ff00ff000003'
+PDC_RUN = 'dd00dd000004'
+OSMOTIC_RUN = 'ee00ee000005'
+
+BEADS = ('B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08')
+#: The sizes the fixture's own `model.json` states: the maltose mapping's classes, six S and the two virtual sites T.
+SIZES = {'B01': 'S', 'B02': 'S', 'B03': 'S', 'B04': 'T', 'B05': 'S', 'B06': 'S', 'B07': 'S', 'B08': 'T'}
+#: The stand-in element each class is written with in a bead file's element column (`models/compositions/topology.py`).
+ELEMENTS = {'R': 'C', 'S': 'N', 'T': 'H'}
+#: Martini 3's molecular-volume classes in nanometres, the table `models/sugars/recognition.py` and `ngl-beads.js`
+#: both hold. Written out here so this file fails if either drifts.
+RADII_NM = {'R': 0.264, 'S': 0.230, 'T': 0.191}
+NANOMETRE_TO_ANGSTROM = 10.0
+#: The mapped model's own coordinates (`stages/2_mapping/mapped.gro`), in nanometres, one per bead.
+MAPPED_NM = ((1.069, 1.486, 0.935), (1.226, 1.382, 1.177), (1.034, 1.180, 1.111), (1.109, 1.349, 1.074),
+             (1.369, 1.334, 1.403), (1.436, 1.083, 1.494), (1.151, 1.058, 1.521), (1.318, 1.158, 1.473))
+#: The seven edges the mapped model's own `LIG1.itp` declares: one `[ bonds ]` line and six `[ constraints ]`.
+MODEL_BONDS = ((1, 2), (1, 3), (2, 3), (2, 5), (5, 6), (5, 7), (6, 7))
+MODEL_JSON = {'name': 'fixture mapping', 'status': 'candidate-unvalidated',
+              'beads': [{'name': f'S{index}', 'size': SIZES[name], 'export_name': name}
+                        for index, name in enumerate(BEADS, 1)]}
+
+
+def aa_gro():
+    """The AA reference solute: five atoms, coordinates only -- a `.gro` carries no bond records."""
+    rows = ['fixture AA reference', '    5']
+    for index, xyz in enumerate(((0.0, 0.0, 0.0), (0.15, 0.0, 0.0), (0.30, 0.0, 0.0), (0.45, 0.0, 0.0),
+                                 (0.0, 0.11, 0.0)), 1):
+        name = 'C%d' % index if index < 5 else 'H1'
+        rows.append(f'{1:5d}{"LIG":<5}{name:>5}{index:5d}' + ''.join(f'{value:8.3f}' for value in xyz))
+    rows.append('   1.00000   1.00000   1.00000')
+    return '\n'.join(rows) + '\n'
+
+
+def aa_pdb():
+    """The molecule input: all-atom, no `CONECT`, so the viewer's own distance guess is the one left on."""
+    lines = ['TITLE     fixture molecule input']
+    for index, xyz in enumerate(((0.000, 0.000, 0.000), (1.400, 0.000, 0.000), (2.800, 0.000, 0.000),
+                                 (4.200, 0.000, 0.000), (0.000, 1.100, 0.000)), 1):
+        element = 'H' if index == 5 else 'C'
+        name = 'H1' if index == 5 else f'C{index}'
+        lines.append(f'ATOM  {index:5d} {name:>4} LIG A   1    '
+                     + ''.join(f'{value:8.3f}' for value in xyz) + f'  1.00  0.00          {element:>2}')
+    return '\n'.join(lines + ['END']) + '\n'
+
+
+def bead_pdb(coordinates=None, conect=True):
+    """A bead file: the eight mapped beads, each written with the stand-in element of its own size class.
+
+    With `conect` the model's seven edges are written as `CONECT` records -- the file `models/mappings/
+    overlay3d.py` and the PDC writer both produce, and the one the guard exists for. Without them it is a file
+    that carries coordinates only, which is what a viewer would otherwise guess bonds for.
+    """
+    coordinates = coordinates or [(x * NANOMETRE_TO_ANGSTROM, y * NANOMETRE_TO_ANGSTROM, z * NANOMETRE_TO_ANGSTROM)
+                                  for x, y, z in MAPPED_NM]
+    lines = ['REMARK 950 TEST BEAD FRAME, ELEMENTS ARE THE SIZE CLASS STAND-IN']
+    for index, (name, xyz) in enumerate(zip(BEADS, coordinates), 1):
+        element = ELEMENTS[SIZES[name]]
+        lines.append(f'HETATM{index:5d} {name:>4} LIG1 A   1    '
+                     + ''.join(f'{value:8.3f}' for value in xyz) + f'  1.00  0.00          {element:>2}')
+    if conect:
+        lines += [f'CONECT{first:5d}{second:5d}' for first, second in MODEL_BONDS]
+    return '\n'.join(lines + ['END']) + '\n'
+
+
+def frames_pdb(count=5):
+    """The multi-model PDB the `snapshots` analysis writes: one `MODEL` per sampled frame, `ENDMDL` between them."""
+    lines = []
+    for model in range(count):
+        lines.append(f'MODEL     {model + 1:4d}')
+        for index, (name, (x, y, z)) in enumerate(zip(BEADS, MAPPED_NM), 1):
+            element = ELEMENTS[SIZES[name]]
+            lines.append(f'HETATM{index:5d} {name:>4} LIG1 A   1    '
+                         + f'{(x + model * 0.05) * 10:8.3f}{y * 10:8.3f}{z * 10:8.3f}  1.00  0.00          {element:>2}')
+        lines.append('ENDMDL')
+    return '\n'.join(lines + ['END']) + '\n'
+
+
+#: Where the `snapshots` analysis publishes: inside its own content-addressed attempt, never at the run root
+#: (`references/published-analysis-addressing.md`, and `dashboard/analysis/worker.py`'s write of `result.json`).
+SNAPSHOT_ATTEMPT = 'analyses/snapshots/1a2b3c4d/5e6f7a8b'
+SNAPSHOT_OUTPUT = 'output/9c0d1e2f'
+
+
+def published_snapshots(files):
+    """The files a `snapshots` attempt publishes, plus the `result.json` a reader resolves them through.
+
+    `files` maps a bare snapshot file name to its text. The record's `outputs_sha256` names every published file
+    relative to `output_directory`, which is the join the panel has to make.
+    """
+    root = f'{SNAPSHOT_ATTEMPT}/{SNAPSHOT_OUTPUT}'
+    contents = {f'{root}/snapshots/{name}': text for name, text in files.items()}
+    contents[f'{SNAPSHOT_ATTEMPT}/result.json'] = json_text({
+        'result': {'frames': 40, 'files': list(files), 'role': 'cg_trajectory',
+                   'trajectory': 'stages/4_CG_sim/md.xtc',
+                   'series': {'file': 'CG-frames.pdb', 'stride': 7, 'sampled': 5}},
+        'output_directory': SNAPSHOT_OUTPUT,
+        'outputs_sha256': {f'snapshots/{name}': 'a' * 64 for name in files},
+    })
+    return contents
+
+
+def job(run_id, run_type, label, created, **extra):
+    return {'id': run_id, 'run_type': run_type, 'label': label, 'created': created, 'status': 'completed',
+            'molecule_name': label.split()[0], 'detergent': 'Sucrose', 'method': 'fast_forward'} | extra
+
+
+def seed(dashboard):
+    """Every run this file reads, built in the test's own workspace with the files each one holds."""
+    owner = dashboard.coordinator
+    rows = {
+        AA_RUN: (job(AA_RUN, 'aa_only', 'Sucrose AA reference', '2026-10-01T10:00:00+00:00'),
+                 {'stages/07_reference/lig.gro': aa_gro(),
+                  'stages/common/molecule/MMFF/lig1.pdb': aa_pdb()}),
+        CG_RUN: (job(CG_RUN, 'aa_cg', 'Maltose CG consistency', '2026-10-02T10:00:00+00:00'),
+                 {'stages/2_mapping/mapped.gro': mapped_gro(),
+                  'stages/2_mapping/model.json': json_text(MODEL_JSON),
+                  'stages/3_initial_CG/LIG1.pdb': bead_pdb(),
+                  'stages/4_CG_sim/md.gro': mapped_gro(),
+                  'stages/5_assessment/score_matrix_LIG1.png': 'not really a png, but the figures route lists it'}),
+        FRAMES_RUN: (job(FRAMES_RUN, 'aa_cg', 'Sorbitol CG, frames published', '2026-10-03T10:00:00+00:00'),
+                     {'stages/2_mapping/mapped.gro': mapped_gro(),
+                      'stages/2_mapping/model.json': json_text(MODEL_JSON),
+                      } | published_snapshots({'CG-frames.pdb': frames_pdb(),
+                                              'CG-first.pdb': bead_pdb(),
+                                              'CG-middle.pdb': bead_pdb(),
+                                              'CG-last.pdb': bead_pdb()})),
+        PDC_RUN: (job(PDC_RUN, 'pdc', 'Complex build 1', '2026-10-04T10:00:00+00:00'),
+                  {'stages/1_system/system.gro': mapped_gro()}),
+        OSMOTIC_RUN: (job(OSMOTIC_RUN, 'osmotic', 'Osmotic series', '2026-10-05T10:00:00+00:00'), {}),
+    }
+    for run_id, (record, files) in rows.items():
+        owner.database().insert(record)
+        for path, text in files.items():
+            target = owner.RUNS / run_id / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text)
+
+
+def json_text(payload):
+    import json
+    return json.dumps(payload, indent=2)
+
+
+def mapped_gro():
+    rows = ['Written by MDAnalysis', '    8']
+    for index, (name, xyz) in enumerate(zip(BEADS, MAPPED_NM), 1):
+        rows.append(f'{1:5d}{"LIG1":<5}{name:>5}{index:5d}' + ''.join(f'{value:8.3f}' for value in xyz))
+    rows.append('   2.48092   2.48092   2.48092')
+    return '\n'.join(rows) + '\n'
+
+
+#: What the readout under the canvas reports, read off the component the viewer loaded -- never off the parameters
+#: the panel sent. `atom.radius` is the value `applyBeadRadii` put on the structure, in angstroms.
+MEASURE = """
+() => {
+  const host = document.querySelector('#run-view-viewer');
+  const component = host.runViewStage.compList[0];
+  const structure = component.structure;
+  const radii = [];
+  for (let index = 0; index < structure.atomCount; index += 1) {
+    radii.push(structure.getAtomProxy(index).radius);
+  }
+  const store = structure.bondStore;
+  const pairs = [];
+  for (let index = 0; index < store.count; index += 1) {
+    const first = store.atomIndex1[index] + 1;
+    const second = store.atomIndex2[index] + 1;
+    pairs.push(first < second ? [first, second] : [second, first]);
+  }
+  const element = component.trajList && component.trajList[0];
+  return {
+    atoms: structure.atomCount, radii: radii, bonds: store.count, pairs: pairs,
+    frames: element ? element.trajectory.frameCount : 0,
+    models: structure.frames ? structure.frames.length : 0,
+    readout: document.querySelector('#run-view-readout').textContent,
+    note: document.querySelector('#run-view-transport-note').textContent,
+  };
+}
+"""
+
+
+def open_panel(page, live_page, workspace='detergent-validation', run=None):
+    query = f'?run={run}' if run else ''
+    page.goto(f'{live_page.base_url}/{workspace}/run-view{query}')
+    expect(page.locator('#runview')).to_be_visible()
+
+
+def wait_for_component(page, atoms=None):
+    page.wait_for_function(
+        "() => document.querySelector('#run-view-viewer')?.runViewStage?.compList?.[0]?.structure",
+        timeout=30000)
+    if atoms is not None:
+        # Optional chaining all the way: between `removeAllComponents()` and the load resolving, `compList[0]` is
+        # undefined, and a predicate that throws is not a wait -- Playwright reports it instead of retrying.
+        page.wait_for_function(
+            "() => document.querySelector('#run-view-viewer')?.runViewStage?.compList?.[0]?.structure?.atomCount"
+            f" === {atoms}",
+            timeout=30000)
+
+
+def select_row(page, text):
+    row = page.locator('#run-view-holds tr').filter(has_text=text)
+    expect(row).to_have_count(1)
+    row.click()
+
+
+# ---------------------------------------------------------------------------------------------------- the registrations
+
+
+def test_the_panel_renders_in_both_workspaces_and_no_other_label_moved(dashboard, live_page):
+    """Validation gains a tab and simulations gains one; every other panel's label is untouched."""
+    seed(dashboard)
+    page, errors = live_page
+    open_panel(page, live_page)
+
+    expect(page.locator('#subtabs .subtab')).to_have_count(8)
+    expect(page.locator('#subtabs .subtab[aria-selected=true]')).to_contain_text('Run view')
+    for label in ('Runs', 'New run', 'Bead Assignment', 'Bond Interactions', 'Combinations', 'Mapping Validation',
+                  'Osmotic Series', 'Run view'):
+        expect(page.locator(f'#subtabs .subtab:has-text("{label}")')).to_have_count(1)
+
+    open_panel(page, live_page, workspace='protein-detergent')
+    expect(page.locator('#subtabs .subtab')).to_have_count(4)
+    expect(page.locator('#subtabs .subtab[aria-selected=true]')).to_contain_text('Run view')
+    assert errors == []
+
+
+# ------------------------------------------------------------------------------------------------- the run chooser
+
+
+def test_the_chooser_asks_for_this_workspaces_run_types_and_lists_none_of_the_others(dashboard, live_page):
+    """D2/T5: one request per run type in scope, and a `pdc` run is not this workspace's to show."""
+    seed(dashboard)
+    page, errors = live_page
+    asked = []
+    page.on('request', lambda request: asked.append(request.url))
+    open_panel(page, live_page)
+    expect(page.locator('#run-view-list button')).to_have_count(4)
+
+    jobs = [url.split('run_type=')[1].split('&')[0] for url in asked if '/api/jobs?' in url and 'run_type=' in url]
+    assert sorted(set(jobs)) == ['aa_cg', 'aa_only', 'cg_composition', 'osmotic'], jobs
+    assert not any('/api/jobs?' in url and 'run_type=' not in url for url in asked), \
+        'the panel must ask the route for a run type, not page every run and narrow it here'
+
+    listed = page.locator('#run-view-list .id').all_inner_texts()
+    assert PDC_RUN not in listed, f'a complex run is offered by the wrong workspace: {listed}'
+    assert AA_RUN in listed and CG_RUN in listed
+    expect(page.locator('#run-view-count')).to_contain_text("in this workspace's scope")
+    assert errors == []
+
+
+def test_the_run_type_control_narrows_to_one_type_at_a_time(dashboard, live_page):
+    seed(dashboard)
+    page, errors = live_page
+    open_panel(page, live_page)
+    expect(page.locator('#run-view-list button')).to_have_count(4)
+
+    page.locator('#run-view-type').select_option('aa_only')
+    expect(page.locator('#run-view-list button')).to_have_count(1)
+    expect(page.locator('#run-view-list .id')).to_have_text(AA_RUN)
+    assert errors == []
+
+
+def test_the_protein_detergent_workspace_offers_only_complex_runs(dashboard, live_page):
+    """The other half of D2, from the other side: an AA-only run is not that workspace's to show."""
+    seed(dashboard)
+    page, errors = live_page
+    open_panel(page, live_page, workspace='protein-detergent')
+    expect(page.locator('#run-view-list .id')).to_have_text(PDC_RUN)
+    assert errors == []
+
+
+# ----------------------------------------------------------------------------------------------- an AA run, drawn
+
+
+def test_an_aa_run_draws_its_published_gro_bondless_and_names_where_its_bonds_are(dashboard, live_page):
+    seed(dashboard)
+    page, errors = live_page
+    open_panel(page, live_page, run=AA_RUN)
+    wait_for_component(page, atoms=5)
+
+    measured = page.locator('#run-view-viewer').evaluate(MEASURE)
+    assert measured['atoms'] == 5
+    # A `.gro` carries no bond records and this viewer's GRO parser infers none: zero bonds drawn, which is the
+    # honest picture rather than a guess. The readout says which file and where the model's bonds actually are.
+    assert measured['bonds'] == 0, 'a .gro must be drawn without invented bonds'
+    expect(page.locator('#run-view-readout')).to_contain_text('bonds the file states')
+    expect(page.locator('#run-view-readout')).to_contain_text('bonds the viewer resolved')
+    expect(page.locator('#run-view-transport-note')).to_contain_text('.gro')
+    expect(page.locator('#run-view-readout')).to_contain_text('a .gro carries coordinates and no bond records')
+    expect(page.locator('#run-view-what')).to_contain_text('stages/07_reference/lig.gro')
+    assert errors == []
+
+
+def test_an_aa_runs_molecule_is_the_one_case_the_viewers_own_guess_is_left_on(dashboard, live_page):
+    """An all-atom `.pdb` with no `CONECT` is the third branch: the guess reproduces the chemistry."""
+    seed(dashboard)
+    page, errors = live_page
+    open_panel(page, live_page, run=AA_RUN)
+    wait_for_component(page, atoms=5)
+
+    select_row(page, 'lig1.pdb')
+    wait_for_component(page, atoms=5)
+    measured = page.locator('#run-view-viewer').evaluate(MEASURE)
+    assert measured['atoms'] == 5
+    assert measured['bonds'] > 0, 'the viewer\'s own distance guess reproduces a real molecule'
+    expect(page.locator('#run-view-readout')).to_contain_text('bonds the file states')
+    expect(page.locator('#run-view-readout')).to_contain_text('reproduces the chemistry')
+    assert errors == []
+
+
+# -------------------------------------------------------------------------------- a CG run: the CONECT guard, the radii
+
+
+def test_a_cg_run_draws_its_mapped_model_as_loose_beads_and_says_where_its_bonds_are(dashboard, live_page):
+    seed(dashboard)
+    page, errors = live_page
+    open_panel(page, live_page, run=CG_RUN)
+    wait_for_component(page, atoms=8)
+
+    measured = page.locator('#run-view-viewer').evaluate(MEASURE)
+    assert measured['atoms'] == 8
+    assert measured['bonds'] == 0, 'a bead file with no bond records must not be guessed at'
+    expect(page.locator('#run-view-what')).to_contain_text('stages/2_mapping/mapped.gro')
+    expect(page.locator('#run-view-readout')).to_contain_text('stages/3_initial_CG/')
+    assert errors == []
+
+
+def test_a_cg_file_that_carries_conect_is_drawn_from_it_and_never_guessed_at(dashboard, live_page):
+    """Trap 1, measured on the component: seven records in, seven bonds drawn -- not fourteen."""
+    seed(dashboard)
+    page, errors = live_page
+    open_panel(page, live_page, run=CG_RUN)
+    wait_for_component(page, atoms=8)
+
+    select_row(page, 'LIG1.pdb')
+    wait_for_component(page, atoms=8)
+    measured = page.locator('#run-view-viewer').evaluate(MEASURE)
+    drawn = {tuple(pair) for pair in measured['pairs']}
+    assert measured['bonds'] == len(MODEL_BONDS), (
+        f'the file states {len(MODEL_BONDS)} bonds and the viewer drew {measured["bonds"]}: the CONECT records '
+        f'were double-drawn with a distance guess ({sorted(drawn)})')
+    assert drawn == set(MODEL_BONDS), f'the drawn bonds are not the file\'s own: {sorted(drawn ^ set(MODEL_BONDS))}'
+    expect(page.locator('#run-view-readout')).to_contain_text('carries CONECT')
+    expect(page.locator('#run-view-readout')).to_contain_text('the distance guess is off')
+    assert errors == []
+
+
+def test_the_guard_is_what_keeps_the_guess_out_of_a_conect_file(dashboard, live_page):
+    """The counterfactual, on the same bytes: without the guard the file's seven bonds are drawn as sixteen.
+
+    Read through NGL directly rather than through the panel, because the panel must not offer a way to switch the
+    guard off -- what this proves is that the parameter the guard sets is what stands between the two numbers.
+    """
+    seed(dashboard)
+    page, errors = live_page
+    open_panel(page, live_page, run=CG_RUN)
+    wait_for_component(page, atoms=8)
+    select_row(page, 'LIG1.pdb')
+    wait_for_component(page, atoms=8)
+
+    measured = page.locator('#run-view-viewer').evaluate("""async (element, text) => {
+      const host = document.createElement('div');
+      host.style.width = '200px'; host.style.height = '200px';
+      document.body.append(host);
+      const stage = new NGL.Stage(host, {backgroundColor: 'white'});
+      const component = await stage.loadFile(new Blob([text], {type: 'text/plain'}),
+                                             {ext: 'pdb', inferBonds: 'all'});
+      const store = component.structure.bondStore, pairs = [];
+      for (let index = 0; index < store.count; index += 1) {
+        pairs.push([store.atomIndex1[index] + 1, store.atomIndex2[index] + 1]);
+      }
+      return {bonds: component.structure.bondCount, pairs: pairs};
+    }""", bead_pdb())
+    assert measured['bonds'] > len(MODEL_BONDS), (
+        f'the distance guess should have inflated the 7 records; it drew {measured["bonds"]}')
+    # The defect's signature: the file's own edges are drawn again on top of themselves, plus edges the model has
+    # none of -- the pair every one of these beads is a stand-in for.
+    assert [7, 8] in measured['pairs'] or [8, 7] in measured['pairs'] or \
+        len(measured['pairs']) != len({tuple(pair) for pair in measured['pairs']}), \
+        'the guess must add a bond the model does not have'
+    assert errors == []
+
+
+def test_cg_beads_are_drawn_at_the_radius_their_own_size_class_has(dashboard, live_page):
+    """Trap 2: the model's own radii, through `ngl-beads.js`, and the three classes are the model's three."""
+    seed(dashboard)
+    page, errors = live_page
+    open_panel(page, live_page, run=CG_RUN)
+    wait_for_component(page, atoms=8)
+    select_row(page, 'LIG1.pdb')
+    wait_for_component(page, atoms=8)
+
+    measured = page.locator('#run-view-viewer').evaluate(MEASURE)
+    drawn = [None if value is None else round(value / NANOMETRE_TO_ANGSTROM, 4) for value in measured['radii']]
+    expected = [RADII_NM[SIZES[name]] for name in BEADS]
+    assert drawn == expected, f'the beads are not drawn at their own size classes: {drawn} against {expected}'
+    # The stand-in elements are nearly the same size as each other; the model's classes are not.
+    assert len(set(drawn)) == 2, 'a size ranking from the element column, not the model'
+    expect(page.locator('#run-view-readout')).to_contain_text('model.json size classes')
+    assert errors == []
+
+
+# ------------------------------------------------------------------------------------------ figures and delegation
+
+
+def test_figures_are_listed_and_opened_inline_through_the_artifact_route(dashboard, live_page):
+    seed(dashboard)
+    page, errors = live_page
+    open_panel(page, live_page, run=CG_RUN)
+    wait_for_component(page, atoms=8)
+
+    link = page.locator('#run-view-figures a')
+    expect(link).to_have_count(1)
+    href = link.get_attribute('href')
+    assert href == f'/api/jobs/{CG_RUN}/artifacts/stages/5_assessment/score_matrix_LIG1.png?inline=1', href
+    assert link.get_attribute('target') == '_blank'
+    expect(page.locator('#run-view-figures-note')).to_contain_text('zoomable')
+    assert errors == []
+
+
+def test_a_run_with_no_figure_says_so_instead_of_showing_an_empty_list(dashboard, live_page):
+    seed(dashboard)
+    page, errors = live_page
+    open_panel(page, live_page, run=AA_RUN)
+    wait_for_component(page, atoms=5)
+    expect(page.locator('#run-view-figures a')).to_have_count(0)
+    expect(page.locator('#run-view-figures-note')).to_contain_text('published no figure')
+    assert errors == []
+
+
+def test_a_complex_run_is_delegated_to_complexes_and_nothing_is_drawn_here(dashboard, live_page):
+    """D9: the one genuine duplication, answered by not doing it."""
+    seed(dashboard)
+    page, errors = live_page
+    open_panel(page, live_page, workspace='protein-detergent', run=PDC_RUN)
+    expect(page.locator('#run-view-list .id')).to_have_text(PDC_RUN)
+
+    expect(page.locator('#run-view-delegation')).to_be_visible()
+    link = page.locator('#run-view-delegation a')
+    expect(link).to_have_count(1)
+    assert link.get_attribute('href') == f'/protein-detergent/complexes?run={PDC_RUN}'
+    expect(page.locator('#run-view-delegation')).to_contain_text('reads ?run= at mount')
+
+    assert page.locator('#run-view-viewer').is_hidden(), 'no canvas is drawn for a complex run'
+    assert page.locator('#run-view-transport').is_hidden(), 'and no transport row either'
+    expect(page.locator('#run-view-transport-note')).to_contain_text('deliberately')
+    assert page.evaluate("() => document.querySelector('#run-view-viewer').runViewStage") is None
+    assert errors == []
+
+
+# ----------------------------------------------------------------------------------------------------- the frames
+
+
+def test_the_published_frame_series_is_listed_first_and_is_the_file_the_row_plays(dashboard, live_page):
+    seed(dashboard)
+    page, errors = live_page
+    open_panel(page, live_page, run=FRAMES_RUN)
+    wait_for_component(page, atoms=8)
+
+    first = page.locator('#run-view-holds tr').first
+    expect(first).to_contain_text('snapshots/CG-frames.pdb')
+    assert first.get_attribute('aria-selected') == 'true'
+    measured = page.locator('#run-view-viewer').evaluate(MEASURE)
+    assert measured['frames'] == 5, 'the multi-model PDB must be a trajectory, not five models drawn at once'
+    assert measured['bonds'] == 0
+    expect(page.locator('#run-view-frames button')).to_have_count(3)
+    assert errors == []
+
+
+def test_a_multi_model_pdb_without_a_trajectory_is_every_model_drawn_at_once(dashboard, live_page):
+    """Trap 3: `loadFile` alone draws all five models' atoms in one picture and makes no trajectory.
+
+    Measured directly through NGL, because this is the mistake the panel must not make: the same bytes the panel
+    loads correctly, handed to the viewer the naive way.
+    """
+    seed(dashboard)
+    page, errors = live_page
+    open_panel(page, live_page, run=FRAMES_RUN)
+    wait_for_component(page, atoms=8)
+
+    naive = page.locator('#run-view-viewer').evaluate("""async (element, text) => {
+      const host = document.createElement('div');
+      host.style.width = '200px'; host.style.height = '200px';
+      document.body.append(host);
+      const stage = new NGL.Stage(host, {backgroundColor: 'white'});
+      const component = await stage.loadFile(new Blob([text], {type: 'text/plain'}),
+                                             {ext: 'pdb', inferBonds: 'none'});
+      return {atoms: component.structure.atomCount,
+              models: component.structure.frames ? component.structure.frames.length : 0,
+              trajectories: component.trajList.length};
+    }""", frames_pdb())
+    assert naive['atoms'] == 8 * 5, 'every model\'s atoms arrive as one structure'
+    assert naive['models'] == 0, 'and no trajectory comes with it'
+    assert naive['trajectories'] == 0, 'loadFile does not attach one'
+
+    drawn = page.locator('#run-view-viewer').evaluate(MEASURE)
+    assert drawn['atoms'] == 8, 'the panel draws one frame'
+    assert drawn['frames'] == 5, 'and holds the trajectory the row plays'
+    assert errors == []
+
+
+# ------------------------------------------------------------------------------------- the door from the Runs table
+
+
+def test_a_runs_table_row_links_to_its_own_run_view(dashboard, live_page):
+    """D10: the list is one door to a run; this link is the other, and it lands on the run already drawn."""
+    seed(dashboard)
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
+    expect(page.locator('.job')).to_have_count(5)
+
+    link = page.locator(f'.job[data-id="{AA_RUN}"] .job-view-run')
+    expect(link).to_have_count(1)
+    assert link.get_attribute('href') == f'/detergent-validation/run-view?run={AA_RUN}'
+
+    link.click()
+    expect(page.locator('#runview')).to_be_visible()
+    expect(page.locator('#run-view-list button[aria-pressed=true]')).to_contain_text(AA_RUN)
+    expect(page.locator('#run-view-identity')).to_contain_text(AA_RUN)
+    assert errors == []

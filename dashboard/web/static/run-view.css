@@ -1,0 +1,80 @@
+/* The Run view panel: one run, its structures, its frames and its figures.
+ *
+ * Linked after the other per-panel sheets and *before* `layout.css`, which is deliberate. This sheet states the
+ * panel's own two-column grid -- the same shape `new-run.css` states for `#run-form.new-run-layout` -- and
+ * `layout.css` states the twelve-column measure the left and right columns are hung on. At equal specificity the
+ * later rule wins, so the measure is last on purpose and this sheet's `grid-template-columns` yields to it.
+ * Reversing the two stacks the columns; the plan's draft measured exactly that.
+ *
+ * Two rules in here are normalisation rather than style, and both were measured while building the draft:
+ *
+ *   1. `dashboard.css` sets `label{margin:12px 0;font-weight:600}`, `input{padding:9px}` and
+ *      `label>input:not([type=checkbox]){display:block;width:100%;margin-top:5px}`. Un-normalised, the transport
+ *      row's label carries a 12 px top *and* bottom margin, which sets the flex line's cross size to 60 px while
+ *      the controls are 29-36 px -- a "row" 24 px taller than anything in it, with the buttons 4 px off the
+ *      label's top. The `margin:0; width:auto; padding:0` below is the same normalisation `new-run.css` and
+ *      `mappings.css` already carry.
+ *   2. `dashboard.css` paints `button{background:var(--accent); color:white}`, so every pill this sheet repaints
+ *      white must state its own `color`. Without it the run ids and the frame labels are white on white --
+ *      invisible on screen and in a still.
+ */
+
+/* The panel's own two-column grid. `layout.css` overrides it with the twelve-column measure; this rule is what
+ * makes the panel a grid before that sheet is reached, and what the head-order check in the plan turns on.
+ *
+ * `overflow-wrap: anywhere` is inherited, and it is here because everything this panel prints is a path or a
+ * sentence about one: a run-relative artifact path (`analyses/snapshots/<signature>/<attempt>/output/<hash>/
+ * snapshots/AA-frames.pdb`) and the readout's own "how the bonds were decided" reason are longer than a narrow
+ * column, and an unbreakable word in a paragraph is what measured 97 px of sideways scroll at a 390 px window. */
+.run-view-layout { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 20px;
+  align-items: start; overflow-wrap: anywhere }
+.run-view-layout .card { margin: 0 0 16px }
+
+/* The chooser. A list of buttons rather than a select: the run's id, its label, its molecule and its type are all
+ * worth reading at once, and a select shows one line of them. */
+.run-view-filters { align-items: end }
+.run-view-list { display: flex; flex-direction: column; gap: 4px; margin: 10px 0 0; padding: 0; list-style: none }
+.run-view-list button { display: block; width: 100%; text-align: left; padding: 8px 10px; border: 1px solid var(--line);
+  border-radius: 8px; background: #fff; color: var(--ink); cursor: pointer; font: inherit; line-height: 1.35 }
+.run-view-list button[aria-pressed="true"] { background: #eef4ff; border-color: var(--accent) }
+.run-view-list .id { font-weight: 700; font-variant-numeric: tabular-nums }
+.run-view-list .meta { display: block; font-size: 12px; color: var(--muted) }
+
+/* What the run holds. Rows are selectable so the canvas follows the reader's pick. */
+.run-view-structures { width: 100%; border-collapse: collapse; font-size: 12px }
+.run-view-structures th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted); padding: 8px 6px; border-bottom: 1px solid var(--line); white-space: nowrap }
+.run-view-structures td { padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top }
+.run-view-structures tr[aria-selected="true"] { background: #eef4ff }
+.run-view-structures code { font-size: 12px; overflow-wrap: anywhere }
+
+.run-view-viewer { height: 420px; min-height: 300px; border: 1px solid var(--line); border-radius: 8px; background: #f7f9fc }
+
+/* D11 -- two play buttons and the frame slider, one line, directly under the canvas. `flex-wrap: nowrap` is the
+ * whole point of the rule: the row must not fold into two lines at any width this panel is read at. */
+.run-view-transport { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; margin: 8px 0 0 }
+.run-view-transport button { padding: 2px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff;
+  color: var(--ink); cursor: pointer; font: inherit; line-height: 1.5; min-width: 36px }
+.run-view-transport button[aria-pressed="true"] { background: #1b4b8f; border-color: #1b4b8f; color: #fff }
+.run-view-transport button:disabled { cursor: not-allowed; color: var(--muted); background: #f3f4f6; border-color: var(--line) }
+/* The shared label/input rules bite a label-plus-input row, and the row has to normalise them (see the header). */
+.run-view-transport .transport-frame { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0;
+  margin: 0; font-size: 12px; font-weight: 400; color: var(--muted) }
+.run-view-transport input[type="range"] { flex: 1 1 auto; min-width: 80px; width: auto; margin: 0; padding: 0 }
+.run-view-transport .transport-frame-readout { font-variant-numeric: tabular-nums; white-space: nowrap }
+
+.run-view-frames { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px }
+.run-view-frames button { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: #fff;
+  color: var(--ink); cursor: pointer; font: inherit }
+.run-view-frames button[aria-pressed="true"] { background: #1b4b8f; border-color: #1b4b8f; color: #fff }
+.run-view-frames button:disabled { cursor: not-allowed; color: var(--muted); background: #f3f4f6 }
+
+.run-view-readout { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px;
+  margin: 12px 0 0; padding: 10px; background: #f7f9fc; border: 1px solid var(--line); border-radius: 8px;
+  font-size: 12px; font-variant-numeric: tabular-nums }
+.run-view-readout b { display: block; font-size: 15px }
+.run-view-readout .bad { color: var(--danger) }
+.run-view-readout .ok { color: #286644 }
+
+.run-view-figures { margin: 8px 0 0; padding-left: 20px; font-size: 13px; overflow-wrap: anywhere }
+.run-view-figures li { margin: 4px 0 }

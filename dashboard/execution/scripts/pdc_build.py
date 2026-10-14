@@ -5,6 +5,11 @@ adapter whose own unit tests cover it -- the box from `pdc_box`, the placement a
 `pdc_placement`, the CG protein command from `pdc_protein`, the coordinate reader from `pdc_import` -- so the stage
 cannot drift from the rules by restating them here.
 
+The membrane the belt is placed in is the protein file's own statement of it (`REMARK 1/2 of bilayer thickness`),
+read through `micelle.frame` -- the file's statement travels with its coordinates, so the structure this stage was
+handed is the authority and a catalogue entry is not. A protein whose file states nothing keeps the sphere the
+placement has always built; so does an empty micelle, which has no membrane to state.
+
 Two things it deliberately does not do yet, and says so rather than guessing:
 
 * the detergent is represented by **one centre per molecule** (what the placement produces). Placing the
@@ -31,6 +36,7 @@ from pathlib import Path
 
 from dashboard.execution.adapters import pdc, pdc_box, pdc_import, pdc_placement, pdc_protein
 from dashboard.execution.adapters.pdc import DETERGENT_GEOMETRY, DETERGENT_TOPOLOGY, REPORT_NAME, SETTINGS_NAME
+from micelle import frame as micelle_frame
 from micelle import output as micelle_output
 from micelle import registry as micelle_registry
 
@@ -108,7 +114,8 @@ def stamp(draft: dict, centres, directions, *, first_residue: int = 900) -> list
     """One detergent per placement, as beads: rotated so its head points along the direction, moved to the centre.
 
     The placement's direction is the way *out* of the micelle -- away from the protein and into the water the next
-    stage adds (`pack_micelle`'s own shell on the lattice, `pdc_placement._outward` for a self-assembled cloud). A
+    stage adds (`pack_micelle`'s own shell and, for a stated membrane, the band's heading across the bilayer;
+    `pdc_placement._outward` for a self-assembled cloud). A
     micelle's heads face that water and its tails fill the core, so the molecule's own axis is taken **head-ward**:
     from the mean of its tail beads to the mean of its head beads. Taken the other way round it put every head bead
     0.317 nm inside its detergent's centre and every tail 0.845 nm outside it -- a micelle inside out, which is what
@@ -224,8 +231,20 @@ def write_topologies(stage: Path, protein_itp: Path | None, detergent_itp: Path 
     return {'protein_molecule': protein, 'detergent_molecule': detergent, 'detergents': detergents}
 
 
-#: The secondary-structure source this stage uses, named in the run's report. See `secondary_structure`.
-SS_SOURCE = 'MDAnalysis.analysis.dssp'
+#: The secondary-structure source this stage wires, named in the run's report. See `secondary_structure`.
+SS_SOURCE = 'mdtraj.compute_dssp'
+#: The source used when the one above cannot assign: what every run before mdtraj used, and what a virtualenv
+#: without mdtraj still gets. Recorded exactly as the primary source is, so a reader can tell the two apart.
+SS_FALLBACK_SOURCE = 'MDAnalysis.analysis.dssp'
+#: The martinize2 flag each source is wired with. `-dssp` takes no argument: bare, vermouth binds
+#: `vermouth.dssp.dssp.AnnotateDSSP(executable=None)` to `run_mdtraj` and martinize2 assigns the structure itself --
+#: the route the Martini 3 tutorial's own martinize2 invocation uses, and the reason mdtraj is a dependency here. An
+#: *argument* to the flag would make vermouth run an external DSSP binary instead, and it trusts only versions
+#: 2.2.1 and 3.0.0 of one (`SUPPORTED_DSSP_VERSIONS`), which this box does not carry. `-ss` takes the letters this
+#: stage assigned, which is what the source above cannot answer with when its library is not installed.
+SS_FLAG = {SS_SOURCE: '-dssp', SS_FALLBACK_SOURCE: '-ss'}
+#: DSSP's own one-letter alphabet -- the keys `vermouth.dssp.dssp.SS_CG` is written against.
+DSSP_LETTERS = set('HBEGITSC')
 
 
 def _output_path(command, flag: str) -> Path:
@@ -241,7 +260,7 @@ def _output_path(command, flag: str) -> Path:
 
 
 def ss_sequence(letters) -> str | None:
-    """An assignment's letters as the DSSP sequence martinize2 takes, or `None` when one is not.
+    """An assignment's letters as the DSSP sequence `-ss` takes, or `None` when one is not.
 
     MDAnalysis' DSSP implementation is three-state: `H` (any helix), `E` (extended strand) and `-` (unordered).
     martinize2 takes DSSP's own alphabet, where the unordered state is `C` -- the same state DSSP itself writes as
@@ -254,59 +273,132 @@ def ss_sequence(letters) -> str | None:
     return ''.join('C' if letter == '-' else letter for letter in letters)
 
 
-def secondary_structure(structure: Path) -> tuple[str | None, dict]:
-    """The secondary structure martinize2 should build the protein with, and where it came from.
+def _mdtraj_letters(structure: Path) -> tuple[list | None, str | None]:
+    """The assignment mdtraj makes, or `None` and why.
 
-    martinize2 takes an assignment two ways, and the tool's own help is what decides between them here:
+    This is the call vermouth makes for the bare `-dssp` flag: `run_mdtraj` loads a PDB and calls
+    `mdtraj.compute_dssp(..., simplified=False)` -- DSSP's own *eight* states (`H B E G I T S C`), with the blank
+    DSSP writes for a coil turned into `C`. Making the same call here is what lets the report carry the assignment
+    martinize2 is about to build rather than a paraphrase of it: measured on 1AT9's chain A (1 778 atoms, 230
+    residues), these letters and the ones the tool's own topology header records are equal letter for letter.
 
-    * `-dssp [executable]` runs DSSP itself -- or, with the bare flag, the **mdtraj** library, which this
-      environment does not have (`import mdtraj` fails), leaving an external binary that vermouth warns it has
-      tested only at versions 2.2.1 and 3.0.0 (`SUPPORTED_DSSP_VERSIONS`). PDB-REDO's `dssp` is the current 4.x
-      `mkdssp`: it would be an untested version *and* a C++ build (cmake + libcifpp + Eigen) this repository does
-      not carry, so it is not what is wired;
-    * `-ss <sequence>` hands it a DSSP-format letter per residue, which is what this stage uses, because the
-      assignment can then come from a library that *is* here: MDAnalysis 2.9 ships a DSSP implementation
-      (`MDAnalysis.analysis.dssp`, a port of pydssp). Measured on 1AT9's own chain A, 230 residues of
-      bacteriorhodopsin: the seven transmembrane helices come back as `H`, and martinize2 took the sequence at exit
-      0 and wrote its SS-dependent bonded potentials. The `-dssp`/mdtraj path is therefore not a fallback here but
-      the thing that does not work in this environment; MDAnalysis is the source.
+    A letter outside that alphabet is refused rather than passed on, and `NA` -- which mdtraj writes for a residue
+    it cannot call -- is outside it: vermouth's own conversion is keyed by the eight states, so a letter it does not
+    know is a build it would fail on, and the stage says so instead.
+    """
+    try:
+        import mdtraj
+    except ImportError as exc:
+        return None, f'mdtraj is not importable: {exc}'
+    try:
+        codes = mdtraj.compute_dssp(mdtraj.load(str(structure)), simplified=False)
+    except Exception as exc:                     # any failure here means "no assignment", and the run says which
+        return None, f'{type(exc).__name__} from {SS_SOURCE}: {exc}'
+    letters = ['C' if str(code).strip() == '' else str(code).strip() for row in codes for code in row]
+    unknown = sorted(set(letters) - DSSP_LETTERS)
+    if unknown:
+        return None, f'{SS_SOURCE} assigned letters this stage cannot hand over: {unknown}'
+    return letters, None
 
-    Both routes end in vermouth's `AnnotateMartiniSecondaryStructures`, so the same SS-dependent bonded potentials
-    are built either way -- what differs is who assigns the letters, and that is recorded.
 
-    Returns `(sequence, record)`. `None` for the sequence when no assignment could be made -- a source that is not
-    importable, or a protein its algorithm cannot work on (measured: it raises below five residues) -- with the
-    reason in the record. A build with no secondary structure is martinize2's own documented case, which is what
-    `-maxwarn 1` is for; the stage's job is to say which case this is, not to invent an assignment.
+def _mdanalysis_letters(structure: Path) -> tuple[list | None, str | None]:
+    """The assignment MDAnalysis' DSSP makes, as the three-state letters `-ss` takes, or `None` and why.
+
+    The fallback source: MDAnalysis 2.9 ships a DSSP implementation (`MDAnalysis.analysis.dssp`, a port of pydssp).
+    It is asked for only when mdtraj could not answer, and the report then names it -- so a build that fell back is
+    a build whose provenance says so.
     """
     try:
         import MDAnalysis
         from MDAnalysis.analysis.dssp import DSSP
     except ImportError as exc:
-        return None, {'source': None, 'detail': f'MDAnalysis is not importable: {exc}'}
+        return None, f'MDAnalysis is not importable: {exc}'
     try:
         assignment = DSSP(MDAnalysis.Universe(str(structure)))
         assignment.run()
         letters = [letter for row in assignment.results.dssp for letter in row]
-    except Exception as exc:                     # any failure here means "no assignment", and the run says which
-        return None, {'source': None, 'detail': f'{type(exc).__name__} from {SS_SOURCE}: {exc}'}
+    except Exception as exc:                     # measured: it raises below five residues
+        return None, f'{type(exc).__name__} from {SS_FALLBACK_SOURCE}: {exc}'
     sequence = ss_sequence(letters)
     if sequence is None:
-        return None, {'source': None,
-                      'detail': f'{SS_SOURCE} assigned no letters this stage can hand over ({letters[:8]})'}
-    return sequence, {'source': SS_SOURCE, 'residues': len(sequence), 'helix': sequence.count('H'),
-                      'extended': sequence.count('E'), 'coil': sequence.count('C')}
+        return None, f'{SS_FALLBACK_SOURCE} assigned no letters this stage can hand over ({letters[:8]})'
+    return list(sequence), None
 
 
-def ss_flags(sequence: str | None) -> list[str]:
-    """What is appended to the CG protein command: the assignment, and room for martinize2's one warning.
+def martini_classes(letters) -> dict:
+    """An assignment counted in the three classes martinize2 itself sorts the letters into.
+
+    `vermouth.dssp.dssp.convert_dssp_to_martini` is what martinize2 runs over the letters before it builds anything,
+    and its `SS_CG` table is read here so these counts cannot drift from it: every DSSP helix (`H G I`) counts as a
+    helix, the two extended states (`E B`) as extended, and a turn, bend or coil as the rest. The three always sum to
+    the residue count, which is what makes them a reading of the assignment rather than a separate opinion on it.
+    """
+    from vermouth.dssp.dssp import SS_CG
+
+    classes = [SS_CG[str(letter)] for letter in letters]
+    helix = classes.count('H')
+    extended = classes.count('E')
+    return {'helix': helix, 'extended': extended, 'coil': len(classes) - helix - extended}
+
+
+def secondary_structure(structure: Path) -> dict:
+    """The secondary structure martinize2 should build the protein with, and where it came from.
+
+    martinize2 takes an assignment two ways, and the tool's own help is what decides between them here:
+
+    * `-dssp` -- with **no executable** -- is the route the Martini 3 tutorial's martinize2 invocation uses, and the
+      one that is wired: vermouth answers the bare flag with the **mdtraj** library (`AnnotateDSSP(executable=None)`
+      binds `run_mdtraj`), so martinize2 assigns the structure itself and the eight DSSP states reach its own
+      conversion, helix start/end included. Measured on 1AT9's own chain A, 230 residues of bacteriorhodopsin:
+      martinize2 exit 0 with no warnings, and the letters here equal to the ones its topology header records --
+      `H` 161, `G` 3, `I` 13, `S` 17, `T` 9, `C` 27;
+    * `-ss <sequence>` hands it a DSSP-format letter per residue, which is the fallback: the assignment then comes
+      from MDAnalysis 2.9's own DSSP implementation, and it is used when mdtraj cannot answer at all (not installed,
+      or a structure it refuses). It is three-state, so martinize2 gets `H E C` only. Measured on the same chain:
+      `H` 181, `C` 49, martinize2 exit 0 with no warnings.
+
+    The two routes disagree, and the record below is what lets a reader see that rather than assume otherwise: on
+    1AT9's chain A they differ on 42 of 230 letters, which is 4 residues once both are read in martinize2's own three
+    classes (`H G I` helix, `E B` extended, the rest coil) -- so the SS-dependent bonded potentials they produce are
+    not identical either. Both end in vermouth's `AnnotateMartiniSecondaryStructures`; what differs is who assigns
+    the letters, and that is what the record names.
+
+    Returns the record the run carries: `source` and `route` (which library, which flag), `residues`, the `letters`
+    themselves so the report is auditable, and `martini_classes`. When no assignment could be made -- neither library
+    importable, or a protein neither can work on -- `source` and `route` are `None` and `detail` names both reasons.
+    A build with no secondary structure is martinize2's own documented case, which is what `-maxwarn 1` is for; the
+    stage's job is to say which case this is, not to invent an assignment.
+    """
+    letters, reason = _mdtraj_letters(structure)
+    source = SS_SOURCE
+    if letters is None:
+        letters, fallback_reason = _mdanalysis_letters(structure)
+        if letters is None:
+            return {'source': None, 'route': None,
+                    'detail': f'{SS_SOURCE}: {reason}; {SS_FALLBACK_SOURCE}: {fallback_reason}'}
+        source = SS_FALLBACK_SOURCE
+    return {'source': source, 'route': SS_FLAG[source], 'residues': len(letters),
+            'letters': ''.join(letters), **martini_classes(letters)}
+
+
+def ss_flags(record: dict) -> list[str]:
+    """What is appended to the CG protein command: how martinize2 is told to assign, and room for its one warning.
+
+    `-dssp` is asserted *bare* here -- the route's whole point -- and `-ss` carries the letters the fallback source
+    assigned. A record with no assignment behind it contributes no flag at all: a flag with nothing to answer with
+    would have the tool assign an empty sequence, which is not what "no assignment" means.
 
     `-maxwarn 1` is the tool's own documented escape hatch for the case where no secondary structure could be
-    assigned: without it, and without `-ss`, it logs "topology will be created without secondary structure
+    assigned: without it, and without either flag, it logs "topology will be created without secondary structure
     information" and exits 2 having written nothing at all (measured on 1AT9's chain A with the flags as they were).
     One warning of room is allowed, and no more, so a run this flag saves is still one a reader can see in its log.
     """
-    return ['-maxwarn', '1'] + (['-ss', sequence] if sequence else [])
+    route = (record or {}).get('route')
+    if route == '-dssp':
+        return ['-maxwarn', '1', '-dssp']
+    if route == '-ss' and (record or {}).get('letters'):
+        return ['-maxwarn', '1', '-ss', record['letters']]
+    return ['-maxwarn', '1']
 
 
 def _absolute(command: list, flags=('-f', '-x', '-o')) -> list:
@@ -348,8 +440,8 @@ def cg_protein(stage: Path, protein: Path) -> tuple[list, list[str] | None, dict
     if structure.is_file():
         return (pdc_import.structure_atoms(structure), None,
                 {'source': None, 'detail': f'{structure.name} was already there, so martinize2 was not run again'})
-    sequence, record = secondary_structure(protein)
-    command = command + ss_flags(sequence)
+    record = secondary_structure(protein)
+    command = command + ss_flags(record)
     with (stage / 'martinize.log').open('w') as log:
         subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT, cwd=directory)
     if not structure.is_file():
@@ -393,6 +485,10 @@ def build(stage: Path) -> int:
         return 2
 
     beads, command, secondary = ([], None, None)
+    # The membrane the belt is placed in: the statement the file this stage was handed makes about itself, read
+    # through the frame module rather than reconstructed here. No protein, no statement -- both are `None`, and the
+    # placement is the sphere it has always been.
+    frame = None
     requested_protein = (settings.get('protein') or '').strip()
     if requested_protein:
         protein_input, selected_chains, dropped = select_protein(stage, resolve(settings, 'protein', stage),
@@ -400,16 +496,22 @@ def build(stage: Path) -> int:
         report['protein_input'] = protein_input.name if protein_input.name == SELECTED_PROTEIN else None
         report['protein_dropped_residues'] = dropped
         beads, command, secondary = cg_protein(stage, protein_input)
+        frame = micelle_frame.frame_from_pdb(protein_input)
     points = [list(bead['position']) for bead in beads]
     placement = pdc_placement.place_detergents(points, template, settings['aggregation_number'],
                                                settings['seed'], radius_nm=settings['radius_nm'], mode=mode,
                                                margin_nm=settings['box_margin_nm'],
-                                               initial_z_nm=settings['initial_z_nm'])
+                                               initial_z_nm=settings['initial_z_nm'], frame=frame)
     report.update({
         'cg_command': command,
         'secondary_structure': secondary,
         'protein_beads': len(points),
         'placement_mode': placement['mode'],
+        # Which shape the lattice took, and the membrane it took it in. The coordinates alone cannot say whether a
+        # shell about the centroid was a decision or the absence of a membrane, so the build states both.
+        'placement_shape': placement['placement_shape'],
+        'membrane_frame': frame.as_record() if frame is not None else None,
+        'placement_band': placement['band'],
         'protein_clearance_nm': placement['protein_clearance_nm'],
         'placement_issues': placement['issues'],
     })

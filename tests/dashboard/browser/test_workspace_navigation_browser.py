@@ -18,8 +18,8 @@ NARROW = {'width': 820, 'height': 900}
 
 # The panels of each workspace, in its own order, by DOM id. The two navigations are different lists, which is the
 # point of the split: `runs` and `new` appear in both because they are different run lists and different forms.
-VALIDATION = ('runs', 'new', 'mappings', 'bonded', 'compositions', 'validation', 'osmotic-pressure')
-SIMULATIONS = ('runs', 'new', 'pdc')
+VALIDATION = ('runs', 'runview', 'new', 'mappings', 'bonded', 'compositions', 'validation', 'osmotic-pressure')
+SIMULATIONS = ('runs', 'runview', 'new', 'pdc')
 
 
 def width(page, selector):
@@ -90,7 +90,8 @@ def test_the_arrow_keys_move_within_each_row(dashboard, live_page):
 
     page.locator('#tab-runs').focus()
     page.keyboard.press('ArrowRight')
-    expect(page.locator('#tab-new')).to_have_attribute('aria-selected', 'true')
+    # `run-view` sits directly after `runs` in both workspaces, so the horizontal pair walks into it.
+    expect(page.locator('#tab-runview')).to_have_attribute('aria-selected', 'true')
     page.keyboard.press('ArrowLeft')
     expect(page.locator('#tab-runs')).to_have_attribute('aria-selected', 'true')
     expect(page.locator('nav.subtabs')).to_have_attribute('aria-orientation', 'horizontal')
@@ -140,6 +141,8 @@ def test_every_panel_is_the_same_width_and_has_no_dead_space_beside_it(dashboard
              ('detergent-validation', 'osmotic-pressure', '.osmotic-layout', (6, 6)),
              ('detergent-validation', 'bead-assignment', '.mapping-editor-layout', (7, 5)),
              ('detergent-validation', 'combinations', '.composition-workspace', (3, 9)),
+             ('detergent-validation', 'run-view', '.run-view-layout', (4, 8, 12)),
+             ('protein-detergent', 'run-view', '.run-view-layout', (4, 8, 12)),
              ('protein-detergent', 'complexes', '.pdc-workspace', (3, 9, 12)),
              ('detergent-validation', 'bond-interactions', '.bonded-columns', (6, 6)))
     for workspace, panel, layout, spans in cases:

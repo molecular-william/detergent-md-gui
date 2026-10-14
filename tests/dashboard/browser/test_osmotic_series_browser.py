@@ -191,7 +191,7 @@ def test_the_concentrations_add_remove_edit_and_the_tally_follows(dashboard, liv
 
 
 def test_a_molality_outside_the_paper_range_is_refused_at_the_row_and_excluded_from_the_count(dashboard, live_page):
-    """The bound is the route's own (`osmotic_molality`, 0.0-2.5), it is named, and nothing is queued until fixed."""
+    """The bound is the run type's own (`osmic_box.MOLALITY_RANGE`, 0.0-2.5), it is named, and nothing is queued until fixed."""
     page, errors = live_page
     serve_catalogue(page)
     open_panel(page, live_page.base_url)

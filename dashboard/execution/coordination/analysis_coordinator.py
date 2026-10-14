@@ -7,11 +7,13 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from pathlib import Path
 
 from dashboard import files, paths
 from dashboard.analysis import worker as analysis
+from dashboard.analysis.kinds import for_every_run
 
 #: The packages whose content decides an analysis result: the analysis code itself and the model code it reads.
 CODE_ROOTS = ('analysis', 'models')
@@ -42,6 +44,58 @@ from .errors import CapacityFull, InvalidRequest, RunBusy, RunNotFound
 class AnalysisCoordinator:
     def __init__(self, owner):
         self.owner = owner
+        workflow.on_run_completed(self.run_completed)
+
+    def run_completed(self, run_dir):
+        """A run's stages have finished: queue the kinds it runs for itself, without anyone asking.
+
+        The notification arrives from the run's own worker thread, which is still holding the run while the
+        coordinator's `finish_job` writes the terminal status and releases its lease -- and `queue` refuses a run
+        that is still held, on purpose, for a request that arrives from outside. So the queueing is handed to a
+        short-lived thread that waits for the run to be free and then goes through that same door: no guard is
+        weakened for it, and a run whose worker never lets go simply gets no frames, which is where it started.
+
+        A notification naming a run of another store is not this coordinator's business -- the coordinator that owns
+        it was notified too -- and is answered with nothing rather than an error.
+        """
+        run_dir = Path(run_dir)
+        if run_dir.resolve().parent != Path(self.owner.RUNS).resolve():
+            return []
+        threading.Thread(target=self.queue_run_analyses_when_free, args=(run_dir.name,), daemon=True).start()
+        return []
+
+    def queue_run_analyses_when_free(self, jid, timeout=30.0):
+        """Queue a finished run's own analyses, once the run's worker has let go of it."""
+        deadline = time.monotonic() + timeout
+        while True:
+            job = self.owner.database().get(jid)
+            if job is None:
+                return []
+            with self.owner.JOBS_LOCK:
+                held = jid in self.owner.WORKERS
+            if not held and job.get('status') in ('completed', 'failed', 'cancelled') and not self.owner.externally_busy(job):
+                return self.queue_defaults(jid)
+            if time.monotonic() >= deadline:
+                return []
+            time.sleep(.05)
+
+    def queue_defaults(self, jid):
+        """Queue every kind a run runs for itself.
+
+        Best-effort on purpose: this is the run's own bookkeeping rather than a request someone is waiting on, so a
+        queue that is busy (a person's analysis is already running) or full leaves the run exactly as it was, and so
+        does a run whose sources the kind cannot be resolved from at all -- a consumer whose reference run is gone,
+        or a record that names no layout this kind reads. Nothing is invented for those: a person asking for the
+        kind by name still gets the resolver's own refusal, which names every path it looked for.
+        """
+        queued = []
+        for kind in for_every_run():
+            try:
+                task, _ = self.queue(jid, kind, {})
+            except (CapacityFull, RunBusy, RunNotFound, OSError, ValueError):
+                continue
+            queued.append(task['id'])
+        return queued
 
     def dependencies(self, job):
         result = {}
@@ -82,8 +136,6 @@ class AnalysisCoordinator:
             raise RunNotFound('Unknown analysis')
         if not isinstance(payload, dict):
             raise InvalidRequest('Expected an object')
-        if kind == 'snapshots' and payload.get('stage', '1_AA-reference') != '1_AA-reference':
-            raise InvalidRequest('Only AA snapshots are supported')
         with owner.JOBS_LOCK:
             job = owner.lookup(jid)
             if job['status'] not in ('completed', 'failed', 'cancelled') or jid in owner.WORKERS:
@@ -137,7 +189,7 @@ class AnalysisCoordinator:
                 result -- are computed by the body, so it leaves them in `extras` for this to merge.
                 `ended_at` belongs to every terminal status, as it always did.
                 """
-                if fields.get('status') in ('completed', 'failed', 'cancelled'):
+                if fields.get('status') in ('completed', 'failed', 'cancelled', 'skipped'):
                     fields.setdefault('ended_at', owner.now())
                 self.update(jid, aid, **fields, **extras)
 
@@ -170,8 +222,17 @@ class AnalysisCoordinator:
                     attempt.mkdir(parents=True, exist_ok=False)
                     files.atomic_json(attempt / 'request.json', request)
                     with (attempt / 'console.log').open('w') as output:
-                        worker.execute(command, cwd=paths.PACKAGE_ROOT.parent, env=environment,
-                                       stdout=output, stderr=subprocess.STDOUT)
+                        try:
+                            worker.execute(command, cwd=paths.PACKAGE_ROOT.parent, env=environment,
+                                           stdout=output, stderr=subprocess.STDOUT)
+                        except subprocess.CalledProcessError as failure:
+                            if failure.returncode != workflow.SKIPPED_EXIT_CODE:
+                                raise
+                            # The kind had nothing to do. The contract is the stage contract: exit 4 with the
+                            # reason in `skip.json` beside the request, and the producer's own words are the
+                            # message. `attempt` records `skipped` from it and does not re-raise, so nothing here
+                            # fails -- neither this attempt nor the run it belongs to.
+                            raise workflow.Skipped(workflow.skip_reason(attempt, task['kind'])) from None
                     result = json.loads((attempt / 'result.json').read_text())
                     outputs = [str((attempt / result.get('output_directory', 'output') / relative).relative_to(owner.run_path(job)))
                                for relative in result['outputs_sha256']]

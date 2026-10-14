@@ -57,14 +57,18 @@ def test_the_queue_routes_vocabulary_is_the_run_types_own():
 
     It computed `cg.SETTING_SPECS | aa.SETTING_SPECS | aa.CHOICE_SPECS` for everything that was not `aa_only` or
     `pdc`. For the three run types that reaches, that happens to equal the run type's own vocabulary -- and for
-    `osmotic` it does not: the molality, which is the one setting that makes a series a series, is in neither half,
-    so a condition queued through the route would have had it filtered out before the job was built.
+    `osmotic` it does not: the molality, which is the one setting that makes a series a series, is in neither half.
+    It is not in the run type's tables either, and that is deliberate: the concentrations are a *list*, the route
+    that queues a series reads its own body, and no form control could carry it. The old single-molality setting is
+    gone entirely, which is what leaves the two shapes tellable apart.
     """
     from dashboard.execution.adapters import aa, cg
     merged = set(cg.SETTING_SPECS) | set(aa.SETTING_SPECS) | set(aa.CHOICE_SPECS)
     osmotic = published_vocabulary(protocol.adapter_for('osmotic'))
-    assert 'osmotic_molality' in osmotic, 'the condition\'s own setting is part of its own vocabulary'
-    assert 'osmotic_molality' not in merged, 'and it was not in the union the route computed for it'
+    assert 'osmotic_production_ps' in osmotic, "the series' own settings are part of its own vocabulary"
+    assert 'osmotic_production_ps' not in merged, 'and they were not in the union the route computed for it'
+    assert 'molalities' not in osmotic, 'the series list is deliberately in neither published table'
+    assert 'osmotic_molality' not in osmotic, "the old shape's single molality is not a setting any more"
 
 
 def test_an_aa_cg_run_publishes_both_halves_it_accepts():

@@ -113,7 +113,7 @@ directly: `static/vendor/ngl.js` (NGL 2.3.1 per `ngl.js.source.json`) in Chromiu
 | a PDC run's snapshots and built system | `GET /api/pdc/<id>/snapshots`, `/system.pdb` | **yes, but delegated** — see the overlap section |
 | a trajectory frame of an `aa_only`/`aa_cg` run | — | **no route exists.** Not invented, not faked in JavaScript |
 | a CG structure with the model's own bonds | — | **no route exists.** T3's, and it is the only new endpoint this plan asks for |
-| the frames the transport row plays | `GET /api/jobs/<id>/artifacts/snapshots/AA-frames.pdb?inline=1` | **yes, once T4 writes it** — one multi-model PDB, loaded `asTrajectory: true`; until then the row is drawn and disabled with its reason |
+| the frames the transport row plays | `GET /api/jobs/<id>/artifacts/analyses/snapshots/<signature>/<attempt>/<output_directory>/snapshots/AA-frames.pdb?inline=1` | **yes** — one multi-model PDB, loaded `asTrajectory: true`, read out of the `snapshots` analysis's own published attempt (see the note under T4); a run with no trajectory publishes none and the row is drawn and disabled with its reason |
 | the run record (stages, tools, provenance) | `GET /api/jobs/<id>` | yes, for the identity line |
 
 Two things the panel must **not** do: read a `.xtc` in the browser (binary, and no pairing route), and build a viewer
@@ -327,17 +327,26 @@ directory. Acceptance: the reader sees the model's own bonds for a CG run, and *
 
 **T4 — frames, or an honest empty strip.** Either wire the `snapshots` kind to the `aa_only` layout
 (`analysis/runs/observability.py:95-125`: resolve `07_reference/lig.gro` + `lig.xtc` as well as `1_AA-reference/
-prod/…`, and record which layout it read) so the artifact route serves `snapshots/AA-first.pdb` — or ship the strip
+prod/…`, and record which layout it read) so the artifact route serves the published `AA-first.pdb` — or ship the strip
 empty with its reason. The first is a small change to a tested function and makes the strip real for the six `aa_only`
 runs; the second is honest and costs the ask's word "frames". **Recommend the first.** Tests: the resolver returns the
 `07_reference` pair for an `aa_only` run and the `prod/` pair for a consumer run, and names the one it used.
   Reading the layout is also what gives the transport row something to play, and the three frames the kind writes
-  today (`AA-first/middle/last.pdb`) are not a trajectory. So the first branch writes one more artifact:
-  `snapshots/AA-frames.pdb`, a **multi-model PDB** sampled from the same trajectory at a stated stride (MDAnalysis
+  today (`AA-first/middle/last.pdb`) are not a trajectory. So the first branch writes one more artifact: a
+  **multi-model PDB** sampled from the same trajectory at a stated stride (MDAnalysis
   writes N frames in one call), with the stride and the source path recorded beside it. The panel then makes **one**
   request for the whole series and loads it `asTrajectory: true`; assembling a trajectory client-side out of N
   per-frame files is the thing this avoids. Tests: the file's `MODEL` count equals the requested sample count, and each
   frame's atom count equals the solute's.
+  **Where the panel reads it (corrected 2026-10-14, measured against the landed producer):** the frames now exist
+  without anyone asking — the `snapshots` kind runs for every run that reaches a terminal state, samples 40 frames,
+  and skips with a named reason where there is no trajectory. It publishes the way every analysis does, inside its own
+  attempt: `analyses/snapshots/<signature>/<attempt>/result.json`, whose `output_directory` names the content-addressed
+  root, with the files under `…/<output_directory>/snapshots/{AA,CG}-frames.pdb`. So there is no run-root `snapshots/`
+  path to read: the panel finds the newest `analyses/snapshots/*/*/result.json`, joins the attempt directory with the
+  record's `output_directory` (and the record's `outputs_sha256` names the published files), and asks the artifact
+  route for that run-relative path. The producer is deliberately **not** asked to publish outside its attempt
+  (`references/published-analysis-addressing.md`).
 
 **T5 — the run-type filter on `/api/jobs`.** `routes/runs.py:96-110` + `database().page(…, run_type=…)`. Reversal
 cost stated in D3. Tests: a filtered page returns only that type and keeps `total` consistent.

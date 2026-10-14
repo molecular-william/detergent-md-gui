@@ -6,15 +6,22 @@ Three things this step had wrong, each measured on the tool before it was change
   -- so the step raised on "the CG protein step left 0 structures" however well the tool had run. What is read now
   is the file the command itself names, so the two cannot drift;
 * the command carried no secondary-structure flag, so martinize2 logged "topology will be created without secondary
-  structure information", counted it as a warning and exited 2 with *nothing* written. `-ss <letters>` (see
-  `pdc_build.secondary_structure`) is what the tool asks for, and `-maxwarn 1` is its own documented room for one
-  warning;
+  structure information", counted it as a warning and exited 2 with *nothing* written. The copy now asks for the
+  assignment the way the Martini 3 tutorial's own martinize2 invocation does -- `-dssp`, bare, which vermouth answers
+  with mdtraj (`AnnotateDSSP(executable=None)` binds `run_mdtraj`) -- and `-maxwarn 1` is the tool's own documented
+  room for its one warning when no assignment can be made at all;
 * martinize2 writes the molecule's own `.itp` into its *working directory* (`molecule_0.itp`, which the `.top` it
   writes includes by that name), so the step runs it inside `cg/` -- run anywhere else, the topology the next step
   needs lands beside the stage instead.
 
+`-dssp` is one of two mutually exclusive flags, and the fallback is the other one: `-ss <letters>`, with the letters
+assigned here by MDAnalysis (`MDAnalysis.analysis.dssp`), which is what every earlier run used and what a virtualenv
+without mdtraj still gets. Which of the two was used is recorded in the report, so a reader never has to guess.
+
 The fixtures build their own molecule tree and their own protein; nothing here reads the developer's workspace, and
-the tool itself is stubbed, because what is tested is the stage's own command and read-back.
+the tool itself is stubbed, because what is tested is the stage's own command and read-back. The two assignment
+sources are *not* stubbed where a test is about which one answers: mdtraj and MDAnalysis are both declared
+dependencies of this repository, and a test that asserted a route without them would assert nothing about it.
 """
 from __future__ import annotations
 
@@ -37,9 +44,8 @@ TEMPLATE = {
 def peptide(residues: int = 6) -> str:
     """A peptide with an ideal backbone, so a secondary-structure assignment has something to read.
 
-    Measured: MDAnalysis' DSSP implementation assigns from six residues up and raises below five, so six is the
-    shortest fixture that exercises the real assignment -- and `peptide(1)` is the fixture for the other branch,
-    where no assignment can be made and the stage has to say so rather than invent one.
+    Six residues is the shortest fixture both sources answer: MDAnalysis' DSSP implementation raises below five
+    residues (measured), and mdtraj reads every length and calls a straight backbone coil.
     """
     records, serial = [], 0
     for index in range(1, residues + 1):
@@ -110,6 +116,10 @@ def stubbed_run(calls, beads=3):
     return run
 
 
+def report(stage: Path) -> dict:
+    return json.loads((stage / pdc.REPORT_NAME).read_text())
+
+
 # --- what is read back ------------------------------------------------------------------------------------------
 
 def test_the_cg_step_reads_the_structure_its_own_command_names(tmp_path, monkeypatch):
@@ -120,8 +130,7 @@ def test_the_cg_step_reads_the_structure_its_own_command_names(tmp_path, monkeyp
 
     assert pdc_build.build(stage) == 3
 
-    report = json.loads((stage / pdc.REPORT_NAME).read_text())
-    assert report['protein_beads'] == 3, 'the beads are the ones the tool wrote where the command said'
+    assert report(stage)['protein_beads'] == 3, 'the beads are the ones the tool wrote where the command said'
     assert Path(calls[0]['command'][calls[0]['command'].index('-x') + 1]).is_file()
 
 
@@ -137,8 +146,7 @@ def test_a_gro_in_the_directory_is_not_what_the_cg_step_reads(tmp_path):
 
     assert pdc_build.build(stage) == 3
 
-    report = json.loads((stage / pdc.REPORT_NAME).read_text())
-    assert report['protein_beads'] == 3, 'the five beads of the .gro are not this step\'s protein'
+    assert report(stage)['protein_beads'] == 3, 'the five beads of the .gro are not this step\'s protein'
 
 
 def test_a_structure_the_tool_never_writes_is_not_taken_for_a_built_step(tmp_path, monkeypatch):
@@ -163,10 +171,10 @@ def test_a_step_that_was_built_before_does_not_run_martinize2_again(tmp_path, mo
 
     assert pdc_build.build(stage) == 3
 
-    report = json.loads((stage / pdc.REPORT_NAME).read_text())
-    assert calls == [] and report['cg_command'] is None
-    assert report['protein_beads'] == 3
-    assert report['secondary_structure']['source'] is None, 'nothing was assigned: the tool was not run'
+    recorded = report(stage)
+    assert calls == [] and recorded['cg_command'] is None
+    assert recorded['protein_beads'] == 3
+    assert recorded['secondary_structure']['source'] is None, 'nothing was assigned: the tool was not run'
 
 
 # --- the command -----------------------------------------------------------------------------------------------
@@ -186,8 +194,13 @@ def test_martinize2_runs_in_the_directory_it_writes_its_own_topology_into(tmp_pa
             f'{flag} writes outside the directory the tool is run in'
 
 
-def test_the_command_asks_for_a_secondary_structure_and_leaves_room_for_one_warning(tmp_path, monkeypatch):
-    """Without a secondary structure martinize2 warns once and exits 2 with nothing written."""
+def test_the_command_asks_martinize2_to_assign_the_structure_itself(tmp_path, monkeypatch):
+    """`-dssp` bare is the documented route: vermouth answers it with mdtraj, so the tool assigns the structure.
+
+    The flag is asserted *bare* -- nothing follows it -- because an argument would make vermouth run an external DSSP
+    binary instead, and vermouth trusts only versions 2.2.1 and 3.0.0 of one (`SUPPORTED_DSSP_VERSIONS`), which is
+    not what this box carries.
+    """
     _, stage = prepared(tmp_path)
     calls = []
     monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_run(calls))
@@ -195,10 +208,47 @@ def test_the_command_asks_for_a_secondary_structure_and_leaves_room_for_one_warn
     pdc_build.build(stage)
 
     command = calls[0]['command']
+    assert command[-1] == '-dssp', 'the bare flag is what makes vermouth use mdtraj'
+    assert '-ss' not in command, 'the tool declares the two flags mutually exclusive'
+    assert command[command.index('-maxwarn') + 1] == '1'
+
+
+def test_martinize2_is_handed_the_letters_only_when_mdtraj_cannot_assign_them(tmp_path, monkeypatch):
+    """A virtualenv without mdtraj still builds, with the source every earlier run used: MDAnalysis' letters."""
+    _, stage = prepared(tmp_path)
+    calls = []
+    monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_run(calls))
+    monkeypatch.setattr(pdc_build, '_mdtraj_letters', lambda structure: (None, 'mdtraj is not importable: nope'))
+
+    pdc_build.build(stage)
+
+    command = calls[0]['command']
+    assert '-dssp' not in command, 'the route with no library behind it is not asked for'
     sequence = command[command.index('-ss') + 1]
     assert len(sequence) == 6, 'one letter per residue of the protein it was given'
     assert set(sequence) <= set('HEC'), 'the letters martinize2 takes, and no others'
+
+    recorded = report(stage)['secondary_structure']
+    assert recorded['source'] == pdc_build.SS_FALLBACK_SOURCE and recorded['route'] == '-ss'
+
+
+def test_a_structure_neither_source_can_assign_still_builds_and_names_both_reasons(tmp_path, monkeypatch):
+    """No secondary structure is martinize2's own documented case (`-maxwarn`), so it is recorded, not invented."""
+    _, stage = prepared(tmp_path)
+    calls = []
+    monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_run(calls))
+    monkeypatch.setattr(pdc_build, '_mdtraj_letters', lambda structure: (None, 'mdtraj says no'))
+    monkeypatch.setattr(pdc_build, '_mdanalysis_letters', lambda structure: (None, 'MDAnalysis says no'))
+
+    assert pdc_build.build(stage) == 3
+
+    command = calls[0]['command']
+    assert '-dssp' not in command and '-ss' not in command, 'a flag with no assignment behind it is not asked for'
     assert command[command.index('-maxwarn') + 1] == '1'
+
+    recorded = report(stage)['secondary_structure']
+    assert recorded['source'] is None and recorded['route'] is None
+    assert 'mdtraj says no' in recorded['detail'] and 'MDAnalysis says no' in recorded['detail']
 
 
 def test_the_command_handed_to_martinize2_names_absolute_paths(tmp_path, monkeypatch):
@@ -230,27 +280,12 @@ def test_a_ligand_in_the_protein_chain_is_dropped_and_the_report_names_it(tmp_pa
 
     pdc_build.build(stage)
 
-    report = json.loads((stage / pdc.REPORT_NAME).read_text())
-    assert report['protein_dropped_residues'] == ['RET']
-    assert report['protein_input'] == pdc_build.SELECTED_PROTEIN, \
+    recorded = report(stage)
+    assert recorded['protein_dropped_residues'] == ['RET']
+    assert recorded['protein_input'] == pdc_build.SELECTED_PROTEIN, \
         'the file martinize2 reads is the filtered one, not the run\'s own protein.pdb'
     handed = Path(calls[0]['command'][calls[0]['command'].index('-f') + 1])
     assert 'HETATM' not in handed.read_text(), 'the ligand never reaches martinize2'
-
-
-def test_a_protein_no_assignment_can_be_made_for_still_builds_and_says_why(tmp_path, monkeypatch):
-    """No secondary structure is martinize2's own documented case (`-maxwarn`), so it is recorded, not invented."""
-    _, stage = prepared(tmp_path, protein=peptide(1))
-    calls = []
-    monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_run(calls))
-
-    assert pdc_build.build(stage) == 3
-
-    command = calls[0]['command']
-    assert '-ss' not in command, 'a one-residue protein has no assignment to hand over'
-    assert command[command.index('-maxwarn') + 1] == '1'
-    recorded = json.loads((stage / pdc.REPORT_NAME).read_text())['secondary_structure']
-    assert recorded['source'] is None and recorded['detail']
 
 
 def test_a_command_that_names_no_structure_output_is_refused(tmp_path):
@@ -271,16 +306,33 @@ def test_a_letter_martinize2_does_not_take_is_refused_rather_than_translated():
     assert pdc_build.ss_sequence([]) is None
 
 
-def test_the_assignment_names_its_source_and_counts_what_it_found(tmp_path):
-    """The run's record says where the secondary structure came from, so a reader need not re-derive it."""
+def test_the_assignment_names_the_source_and_the_flag_it_is_wired_with(tmp_path):
+    """The report says which library assigned and which flag martinize2 was handed, so a reader need not guess."""
     path = tmp_path / 'protein.pdb'
     path.write_text(peptide())
 
-    sequence, record = pdc_build.secondary_structure(path)
+    record = pdc_build.secondary_structure(path)
 
-    assert sequence and len(sequence) == 6
-    assert record['source'] == pdc_build.SS_SOURCE and record['residues'] == 6
+    assert record['source'] == pdc_build.SS_SOURCE and record['route'] == '-dssp'
+    assert record['residues'] == 6 and len(record['letters']) == 6
     assert record['helix'] + record['extended'] + record['coil'] == 6
+
+
+def test_the_recorded_letters_are_the_assignment_the_source_made(tmp_path):
+    """The record is auditable: its letters are the assignment itself, not a summary of it."""
+    path = tmp_path / 'protein.pdb'
+    path.write_text(peptide())
+
+    letters, reason = pdc_build._mdtraj_letters(path)
+    record = pdc_build.secondary_structure(path)
+
+    assert reason is None and record['letters'] == ''.join(letters)
+
+
+def test_the_three_classes_are_martinis_own_reading_of_the_letters():
+    """`H G I` are all helices to martinize2 (vermouth's `SS_CG`), `E B` both extended, and the rest is coil."""
+    assert pdc_build.martini_classes(['H', 'G', 'I', 'E', 'B', 'T', 'S', 'C']) == \
+        {'helix': 3, 'extended': 2, 'coil': 3}
 
 
 def test_the_secondary_structure_the_run_used_reaches_the_report(tmp_path, monkeypatch):
@@ -289,7 +341,7 @@ def test_the_secondary_structure_the_run_used_reaches_the_report(tmp_path, monke
 
     pdc_build.build(stage)
 
-    recorded = json.loads((stage / pdc.REPORT_NAME).read_text())['secondary_structure']
+    recorded = report(stage)['secondary_structure']
     assert recorded['source'] == pdc_build.SS_SOURCE and recorded['residues'] == 6
     assert recorded['coil'] == 6, 'the fixture is a straight peptide'
 
@@ -301,5 +353,4 @@ def test_the_report_carries_the_whole_command_the_stage_ran(tmp_path, monkeypatc
 
     pdc_build.build(stage)
 
-    recorded = json.loads((stage / pdc.REPORT_NAME).read_text())['cg_command']
-    assert recorded == calls[0]['command']
+    assert report(stage)['cg_command'] == calls[0]['command']

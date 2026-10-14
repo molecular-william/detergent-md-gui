@@ -25,16 +25,24 @@ from .common import coordinator, json_object
 
 blueprint = Blueprint('osmotic', __name__)
 
-#: The molalities Ebrahimi & Sadeghi measured, which is what a series exists to compare against. A caller may name
-#: others; the default is the paper's own set so the common case needs no argument. The panel sends its own five
-#: (it skips the 0.0 control, which is the same for every sugar), so this is read only by a caller that names none.
+#: The molalities Ebrahimi & Sadeghi measured -- documentation, and **not a default any more**. The panel's own note
+#: in the template names this set as the source of its six rows, and the panel always sends its own five (it skips
+#: the 0.0 control, which is the same for every sugar); nothing fills it in behind a caller's back. See
+#: `_requested_molalities` for why the default had to go.
 PAPER_MOLALITIES = (0.0, 0.5, 1.0, 1.5, 2.0, 2.5)
 
 
 def _requested_molalities(data):
+    """The concentrations the caller named, or a 400 that names the shape this run type accepts.
+
+    **No default, and that is the point.** `PAPER_MOLALITIES` used to be filled in here, which made a payload that
+    named none and a payload that asked for those six indistinguishable -- and left behind a series whose
+    concentrations nobody had named. A payload with no `molalities` is the shape the hand-queued one-condition runs
+    had, so it is refused with the run type's own reason rather than defaulted.
+    """
     requested = data.get(osmotic.SERIES_KEY)
-    if requested in (None, ''):
-        return list(PAPER_MOLALITIES)
+    if requested in (None, '', []):
+        abort(400, osmotic.series_shape_reason())
     values = requested if isinstance(requested, (list, tuple)) else str(requested).replace(',', ' ').split()
     try:
         return [float(value) for value in values]
@@ -80,7 +88,7 @@ def series_api():
 
     molalities = _requested_molalities(data)
     if not molalities:
-        abort(400, 'A series needs at least one molality')
+        abort(400, osmotic.series_shape_reason())
 
     # The settings this run type accepts, asked of the run type: the route assembled the same union of two adapter
     # tables the runs route did, which is the answer for a run type only by coincidence.
