@@ -1,10 +1,13 @@
 import { $, cachedApi, invalidateResource, panelIds } from './shared.js';
-import { BEAD_RADIUS_PARAMETERS, applyBeadRadii } from './ngl-beads.js';
+import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, applyBeadRadii, renderBeadLegend } from './ngl-beads.js';
 
 export function createPdc() {
   const template = $('#pdc-template'), protein = $('#pdc-protein');
   const status = $('#pdc-panel-status'), limitation = $('#pdc-template-limitation');
   const viewer = $('#pdc-viewer'), viewerBasis = $('#pdc-view-basis');
+  //: Where the legend goes: the card this panel draws its beads in. The colours are `ngl-beads.js`'s table and this
+  //: element is filled from it at mount, so the swatches and the beads cannot be decoded two ways.
+  const legend = document.querySelector('.pdc-view .bead-legend');
   const strip = $('#pdc-snapshots'), stripBasis = $('#pdc-snapshot-basis');
   const runSelect = $('#pdc-run');
   const mapping = $('#pdc-mapping'), queue = $('#pdc-queue');
@@ -237,7 +240,10 @@ export function createPdc() {
       // keep its own copy of the numbers. The radii go on the structure first, because that is what a representation
       // resolves per atom.
       applyBeadRadii(item.structure);
-      item.addRepresentation('ball+stick', BEAD_RADIUS_PARAMETERS);
+      // The ball and the stick carry both of the module's answers: the radius each bead's own class gives it, and the
+      // colour its own type family gives it (`BEAD_FAMILY_PARAMETERS` reads the code the file writes in the b-factor
+      // column). One representation over every atom, so no bond is cut between two families.
+      item.addRepresentation('ball+stick', {...BEAD_RADIUS_PARAMETERS, ...BEAD_FAMILY_PARAMETERS});
       item.autoView();
       if (describe && viewerBasis) viewerBasis.textContent = describe(item);
     });
@@ -305,7 +311,11 @@ export function createPdc() {
       + 'water and ions are omitted.');
   }
 
-  return { mount: async () => { await Promise.all([load(), loadRuns()]); return $('#'+panelIds().complexes); },
+  return { mount: async () => {
+             // The legend is filled from the module's table when the panel mounts, so what a reader decodes the beads
+             // with is the same five colours the representations resolve.
+             renderBeadLegend(legend);
+             await Promise.all([load(), loadRuns()]); return $('#'+panelIds().complexes); },
            loadSystem, loadSnapshots,
            // The same door the panel's own list opens, kept as `window.pdcSetRun` for the tests that arm the viewer
            // without waiting for a run to exist.

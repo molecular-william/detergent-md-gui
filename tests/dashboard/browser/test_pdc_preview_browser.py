@@ -9,9 +9,11 @@ Four claims, and each is the plan's:
   the seed and the box margins do re-derive, because the coarse-grained protein is cached server-side;
 * **a refusal is the builder's sentence and no picture** -- never a blank block, and never a drawing of a system the
   build would refuse;
-* **the beads are drawn at the model's own radius, class by class, and the bond guess is off** -- the radii read off
-  the loaded structure are the module's own table, each bead at the radius its own size class has and a bead the
-  model does not size at the R stand-in, and the drawn bonds are the file's `CONECT` records or none at all.
+* **the beads are drawn at half the model's radius, class by class, and coloured by their type family** -- the radii
+  read off the loaded structure are the module's own table times this card's own `PREVIEW_BEAD_SCALE`, each bead at
+  the radius its own size class has and a bead the model does not size at the R stand-in, and each bead's colour is
+  the Martini 3 polarity family the file's b-factor column carries; the drawn bonds are the file's `CONECT` records or
+  none at all.
 
 The route is served as a fixture, so nothing here reads the developer's workspace, and the frames are written by
 `pdc_view.system_pdb` -- the same writer a run's own snapshot goes through -- rather than being typed out by hand.
@@ -27,6 +29,9 @@ from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONST
 #: measurement and the model's table cannot drift.
 RADII_NM = {'R': 0.264, 'S': 0.230, 'T': 0.191}
 NANOMETRE_TO_ANGSTROM = 10.0
+#: The card's own reading scale -- the module's `BEAD_RADIUS_SCALE` at the value this preview wants, 0.5 since
+#: 2026-10-14, when the user reported the beads too big and asked for half.
+PREVIEW_BEAD_SCALE = 0.5
 
 PROTEIN = {'id': 'molecules/1qj8/1qj8.pdb', 'name': '1qj8', 'path': 'molecules/1qj8/1qj8.pdb',
            'source': 'packaged', 'half_thickness_nm': 1.35, 'chains': ['A', 'B']}
@@ -76,7 +81,7 @@ def centres_pdb(molecules=3):
 
 
 def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, clearance: float | None = 0.5436,
-           placement_shape='belt-band', band: float | None = 3.6408, representation='the mapping\u2019s beads',
+           placement_shape='belt-torus', band: float | None = 2.1431, representation='the mapping\u2019s beads',
            cost=None, protein: str | None = '1qj8', chains=('A', 'B'), mode='lattice', aggregation=150,
            seed=20261013):
     """A response shaped as the route answers, with the fields the card renders."""
@@ -193,7 +198,7 @@ def test_deriving_the_preview_draws_the_frame_the_route_answered_with(dashboard,
         '1qj8 chains A+B · pre-assembled micelle · 150 detergents · seed 20261013')
     expect(page.locator('.new-pdc-preview-beads')).to_contain_text('1,024 beads')
     expect(page.locator('.new-pdc-preview-box')).to_contain_text('the box the build writes')
-    expect(page.locator('.new-pdc-preview-box')).to_contain_text('band of radius 3.64 nm')
+    expect(page.locator('.new-pdc-preview-box')).to_contain_text('band of radius 2.14 nm')
     expect(page.locator('.new-pdc-preview-cost')).to_contain_text('already cached')
     expect(page.locator('.new-pdc-preview-kept')).to_contain_text('preview/cg/0423f94ce62e7698')
     expect(page.locator('.new-pdc-preview-refusal')).to_be_hidden()
@@ -276,14 +281,15 @@ def test_the_empty_micelle_derives_with_no_coarse_graining_at_all(dashboard, liv
     assert errors == [], errors
 
 
-def test_the_beads_are_drawn_at_the_models_own_radius_with_the_bond_guess_off(dashboard, live_page):
-    """Measured off the loaded structure: each bead at its own class' radius, and the file's own bonds and no others.
+def test_the_beads_are_drawn_at_half_the_models_radius_with_the_bond_guess_off(dashboard, live_page):
+    """Measured off the loaded structure: each bead at half its own class' radius, and the file's own bonds and no others.
 
-    The card drew these beads twice the model's size until 2026-10-14, when the user reported them too big; the
-    preview now reads the module's one table at the model's own scale (`PREVIEW_BEAD_SCALE` = 1). The frame is the
-    writer's own output, so the classes are the ones `pdc_view.system_pdb` wrote: the detergent's sugar beads are the
-    model's S (2.30 A), their ring virtual sites its T (1.91 A) and their tails its R (2.64 A) -- while the two
-    protein beads are beads the detergent's moleculetype does not size, so they keep the stand-in, the model's R.
+    The card drew these beads twice the model's size until 2026-10-14; the same day the user asked for half, so the
+    preview now reads the module's one table at its own `PREVIEW_BEAD_SCALE` (0.5) and a bead is drawn at half the
+    radius its class states. The frame is the writer's own output, so the classes are the ones
+    `pdc_view.system_pdb` wrote: the detergent's sugar beads are the model's S (2.30 A), their ring virtual sites its
+    T (1.91 A) and their tails its R (2.64 A) -- while the two protein beads are beads the detergent's moleculetype
+    does not size, so they keep the stand-in, the model's R.
 
     The element a bead is written with is a neutral stand-in, so NGL's distance-based guess -- `inferBonds`, on by
     default -- draws head beads onto tail beads. The card switches it off, so the drawn bonds are the `CONECT` records
@@ -298,15 +304,105 @@ def test_the_beads_are_drawn_at_the_models_own_radius_with_the_bond_guess_off(da
 
     # The frame's beads in file order: the two protein beads first, then each detergent's eleven.
     beads = ['BB', 'SC1'] + [name for _ in range(MOLECULES) for name in DDM_BEADS]
-    expected = [RADII_NM[DDM_CLASSES.get(name, 'R')] for name in beads]
+    expected = [RADII_NM[DDM_CLASSES.get(name, 'R')] * PREVIEW_BEAD_SCALE for name in beads]
     drawn = [None if value is None else round(value / NANOMETRE_TO_ANGSTROM, 4) for value in measured['radii']]
-    assert drawn == expected, f'not the model\'s own radii: {drawn} against {expected}'
-    # The acceptance, in the unit the structure carries: the model's three classes, and the R to S proportion.
+    assert drawn == expected, f"not half the model's own radii: {drawn} against {expected}"
+    # The acceptance, in the unit the structure carries: the model's three classes at the card's own scale, and the
+    # R to S proportion, which no multiplier of the card's can change.
     radii_nm = {value for value in drawn if value is not None}
-    assert sorted({round(value * NANOMETRE_TO_ANGSTROM, 2) for value in radii_nm}) == [1.91, 2.30, 2.64], drawn
+    assert sorted({round(value * NANOMETRE_TO_ANGSTROM, 2) for value in radii_nm}) == \
+        sorted(round(radius * NANOMETRE_TO_ANGSTROM * PREVIEW_BEAD_SCALE, 2) for radius in RADII_NM.values()), drawn
     assert round(RADII_NM['R'] / RADII_NM['S'], 3) == 1.148
     assert measured['parameters']['radiusScale'] * measured['parameters']['aspectRatio'] == 1, measured['parameters']
     expected_bonds = MOLECULES * len(DDM_BONDS + DDM_CONSTRAINTS)
     assert measured['bonds'] == expected_bonds, (
         f"{measured['bonds']} bonds drawn where the model bonds {expected_bonds}: the distance guess is back in")
+    assert errors == [], errors
+
+
+#: Martini 3's polarity families as `ngl-beads.js` colours them, written out so this test is not the module's own
+#: answer read back to itself.
+FAMILY_COLOURS = {'unstated': '#cccccc', 'C': '#7048e8', 'N': '#e8590c', 'P': '#2f9e44', 'Q': '#2b6cb0'}
+#: Each DDM bead's family, from the type the fixture's moleculetype gives it: the sugar beads are polar (`SP1r`),
+#: the ring's virtual sites and the tails apolar (`TC4`, `C1`). A protein bead is named by no moleculetype, so its
+#: family is not stated -- and neither is a bead an all-atom file writes.
+DDM_FAMILIES = {'S1A': 'P', 'S1B': 'P', 'S1C': 'P', 'S1VS': 'C', 'S2A': 'P', 'S2B': 'P', 'S2C': 'P', 'S2VS': 'C',
+                'TAIL1': 'C', 'TAIL2': 'C', 'TAIL3': 'C'}
+
+#: What the picture's own colours and the legend under it are, read back off the loaded component and the DOM: the
+#: representation's resolved per-atom colour (through the same registry the drawing uses), the colour parameters the
+#: panel handed it, and every legend entry with its swatch's rendered background.
+MEASURE_COLOURS = """
+async (el) => {
+  const structure = el.previewStage.compList[0].structure;
+  const parameters = el.previewStage.compList[0].reprList[0].repr.getColorParams();
+  const scheme = NGL.ColormakerRegistry.getScheme(parameters);
+  const colours = [];
+  for (let index = 0; index < structure.atomCount; index += 1) {
+    colours.push(scheme.atomColor(structure.getAtomProxy(index)).toString(16).padStart(6, '0'));
+  }
+  const entries = [...document.querySelectorAll('.new-pdc-preview .bead-legend-item')].map(item => ({
+    family: item.dataset.family,
+    label: item.querySelector('.bead-legend-label').textContent,
+    declared: item.querySelector('.bead-legend-swatch').dataset.colour,
+    swatch: getComputedStyle(item.querySelector('.bead-legend-swatch')).backgroundColor,
+  }));
+  const module = await import('/static/js/ngl-beads.js');
+  return {scheme: parameters.scheme, scale: parameters.scale, domain: parameters.domain, colours: colours,
+          entries: entries,
+          module: {order: module.BEAD_FAMILY_ORDER, colours: module.BEAD_FAMILY_COLOURS,
+                   families: [module.beadFamily('SP1r'), module.beadFamily('SN6'), module.beadFamily('SP4r'),
+                              module.beadFamily('TC4'), module.beadFamily('C1'), module.beadFamily('BB')]}};
+}
+"""
+
+
+def rgb(hex_code):
+    """A `#rrggbb` as the string `getComputedStyle` reports it."""
+    value = hex_code.lstrip('#')
+    return f'rgb({int(value[0:2], 16)}, {int(value[2:4], 16)}, {int(value[4:6], 16)})'
+
+
+def test_the_beads_are_coloured_by_type_family_and_the_legend_says_which(dashboard, live_page):
+    """Measured off the loaded frame and the DOM: every bead's colour is its type family's, and the legend names them.
+
+    A bead's size class is one axis and its Martini 3 polarity family the other, so the family is what colour carries:
+    `pdc_view.system_pdb` writes a code per bead in the file's b-factor column, and `BEAD_FAMILY_PARAMETERS` colours
+    the representation from it. The frame spans two families (the sugar heads polar, the tails apolar), and its two
+    protein beads -- beads no moleculetype names -- are drawn the neutral family-not-stated colour rather than being
+    guessed into one. The legend under the canvas is read back from its own DOM: five entries, each named, each
+    swatch the colour the module states for that family *and* the colour a bead of it resolves to on the canvas.
+    """
+    page, errors = live_page
+    serve(page, answer(placement_pdb()))
+    open_panel(page, live_page.base_url)
+    derive(page)
+    loaded_atoms(page, 2 + MOLECULES * len(DDM_BEADS))
+    measured = page.locator('.new-pdc-preview-viewer').evaluate(MEASURE_COLOURS)
+
+    # The panel asked for the family scheme, with the module's five-colour scale over its fixed domain -- never the
+    # structure's own spread of codes, which would repaint a bead when a frame held different families.
+    assert measured['scheme'] == 'bfactor', measured['scheme']
+    assert measured['scale'] == [FAMILY_COLOURS[family] for family in measured['module']['order']], measured['scale']
+    assert measured['domain'] == [0, 4], measured['domain']
+    # The module's own rule, run in the page: the saved DDM mapping's types, and a name that names no family.
+    assert measured['module']['families'] == ['P', 'N', 'P', 'C', 'C', 'unstated'], measured['module']['families']
+
+    beads = ['BB', 'SC1'] + [name for _ in range(MOLECULES) for name in DDM_BEADS]
+    expected = [FAMILY_COLOURS[DDM_FAMILIES.get(name, 'unstated')] for name in beads]
+    drawn = ['#' + colour for colour in measured['colours']]
+    assert drawn == expected, f"the beads are not drawn in their families' colours: {drawn} against {expected}"
+    # The frame spans two *stated* families -- the polar heads and the apolar tails -- beside the two protein beads
+    # no moleculetype names, which is what makes this a measurement of the colouring rather than of one family.
+    stated = {colour for colour in drawn} - {FAMILY_COLOURS['unstated']}
+    assert stated == {FAMILY_COLOURS['P'], FAMILY_COLOURS['C']}, f'not two families on the frame: {sorted(drawn)}'
+
+    # The legend, read off the page: one entry per family, named, and its swatch is the colour the beads resolved.
+    assert [entry['family'] for entry in measured['entries']] == measured['module']['order']
+    for entry in measured['entries']:
+        assert entry['declared'] == FAMILY_COLOURS[entry['family']], entry
+        assert entry['swatch'] == rgb(FAMILY_COLOURS[entry['family']]), entry
+    labels = {entry['family']: entry['label'] for entry in measured['entries']}
+    assert labels == {'unstated': 'family not stated', 'C': 'apolar (C)', 'N': 'nonpolar (N)', 'P': 'polar (P)',
+                      'Q': 'charged (Q)'}, labels
     assert errors == [], errors

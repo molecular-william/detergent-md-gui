@@ -45,10 +45,14 @@ def _resolve(expression, values):
 
 
 def _table_body(text, name):
-    """One `{...}` table's own body, out of the file's text, so two copies can be compared as written."""
+    """One `{...}` table's own body, out of the file's text, so two copies can be compared as written.
+
+    Whitespace is dropped rather than preserved: one copy may wrap a long table over two lines, and a comparison
+    that failed on a line break would be comparing the layout rather than the numbers.
+    """
     match = re.search(rf'{name}\s*=\s*\{{([^}}]*)\}}', text)
     assert match, f'{name} is not in this file'
-    return match.group(1).replace(' ', '')
+    return re.sub(r'\s+', '', match.group(1))
 
 
 def _drawn_parameters(text):
@@ -85,19 +89,26 @@ def test_the_mock_draws_the_same_bead_and_bond_as_the_module():
     """The mock's copy of these numbers is the module's, because the preview and the run view draw one bead.
 
     A standalone page cannot import the module, so the numbers are repeated -- and a second copy is a second model
-    unless something holds the two together. This is that hold: the radii table, the element stand-ins, the scale
-    the preview reads at and the two representation parameters all have to be the module's.
+    unless something holds the two together. This is that hold: the radii table, the element stand-ins, the family
+    table with its five colours and labels, the scale the preview reads at and the two representation parameters all
+    have to be the module's.
     """
     module = SOURCE.read_text()
     draft = DRAFT.read_text()
     assert _table_body(draft, 'BEAD_RADII_NM') == _table_body(module, 'BEAD_RADII_NM')
     assert _table_body(draft, 'SIZE_ELEMENTS') == _table_body(module, 'SIZE_ELEMENTS')
+    # The colour table too: a mock that decoded a bead with a different palette would be a second colouring.
+    assert _table_body(draft, 'BEAD_FAMILY_COLOURS') == _table_body(module, 'BEAD_FAMILY_COLOURS')
+    assert _table_body(draft, 'BEAD_FAMILY_LABELS') == _table_body(module, 'BEAD_FAMILY_LABELS')
+    for text, name in ((module, 'ngl-beads.js'), (draft, 'the mock')):
+        assert re.search(r"BEAD_FAMILY_ORDER\s*=\s*\[\s*'unstated',\s*'C',\s*'N',\s*'P',\s*'Q'\s*\]", text), \
+            f'{name} states no family order'
     # The module's own scale is `1` -- a bead is drawn at the model's radius -- and the preview reads it at the same
     # one: the panel's beads were drawn twice as large, and the user's report was that they were too big.
     assert re.search(r'BEAD_RADIUS_SCALE\s*=\s*1\s*;', module)
     preview = re.search(r'PREVIEW_BEAD_SCALE\s*=\s*([0-9.]+);', draft)
     assert preview, 'the mock states no PREVIEW_BEAD_SCALE'
-    assert float(preview.group(1)) == 1, 'the preview draws the beads larger than the model states again'
+    assert float(preview.group(1)) == 0.5, 'the mock draws the beads at the scale the user asked to have halved'
     # And the panel now draws it too: the mock's own preview scale is the panel's, so the picture the reader approved
     # and the picture the app builds cannot differ by the one number the preview adds for reading.
     panel = re.search(r'PREVIEW_BEAD_SCALE\s*=\s*([0-9.]+);', (SOURCE.parent / 'new-run.js').read_text())
@@ -180,6 +191,82 @@ def test_the_size_class_a_bead_type_names_is_martini_3s_own():
     assert classes == {'SP1r': 'S', 'SN6': 'S', 'SP4r': 'S', 'TC4': 'T', 'C1': 'R', 'C2': 'R', 'TN2': 'T', '': 'R'}
 
 
+def test_the_family_a_bead_type_names_is_martini_3s_polarity_family():
+    """The family comes out of the same type column the class does: the first of `Q`/`P`/`N`/`C` after the prefix.
+
+    The writer puts the code in the file and a panel turns it back into one of five colours, so both ends have to
+    read the column the same way. A size-class prefix hides the family's own letter (`TC4` is tiny *and* apolar,
+    `SN6` small *and* nonpolar), and a type whose letter is none of the four -- a water bead, a bead no mapping
+    names, an empty column -- states no family rather than being guessed into one.
+    """
+    from dashboard.execution.adapters import pdc_view
+    families = {bead_type: pdc_view.bead_family(bead_type)
+                for bead_type in ('SP1r', 'SN6', 'SP4r', 'TC4', 'C1', 'C4', 'P1', 'N1', 'Q5', 'TN2', 'WF1', '', None)}
+    assert families == {'SP1r': 'P', 'SN6': 'N', 'SP4r': 'P', 'TC4': 'C', 'C1': 'C', 'C4': 'C', 'P1': 'P',
+                        'N1': 'N', 'Q5': 'Q', 'TN2': 'N', 'WF1': 'unstated', '': 'unstated', None: 'unstated'}
+
+
+def test_the_family_codes_are_the_order_the_modules_own_table_states():
+    """The code the file carries is an index into `ngl-beads.js`'s `BEAD_FAMILY_ORDER`, so one list decides it.
+
+    The writer numbers the families and the representation's colour scale is handed the same five in the same order,
+    which is what makes code *k* the *k*-th colour rather than one the panel picked.
+    """
+    from dashboard.execution.adapters import pdc_view
+    assert list(pdc_view.BEAD_FAMILIES) == ['unstated', 'C', 'N', 'P', 'Q']
+    assert [pdc_view.bead_family_code(bead_type)
+            for bead_type in ('C1', 'N1', 'P1', 'Q5', '', 'TC4')] == [1, 2, 3, 4, 0, 1]
+    order = re.search(r'BEAD_FAMILY_ORDER\s*=\s*\[([^\]]*)\]', SOURCE.read_text())
+    assert order, 'ngl-beads.js states no BEAD_FAMILY_ORDER'
+    assert re.findall(r"'([A-Za-z]+)'", order.group(1)) == list(pdc_view.BEAD_FAMILIES)
+    # And the palette has one colour per code, so the scale a representation is handed is five long and not four.
+    assert list(_colours('BEAD_FAMILY_COLOURS')) == list(pdc_view.BEAD_FAMILIES)
+    assert re.findall(r'([A-Za-z]+)\s*:', _table('BEAD_FAMILY_LABELS')) == list(pdc_view.BEAD_FAMILIES)
+
+
+def _colours(name):
+    """One `{KEY: '#hex'}` table out of the module's text, as written."""
+    return {key.strip(): value for key, value in re.findall(r"([A-Za-z]+)\s*:\s*'(#[0-9a-fA-F]{6})'", _table(name))}
+
+
+def test_the_colour_table_covers_the_families_and_no_two_share_a_colour():
+    """Five distinct colours, one per code, and the legend's labels name the same five keys."""
+    colours = _colours('BEAD_FAMILY_COLOURS')
+    assert list(colours) == ['unstated', 'C', 'N', 'P', 'Q'], colours
+    assert len(set(colours.values())) == 5, f'two families would be drawn the same colour: {colours}'
+
+
+def test_the_mocks_frames_carry_the_writers_own_family_codes():
+    """The mock's embedded frames are the writer's output, so its pictures colour by the same column the app reads.
+
+    The mock carries no Python and cannot re-derive a frame in the page, so its five frames are held here instead:
+    every HETATM's b-factor column is a family code, a detergent bead states one of the four families and a protein
+    bead -- which no moleculetype names -- is written `unstated`, and each frame spans more than one family (the
+    polar sugar heads and the apolar tails), which is what makes the picture a colouring rather than one flat fill.
+    """
+    from dashboard.execution.adapters import pdc_view
+    frames = re.findall(r'<script type="text/plain" data-frame="(\w)"[^>]*>\n(.*?)\n</script>',
+                        DRAFT.read_text(), re.DOTALL)
+    assert len(frames) == 5, [key for key, _ in frames]
+    for key, body in frames:
+        detergent = set()
+        for line in body.splitlines():
+            if not line.startswith('HETATM'):
+                continue
+            code = int(round(float(line[60:66])))
+            assert code in range(len(pdc_view.BEAD_FAMILIES)), f'frame {key}: {line!r}'
+            if line[17:20].strip() == 'PRO':
+                assert code == 0, f'frame {key}: a protein bead states a family: {line!r}'
+            else:
+                assert code != 0, f'frame {key}: a detergent bead states no family: {line!r}'
+                detergent.add(code)
+        assert len(detergent) >= 2, f'frame {key} is drawn in one family: {sorted(detergent)}'
+        # And the element column is the size class the writer chooses per bead, not one stand-in for every bead:
+        # each frame holds all three classes (R, S and the ring's T virtual sites).
+        elements = {line[76:78].strip() for line in body.splitlines() if line.startswith('HETATM')}
+        assert elements == set(pdc_view.SIZE_ELEMENTS.values()), f'frame {key} elements: {sorted(elements)}'
+
+
 def test_the_scale_knob_defaults_to_the_models_own_radius():
     """`1` draws what the table states; a bigger number is a reading aid and never a new model."""
     assert re.search(r'BEAD_RADIUS_SCALE\s*=\s*1\s*;', SOURCE.read_text())
@@ -215,13 +302,41 @@ def test_each_panel_states_its_own_scale_at_the_call():
         'the composition preview draws its beads larger than life, and that multiplier is its own'
     assert 'applyBeadRadii(beadStructure, {scale: 1})' in (JS_DIR / 'mapping-ngl.js').read_text()
     assert 'applyBeadRadii(component.structure, {scale: 1' in (JS_DIR / 'run-view.js').read_text()
-    # The system preview reads the model's own radius: it drew the beads twice as large until 2026-10-14, when the
-    # user reported them too big, and the number is still the panel's own -- stated here, and held to the mock's.
+    # The system preview reads its beads at a scale of its own since 2026-10-14, when the user reported the beads
+    # too big and asked for half: the number is still the panel's own -- stated here, and held to the mock's.
     new_run = (JS_DIR / 'new-run.js').read_text()
     assert 'applyBeadRadii(component.structure, {scale: PREVIEW_BEAD_SCALE})' in new_run
-    assert re.search(r'PREVIEW_BEAD_SCALE\s*=\s*1\s*;', new_run), \
-        'the preview draws the model\'s own radius, and that multiplier is the panel\'s own'
+    assert re.search(r'PREVIEW_BEAD_SCALE\s*=\s*0\.5\s*;', new_run), \
+        'the preview draws at the scale the user asked for, and that multiplier is the panel\'s own'
     bonded = (JS_DIR / 'bonded-plot.js').read_text()
     assert 'beadRadiusNm(bead.size' in bonded, \
         'the 3D bead diagram is Plotly, so it reads the table through `beadRadiusNm` rather than `applyBeadRadii`'
     assert 'MARKER_PIXELS_PER_NM = 72' in bonded, 'the diagram states its own pixels-per-nanometre factor'
+
+
+#: The four bead views that draw the pdc system files -- the mock, the preview card, the Complexes panel and the run
+#: view -- and where each adds the module's colour parameters to its representation. One table, one set of parameters,
+#: so the same bead type is one colour in all four.
+FAMILY_VIEWS = {'pdc.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend'],
+                'new-run.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend'],
+                'run-view.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend']}
+
+
+def test_every_bead_view_colours_from_the_one_family_table():
+    """Each draw site adds the module's family parameters and fills its legend from the same module.
+
+    The parameters name the scheme, the five-colour scale and the fixed domain, and the legend lists the same five
+    families -- both out of `ngl-beads.js`, so neither the panel nor the mock can hold a palette of its own.
+    """
+    module = SOURCE.read_text()
+    assert 'export const BEAD_FAMILY_PARAMETERS' in module
+    assert 'export function renderBeadLegend' in module
+    for name, markers in FAMILY_VIEWS.items():
+        text = (JS_DIR / name).read_text()
+        assert "from './ngl-beads.js'" in text, f'{name} does not read the one module'
+        for marker in markers:
+            assert marker in text, f'{name} does not use {marker}'
+        assert '...BEAD_FAMILY_PARAMETERS' in text, f'{name} draws beads without the family colour parameters'
+        assert not re.search(r'BEAD_FAMILY_COLOURS\s*=\s*\{', text), f'{name} keeps a family palette of its own'
+    draft = DRAFT.read_text()
+    assert '...BEAD_FAMILY_PARAMETERS' in draft and 'renderLegend()' in draft

@@ -1,5 +1,5 @@
 import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResource, guarded, DROP, panelIds } from './shared.js';
-import { BEAD_RADIUS_PARAMETERS, applyBeadRadii } from './ngl-beads.js';
+import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, applyBeadRadii, renderBeadLegend } from './ngl-beads.js';
 
 //: The workspace whose New Run panel this module's pdc mode serves.
 const PDC_WORKSPACE = 'protein-detergent';
@@ -880,7 +880,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   //: `1` -- the model's own radius. This preview drew its beads twice the model's size until 2026-10-14, when the
   //: user reported them too big; with each bead now written with its own class, the model's radii are the picture,
   //: and a multiplier here is the one number a reader would have to be told about to read a bead's size.
-  const PREVIEW_BEAD_SCALE = 1;
+  const PREVIEW_BEAD_SCALE = 0.5;
   const previewNode = selector => pdcNode(`.new-pdc-preview ${selector}`);
   const sayPreview = (selector, text) => { const target = previewNode(selector); if (target) setText(target, text); };
   let previewFrame = null, previewRequest = 0, previewTimer;
@@ -982,7 +982,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     // mapping; when it carries none (a centres-only build, one bead per molecule) there is no bond to draw at all.
     stage.loadFile(new Blob([pdb], {type: 'text/plain'}), {ext: 'pdb', inferBonds: 'none'}).then(component => {
       applyBeadRadii(component.structure, {scale: PREVIEW_BEAD_SCALE});
-      component.addRepresentation('ball+stick', BEAD_RADIUS_PARAMETERS);
+      // Both of the module's answers go on the one representation: the radius each bead's own size class gives it,
+      // and the colour its own type family gives it -- `BEAD_FAMILY_PARAMETERS` colours from the family code the
+      // writer put in the file's b-factor column, over a fixed domain so a bead's colour is its family's.
+      component.addRepresentation('ball+stick', {...BEAD_RADIUS_PARAMETERS, ...BEAD_FAMILY_PARAMETERS});
       component.autoView();
       stage.handleResize();
     }).catch(error => sayPreview('.new-pdc-preview-basis',
@@ -1162,6 +1165,8 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     $('#start-run').disabled = true;
     mounting = (async () => {
       const remembered = saved();
+      // The legend the beads are decoded with, filled from `ngl-beads.js`'s one family table at mount.
+      renderBeadLegend(pdcNode('.new-pdc-preview .bead-legend'));
       await Promise.all([loadCatalogue(), loadDetergents()]);
       for (const input of [...form.elements].filter(el => el.name)) {
         if (input.value === '' && remembered[input.name] !== undefined && input.tagName !== 'SELECT') {

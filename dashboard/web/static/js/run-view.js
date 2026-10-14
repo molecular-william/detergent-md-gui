@@ -16,7 +16,7 @@
 // bonds) render as a plausible picture with a clean console.
 
 import { $, api, panelIds } from './shared.js';
-import { BEAD_RADIUS_PARAMETERS, applyBeadRadii, sizeClassOf } from './ngl-beads.js';
+import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, applyBeadRadii, renderBeadLegend, sizeClassOf } from './ngl-beads.js';
 import { conectCount, isCoarseGrained, loadParameters, structureExtension, structureRank } from './run-view-structure.js';
 
 //: D13 -- nglview's own `Play(interval=100)`: ten frames a second. Printed on the row, and not a control: the row
@@ -45,6 +45,10 @@ export function createRunView() {
   const holds = $('#run-view-holds'), identity = $('#run-view-identity');
   const what = $('#run-view-what'), delegation = $('#run-view-delegation');
   const viewer = $('#run-view-viewer'), readoutHost = $('#run-view-readout');
+  //: The legend under this panel's canvas. Filled from `ngl-beads.js` and shown only when the file on screen is
+  //: coarse-grained: an all-atom structure is drawn in its elements' colours, so a bead legend over one would be a
+  //: key to a picture that is not there.
+  const legend = document.querySelector('.run-view-stage .bead-legend');
   const strip = $('#run-view-frames'), stripNote = $('#run-view-frames-note');
   const figures = $('#run-view-figures'), figuresNote = $('#run-view-figures-note');
 
@@ -473,6 +477,12 @@ export function createRunView() {
     const entry = structures.find(candidate => candidate.path === path) || {path, rank: structureRank(path)};
     what.textContent = `Loading ${path}…`;
     const coarse = isCoarseGrained(path, job.run_type);
+    // The legend is the key to a bead picture, so it appears with one: the family colours are what a coarse-grained
+    // file's b-factor column carries, and an all-atom file is drawn in its elements' colours instead.
+    if (legend) {
+      renderBeadLegend(legend);
+      legend.hidden = !coarse;
+    }
     // A coarse-grained `.gro` carries no bond records, and this build's GRO parser guesses from distances whatever
     // `inferBonds` says -- measured: the eight mapped beads of a `.gro` came back with four guessed bonds, which the
     // guard below then clears. Either way the picture is beads with no connectivity, while the run's own moleculetype
@@ -529,7 +539,10 @@ export function createRunView() {
         const named = sizeClasses && sizeClasses[String(atom.atomname || '').trim().toUpperCase()];
         return named || sizeClassOf(atom);
       }});
-      component.addRepresentation('ball+stick', BEAD_RADIUS_PARAMETERS);
+      // The colour is the bead's own type family, from the code `pdc_view.system_pdb` writes in the b-factor column
+      // of the structure this panel serves (`ngl-beads.js` is the one table); a file that carries none draws every
+      // bead as family-not-stated rather than as the first family.
+      component.addRepresentation('ball+stick', {...BEAD_RADIUS_PARAMETERS, ...BEAD_FAMILY_PARAMETERS});
     } else {
       component.addRepresentation('ball+stick', {radiusScale: 0.55, aspectRatio: 2});
     }

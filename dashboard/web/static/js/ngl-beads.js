@@ -16,6 +16,73 @@
 //: Python one, because a second copy of these numbers would be a second model.
 export const BEAD_RADII_NM = {R: 0.264, S: 0.230, T: 0.191};
 
+// What size cannot say: a bead's Martini 3 *polarity family*, in the code order `pdc_view.bead_family_code` writes
+// into the file. The size class is one axis and the family is the other -- two beads of the same class can be a
+// sugar's polar head and a charged group -- so the family is what colour carries, and this is the one table of it.
+//
+// The family is read from the bead's *type* (the moleculetype's `[ atoms ]` type column, and a mapping's `type`
+// field): Martini 3 spells a small bead `SP1r` and a tiny one `TC4`, and the family letter is the first of
+// `Q`/`P`/`N`/`C` after that one-letter class prefix. A type that names none of them -- a protein bead, a bead no
+// moleculetype names -- states no family and is drawn the neutral `unstated` colour rather than being guessed into
+// one of the four.
+//
+// `unstated` is code 0 on purpose: a file that carries no family column (a `.gro` this build's parser fills with
+// b-factors of zero, a file written before this convention) then draws every bead as unstated rather than as
+// whichever family happens to be code zero. The palette is five control colours over the domain `[0, 4]`, so each
+// code lands on its own colour instead of on an interpolation between two: measured on this vendored build, a
+// five-colour scale over that domain resolves 0..4 to exactly these five hexes.
+export const BEAD_FAMILY_ORDER = ['unstated', 'C', 'N', 'P', 'Q'];
+export const BEAD_FAMILY_COLOURS = {unstated: '#cccccc', C: '#7048e8', N: '#e8590c', P: '#2f9e44', Q: '#2b6cb0'};
+export const BEAD_FAMILY_LABELS = {unstated: 'family not stated', C: 'apolar', N: 'nonpolar', P: 'polar',
+                                   Q: 'charged'};
+//: The five control colours, in the order of the codes -- the scale a representation is handed.
+export const BEAD_FAMILY_PALETTE = BEAD_FAMILY_ORDER.map(family => BEAD_FAMILY_COLOURS[family]);
+
+//: The colour parameters every bead view adds to `BEAD_RADIUS_PARAMETERS`: the representation colours each atom
+//: from the family code the file carries in its b-factor column, over a domain fixed at `[0, 4]` so a bead's colour
+//: is the family's and never the frame's own spread of codes.
+export const BEAD_FAMILY_PARAMETERS = {colorScheme: 'bfactor', colorScale: BEAD_FAMILY_PALETTE, colorDomain: [0, 4]};
+
+export function beadFamily(type) {
+  // Leading `S`/`T` is the size class, not the family: `SP1r` is small *and* polar, `TC4` tiny *and* apolar.
+  const code = String(type || '').trim().toUpperCase();
+  const rest = /^[ST]/.test(code) ? code.slice(1) : code;
+  const family = rest.slice(0, 1);
+  return family in BEAD_FAMILY_COLOURS && family !== 'unstated' ? family : 'unstated';
+}
+
+export function beadFamilyCode(type) {
+  return BEAD_FAMILY_ORDER.indexOf(beadFamily(type));
+}
+
+export function renderBeadLegend(host) {
+  // The legend and the colouring are one table: the swatch a reader decodes a bead with is the colour the
+  // representation above it resolved, because both come from `BEAD_FAMILY_COLOURS` and neither is written out by
+  // hand. `host` is wherever a view draws its beads; the panels call this at mount, and the element it fills is the
+  // one the tests read back.
+  if (!host) return null;
+  const list = document.createElement('ul');
+  list.className = 'bead-legend-list';
+  for (const family of BEAD_FAMILY_ORDER) {
+    const item = document.createElement('li');
+    item.className = 'bead-legend-item';
+    item.dataset.family = family;
+    const swatch = document.createElement('span');
+    swatch.className = 'bead-legend-swatch';
+    swatch.dataset.colour = BEAD_FAMILY_COLOURS[family];
+    swatch.style.backgroundColor = BEAD_FAMILY_COLOURS[family];
+    const label = document.createElement('span');
+    label.className = 'bead-legend-label';
+    label.textContent = family === 'unstated'
+      ? BEAD_FAMILY_LABELS[family]
+      : `${BEAD_FAMILY_LABELS[family]} (${family})`;
+    item.append(swatch, label);
+    list.append(item);
+  }
+  host.replaceChildren(list);
+  return list;
+}
+
 //: The stand-in element each class' beads are written with (`models/compositions/topology.py`'s `render_pdb` and
 //: `execution/adapters/pdc_view.py`'s `system_pdb` both choose it), read back here so a file that states only
 //: elements can still say which class its beads are.

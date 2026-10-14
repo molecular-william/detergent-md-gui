@@ -123,6 +123,8 @@
         <p id="run-view-what" class="hint">Choose a run to draw what it holds.</p>
         <p id="run-view-delegation" class="hint" role="status" hidden></p>
         <div id="run-view-viewer" class="run-view-viewer" role="img" aria-label="Structure from the selected run"></div>
+        <div class="bead-legend" data-bead-legend hidden
+             aria-label="Bead colour by Martini 3 polarity family"></div>
         {# D11: two play buttons and the frame slider, one line, directly under the canvas. Nothing else in the
            row; `flex-wrap: nowrap` is the whole point of the rule. Disabled with its reason when the file on
            screen holds a single frame (D17). #}
@@ -297,6 +299,8 @@
 
       <div class="new-pdc-preview-viewer" role="img"
            aria-label="Coarse-grained protein and detergent belt inside the simulation box"></div>
+      <div class="bead-legend" data-bead-legend
+           aria-label="Bead colour by Martini 3 polarity family"></div>
       <p class="hint new-pdc-preview-basis" role="status"></p>
       <p class="new-pdc-preview-refusal" role="status" hidden></p>
 
@@ -318,11 +322,12 @@
         system that will run: solvation, the two equilibration legs, the belt's final size and the back-map all come
         after this picture, and none of them is predicted here.</p>
 
-      <p class="hint"><strong>Heads to the water, tails to the core; beads drawn twice the model's own radius and bonds
-        at a quarter of a bead.</strong> The placement's direction is the way <em>out</em> of the micelle, and each
-        detergent is stamped with its head along it. The radii are the model's own, for the size class the file states
-        (<code>ngl-beads.js</code> is the one table, and the doubled radius and quarter-bead bond are that module's
-        parameters as this card passes them), so this card and the run's own viewer cannot draw one bead two ways.</p>
+      <p class="hint"><strong>Heads to the water, tails to the core; beads coloured by their own type family, with
+        bonds at a quarter of a bead.</strong> The placement's direction is the way <em>out</em> of the micelle, and
+        each detergent is stamped with its head along it. The radii are the model's own for the size class the file
+        states, times this card's own reading scale; the colours are the beads' Martini 3 polarity families, resolved
+        from the code the writer puts in the file's b-factor column. Both tables are <code>ngl-beads.js</code>'s, and
+        the legend under the picture names them, so this card and the run's own viewer cannot draw one bead two ways.</p>
 
       <p class="hint"><strong>What it does not show.</strong></p>
       <ul class="hint new-pdc-preview-nots">
@@ -337,9 +342,9 @@
         <li><strong>Not the final system.</strong> The assessment leg removes the detergents that are not in the
           micelle, and the back-map turns the surviving state atomistic; neither is here.</li>
         <li><strong>Beads, not chemistry.</strong> A coarse-grained bead has no element, so the file writes a neutral
-          stand-in for every bead (<code>pdc_view</code> states it) and each is drawn at the model's R radius. With a
-          mapping the picture is that mapping's beads and its own bonds; with none, the build records one centre per
-          molecule and writes no topology, and the card says which of the two it is showing.</li>
+          stand-in for each one (<code>pdc_view</code> states it) and colours each from its own Martini 3 polarity
+          family. With a mapping the picture is that mapping's beads and its own bonds; with none, the build records one
+          centre per molecule and writes no topology, and every bead is drawn the neutral family-not-stated colour.</li>
       </ul>
 
       <details class="new-pdc-preview-explanation">
@@ -674,6 +679,8 @@
       <h3 id="pdc-view-title">System view</h3>
       <label>Run<select id="pdc-run"></select></label>
       <div id="pdc-viewer" class="pdc-viewer" role="img" aria-label="Coarse-grained system as set up"></div>
+      <div class="bead-legend" data-bead-legend
+           aria-label="Bead colour by Martini 3 polarity family"></div>
       <p id="pdc-view-basis" class="hint">The built system appears here once setup produces one.</p>
       <div id="pdc-snapshots" class="pdc-snapshots" role="group" aria-label="Snapshots through the run"></div>
       <p id="pdc-snapshot-basis" class="hint">Snapshots appear here as a run records them.</p>

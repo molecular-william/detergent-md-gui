@@ -22,6 +22,13 @@ Two things the file has to say truthfully, both measured against what a reader s
   The moleculetype's `[ bonds ]` and `[ constraints ]` are now written as CONECT records, replicated per molecule.
   A ring held by constraints is Martini practice and a viewer draws a constraint as a bond, so both sections are the
   model as far as a picture is concerned.
+
+Two columns carry what a bead's chemistry cannot, and each is a code the file's own REMARKs explain. The element
+column is the size class (`SIZE_ELEMENTS`), which a viewer turns into the model's radius. The b-factor column is the
+Martini 3 *polarity family* (`BEAD_FAMILIES`), which a viewer turns into the bead's colour: a representation colours
+from one column, not from a per-atom colour, and the family is the one thing a bead's size cannot say -- two beads of
+one class can be a polar sugar head and an apolar tail. Both are read from the same place, the moleculetype's type
+column, and `ngl-beads.js` holds the viewer's end of the same two tables.
 """
 from pathlib import Path
 
@@ -100,6 +107,43 @@ def size_class(bead_type) -> str:
 def bead_element(bead_type) -> str:
     """The stand-in element a bead of this type is written with, chosen from the class its type names."""
     return SIZE_ELEMENTS[size_class(bead_type)]
+
+
+#: Martini 3's polarity families, in the order the code written into the file's b-factor column numbers them. A
+#: bead's *type* states its family the way it states its size class: `SP1r` is small *and* polar, `TC4` tiny *and*
+#: apolar, `Q5` charged, `N...` nonpolar. Code 0 is not a family -- it is a bead whose type states none of the four,
+#: which is every protein bead this writer is handed and every bead when there is no topology at all. Putting it at
+#: zero means a file that carries no family column reads as unstated rather than as whichever family came first.
+BEAD_FAMILIES = ('unstated', 'C', 'N', 'P', 'Q')
+FAMILY_UNSTATED = BEAD_FAMILIES[0]
+
+
+def bead_family(bead_type) -> str:
+    """The Martini 3 polarity family a bead type names, or `unstated` when it names none.
+
+    It is read the way `size_class` reads the class and from the same column: the first letter after a one-letter
+    `S`/`T` class prefix, if that letter is one of `Q`/`P`/`N`/`C`. A type that is empty, or that leads with
+    anything else (`W` water, `I` an ion, a protein bead's own name), states no family and is reported as such
+    rather than being guessed into an apolar bead.
+    """
+    code = str(bead_type or '').strip().upper()
+    rest = code[1:] if code[:1] in ('S', 'T') else code
+    family = rest[:1]
+    return family if family in BEAD_FAMILIES[1:] else FAMILY_UNSTATED
+
+
+def bead_family_code(bead_type) -> int:
+    """The family's code, the number written into the file's b-factor column for a bead of this type."""
+    return BEAD_FAMILIES.index(bead_family(bead_type))
+
+
+def bead_families(topology: dict | None) -> dict[str, str]:
+    """The family each bead a moleculetype names belongs to, by bead name -- the same identity bonds are matched by."""
+    if not topology:
+        return {}
+    types = list(topology.get('types') or [''] * len(topology['atoms']))
+    return {str(name).strip().upper(): bead_family(bead_type)
+            for name, bead_type in zip(topology['atoms'], types)}
 
 
 def bead_elements(topology: dict | None) -> dict[str, str]:
@@ -251,9 +295,15 @@ def system_pdb(atoms, *, detergent_residue='DDM', include_water=False, title='PD
     the one column a viewer resolves a radius from: written uniformly, every bead is drawn at the model's R however
     the model sizes it. The classes are the moleculetype's, so they belong to the detergent; a protein bead, and a
     bead the moleculetype does not name, are written with the `C` stand-in the file's REMARK states.
+
+    The b-factor column carries each bead's Martini 3 *polarity family* (`bead_families`), because the family is the
+    one thing a bead's size cannot say and a viewer colours from a column rather than from a per-atom colour. It is
+    a code, not a temperature factor, and the file's own REMARK says so; a bead whose type states no family -- a
+    protein bead, or any bead when there is no topology -- is written the code for `unstated`.
     """
     kept = [atom for atom in atoms if include_water or atom['residue'].upper() not in WATER_RESIDUES]
     elements = bead_elements(topology)
+    families = bead_families(topology)
 
     molecules, molecule_of = [], {}
     for atom in kept:
@@ -269,9 +319,12 @@ def system_pdb(atoms, *, detergent_residue='DDM', include_water=False, title='PD
         detergent = is_detergent(atom, detergent_residue)
         residue = DETERGENT_RESIDUE if detergent else PROTEIN_RESIDUE
         element = elements.get(str(atom['name']).strip().upper()) if detergent else None
+        family = families.get(str(atom['name']).strip().upper()) if detergent else None
         x, y, z = (round(float(value) * 10.0, 3) for value in atom['position'])  # nm -> Angstrom, as PDB is
         records.append(f'HETATM{serial:5d} {str(atom["name"])[:4]:<4s} {residue:>3s} A{index + 1:4d}    '
-                       f'{x:8.3f}{y:8.3f}{z:8.3f}{1.0:6.2f}{0.0:6.2f}          {element or BEAD_ELEMENT:>2s}')
+                       f'{x:8.3f}{y:8.3f}{z:8.3f}{1.0:6.2f}'
+                       f'{float(BEAD_FAMILIES.index(family or FAMILY_UNSTATED)):6.2f}'
+                       f'          {element or BEAD_ELEMENT:>2s}')
         serials[index].append(serial)
 
     detergents = [index for index, beads in enumerate(molecules)
@@ -287,7 +340,10 @@ def system_pdb(atoms, *, detergent_residue='DDM', include_water=False, title='PD
     lines = [f'REMARK 950 {title.upper()}: COARSE-GRAINED SYSTEM AS SET UP, WATER AND IONS OMITTED',
              f'REMARK 950 ELEMENTS ARE RADIUS STAND-INS, NOT CHEMISTRY: EACH BEAD IS WRITTEN WITH ITS OWN SIZE '
              f'CLASS ({", ".join(f"{size} {element}" for size, element in sorted(SIZE_ELEMENTS.items()))}), AND A '
-             f'BEAD WHOSE CLASS THE MODEL DOES NOT STATE IS WRITTEN {BEAD_ELEMENT}']
+             f'BEAD WHOSE CLASS THE MODEL DOES NOT STATE IS WRITTEN {BEAD_ELEMENT}',
+             'REMARK 950 THE B-FACTOR COLUMN CARRIES A MARTINI 3 POLARITY FAMILY, NOT A TEMPERATURE FACTOR: '
+             + ', '.join(f'{code} {family.upper()}' for code, family in enumerate(BEAD_FAMILIES))
+             + ", READ FROM EACH BEAD'S OWN TYPE; A VIEWER COLOURS FROM IT"]
     if detergents and topology is None:
         lines.append('REMARK 950 NO BONDS RECORDED: this stage carries no detergent moleculetype, so the picture '
                      'claims no bonds rather than leaving a viewer to invent them')

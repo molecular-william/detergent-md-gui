@@ -526,6 +526,64 @@ def test_cg_beads_are_drawn_at_the_radius_their_own_size_class_has(dashboard, li
 # ------------------------------------------------------------------------------------------ figures and delegation
 
 
+#: Martini 3's polarity families as `ngl-beads.js` colours them. This fixture's moleculetype types every bead
+#: `SP1r`, which is polar, so the whole mapped model is one colour and the legend is what names it.
+FAMILY_COLOURS = {'unstated': '#cccccc', 'C': '#7048e8', 'N': '#e8590c', 'P': '#2f9e44', 'Q': '#2b6cb0'}
+
+#: The colours the canvas resolved, and the legend under it read back from the page.
+MEASURE_FAMILY = """
+async () => {
+  const component = document.querySelector('#run-view-viewer').runViewStage.compList[0];
+  const structure = component.structure;
+  const parameters = component.reprList[0].repr.getColorParams();
+  const scheme = NGL.ColormakerRegistry.getScheme(parameters);
+  const colours = [];
+  for (let index = 0; index < structure.atomCount; index += 1) {
+    colours.push('#' + scheme.atomColor(structure.getAtomProxy(index)).toString(16).padStart(6, '0'));
+  }
+  const legend = document.querySelector('.run-view-stage .bead-legend');
+  return {scheme: parameters.scheme, colours: colours, hidden: legend.hidden,
+          entries: [...legend.querySelectorAll('.bead-legend-item')].map(item => ({
+            family: item.dataset.family,
+            label: item.querySelector('.bead-legend-label').textContent,
+            declared: item.querySelector('.bead-legend-swatch').dataset.colour,
+          }))};
+}
+"""
+
+
+def test_a_cg_run_colours_its_beads_by_family_and_only_then_shows_the_legend(dashboard, live_page):
+    """A coarse model's beads are coloured by their type family, and the legend appears with the picture it decodes.
+
+    The file this panel serves for a coarse `.gro` is written by `pdc_view.structure_pdb`, so it carries the family
+    code in its b-factor column and the run view colours the same beads the Complexes panel does -- the same module,
+    the same five colours. An all-atom structure is drawn in its elements' colours and gets no bead legend at all,
+    because a key over a picture it does not describe is a lie.
+    """
+    seed(dashboard)
+    page, errors = live_page
+    open_panel(page, live_page, run=CG_RUN)
+    wait_for_component(page, atoms=8)
+    select_row(page, 'md.gro')
+    wait_for_component(page, atoms=8)
+
+    measured = page.locator('#run-view-viewer').evaluate(MEASURE_FAMILY)
+    assert measured['scheme'] == 'bfactor', measured['scheme']
+    assert measured['colours'] == [FAMILY_COLOURS['P']] * 8, measured['colours']
+    assert measured['hidden'] is False, 'a coarse picture with no legend under it'
+    assert [entry['family'] for entry in measured['entries']] == ['unstated', 'C', 'N', 'P', 'Q']
+    assert {entry['declared'] for entry in measured['entries']} == set(FAMILY_COLOURS.values())
+
+    # The all-atom sibling: no legend, because there is no family to decode.
+    open_panel(page, live_page, run=AA_RUN)
+    wait_for_component(page)
+    select_row(page, 'lig.gro')
+    wait_for_component(page, atoms=5)
+    atomistic = page.locator('#run-view-viewer').evaluate(MEASURE_FAMILY)
+    assert atomistic['hidden'] is True, 'an all-atom structure got a bead legend'
+    assert errors == []
+
+
 def test_figures_are_listed_and_opened_inline_through_the_artifact_route(dashboard, live_page):
     seed(dashboard)
     page, errors = live_page

@@ -223,3 +223,57 @@ def test_beads_that_do_not_match_the_moleculetype_are_left_unbonded_with_a_remar
 
     assert not [line for line in text.splitlines() if line.startswith('CONECT')]
     assert 'NO BONDS RECORDED' in text
+
+
+def _families(text):
+    """Every HETATM's b-factor column read back as its code -- columns 61-66, the carrier a viewer colours from."""
+    return [int(round(float(line[60:66]))) for line in text.splitlines() if line.startswith('HETATM')]
+
+
+#: One bead of each of the four families, plus the two spellings a type uses (a plain `P1` and a prefixed `SN6`) and
+#: a type whose letter names no family. The code column is `pdc_view.BEAD_FAMILIES`'s own order.
+FAMILY_TYPES = (('AH', 'Q5', 4), ('BH', 'P1', 3), ('CH', 'N6', 2), ('DH', 'C4', 1),
+                ('EH', 'TC4', 1), ('FH', 'SN6', 2), ('GH', 'WF1', 0))
+
+
+def test_the_type_column_decides_the_family_the_b_factor_column_carries(tmp_path):
+    """A bead's Martini 3 polarity family reaches the file, so a viewer can colour it without guessing one.
+
+    The four families are here, in both spellings a type uses -- a plain `P1` and a one-letter size prefix on `SN6`
+    and `TC4` -- beside the two beads that state no family: a protein bead, which no moleculetype sizes, and a bead
+    the moleculetype does not name. Both keep code 0, which is the neutral colour rather than whichever family
+    happens to be first.
+    """
+    rows = '\n'.join(f'{index} {bead_type} 1 DDM {name} {index} 0 54'
+                     for index, (name, bead_type, _) in enumerate(FAMILY_TYPES, 1))
+    topology = pdc_view.read_moleculetype_text(f'[ moleculetype ]\nDDM 1\n\n[ atoms ]\n{rows}\n',
+                                               source='fixture.itp')
+    atoms = pdc_view.read_gro(_system_gro(
+        tmp_path,
+        [(1, 'PRO', 'BB', (0.0, 0.0, 0.0))]
+        + [(2, 'DDM', name, (1.0 + index * 0.3, 0.0, 0.0)) for index, (name, _, _) in enumerate(FAMILY_TYPES)]
+        + [(3, 'DDM', 'ZZZ', (9.0, 0.0, 0.0))]))
+
+    text = pdc_view.system_pdb(atoms, topology=topology)
+
+    assert _families(text) == [0] + [code for _, _, code in FAMILY_TYPES] + [0]
+    assert len({code for code in _families(text)}) == 5, 'the fixture must span all five codes to say anything'
+    assert 'POLARITY FAMILY' in text and 'A VIEWER COLOURS FROM IT' in text
+
+
+def test_the_type_column_decides_the_family_on_the_runs_own_moleculetype(tmp_path):
+    """The saved DDM mapping's own types, through the file the complexes panel and the preview card are served.
+
+    `SP1r` and `SP4r` are polar and `TC4` apolar however small they are -- the size class is the `S`/`T` prefix and
+    the family is the letter after it -- and the tail's plain `C1` is apolar. A viewer handed this file colours the
+    heads and the tails apart without being told which bead is which.
+    """
+    (tmp_path / 'detergent_CG.itp').write_text(ddm_moleculetype())
+    topology = pdc_view.read_moleculetype(tmp_path / 'detergent_CG.itp')
+    atoms = pdc_view.read_gro(_system_gro(tmp_path, _detergent_beads(molecules=2)))
+
+    families = _families(pdc_view.system_pdb(atoms, topology=topology))
+
+    expected = [pdc_view.bead_family(DDM_TYPES[DDM_CLASSES[name]]) for name in list(DDM_BEADS) * 2]
+    assert families == [pdc_view.BEAD_FAMILIES.index(family) for family in expected]
+    assert set(expected) == {'P', 'C'}, 'the fixture must state two families for this test to say anything'

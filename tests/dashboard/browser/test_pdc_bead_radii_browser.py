@@ -254,3 +254,75 @@ def test_the_true_radii_do_not_let_the_bond_guess_back_in(dashboard, live_page):
     assert drawn == model, f'the drawn bonds are not the model\'s: {sorted(drawn ^ model)}'
     assert (1, 9) not in drawn and (1, 10) not in drawn, 'S1A-TAIL1/S1A-TAIL2 are the guess this test exists for'
     assert errors == []
+
+
+#: Martini 3's polarity families as `ngl-beads.js` colours them -- written out here so the measurement is not the
+#: module's own answer read back to itself. `unstated` is the neutral colour a bead whose type names no family gets.
+FAMILY_COLOURS = {'unstated': '#cccccc', 'C': '#7048e8', 'N': '#e8590c', 'P': '#2f9e44', 'Q': '#2b6cb0'}
+#: Each DDM bead's family, from the type the fixture's moleculetype gives it: the sugar beads are polar (`SP1r`),
+#: the ring's virtual sites and the tails apolar (`TC4`, `C1`).
+DDM_FAMILIES = {'S1A': 'P', 'S1B': 'P', 'S1C': 'P', 'S1VS': 'C', 'S2A': 'P', 'S2B': 'P', 'S2C': 'P', 'S2VS': 'C',
+                'TAIL1': 'C', 'TAIL2': 'C', 'TAIL3': 'C'}
+
+#: The colours the panel's canvas resolved per bead, and the legend under it read off the page: the representation's
+#: colour parameters (through the registry the drawing uses) and every entry with its swatch's rendered background.
+MEASURE_COLOURS = """
+async (el) => {
+  const structure = el.pdcStage.compList[0].structure;
+  const parameters = el.pdcStage.compList[0].reprList[0].repr.getColorParams();
+  const scheme = NGL.ColormakerRegistry.getScheme(parameters);
+  const colours = [];
+  for (let index = 0; index < structure.atomCount; index += 1) {
+    colours.push('#' + scheme.atomColor(structure.getAtomProxy(index)).toString(16).padStart(6, '0'));
+  }
+  const entries = [...document.querySelectorAll('.pdc-view .bead-legend-item')].map(item => ({
+    family: item.dataset.family,
+    label: item.querySelector('.bead-legend-label').textContent,
+    declared: item.querySelector('.bead-legend-swatch').dataset.colour,
+    swatch: getComputedStyle(item.querySelector('.bead-legend-swatch')).backgroundColor,
+  }));
+  return {scheme: parameters.scheme, scale: parameters.scale, domain: parameters.domain,
+          colours: colours, entries: entries};
+}
+"""
+
+
+def rgb(hex_code):
+    """A `#rrggbb` as the string `getComputedStyle` reports it."""
+    value = hex_code.lstrip('#')
+    return f'rgb({int(value[0:2], 16)}, {int(value[2:4], 16)}, {int(value[4:6], 16)})'
+
+
+def test_the_complexes_view_colours_each_bead_by_its_type_family(dashboard, live_page):
+    """Measured off the loaded frame and the DOM: the family is the colour, and the legend under the canvas names it.
+
+    A bead carries its size class in the element column and its family in the b-factor column, and this panel colours
+    the one representation from the second: the sugar heads resolve to the polar colour, the tails and the ring's
+    virtual sites to the apolar one, and the frame -- six molecules -- spans both. The legend is read back from its
+    own DOM: five entries, each named, each swatch the colour the module states *and* the colour the canvas resolved.
+    """
+    page, errors = live_page
+    open_panel(page, live_page)
+    measured = page.locator('#pdc-viewer').evaluate(MEASURE_COLOURS)
+
+    assert measured['scheme'] == 'bfactor', measured['scheme']
+    assert measured['domain'] == [0, 4], measured['domain']
+    assert measured['scale'] == [FAMILY_COLOURS[family] for family in ('unstated', 'C', 'N', 'P', 'Q')], \
+        measured['scale']
+
+    drawn = [FAMILY_COLOURS[DDM_FAMILIES[name]] for name in beads_in_order()]
+    assert measured['colours'] == drawn, (
+        f"the beads are not drawn in their families' colours: {measured['colours'][:len(DDM_BEADS)]} against "
+        f'{drawn[:len(DDM_BEADS)]}')
+    # The measured colours themselves, in the hex a reader sees: two families on this frame, and the R to S
+    # proportion the radii keep is no business of the colour.
+    assert sorted(set(measured['colours'])) == ['#2f9e44', '#7048e8'], sorted(set(measured['colours']))
+
+    assert [entry['family'] for entry in measured['entries']] == ['unstated', 'C', 'N', 'P', 'Q']
+    for entry in measured['entries']:
+        assert entry['declared'] == FAMILY_COLOURS[entry['family']], entry
+        assert entry['swatch'] == rgb(FAMILY_COLOURS[entry['family']]), entry
+    labels = {entry['family']: entry['label'] for entry in measured['entries']}
+    assert labels == {'unstated': 'family not stated', 'C': 'apolar (C)', 'N': 'nonpolar (N)', 'P': 'polar (P)',
+                      'Q': 'charged (Q)'}, labels
+    assert errors == []
