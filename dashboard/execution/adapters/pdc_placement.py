@@ -127,7 +127,12 @@ def _initial_box(points, margin_nm, initial_z_nm):
 
 
 def _outward(middle, centers):
-    """Each detergent's outward direction, so its tail points away from the protein as the lattice's does."""
+    """Each detergent's outward direction: the way out of the cloud, which is the way its head faces.
+
+    The lattice's directions are its shell's own radial vectors (`pack_micelle` builds the centres as the middle
+    plus `radius * direction`), and this is the same convention -- `pdc_build.stamp` aims the detergent's head-ward
+    axis along whichever direction it is handed, so a direction pointing inward would face the head at the micelle.
+    """
     if not len(centers):
         return np.empty((0, 3))
     offsets = np.asarray(centers, dtype=float) - np.asarray(middle, dtype=float)

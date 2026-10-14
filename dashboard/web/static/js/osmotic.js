@@ -1,9 +1,12 @@
 // The Osmotic Series set-up door.
 //
 // It collects the settings `execution/adapters/osmotic.py` reads and posts them to the existing
-// `POST /api/osmotic/series` -- one job per molality, sharing a series id. Nothing is recomputed here: the
-// carbohydrate list, what each one is missing, the two failure choices that can act, the standing setup and
-// the series as it stands are all the server's answers, rendered.
+// `POST /api/osmotic/series` -- **one run, N concentrations**, one directory and one checkpoint each, run one at a
+// time by the run type's own driver. Nothing is recomputed here: the carbohydrate list, what each one is missing,
+// the two failure choices, the standing setup and the series as it stands are all the server's answers, rendered.
+//
+// The run list is read through the run-type filter on `/api/jobs`, so this panel asks for the series and not for
+// every run in the workspace.
 //
 // Controls are reached through `form.elements` and class hooks, never through panel-only ids: the DOM-id guard
 // renders this page's ids in both directions, and an id nothing addresses fails it.
@@ -229,7 +232,9 @@ export function createOsmoticSeries() {
       note = 'Start is disabled: ' + outside + ' concentration is outside the paper\'s range, and the route '
         + 'refuses the whole series rather than part of it.';
     } else {
-      note = 'Queues ' + count + ' conditions as ' + count + ' jobs sharing one series id.';
+      note = 'Queues ' + count + ' condition' + (count === 1 ? '' : 's') + ' as one run: they run one at a time, '
+        + 'each in its own directory with its own checkpoint, so a failed one resumes where it stopped and the '
+        + 'ones that finished are not repeated.';
     }
     setText(status, statusText);
     if (status) status.className = 'osmotic-review-status ' + (statusText === 'Ready' ? 'ready' : 'blocked');
@@ -278,7 +283,8 @@ export function createOsmoticSeries() {
       condition.solute_molecules === null || condition.solute_molecules === undefined
         ? '—' : String(condition.solute_molecules),
       measured ? Number(measured.pressure_bar).toFixed(3) + ' bar'
-        : (Number(molality) === 0 ? '— control' : '— not measured'),
+        : (condition.state === 'failed' ? '— failed'
+          : (Number(molality) === 0 ? '— control' : '— not measured')),
       paper ? Number(paper.pressure_bar).toFixed(2) + ' ± ' + Number(paper.uncertainty_bar).toFixed(2) : '—',
       condition.ratio === null || condition.ratio === undefined ? '—' : Number(condition.ratio).toFixed(2),
     ];
@@ -289,6 +295,43 @@ export function createOsmoticSeries() {
       tr.append(cell);
     });
     return tr;
+  }
+
+  function runRow(job) {
+    const molalities = ((job.settings || {}).molalities || []).length;
+    const cells = [
+      job.id,
+      job.label || '—',
+      job.status || '—',
+      molalities ? String(molalities) : '—',
+    ];
+    const tr = document.createElement('tr');
+    if (job.id) tr.dataset.run = job.id;
+    cells.forEach(text => {
+      const cell = document.createElement('td');
+      cell.textContent = text;
+      tr.append(cell);
+    });
+    return tr;
+  }
+
+  // The run-type filter on the run list: one request, this run type only. The conditions the panel already reads
+  // are *files* of one of these runs; this is the other half, the runs themselves -- the one that shows a series
+  // that failed before it measured anything.
+  function renderRuns() {
+    return api('/api/jobs?run_type=osmotic&limit=20').then(body => {
+      const rows = $('.osmotic-run-rows', panel());
+      if (!rows) return;
+      const jobs = body.jobs || [];
+      rows.replaceChildren(...jobs.map(runRow));
+      setText($('.osmotic-runs-note', panel()), jobs.length
+        ? jobs.length + ' of ' + body.total + ' run(s) of this run type' + (jobs.length < body.total
+          ? ' — the newest page, as the endpoint pages at 20. ' : '. ')
+          + 'One run owns every concentration: a series is not N jobs.'
+        : 'No run of this type exists yet, so there is nothing to read beside the conditions.');
+    }, error => {
+      setText($('.osmotic-runs-note', panel()), 'The runs could not be read: ' + error.message);
+    });
   }
 
   function renderSeries() {
@@ -327,8 +370,10 @@ export function createOsmoticSeries() {
     const start = $('.osmotic-start', panel());
     if (start) start.disabled = true;
     return post('/api/osmotic/series', body).then(result => {
-      notice('Series queued: ' + (result.count || (result.molalities || []).length) + ' conditions sharing series '
-        + (result.series_id || '') + '. Scientific validation is not established by a completed series.');
+      const count = result.count || (result.molalities || []).length;
+      notice('Series queued: ' + count + ' condition' + (count === 1 ? '' : 's') + ' in run '
+        + (result.run_id || '') + ' (series ' + (result.series_id || '') + '). One run owns them all, so they run '
+        + 'one at a time. Scientific validation is not established by a completed series.');
     }, error => {
       notice('The series was not queued: ' + error.message);
     }).finally(review);
@@ -394,7 +439,7 @@ export function createOsmoticSeries() {
     setText($('.osmotic-summary-temp', panel()), (Number((controls().osmotic_temperature_k || {}).value) || 0).toFixed(2) + ' K');
     if (!$('.osmotic-conc-row', panel())) fill(DEFAULT_SERIES);
     recount();
-    await renderSeries();
+    await Promise.all([renderSeries(), renderRuns()]);
   }
 
   return { mount };

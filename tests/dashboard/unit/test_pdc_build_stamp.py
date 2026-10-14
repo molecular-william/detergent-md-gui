@@ -42,14 +42,60 @@ def write_gro(path: Path, atoms, box=(8.0, 8.0, 8.0)) -> Path:
     return path
 
 
-def test_a_detergent_is_rotated_so_its_tail_points_along_the_placement_direction():
+def write_cg_pdb(path: Path, atoms) -> Path:
+    """The CG structure as martinize2 writes it (`-x`): `ATOM` records in Angstroms, the stage reads them back."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [f'ATOM  {index:5d} {name:^4s} {residue:>3s} A{residue_id:4d}    '
+             f'{xyz[0] * 10.0:8.3f}{xyz[1] * 10.0:8.3f}{xyz[2] * 10.0:8.3f}  1.00  0.00'
+             for index, (residue_id, residue, name, xyz) in enumerate(atoms, 1)]
+    path.write_text('\n'.join(lines) + '\nEND\n')
+    return path
+
+
+def test_a_detergent_is_rotated_so_its_head_points_along_the_placement_direction():
+    """Heads to the water, tails to the core: the placement direction is outward, so the head takes it.
+
+    Measured on the draft's own frames before this was fixed: every one of the five frames put the head beads
+    0.317 nm *inward* of each detergent's centre and the tail beads 0.845 nm outward -- heads facing the micelle,
+    which is the inverse of a micelle. The direction the placement hands over is outward from the centre (see
+    `test_pdc_placement.py`, which pins that), so the molecule's head-ward axis is the one that takes it.
+    """
     along = pdc_build.stamp(DRAFT, [[3.0, 0.0, 0.0]], [[1.0, 0.0, 0.0]], first_residue=10)
     against = pdc_build.stamp(DRAFT, [[3.0, 0.0, 0.0]], [[-1.0, 0.0, 0.0]], first_residue=10)
 
     beads = {atom['name']: atom['position'] for atom in along}
-    assert beads['TAIL1'] == [3.25, 0.0, 0.0] and beads['HEAD'] == [2.75, 0.0, 0.0]
+    assert beads['HEAD'] == [3.25, 0.0, 0.0] and beads['TAIL1'] == [2.75, 0.0, 0.0]
     flipped = {atom['name']: atom['position'] for atom in against}
-    assert flipped['TAIL1'] == [2.75, 0.0, 0.0] and flipped['HEAD'] == [3.25, 0.0, 0.0]
+    assert flipped['HEAD'] == [2.75, 0.0, 0.0] and flipped['TAIL1'] == [3.25, 0.0, 0.0]
+
+
+def test_a_stamped_micelle_has_its_heads_toward_the_water_and_its_tails_in_the_core():
+    """The property the frames are judged by: per detergent, the head is further from the micelle's centre than
+    the tail -- heads to the water, tails in the core.
+
+    This is the end-to-end shape of the defect a reader saw -- the head bead pointing into the micelle -- measured
+    the way the draft's frames were measured, over a real lattice placement of the pipeline's own code.
+    """
+    import numpy as np
+
+    from dashboard.execution.adapters import pdc_placement
+
+    placed = pdc_placement.place_detergents(None, None, 24, seed=20261013, mode='lattice')
+    atoms = pdc_build.stamp(DRAFT, placed['centers'], placed['directions'], first_residue=10)
+    centre = np.mean([atom['position'] for atom in atoms], axis=0)
+
+    molecules: dict[int, list[dict]] = {}
+    for atom in atoms:
+        molecules.setdefault(atom['residue_id'], []).append(atom)
+    assert len(molecules) == 24
+    centres = set()
+    for residue_id, beads in molecules.items():
+        head = np.mean([atom['position'] for atom in beads if atom['name'] == 'HEAD'], axis=0)
+        tail = np.mean([atom['position'] for atom in beads if atom['name'] == 'TAIL1'], axis=0)
+        assert np.linalg.norm(head - centre) > np.linalg.norm(tail - centre), \
+            f'detergent {residue_id} has its head facing the micelle and its tail facing the water'
+        centres.add(tuple(np.round(np.mean([atom['position'] for atom in beads], axis=0), 4)))
+    assert len(centres) == 24, 'sanity: every detergent sits at its own placement site'
 
 
 def test_every_copy_keeps_the_topologys_bead_names_and_gets_its_own_residue():
@@ -115,9 +161,9 @@ def test_the_stage_completes_when_the_run_was_prepared_with_a_detergent_mapping(
                 settings={'seed': 20260930, 'aggregation_number': 2}, project_root=root,
                 mapping=candidate_file(tmp_path))
     stage = run / Path(pdc.STAGES[0].relative).parent
-    write_gro(stage / 'cg' / 'protein_CG.gro', [(1, 'PRO', 'B01', (0.0, 0.0, 0.0)),
-                                                (1, 'PRO', 'B02', (1.0, 0.0, 0.0)),
-                                                (1, 'PRO', 'B03', (0.0, 1.0, 0.0))])
+    write_cg_pdb(stage / 'cg' / 'protein_cg.pdb', [(1, 'PRO', 'B01', (0.0, 0.0, 0.0)),
+                                                  (1, 'PRO', 'B02', (1.0, 0.0, 0.0)),
+                                                  (1, 'PRO', 'B03', (0.0, 1.0, 0.0))])
     (stage / 'cg' / 'protein_CG.itp').write_text(PROTEIN_ITP)
 
     code = pdc_build.build(stage)

@@ -1,13 +1,16 @@
-"""The series route: that it queues one condition per molality sharing a series id, and that it refuses before it
+"""The series route: that it queues **one run carrying every concentration**, and that it refuses before it
 queues anything at all.
+
+The shape changed, and this file is where that is pinned. A series used to be N `osmotic` jobs sharing a
+`series_id`; with `max_concurrent_runs: 1` the second `create_job` is refused `CapacityFull` and nothing starts a
+job that is merely `queued`, so the route produced a *one-condition* series. The run type owns the concentrations
+now: `molalities` travels in one job's settings, and the run builds and runs the conditions one at a time.
 
 The refusal tests carry the weight. A route that queues what it can and reports the rest leaves a series whose
 conditions do not correspond to each other, and the runs it did create are then evidence of nothing.
 
-The two success tests stub `create_job`. The standard profile requires a *reviewed CG model*, which a fixture would
-have to build a great deal of machinery to have -- and the subject of those two tests is the route: six conditions,
-their labels, their shared series id, and the settings each is asked to store. What the coordinator does with them is
-tested by the refusals here and by its own suite.
+The success tests stub `create_job` and assert what the route *asked for*. What the coordinator then does with it
+is the coordinator's own suite (`test_osmotic_series.py` for the build, `test_osmotic_runner.py` for the loop).
 
 **No test names a run id or a candidate id from this machine.** The first version of this file named the maltose AA
 reference and was refused by admission -- which turned out to be right, and to say something about the run type: an
@@ -56,7 +59,8 @@ def _payload():
     return {'molecule_id': 'Maltose', 'method': 'fast_forward', 'temperature_k': 308.15}
 
 
-def test_the_default_series_is_the_papers_six_molalities_sharing_one_id(dashboard, tmp_path):
+def test_the_default_series_is_the_papers_six_molalities_in_one_run(dashboard, tmp_path):
+    """One job, and its settings are the whole series: the concentrations in the caller's order, one series id."""
     calls = []
     database, runs = _stores(dashboard, tmp_path)
     with database, runs, _stub_create_job(dashboard, calls), dashboard.client as c:
@@ -65,16 +69,17 @@ def test_the_default_series_is_the_papers_six_molalities_sharing_one_id(dashboar
     assert r.status_code == 201, r.get_data(as_text=True)
     body = r.json
     assert body['molalities'] == [0.0, 0.5, 1.0, 1.5, 2.0, 2.5]
-    assert body['count'] == 6 == len(calls)
-    assert len({job['id'] for job in body['jobs']}) == 6
+    assert body['count'] == 6
+    assert body['run_id'] == 'stub0001'
+    assert len(calls) == 1, 'the series is one run, not one run per condition'
 
-    for call, molality in zip(calls, body['molalities']):
-        assert call['run_type'] == 'osmotic'
-        assert call['molecule_id'] == 'Maltose'
-        assert call['settings']['series_id'] == body['series_id']
-        assert call['settings']['osmotic_molality'] == molality
-        assert call['settings']['solute_root'] == str(tmp_path)
-        assert f'{molality:g} molal' in call['label']
+    call = calls[0]
+    assert call['run_type'] == 'osmotic'
+    assert call['molecule_id'] == 'Maltose'
+    assert call['settings']['molalities'] == [0.0, 0.5, 1.0, 1.5, 2.0, 2.5]
+    assert call['settings']['series_id'] == body['series_id']
+    assert call['settings']['solute_root'] == str(tmp_path)
+    assert '6 conditions' in call['label']
 
 
 def test_a_shared_reference_is_refused_because_the_solute_comes_from_a_mapping(dashboard, tmp_path):
@@ -106,8 +111,33 @@ def test_a_molecule_id_of_the_wrong_form_is_refused_and_not_one_job_is_created(d
     assert len(after) == len(before), 'a refused series creates nothing'
 
 
+def test_a_molecule_that_is_not_a_sugar_is_refused_with_the_reason_and_nothing_is_created(dashboard, tmp_path):
+    """An osmotic series' solute is a sugar. DDM is the case worth pinning: it is a glucoside with two recognised
+    sugar rings, and it is still not a sugar -- twelve heavy atoms of alkyl chain sit outside them."""
+    database, runs = _stores(dashboard, tmp_path)
+    with database, runs, dashboard.client as c:
+        before = c.get('/api/jobs?limit=100').json['jobs']
+        r = c.post(SERIES, json=dict(_payload(), solute_root=str(tmp_path), molecule_id='DDM'))
+        after = c.get('/api/jobs?limit=100').json['jobs']
+
+    assert r.status_code == 400, r.get_data(as_text=True)
+    text = r.get_data(as_text=True)
+    assert 'not a carbohydrate' in text and 'outside' in text, text
+    assert len(after) == len(before), 'a refused series creates nothing'
+
+
+def test_a_name_the_repository_does_not_carry_is_refused_with_the_places_that_were_checked(dashboard, tmp_path):
+    database, runs = _stores(dashboard, tmp_path)
+    with database, runs, dashboard.client as c:
+        r = c.post(SERIES, json=dict(_payload(), solute_root=str(tmp_path), molecule_id='Notasugar'))
+
+    assert r.status_code == 400
+    text = r.get_data(as_text=True)
+    assert 'not a carbohydrate' in text and 'targets-v1.json' in text, text
+
+
 def test_a_molality_the_build_cannot_place_is_refused_and_the_series_is_not_half_created(dashboard, tmp_path):
-    """The refusal names the offending value, and it happens before the first job exists -- which is the whole point of
+    """The refusal names the offending value, and it happens before the job exists -- which is the whole point of
     checking every condition up front rather than queueing as it goes."""
     database, runs = _stores(dashboard, tmp_path)
     with database, runs, dashboard.client as c:
@@ -129,7 +159,7 @@ def test_the_solute_root_is_required_because_prepare_cannot_find_the_files_witho
     assert 'solute_root' in r.get_data(as_text=True)
 
 
-def test_a_caller_may_name_its_own_molalities(dashboard, tmp_path):
+def test_a_caller_may_name_its_own_molalities_and_they_ride_on_one_job(dashboard, tmp_path):
     calls = []
     database, runs = _stores(dashboard, tmp_path)
     with database, runs, _stub_create_job(dashboard, calls), dashboard.client as c:
@@ -137,7 +167,9 @@ def test_a_caller_may_name_its_own_molalities(dashboard, tmp_path):
 
     assert r.status_code == 201, r.get_data(as_text=True)
     assert r.json['molalities'] == [0.5, 1.0]
-    assert r.json['count'] == 2 == len(calls)
+    assert r.json['count'] == 2 == len(r.json['molalities'])
+    assert len(calls) == 1
+    assert calls[0]['settings']['molalities'] == [0.5, 1.0]
 
 
 def test_a_series_with_no_molality_at_all_is_refused(dashboard, tmp_path):
@@ -245,3 +277,68 @@ def test_the_control_is_a_row_and_not_a_missing_one(dashboard, tmp_path):
     assert control['molality_requested'] == 0.0 and control['measured'] is None
     assert 'paper' not in control, 'the paper reports the control as 0.00 and it is not one of the fitted points'
     assert first['molality_requested'] == 0.5
+
+
+# --- the reader: the series layout, one run with N conditions ---------------------------------------------------
+#
+# The run type owns its concentrations now, so a run directory holds N of them under
+# `01_simulate/conditions/<directory>/`. Both layouts are read: the six conditions of the completed series on this
+# workspace's disk were queued by hand, one run each, and a reader that stopped reading that shape would drop the
+# record this panel exists to show.
+
+def _series_condition_on_disk(runs, run_id, directory, molality, *, measured=None, state=None):
+    """One condition of a series run, laid out as `prepare` and the runner lay it out."""
+    import json
+
+    stage = runs / run_id / '01_simulate' / 'conditions' / directory
+    stage.mkdir(parents=True)
+    (stage / 'osmotic_condition.json').write_text(json.dumps(
+        {'molality_requested': molality, 'molality_achieved': molality, 'solute_molecules': 70,
+         'dividing_area_nm2': 25.4173, 'temperature': 308.15}))
+    if state is not None:
+        (stage / 'condition.json').write_text(json.dumps(
+            {'directory': directory, 'molality': molality, 'status': state}))
+    if measured is not None:
+        (stage / 'osmotic-pressure.json').write_text(json.dumps(measured))
+    return stage
+
+
+def test_a_series_runs_conditions_are_read_from_its_own_directories(dashboard, tmp_path):
+    """One row per concentration of the series, each named by the directory it was built and run in."""
+    database, runs = _stores(dashboard, tmp_path)
+    with database, runs:
+        _series_condition_on_disk(tmp_path / 'runs', 'series000001', '00_0.5molal', 0.5,
+                                  measured=_measurement(14.944))
+        _series_condition_on_disk(tmp_path / 'runs', 'series000001', '01_1molal', 1.0, state='failed')
+        _series_condition_on_disk(tmp_path / 'runs', 'series000001', '02_1.5molal', 1.5, state='complete')
+        with dashboard.client as c:
+            body = c.get('/api/osmotic/conditions').get_json()
+
+    assert body['total'] == 3 and body['attempts_on_disk'] == 3
+    assert [row['molality_requested'] for row in body['conditions']] == [0.5, 1.0, 1.5]
+    assert {row['run_id'] for row in body['conditions']} == {'series000001'}
+    assert [row['condition'] for row in body['conditions']] == ['00_0.5molal', '01_1molal', '02_1.5molal']
+    measured, failed, complete = body['conditions']
+    assert measured['measured']['pressure_bar'] == 14.944
+    # The gap the series produced is a row with its state, not a row that looks like one nobody has got to.
+    assert failed['state'] == 'failed' and failed['measured'] is None
+    assert complete['state'] == 'complete' and complete['measured'] is None
+
+
+def test_a_series_condition_and_a_hand_queued_one_are_one_row_per_molality(dashboard, tmp_path):
+    """The reader's collapse works across shapes: measured beats recent, whatever built it."""
+    import os
+
+    database, runs = _stores(dashboard, tmp_path)
+    with database, runs:
+        _series_condition_on_disk(tmp_path / 'runs', 'series000001', '00_0.5molal', 0.5)
+        stage = _condition_on_disk(tmp_path / 'runs', 'handmade0001', 0.5, measured=_measurement(15.002),
+                                   written_at=1_700_000_000)
+        os.utime(stage / 'osmotic_condition.json', (1_700_000_000, 1_700_000_000))
+        with dashboard.client as c:
+            body = c.get('/api/osmotic/conditions').get_json()
+
+    assert body['attempts_on_disk'] == 2, 'both are on disk and the count says so'
+    assert body['total'] == 1, 'one molality is one row'
+    assert body['conditions'][0]['run_id'] == 'handmade0001', 'the attempt with a measurement represents it'
+    assert body['conditions'][0]['measured']['pressure_bar'] == 15.002

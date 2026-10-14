@@ -509,6 +509,16 @@ class Coordinator:
             # it is checked by its own adapter; asking the CG adapter about it is how a pdc job used to be refused.
             ready = protocol.adapter_for('pdc').readiness({'protein': protein, 'template': template,
                                                            'project_root': str(self.ROOT)})
+        elif (run_type or 'aa_cg') == 'osmotic':
+            # An osmotic series is asked about itself too, and for a measured reason rather than symmetry: the CG
+            # adapter's own readiness refuses every `standard` profile outright, because a *replicated CG model*
+            # has not been approved -- a gate about the CG topology, which this run type does not build. What an
+            # osmotic run needs of its mapping is the bead radii the box is sized from, and that is its own
+            # question: is the solute a sugar, are its files here, can every concentration be placed.
+            ready = protocol.adapter_for('osmotic').readiness({
+                'molecule_id': molecule_id or detergent, 'molecule_root': self.ROOT / 'molecules',
+                'project_root': str(self.ROOT), 'solute_root': (settings or {}).get('solute_root'),
+                'mapping_snapshot': mapping_snapshot, 'settings': settings or {}})
         else:
             ready = cg.readiness(molecule_id or detergent, method, profile, mapping_snapshot, molecule_root=self.ROOT / 'molecules')
         if not ready['ready']:

@@ -1,0 +1,305 @@
+"""The CG protein step: what martinize2 is asked for, what the stage reads back, and the secondary structure behind it.
+
+Three things this step had wrong, each measured on the tool before it was changed:
+
+* it read `*.gro` out of `cg/`, while the command is `-x <out>/protein_cg.pdb` and martinize2 writes no `.gro` at all
+  -- so the step raised on "the CG protein step left 0 structures" however well the tool had run. What is read now
+  is the file the command itself names, so the two cannot drift;
+* the command carried no secondary-structure flag, so martinize2 logged "topology will be created without secondary
+  structure information", counted it as a warning and exited 2 with *nothing* written. `-ss <letters>` (see
+  `pdc_build.secondary_structure`) is what the tool asks for, and `-maxwarn 1` is its own documented room for one
+  warning;
+* martinize2 writes the molecule's own `.itp` into its *working directory* (`molecule_0.itp`, which the `.top` it
+  writes includes by that name), so the step runs it inside `cg/` -- run anywhere else, the topology the next step
+  needs lands beside the stage instead.
+
+The fixtures build their own molecule tree and their own protein; nothing here reads the developer's workspace, and
+the tool itself is stubbed, because what is tested is the stage's own command and read-back.
+"""
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from dashboard.execution.adapters import pdc
+from dashboard.execution.scripts import pdc_build
+
+TEMPLATE = {
+    'name': 'DDM', 'residue': 'DDM', 'coordinates': 'results/MMFF/lig1.pdb',
+    'topology': 'results/MMFF/lig1.itp', 'beads': [{'name': 'TAIL1', 'type': 'C1', 'role': 'tail'},
+                                                   {'name': 'HEAD', 'type': 'SN6', 'role': 'head'}],
+}
+
+
+def peptide(residues: int = 6) -> str:
+    """A peptide with an ideal backbone, so a secondary-structure assignment has something to read.
+
+    Measured: MDAnalysis' DSSP implementation assigns from six residues up and raises below five, so six is the
+    shortest fixture that exercises the real assignment -- and `peptide(1)` is the fixture for the other branch,
+    where no assignment can be made and the stage has to say so rather than invent one.
+    """
+    records, serial = [], 0
+    for index in range(1, residues + 1):
+        z = 1.5 * index
+        for name, xyz, element in (('N', (0.0, 0.0, z), 'N'), ('CA', (1.46, 0.0, z + 0.5), 'C'),
+                                   ('C', (2.0, 1.4, z + 1.0), 'C'), ('O', (2.9, 1.5, z + 1.2), 'O'),
+                                   ('CB', (1.9, -1.2, z + 0.2), 'C')):
+            serial += 1
+            records.append(f'ATOM  {serial:5d} {name:^4s} ALA A{index:4d}    '
+                           f'{xyz[0]:8.3f}{xyz[1]:8.3f}{xyz[2]:8.3f}  1.00  0.00          {element:>2s}')
+    return '\n'.join(records) + '\nEND\n'
+
+
+def pdb_text(atoms) -> str:
+    """A CG structure as martinize2 writes one: `ATOM` records, one bead per line, Angstroms.
+
+    The positions handed in are nanometres, which is what the stage's builders work in, so they are scaled here the
+    way the tool would write them -- and the reader scales them back.
+    """
+    records = [f'ATOM  {index:5d} {name:^4s} {residue:>3s} A{residue_id:4d}    '
+               f'{xyz[0] * 10.0:8.3f}{xyz[1] * 10.0:8.3f}{xyz[2] * 10.0:8.3f}  1.00  0.00'
+               for index, (residue_id, residue, name, xyz) in enumerate(atoms, 1)]
+    return '\n'.join(records) + '\nEND\n'
+
+
+def molecule_tree(tmp_path: Path, protein: str) -> Path:
+    molecule = tmp_path / 'molecules' / 'DDM'
+    (molecule / 'results' / 'MMFF').mkdir(parents=True)
+    (molecule / 'results' / 'MMFF' / 'lig1.pdb').write_text('HETATM    1  C1  DDM A   1       0.000   0.000   0.000\n')
+    (molecule / 'results' / 'MMFF' / 'lig1.itp').write_text('[ moleculetype ]\nDDM             1\n')
+    (molecule / 'micelle_template.json').write_text(json.dumps(TEMPLATE))
+    (molecule / 'protein.pdb').write_text(protein)
+    return tmp_path
+
+
+def prepared(tmp_path: Path, protein: str | None = None):
+    root = molecule_tree(tmp_path, protein if protein is not None else peptide())
+    run = tmp_path / 'run'
+    run.mkdir()
+    pdc.prepare(run, protein='molecules/DDM/protein.pdb', template='molecules/DDM/micelle_template.json',
+                settings={'seed': 20261014, 'aggregation_number': 4}, project_root=root)
+    return run, run / Path(pdc.STAGES[0].relative).parent
+
+
+def cg_directory(stage: Path) -> Path:
+    return stage / pdc_build.CG_DIRECTORY
+
+
+def cg_structure(stage: Path) -> Path:
+    """Where the step's own command puts the CG structure, so a fixture writes where the stage reads."""
+    command = pdc_build.pdc_protein.martinize_command(stage / 'protein.pdb', cg_directory(stage))
+    return Path(command[command.index('-x') + 1])
+
+
+THREE_BEADS = [(1, 'PRO', 'B01', (0.0, 0.0, 0.0)), (1, 'PRO', 'B02', (1.0, 0.0, 0.0)),
+               (1, 'PRO', 'B03', (0.0, 1.0, 0.0))]
+
+
+def stubbed_run(calls, beads=3):
+    """A martinize2 that writes exactly what its command names, and records how it was called."""
+    def run(command, **kwargs):
+        calls.append({'command': list(command), **kwargs})
+        structure = Path(command[command.index('-x') + 1])
+        structure.parent.mkdir(parents=True, exist_ok=True)
+        structure.write_text(pdb_text([(1, 'PRO', f'B{index:02d}', (float(index), 0.0, 0.0))
+                                       for index in range(1, beads + 1)]))
+        return subprocess.CompletedProcess(command, 0)
+    return run
+
+
+# --- what is read back ------------------------------------------------------------------------------------------
+
+def test_the_cg_step_reads_the_structure_its_own_command_names(tmp_path, monkeypatch):
+    """`-x` is the tool's only structure output, and it is a PDB: reading a name written down here could drift."""
+    _, stage = prepared(tmp_path)
+    calls = []
+    monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_run(calls))
+
+    assert pdc_build.build(stage) == 3
+
+    report = json.loads((stage / pdc.REPORT_NAME).read_text())
+    assert report['protein_beads'] == 3, 'the beads are the ones the tool wrote where the command said'
+    assert Path(calls[0]['command'][calls[0]['command'].index('-x') + 1]).is_file()
+
+
+def test_a_gro_in_the_directory_is_not_what_the_cg_step_reads(tmp_path):
+    """The step used to glob `*.gro`, a name martinize2 never writes -- and the fixture tests wrote it too."""
+    _, stage = prepared(tmp_path)
+    cg_directory(stage).mkdir(exist_ok=True)
+    (cg_directory(stage) / 'protein_CG.gro').write_text(
+        'protein\n5\n' + ''.join(f'{1:5d}{"PRO":<5}{f"B{index:02d}":>5}{index:5d}'
+                                 f'{0.0:8.3f}{0.0:8.3f}{0.0:8.3f}\n' for index in range(1, 6))
+        + '   8.00000   8.00000   8.00000\n')
+    cg_structure(stage).write_text(pdb_text(THREE_BEADS))
+
+    assert pdc_build.build(stage) == 3
+
+    report = json.loads((stage / pdc.REPORT_NAME).read_text())
+    assert report['protein_beads'] == 3, 'the five beads of the .gro are not this step\'s protein'
+
+
+def test_a_structure_the_tool_never_writes_is_not_taken_for_a_built_step(tmp_path, monkeypatch):
+    """The gate on running martinize2 again is the file it writes, not any structure that happens to be there."""
+    _, stage = prepared(tmp_path)
+    cg_directory(stage).mkdir(exist_ok=True)
+    (cg_directory(stage) / 'protein_CG.gro').write_text('a structure this tool never wrote\n')
+    calls = []
+    monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_run(calls))
+
+    pdc_build.build(stage)
+
+    assert calls, 'the step read the .gro as if martinize2 had produced it'
+
+
+def test_a_step_that_was_built_before_does_not_run_martinize2_again(tmp_path, monkeypatch):
+    _, stage = prepared(tmp_path)
+    cg_directory(stage).mkdir(exist_ok=True)
+    cg_structure(stage).write_text(pdb_text(THREE_BEADS))
+    calls = []
+    monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_run(calls))
+
+    assert pdc_build.build(stage) == 3
+
+    report = json.loads((stage / pdc.REPORT_NAME).read_text())
+    assert calls == [] and report['cg_command'] is None
+    assert report['protein_beads'] == 3
+    assert report['secondary_structure']['source'] is None, 'nothing was assigned: the tool was not run'
+
+
+# --- the command -----------------------------------------------------------------------------------------------
+
+def test_martinize2_runs_in_the_directory_it_writes_its_own_topology_into(tmp_path, monkeypatch):
+    """Its molecule `.itp` is written beside itself, so the working directory is where the topology has to land."""
+    _, stage = prepared(tmp_path)
+    calls = []
+    monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_run(calls))
+
+    pdc_build.build(stage)
+
+    command, cwd = calls[0]['command'], calls[0]['cwd']
+    assert Path(cwd) == cg_directory(stage)
+    for flag in ('-x', '-o'):
+        assert Path(command[command.index(flag) + 1]).parent == Path(cwd), \
+            f'{flag} writes outside the directory the tool is run in'
+
+
+def test_the_command_asks_for_a_secondary_structure_and_leaves_room_for_one_warning(tmp_path, monkeypatch):
+    """Without a secondary structure martinize2 warns once and exits 2 with nothing written."""
+    _, stage = prepared(tmp_path)
+    calls = []
+    monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_run(calls))
+
+    pdc_build.build(stage)
+
+    command = calls[0]['command']
+    sequence = command[command.index('-ss') + 1]
+    assert len(sequence) == 6, 'one letter per residue of the protein it was given'
+    assert set(sequence) <= set('HEC'), 'the letters martinize2 takes, and no others'
+    assert command[command.index('-maxwarn') + 1] == '1'
+
+
+def test_the_command_handed_to_martinize2_names_absolute_paths(tmp_path, monkeypatch):
+    """It is run from `cg/`, so a stage-relative path would be looked for *inside* `cg/` and not found.
+
+    Measured on the real tool: run from `cg/` with `-f run/1_system/protein_selected.pdb`, martinize2 stopped at
+    `FileNotFoundError: 'run/1_system/protein_selected.pdb'` and wrote nothing.
+    """
+    monkeypatch.chdir(tmp_path)
+    _, stage = prepared(tmp_path)
+    relative = stage.relative_to(tmp_path)
+    calls = []
+    monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_run(calls))
+
+    pdc_build.build(relative)
+
+    command = calls[0]['command']
+    for flag in ('-f', '-x', '-o'):
+        assert Path(command[command.index(flag) + 1]).is_absolute(), f'{flag} is not a file name cg/ can resolve'
+
+
+def test_a_ligand_in_the_protein_chain_is_dropped_and_the_report_names_it(tmp_path, monkeypatch):
+    """1AT9's retinal rides in the protein's own chain; without this the tool deletes the whole molecule."""
+    ligand = ('ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\n'
+              'HETATM    2  C1  RET A 249A      0.500   0.000   0.000  1.00 15.00           C\n')
+    _, stage = prepared(tmp_path, protein=ligand)
+    calls = []
+    monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_run(calls))
+
+    pdc_build.build(stage)
+
+    report = json.loads((stage / pdc.REPORT_NAME).read_text())
+    assert report['protein_dropped_residues'] == ['RET']
+    assert report['protein_input'] == pdc_build.SELECTED_PROTEIN, \
+        'the file martinize2 reads is the filtered one, not the run\'s own protein.pdb'
+    handed = Path(calls[0]['command'][calls[0]['command'].index('-f') + 1])
+    assert 'HETATM' not in handed.read_text(), 'the ligand never reaches martinize2'
+
+
+def test_a_protein_no_assignment_can_be_made_for_still_builds_and_says_why(tmp_path, monkeypatch):
+    """No secondary structure is martinize2's own documented case (`-maxwarn`), so it is recorded, not invented."""
+    _, stage = prepared(tmp_path, protein=peptide(1))
+    calls = []
+    monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_run(calls))
+
+    assert pdc_build.build(stage) == 3
+
+    command = calls[0]['command']
+    assert '-ss' not in command, 'a one-residue protein has no assignment to hand over'
+    assert command[command.index('-maxwarn') + 1] == '1'
+    recorded = json.loads((stage / pdc.REPORT_NAME).read_text())['secondary_structure']
+    assert recorded['source'] is None and recorded['detail']
+
+
+def test_a_command_that_names_no_structure_output_is_refused(tmp_path):
+    """The file to read is taken from the command, so a command without one is an error and not a guess."""
+    with pytest.raises(SystemExit, match='-x'):
+        pdc_build._output_path(['true'], '-x')
+
+
+# --- the assignment itself -------------------------------------------------------------------------------------
+
+def test_the_three_state_assignment_becomes_the_letters_martinize2_takes():
+    """MDAnalysis assigns helix/extended/unordered; martinize2 takes DSSP letters, where unordered is `C`."""
+    assert pdc_build.ss_sequence(['H', 'E', '-', '-', 'H']) == 'HECCH'
+
+
+def test_a_letter_martinize2_does_not_take_is_refused_rather_than_translated():
+    assert pdc_build.ss_sequence(['H', 'X']) is None
+    assert pdc_build.ss_sequence([]) is None
+
+
+def test_the_assignment_names_its_source_and_counts_what_it_found(tmp_path):
+    """The run's record says where the secondary structure came from, so a reader need not re-derive it."""
+    path = tmp_path / 'protein.pdb'
+    path.write_text(peptide())
+
+    sequence, record = pdc_build.secondary_structure(path)
+
+    assert sequence and len(sequence) == 6
+    assert record['source'] == pdc_build.SS_SOURCE and record['residues'] == 6
+    assert record['helix'] + record['extended'] + record['coil'] == 6
+
+
+def test_the_secondary_structure_the_run_used_reaches_the_report(tmp_path, monkeypatch):
+    _, stage = prepared(tmp_path)
+    monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_run([]))
+
+    pdc_build.build(stage)
+
+    recorded = json.loads((stage / pdc.REPORT_NAME).read_text())['secondary_structure']
+    assert recorded['source'] == pdc_build.SS_SOURCE and recorded['residues'] == 6
+    assert recorded['coil'] == 6, 'the fixture is a straight peptide'
+
+
+def test_the_report_carries_the_whole_command_the_stage_ran(tmp_path, monkeypatch):
+    _, stage = prepared(tmp_path)
+    calls = []
+    monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_run(calls))
+
+    pdc_build.build(stage)
+
+    recorded = json.loads((stage / pdc.REPORT_NAME).read_text())['cg_command']
+    assert recorded == calls[0]['command']

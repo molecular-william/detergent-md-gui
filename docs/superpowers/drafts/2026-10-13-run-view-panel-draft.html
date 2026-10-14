@@ -22,8 +22,10 @@
   .run-view-layout{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:20px;align-items:start}
   .run-view-layout .card{margin:0 0 16px}
   .run-view-list{display:flex;flex-direction:column;gap:4px;margin:10px 0 0;padding:0;list-style:none}
+  /* `color` has to be stated, not inherited: the app's own `button{background:var(--accent);color:white}` paints white
+     text, and with this sheet's white pill background that made the run ids and the strip's labels invisible. */
   .run-view-list button{display:block;width:100%;text-align:left;padding:8px 10px;border:1px solid var(--line);
-    border-radius:8px;background:#fff;cursor:pointer;font:inherit;line-height:1.35}
+    border-radius:8px;background:#fff;color:var(--ink);cursor:pointer;font:inherit;line-height:1.35}
   .run-view-list button[aria-pressed="true"]{background:#eef4ff;border-color:var(--accent)}
   .run-view-list .id{font-weight:700;font-variant-numeric:tabular-nums}
   .run-view-list .meta{display:block;font-size:12px;color:var(--muted)}
@@ -34,8 +36,26 @@
   .run-view-structures tr[aria-selected="true"]{background:#eef4ff}
   .run-view-structures code{font-size:12px;overflow-wrap:anywhere}
   .run-view-viewer{height:420px;min-height:300px;border:1px solid var(--line);border-radius:8px;background:#f7f9fc}
+  /* D11: two buttons and the frame slider, one line, directly under the canvas. `flex-wrap:nowrap` is the whole
+     point of the rule — the row must not fold into two lines at any width this panel is read at. */
+  .run-view-transport{display:flex;flex-wrap:nowrap;align-items:center;gap:8px;margin:8px 0 0}
+  .run-view-transport button{padding:2px 10px;border:1px solid var(--line);border-radius:6px;background:#fff;
+    color:var(--ink);cursor:pointer;font:inherit;line-height:1.5;min-width:36px}
+  .run-view-transport button[aria-pressed="true"]{background:#1b4b8f;border-color:#1b4b8f;color:#fff}
+  .run-view-transport button:disabled{cursor:not-allowed;color:var(--muted);background:#f3f4f6;border-color:var(--line)}
+  /* The app's shared rules bite a label-plus-input row, and the row has to normalise them the way `new-run.css:77`
+     and `mappings.css:25` already do: `dashboard.css` sets `label{margin:12px 0;font-weight:600;font-size:13px}`,
+     `input{padding:9px}`, and `label>input:not([type=checkbox]){display:block;width:100%;margin-top:5px}`. Measured
+     before normalising: the slider's own 12 px top and bottom margin set the flex line's cross size to 60 px while the
+     controls are 29-36 px, so the "row" is 24 px taller than anything in it and the buttons sit 4 px off the label. */
+  .run-view-transport .transport-frame{display:flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0;
+    margin:0;font-size:12px;font-weight:400;color:var(--muted)}
+  .run-view-transport input[type="range"]{flex:1 1 auto;min-width:80px;width:auto;margin:0;padding:0}
+  .run-view-transport .transport-frame-readout{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .run-view-transport .transport-state{font-size:12px;color:var(--muted);white-space:nowrap}
   .run-view-frames{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-  .run-view-frames button{padding:4px 10px;border:1px solid var(--line);border-radius:999px;background:#fff;cursor:pointer;font:inherit}
+  .run-view-frames button{padding:4px 10px;border:1px solid var(--line);border-radius:999px;background:#fff;
+    color:var(--ink);cursor:pointer;font:inherit}
   .run-view-frames button[aria-pressed="true"]{background:#1b4b8f;border-color:#1b4b8f;color:#fff}
   .run-view-readout{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:12px 0 0;padding:10px;
     background:#f7f9fc;border:1px solid var(--line);border-radius:8px;font-size:12px;font-variant-numeric:tabular-nums}
@@ -75,6 +95,8 @@
     color:var(--accent);border:1px solid var(--line);border-radius:999px;padding:2px 10px;margin-bottom:8px}
   .geometry{font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere;
     background:#f7f9fc;border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0 0}
+  .mock-chrome-box{border:1px dashed var(--line);border-radius:8px;padding:10px;margin:12px 0 0;background:#fbfbfd}
+  .mock-chrome-box label{display:block;margin:6px 0 0;font-size:13px}
 </style>
 
 <script src="../../../dashboard/web/static/vendor/ngl.js"></script>
@@ -97,7 +119,14 @@
       atom count, the figure names, and the model's own bonds of run <code>22075892b606</code>.</li>
     <li><b>Placeholder:</b> the frame strip's three buttons. No route serves a single trajectory frame today, and no
       run has a <code>snapshots/</code> directory — the strip says so and the buttons say
-      <code>placeholder</code> on them.</li>
+      <code>placeholder</code> on them. The transport row under each canvas is real markup and real code, but with one
+      frame in the file it is <b>disabled with its reason</b> (D17) — which is what the built panel will show for all
+      14 live runs until T4 writes a frame series.</li>
+    <li><b>Mock only, and labelled in place:</b> the last block's <b>41 synthetic frames</b>. They are the page's own —
+      the run's 8 mapped beads rotated about their centroid — built so the two play buttons, the ends and the slider can
+      actually be watched. No run's frames are in them. The block says so on its face, and it drives the same NGL
+      objects (a multi-model PDB loaded <code>asTrajectory: true</code>, <code>addTrajectory()</code>, one
+      <code>NGL.TrajectoryPlayer</code>) the built panel will drive.</li>
     <li><b>Substituted so the page opens from disk:</b> a browser cannot <code>fetch</code> a run's file over
       <code>file://</code>, so the two structures are embedded in the page instead of fetched through
       <code>/api/jobs/&lt;id&gt;/artifacts/&lt;rel&gt;?inline=1</code>. They are the runs' own files: run
@@ -192,6 +221,20 @@
         <h3 id="structure-title-aa">Structure</h3>
         <p class="hint" id="aa-what">Loading the run's molecule…</p>
         <div class="run-view-viewer" id="viewer-aa" role="img" aria-label="Structure from run 03875cf39790"></div>
+
+        <!-- D11: the row, directly under the canvas. Two buttons and the slider, nothing else; the frame it shows is
+             the frame playback starts from (D14), and the ends stop rather than wrap (D12). -->
+        <div class="run-view-transport" id="transport-aa" role="group" aria-label="Playback">
+          <button type="button" class="transport-reverse" aria-label="Play in reverse" aria-pressed="false">◀</button>
+          <button type="button" class="transport-forward" aria-label="Play forward" aria-pressed="false">▶</button>
+          <label class="transport-frame">Frame
+            <input type="range" min="0" max="0" step="1" value="0" aria-describedby="transport-aa-note">
+            <span class="transport-frame-readout">frame 0 of 0</span>
+          </label>
+        </div>
+        <p class="hint" id="transport-aa-note" role="status">Disabled with its reason: the file on screen holds one
+          frame, and no route serves a frame of <code>stages/07_reference/lig.xtc</code>. The row is drawn rather than
+          hidden so the reason is readable (D17).</p>
         <div class="run-view-readout" id="readout-aa" aria-live="polite"></div>
         <p class="hint">Read back from the component the viewer loaded, not from what this panel asked for: a selection
           that matches nothing and an inference that adds bonds both render as a plausible picture with a clean console.</p>
@@ -213,8 +256,13 @@
           three buttons that do nothing. The trajectory is <code>stages/07_reference/lig.xtc</code>; no route serves a
           single frame of it, and the panel does not parse one in the browser. The <code>snapshots</code> analysis
           writes these PDBs — it looks in <code>1_AA-reference/prod/</code>, a layout an AA-only run does not have, so
-          it has produced nothing for any of the 14 runs on disk. T4 makes it read this layout; then these buttons are
-          real, served through <code>/api/jobs/&lt;id&gt;/artifacts/snapshots/AA-first.pdb?inline=1</code>.</p>
+          it has produced nothing for any of the 14 runs on disk. T4 makes it read this layout — and write one
+          multi-model <code>snapshots/AA-frames.pdb</code> sample series beside the labelled moments — so then these
+          buttons are real, served through <code>/api/jobs/&lt;id&gt;/artifacts/snapshots/AA-first.pdb?inline=1</code>.
+          <b>What the strip does while the playhead moves (D16):</b> the strip and the row read the same frames. A
+          strip button sets the frame and stops there, and its pressed state moves only while the playhead sits
+          <em>exactly</em> on that frame — the panel never paints a saved moment as "current" while the playhead is
+          between two of them.</p>
       </section>
 
       <section class="card" aria-labelledby="figures-title-aa">
@@ -289,6 +337,18 @@
         <h3 id="structure-title-cg">Structure</h3>
         <p class="hint" id="cg-what">Loading the run's mapped model…</p>
         <div class="run-view-viewer" id="viewer-cg" role="img" aria-label="Coarse-grained structure from run 22075892b606"></div>
+
+        <div class="run-view-transport" id="transport-cg" role="group" aria-label="Playback">
+          <button type="button" class="transport-reverse" aria-label="Play in reverse" aria-pressed="false">◀</button>
+          <button type="button" class="transport-forward" aria-label="Play forward" aria-pressed="false">▶</button>
+          <label class="transport-frame">Frame
+            <input type="range" min="0" max="0" step="1" value="0" aria-describedby="transport-cg-note">
+            <span class="transport-frame-readout">frame 0 of 0</span>
+          </label>
+        </div>
+        <p class="hint" id="transport-cg-note" role="status">Disabled with its reason: <code>mapped.gro</code> holds one
+          frame, and this run's CG trajectories are <code>stages/4_CG_sim/{eq,md}.xtc</code> — no route serves a frame
+          of either. Drawn, not hidden (D17).</p>
         <div class="run-view-readout" id="readout-cg" aria-live="polite"></div>
         <p class="run-view-guard">
           <label><input type="checkbox" id="guard-cg" checked> Honour the file's <code>CONECT</code> and never guess
@@ -315,7 +375,9 @@
         <p class="hint" role="status">No frame snapshots recorded. This run's CG trajectories are
           <code>stages/4_CG_sim/eq.xtc</code> and <code>stages/4_CG_sim/md.xtc</code>, and its AA half belongs to the
           run it reused — <code>stages/1_AA-reference/</code> holds only the stage script, so the frame producer's
-          <code>1_AA-reference/prod/lig.xtc</code> is not here either.</p>
+          <code>1_AA-reference/prod/lig.xtc</code> is not here either. The strip follows the playhead the same way as
+          the row under this canvas (D16): it sets a frame, and only the frame the playhead is exactly on reads as
+          pressed.</p>
       </section>
 
       <section class="card" aria-labelledby="figures-title-cg">
@@ -343,6 +405,69 @@
           files, and the caption says which. Nothing here is drawn from a distance guess, in either half.</p>
       </section>
     </div>
+  </div>
+</section>
+</div>
+
+<!-- ==================== BLOCK 2b: the transport row, driven — synthetic frames, mock only ==================== -->
+<div class="draft-block">
+<span class="draft-tag">Mock only · the transport row, driven by 41 synthetic frames</span>
+<section class="panel" id="block-transport-demo" aria-label="The transport row, driven by synthetic frames">
+  <div class="section-heading">
+    <div><h2>Transport controls, working</h2>
+      <p>Two play buttons and one frame slider, on one line below the NGL canvas — the ask's row, watchable.</p></div>
+  </div>
+  <div class="card">
+    <p class="hint"><b>Synthetic, and labelled in place:</b> the 41 frames. They are the page's own — run
+      <code>22075892b606</code>'s 8 mapped beads rotated ±54° about their centroid — and no run's trajectory is in
+      them. Everything else is the mechanism the built panel will use: one multi-model PDB loaded
+      <code>asTrajectory: true</code>, <code>component.addTrajectory()</code> (measured: <code>loadFile</code> does not
+      attach a trajectory by itself), and <code>new NGL.TrajectoryPlayer(...)</code> out of the vendored build — the
+      same player the nglview widget drives from Python. The frames are synthetic for the defect the strip's empty
+      state records: no route serves a frame of a run's <code>.xtc</code>. T4's <code>AA-frames.pdb</code> sample
+      series is what replaces them with the run's own frames.</p>
+    <div class="run-view-viewer" id="viewer-demo" role="img"
+         aria-label="Synthetic frames of run 22075892b606's eight mapped beads"></div>
+    <div class="run-view-transport" id="transport-demo" role="group" aria-label="Playback">
+      <button type="button" class="transport-reverse" aria-label="Play in reverse" aria-pressed="false">◀</button>
+      <button type="button" class="transport-forward" aria-label="Play forward" aria-pressed="false">▶</button>
+      <label class="transport-frame">Frame
+        <input type="range" min="0" max="40" step="1" value="0" aria-describedby="transport-demo-note">
+        <span class="transport-frame-readout">frame 0 of 40</span>
+      </label>
+    </div>
+    <p class="hint" id="transport-demo-note" role="status">41 frames · 100 ms a frame, ten a second (D13) · the ends
+      stop rather than wrap (D12) · the slider is the frame shown <em>and</em> the frame playback starts from (D14) ·
+      the readout prints the frame index and no time (D15).</p>
+    <div class="run-view-frames" id="demo-strip" role="group" aria-label="Sampled moments in this series">
+      <button type="button" data-frame="0" aria-pressed="false">frame 0 · first</button>
+      <button type="button" data-frame="20" aria-pressed="false">frame 20 · middle</button>
+      <button type="button" data-frame="40" aria-pressed="false">frame 40 · last</button>
+    </div>
+    <p class="hint">The strip is a three-moment sample of the same 41 frames — the shape the <code>snapshots</code>
+      analysis writes (<code>AA-first/middle/last.pdb</code>). Press one and the playhead moves to it and stays; while
+      the playhead runs, a button reads as pressed only while the playhead is exactly on its frame (D16).</p>
+
+    <div class="mock-chrome-box">
+      <span class="draft-tag">Mock chrome · judging aids, not proposed controls</span>
+      <p class="hint">The panel ships <b>stop at the end</b> and <b>100 ms a frame</b>. These two selects are here so
+        the alternatives can be watched rather than argued about in prose.</p>
+      <label>At the ends
+        <select id="demo-mode">
+          <option value="once" selected>stop on the last frame — the panel's choice (D12)</option>
+          <option value="loop">loop to the other end</option>
+          <option value="bounce">bounce off the end</option>
+        </select>
+      </label>
+      <label>Rate
+        <select id="demo-timeout">
+          <option value="100" selected>100 ms a frame — nglview's Play(interval=100), the panel's choice (D13)</option>
+          <option value="50">50 ms — NGL's own player default</option>
+          <option value="250">250 ms — a slow pass</option>
+        </select>
+      </label>
+    </div>
+    <div class="geometry" id="demo-measured" role="status">Measuring the frames, the rate and the ends…</div>
   </div>
 </section>
 </div>
@@ -383,6 +508,10 @@
           across: <a href="/protein-detergent/complexes?run=&lt;id&gt;">Open this run in Complexes</a>. That link is the
           contract Complexes already implements — it reads <code>?run=</code> at mount and arms the viewer, so a reader
           arrives on the run already drawn rather than on a placeholder.</p>
+        <p class="hint"><b>No transport row here, deliberately.</b> The row belongs under a canvas this panel draws
+          (D11), and for a <code>pdc</code> run the panel draws no canvas — Complexes' snapshot strip is already the
+          control for that run's frames, and a second one here would be the same strip in two places, one of them
+          without the criterion numbers.</p>
         <p class="hint"><b>The decision for you:</b> keep it delegated (this panel is a door), or make this panel the
           one place a run is looked at and leave Complexes with only its build door. The second is a bigger change: the
           snapshot strip's criterion numbers are read from the PDC snapshot index, which is PDC's own.</p>
@@ -418,6 +547,11 @@
       <code>#run-form.new-run-layout</code> and loses to <code>layout.css</code> for exactly this reason.</p>
     <div class="geometry" id="geometry-readout" role="status">Measuring…</div>
     <div class="geometry" id="geometry-live" role="status">Measuring…</div>
+    <p class="hint">And the transport row, on every block that carries one: whether its three controls share a line,
+      whether the row sits inside its panel, and whether the canvas is above it. Measured at load and again on
+      resize.</p>
+    <div class="geometry" id="transport-readout" role="status">Measuring the transport rows…</div>
+    <div class="geometry" id="transport-live" role="status">Measuring the transport rows…</div>
     <p class="hint">Below 1100 px the spans go to twelve and the columns stack, as every other workspace does. The
       second block above tracks the window you are reading this in; the first was measured where the page was opened.
       Read the page at 1200 px or wider and both show the columns side by side.</p>
@@ -452,6 +586,12 @@
         is coarse-grained; the viewer's own guess only for an all-atom file with no <code>CONECT</code>. The readout
         reports what the renderer resolved.</li>
       <li><b>PDC runs delegate to Complexes</b>, which already draws them.</li>
+      <li><b>The transport row:</b> two buttons and the frame slider, one line under the canvas, nothing else in it
+        (D11); <b>stop at the ends</b> rather than loop or bounce (D12); <b>100 ms a frame</b>, nglview's own interval,
+        printed on the row and not a control (D13); the slider <b>is</b> the frame — shown and started from (D14) — and
+        it <b>prints an index, never a time</b>, because a PDB trajectory has no time to print (D15); the strip follows
+        the playhead and never starts it (D16); and where the viewer finds no frames the row is <b>drawn and disabled
+        with the reason</b>, which is every live run today (D17).</li>
     </ul>
     <h3>To judge</h3>
     <ol>
@@ -462,12 +602,18 @@
         them.</em></li>
       <li><b>Frames.</b> Make the frame producer read the AA-only layout so the strip is real for the six AA-only runs,
         or ship the strip empty with its reason? <em>My recommendation: make it read the layout — the ask names
-        frames.</em></li>
+        frames — and write one multi-model <code>snapshots/AA-frames.pdb</code> sample series beside the three labelled
+        moments, so the transport row has a run to play instead of three frames. How many samples? My recommendation is
+        40, evenly spaced, with the stride stated on the panel.</em></li>
       <li><b>PDC.</b> Keep it delegated, or make this panel the one place a run is looked at?</li>
       <li><b>A seventh tab in Detergent validation.</b> The rail was built for seven, so nothing moves — but "Run view"
         now sits beside "Runs". Keep both, or put this inside Runs?</li>
       <li><b>CG bead radii.</b> Size the spheres from the run's own <code>model.json</code> size classes, or draw them
         uniform and say so?</li>
+      <li><b>The transport row's rate and its ends.</b> Fixed at 100 ms a frame and stopping at the end (D12/D13 — which
+        is what the nglview widget's Play button does), or a rate control and a loop/bounce toggle in the row? The demo
+        block above lets you watch all three ends and three rates before deciding; my recommendation is the fixed rate
+        and the stop.</li>
     </ol>
   </div>
 </section>
@@ -594,10 +740,135 @@ async function show(stage, text, {coarseGrained, forceGuess}) {
   component.addRepresentation('ball+stick', {radiusScale: coarseGrained ? 0.75 : 0.55, aspectRatio: 2});
   component.autoView();
   return {atoms: component.structure.atomCount, bonds: component.structure.bondCount,
-          fromFile: conectCount(text), reason: parameters.reason};
+          fromFile: conectCount(text), reason: parameters.reason, component};
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The transport row: two play buttons and one frame slider, on one line under the canvas.
+// The built panel's `run-view.js` holds this; the draft drives the very same NGL objects, so the row the reviewer
+// judges is the row that ships.
+// ---------------------------------------------------------------------------------------------------------------
+const FRAME_MS = 100;     // D13 — nglview's Play(interval=100): ten frames a second, printed on the row
+const END_MODE = 'once';  // D12 — stop at the end; 'loop' and 'bounce' are one setParameters call away
+
+function makeTransport(rowId) {
+  const row = document.getElementById(rowId);
+  const reverse = row.querySelector('.transport-reverse');
+  const forward = row.querySelector('.transport-forward');
+  const slider = row.querySelector('input[type="range"]');
+  const readout = row.querySelector('.transport-frame-readout');
+  const note = document.getElementById(rowId + '-note');
+  const callbacks = [];
+  let traj = null, player = null, frames = 0;
+
+  const at = () => (traj && traj.currentFrame >= 0 ? traj.currentFrame : 0);
+
+  function sync() {
+    const running = !!(player && player.isRunning);
+    const direction = player ? player.parameters.direction : 'forward';
+    forward.setAttribute('aria-pressed', String(running && direction === 'forward'));
+    reverse.setAttribute('aria-pressed', String(running && direction === 'backward'));
+    const frame = at();
+    slider.value = String(Math.max(0, Math.min(frame, Math.max(0, frames - 1))));
+    readout.textContent = frames > 1 ? `frame ${frame} of ${frames - 1}` : 'frame 0 of 0';
+    for (const cb of callbacks) cb(frame, {running, direction});
+  }
+
+  function disable(reason) {
+    const why = reason.replace(/\s+/g, ' ').trim();   // the markup's own indentation is not part of the sentence
+    for (const el of [reverse, forward, slider]) { el.disabled = true; el.title = why; }
+    if (note) note.textContent = why;
+    sync();
+  }
+
+  function play(which) {
+    if (!player) return;
+    const direction = which === 'reverse' ? 'backward' : 'forward';
+    // Pressing the running direction again pauses: what nglview's single Play button does (D11).
+    if (player.isRunning && player.parameters.direction === direction) player.pause();
+    else { player.setParameters({direction}); player.play(); }
+    sync();
+  }
+
+  reverse.addEventListener('click', () => play('reverse'));
+  forward.addEventListener('click', () => play('forward'));
+  slider.addEventListener('input', () => {
+    if (!traj) return;
+    if (player) player.pause();
+    traj.setFrame(Number(slider.value));
+    sync();
+  });
+
+  return {
+    get frames() { return frames; },
+    get trajectory() { return traj; },
+    get player() { return player; },
+    frameNow: at,
+    readoutText: () => readout.textContent,
+    sync, disable,
+    onFrame(cb) { callbacks.push(cb); },
+    setFrame(n) { if (!traj) return; if (player) player.pause(); traj.setFrame(Number(n)); sync(); },
+    setMode(mode) { if (player) { player.pause(); player.setParameters({mode}); sync(); } },
+    setRate(ms) { if (player) player.setParameters({timeout: Number(ms)}); },
+    attach(shown, options) {
+      const opts = options || {};
+      const component = shown && shown.component ? shown.component : shown;
+      const element = component && component.trajList && component.trajList[0];
+      traj = element ? element.trajectory : null;
+      frames = traj ? traj.frameCount : 0;
+      if (frames < 2) {
+        // D17 — drawn and disabled, with the measurement that says why, not a silent dead control.
+        disable(note.textContent.trim() + ` Measured on the component the viewer resolved: ${frames} frames.`);
+
+        return this;
+      }
+      player = new NGL.TrajectoryPlayer(traj, {step: 1, timeout: FRAME_MS, start: 0, end: frames - 1,
+                                             mode: END_MODE, direction: 'forward'});
+      slider.max = String(frames - 1);
+      for (const el of [reverse, forward, slider]) { el.disabled = false; el.removeAttribute('title'); }
+      if (opts.note) note.textContent = opts.note;
+      element.signals.frameChanged.add(() => sync());
+      traj.setFrame(0);
+      sync();
+      return this;
+    },
+  };
+}
+
+// MOCK ONLY: 41 frames of run 22075892b606's own 8 mapped beads, rotated ±54 degrees about their centroid. The run's
+// real trajectory is `stages/4_CG_sim/md.xtc`, which no route serves a frame of; these frames are the page's own and
+// exist so the row can be watched. The block that uses them says so on its face. Coordinates come from CG_PDB below —
+// one source, so the demo cannot drift from the run's own numbers.
+const CG_BEADS = () => CG_PDB.split('\n').filter(line => line.startsWith('HETATM'))
+  .map(line => [parseFloat(line.slice(30, 38)), parseFloat(line.slice(38, 46)), parseFloat(line.slice(46, 54))]);
+
+function syntheticPdb(nFrames) {
+  const beads = CG_BEADS();
+  const centre = beads.reduce((acc, b) => [acc[0] + b[0] / beads.length, acc[1] + b[1] / beads.length,
+                                           acc[2] + b[2] / beads.length], [0, 0, 0]);
+  const out = [];
+  for (let m = 0; m < nFrames; m++) {
+    out.push('MODEL     ' + String(m + 1).padStart(4));
+    const angle = (m / (nFrames - 1) - 0.5) * 1.884;  // ±54 degrees
+    const cos = Math.cos(angle), sin = Math.sin(angle);
+    beads.forEach((bead, i) => {
+      const dx = bead[0] - centre[0], dy = bead[1] - centre[1];
+      const x = centre[0] + dx * cos - dy * sin, y = centre[1] + dx * sin + dy * cos;
+      out.push('HETATM' + String(i + 1).padStart(5) + ' B0' + (i + 1) + '  LIG1 A   1    ' +
+        x.toFixed(3).padStart(8) + y.toFixed(3).padStart(8) + bead[2].toFixed(3).padStart(8) +
+        '  1.00  0.00           C');
+    });
+    out.push('ENDMDL');
+  }
+  out.push('END', '');
+  return out.join('\n');
 }
 
 async function main() {
+  const transportAA = makeTransport('transport-aa');
+  const transportCG = makeTransport('transport-cg');
+  const transportDemo = makeTransport('transport-demo');
+
   // ---- the AA half -----------------------------------------------------------------------------------------
   const aa = document.getElementById('viewer-aa');
   const aaWhat = document.getElementById('aa-what');
@@ -605,6 +876,7 @@ async function main() {
   try {
     const stage = await draw(aa);
     const resolved = await show(stage, AA_PDB, {coarseGrained: false});
+    transportAA.attach(resolved);
     aaWhat.textContent = 'Run 03875cf39790 · stages/common/molecule/MMFF/lig1.pdb · all-atom, no CONECT.';
     readout(aaReadout, [
       ['atoms drawn', String(resolved.atoms)],
@@ -644,7 +916,8 @@ async function main() {
     }
     const guarded = await show(cgStage, CG_PDB, {coarseGrained: true, forceGuess: !guard.checked});
     const plain = await show(cgStage, CG_PDB_NO_BONDS, {coarseGrained: true, forceGuess: !guard.checked});
-    await show(cgStage, CG_PDB, {coarseGrained: true, forceGuess: !guard.checked});
+    const shown = await show(cgStage, CG_PDB, {coarseGrained: true, forceGuess: !guard.checked});
+    transportCG.attach(shown);
     cgWhat.textContent = 'Run 22075892b606 · stages/2_mapping/mapped.gro, 8 beads (B01–B08), with the seven edges '
       + 'stages/3_initial_CG/LIG1.itp declares.';
     readout(cgReadout, [
@@ -725,6 +998,113 @@ async function main() {
   }
   window.addEventListener('resize', liveReport);
   liveReport();
+
+  // ---- the demo block: the same row, over 41 synthetic frames (mock only) ------------------------------------
+  const demoStrip = document.getElementById('demo-strip');
+  const demoMode = document.getElementById('demo-mode');
+  const demoTimeout = document.getElementById('demo-timeout');
+  const demoMeasured = document.getElementById('demo-measured');
+  const demoTicks = [];
+  try {
+    const stage = await draw(document.getElementById('viewer-demo'));
+    const comp = await stage.loadFile(new Blob([syntheticPdb(41)], {type: 'text/plain'}),
+      {ext: 'pdb', inferBonds: 'none', asTrajectory: true});
+    // Measured: loadFile leaves the trajectory off; this call is what makes one.
+    comp.addTrajectory();
+    comp.addRepresentation('ball+stick', {radiusScale: 0.75, aspectRatio: 2});
+    comp.autoView();
+    transportDemo.attach({component: comp}, {note: document.getElementById('transport-demo-note').textContent});
+
+    const traj = transportDemo.trajectory;
+    comp.trajList[0].signals.frameChanged.add(() => demoTicks.push(performance.now()));
+    transportDemo.onFrame(() => {
+      for (const button of demoStrip.querySelectorAll('button')) {
+        button.setAttribute('aria-pressed', String(Number(button.dataset.frame) === transportDemo.frameNow()));
+      }
+    });
+    for (const button of demoStrip.querySelectorAll('button')) {
+      button.addEventListener('click', () => transportDemo.setFrame(button.dataset.frame));
+    }
+    demoMode.addEventListener('change', () => transportDemo.setMode(demoMode.value));
+    demoTimeout.addEventListener('change', () => transportDemo.setRate(demoTimeout.value));
+
+    setInterval(() => {
+      const now = performance.now();
+      while (demoTicks.length && now - demoTicks[0] > 1000) demoTicks.shift();
+      const player = transportDemo.player;
+      demoMeasured.textContent = [
+        `frames the trajectory resolved: ${traj.frameCount}`,
+        `deltaTime ${traj.deltaTime} · getFrameTime(0) = ${traj.getFrameTime(0)} → nothing to print (D15)`,
+        `frame advances in the last second: ${demoTicks.length}`,
+        `ends: ${player.parameters.mode} · rate: ${player.parameters.timeout} ms a frame`,
+        `now: ${transportDemo.readoutText()} · ${player.isRunning ? player.parameters.direction : 'paused'}`,
+        `the slider is bound to: trajectory.currentFrame (traj.setFrame on input) — the frame shown and the frame ` +
+          `playback starts from (D14)`,
+      ].join('\n');
+    }, 250);
+  } catch (error) {
+    demoMeasured.textContent = `The demo could not run: ${error.message}. The geometry below is measured anyway.`;
+  }
+
+  // ---- every transport row, measured -------------------------------------------------------------------------
+  const transportHost = document.getElementById('transport-readout');
+  const transportLive = document.getElementById('transport-live');
+  const transportBlocks = ['block-validation-aa', 'block-validation-cg', 'block-transport-demo'];
+
+  function measureRow(blockId) {
+    const panel = document.getElementById(blockId);
+    const row = panel.querySelector('.run-view-transport');
+    const viewer = panel.querySelector('.run-view-viewer');
+    const controls = [...row.children];
+    const box = el => {
+      const r = el.getBoundingClientRect();
+      return {x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
+              top: r.top, bottom: r.bottom, right: r.right, cy: +(r.top + r.height / 2).toFixed(1)};
+    };
+    const boxes = controls.map(box);
+    const tops = boxes.map(b => b.y), centres = boxes.map(b => b.cy);
+    const tallest = Math.max(...boxes.map(b => b.h));
+    const topSpread = Math.max(...tops) - Math.min(...tops);
+    const centreSpread = +(Math.max(...centres) - Math.min(...centres)).toFixed(1);
+    const p = box(panel), r = box(row), v = box(viewer);
+    return {blockId, boxes, topSpread, centreSpread, tallest,
+            sameRow: centreSpread <= tallest / 2 && topSpread <= tallest,
+            row: r, viewer: v, panel: p,
+            inside: r.x >= p.x - 1 && r.right <= p.right + 1 && r.y >= p.y - 1 && r.bottom <= p.bottom + 1,
+            canvasAbove: v.bottom <= r.y + 1};
+  }
+
+  function transportReport() {
+    const links = [...document.querySelectorAll('head link[rel=stylesheet]')]
+      .map(link => link.getAttribute('href').split('/').pop());
+    const lines = [`head order: ${links.join(' → ')}`,
+      `new-run.css at #${links.indexOf('new-run.css') + 1}, layout.css at #${links.indexOf('layout.css') + 1}` +
+      ` → new-run.css before layout.css: ${links.indexOf('new-run.css') < links.indexOf('layout.css')}`];
+    for (const blockId of transportBlocks) {
+      const m = measureRow(blockId);
+      lines.push('', m.blockId,
+        `  controls (w×h @ top / centre-y): ${m.boxes.map(b => `${b.w}×${b.h} @ ${b.y} / ${b.cy}`).join(' · ')}`,
+        `  tops spread ${m.topSpread} px · centres spread ${m.centreSpread} px · tallest ${m.tallest} px` +
+        ` → ${m.sameRow ? 'SAME ROW' : 'NOT ONE ROW'}`,
+        `  row x ${m.row.x} y ${m.row.y} w ${m.row.w} h ${m.row.h} · inside the panel` +
+        ` (x ${m.panel.x}…${m.panel.right}, y ${m.panel.y}…${Math.round(m.panel.bottom)}): ${m.inside}`,
+        `  canvas bottom ${Math.round(m.viewer.bottom)} ≤ row top ${m.row.y} → canvas above the row: ${m.canvasAbove}`,
+        `  row right ${m.row.right} vs panel right ${m.panel.right} → overflows the panel: ${m.row.right > m.panel.right + 1}`);
+    }
+    return lines.join('\n');
+  }
+
+  function transportLiveReport() {
+    transportLive.textContent = transportBlocks.map(blockId => {
+      const m = measureRow(blockId);
+      return `${m.blockId}: tops spread ${m.topSpread} px · centres spread ${m.centreSpread} px · ` +
+        `${m.sameRow ? 'same row' : 'NOT one row'} · inside the panel ${m.inside} · canvas above ${m.canvasAbove}`;
+    }).join('\n');
+  }
+
+  transportHost.textContent = transportReport();
+  window.addEventListener('resize', transportLiveReport);
+  transportLiveReport();
 
   readoutHost.textContent = report('Application head order (the panel\'s block before layout.css):', correct)
     + '\n\n' + report('With the two blocks the wrong way round:', reversed)

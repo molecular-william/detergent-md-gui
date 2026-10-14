@@ -86,6 +86,71 @@ So the honest sentence for the panel is: *the expensive half is the coarse-grain
 and its chain ticks, so it is cached; the placement and everything the reader can still move are milliseconds.* The
 mock carries that sentence in the card's *Cost* and *Kept* rows and the longer version in its disclosure.
 
+## The two changes the user asked for (2026-10-14)
+
+The report, verbatim: *"for the pdc system preview, I would like the beads to look twice as big, and I see that
+currently the head of the detergent is facing the interior of the micelle, not the tail, so you should account for
+that."* Both are landed; the second turned out not to be a picture at all.
+
+### 1. The beads are drawn twice as large
+
+One number in the mock: `radiusScale` 0.75 → **1.5** in its `show()`. NGL multiplies the ball's own radius by it, so
+1.5 is twice 0.75; the sticks scale with the ball, so the model's own `CONECT` bonds stay visible.
+
+**The app's viewer is a second place this number lives, and it is not changed here.** `pdc.js` draws the built system
+with `ball+stick, {radiusScale: 0.75, aspectRatio: 2}` — the mock copied that — so the panel's card (T3) must carry
+**1.5** when it is built, or the preview and the run view will draw the same frame at two different sizes. Flagged
+rather than silently inherited; `pdc.js` is outside this change's scope.
+
+The mock now says what the size is, in the two places a reader meets it: a *No bead sizes* line in the card's list —
+a coarse-grained bead carries no element and no van der Waals radius, so the radius is chosen for reading, not
+measured, and nothing in the picture says a head bead is bigger than a tail bead — and a comment in the viewer's own
+code.
+
+### 2. The orientation was the placement's, not the picture's — and it is fixed
+
+**Verdict: the placement's.** The frames were faithful to the coordinates the pipeline produced; what the pipeline
+produced was detergents with their heads in the micelle. Measured on the mock's own five frames, read back as text:
+
+| measured | result |
+| --- | --- |
+| head beads' mean vs the detergent's own centre | **0.317 nm inward**, the same in every molecule of every frame |
+| tail beads' mean vs the detergent's own centre | **0.845 nm outward**, the same everywhere |
+| head further from the micelle's centre than the tail | **no, in 0 of 660 molecules** (150 in each of frames C, D, E, G; 60 in F) |
+| detergent centres in the lattice frames | exactly **3.000 nm** from the micelle's centre, i.e. `pdc_placement.DEFAULT_RADIUS_NM` |
+| frame D re-derived from the pipeline | **3 153 of 3 154 lines identical** (the one difference is the `REMARK` title the generator passed) — this frame *is* `pdc_placement.place_detergents(None, None, 150, seed=20261013, mode='lattice')` → `pdc_build.stamp` → `pdc_view.system_pdb`, not merely like it |
+
+`pdc_view.system_pdb` applies no transform beyond nm → Å and the mock's viewer adds none, so nothing between the
+placement and the screen could have flipped anything. The inversion was one sign in `pdc_build.stamp`: the axis it
+rotated onto the placement's direction was `mean(tail) − mean(head)`, tail-ward, while the direction is the
+placement's *outward* one — `pack_micelle` builds the lattice centres as *middle + radius × direction*, and
+`pdc_placement._outward` is the self-assembled cloud's equivalent. A micelle's heads face that water and its tails
+fill the core, and the run's own criterion says the same thing in code: `pdc_assessment` judges a micelle by *"a tail
+bead within the contact distance of any protein bead"*, which a tail-outward placement can never satisfy.
+
+**The fix** takes the head-ward axis (`mean(head) − mean(tail)`), in `dashboard/execution/scripts/pdc_build.py`, with
+the convention it orients against now pinned by test rather than by prose: `tests/dashboard/unit/test_pdc_placement.py`
+asserts that the placement's direction is the way **out** of the micelle (on the lattice exactly, and on the
+self-assembled cloud as each centre's own heading), so the sign cannot be "fixed" in the direction instead. Measured
+after it, on the same seed and the same DDM mapping: head beads' mean **+0.317 nm outward** of each detergent's own
+centre, tails **−0.845 nm**, in **150/150** detergents on both generators (lattice: head radius 3.3167 nm, tail
+2.1553; self-assembly: 3.2953 / 2.1383).
+
+Fixed rather than reported, because it is a defect in **every run's own first snapshot**, not only in the preview: the
+placement the run records is the placement the run simulates from.
+
+### What the mock's frames are now, and what they are not
+
+They are kept and labelled: real output of the placement code **before** this fix, showing a micelle inside out, and
+they are the record of the defect and of its size. Regenerating them is not a re-run: the frames carry the detergent
+model only up to each molecule's own rotation, so the model's original coordinate frame is not recoverable from them,
+and re-deriving would draw a *different* legal frame (a different rotation about each molecule's axis), not the one
+they hold. What the fix does to them is measured and small in every way except orientation: frame D after the fix has
+the same **1650 beads**, the same **3 154 lines**, the same **156 136 bytes**, and the same `CONECT` and `REMARK`
+lines — **1 650 lines differ, exactly the `HETATM` records**, because every bead rotated about its own detergent's
+centre. So every other number the mock prints (bead counts, box, clearance, byte counts) is untouched by the fix and
+still stands. The mock's banner and its card say which frames these are.
+
 ## What the preview is, exactly
 
 - **Inputs:** protein, subunit selection, detergent, template, mapping, count, initialisation style, seed, box margin,
@@ -93,8 +158,8 @@ mock carries that sentence in the card's *Cost* and *Kept* rows and the longer v
   derived from one set of numbers.
 - **Pipeline:** `pdc_build.select_protein` → the CG protein (martinize2 with the protocol's own
   `-elastic -ef 1000 -eu 1.0`) → `pdc_placement.place_detergents` → `pdc_box.initial_box` / `extended_box` →
-  `pdc_build.stamp` (the mapping's own beads, rotated so each tail points along its placement direction) →
-  `pdc_view.system_pdb`.
+  `pdc_build.stamp` (the mapping's own beads, rotated so each **head** points along its placement direction — the
+  way out of the micelle, into the water; see *The two changes the user asked for*) → `pdc_view.system_pdb`.
 - **Output:** a viewer file carrying the model's own bonds as `CONECT` records, exactly as the run's snapshot does.
   `pdc_view.system_pdb` writes one residue per molecule and the moleculetype's `[ bonds ] + [ constraints ]` per
   detergent; the panel's existing viewer switch (`pdc.js` sets `inferBonds:'none'` when the file has `CONECT`) is
@@ -137,6 +202,43 @@ detergent **0.174 nm** from the protein at 150 detergents (0.179 nm at 60) — u
 cleanly (**0.525 nm**). The mock shows both: the refusal as the builder's own sentence with no picture, and the
 self-assembled frame rendered. This is not a hypothetical state to design around — it is the default style on the
 protein on disk, and a preview that drew a picture there would be drawing something the build refuses.
+
+### Does one chain of 1AT9 rescue the lattice? Measured: no — and the refusal was never about the assembly
+
+The obvious answer to a refusal is a smaller protein, and the panel already has the control (`protein_chains`, chain A
+alone). It does not work, and the numbers say why. Measured with the placement code alone and the file's own
+coordinates (no `martinize2`, no simulation; the structure copied into a scratch directory), seed 20261013:
+
+| selection | lattice AN=150 | lattice AN=60 | one bead per residue (CA only) |
+| --- | --- | --- | --- |
+| A | **0.053 nm** | 0.154 nm | 0.198 nm |
+| A+B | **0.034 nm** | 0.042 nm | 0.091 nm |
+| A+B+C | **0.050 nm** | 0.036 nm | 0.061 nm |
+| (self-assembly, A / A+B / A+B+C) | 0.564 / 0.503 / 0.534 nm — valid | | |
+
+All three selections fail the 0.5 nm gate on the lattice, and **one chain is not close**: 0.053 nm is a tenth of what
+is required, so this is not a "the trimer is too big" story. The CA-only column is the CG-resolution proxy for what
+`martinize2` hands the placement (230 / 460 / 690 beads against the pipeline's own measured 0.174 nm for chain A at
+150 — same order, same verdict), so the atomistic density is not doing the failing either.
+
+**What is failing is the lattice's geometry, not the protein's size.** The lattice places the detergents on a
+**sphere of the fixed `DEFAULT_RADIUS_NM` = 3.0 nm** around the protein's *centroid*, and uses no membrane frame at all.
+1AT9's own coordinates: the atoms reach **3.270 nm** from the chain-A centroid (3.220 nm transversely in the slab,
+3.584 nm along the membrane normal), so the shell passes *through* the protein — 1.0 % of chain A's heavy atoms lie
+outside it, right where the sites land. The honest belt for a membrane protein is a *band* in the membrane plane at
+the protein's own transverse radius plus the clearance it must keep: a cylinder at **r = 3.72 nm** (3.220 + 0.5),
+sampled at 150 angles across the file's own bilayer half-thickness (1.48 nm, its own remark), measures **0.550 nm** —
+it passes. The repo already models that frame (`micelle/orientation.py`'s axis/span/origin from the OPM metadata,
+`micelle/geometry.candidate_score`'s belt band) and the placement does not call any of it.
+
+**And self-assembly passing is not evidence the lattice could.** `_self_assemble` *rejects* every draw that lands
+within `min_clearance_nm` of the protein before accepting it, so it can only hand back a placement that satisfies the
+gate it is then judged by: its 0.50–0.56 nm is a rejection sampler's guarantee, not a measure of fit. Two consequences
+worth stating where a reader meets them: a preview that says "switch to self-assembly and it works" is telling the
+truth about the code and nothing about the belt, and the panel should not present the two styles as interchangeable.
+Not fixed here — it is a placement-design question, not a preview one; recorded with the numbers so it is not
+re-derived.
+
 
 ## Where it sits, and the geometry measured
 
@@ -235,6 +337,12 @@ These are reported, not fixed: the fix belongs with the stage, and each deserves
 claim and its refusal behaviour are unaffected by them, because both are statements about code that runs before the
 broken step or beside it.
 
+**A fourth defect in these same frames was not a deviation at all, and it is fixed rather than listed: the
+placement's own orientation.** Every detergent in all five frames was stamped head-inward, tails-outward — the
+inverse of a micelle — because `pdc_build.stamp` rotated the molecule's tail-ward axis onto a direction the
+placement means as "outward". Measured, fixed and test-pinned above, under *The two changes the user asked for*.
+The frames are kept as the record of it.
+
 As a check on the panel's other half, the estimate route's own numbers for this protein and detergent (computed with
 `analysis/runs/encapsulation`'s functions, the same ones the route calls): 1AT9 chain A **37.94 nm²** apolar, **228**
 needed, **65.7 %** at 150 requested; all three chains **75.29 nm²**, **453**, **33.1 %**. Those are what the mock's
@@ -291,6 +399,9 @@ inside a 759 px host until it was asked to resize), the staleness rule from deci
 (browser): the two halves still sit side by side at 1700 px and 1280 px with the card present (equal widths, different
 x); the paired rows still share a y; changing the count re-derives and changing a subunit tick marks the frame stale
 rather than redrawing; a refusal shows the reason and no canvas.
+The card's viewer draws beads at **twice `pdc.js`'s radius** (`radiusScale` 1.5 against that file's 0.75, the user's
+ask); if the panel ships at the app's 0.75 the preview and the run view will disagree about the size of the same bead,
+so either both move or the difference is stated.
 
 **T4 — the three defects above**, as their own change: a `.gro`-or-`.pdb` reader in `cg_protein`, the missing
 `-maxwarn`/`-ss` in `pdc_protein.martinize_command`, and `filter_chains`' treatment of `HETATM`. Each with a test;
@@ -299,6 +410,20 @@ preview's frames would be the only ones that exist.
 
 **T5 — nothing to do for the estimate.** The mock's estimate card shows the encapsulation route's own answers,
 recomputed here with the route's functions; no work is implied.
+
+**T6 — the orientation: DONE, 2026-10-14.** `pdc_build.stamp` rotates the detergent's **head**-ward axis onto the
+placement's direction (the way out of the micelle) instead of its tail-ward one, and `pdc_placement._outward`'s
+docstring states the same convention. Tests, all in the fast tier: `test_the_placement_direction_is_outward_from_the_micelle_centre`
+and `test_the_self_assembly_direction_is_outward_too` (the convention the stamp orients against, pinned in
+`tests/dashboard/unit/test_pdc_placement.py`); `test_a_detergent_is_rotated_so_its_head_points_along_the_placement_direction`
+(the old test renamed and inverted: it asserted the tail took the direction) and
+`test_a_stamped_micelle_has_its_heads_toward_the_water_and_its_tails_in_the_core` (per detergent, over a real lattice
+placement, the end-to-end shape of what a reader saw), both in `tests/dashboard/unit/test_pdc_build_stamp.py`.
+Acceptance met: on the frame the mock holds, all 1 650 detergent beads rotate about their own molecule's centre and
+nothing else moves; on a fresh lattice and a fresh self-assembled cloud, 150/150 detergents have their heads outward.
+Two notes for whoever reads this next: the mock's five frames predate the fix and say so; and `pdc_view.system_pdb`
+truncates bead names to four characters, so `TAIL1`/`TAIL2`/`TAIL3` all print as `TAIL` in the viewer file — harmless
+to the picture (they are bonded and drawn identically) but a real collision for anything that reads names back.
 
 ## Not doing
 
@@ -311,11 +436,23 @@ recomputed here with the route's functions; no work is implied.
 
 ## Verification
 
-- `node --check` on both inline scripts of the mock (it caught a real syntax error: an unterminated template literal
-  that silently stopped the whole preview script).
+- `node --check` on every inline script of the mock, re-run after the bead-size change (it caught a real syntax error
+  once: an unterminated template literal that silently stopped the whole preview script).
 - The mock's own measurement script, printed on the page, measured in a browser at 1700 × 1000 and at 1280 × 800 with
   the app's stylesheets and `vendor/ngl.js` from the running dashboard.
 - The frames: generated by `pdc_placement` / `pdc_box` / `pdc_build.stamp` / `pdc_view.system_pdb` themselves, with
   their bead and byte counts printed in the mock and in this plan; each frame's residue composition checked in the
   browser (1 650 `DET` for an empty micelle; 230 `PRO` + 150 `DET` for chain A).
+- **The orientation (2026-10-14), measured rather than argued:** every frame's head beads 0.317 nm inward of each
+  detergent's own centre and its tails 0.845 nm outward, in 660 of 660 molecules; every lattice centre exactly 3.000 nm
+  from the micelle's centre; frame D re-derived from the pipeline line-for-line (3 153 of 3 154, the difference being
+  the title). After the fix, the same frame has its 1 650 beads rotated and nothing else, the same byte count
+  (156 136), and a fresh lattice and a fresh cloud both give 150/150 heads outward. All of it from a fresh interpreter
+  against the checked-out tree — not from a long-lived session, whose stale import first reported the fix as having
+  changed nothing.
+- Tests: `tests/dashboard/unit/test_pdc_placement.py` and `tests/dashboard/unit/test_pdc_build_stamp.py` (see T6),
+  which pass; the fast tier as a whole was **not** green when this landed, because another workstream was mid-flight in
+  the same checkout (`osmotic.py` rewritten under a running test, T4's `cg_protein` tests written against a reader not
+  yet in the tree). Recorded rather than tidied: the failures were in files this change does not touch, and the
+  failing set changed between two consecutive runs of the same command.
 - Once built: the fast tier, the browser tier, and `ruff check dashboard tests` (gate: F, E9, I).

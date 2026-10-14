@@ -1,8 +1,13 @@
-"""The osmotic series endpoint: one condition per molality, queued together, refused together.
+"""The osmotic series endpoint: one run that owns every concentration, refused before anything is created.
 
-A series is only comparable if every condition in it was built the same way, so this route does not queue as it goes.
-It checks every molality first and creates nothing if any of them is refused -- a half-queued series would be six runs
-whose relationship to each other is a guess.
+**The series is the run type.** A series used to be N `osmotic` jobs queued together sharing a `series_id`, which
+`max_concurrent_runs: 1` turns into a one-condition series: `create_job` refuses the second with `CapacityFull`,
+and nothing starts a job that is merely `queued`. So the route queues *one* job whose settings carry the
+concentrations, and the run type builds and runs them one at a time.
+
+A series is only comparable if every condition in it was built the same way, so this route still checks
+everything first and creates nothing if anything is refused -- a half-queued series would be conditions whose
+relationship to each other is a guess.
 """
 import json
 import uuid
@@ -21,12 +26,13 @@ from .common import coordinator, json_object
 blueprint = Blueprint('osmotic', __name__)
 
 #: The molalities Ebrahimi & Sadeghi measured, which is what a series exists to compare against. A caller may name
-#: others; the default is the paper's own set so the common case needs no argument.
+#: others; the default is the paper's own set so the common case needs no argument. The panel sends its own five
+#: (it skips the 0.0 control, which is the same for every sugar), so this is read only by a caller that names none.
 PAPER_MOLALITIES = (0.0, 0.5, 1.0, 1.5, 2.0, 2.5)
 
 
 def _requested_molalities(data):
-    requested = data.get('molalities')
+    requested = data.get(osmotic.SERIES_KEY)
     if requested in (None, ''):
         return list(PAPER_MOLALITIES)
     values = requested if isinstance(requested, (list, tuple)) else str(requested).replace(',', ' ').split()
@@ -38,11 +44,11 @@ def _requested_molalities(data):
 
 @blueprint.post('/api/osmotic/series')
 def series_api():
-    """Queue one job per molality, all sharing a series id, and return what was created.
+    """Queue the series: one run, N concentrations, one directory each.
 
-    Nothing is created until everything has been checked: the molecule, the solvent files, the run type and every
-    molality. The alternative -- creating what it can and reporting the rest -- leaves a series whose conditions do
-    not correspond to each other.
+    Nothing is created until everything has been checked: the molecule is a sugar, the solvent files are there, the
+    run type accepts the payload and every molality can be placed. The alternative -- creating what it can and
+    reporting the rest -- leaves a series whose conditions do not correspond to each other.
     """
     c = coordinator()
     data = json_object() or request.form
@@ -54,6 +60,14 @@ def series_api():
         aa_molecules.validate_id(molecule_id)
     except ValueError as exc:
         abort(400, str(exc))
+
+    # The sugar gate at the door. `osmic.refuse_non_sugar` is the run type's own rule -- the carbohydrate registry
+    # or the recogniser on the molecule's own structure -- and it is enforced here so the reason is a 400 the
+    # caller reads rather than a failure inside a stage. The same function is the adapter's `readiness` blocker
+    # and its `prepare` refusal, so a payload that reaches the coordinator without this route is refused too.
+    refused = osmotic.refuse_non_sugar(molecule_id, molecule_root=c.ROOT / 'molecules', root=c.ROOT)
+    if refused:
+        abort(400, refused)
 
     solute_root = str(data.get('solute_root') or '').strip()
     if not solute_root:
@@ -74,10 +88,12 @@ def series_api():
     base = {key: data.get(key) for key in {**adapter.settings_specs(), **adapter.choice_specs()}
             if data.get(key) not in (None, '')}
     series_id = uuid.uuid4().hex[:12]
+    # The concentrations travel as the run's own list, and the whole setting set is checked once -- by the run type
+    # that will read it -- before a job exists. `normalize_settings` is also where a value outside the box's range
+    # is refused with the bound named, which is the refusal the panel shows at the row.
+    settings = dict(base, **{osmotic.SERIES_KEY: molalities, 'series_id': series_id})
     try:
-        for molality in molalities:
-            adapter.normalize_settings(dict(base, osmotic_molality=molality, series_id=series_id),
-                                       data.get('profile', 'standard'))
+        adapter.normalize_settings(settings, data.get('profile', 'standard'))
     except ValueError as exc:
         abort(400, str(exc))
 
@@ -88,17 +104,14 @@ def series_api():
     # with `run_type: 'pdc'`. Fast_Forward is the method this repository's CG path fits with, so it is the default
     # here; a caller whose reference was fitted some other way names it.
     method = str(data.get('method') or 'fast_forward')
-    created = []
-    for molality in molalities:
-        job = c.create_job(molecule_id, method, f'{molecule_id} osmotic {molality:g} molal',
-                           profile=profile,
-                           settings=dict(base, osmotic_molality=molality, series_id=series_id),
-                           reference_run_id=reference_run_id, mapping_candidate=mapping_candidate,
-                           molecule_id=molecule_id, run_type='osmotic')
-        created.append({'id': job['id'], 'molality': molality, 'label': job.get('label', '')})
+    label = f'{molecule_id} osmotic series · {len(molalities)} condition' + ('' if len(molalities) == 1 else 's')
+    job = c.create_job(molecule_id, method, label, profile=profile, settings=settings,
+                       reference_run_id=reference_run_id, mapping_candidate=mapping_candidate,
+                       molecule_id=molecule_id, run_type='osmotic')
 
-    return jsonify({'series_id': series_id, 'molecule_id': molecule_id, 'solute_root': solute_root,
-                    'molalities': molalities, 'count': len(created), 'jobs': created}), 201
+    return jsonify({'series_id': series_id, 'run_id': job['id'], 'label': job.get('label', ''),
+                    'molecule_id': molecule_id, 'solute_root': solute_root,
+                    'molalities': molalities, 'count': len(molalities)}), 201
 
 
 #: The paper's own measurements for maltose, at 308.15 K, from Ebrahimi & Sadeghi, Fluid Phase Equilibria 417 (2016)
@@ -112,29 +125,35 @@ PAPER_MALTOSE = ((0.5, 13.04, 0.04), (1.0, 26.54, 0.08), (1.5, 40.58, 0.12),
 PAPER_CITATION = 'Ebrahimi & Sadeghi, Fluid Phase Equilibria 417 (2016) 171-180, doi:10.1016/j.fluid.2016.02.030'
 
 
-def condition_for(run_dir):
+def condition_for(directory, run_id=None):
     """One condition as the panel needs it: what was built, what the paper says, and what was measured.
 
-    The measurement is read from the report `osmotic_pressure.publish` wrote beside the run's own outputs. A
+    The measurement is read from the report `osmotic_pressure.publish` wrote beside the condition's own outputs. A
     condition with no report is *unmeasured*, which is a different state from measured-and-zero -- and the 0 molal
-    control has no report by construction, because there is no solute for a wall to push against.
+    control has no report by construction, because there is no solute for a wall to push against. `state` is the
+    condition's own terminal record (`condition.json`), which is how a condition that *failed* is shown as failed
+    rather than as one nobody has got to yet.
     """
-    import json
-    from pathlib import Path
-
-    directory = Path(run_dir) / '01_simulate'
+    directory = Path(directory)
     record_path = directory / 'osmotic_condition.json'
     if not record_path.is_file():
         return None
     record = json.loads(record_path.read_text())
-    condition = {'run_id': Path(run_dir).name,
+    condition = {'run_id': run_id or directory.parent.parent.name,
+                 'condition': directory.name,
                  'molality_requested': record.get('molality_requested'),
                  'molality_achieved': record.get('molality_achieved'),
                  'solute_molecules': record.get('solute_molecules'),
                  'dividing_area_nm2': record.get('dividing_area_nm2'),
                  'temperature_k': record.get('temperature'),
                  'attempted_at': record_path.stat().st_mtime,
-                 'measured': None}
+                 'state': None, 'measured': None}
+    outcome_path = directory / 'condition.json'
+    if outcome_path.is_file():
+        try:
+            condition['state'] = json.loads(outcome_path.read_text()).get('status')
+        except (OSError, ValueError):
+            condition['state'] = None
     report_path = directory / 'osmotic-pressure.json'
     if report_path.is_file():
         condition['measured'] = json.loads(report_path.read_text())
@@ -143,6 +162,27 @@ def condition_for(run_dir):
             condition['paper'] = {'pressure_bar': pressure, 'uncertainty_bar': uncertainty}
             condition['ratio'] = (condition['measured']['pressure_bar'] / pressure) if condition['measured'] else None
     return condition
+
+
+def conditions_for(run_dir):
+    """Every condition a run directory holds, in whichever of the two layouts it was built in.
+
+    **Both are real and both are read.** The series layout this run type owns now is one run with one directory per
+    concentration under `01_simulate/conditions/`; the layout every run made before it has is a run whose
+    `01_simulate/` *is* its one condition. The completed six-condition series on this workspace's disk is the
+    second, and a reader that stopped reading it would drop the record this panel exists to show.
+    """
+    run_dir = Path(run_dir)
+    stage = run_dir / '01_simulate'
+    conditions = []
+    series = stage / osmotic.CONDITIONS_DIRECTORY
+    if series.is_dir():
+        conditions = [condition for directory in sorted(series.iterdir()) if directory.is_dir()
+                      and (condition := condition_for(directory, run_dir.name))]
+    if conditions:
+        return conditions
+    condition = condition_for(stage, run_dir.name)
+    return [condition] if condition else []
 
 
 def representative(conditions):
@@ -155,6 +195,9 @@ def representative(conditions):
     completed run whose report has been written is the answer for its molality even if a probe was started later --
     and among unmeasured attempts the newest wins, so a running condition shows as *itself*, unmeasured, rather than
     as whichever attempt happened to sort last.
+
+    A series' own conditions and a hand-queued single condition for the same molality are the same row here, which
+    is the point: the panel shows one row per concentration, however many attempts produced it.
     """
     best = {}
     for condition in conditions:
@@ -190,7 +233,7 @@ def conditions_api():
     from .common import coordinator
 
     runs = coordinator().RUNS
-    conditions = [condition for run_dir in sorted(runs.iterdir()) if (condition := condition_for(run_dir))]
+    conditions = [condition for run_dir in sorted(runs.iterdir()) for condition in conditions_for(run_dir)]
     shown = representative(conditions)
     return jsonify({'molecule_id': MOLECULE_FOR_SERIES, 'citation': PAPER_CITATION,
                     'conditions': shown,
@@ -212,10 +255,10 @@ MOLECULE_FOR_SERIES = 'Maltose'
 # `osmotic.solute_bead_radii` has radii and `prepare` can size the box; and its solute files are present, so
 # `prepare` can copy the molecule, its topology and the water tile. What is missing is named.
 
-#: The carbohydrate vocabulary. `resources/validation/carbohydrates/targets-v1.json` is this repository's own
-#: list of the sugars it carries a citation for, so the panel's selector is that list -- including a name with no
-#: folder, because a list that silently omits one leaves the reader unable to tell a missing mapping from a typo.
-CARBOHYDRATE_REGISTRY = Path('resources/validation/carbohydrates/targets-v1.json')
+#: The carbohydrate vocabulary now lives in the run type itself (`osmic.carbohydrate_names`), because it is the
+#: gate that decides whether a molecule may be a series' solute as well as the list the panel offers. This route
+#: renders the answer; it does not own the list, so there is no second copy to disagree with the gate.
+CARBOHYDRATE_REGISTRY = osmotic.CARBOHYDRATE_REGISTRY
 
 #: Where a molecule's solute files sit: under the selected workspace, beside `runs/`. Resolved here and never
 #: typed into a field -- a free-text filesystem path in a browser form is the wrong control for it.
@@ -235,29 +278,14 @@ PROVISIONAL_MAPPINGS = {
 FAILURE_KEY = 'series_on_failure'
 ATTEMPTS_MAX_DEFAULT = 3
 
-#: What can act on a *stop*. The batch route creates every condition up front and refuses before creating
-#: anything, so once the series exists a failed condition does not cancel its siblings -- the stop half is the
-#: coordinator's `stop_series`, which ends the conditions that have not run when one ends failed. It is probed on
-#: the object that would have to act rather than declared as a flag, so the panel offers the choice enabled
-#: exactly when something can honour it, and disabled *with its reason* when nothing can.
-SERIES_STOP_METHOD = 'stop_series'
+#: The half that acts on the failure choice, named so the catalogue can say where it lives: the run type's own
+#: driver script. `prepare` writes the run's ceiling and policy into the run beside it, and the driver reads them.
+SERIES_DRIVER = 'osmotic_simulation.sh'
 
 
 def _carbohydrate_names(root):
-    """Every carbohydrate the repository names, in the registry's own order."""
-    path = Path(root) / CARBOHYDRATE_REGISTRY
-    if not path.is_file():
-        return []
-    try:
-        payload = json.loads(path.read_text())
-    except (OSError, ValueError):
-        return []
-    names = []
-    for dataset in payload.get('datasets') or []:
-        molecule_id = dataset.get('molecule_id')
-        if molecule_id and molecule_id not in names:
-            names.append(molecule_id)
-    return names
+    """Every carbohydrate the repository names, in the registry's own order, from the run type that gates on it."""
+    return osmotic.carbohydrate_names(root)
 
 
 def _molecule_folders(root):
@@ -330,33 +358,33 @@ def _adapter_defaults(adapter):
     return dict(published)
 
 
-def failure_policy(adapter, coordinator_object):
-    """Which of the two choices after a condition fails can actually act, and the reason when one cannot.
+def failure_policy(adapter):
+    """Which of the two choices after a condition fails can act, and the reason when one cannot.
 
-    Both halves of the stop option are checked rather than declared: the run type has to carry the key, so the
-    choice survives the queue route's settings filter, and the coordinator has to have the method that ends the
-    remaining conditions. Until they do, the honest answer for that choice is its reason -- so a panel can offer
-    it disabled with the reason on it instead of offering something that silently does nothing.
+    **Both act, and the acting half is the run type's own driver.** `series_on_failure` is carried in the run's
+    settings, and `osmic_simulation.sh` reads it from the manifest `prepare` writes beside the conditions: one
+    driver loop that either enters the next condition after a failure (the default, recording the gap) or ends the
+    series at it. Nothing outside the run has to exist for that to be true, so the question left for this answer to
+    check is the one the queue routes ask -- is the key in the run type's vocabulary, or would it be dropped before
+    the job was built?
+
+    That is why there is no longer a probe of `Coordinator.stop_series` here. `stop_series` still ends a series
+    *made of sibling runs* -- the shape a batch created by hand, and the only shape it can act on -- and the series
+    this route queues is one run, whose policy is its driver's.
     """
     vocabulary = set(adapter.settings_specs()) | set(adapter.choice_specs())
     advertised = FAILURE_KEY in vocabulary
-    can_stop = callable(getattr(coordinator_object, SERIES_STOP_METHOD, None))
-    reasons = []
-    if not advertised:
-        reasons.append(f'the run type does not carry a {FAILURE_KEY} setting yet')
-    if not can_stop:
-        reasons.append('the coordinator cannot end a series\' remaining conditions when one ends failed '
-                       '(`stop_series`), so the batch route leaves a failed condition\'s siblings to run')
-    stop_reason = None if advertised and can_stop else (
-        'Not available yet: ' + ' and '.join(reasons) + '. Until then a series is queued as one batch and a '
-        'failed condition\'s siblings carry on.')
+    reason = None if advertised else (
+        f'Not available: the run type does not carry a {FAILURE_KEY} setting, so the choice would be dropped '
+        'before the job was built and nothing would act on it.')
     return {'key': FAILURE_KEY, 'default': 'carry_on', 'advertised': advertised,
+            'driver': SERIES_DRIVER,
             'attempts_max': int(_adapter_defaults(adapter).get('osmotic_attempts_max', ATTEMPTS_MAX_DEFAULT)),
             'options': [
-                {'value': 'carry_on', 'available': True, 'reason': None,
+                {'value': 'carry_on', 'available': advertised, 'reason': reason,
                  'label': 'Carry on — the remaining conditions run; a gap is reported'},
-                {'value': 'stop', 'available': bool(advertised and can_stop), 'reason': stop_reason,
-                 'label': 'Stop the series on the first failed condition — queues one condition at a time'},
+                {'value': 'stop', 'available': advertised, 'reason': reason,
+                 'label': 'Stop the series on the first failed condition — the conditions after it are not run'},
             ]}
 
 
@@ -401,7 +429,7 @@ def catalogue_api():
         'solute_files': list(osmotic.SOLUTE_FILES),
         'molality_range': list(osmotic_box.MOLALITY_RANGE),
         'ns_per_day': 2400.0,
-        'failure_policy': failure_policy(adapter, c),
+        'failure_policy': failure_policy(adapter),
         'defaults': {'duration_ns': int(float(defaults.get('osmotic_production_ps',
                                                           osmotic_mdp.DEFAULT_PRODUCTION_PS)) / 1000),
                      'production_ps': float(defaults.get('osmotic_production_ps',

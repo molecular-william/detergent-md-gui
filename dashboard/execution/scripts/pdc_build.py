@@ -2,7 +2,7 @@
 
 Run by `1_system/prepare_system.sh`, which the pdc adapter generates. Every rule this applies comes from an
 adapter whose own unit tests cover it -- the box from `pdc_box`, the placement and its gates from
-`pdc_placement`, the CG protein command from `pdc_protein`, the coordinate reader from `pdc_view` -- so the stage
+`pdc_placement`, the CG protein command from `pdc_protein`, the coordinate reader from `pdc_import` -- so the stage
 cannot drift from the rules by restating them here.
 
 Two things it deliberately does not do yet, and says so rather than guessing:
@@ -29,7 +29,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from dashboard.execution.adapters import pdc, pdc_box, pdc_import, pdc_placement, pdc_protein, pdc_view
+from dashboard.execution.adapters import pdc, pdc_box, pdc_import, pdc_placement, pdc_protein
 from dashboard.execution.adapters.pdc import DETERGENT_GEOMETRY, DETERGENT_TOPOLOGY, REPORT_NAME, SETTINGS_NAME
 from micelle import output as micelle_output
 from micelle import registry as micelle_registry
@@ -64,31 +64,40 @@ def resolve(settings: dict, key: str, stage: Path) -> Path:
     return path
 
 
-def select_protein(stage: Path, protein_path: Path, chains) -> tuple[Path, list[str]]:
-    """The protein file martinize2 reads: the chosen chains, written beside the stage, or the file as it is.
+def select_protein(stage: Path, protein_path: Path, chains) -> tuple[Path, list[str], list[str]]:
+    """The protein file martinize2 reads: the chosen chains' polymer, written beside the stage, or the file as it is.
 
-    With no selection, or a selection that names every chain the file declares, the file is used unchanged -- which
-    is every existing run's build, and what a picker that chooses all the subunits means. A *strict* subset is
-    written to `protein_selected.pdb` and martinize2 is pointed at that, so a deposited trimer builds as the monomer
-    that was asked for. A chain the file does not name is refused rather than dropped: the stage is a separate
-    process and re-checks the selection against the file rather than trusting the settings.
+    With no selection, or a selection that names every chain the file declares *and* a file that carries no
+    `HETATM` record, the file is used unchanged -- which is every existing run's build, and what a picker that
+    chooses all the subunits means. A *strict* subset is written to `protein_selected.pdb` and martinize2 is pointed
+    at that, so a deposited trimer builds as the monomer that was asked for.
+
+    A file that carries `HETATM` records is filtered too, even with every chain wanted, because martinize2 deletes
+    the *whole molecule* for a residue it cannot place in its force field. Measured on 1AT9: its retinal and the OPM
+    detergent it was deposited with are `HETATM` records, and either one took the CG step to exit 1 with no topology
+    at all. Neither is part of the protein the run asked for, so both are dropped -- and named: what was dropped
+    comes back with the path and goes into the report, so the drop is a recorded decision and not a silent one.
+
+    A chain the file does not name is refused rather than dropped: the stage is a separate process and re-checks the
+    selection against the file rather than trusting the settings.
     """
     selected = [str(chain) for chain in (chains or [])]
-    if not selected:
-        return Path(protein_path), []
     text = Path(protein_path).read_text(errors='replace')
-    available = pdc_import.structure_chains(text)
-    missing = [chain for chain in selected if chain not in set(available)]
-    if missing:
-        named = ', '.join(available) or 'none'
-        raise ValueError(f'the protein {Path(protein_path).name} names no chain(s) {", ".join(missing)}; it names '
-                         f'{named}')
-    if set(selected) >= set(available):
-        # Every declared chain: not a narrowing, so nothing is filtered and nothing is rewritten.
-        return Path(protein_path), []
+    if selected:
+        available = pdc_import.structure_chains(text)
+        missing = [chain for chain in selected if chain not in set(available)]
+        if missing:
+            named = ', '.join(available) or 'none'
+            raise ValueError(f'the protein {Path(protein_path).name} names no chain(s) {", ".join(missing)}; it '
+                             f'names {named}')
+    # `None` keeps every chain: the filter then removes only what is not a protein residue, which is what a run with
+    # no selection still needs of it (a blank chain column names no id a selection could match).
+    filtered = pdc_import.filter_chains(text, selected or None)
+    if filtered == text:
+        return Path(protein_path), selected, []
     target = stage / SELECTED_PROTEIN
-    target.write_text(pdc_import.filter_chains(text, selected))
-    return target, selected
+    target.write_text(filtered)
+    return target, selected, pdc_import.dropped_residues(text, selected or None)
 
 
 def write_report(stage: Path, report: dict) -> None:
@@ -96,12 +105,18 @@ def write_report(stage: Path, report: dict) -> None:
 
 
 def stamp(draft: dict, centres, directions, *, first_residue: int = 900) -> list[dict]:
-    """One detergent per placement, as beads: rotated so its tail points along the direction, moved to the centre.
+    """One detergent per placement, as beads: rotated so its head points along the direction, moved to the centre.
 
-    The molecule's own axis is head-to-tail, from the mean of its tail beads to the mean of its head beads, and the
-    placement's direction is the axis each placement site carries. Every copy keeps the bead names the topology
-    declares -- `grompp` reconciles topology and coordinates by atom name, so a per-molecule name would break the
-    pair -- and each copy gets its own residue number, which is how a reader tells eight detergents apart.
+    The placement's direction is the way *out* of the micelle -- away from the protein and into the water the next
+    stage adds (`pack_micelle`'s own shell on the lattice, `pdc_placement._outward` for a self-assembled cloud). A
+    micelle's heads face that water and its tails fill the core, so the molecule's own axis is taken **head-ward**:
+    from the mean of its tail beads to the mean of its head beads. Taken the other way round it put every head bead
+    0.317 nm inside its detergent's centre and every tail 0.845 nm outside it -- a micelle inside out, which is what
+    the preview's first frames were drawn from.
+
+    Every copy keeps the bead names the topology declares -- `grompp` reconciles topology and coordinates by atom
+    name, so a per-molecule name would break the pair -- and each copy gets its own residue number, which is how a
+    reader tells eight detergents apart.
     """
     import numpy as np
 
@@ -114,8 +129,8 @@ def stamp(draft: dict, centres, directions, *, first_residue: int = 900) -> list
 
     positions = {bead['name']: np.asarray(bead['position'], dtype=float) for bead in beads}
     middle = np.mean([positions[bead['name']] for bead in beads], axis=0)
-    axis = np.mean([positions[bead['name']] for bead in tail], axis=0) \
-        - np.mean([positions[bead['name']] for bead in head], axis=0)
+    axis = np.mean([positions[bead['name']] for bead in head], axis=0) \
+        - np.mean([positions[bead['name']] for bead in tail], axis=0)
     axis = axis / np.linalg.norm(axis)
 
     atoms = []
@@ -209,23 +224,138 @@ def write_topologies(stage: Path, protein_itp: Path | None, detergent_itp: Path 
     return {'protein_molecule': protein, 'detergent_molecule': detergent, 'detergents': detergents}
 
 
-def cg_protein(stage: Path, protein: Path) -> tuple[list, list[str] | None]:
+#: The secondary-structure source this stage uses, named in the run's report. See `secondary_structure`.
+SS_SOURCE = 'MDAnalysis.analysis.dssp'
+
+
+def _output_path(command, flag: str) -> Path:
+    """The file a martinize2 command was told to write for `flag`, read out of the command itself.
+
+    The tool's own names are its business, so they are not copied into this module where the two could drift apart:
+    the file this stage reads back is the file the command it ran names. `-x` is martinize2's only structure output
+    and it is a PDB (`-x OUTPATH  Output coarse grained structure (PDB)`), `-o` its topology.
+    """
+    if flag not in command:
+        raise SystemExit(f'the CG protein command names no {flag} output: {" ".join(str(part) for part in command)}')
+    return Path(command[command.index(flag) + 1])
+
+
+def ss_sequence(letters) -> str | None:
+    """An assignment's letters as the DSSP sequence martinize2 takes, or `None` when one is not.
+
+    MDAnalysis' DSSP implementation is three-state: `H` (any helix), `E` (extended strand) and `-` (unordered).
+    martinize2 takes DSSP's own alphabet, where the unordered state is `C` -- the same state DSSP itself writes as
+    a space, which vermouth's reader turns into `C` (`vermouth.dssp.SS_CG`). A letter that is neither of those is
+    refused rather than translated: a source this stage does not know is not something to guess the meaning of.
+    """
+    letters = [str(letter) for letter in letters]
+    if not letters or any(letter not in 'HE-' for letter in letters):
+        return None
+    return ''.join('C' if letter == '-' else letter for letter in letters)
+
+
+def secondary_structure(structure: Path) -> tuple[str | None, dict]:
+    """The secondary structure martinize2 should build the protein with, and where it came from.
+
+    martinize2 takes an assignment two ways, and the tool's own help is what decides between them here:
+
+    * `-dssp [executable]` runs DSSP itself -- or, with the bare flag, the **mdtraj** library, which this
+      environment does not have (`import mdtraj` fails), leaving an external binary that vermouth warns it has
+      tested only at versions 2.2.1 and 3.0.0 (`SUPPORTED_DSSP_VERSIONS`). PDB-REDO's `dssp` is the current 4.x
+      `mkdssp`: it would be an untested version *and* a C++ build (cmake + libcifpp + Eigen) this repository does
+      not carry, so it is not what is wired;
+    * `-ss <sequence>` hands it a DSSP-format letter per residue, which is what this stage uses, because the
+      assignment can then come from a library that *is* here: MDAnalysis 2.9 ships a DSSP implementation
+      (`MDAnalysis.analysis.dssp`, a port of pydssp). Measured on 1AT9's own chain A, 230 residues of
+      bacteriorhodopsin: the seven transmembrane helices come back as `H`, and martinize2 took the sequence at exit
+      0 and wrote its SS-dependent bonded potentials. The `-dssp`/mdtraj path is therefore not a fallback here but
+      the thing that does not work in this environment; MDAnalysis is the source.
+
+    Both routes end in vermouth's `AnnotateMartiniSecondaryStructures`, so the same SS-dependent bonded potentials
+    are built either way -- what differs is who assigns the letters, and that is recorded.
+
+    Returns `(sequence, record)`. `None` for the sequence when no assignment could be made -- a source that is not
+    importable, or a protein its algorithm cannot work on (measured: it raises below five residues) -- with the
+    reason in the record. A build with no secondary structure is martinize2's own documented case, which is what
+    `-maxwarn 1` is for; the stage's job is to say which case this is, not to invent an assignment.
+    """
+    try:
+        import MDAnalysis
+        from MDAnalysis.analysis.dssp import DSSP
+    except ImportError as exc:
+        return None, {'source': None, 'detail': f'MDAnalysis is not importable: {exc}'}
+    try:
+        assignment = DSSP(MDAnalysis.Universe(str(structure)))
+        assignment.run()
+        letters = [letter for row in assignment.results.dssp for letter in row]
+    except Exception as exc:                     # any failure here means "no assignment", and the run says which
+        return None, {'source': None, 'detail': f'{type(exc).__name__} from {SS_SOURCE}: {exc}'}
+    sequence = ss_sequence(letters)
+    if sequence is None:
+        return None, {'source': None,
+                      'detail': f'{SS_SOURCE} assigned no letters this stage can hand over ({letters[:8]})'}
+    return sequence, {'source': SS_SOURCE, 'residues': len(sequence), 'helix': sequence.count('H'),
+                      'extended': sequence.count('E'), 'coil': sequence.count('C')}
+
+
+def ss_flags(sequence: str | None) -> list[str]:
+    """What is appended to the CG protein command: the assignment, and room for martinize2's one warning.
+
+    `-maxwarn 1` is the tool's own documented escape hatch for the case where no secondary structure could be
+    assigned: without it, and without `-ss`, it logs "topology will be created without secondary structure
+    information" and exits 2 having written nothing at all (measured on 1AT9's chain A with the flags as they were).
+    One warning of room is allowed, and no more, so a run this flag saves is still one a reader can see in its log.
+    """
+    return ['-maxwarn', '1'] + (['-ss', sequence] if sequence else [])
+
+
+def _absolute(command: list, flags=('-f', '-x', '-o')) -> list:
+    """The command with the paths it names made absolute.
+
+    It is run from `cg/`, while a stage's own paths are relative to the directory the stage script runs in
+    (`--stage .` resolves to `protein.pdb`, `cg/protein_cg.pdb`). Handing those to a subprocess started somewhere
+    else is the way martinize2 came to look for `protein_selected.pdb` inside `cg/` and stop with
+    `FileNotFoundError` -- measured on the real tool -- so every path in the command is resolved to the one file it
+    names before it is run, and the command the report records is the one that actually ran.
+    """
+    resolved = list(command)
+    for flag in flags:
+        if flag in resolved:
+            index = resolved.index(flag) + 1
+            resolved[index] = str(Path(resolved[index]).resolve())
+    return resolved
+
+
+def cg_protein(stage: Path, protein: Path) -> tuple[list, list[str] | None, dict]:
     """The CG protein's beads, running martinize2 only when the stage has not been built before.
 
-    martinize2's own file names are its business: it writes into `cg/` and this reads whatever single `.gro` is
-    there, rather than naming a file the command might not produce.
+    martinize2's own file names are its business, so what is read back is the file its own command names (`-x`, a
+    PDB) rather than a name written down here: this step used to glob `*.gro` out of `cg/`, a structure the tool
+    never writes, so it raised "the CG protein step left 0 structures" however well martinize2 had run.
+
+    It is run *in* `cg/`, because that is where it writes the molecule's own `.itp`: it writes `molecule_0.itp`
+    beside itself and includes it from the `.top` by that name, so run from anywhere else the topology the next
+    step needs lands in the stage directory instead (measured in a scratch directory: `-o cg/protein.top` wrote
+    `./molecule_0.itp`).
+
+    Returns the beads, the command that was run (`None` when the step was already built) and what the secondary
+    structure assignment was, all three of which the report carries.
     """
     directory = stage / CG_DIRECTORY
     directory.mkdir(exist_ok=True)
-    command = None
-    if not list(directory.glob('*.gro')):
-        command = pdc_protein.martinize_command(protein, directory)
-        with (stage / 'martinize.log').open('w') as log:
-            subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT)
-    structures = sorted(directory.glob('*.gro'))
-    if len(structures) != 1:
-        raise SystemExit(f'the CG protein step left {len(structures)} structures in {directory}')
-    return pdc_view.read_gro(structures[0]), command
+    command = _absolute(pdc_protein.martinize_command(protein, directory))
+    structure = _output_path(command, '-x')
+    if structure.is_file():
+        return (pdc_import.structure_atoms(structure), None,
+                {'source': None, 'detail': f'{structure.name} was already there, so martinize2 was not run again'})
+    sequence, record = secondary_structure(protein)
+    command = command + ss_flags(sequence)
+    with (stage / 'martinize.log').open('w') as log:
+        subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT, cwd=directory)
+    if not structure.is_file():
+        raise SystemExit(f'the CG protein step wrote no {structure.name} in {directory}: '
+                         f'see {stage / "martinize.log"}')
+    return pdc_import.structure_atoms(structure), command, record
 
 
 def build(stage: Path) -> int:
@@ -262,13 +392,14 @@ def build(stage: Path) -> int:
         write_report(stage, report)
         return 2
 
-    beads, command = ([], None)
+    beads, command, secondary = ([], None, None)
     requested_protein = (settings.get('protein') or '').strip()
     if requested_protein:
-        protein_input, selected_chains = select_protein(stage, resolve(settings, 'protein', stage),
-                                                        settings.get('protein_chains'))
-        report['protein_input'] = protein_input.name if selected_chains else None
-        beads, command = cg_protein(stage, protein_input)
+        protein_input, selected_chains, dropped = select_protein(stage, resolve(settings, 'protein', stage),
+                                                                 settings.get('protein_chains'))
+        report['protein_input'] = protein_input.name if protein_input.name == SELECTED_PROTEIN else None
+        report['protein_dropped_residues'] = dropped
+        beads, command, secondary = cg_protein(stage, protein_input)
     points = [list(bead['position']) for bead in beads]
     placement = pdc_placement.place_detergents(points, template, settings['aggregation_number'],
                                                settings['seed'], radius_nm=settings['radius_nm'], mode=mode,
@@ -276,6 +407,7 @@ def build(stage: Path) -> int:
                                                initial_z_nm=settings['initial_z_nm'])
     report.update({
         'cg_command': command,
+        'secondary_structure': secondary,
         'protein_beads': len(points),
         'placement_mode': placement['mode'],
         'protein_clearance_nm': placement['protein_clearance_nm'],

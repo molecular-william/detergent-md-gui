@@ -131,6 +131,16 @@ def write_gro(path: Path, atoms, box=(8.0, 8.0, 8.0)) -> Path:
     return path
 
 
+def write_cg_pdb(path: Path, atoms) -> Path:
+    """The CG structure as martinize2 writes it (`-x`): `ATOM` records in Angstroms, read back by the stage."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [f'ATOM  {index:5d} {name:^4s} {residue:>3s} A{residue_id:4d}    '
+             f'{xyz[0] * 10.0:8.3f}{xyz[1] * 10.0:8.3f}{xyz[2] * 10.0:8.3f}  1.00  0.00'
+             for index, (residue_id, residue, name, xyz) in enumerate(atoms, 1)]
+    path.write_text('\n'.join(lines) + '\nEND\n')
+    return path
+
+
 def candidate_file(tmp_path: Path) -> Path:
     path = tmp_path / 'ddm_mapping.json'
     path.write_text(json.dumps({
@@ -157,8 +167,8 @@ def _prepared_run(tmp_path: Path, *, placement_mode=None, aggregation_number=8):
                 settings=settings, project_root=root, mapping=candidate_file(tmp_path))
     stage = run / Path(pdc.STAGES[0].relative).parent
     ellipsoid = _protein()
-    write_gro(stage / 'cg' / 'protein_CG.gro',
-              [(1, 'PRO', f'B{index:02d}', point) for index, point in enumerate(ellipsoid, 1)])
+    write_cg_pdb(stage / 'cg' / 'protein_cg.pdb',
+                 [(1, 'PRO', f'B{index:02d}', point) for index, point in enumerate(ellipsoid, 1)])
     (stage / 'cg' / 'protein_CG.itp').write_text(PROTEIN_ITP)
     return run, stage
 

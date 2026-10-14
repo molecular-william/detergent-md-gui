@@ -5,10 +5,13 @@ molecule's saved CG mapping and its prepared solute files. Both are built here t
 the runner use, so the test says what the route does with them rather than what this machine happens to hold --
 `paths.current()` redirects the mapping store, the runs directory and the solute directory into the fixture.
 
-The failure-policy half is the same shape: the route reports which of the two choices can actually act, so a
-control the panel shows is a control the server can honour. The `stop` half is a driver another task lands; until
-it exists the catalogue must say so rather than offering a choice that silently does nothing.
+The failure-policy half is the same shape: the route reports which of the two choices can act, so a control the
+panel shows is a control the server can honour. Both act now, and the half that acts on the choice is the series
+run's own driver -- so the answer no longer rests on anything outside the run type.
 """
+import dataclasses
+
+from dashboard.execution.adapters import osmotic
 from dashboard.models.mappings import context as mapping_context
 
 CATALOGUE = '/api/osmotic/catalogue'
@@ -112,33 +115,46 @@ def test_a_sugar_with_a_mapping_and_its_solute_files_is_ready(dashboard):
     assert maltose['mappings'][0]['name'] == saved['name']
 
 
-def test_the_failure_policy_reports_what_can_act_today(dashboard):
-    """Carrying on is the route's own contract; stopping is the coordinator's, and it is live today."""
+def test_the_failure_policy_reports_both_choices_as_they_are_acted_on(dashboard):
+    """Both choices act, and the acting half is the run type's own driver rather than something outside it."""
     policy = _catalogue(dashboard)['failure_policy']
     assert policy['key'] == 'series_on_failure'
     assert policy['default'] == 'carry_on'
     assert policy['attempts_max'] == 3, 'the run type\'s own default: a condition is retried three times'
+    assert policy['driver'] == 'osmotic_simulation.sh', 'the half that acts on the choice, named where it lives'
     carry_on, stop = policy['options']
     assert carry_on['value'] == 'carry_on' and carry_on['available'] is True and carry_on['reason'] is None
-    assert stop['value'] == 'stop' and stop['available'] is True, 'the coordinator carries `stop_series`'
+    assert stop['value'] == 'stop' and stop['available'] is True, 'the series run honours it itself'
     assert stop['reason'] is None
     assert policy['advertised'] is True, 'the run type names the key, so the route keeps it'
 
 
-def test_a_stop_the_coordinator_cannot_perform_is_offered_disabled_with_its_reason(dashboard, monkeypatch):
+def test_a_choice_the_run_type_did_not_carry_is_offered_disabled_with_its_reason(dashboard, monkeypatch):
     """The choice is still *listed* -- with the reason -- rather than hidden or, worse, inert.
 
-    Both halves are checked, and this pins what the answer looks like when the acting half is not there: a stop
-    the server could not honour must not be a radio that does nothing.
+    Both options stand on one fact now: the key has to be in the run type's vocabulary, or the queue routes drop it
+    before the job exists and nothing downstream can act on it. This pins what the answer looks like when that fact
+    is false, which is the state a panel has to be able to render rather than the state it is in.
     """
-    from dashboard.execution.coordination.coordinator import Coordinator
+    from dashboard.execution import protocol
     from dashboard.web.routes import osmotic as route
 
-    monkeypatch.setattr(Coordinator, route.SERIES_STOP_METHOD, None)
-    stop = _catalogue(dashboard)['failure_policy']['options'][1]
-    assert stop['available'] is False
-    assert 'stop_series' in stop['reason'], stop['reason']
-    assert 'carry on' in stop['reason'], stop['reason']
+    real = protocol.adapter_for
+
+    def without_the_policy(name):
+        adapter = real(name)
+        if name != 'osmotic':
+            return adapter
+        return dataclasses.replace(adapter, choice_specs=lambda: {key: spec for key, spec in
+                                                                  osmotic.CHOICE_SPECS.items()
+                                                                  if key != route.FAILURE_KEY})
+
+    monkeypatch.setattr(protocol, 'adapter_for', without_the_policy)
+    policy = _catalogue(dashboard)['failure_policy']
+    assert policy['advertised'] is False
+    for option in policy['options']:
+        assert option['available'] is False
+        assert route.FAILURE_KEY in option['reason'] and 'dropped' in option['reason'], option['reason']
 
 
 def test_the_standing_setup_is_the_pipelines_own_numbers(dashboard):

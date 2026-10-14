@@ -93,18 +93,58 @@ def panel_view(section, panel):
     return render_template('dashboard.html', **workspace_context(section, panel))
 
 
+def pages_of_runs(c, page, limit, status='', search='', run_type=''):
+    """One page of run records, optionally narrowed to a single run type.
+
+    **The run-type clause lives here rather than in `Store.page`.** That method is the one place the run list's
+    ordering and its search clause are decided, and it has four other callers that want every run; the narrowing
+    is a *view* over the same list, so the clause below is written to agree with it exactly -- newest first, the
+    same status and substring tests -- and the filtered answer is asserted to be the unfiltered one narrowed
+    (`test_jobs_run_type_filter.py`). The alternative, filtering a fetched page in Python, would move the page
+    boundaries: `total` and `has_more` would count runs the caller asked not to see.
+
+    An absent `run_type` on a record means the historical combined AA-to-CG job
+    (`protocol.run_type_of`), so filtering for `aa_cg` finds those too rather than reporting them as nothing.
+    """
+    store = c.database()
+    if not run_type:
+        return store.page(page, limit, status, search)
+    clause = ("WHERE (?='' OR json_extract(data,'$.status')=?) AND (?='' OR instr(lower(data),lower(?))>0) "
+              "AND COALESCE(json_extract(data,'$.run_type'),'aa_cg')=?")
+    args = (status, status, search, search, run_type)
+    with store.connection() as db:
+        count = db.execute('SELECT count(*) FROM jobs ' + clause, args).fetchone()[0]
+        rows = db.execute("SELECT data,revision FROM jobs " + clause
+                          + " ORDER BY json_extract(data,'$.created') DESC, rowid DESC LIMIT ? OFFSET ?",
+                          (*args, limit, (page - 1) * limit)).fetchall()
+    return [(json.loads(row[0]), row[1]) for row in rows], count
+
+
 @blueprint.get('/api/jobs')
 def jobs_api():
     """One shape for every request form: an object that names the page it answered.
 
     The bare array this used to return when `page` was absent gave one endpoint two
     response shapes, and every client had to defend against both.
+
+    **`run_type` narrows the list, and its absence changes nothing.** Every existing caller -- the run table's own
+    refresh, the mapping-validation workspace, the pdc workspace, all three at `?limit=100` -- sends no
+    `run_type` and gets exactly what it got before. A caller that names one gets only that run type, with `total`,
+    `page` and `limit` describing the narrowed list rather than a hidden superset: a panel that filters after
+    paging would show twenty rows and claim there were more of another kind. The value is checked against the
+    registry of run types rather than accepted as free text, so a typo is a 400 that names the vocabulary instead
+    of an empty page that reads as "none of those exist".
     """
     c = coordinator()
     summary = request.args.get('view') == 'summary'
     page, limit = pagination()
-    rows, total = c.database().page(page, limit, request.args.get('status',''), request.args.get('search','')[:160])
-    payload = {'jobs': [view_of(c, j, summary=summary) | {'revision': revision} for j,revision in rows], 'total': total, 'page': page, 'limit': limit}
+    run_type = request.args.get('run_type', '').strip()
+    if run_type and run_type not in protocol.RUN_TYPES:
+        abort(400, 'Unknown run type; one of: ' + ', '.join(protocol.RUN_TYPES))
+    rows, total = pages_of_runs(c, page, limit, request.args.get('status', ''),
+                                request.args.get('search', '')[:160], run_type)
+    payload = {'jobs': [view_of(c, j, summary=summary) | {'revision': revision} for j, revision in rows],
+               'total': total, 'page': page, 'limit': limit}
     etag = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
     if request.if_none_match.contains(etag): return Response(status=304, headers={'ETag': etag})
     response = jsonify(payload); response.set_etag(etag); return response

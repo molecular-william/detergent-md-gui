@@ -192,20 +192,37 @@ VERSION = 'osmotic-v1'
 #: and the one an unreviewed mapping is enough for. Its meaning is *short execution test*, so its durations are short:
 #: the paper's 500 ns under a profile named for smoke-testing would be a series nobody meant to launch.
 PROFILES = ('standard', 'draft-smoke')
-#: **One stage, deliberately.** The paper's 500 ns is one mdrun, and splitting minimization, equilibration and
-#: production into separate stages would copy the placed system between them -- which is exactly why
-#: `cg_simulation.sh` runs its three mdrun calls inside a single stage too. The plan said seven stages before this
-#: script existed; this is the table the script actually has.
-#: The build's own files, named relative to the stage directory (`../inputs/x`, the way `aa.py` names
-#: `../01_solvation/system.gro`): these are what `prepare` writes into the run's `inputs/`, and what the executor
-#: checks before the stage runs. The molecule's files are *not* here -- they come from `solute_root` into the stage's
-#: own `solute/`, which is the layout the runner reads, and declaring them here as well is what a first version of
-#: this tuple got wrong twice.
-STAGE_FILES = ('minimization.mdp', 'eq.mdp', 'md.mdp', 'reference.itp', 'osmotic_condition.json')
+#: The files one molecule's solver needs, in each condition's own `solute/`. Named rather than discovered, so a
+#: missing one is a blocker with its name in it instead of a failure halfway through a build. The last is the
+#: Martini solvent definitions the runner's topology includes, staged beside the molecule.
+SOLUTE_FILES = ('solute.gro', 'solute.itp', 'water.gro', 'martini_v3.0.0_solvents_v1.itp')
+
+#: **The build's own files, one set per concentration.** A series owns N conditions and each one is built in its
+#: own directory: its own mdps (the solute count depends on the molality), its own reference bead, and its own
+#: `osmotic_condition.json` -- which is the record the analysis divides a force by. `prepare` writes them under
+#: `inputs/conditions/<directory>/` and the same files beside the runner, in the stage.
+CONDITION_FILES = ('minimization.mdp', 'eq.mdp', 'md.mdp', 'reference.itp', 'osmotic_condition.json')
+
+#: **One stage, and it is the series.** Two things are deliberate here and each has a reason:
+#:
+#: * **The series is not one stage per concentration.** The policy on a failed condition -- carry on, the
+#:   default, or stop -- is a decision the *run* makes once it knows how the condition ended, and a stage
+#:   boundary cannot express "and the next one still runs". So the stage is a driver over the condition
+#:   directories, and the conditions, not the stages, are what carry checkpoints: each condition's
+#:   `min/eq/md.{cpt,...}` and `attempts.json` sit in its own directory, and one that already finished is skipped
+#:   by the driver on the next entry into the stage.
+#: * **The paper's 500 ns is one mdrun**, and the three mdrun calls of a condition are inside one stage for the
+#:   same reason `cg_simulation.sh` keeps its three: a stage boundary copies the placed system between them.
+#:
+#: The patterns are globs over the conditions the build wrote, because how many of them there are is the caller's
+#: answer rather than this module's. The molecule's files are *not* declared here -- they come from `solute_root`
+#: into each condition's own `solute/`, which is the layout the runner reads.
 STAGE_DEFS = (
-    Stage('Osmotic condition', '01_simulate/run.sh',
-          tuple(f'../inputs/{name}' for name in STAGE_FILES),
-          ('prod/md_whole.xtc', 'built.json', 'system.top')),
+    Stage('Osmotic series', '01_simulate/run.sh',
+          ('../inputs/conditions.json',)
+          + tuple(f'../inputs/conditions/*/{name}' for name in CONDITION_FILES)
+          + tuple(f'../inputs/conditions/*/{name}' for name in SOLUTE_FILES),
+          tuple(f'conditions/*/{name}' for name in ('built.json', 'system.top', 'prod/md_whole.xtc'))),
 )
 STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS = stage_tables(STAGE_DEFS)
 
@@ -241,11 +258,6 @@ SETTING_SPECS = {
     # silently floored (see `normalize_settings`). The runner also carries a default, for a script run by hand.
     'osmotic_attempts_max': ('Attempts before a condition ends failed', 1, 10),
 }
-#: The files one molecule's solver needs, in `solute_root`. Named rather than discovered, so a missing one is a
-#: blocker with its name in it instead of a failure halfway through a build. The last is the Martini solvent
-#: definitions the runner's topology includes, from beside the molecule in the stage's own `solute/` directory.
-SOLUTE_FILES = ('solute.gro', 'solute.itp', 'water.gro', 'martini_v3.0.0_solvents_v1.itp')
-
 
 #: A condition's series membership is a string, not a number, so it is declared here rather than in
 #: `SETTING_SPECS`. It rides in the settings because that is what the coordinator stores and what the resume path
@@ -261,6 +273,133 @@ CHOICE_SPECS = {'series_id': ('The series this condition belongs to', ()),
                 'series_on_failure': ('What a series does when a condition ends failed', ('carry_on', 'stop'))}
 
 
+# --- the series: one run, N concentrations --------------------------------------------------------------------
+#
+# A series used to be N `osmotic` *jobs* sharing a `series_id`. With `max_concurrent_runs: 1` that is a
+# one-condition series -- `create_job` refuses the second with `CapacityFull`, and nothing starts a job that is
+# merely `queued` -- so the shape could not deliver what it promised. The series is the run instead: the settings
+# carry the concentrations, `prepare` builds one directory per concentration, and the runner drives them in the
+# order the caller gave them, one at a time.
+
+#: The key the concentrations travel under. A *list*, so it is deliberately in neither `SETTING_SPECS` (one
+#: bounded scalar) nor `CHOICE_SPECS` (one of an enumerated set): neither shape renders a list, and a form control
+#: that silently dropped it is exactly why the series route reads its own body.
+SERIES_KEY = 'molalities'
+#: The file `prepare` writes for the runner: the ordered conditions and the policy on a failed one. The runner
+#: reads it by this name, so the name is the contract between the build and the script.
+CONDITIONS_MANIFEST = 'conditions.json'
+#: Where a condition's directory sits, relative to the stage directory.
+CONDITIONS_DIRECTORY = 'conditions'
+#: The carbohydrate registry: this repository's own list of the sugars it carries a citation for.
+CARBOHYDRATE_REGISTRY = Path('resources/validation/carbohydrates/targets-v1.json')
+
+
+def condition_directory(index, molality):
+    """The directory one concentration is built and run in, named so a reader can see which it is."""
+    return f'{index:02d}_{float(molality):g}molal'
+
+
+def series_conditions(molalities):
+    """The ordered conditions a series owns -- the plan the build, the runner and the reader all read."""
+    return [{'index': index, 'molality': float(molality), 'directory': condition_directory(index, molality)}
+            for index, molality in enumerate(molalities)]
+
+
+def conditions_of(settings):
+    """The conditions a run's own settings describe, in the caller's order, with the single-molality fallback."""
+    molalities = (settings or {}).get(SERIES_KEY)
+    if molalities in (None, ''):
+        molalities = [(settings or {}).get('osmotic_molality', DEFAULTS['osmotic_molality'])]
+    return series_conditions(molalities)
+
+
+def _molalities(requested, single):
+    """The series' concentrations: ordered, each inside the range the box can place, and none repeated.
+
+    `osmotic_molality` is what a run that names no series carries, and it stays the fallback so a one-condition
+    run is a series of one rather than a special case. Two conditions at one molality are refused rather than
+    merged: they would be one directory and one measurement reported twice.
+    """
+    values = [single] if requested in (None, '') else (
+        requested if isinstance(requested, (list, tuple)) else str(requested).replace(',', ' ').split())
+    low, high = osmotic_box.MOLALITY_RANGE
+    numbers = []
+    for value in values:
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f'{SERIES_KEY} must be numeric') from exc
+        if not math.isfinite(number) or not low <= number <= high:
+            raise ValueError(f'{SERIES_KEY} {number:g} must be between {low} and {high}')
+        numbers.append(number)
+    if not numbers:
+        raise ValueError(f'{SERIES_KEY} must name at least one molality')
+    repeated = sorted({value for value in numbers if numbers.count(value) > 1})
+    if repeated:
+        raise ValueError(f'{SERIES_KEY} names {repeated[0]:g} molal twice, and two conditions at one molality '
+                         'would be one directory and one measurement reported twice')
+    return numbers
+
+
+def carbohydrate_names(root=None):
+    """Every carbohydrate the repository names, in the registry's own order."""
+    path = Path(root or ROOT) / CARBOHYDRATE_REGISTRY
+    if not path.is_file():
+        return []
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return []
+    names = []
+    for dataset in payload.get('datasets') or []:
+        molecule_id = dataset.get('molecule_id')
+        if molecule_id and molecule_id not in names:
+            names.append(molecule_id)
+    return names
+
+
+def refuse_non_sugar(molecule_id, molecule_root=None, root=None):
+    """None when `molecule_id` names a sugar, otherwise the reason it is refused.
+
+    **The gate, and why it is two facts rather than one.** The repository's own answer to "is this a sugar" is
+    the carbohydrate registry and the sugar recogniser, and neither alone is enough:
+
+    * the registry (`resources/validation/carbohydrates/targets-v1.json`) names the carbohydrates the repository
+      carries a citation for. It is the *declared* vocabulary, so a name in it is a sugar -- Glucose is one, and
+      it has no molecule folder at all, which is a reason the catalogue cannot *build* it rather than a reason
+      this gate refuses it;
+    * a molecule with a folder is a sugar when the recogniser can account for the whole of its connectivity:
+      `identification.identify` matches the ring sizes and the linkage letters against the reference table and
+      says how many heavy atoms are left over.
+
+    **DDM is the case that makes the second condition necessary and a ring test wrong.** DDM is a glucoside: it
+    *has* two recognised hexopyranose rings, so "contains a recognised ring" admits it. What it is not is a
+    sugar -- twelve heavy atoms of alkyl chain sit outside those rings -- and the leftover count is what says so.
+    """
+    if molecule_id in carbohydrate_names(root):
+        return None
+    molecules = Path(molecule_root) if molecule_root is not None else Path(root or ROOT) / 'molecules'
+    folder = molecules / str(molecule_id)
+    if not str(molecule_id or '') or not folder.is_dir():
+        return (f'{molecule_id} is not a carbohydrate: it has no folder under molecules/ and the carbohydrate '
+                f'registry ({CARBOHYDRATE_REGISTRY}) does not name it. An osmotic series takes a sugar as its '
+                'solute.')
+    try:
+        from ...models.mappings import context as mapping_context
+        from ...models.sugars import identification
+        structure = mapping_context.as_structure(mapping_context.build_context(molecules, molecule_id))
+        identified = identification.identify(structure) or {}
+    except (OSError, ValueError) as exc:
+        return f'{molecule_id} is not a carbohydrate: its structure could not be read ({exc})'
+    if identified.get('entry') and identified.get('covers_whole_molecule'):
+        return None
+    outside = identified.get('outside_atoms')
+    if outside:
+        return (f'{molecule_id} is not a carbohydrate: its structure has {outside} heavy atoms outside the '
+                'recognised sugar rings, so it is a molecule with a sugar head group rather than a sugar')
+    return f'{molecule_id} is not a carbohydrate: its structure has no recognised pyranose or furanose ring'
+
+
 def stage_defaults(profile='standard'):
     if profile not in PROFILES:
         raise ValueError(f'unknown osmotic profile: {profile}')
@@ -274,7 +413,12 @@ def normalize_settings(settings=None, profile='standard'):
     if settings is not None and not isinstance(settings, dict):
         raise ValueError('osmotic settings must be an object')
     result = dict(stage_defaults(profile)['values'])
-    for key, value in (settings or {}).items():
+    requested = dict(settings or {})
+    # **The concentrations come out first, and the shape is why.** `molalities` is a list, and a list has no
+    # place in the published vocabulary -- a bounded scalar or one of an enumerated set -- so the loop below
+    # would answer it with "Unknown osmotic setting" rather than with anything about the values in it.
+    molalities = requested.pop(SERIES_KEY, None)
+    for key, value in requested.items():
         if key in CHOICE_SPECS:
             label, allowed = CHOICE_SPECS[key]
             text = str(value)
@@ -292,6 +436,9 @@ def normalize_settings(settings=None, profile='standard'):
         if not math.isfinite(value) or not low <= value <= high:
             raise ValueError(f'{key} must be between {low} and {high}')
         result[key] = value
+    # The series, completed the same way every other setting is: the run type's own default when the caller named
+    # none, and a list of floats in the caller's order when it did.
+    result[SERIES_KEY] = _molalities(molalities, result['osmotic_molality'])
     # An attempt count is a count. `2.5` is refused rather than floored: three-and-a-half attempts is not a thing a
     # reader can reconcile with the `attempts.json` the runner writes.
     if result['osmotic_attempts_max'] != int(result['osmotic_attempts_max']):
@@ -359,14 +506,53 @@ def _solute_root(metadata):
 
 
 def readiness(metadata):
-    """Whether a condition can be built, in the shared shape: every check stated, every blocker named."""
+    """Whether a series can be built, in the shared shape: every check stated, every blocker named."""
     checks, blockers = [], []
     molecule_id = metadata.get('molecule_id')
     if molecule_id:
-        checks.append({'label': 'Molecule', 'path': str(molecule_id), 'ready': True,
-                       'detail': 'The solute is taken from solute_root; this names the molecule the report will.'})
+        # The run type's own first rule, and the reason it is here rather than only in the route: a payload can
+        # reach the coordinator without passing through a route, so the gate has to hold on this path too.
+        refused = refuse_non_sugar(molecule_id, molecule_root=metadata.get('molecule_root'),
+                                   root=metadata.get('project_root'))
+        checks.append({'label': 'Solute is a carbohydrate', 'path': str(molecule_id), 'ready': refused is None,
+                       'detail': refused or 'Named by the carbohydrate registry, or its structure is accounted '
+                                            'for entirely by recognised sugar rings.'})
+        if refused:
+            blockers.append(refused)
     else:
         blockers.append('molecule_id is required to check an osmotic run')
+
+    # The concentrations: the list is the run's own plan, so a value the box cannot place is refused here as
+    # well as in the setting's own range check -- which only the route applies.
+    settings = metadata.get('settings') or {}
+    conditions = []
+    try:
+        molalities = _molalities(settings.get(SERIES_KEY), settings.get('osmotic_molality',
+                                                                        DEFAULTS['osmotic_molality']))
+        conditions = series_conditions(molalities)
+    except ValueError as exc:
+        molalities = []
+        blockers.append(str(exc))
+    checks.append({'label': 'Concentrations',
+                   'path': ', '.join(f'{value:g}' for value in molalities) + ' molal' if molalities else 'none',
+                   'ready': bool(conditions),
+                   'detail': (f'{len(conditions)} condition(s), one directory each: '
+                              + ', '.join(condition['directory'] for condition in conditions))
+                   if conditions else 'No concentration is set, so there is no series to run'})
+
+    # The box is sized from the mapping's own beads -- `plan_condition` subtracts the solute's volume, and a
+    # mapping with no beads leaves it with none. Without this check a run would build at the right molality *of
+    # water* and quietly get the solute volume wrong, which no internal consistency check would notice.
+    mapping = metadata.get('mapping_snapshot') or metadata.get('mapping_candidate') or {}
+    radii = solute_bead_radii(mapping)
+    checks.append({'label': 'CG mapping', 'path': str(mapping.get('file') or 'selected snapshot'),
+                   'ready': bool(radii),
+                   'detail': (f"{len(radii)} bead radii, which size the volume the solute occupies"
+                              if radii else "No beads: the box is sized from the mapping's bead radii "
+                                            '(`osmic.solute_bead_radii`)')})
+    if not radii:
+        blockers.append("a saved CG mapping is required: the box's solute volume is sized from its beads' radii, "
+                        'and a mapping with no beads leaves the solute with no volume to displace')
 
     solute_root = _solute_root(metadata)
     if not solute_root or not Path(str(solute_root)).is_dir():
@@ -389,68 +575,110 @@ def readiness(metadata):
 
 
 def prepare(run_dir, metadata):
-    """Write the condition's inputs and stage its script, the way every other run type prepares a run.
+    """Write the series: one directory per concentration, and the runner that drives them in order.
 
-    `solute_atoms` and `reference_atom` are left empty on purpose: the pull's groups are atom indices, and those do
-    not exist until the runner has placed the molecules. The runner writes the real index file from these mdps.
+    **One stage, N condition directories.** Each concentration gets its own everything -- its mdps (the solute
+    count is the molality's), its reference bead, its `osmotic_condition.json`, its copy of the molecule, and the
+    directory its `min/eq/md.{cpt,...}` and `attempts.json` will be written into. That directory is what a retry
+    of that condition continues from, and it is why a second entry into the series resumes rather than restarts.
+
+    `solute_atoms` and `reference_atom` are left empty on purpose: the pull's groups are atom indices, and those
+    do not exist until the runner has placed the molecules. The runner writes the real index file from these mdps.
     """
     run_dir = Path(run_dir)
     settings = normalize_settings(metadata.get('settings'), metadata.get('profile', 'standard'))
+    molecule_id = metadata.get('molecule_id')
+    # The sugar gate, at the build as well as at the door: without it a non-sugar reaches GROMACS and the failure
+    # is a GROMACS error rather than the answer to "what did you ask me to run a series with".
+    refused = refuse_non_sugar(molecule_id, molecule_root=metadata.get('molecule_root'))
+    if refused:
+        raise ValueError(refused)
+
+    conditions = series_conditions(settings[SERIES_KEY])
     mapping_snapshot = metadata.get('mapping_snapshot') or {}
-    plan = osmotic_box.plan_condition(settings['osmotic_molality'],
-                                      bead_radii_nm=solute_bead_radii(mapping_snapshot),
-                                      solute_beads_per_molecule=len([
-                                          bead for bead in (mapping_snapshot.get('beads') or [])
-                                          if isinstance(bead, dict) and bead.get('atoms')]) or None)
-    record = build(run_dir / 'inputs', plan=plan, temperature=settings['temperature_k'],
-                   production_ps=settings['osmotic_production_ps'],
-                   equilibration_ps=settings['osmotic_equilibration_ps'],
-                   output_interval_ps=settings['osmotic_output_interval_ps'])
+    bead_radii = solute_bead_radii(mapping_snapshot)
+    beads_per_molecule = len([bead for bead in (mapping_snapshot.get('beads') or [])
+                              if isinstance(bead, dict) and bead.get('atoms')]) or None
+
+    inputs = run_dir / 'inputs'
     stage = run_dir / '01_simulate'
-    (stage / 'solute').mkdir(parents=True, exist_ok=True)
-    # **The stage's working directory is the stage directory**, so a script that imports this repository's own modules
-    # cannot find them from `.`. The root is written in, the way the CG templates get theirs, rather than assumed from
-    # the environment, which does not set it: the first real run placed its molecules and then died with
-    # `ModuleNotFoundError: No module named 'dashboard'` on the very next line.
+    records = []
+    for condition in conditions:
+        directory = condition['directory']
+        destination = inputs / CONDITIONS_DIRECTORY / directory
+        plan = osmotic_box.plan_condition(condition['molality'], bead_radii_nm=bead_radii,
+                                          solute_beads_per_molecule=beads_per_molecule)
+        record = build(destination, plan=plan, temperature=settings['temperature_k'],
+                       production_ps=settings['osmotic_production_ps'],
+                       equilibration_ps=settings['osmotic_equilibration_ps'],
+                       output_interval_ps=settings['osmotic_output_interval_ps'])
+        records.append(dict(record, directory=directory, molality=condition['molality']))
+        if record['solute_molecules'] == 0:
+            # A zero-molality condition is a legitimate control and is stated as one, per condition, rather than
+            # looking like a run whose solute count went missing.
+            (destination / 'control.json').write_text(
+                json.dumps({'molality': 0.0,
+                            'note': 'pure solvent: the osmotic pressure of this condition is zero by construction '
+                                    'and it exists to show the measurement floor rather than a value'},
+                           indent=2, sort_keys=True) + '\n')
+
+    # The series' own manifest -- the ordered conditions plus the policy on a failed one. It is the only place the
+    # order is written down, and the runner reads it from its own directory, so both halves read one file.
+    series = {'series_id': settings.get('series_id'), 'molecule_id': molecule_id,
+              'series_on_failure': settings.get('series_on_failure', 'carry_on'),
+              'attempts_max': int(settings['osmotic_attempts_max']), 'conditions': conditions}
+    inputs.mkdir(parents=True, exist_ok=True)
+    (inputs / CONDITIONS_MANIFEST).write_text(json.dumps(series, indent=2, sort_keys=True) + '\n')
+
+    # **The stage's working directory is the stage directory**, so a script that imports this repository's own
+    # modules cannot find them from `.`. The root is written in, the way the CG templates get theirs, rather than
+    # assumed from the environment, which does not set it: the first real run placed its molecules and then died
+    # with `ModuleNotFoundError: No module named 'dashboard'` on the very next line.
     script = (SCRIPTS / 'osmotic_simulation.sh').read_text()
-    # The retry ceiling reaches the runner the way `REPO_ROOT` does: a stage script is a file read at prepare time, so
-    # a per-run value is written into it here. The runner keeps its own `${OSMOTIC_ATTEMPTS_MAX:-3}` for a script run
-    # by hand; this replaces the whole assignment so the run's own setting is the one it uses.
+    # The retry ceiling reaches the runner the way `REPO_ROOT` does: a stage script is a file read at prepare
+    # time, so a per-run value is written into it here. The runner keeps its own `${OSMOTIC_ATTEMPTS_MAX:-3}` for
+    # a script run by hand; this replaces the whole assignment so the run's own setting is the one it uses.
     script = script.replace('OSMOTIC_ATTEMPTS_MAX="${OSMOTIC_ATTEMPTS_MAX:-3}"',
                             f'OSMOTIC_ATTEMPTS_MAX="{int(settings["osmotic_attempts_max"])}"')
+    (stage / CONDITIONS_DIRECTORY).mkdir(parents=True, exist_ok=True)
     (stage / 'run.sh').write_text(script.replace('REPO_ROOT="${REPO_ROOT:-.}"', f'REPO_ROOT="{ROOT}"'))
+    (stage / CONDITIONS_MANIFEST).write_text((inputs / CONDITIONS_MANIFEST).read_text())
+
+    force_field = TUTORIAL_TEMPLATE / '3_initial_CG' / 'martini_v3.0.0.itp'
+    if not force_field.is_file():
+        raise ValueError(f'the Martini force field is missing: {force_field}')
     # The molecule's files go to **both** places, and each has a reason: `inputs/` is what the prepared manifest
-    # hashes, so the run's own record covers which molecule was simulated; `solute/` beside the stage is the layout
-    # the runner documents and reads. A missing molecule file is a refusal here, where the name is known, rather
-    # than a failure inside GROMACS.
+    # hashes, so the run's own record covers which molecule was simulated; `solute/` inside the condition's own
+    # directory is the layout the runner documents and reads, because a condition runs with *it* as the working
+    # directory. A missing molecule file is a refusal here, where the name is known, rather than a failure inside
+    # GROMACS -- and it is checked once, before the first condition is written, rather than per condition.
     root = _solute_root(metadata)
     if root:
         for name in SOLUTE_FILES:
             if not (Path(root) / name).is_file():
                 raise ValueError(f'solute_root is missing {name}: {root}')
-            shutil.copy2(Path(root) / name, run_dir / 'inputs' / name)
-            shutil.copy2(Path(root) / name, stage / 'solute' / name)
-    for name in ('minimization.mdp', 'eq.mdp', 'md.mdp', 'reference.itp', 'osmotic_condition.json'):
-        shutil.copy2(run_dir / 'inputs' / name, stage / name)
-    # The force field the topology includes at its top level, from the source the CG path copies it from. It is not a
-    # molecule file and did not come from `solute_root`, so it is staged here -- and grompp's refusal to find it is
-    # what a run looks like when it is missing, one step before minimization.
-    force_field = TUTORIAL_TEMPLATE / '3_initial_CG' / 'martini_v3.0.0.itp'
-    if not force_field.is_file():
-        raise ValueError(f'the Martini force field is missing: {force_field}')
-    shutil.copy2(force_field, stage / 'martini_v3.0.0.itp')
-    if record['solute_molecules'] == 0:
-        # A zero-molality condition is a legitimate control and is stated as one rather than looking like a mistake.
-        (run_dir / 'inputs' / 'control.json').write_text(
-            json.dumps({'molality': 0.0,
-                        'note': 'pure solvent: the osmotic pressure of this condition is zero by construction and it '
-                                'exists to show the measurement floor rather than a value'},
-                       indent=2, sort_keys=True) + '\n')
+    for condition in conditions:
+        directory = condition['directory']
+        source_inputs = inputs / CONDITIONS_DIRECTORY / directory
+        target = stage / CONDITIONS_DIRECTORY / directory
+        (target / 'solute').mkdir(parents=True, exist_ok=True)
+        for name in CONDITION_FILES:
+            shutil.copy2(source_inputs / name, target / name)
+        if root:
+            for name in SOLUTE_FILES:
+                shutil.copy2(Path(root) / name, source_inputs / name)
+                shutil.copy2(Path(root) / name, target / 'solute' / name)
+        # The force field the topology includes at its top level, from the source the CG path copies it from. It
+        # is not a molecule file and did not come from `solute_root`, so it is staged per condition -- grompp's
+        # refusal to find it is what a run looks like when it is missing, one step before minimization.
+        shutil.copy2(force_field, target / 'martini_v3.0.0.itp')
+
     protocol.write_prepared_manifest(
-        run_dir, {'molecule_id': metadata.get('molecule_id'), 'settings': dict(metadata.get('settings') or {}),
-                  'run_type': 'osmotic', 'workflow_version': VERSION}, tools=tool_metadata(),
-        plan=[name for name, _ in STAGES], environment=recorded_environment())
-    return record
+        run_dir, {'molecule_id': molecule_id, 'settings': dict(metadata.get('settings') or {}),
+                  'run_type': 'osmotic', 'workflow_version': VERSION, 'series': series},
+        tools=tool_metadata(), plan=[name for name, _ in STAGES], environment=recorded_environment())
+    return {'series_id': settings.get('series_id'), 'molalities': list(settings[SERIES_KEY]),
+            'conditions': records}
 
 
 PROTOCOL = protocol.Protocol(

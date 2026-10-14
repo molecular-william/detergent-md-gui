@@ -7,6 +7,13 @@ scope, the routes and the bond rule. Their review is the next step, and the spec
 The ask, verbatim: *"For both 'Detergent validation' and 'Protein-detergent simulations', there should be a panel for
 visualizing selected AA or CG runs."*
 
+A second ask, added the same day, answered by *Transport controls under the canvas* below — **this is the part that is
+built first if the panel is split**:
+
+> *"For the run view, I would like there to be buttons for playing the run in forward time, playing the run in reverse
+> time, and a slider for choosing the frame to show and start at, similar to how NGLview widget works in Jupyter
+> Notebooks. The buttons and slider should be in the same line and below the NGL visualization."*
+
 ## Why one new panel rather than two
 
 The two workspaces hold different run types and the same reader question — "what did this run actually produce, and
@@ -62,6 +69,40 @@ the one that forgets the guard.
   - A `.gro` loaded into this vendored NGL draws **no bonds at all** — the GRO parser has no bond inference and the
     files carry none. The invented-bond failure lives entirely on the `.pdb` path.
 
+### What the vendored NGL build does with frames (measured on this box, 2026-10-14)
+
+The transport row is only honest if both its frames and its playback come from the viewer, so the build was driven
+directly: `static/vendor/ngl.js` (NGL 2.3.1 per `ngl.js.source.json`) in Chromium, through the class the bundle exports
+(`e.TrajectoryPlayer=hg`) — the same player the nglview widget drives from Python.
+
+- **A multi-model file without `asTrajectory` is not a trajectory.** A 41-`MODEL` PDB loaded with
+  `{ext: 'pdb', inferBonds: 'none'}` came back as **one structure of 328 atoms, `structure.frames` empty, no
+  trajectory** — every model concatenated into a single picture of the molecule drawn 41 times over. The same bytes
+  with `asTrajectory: true` give `structure.frames.length === 41`.
+- **`loadFile` does not attach the trajectory by itself.** After the `asTrajectory` load, `component.trajList` is
+  still empty; `component.addTrajectory()` is what creates it (`trajList[0].trajectory.frameCount === 41`). The only
+  place the bundle calls `addTrajectory()` for you is inside the default-representation path, which this panel does not
+  use. A row built on the assumption that the trajectory is there renders a plausible picture with a dead slider.
+- **The player's defaults are `{step:1, timeout:50, start:0, end:frameCount-1, mode:'loop', direction:'forward'}`**,
+  and `_next()` fixes what the ends do: at the end of the range `mode:'once'` **pauses and clamps** to `end`
+  (forward) or `start` (backward); `mode:'loop'` **wraps** to `start`/`end`; `direction:'bounce'` **flips direction**
+  and keeps running. `play()` starts from **the frame on screen** (`Math.ceil(currentFrame/step)*step`), except at the
+  far end of the direction, where it rewinds to the other end; `stop()` pauses and jumps back to `parameters.start`.
+  Measured: forward from frame 7 for 600 ms → frame 11; backward from 20 for 600 ms → 15; `once` at frame 25 → stays
+  on 25 and `isRunning` goes false; `once` backward at frame 0 → rewinds to the last frame and plays down;
+  `loop` at 25 → wraps to 0 and advances; `bounce` with `start 20, end 25` from 24 → flips at 25 and comes back;
+  `stop()` with `start=5` → frame 5.
+- **Rate:** 11 frames advanced in 1000 ms at `timeout: 100`, 19 at `timeout: 50` — the parameter is milliseconds per
+  frame, and playback is driven by `requestAnimationFrame`.
+- **A hidden tab does not play.** With the same page in a background tab the player advanced **0 frames** and
+  `requestAnimationFrame` ticked **0 times in a second**; after `Page.bringToFront` it ticked 61 times a second and the
+  player ran at the rate above. A hidden panel is a hidden tab, so a panel that starts playing while unselected shows
+  its last frame and nothing else.
+- **A PDB trajectory carries no time.** `trajectory.deltaTime` is 0 and `getFrameTime(i)` returns 0 for every frame,
+  so no time can be printed from the renderer for frames that arrive as PDBs — see D15.
+- `setFrame(n)` is what moves the drawn atoms (atom 0's x went 14.000 → 8.330 between frames 0 and 40), and
+  `signals.frameChanged` fires on it — which is how the row's readout and the strip keep step with the playhead.
+
 ## What a run offers to look at, and which route serves it
 
 | what | route | use it? |
@@ -72,11 +113,63 @@ the one that forgets the guard.
 | a PDC run's snapshots and built system | `GET /api/pdc/<id>/snapshots`, `/system.pdb` | **yes, but delegated** — see the overlap section |
 | a trajectory frame of an `aa_only`/`aa_cg` run | — | **no route exists.** Not invented, not faked in JavaScript |
 | a CG structure with the model's own bonds | — | **no route exists.** T3's, and it is the only new endpoint this plan asks for |
+| the frames the transport row plays | `GET /api/jobs/<id>/artifacts/snapshots/AA-frames.pdb?inline=1` | **yes, once T4 writes it** — one multi-model PDB, loaded `asTrajectory: true`; until then the row is drawn and disabled with its reason |
 | the run record (stages, tools, provenance) | `GET /api/jobs/<id>` | yes, for the identity line |
 
 Two things the panel must **not** do: read a `.xtc` in the browser (binary, and no pairing route), and build a viewer
 URL from a filesystem path (AGENTS.md; the API hands back run-relative paths, and the route is what turns one into a
 URL).
+
+## Transport controls under the canvas
+
+Two play buttons and one frame slider, **on one line, directly below the NGL canvas**, in the manner of the nglview
+widget. What that widget actually is, read from its own source rather than from memory — `nglview/widget.py`
+(`_create_player`), `nglview/js/src/widget_ngl.ts` (`createIPlayer`) and ipywidgets' `widget_int.py` / `widget_int.ts`:
+
+- The controls are **one row**: `HBox([Play(max=max_frame, interval=100), IntSlider(max=max_frame)])`, with `jslink`
+  binding slider value ↔ the widget's `frame`, and both maxima ↔ `max_frame`. The slider **is** the frame index.
+- `interval=100` ms per step and `step=1`; the Play button's `repeat` flag **defaults to false**, so its `animate()`
+  steps to `max` and then sets `_playing` false — **it stops at the end**, and a separate retweet button turns looping
+  on.
+- It is **not** below the canvas: the row is appended into `stage.viewer.container` at `position:absolute; bottom:5%;
+  left:10%; opacity:.7` and `display:none` until the pointer enters the canvas. The ask inverts both of those
+  ("below the NGL visualization", and there to be read without hovering), and that is what this panel builds.
+
+Decisions, each stated in the panel as well as here:
+
+- **D11 — the row is two buttons and a slider, in that order, on one line under the canvas**: `◀` play in reverse,
+  `▶` play forward, then the frame slider carrying its `n of m` readout. Nothing else goes in the row — no step
+  buttons, no rate field, no mode dropdown, no stop button: a pause is the running direction's own button pressed
+  again (what nglview's single Play button does), and the slider's own frame is where playback starts, so there is no
+  "jump to start" affordance to add. Reversal: one more control in the row, and the row is no longer the ask's row.
+- **D12 — at the ends, playback stops** (`mode: 'once'`, NGL's own parameter): forward stops on the last frame,
+  reverse on the first. Reversal: `loop` wraps to the other end, `bounce` flips and never stops. Rejected as the
+  default because a run watched forward from frame 0 that silently wraps makes the run's last frame indistinguishable
+  from its first — the one thing this panel exists to keep straight. Both alternatives are one `setParameters` call
+  away, and the draft's demo block lets you watch all three.
+- **D13 — the rate is fixed at 100 ms a frame (ten a second)**, nglview's own `interval`, printed on the row so a
+  reader can tell what rate they are watching. It is **not a control**; the ask fixes the row's contents. NGL's own
+  player default is 50 ms, and the panel follows the widget the ask names. Reversal: a `fps` field or a rate menu, and
+  a fourth element in the row.
+- **D14 — the slider is bound to the trajectory's frame** (`min: 0 … max: frameCount - 1, step: 1`), and that frame is
+  both the one shown and the one playback starts from — NGL's own `play()` rule (`Math.ceil(currentFrame/step)*step`,
+  rewinding to the other end only when the playhead already sits at the far end). `parameters.start` stays 0 so every
+  frame stays reachable in reverse; the alternative, the slider also setting `start`, makes reverse playback refuse to
+  go below it. Reversal: a second slider for `start`/`end`, which is a range control the ask did not ask for.
+- **D15 — the slider prints the frame index and never a time.** It reads `frame 12 of 40`; a time appears only when
+  the trajectory itself declares one (`trajectory.deltaTime` non-zero, read through NGL's `getFrameTime`). Frames
+  served as PDBs declare none — measured, `deltaTime 0` and `getFrameTime(i) === 0` for every i — so a panel printing
+  "12.0 ps" beside them would be inventing it. Where the frames came from, and the stride they were sampled at, is
+  said in words beside the row instead.
+- **D16 — the strip follows the playhead and never starts it.** A strip button sets the frame the way the slider does
+  and stops there; the pressed state moves **only** when the playhead is exactly on a saved frame, so a strip of three
+  sampled moments lights up three times a pass and not in between. This keeps the strip's empty reason (D6) visible
+  for the 14 live runs, and keeps the strip from implying a saved moment is "current" while the playhead sits between
+  two of them.
+- **D17 — where the viewer finds no frames, the row is drawn and disabled**, with the reason in each control's
+  `title`, in the row's own readout, and in the paragraph under it: the loaded file holds one frame, and no route
+  serves the run's trajectory. That is the state of all 14 live runs today, and the draft shows it. Reversal: hide the
+  row instead, which tells the reader less than a disabled control that says why.
 
 ## Choosing a run
 
@@ -114,14 +207,15 @@ What the reader sees, and what each says:
 - **An AA run (`aa_only`)**: the published reference `stages/07_reference/lig.gro` first, then the stage `.gro`s
   before it. The `.gro` files are drawn bondless with a caption naming the file and the atom count; the molecule's
   PDB is drawn `ball+stick` on element with its chemistry inferred. Frames: the strip is present and **empty with a
-  reason** — *"this run recorded no frame snapshots; the trajectory is `stages/07_reference/lig.xtc` and no route
-  serves a single frame of it"*. Figures: this run has none, and the panel says so.
+  reason** — *"this run recorded no frame snapshots; the trajectory is `stages/07_reference/lig.xtc` and no route'
+  serves a single frame of it"* — and the transport row under the canvas is drawn with both buttons and the slider
+  disabled for that same reason (D17). Figures: this run has none, and the panel says so.
 - **A CG run (`aa_cg`)**: `stages/2_mapping/mapped.gro` (the mapped model itself) first, then `4_CG_sim/min,eq,md.gro`.
   Beads are drawn as spheres, sized from the run's own `stages/2_mapping/model.json` size classes when it is readable
   and uniform otherwise — with the caption saying which, because a bead's radius is a claim. Bonds: none drawn, with
   the caption naming `stages/3_initial_CG/LIG1.itp` as where the model's `[ bonds ]` and `[ constraints ]` are, and
-  saying that the panel draws none rather than guessing them. Frames: same empty strip, naming `stages/4_CG_sim/md.xtc`.
-  Figures: five, listed and opened inline.
+  saying that the panel draws none rather than guessing them. Frames: the same empty strip, naming
+  `stages/4_CG_sim/md.xtc`, and the same drawn-but-disabled transport row. Figures: five, listed and opened inline.
 - **A PDC run**: the chooser offers them; the panel does not draw them (the overlap section).
 
 ### Why the guard is not only a flag
@@ -159,7 +253,8 @@ The one genuine overlap is **figures** (Runs already shows them) and the one tha
 - **D5 — figures are listed here, zoomed in the Runs panel.** Reversal: mount a second `RunFigureViewer` here (~1
   module reuse, and two figure galleries to keep in step).
 - **D6 — no frames are offered for `aa_only`/`aa_cg`/`cg_composition`, because no route serves one.** The strip shows
-  the `snapshots` analysis artifacts when they exist and says plainly when they do not. Reversal: T4 (make the frame
+  the `snapshots` analysis artifacts when they exist and says plainly when they do not; the transport row (D11–D17)
+  plays the same frames, so it is disabled with the same reason until T4 writes them. Reversal: T4 (make the frame
   producer read the `07_reference` layout) plus a frame sampler route — real work, and its own panel control.
 - **D7 — the three-branch bond rule above**, with `inferBonds: 'none'` whenever a file carries CONECT **or** is
   coarse-grained. Reversal: none available; the alternative is drawing bonds the model does not have, which is the
@@ -171,6 +266,10 @@ The one genuine overlap is **figures** (Runs already shows them) and the one tha
   criterion numbers beside it.
 - **D10 — deep link `?run=<id>` plus a "View run" link on each Runs-table card.** Reversal: the run is found only by
   searching a list, which is the thing the ask is about.
+- **D11–D17 — the transport row**, decided in *Transport controls under the canvas* above: two buttons and the frame
+  slider on one line under the canvas (D11), stop at the ends (D12), a fixed 100 ms a frame (D13), the slider bound to
+  the frame shown and started from (D14), the slider printing an index and never a time (D15), the strip following the
+  playhead and never driving it (D16), and a drawn-but-disabled row that says why (D17).
 
 ## Tasks
 
@@ -190,6 +289,32 @@ two columns sit side by side at 1600 px (different `x`, each near its share of t
 plus the existing 390 px no-overflow guard (`test_lazy_loading.py`). **Acceptance, measured in the draft:** see the
 draft's own geometry note below — the head order is what makes the two columns, and reversing it stacks them.
 
+**Measured in the draft on 2026-10-14** (Chromium, 1600 px window → 1585 px panel, 0 px horizontal overflow). The head
+order, read off the page: `dashboard.css → runs.css → new-run.css → mappings.css → compositions.css → pdc.css →
+layout.css → workspaces.css` — `new-run.css` third, `layout.css` seventh, and the two inline blocks in their places
+around it. **The transport row (T8), on all three blocks that carry one:** controls `36×29 @ top 1474 / centre-y
+1488.4`, `36×29 @ 1474 / 1488.4`, `880×19 @ 1479 / 1488.4` → tops spread 5 px, **centres spread 0 px**, tallest control
+29 px, so they are on one line; the row is `x 568 y 1474 w 968 h 29`, **inside the panel** (`x 24…1561, y 867…2738`);
+the **canvas's bottom is 1466, the row's top 1474** → the canvas is above it; row right 1536 against panel right 1561 →
+no overflow. At **1100 px** and at **390 px** the columns stack as designed and the row is still one line, still inside
+the panel, still under the canvas, with **0 px** of horizontal overflow at both widths.
+
+**Two traps the row's own stylesheet has to handle**, both measured while building the draft:
+
+1. `dashboard.css:1` sets `label{margin:12px 0;font-weight:600}`, `input{padding:9px}` and
+   `label>input:not([type=checkbox]){display:block;width:100%;margin-top:5px}`. Un-normalised, the slider's label
+   carries a 12 px top *and* bottom margin, which sets the flex line's cross size to **60 px** while the controls are
+   29–36 px: a "row" 24 px taller than anything in it, with the buttons 4 px off the label's top. `run-view.css`
+   states `margin:0; width:auto; padding:0` on the row's label and slider — the same normalisation `new-run.css:77` and
+   `mappings.css:25` already carry, and the numbers above are what they buy.
+2. `dashboard.css` paints `button{background:var(--accent); color:white}`, so any pill this sheet repaints white must
+   state its own `color`. The draft's run-list ids and its frame-strip labels were **white on white** — invisible, and
+   invisible in a still as well as on screen — until it did.
+
+Two stills sit beside the draft: `...-run-view-panel-draft-transport-demo.png` (the row working, over the 41 synthetic
+frames) and `...-run-view-panel-draft-transport-disabled.png` (the row as every live run shows it: one frame in the
+file, both buttons and the slider disabled, the reason under it).
+
 **T3 — the bond rule, and the one new route.** A shared helper (in `run-view.js`, or a small module both it and the
 two existing call sites import) that returns the load parameters from the file text, the run type and the path;
 `GET /api/jobs/<id>/structure?path=<run-relative .gro|.pdb>` in `routes/runs.py`, writing the run's own
@@ -206,6 +331,13 @@ prod/…`, and record which layout it read) so the artifact route serves `snapsh
 empty with its reason. The first is a small change to a tested function and makes the strip real for the six `aa_only`
 runs; the second is honest and costs the ask's word "frames". **Recommend the first.** Tests: the resolver returns the
 `07_reference` pair for an `aa_only` run and the `prod/` pair for a consumer run, and names the one it used.
+  Reading the layout is also what gives the transport row something to play, and the three frames the kind writes
+  today (`AA-first/middle/last.pdb`) are not a trajectory. So the first branch writes one more artifact:
+  `snapshots/AA-frames.pdb`, a **multi-model PDB** sampled from the same trajectory at a stated stride (MDAnalysis
+  writes N frames in one call), with the stride and the source path recorded beside it. The panel then makes **one**
+  request for the whole series and loads it `asTrajectory: true`; assembling a trajectory client-side out of N
+  per-frame files is the thing this avoids. Tests: the file's `MODEL` count equals the requested sample count, and each
+  frame's atom count equals the solute's.
 
 **T5 — the run-type filter on `/api/jobs`.** `routes/runs.py:96-110` + `database().page(…, run_type=…)`. Reversal
 cost stated in D3. Tests: a filtered page returns only that type and keeps `total` consistent.
@@ -221,6 +353,21 @@ scope now** — it is a behaviour change to two panels they can see.
 `dashboard.html`) to `/<slug>/run-view?run=<id>`, and the `?run=` read at mount. Tests: browser — the link lands on
 the panel with that run drawn.
 
+**T8 — the transport row.** `run-view.css` gains its rules (`display: flex; flex-wrap: nowrap; align-items: center;
+gap: 8px` — one line, the slider the flexible item); `run-view.js` gains the row: two buttons, one `input[type=range]`,
+`const FRAME_MS = 100`, `const END_MODE = 'once'`, and a `TrajectoryPlayer` per loaded structure, created only once
+`component.addTrajectory()` has produced a trajectory (**measured: without that call there is no trajectory to drive,
+and `loadFile` does not make one**). The row sets `aria-pressed` on the button whose direction is running, binds the
+slider to `frameCount - 1` and calls `traj.setFrame(...)` on `input`, reads `currentFrame` back from the trajectory for
+its readout, and leaves all three controls disabled with a non-empty `title` when `frameCount < 2`. The structure load
+passes `asTrajectory: true` whenever the panel asked for a sample series (**measured: without it a 41-model PDB draws
+328 atoms in one picture and no trajectory at all**). Tests: browser, driving the row and asserting on the renderer —
+forward advances `trajectory.currentFrame`, reverse decreases it, `once` stops at the last frame and leaves the
+playhead there, the slider's `max` equals `frameCount - 1`, moving the slider moves the frame and the pressed state,
+and a one-frame structure disables all three controls with a reason in the `title`. Second browser test, geometry: the
+row's three controls share a row (`|Δy| < half a row`), the row sits inside the panel, and the canvas's bottom edge is
+above the row's top edge.
+
 ## Acceptance
 
 - Both workspaces render the panel; no other panel's label, id or order moves.
@@ -230,6 +377,11 @@ the panel with that run drawn.
 - **No bond is drawn that the model does not have**, in any of the three branches, verified by reading the bond count
   back off the loaded component rather than by asserting the parameters sent.
 - Frames are either shown from artifacts that exist, or the strip says why they are not.
+- The transport row is two play buttons and the frame slider on one line under the canvas; playback stops at the ends;
+  the row states its rate and its frame count; a structure holding one frame leaves the row disabled **with the
+  reason** in it.
+- Playback is driven by the renderer's own player (`TrajectoryPlayer` `direction`/`mode`/`step`/`timeout`), verified by
+  reading `trajectory.currentFrame` back, never by asserting the parameters handed to it.
 - `dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q`, `-m browser`, and
   `ruff check dashboard tests` all clean.
 
@@ -245,9 +397,17 @@ the panel with that run drawn.
 1. **T6 (the two existing NGL views that invent bonds) now, or after?** My recommendation: now, as its own commit, so
    the guard has one implementation and the panels agree.
 2. **T4: make the frame producer read the `aa_only` layout** (the strip becomes real for six runs), or ship the strip
-   empty with its reason? My recommendation: make it read the layout — the ask names frames.
+   empty with its reason? My recommendation: make it read the layout — the ask names frames, and with it write the one
+   `AA-frames.pdb` sample series (T4's extension) so the transport row has a run to play rather than three moments. How
+   many samples should that file carry? The row is worth having past a few dozen; my recommendation is **40**, evenly
+   spaced over the trajectory, with the file naming its stride.
 3. **PDC runs: delegate to Complexes (D9), or should this panel become the one place a run is looked at**, with
    Complexes keeping only its build door?
 4. **A rail tab in the validation workspace makes seven.** That is what the rail was built for, so nothing needs to
    move — but the seventh label is now "Run view" beside "Runs". Keep both, or should this be a section inside Runs?
 5. **CG bead radii: the run's `model.json` size classes (D8), or uniform spheres** with the caption saying so?
+6. **The transport row's rate and its ends.** Fixed at 100 ms a frame and stopping at the end (D12/D13, which is what
+   the nglview widget's Play button does), or would you rather have a rate control and a loop/bounce toggle in the row?
+   My recommendation: the fixed rate and the stop, with the alternatives in the draft's demo block to watch first.
+7. **The `AA-frames.pdb` sample count** (T4's extension): 40 evenly spaced frames, or another number and stride? The
+   stride is what a reader has to be told, so it goes in the panel whichever way it lands.

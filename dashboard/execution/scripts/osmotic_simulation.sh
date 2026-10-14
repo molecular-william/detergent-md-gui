@@ -1,12 +1,25 @@
 #!/bin/bash
-# One osmotic-pressure condition, end to end: place the solute in the slab, put a frozen reference bead at the box
-# centre, solvate, and run the three stages the adapter wrote mdps for.
+# The osmotic series, end to end: one concentration at a time, in its own directory.
 #
 # The method is the paper's: the solute is confined to the middle of a fixed box by a flat-bottomed potential
 # (2.52078 nm from the centre, 1000 kJ/mol/nm2 beyond it), pressure is coupled only in z, and the osmotic pressure
 # comes from the force the solute exerts on those walls divided by the xy area. The force is NOT read from this run's
 # pull machinery -- the analysis recomputes it from the trajectory -- so what this has to get right is the geometry:
 # the box, the slab, and a reference whose centre of mass IS the box centre.
+#
+# **The series is one stage and N concentrations, and the two halves of that are this file's structure.** Invoked
+# with no `OSMOTIC_CONDITION`, this script is the driver: it reads `conditions.json`, and for each concentration in
+# the caller's order it runs one condition to the end before starting the next -- that is what "one at a time"
+# means here, and it is the stage's own loop rather than anything the queue has to enforce. Invoked with
+# `OSMOTIC_CONDITION=<directory>`, it runs that one condition with the condition's own directory as its working
+# directory. The process boundary is deliberate: a condition's exit code is its own outcome, so the driver can
+# record it and honour the series' policy on it.
+#
+# **A condition that already finished is not entered again, and a condition that died resumes.** Each condition's
+# `min/eq/md.cpt`, its `attempts.json` and a terminal `condition.json` live in its own directory. The driver skips a
+# condition whose record says `complete`, so a second entry into the series -- which is what resuming the run does
+# -- runs only what did not finish, and the retry inside a condition continues from that condition's own
+# checkpoint rather than restarting it.
 #
 # Three substitutions or choices from the paper, recorded rather than hidden:
 #   * the paper builds the initial configuration with polyply; this samples positions inside the slab itself, which is
@@ -16,16 +29,77 @@
 #   * the index file is written HERE and not by the adapter: the pull's groups are atom indices, and the indices are
 #     not known until the molecules have been placed.
 #
-# Inputs, in the working directory:
-#   minimization.mdp eq.mdp md.mdp   from dashboard.execution.adapters.osmotic
-#   reference.itp osmotic_condition.json
-#   solute/                          ONE solute molecule: solute.gro, solute.itp, and the includes it needs
+# Inputs, in the stage directory:
+#   run.sh conditions.json        this driver, and the series it drives
+#   conditions/<n>_<m>molal/      one per concentration: minimization.mdp eq.mdp md.mdp reference.itp
+#                                 osmotic_condition.json, solute/ (one molecule + its includes),
+#                                 martini_v3.0.0.itp
 # Environment:
-#   SOLUTE_DIR, MDRUN_LAUNCHER, MDRUN_FLAGS, GROMACS -- as cg_simulation.sh
+#   SOLUTE_DIR, MDRUN_LAUNCHER, MDRUN_FLAGS, GROMACS, OSMOTIC_CONDITION -- as cg_simulation.sh, plus the last,
+#   which the driver sets to the condition directory it is entering.
 GROMACS="${GROMACS:-/usr/local/gromacs/2026.3/bin/gmx}"
 SOLUTE_DIR="${SOLUTE_DIR:-solute}"
+CONDITIONS_MANIFEST="${CONDITIONS_MANIFEST:-conditions.json}"
+CONDITIONS_DIRECTORY="${CONDITIONS_DIRECTORY:-conditions}"
 export PATH="$(dirname "$GROMACS"):$PATH"
 set -euxo pipefail
+
+# One attempt's record, appended per attempt rather than written at the end, so it survives the condition being
+# killed. Read back with `python -c "import json;print(json.load(open('attempts.json')))"`.
+record_attempt() {
+    python - "$1" "$2" "$3" "$4" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+stage, attempt, resumed, outcome = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+path = Path('attempts.json')
+data = json.loads(path.read_text()) if path.is_file() else {'attempts': []}
+data.setdefault('attempts', []).append({
+    'attempt': attempt,
+    'stage': stage,
+    'checkpoint': f'{stage}.cpt',
+    'resumed': resumed == 'yes',
+    'attempts_max': int(os.environ.get('OSMOTIC_ATTEMPTS_MAX', '3')),
+    'outcome': outcome,
+})
+path.write_text(json.dumps(data, indent=2, sort_keys=True) + '\n')
+PY
+}
+
+run_stage() {
+    local stage="$1" attempt=1 resumed outcome
+    while [ "$attempt" -le "$OSMOTIC_ATTEMPTS_MAX" ]; do
+        if [ -f "$stage.cpt" ]; then resumed=yes; else resumed=no; fi
+        if [ "$resumed" = no ]; then
+            # Nothing to continue from: drop this stage's own partial output first, so the fresh run does not append
+            # to a failed attempt's truncated trajectory and splice two runs into one file. Only the failed stage's
+            # files are touched -- never another stage's, and never the tpr the grompp above just wrote.
+            rm -f "$stage.trr" "$stage.xtc" "$stage.edr" "$stage.log" "$stage.gro"
+        fi
+        outcome=ok
+        ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm "$stage" -cpi "$stage.cpt" \
+            ${PLUMED} ${MDRUN_FLAGS:--ntomp 4 -gpu_id 0 -nb gpu -pin on} -v || outcome=failed
+        record_attempt "$stage" "$attempt" "$resumed" "$outcome"
+        if [ "$outcome" = ok ]; then return 0; fi
+        echo "### $stage failed on attempt $attempt of $OSMOTIC_ATTEMPTS_MAX" >&2
+        attempt=$((attempt + 1))
+    done
+    echo "### $stage failed after $OSMOTIC_ATTEMPTS_MAX attempts: the condition ends failed" >&2
+    return 1
+}
+
+# The retry ceiling reaches this script the way `REPO_ROOT` does: a stage script is a file read at prepare time, so
+# a per-run value is written into it there. The default is for a script run by hand, and it is the house ceiling
+# (`attempts_max = 3` in `pdc.DEFAULTS` and the loop bound in `pdc_extension.py`).
+OSMOTIC_ATTEMPTS_MAX="${OSMOTIC_ATTEMPTS_MAX:-3}"
+
+# -----------------------------------------------------------------------------------------------------------------
+# One condition, or the series.
+# -----------------------------------------------------------------------------------------------------------------
+if [ -n "${OSMOTIC_CONDITION:-}" ]; then
+cd "$OSMOTIC_CONDITION"
 
 # 1. The box the paper states, and the molecules placed in the slab it implies. The manifest's counts are used as
 #    written: the analysis divides by the area in that file, so a second derivation here would be a second opinion.
@@ -284,7 +358,8 @@ PY
 #    overhead that more runs cannot amortise. The machine's own numbers: 32 cores fully busy, the GPU at 13%, I/O
 #    negligible -- the limit is neither cycles nor the accelerator.
 #    `-pin on` is therefore restored, because serial with it is the only placement this machine has *measured* at
-#    2400 ns/day, and the concurrency limit is back to one. See
+#    2400 ns/day. That measurement is also why **the conditions run one at a time inside this one run**: the same
+#    number, read as an instruction rather than as an observation. See
 #    `docs/superpowers/plans/2026-10-06-osmotic-concentration-series.md` for the three-way comparison.
 #    **The mdrun flags, measured rather than assumed.** Eight configurations on this system's own `md.tpr`, 0.5 ns
 #    each: `-nb gpu` beat `-nb cpu` by 1.6x to 7x, and `-ntomp 4` beat every other thread count -- so `-nb gpu` was
@@ -317,7 +392,8 @@ PY
 #        mid-run, so the retry continues from the state it left rather than repeating what it had already
 #        integrated. That is the case the retry exists for: a 500 ns production can die at 171 ns, and its sibling
 #        condition of the same series survived the identical 500 ns, so the failure is stochastic rather than a
-#        property of the inputs.
+#        property of the inputs. **And it is the case a second entry into the series relies on**: the driver skips
+#        the conditions that finished and re-enters the one that did not, whose `md.cpt` is still here.
 #      * **no checkpoint exists** -- the stage died before mdrun wrote its first one, or before it ran at all. There
 #        is nothing to continue *from*, so the stage restarts cleanly from its own tpr. GROMACS is explicit that a
 #        missing checkpoint is not an error -- `gmx mdrun -h`: "if no checkpoint file is found, GROMACS just assumes a
@@ -326,54 +402,6 @@ PY
 #        minimization has no velocities to carry.
 #    Every attempt is recorded in `attempts.json` -- the stage, the attempt number, the checkpoint, whether it
 #    resumed and the outcome -- the shape `pdc_extension.py` writes.
-OSMOTIC_ATTEMPTS_MAX="${OSMOTIC_ATTEMPTS_MAX:-3}"
-
-# One attempt's record, appended per attempt rather than written at the end, so it survives the condition being
-# killed. Read back with `python -c "import json;print(json.load(open('attempts.json')))"`.
-record_attempt() {
-    python - "$1" "$2" "$3" "$4" <<'PY'
-import json
-import os
-import sys
-from pathlib import Path
-
-stage, attempt, resumed, outcome = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
-path = Path('attempts.json')
-data = json.loads(path.read_text()) if path.is_file() else {'attempts': []}
-data.setdefault('attempts', []).append({
-    'attempt': attempt,
-    'stage': stage,
-    'checkpoint': f'{stage}.cpt',
-    'resumed': resumed == 'yes',
-    'attempts_max': int(os.environ.get('OSMOTIC_ATTEMPTS_MAX', '3')),
-    'outcome': outcome,
-})
-path.write_text(json.dumps(data, indent=2, sort_keys=True) + '\n')
-PY
-}
-
-run_stage() {
-    local stage="$1" attempt=1 resumed outcome
-    while [ "$attempt" -le "$OSMOTIC_ATTEMPTS_MAX" ]; do
-        if [ -f "$stage.cpt" ]; then resumed=yes; else resumed=no; fi
-        if [ "$resumed" = no ]; then
-            # Nothing to continue from: drop this stage's own partial output first, so the fresh run does not append
-            # to a failed attempt's truncated trajectory and splice two runs into one file. Only the failed stage's
-            # files are touched -- never another stage's, and never the tpr the grompp above just wrote.
-            rm -f "$stage.trr" "$stage.xtc" "$stage.edr" "$stage.log" "$stage.gro"
-        fi
-        outcome=ok
-        ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm "$stage" -cpi "$stage.cpt" \
-            ${PLUMED} ${MDRUN_FLAGS:--ntomp 4 -gpu_id 0 -nb gpu -pin on} -v || outcome=failed
-        record_attempt "$stage" "$attempt" "$resumed" "$outcome"
-        if [ "$outcome" = ok ]; then return 0; fi
-        echo "### $stage failed on attempt $attempt of $OSMOTIC_ATTEMPTS_MAX" >&2
-        attempt=$((attempt + 1))
-    done
-    echo "### $stage failed after $OSMOTIC_ATTEMPTS_MAX attempts: the condition ends failed" >&2
-    return 1
-}
-
 gmx grompp -f minimization.mdp -p system.top -c solvated.gro -r solvated.gro -n index.ndx -o min.tpr -maxwarn 1
 run_stage min
 gmx grompp -f eq.mdp -p system.top -c min.gro -r min.gro -n index.ndx -o eq.tpr -maxwarn 1
@@ -407,3 +435,102 @@ Path('built.json').write_text(json.dumps(
                    'dividing_area_nm2': condition['dividing_area_nm2']},
      'actual': built}, indent=2, sort_keys=True) + '\n')
 PY
+
+exit 0
+fi
+
+# -----------------------------------------------------------------------------------------------------------------
+# The driver: every condition in the order `conditions.json` gives them.
+# -----------------------------------------------------------------------------------------------------------------
+
+# A condition's terminal record. Written for every condition the driver enters, so a second entry can tell a
+# finished condition from one that never ran -- and so the reader has the outcome beside the condition's own files
+# rather than only in this run's manifest.
+record_condition() {
+    python - "$1" "$2" <<'PY'
+import datetime
+import json
+import sys
+from pathlib import Path
+
+directory, status = Path(sys.argv[1]), sys.argv[2]
+condition = json.loads((directory / 'osmotic_condition.json').read_text())
+attempts = directory / 'attempts.json'
+records = json.loads(attempts.read_text())['attempts'] if attempts.is_file() else []
+(directory / 'condition.json').write_text(json.dumps({
+    'directory': directory.name,
+    'molality': condition['molality_requested'],
+    'molality_achieved': condition['molality_achieved'],
+    'solute_molecules': condition['solute_molecules'],
+    'dividing_area_nm2': condition['dividing_area_nm2'],
+    'status': status,
+    'attempts': len(records),
+    'ended_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+}, indent=2, sort_keys=True) + '\n')
+PY
+}
+
+condition_status() {
+    python - "$1" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1]) / 'condition.json'
+try:
+    print(json.loads(path.read_text()).get('status') or '')
+except (OSError, ValueError):
+    print('')
+PY
+}
+
+SERIES_POLICY="$(python -c "
+import json
+print(json.load(open('$CONDITIONS_MANIFEST')).get('series_on_failure') or 'carry_on')")"
+echo "series: policy on a failed condition is $SERIES_POLICY, ceiling $OSMOTIC_ATTEMPTS_MAX attempts per condition"
+
+failed=0
+CONDITIONS="$(python -c "
+import json
+print(' '.join(condition['directory'] for condition in
+               json.load(open('$CONDITIONS_MANIFEST'))['conditions']))")"
+# A manifest that names nothing is refused rather than reported as a series that ran: the loop below would never
+# execute, and `failed` would stay zero -- a green exit for a series that does not exist.
+if [ -z "$CONDITIONS" ]; then
+    echo "### $CONDITIONS_MANIFEST names no condition, so there is no series to run" >&2
+    exit 1
+fi
+for directory in $CONDITIONS; do
+    if [ ! -d "$CONDITIONS_DIRECTORY/$directory" ]; then
+        echo "### $CONDITIONS_MANIFEST names $directory, which is not a directory in this stage" >&2
+        exit 1
+    fi
+    if [ "$(condition_status "$CONDITIONS_DIRECTORY/$directory")" = complete ]; then
+        # Already finished, in this entry into the stage or in an earlier one: it is not run again. This is what
+        # makes a second entry into the series a resume -- the conditions that survived are exactly the ones the
+        # retry does not repeat.
+        echo "condition $directory already complete: not run again"
+        continue
+    fi
+    echo "condition $directory: entering"
+    outcome=failed
+    if OSMOTIC_CONDITION="$CONDITIONS_DIRECTORY/$directory" bash "$0"; then
+        outcome=complete
+    fi
+    record_condition "$CONDITIONS_DIRECTORY/$directory" "$outcome"
+    if [ "$outcome" = complete ]; then
+        continue
+    fi
+    failed=$((failed + 1))
+    if [ "$SERIES_POLICY" = stop ]; then
+        echo "### the series stops here: the $directory condition ended failed" >&2
+        exit 1
+    fi
+    echo "### the $directory condition ended failed; the series carries on and this is its gap" >&2
+done
+
+if [ "$failed" -gt 0 ]; then
+    echo "### the series ran to its end with $failed condition(s) failed: see each one's condition.json" >&2
+    exit 1
+fi
+echo "### the series completed: every condition ended complete"

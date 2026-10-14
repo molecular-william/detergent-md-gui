@@ -65,6 +65,16 @@ def gro_text(atoms, box=(8.0, 8.0, 8.0)) -> str:
     return '\n'.join(lines) + '\n'
 
 
+def write_cg_pdb(path: Path, atoms) -> Path:
+    """The CG structure as martinize2 writes it (`-x`): `ATOM` records in Angstroms, read back by the stage."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [f'ATOM  {index:5d} {name:^4s} {residue:>3s} A{residue_id:4d}    '
+             f'{xyz[0] * 10.0:8.3f}{xyz[1] * 10.0:8.3f}{xyz[2] * 10.0:8.3f}  1.00  0.00'
+             for index, (residue_id, residue, name, xyz) in enumerate(atoms, 1)]
+    path.write_text('\n'.join(lines) + '\nEND\n')
+    return path
+
+
 # --- the setting the run carries ---------------------------------------------------------------------------------
 
 def test_the_run_carries_the_chain_selection_as_a_setting(tmp_path):
@@ -137,8 +147,8 @@ def test_the_build_writes_only_the_chosen_chains(tmp_path):
     run = prepared(tmp_path, {'protein_chains': ['A']})
     stage = stage_directory(run)
     (stage / pdc_build.CG_DIRECTORY).mkdir(exist_ok=True)
-    (stage / pdc_build.CG_DIRECTORY / 'protein_CG.gro').write_text(
-        gro_text([('PRO', 'B01', (0.0, 0.0, 0.0))]))
+    write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb',
+                 [(1, 'PRO', 'B01', (0.0, 0.0, 0.0))])
 
     pdc_build.build(stage)
 
@@ -159,8 +169,9 @@ def test_the_build_points_the_cg_step_at_the_selected_chains(tmp_path, monkeypat
     def fake_martinize(protein, out):
         captured['protein'] = Path(protein)
         Path(out).mkdir(parents=True, exist_ok=True)
-        (Path(out) / 'protein_cg.gro').write_text(gro_text([('PRO', 'B01', (0.0, 0.0, 0.0))]))
-        return ['true']
+        structure = Path(out) / 'protein_cg.pdb'
+        write_cg_pdb(structure, [(1, 'PRO', 'B01', (0.0, 0.0, 0.0))])
+        return ['martinize2', '-f', str(protein), '-x', str(structure), '-o', str(Path(out) / 'protein.top')]
 
     monkeypatch.setattr(pdc_build.pdc_protein, 'martinize_command', fake_martinize)
 
@@ -174,7 +185,8 @@ def test_the_build_with_no_selection_keeps_the_whole_file(tmp_path):
     run = prepared(tmp_path)
     stage = stage_directory(run)
     (stage / pdc_build.CG_DIRECTORY).mkdir(exist_ok=True)
-    (stage / pdc_build.CG_DIRECTORY / 'protein_CG.gro').write_text(gro_text([('PRO', 'B01', (0.0, 0.0, 0.0))]))
+    write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb',
+                 [(1, 'PRO', 'B01', (0.0, 0.0, 0.0))])
 
     pdc_build.build(stage)
 
@@ -188,7 +200,8 @@ def test_selecting_every_declared_chain_keeps_the_whole_file(tmp_path):
     run = prepared(tmp_path, {'protein_chains': ['A', 'B']})
     stage = stage_directory(run)
     (stage / pdc_build.CG_DIRECTORY).mkdir(exist_ok=True)
-    (stage / pdc_build.CG_DIRECTORY / 'protein_CG.gro').write_text(gro_text([('PRO', 'B01', (0.0, 0.0, 0.0))]))
+    write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb',
+                 [(1, 'PRO', 'B01', (0.0, 0.0, 0.0))])
 
     pdc_build.build(stage)
 

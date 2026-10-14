@@ -58,3 +58,40 @@ def test_a_placement_refuses_impossible_input(tmp_path):
         pdc_placement.place_detergents(None, _template(tmp_path), 0, seed=1)
     with pytest.raises(ValueError, match='radius must be positive'):
         pdc_placement.place_detergents(None, _template(tmp_path), 4, seed=1, radius_nm=0)
+
+
+def test_the_placement_direction_is_outward_from_the_micelle_centre(tmp_path):
+    """The one convention `stamp` has to orient against, pinned so it cannot be flipped in the wrong place.
+
+    On the lattice the centres *are* the micelle's own middle plus the direction times the radius
+    (`pack_micelle`), so a direction cannot be re-signed here without moving every detergent off its own shell:
+    whatever a detergent's head is aimed with, it is aimed along this vector. Measured before the fix: the frames
+    this pipeline produced put the head beads on the inward side of it, which is how a micelle came to be drawn
+    inside out.
+    """
+    template = _template(tmp_path)
+    placed = pdc_placement.place_detergents(PROTEIN, template, 24, seed=20260501, mode='lattice')
+
+    centres = np.asarray(placed['centers'])
+    directions = np.asarray(placed['directions'])
+    middle = np.asarray(PROTEIN).mean(axis=0)
+    for centre, direction in zip(centres, directions):
+        outward = (centre - middle) / np.linalg.norm(centre - middle)
+        assert np.allclose(direction, outward), \
+            'the lattice direction is the way out of the micelle, not through it'
+        assert np.dot(centre - middle, direction) > 0, 'every direction points away from the centre'
+
+
+def test_the_self_assembly_direction_is_outward_too(tmp_path):
+    """The empty micelle's region is centred on the origin, so the outward direction is the centre's own heading."""
+    template = _template(tmp_path)
+    placed = pdc_placement.place_detergents(None, template, 24, seed=20260502, mode='self-assembly',
+                                            radius_nm=3.0)
+
+    centres = np.asarray(placed['centers'])
+    directions = np.asarray(placed['directions'])
+    assert len(centres) == 24
+    for centre, direction in zip(centres, directions):
+        assert np.linalg.norm(direction) == pytest.approx(1.0)
+        assert np.allclose(direction, centre / np.linalg.norm(centre)), \
+            'the self-assembly direction is the way out of the cloud too'

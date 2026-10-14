@@ -48,7 +48,15 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
     // representations, in the colour that marks a choice.
     const stage = stageFor(key);
     stage.removeAllComponents();
-    const component = stage.loadFile(new Blob([pdb], {type: 'text/plain'}), {ext: 'pdb'});
+    // NGL invents bonds from interatomic distances unless the file tells it otherwise: `inferBonds` defaults to
+    // `'all'`. This file carries the candidate's own bonded terms as CONECT records, and the guess runs *as well* --
+    // the defect the Complexes panel was measured with (a placement frame the model bonds 60 ways, drawn 90), and
+    // here it would add sticks the model does not bond on top of the linkage the reader is checking. Where the file
+    // states its own bonds the guess is switched off; a file that carries no records keeps NGL's bonds rather than
+    // being drawn as unconnected dots.
+    const parameters = {ext: 'pdb'};
+    if (/^CONECT/m.test(pdb)) parameters.inferBonds = 'none';
+    const component = stage.loadFile(new Blob([pdb], {type: 'text/plain'}), parameters);
     // Beads are addressed by their position in the file, not by name. This NGL build parses a bare word as a
     // residue name, so a selection built from bead names matches nothing -- the representations then draw
     // nothing, and autoView(selection) asks for the centre and zoom of a selection it could not resolve, which

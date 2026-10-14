@@ -43,6 +43,20 @@ def write_gro(path: Path, atoms) -> Path:
     return path
 
 
+def write_cg_pdb(path: Path, atoms) -> Path:
+    """The CG structure as martinize2 writes it: `-x` is a PDB, one `ATOM` record per bead, Angstroms.
+
+    The positions handed in are nanometres -- what the stage's builders work in -- so they are written the way the
+    tool writes them and read back by the stage's own reader.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [f'ATOM  {index:5d} {name:^4s} {residue:>3s} A{residue_id:4d}    '
+             f'{xyz[0] * 10.0:8.3f}{xyz[1] * 10.0:8.3f}{xyz[2] * 10.0:8.3f}  1.00  0.00'
+             for index, (residue_id, residue, name, xyz) in enumerate(atoms, 1)]
+    path.write_text('\n'.join(lines) + '\nEND\n')
+    return path
+
+
 def molecule_tree(tmp_path: Path, template: dict | None = None) -> Path:
     """A molecule directory shaped like the ones the catalogue lists."""
     molecule = tmp_path / 'molecules' / 'DDM'
@@ -162,7 +176,7 @@ def test_the_entry_point_applies_the_builders_rather_than_restating_them():
     source = Path(pdc_build.__file__).read_text()
 
     for call in ('pdc_box.initial_box', 'pdc_box.extended_box', 'pdc_placement.place_detergents',
-                 'pdc_protein.martinize_command', 'pdc_view.read_gro'):
+                 'pdc_protein.martinize_command', 'pdc_import.structure_atoms'):
         assert call in source, f'{call} is the rule this stage must apply, not re-implement'
     assert '+ 2 *' not in source, 'the box arithmetic belongs to pdc_box'
 
@@ -170,8 +184,9 @@ def test_the_entry_point_applies_the_builders_rather_than_restating_them():
 def test_the_stage_builds_the_box_the_placement_and_the_report(tmp_path):
     """Without martinize2: the stage reads the CG structure it is given, places, and writes what it decided."""
     stage = stage_directory(prepared(tmp_path))
-    write_gro(stage / pdc_build.CG_DIRECTORY / 'protein_CG.gro',
-              [('PRO', 'B01', (0.0, 0.0, 0.0)), ('PRO', 'B02', (1.0, 0.0, 0.0)), ('PRO', 'B03', (0.0, 1.0, 0.0))])
+    write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb',
+                 [(1, 'PRO', 'B01', (0.0, 0.0, 0.0)), (1, 'PRO', 'B02', (1.0, 0.0, 0.0)),
+                  (1, 'PRO', 'B03', (0.0, 1.0, 0.0))])
 
     code = pdc_build.build(stage)
     report = json.loads((stage / pdc.REPORT_NAME).read_text())

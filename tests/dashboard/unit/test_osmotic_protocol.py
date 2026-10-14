@@ -4,6 +4,8 @@ The last one is the substance. `prepare` is what the executor runs before a sing
 only checked the dataclass would pass while the run was unbuildable.
 """
 
+import json
+
 import pytest
 
 from dashboard.execution import protocol
@@ -25,12 +27,17 @@ def solute_root(tmp_path, *, complete=True):
 
 
 def test_the_run_type_is_reachable_by_name():
-    """Without this an osmotic job cannot be created at all: `adapter_for` is how the executor finds a run type."""
+    """Without this an osmotic job cannot be created at all: `adapter_for` is how the executor finds a run type.
+
+    **One stage, and it is the series.** The stage is a driver over the run's conditions; the checkpoints belong to
+    the *conditions*, one directory each, which is why the count of stages says nothing about the count of
+    concentrations.
+    """
     entry = protocol.adapter_for('osmotic')
 
     assert entry is osmotic.PROTOCOL
     assert entry.name == 'osmotic'
-    assert [name for name, _ in osmotic.STAGES] == ['Osmotic condition']
+    assert [name for name, _ in osmotic.STAGES] == ['Osmotic series']
 
 
 def test_the_defaults_are_the_papers_durations_and_a_temperature_that_says_where_it_came_from():
@@ -130,27 +137,32 @@ def test_the_types_radii_come_from_the_repositorys_own_table():
 
 
 def test_prepare_builds_a_run_the_executor_could_start(tmp_path):
-    """The substance: the inputs exist, the stage has its script and its own copy, and the manifest is written."""
+    """The substance: the inputs exist, every condition has its own directory, and the manifest is written."""
     record = osmotic.prepare(tmp_path, {'molecule_id': 'Maltose', 'solute_root': str(solute_root(tmp_path)),
                                         'mapping_snapshot': MAPPING,
                                         'settings': {'osmotic_molality': 1.0}, 'profile': 'standard'})
 
-    assert record['molality_achieved'] == pytest.approx(1.0, rel=0.01)
-    for name in ('minimization.mdp', 'eq.mdp', 'md.mdp', 'reference.itp', 'osmotic_condition.json'):
-        assert (tmp_path / 'inputs' / name).is_file(), name
+    assert [condition['molality_achieved'] for condition in record['conditions']] == \
+           [pytest.approx(1.0, rel=0.01)]
+    condition = tmp_path / '01_simulate' / 'conditions' / '00_1molal'
+    for name in osmotic.CONDITION_FILES:
+        assert (tmp_path / 'inputs' / 'conditions' / '00_1molal' / name).is_file(), name
+        assert (condition / name).is_file(), name
     assert (tmp_path / '01_simulate' / 'run.sh').is_file()
-    # The runner's own documented layout: the molecule in `solute/` beside it, the build's files in its directory.
-    assert (tmp_path / '01_simulate' / 'md.mdp').is_file()
-    assert (tmp_path / '01_simulate' / 'solute' / 'solute.gro').is_file()
-    # **Every input the stage declares must resolve from the stage directory.** The executor checks exactly this, and
-    # a declaration that does not resolve stops the run before GROMACS is reached. Asserting the files exist is not
-    # the same test: the first two versions of this declaration passed the assertions above and failed this one.
+    assert (tmp_path / '01_simulate' / 'conditions.json').is_file()
+    # The runner's own documented layout: the molecule in `solute/` beside the condition, which is the directory the
+    # runner works in -- a single shared `solute/` at the stage root is what a series cannot use.
+    assert (condition / 'solute' / 'solute.gro').is_file()
+    assert (condition / 'martini_v3.0.0.itp').is_file()
+    # **Every input the stage declares must resolve from the stage directory.** The executor checks exactly this,
+    # and a declaration that does not resolve stops the run before GROMACS is reached. The patterns are globs over
+    # the conditions the build wrote, because how many of them there are is the caller's answer, not this module's.
     for declared in osmotic.STAGE_DEFS[0].inputs:
-        assert (tmp_path / '01_simulate' / declared).resolve().is_file(), declared
+        assert list((tmp_path / '01_simulate').glob(declared)), declared
     # `[ atomtypes ]` must come before the moleculetype that uses it, or GROMACS reports "Atomtype REF not found" with
     # the type visible in the same file. Asserting the file *contains* REF passes either way -- which is what the
     # first version of this assertion did, while the run was failing on grompp.
-    reference = (tmp_path / 'inputs' / 'reference.itp').read_text()
+    reference = (condition / 'reference.itp').read_text()
     assert reference.index('[ atomtypes ]') < reference.index('[ moleculetype ]')
     # The manifest every prepared run type carries, wherever the shared writer puts it: what matters is that this
     # run type has one and that it names itself, because the resume path verifies runs against it.
@@ -158,14 +170,18 @@ def test_prepare_builds_a_run_the_executor_could_start(tmp_path):
     assert manifests, 'a prepared run carries a manifest'
     document = manifests[0].read_text()
     assert 'osmotic' in document and 'input_snapshot_sha256' in document
+    # And the series itself, which is what the runner reads: the ordered conditions and the policy on a failed one.
+    series = json.loads((tmp_path / '01_simulate' / 'conditions.json').read_text())
+    assert [item['molality'] for item in series['conditions']] == [1.0]
+    assert series['series_on_failure'] == 'carry_on'
 
 
 def test_a_zero_molality_condition_says_it_is_a_control(tmp_path):
     """A run that measures the floor should not look like a run whose solute count went missing."""
     osmotic.prepare(tmp_path, {'molecule_id': 'Maltose', 'solute_root': str(solute_root(tmp_path)),
-                               'mapping_snapshot': MAPPING, 'settings': {'osmotic_molality': 0.0}})
+                               'mapping_snapshot': MAPPING, 'settings': {'molalities': [0.0, 1.0]}})
 
-    control = (tmp_path / 'inputs' / 'control.json').read_text()
+    control = (tmp_path / 'inputs' / 'conditions' / '00_0molal' / 'control.json').read_text()
     assert 'pure solvent' in control and 'zero by construction' in control
 
 
@@ -179,7 +195,7 @@ def test_the_stage_contract_is_the_shared_shape():
     name = stages[0][0]                    # stage_tables yields (name, script) pairs
     assert inputs[name] == osmotic.STAGE_DEFS[0].inputs
     assert outputs[name] == osmotic.STAGE_DEFS[0].outputs
-    assert 'prod/md_whole.xtc' in outputs[name]
+    assert 'conditions/*/prod/md_whole.xtc' in outputs[name]
 
 
 def test_the_paper_scale_production_writes_the_frames_it_was_asked_for():
@@ -258,18 +274,20 @@ def test_the_placement_writes_a_gro_file_gromacs_can_read(tmp_path):
                                        '2  SP1r  1  LIG1  B02  1  0.0  36.0\n')
 
     record = osmotic.prepare(tmp_path, {'molecule_id': 'Maltose', 'solute_root': str(solute),
-                                        'mapping_snapshot': MAPPING, 'settings': {'osmotic_molality': 1.0}})
+                                        'mapping_snapshot': MAPPING, 'settings': {'molalities': [1.0]}})
     stage = tmp_path / '01_simulate'
+    condition = stage / 'conditions' / '00_1molal'
     stub = tmp_path / 'gmx'
     stub.write_text('#!/bin/sh\nexit 0\n')
     stub.chmod(0o755)
     # A stubbed `gmx` that produces nothing stops the script at the step after the placement; the placement is step 1,
-    # so its outputs are on disk. The return code is not what this test is about, the file it wrote is.
+    # so its outputs are on disk. The return code is not what this test is about, the file it wrote is. The condition
+    # is entered the way the series driver enters it: `OSMOTIC_CONDITION` set to the directory it works in.
     subprocess.run(['bash', str(stage / 'run.sh')], cwd=stage, capture_output=True, check=False,
-                   env={**os.environ, 'GROMACS': str(stub)})
+                   env={**os.environ, 'GROMACS': str(stub), 'OSMOTIC_CONDITION': str(condition)})
 
-    lines = (stage / 'system.gro').read_text().splitlines()
-    molecules = record['solute_molecules']
+    lines = (condition / 'system.gro').read_text().splitlines()
+    molecules = record['conditions'][0]['solute_molecules']
     assert lines[1].strip() == str(2 * molecules + 1)              # two beads each, plus the reference
 
     atoms = lines[2:2 + 2 * molecules]
@@ -286,7 +304,7 @@ def test_the_placement_writes_a_gro_file_gromacs_can_read(tmp_path):
     # the reference -- whose first section is `[ atomtypes ]` -- and only then the moleculetypes that use those types.
     # Including the reference after the solute put a type after a moleculetype, and grompp answered "Atomtype REF not
     # found" with the type eleven lines away in the same file.
-    top = (stage / 'system.top').read_text()
+    top = (condition / 'system.top').read_text()
     includes = [line for line in top.splitlines() if line.startswith('#include')]
     assert includes[0].endswith('martini_v3.0.0.itp"')
     assert 'reference.itp' in includes[1]

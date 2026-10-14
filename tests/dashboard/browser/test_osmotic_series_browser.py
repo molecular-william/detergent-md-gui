@@ -17,8 +17,9 @@ from playwright.sync_api import expect
 #: The catalogue the panel reads, in the states the repository is actually in: Maltose has a molecule folder, a
 #: saved mapping and its solute files; Sucrose has the first two and is *provisional*; Trehalose is missing one
 #: solute file by name; Glucose has a folder in neither place, so it has no mapping and no box.
-DRIVER_REASON = ('Not available yet: the series driver that queues one condition at a time has not been built. '
-                 'Until it is, a series is queued as one batch and a failed condition\'s siblings carry on.')
+#:
+#: Both failure choices are live, and that is the server's own answer now: the series run's driver honours
+#: `series_on_failure` itself, so nothing outside the run type has to exist for `stop` to act.
 
 CATALOGUE = {
     'sugars': [
@@ -64,11 +65,12 @@ CATALOGUE = {
     'ns_per_day': 2400.0,
     'failure_policy': {
         'key': 'series_on_failure', 'default': 'carry_on', 'advertised': True, 'attempts_max': 3,
+        'driver': 'osmotic_simulation.sh',
         'options': [
             {'value': 'carry_on', 'available': True, 'reason': None,
              'label': 'Carry on — the remaining conditions run; a gap is reported'},
-            {'value': 'stop', 'available': False, 'reason': DRIVER_REASON,
-             'label': 'Stop the series on the first failed condition — queues one condition at a time'},
+            {'value': 'stop', 'available': True, 'reason': None,
+             'label': 'Stop the series on the first failed condition — the conditions after it are not run'},
         ],
     },
     'defaults': {'duration_ns': 500, 'temperature_k': 308.15, 'production_ps': 500000.0,
@@ -81,10 +83,12 @@ CATALOGUE = {
 
 
 def serve_catalogue(page, catalogue=None):
-    """Answer the catalogue from the test. The series reader is answered empty by the same call, because what the
-    reader shows is its own claim -- `test_the_series_as_it_stands_...` registers its own answer after this one,
-    and the later registration is the one that wins."""
+    """Answer the catalogue from the test. The series reader and the run list are answered by the same call,
+    because they are two more requests the panel makes on mount: `test_the_series_as_it_stands_...` and
+    `test_the_run_list_is_asked_for_this_run_type_alone` register their own answers after this one, and a later
+    registration is the one that wins."""
     serve_conditions(page)
+    serve_jobs(page)
     page.route(re.compile(r'/api/osmotic/catalogue'),
                lambda route: route.fulfill(json=catalogue or CATALOGUE))
 
@@ -94,6 +98,13 @@ def serve_conditions(page, conditions=None):
                lambda route: route.fulfill(json={'molecule_id': 'Maltose', 'citation': 'doi:10.1016/',
                                                  'conditions': conditions or [], 'measured': 0, 'total': 0,
                                                  'attempts_on_disk': 0}))
+
+
+def serve_jobs(page, jobs=None, total=None):
+    """The run list, as the run-type filter answers it: `{jobs, total, page, limit}`."""
+    body = {'jobs': jobs or [], 'total': len(jobs or []) if total is None else total, 'page': 1, 'limit': 20}
+    page.route(re.compile(r'/api/jobs\?'),
+               lambda route: route.fulfill(json=body))
 
 
 def open_panel(page, base_url):
@@ -276,24 +287,44 @@ def test_the_two_halves_sit_side_by_side_and_stack_at_the_breakpoint(dashboard, 
     assert errors == []
 
 
-def test_the_failure_choice_offers_both_radios_and_says_which_can_act(dashboard, live_page):
-    """Both choices are offered as the mock offers them; a stop that cannot act carries its own reason."""
+def test_the_failure_choice_offers_both_radios_and_both_are_live(dashboard, live_page):
+    """Both choices are offered and both act: the series run's own driver honours `series_on_failure`."""
     page, errors = live_page
     serve_catalogue(page)
     open_panel(page, live_page.base_url)
 
     assert page.evaluate("() => Array.from(document.querySelectorAll('input[name=osmotic_series_on_failure]'))"
                          ".map(r => r.value)") == ['carry_on', 'stop']
-    assert page.locator('input[name=osmotic_series_on_failure][value=carry_on]').is_checked(), 'carrying on is the route\'s existing contract'
-    # The stop half needs the driver, which has not been built: the control says so instead of doing nothing.
-    assert page.locator('.osmotic-onfail-stop').is_disabled()
-    expect(page.locator('.osmotic-stop-reason')).to_contain_text('series driver')
+    assert page.locator('input[name=osmotic_series_on_failure][value=carry_on]').is_checked(), 'carrying on is the default'
+    assert page.locator('.osmotic-onfail-stop').is_enabled(), 'the series run honours the stop itself'
+    expect(page.locator('.osmotic-stop-reason')).to_be_hidden()
     expect(page.locator('.osmotic-summary-onfail')).to_have_text(
         'Resume from the last checkpoint, up to 3 attempts · then carry on')
     # The retry note names the flag and the ceiling in `code`: written as a text node, the markup showed as
-    # "(code>gmx mdrun -cpi</code>)" on the page and the screenshot was what caught it.
+    # "(code>gmx mdrun -cpi</code>" on the page and the screenshot was what caught it.
     expect(page.locator('.osmotic-retry-note code')).to_have_count(2)
     assert '(code>' not in page.locator('.osmotic-retry-note').inner_text()
+    assert errors == []
+
+
+def test_a_choice_the_server_cannot_honour_is_offered_disabled_with_its_reason(dashboard, live_page):
+    """The panel still renders the state a choice with no acting half would be in -- with its reason on it.
+
+    Nothing is in that state today: both choices are the run type's own. The rendering is kept because the answer
+    arrives from the server (`available` and a `reason`), and a panel that rendered an unavailable choice as if it
+    worked would be offering a control that silently does nothing.
+    """
+    page, errors = live_page
+    unavailable = copy.deepcopy(CATALOGUE)
+    unavailable['failure_policy']['options'][1].update(
+        available=False, reason='Not available: the run type does not carry a series_on_failure setting.')
+    serve_catalogue(page, unavailable)
+    open_panel(page, live_page.base_url)
+
+    assert page.locator('.osmotic-onfail-stop').is_disabled()
+    expect(page.locator('.osmotic-stop-reason')).to_contain_text('does not carry a series_on_failure setting')
+    assert page.locator('input[name=osmotic_series_on_failure][value=carry_on]').is_checked(), (
+        'a choice that cannot act is not left selected')
     assert errors == []
 
 
@@ -308,15 +339,18 @@ def test_the_panel_queues_the_payload_the_osmotic_route_reads(dashboard, live_pa
             route.fallback()
             return
         posted.update(route.request.post_data_json or {})
-        route.fulfill(status=201, json={'series_id': 'abc123abc123', 'count': 5,
-                                        'molalities': [0.5, 1.0, 1.5, 2.0, 2.5], 'jobs': []})
+        route.fulfill(status=201, json={'series_id': 'abc123abc123', 'run_id': 'run000000001',
+                                        'count': 5, 'molalities': [0.5, 1.0, 1.5, 2.0, 2.5]})
 
     page.route(re.compile(r'/api/osmotic/series'), queue)
     open_panel(page, live_page.base_url)
     expect(page.locator('.osmotic-start')).to_be_enabled()
     page.locator('.osmotic-start').click()
 
+    # The notice names the count, the run and the series: one run owns the concentrations.
     expect(page.locator('#notice')).to_contain_text('5 conditions', timeout=30000)
+    expect(page.locator('#notice')).to_contain_text('run run000000001')
+    expect(page.locator('#notice')).to_contain_text('abc123abc123')
     assert posted == {
         'molecule_id': 'Maltose',
         'mapping_candidate': 'mapping_candidate_maltose.json',
@@ -362,35 +396,25 @@ def test_the_series_as_it_stands_is_rendered_from_the_route_and_not_recomputed(d
     assert errors == []
 
 
-def stop_available(catalogue=None):
-    """The same catalogue with the stop half live, which is what the coordinator now carries."""
-    live = copy.deepcopy(catalogue or CATALOGUE)
-    policy = live['failure_policy']
-    policy['advertised'] = True
-    policy['options'][1]['available'] = True
-    policy['options'][1]['reason'] = None
-    return live
-
-
 def test_choosing_stop_lands_in_the_review_and_in_the_payload(dashboard, live_page):
-    """When the server can honour a stop, the radio is live and the choice travels under the run type's key."""
+    """When the server can honour a stop -- which it now can -- the radio is live and the choice travels."""
     page, errors = live_page
     posted = {}
-    serve_catalogue(page, stop_available())
+    serve_catalogue(page)
 
     def queue(route):
         if route.request.method != 'POST':
             route.fallback()
             return
         posted.update(route.request.post_data_json or {})
-        route.fulfill(status=201, json={'series_id': 'stopseries0', 'count': 5,
-                                        'molalities': [0.5, 1.0, 1.5, 2.0, 2.5], 'jobs': []})
+        route.fulfill(status=201, json={'series_id': 'stopseries0', 'run_id': 'run000000002',
+                                        'count': 5, 'molalities': [0.5, 1.0, 1.5, 2.0, 2.5]})
 
     page.route(re.compile(r'/api/osmotic/series'), queue)
     open_panel(page, live_page.base_url)
 
     assert page.locator('.osmotic-onfail-stop').is_enabled(), \
-        'the coordinator carries `stop_series`, so the control is not disabled'
+        'the series run is its own driver, so the choice is always available'
     expect(page.locator('.osmotic-stop-reason')).to_be_hidden()
 
     page.locator('.osmotic-onfail-stop').check()
@@ -400,4 +424,58 @@ def test_choosing_stop_lands_in_the_review_and_in_the_payload(dashboard, live_pa
     page.locator('.osmotic-start').click()
     expect(page.locator('#notice')).to_contain_text('5 conditions', timeout=30000)
     assert posted['series_on_failure'] == 'stop', posted
+    assert errors == []
+
+
+# --- the run list, through the run-type filter ------------------------------------------------------------------
+
+def test_the_run_list_is_asked_for_this_run_type_alone(dashboard, live_page):
+    """The panel asks `/api/jobs` for `run_type=osmotic`, and renders the runs it is given.
+
+    This is the panel's half of the filter: without it the run list would be every run in the repository, and the
+    panel would be filtering in the browser after a page had already been chosen.
+    """
+    page, errors = live_page
+    asked = []
+
+    def jobs(route):
+        asked.append(route.request.url)
+        route.fulfill(json={'jobs': [
+            {'id': 'series000001', 'label': 'Maltose osmotic series · 5 conditions', 'status': 'completed',
+             'run_type': 'osmotic', 'settings': {'molalities': [0.5, 1.0, 1.5, 2.0, 2.5]}},
+            {'id': 'series000002', 'label': 'Maltose osmotic series · 2 conditions', 'status': 'failed',
+             'run_type': 'osmotic', 'settings': {'molalities': [0.5, 1.0]}},
+        ], 'total': 2, 'page': 1, 'limit': 20})
+
+    serve_catalogue(page)
+    page.route(re.compile(r'/api/jobs\?'), jobs)
+    open_panel(page, live_page.base_url)
+
+    expect(page.locator('.osmotic-run-rows tr')).to_have_count(2)
+    assert all('run_type=osmotic' in url for url in asked), asked
+    rows = page.locator('.osmotic-run-rows tr')
+    expect(rows.nth(0)).to_contain_text('series000001')
+    expect(rows.nth(0)).to_contain_text('completed')
+    expect(rows.nth(0)).to_contain_text('5')
+    expect(rows.nth(1)).to_contain_text('series000002')
+    expect(page.locator('.osmotic-runs-note')).to_contain_text('2 of 2 run(s)')
+    assert errors == []
+
+
+def test_a_condition_that_failed_is_a_row_that_says_so(dashboard, live_page):
+    """The gap a series leaves is shown as failed -- not as a condition nobody has got to yet."""
+    page, errors = live_page
+    serve_catalogue(page)
+    serve_conditions(page, conditions=[
+        {'run_id': 'series000001', 'condition': '00_0.5molal', 'molality_requested': 0.5, 'solute_molecules': 70,
+         'measured': None, 'state': 'failed'},
+        {'run_id': 'series000001', 'condition': '01_1molal', 'molality_requested': 1.0, 'solute_molecules': 0,
+         'measured': None, 'state': 'complete'},
+    ])
+    open_panel(page, live_page.base_url)
+
+    rows = page.locator('.osmotic-series-rows tr')
+    expect(rows).to_have_count(2)
+    expect(rows.nth(0)).to_contain_text('— failed')
+    expect(rows.nth(1)).to_contain_text('— not measured')
     assert errors == []

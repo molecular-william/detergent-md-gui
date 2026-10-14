@@ -97,7 +97,15 @@ export function mountOverlay3d(host, context, onAtom) {
     atomIds = serials(payload.pdb);
     beads = payload.spheres || [];
     try {
-      const molecule = await stage.loadFile(new Blob([payload.pdb], {type: 'text/plain'}), {ext: 'pdb'});
+      // NGL invents bonds from interatomic distances unless the file tells it otherwise: `inferBonds` defaults to
+      // `'all'`. The molecule's own bonds are written as CONECT records, and the guess runs *as well*, drawing the
+      // model's bonds plus its own -- the same defect the Complexes panel was measured with (a placement frame the
+      // model bonds 60 ways, drawn 90). Where the file states its own bonds the guess is switched off, so the
+      // reader sees the mapping's molecule; a file that carries no records keeps NGL's bonds rather than being
+      // drawn as unconnected dots.
+      const moleculeParameters = {ext: 'pdb'};
+      if (/^CONECT/m.test(payload.pdb)) moleculeParameters.inferBonds = 'none';
+      const molecule = await stage.loadFile(new Blob([payload.pdb], {type: 'text/plain'}), moleculeParameters);
       const beadFile = await stage.loadFile(new Blob([payload.bead_pdb], {type: 'text/plain'}), {ext: 'pdb'});
       if (molecule && molecule.structure) {
         labelComponent = molecule;

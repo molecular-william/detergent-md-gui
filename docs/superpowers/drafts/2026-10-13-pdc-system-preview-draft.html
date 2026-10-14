@@ -70,6 +70,19 @@
   the DDM mapping the store actually holds. What is stubbed is the service: the panel does not fetch them, it swaps
   between five frames this file carries. The app derives one for whatever the form says, through the route named
   below.</p>
+  <p><strong>One real defect in these frames, found by looking at them, and fixed beside this mock.</strong> In every
+  frame the detergent's <em>head</em> beads sit inside the micelle and its tail beads outside it, which is the inverse
+  of a micelle and is what a reader saw. Measured off these very frames: each detergent's head beads' mean lies
+  <strong>0.317 nm inward of its own centre</strong> and its tail beads' mean <strong>0.845 nm outward</strong>,
+  identically in all 150 (60) molecules of all five frames; every lattice detergent centre sits at exactly the
+  placement radius, 3.000 nm. Frame D re-derives <strong>byte for byte</strong> from
+  <code>pdc_placement.place_detergents(None, None, 150, seed=20261013, mode='lattice')</code> →
+  <code>pdc_build.stamp</code> → <code>pdc_view.system_pdb</code> (3 153 of 3 154 lines identical; the one difference
+  is the REMARK title the generator passed), so the picture was <em>faithful</em> and the <strong>placement's own
+  orientation was inverted</strong>: <code>pdc_build.stamp</code> tied the molecule's tail-ward axis to the direction
+  the placement means as "outward". Fixed 2026-10-14 — the head-ward axis takes the direction now, and the
+  placement's outward convention is pinned by its own test. These frames are kept as the record of the defect and of
+  its size, not as what the panel would draw: a frame derived today has the heads outside the tails.</p>
   <p><strong>What was not a run, and is therefore said here rather than hidden:</strong> three deviations were needed
   to obtain the frames, because the build cannot currently reach its own placement step for a protein. They are in the
   plan beside this draft; each is a live defect in the stage, not a choice the preview makes.</p>
@@ -252,10 +265,21 @@
     the run will build. Nothing after it is predicted: not the belt's final size, not the box, not whether a micelle
     survives.</p>
 
+    <p class="hint"><strong>Heads to the water, tails to the core — and beads drawn twice as large.</strong> The
+    placement's direction is the way <em>out</em> of the micelle, away from the protein, and each detergent is stamped
+    with its head along it: a micelle's heads face the water and its tails fill the core. (Fixed 2026-10-14: before
+    that the stamp tied the molecule's tail-ward axis to the direction, so every frame drew a micelle inside out —
+    the frames this file carries are the ones from before the fix, kept as the record; the measurement is in the
+    banner.) The bead radius is a drawing choice, twice <code>pdc.js</code>'s, because a coarse-grained bead has no
+    element and no size of its own; the model's own bonds are drawn with it.</p>
+
     <p class="hint"><strong>What it does not show.</strong></p>
     <ul class="hint new-pdc-preview-nots">
       <li><strong>No solvent and no ions.</strong> The build leaves a dry system; water and salt are added in the first
       equilibration leg. Nothing in this picture is in water.</li>
+      <li><strong>No bead sizes.</strong> Every bead is the same ball at a radius chosen for reading, not measured: a
+      coarse-grained bead carries no element and no van der Waals radius, so nothing here says a head bead is bigger
+      than a tail bead.</li>
       <li><strong>Not the box you will simulate.</strong> This is the box the build writes — <code>x</code> and
       <code>y</code> from the protein's own extent plus the margin, <code>z</code> at the initial <code>z</code>. The
       NPT leg changes it, so the density here is not the run's density.</li>
@@ -276,7 +300,14 @@
       <p class="hint"><strong>When the build refuses, this shows the refusal and no picture.</strong> The placement has
       gates — the template's own validity, and the detergents' clearance from the protein — and the preview reports the
       builder's reason rather than drawing a system the build would refuse. Measured example: 1AT9 on the pre-assembled
-      style puts a detergent 0.174 nm from the protein, under the 0.5 nm the builder requires, and no frame exists.</p>
+      style puts a detergent 0.174 nm from the protein, under the 0.5 nm the builder requires, and no frame exists.
+      <strong>Choosing fewer chains is not the way out, and the panel should say so rather than let a reader try it and
+      wonder:</strong> measured with the placement code alone and the file's own coordinates, the lattice gives
+      <em>chain A alone</em> 0.053 nm, A+B 0.034 nm and the trimer 0.050 nm. The lattice places a sphere of a
+      <em>fixed</em> 3.0 nm around the protein's centroid, and this protein's atoms reach 3.27 nm from it, so the shell
+      passes through the protein whatever is selected; a belt <em>band</em> at 3.72 nm in the membrane plane measures
+      0.550 nm and would pass. Self-assembly's clean 0.50–0.56 nm is its sampler rejecting anything closer than the
+      gate it is then judged by, not a better fit.</p>
       <p class="hint"><strong>With no protein there is no coarse-graining at all.</strong> The empty micelle is placed
       directly around the box the count and the radius define, so it is the cheapest case the panel has and needs no CG
       step — and there is no belt to size, which is why the estimate is replaced by the detergent's own experimental
@@ -16478,7 +16509,11 @@ function show(pdb, describe) {
   // on a coarse-grained frame draws head beads onto tail beads (pdc.js measured 90 bonds on a 60-bond frame).
   if (/^CONECT/m.test(pdb)) parameters.inferBonds = 'none';
   stage.loadFile(new Blob([pdb], {type: 'text/plain'}), parameters).then(component => {
-    component.addRepresentation('ball+stick', {radiusScale: 0.75, aspectRatio: 2});
+    // Twice the bead: `radiusScale` multiplies the ball's own radius, so 1.5 is twice pdc.js's 0.75. It is a
+    // drawing choice, not a size claim -- a coarse-grained bead has no element and no van der Waals radius, which
+    // is why pdc_view writes every bead as a neutral C. The sticks scale with the ball, so the model's own bonds
+    // stay visible at the larger size.
+    component.addRepresentation('ball+stick', {radiusScale: 1.5, aspectRatio: 2});
     component.autoView();
     if (describe) describe(component);
   });
@@ -16533,7 +16568,9 @@ function derive(reason) {
     refusal.hidden = false;
     refusal.textContent = `Refused by the build — it places nothing for these inputs: ${REFUSAL}`
       + (measured ? ' (measured on chain A at 150 detergents)'
-                  : ' (measured on chain A at 150 detergents; the app quotes the reason for the count on screen)');
+                  : ' (measured on chain A at 150 detergents; the app quotes the reason for the count on screen)')
+      + ' Choosing fewer chains does not help: the same lattice gives chain A alone 0.053 nm, because the shell'
+      + ' radius is fixed at 3.0 nm around a protein whose atoms reach 3.27 nm from its centroid.';
     basis.textContent = 'No picture: the placement gate refused before anything was written.';
     beads.textContent = '—'; box.textContent = '—';
     renderState(); return;

@@ -77,17 +77,77 @@ def structure_chains(text):
     return sorted(seen)
 
 
-def filter_chains(text, chains):
-    """The structure's text with only the chosen chains' coordinate records kept.
+def filter_chains(text, chains=None):
+    """The structure's text with the chosen chains' *polymer* records kept, and nothing else's.
 
     Every non-coordinate line is kept, so a statement the file carries (its membrane remark above all) survives the
     filter and a reader downstream sees the same thing. A coordinate record whose chain is not among the chosen ones
-    is dropped rather than rewritten: the file names the object, and this is the object.
+    is dropped rather than rewritten: the file names the object, and this is the object. `chains` of `None` (or an
+    empty selection) keeps every chain: that is the filtering a run with no selection still needs, and a blank chain
+    column -- which names no id a selection could match -- is kept with them rather than dropped.
+
+    `HETATM` records are dropped whatever chain they name, because a `HETATM` is not a protein residue and
+    martinize2 removes the *whole molecule* for a residue it cannot place in its force field. Measured on 1AT9
+    (bacteriorhodopsin, the trimer the panel offers): its retinal is `HETATM ... RET A 249A`, in the protein's own
+    chain A, and filtering by chain alone handed it on -- martinize2 then logged `Cannot recognize residue 'RET' ...
+    Deleting the molecule.` and exited 1 having written no topology at all. So a ligand, a crystallisation additive
+    or a water travelling in the chosen chain is left out here; `dropped_residues` names what was left out, which is
+    what keeps the drop from being silent.
     """
-    wanted = {str(chain) for chain in chains}
-    kept = [line for line in text.splitlines()
-            if line[:6].strip() not in ('ATOM', 'HETATM') or line[21:22].strip() in wanted]
+    wanted = {str(chain) for chain in (chains or [])}
+    kept = []
+    for line in text.splitlines():
+        record = line[:6].strip()
+        if record == 'HETATM':
+            continue
+        if record == 'ATOM' and wanted and line[21:22].strip() not in wanted:
+            continue
+        kept.append(line)
     return '\n'.join(kept) + ('\n' if kept and text.endswith('\n') else '')
+
+
+def dropped_residues(text, chains=None):
+    """The residue names `filter_chains` leaves out: the `HETATM` records it would see, sorted and unique.
+
+    `chains` as `filter_chains` takes it. Read by the build and carried into the run's report, because a build that
+    quietly simulated something other than the file it was given is the failure this name exists to prevent.
+    """
+    wanted = {str(chain) for chain in (chains or [])}
+    names = {line[17:20].strip() for line in text.splitlines()
+             if line[:6].strip() == 'HETATM' and (not wanted or line[21:22].strip() in wanted)}
+    return sorted(name for name in names if name)
+
+
+#: The scale from a PDB's Angstroms to the nanometres every builder here works in.
+ANGSTROM_NM = 0.1
+
+
+def structure_atoms(path):
+    """A structure file's coordinate records, as `{'residue_id', 'residue', 'name', 'position'}` per atom.
+
+    In nanometres, because that is the unit the builders that place, box and write the system work in: a PDB writes
+    Angstroms, and a reader that passed those on would put every bead ten times too far out. The shape is the one
+    `pdc_view.read_gro` returns for a structure in GROMACS' own units, so a caller can read either.
+
+    The CG step reads martinize2's `-x` output with this: `-x` is the tool's only structure output and it is a PDB
+    (`Output coarse grained structure (PDB)` in its own help), which is why the step no longer looks for a `.gro`.
+    A file holding no coordinate records is refused rather than returned as an empty structure -- reading nothing as
+    if it were something is the defect this stage already had once.
+    """
+    atoms = []
+    for line in Path(path).read_text(errors='replace').splitlines():
+        if line[:6].strip() not in ('ATOM', 'HETATM'):
+            continue
+        try:
+            residue_id = int(line[22:26])
+            position = [float(line[start:start + 8]) * ANGSTROM_NM for start in (30, 38, 46)]
+        except ValueError as exc:
+            raise ValueError(f'{path} has an unreadable coordinate record: {line!r}') from exc
+        atoms.append({'residue_id': residue_id, 'residue': line[17:20].strip(),
+                      'name': line[12:16].strip(), 'position': position})
+    if not atoms:
+        raise ValueError(f'{path} holds no coordinate records: there is no structure to read')
+    return atoms
 
 
 def import_structure(pdbid, dest_dir, *, fetcher=None, fetched_at=None):

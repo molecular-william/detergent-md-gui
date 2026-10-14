@@ -107,3 +107,57 @@ def test_the_filter_keeps_the_chosen_chains_and_the_files_own_statements():
     assert pdc_import.structure_chains(filtered) == ['A']
     assert 'REMARK      1/2 of bilayer thickness' in filtered, 'the header a reader needs survives the filter'
     assert 'ALA B' not in filtered and 'HOH C' not in filtered
+
+
+# A HETATM record is not a protein residue, and martinize2 deletes the *whole molecule* for one it cannot place in
+# its force field. Measured on 1AT9 (bacteriorhodopsin): the retinal (RET) is a HETATM of chain A -- the same chain
+# as the protein -- so the filter used to hand it on and the CG step logged
+# `Cannot recognize residue 'RET' ... Deleting the molecule.` and exited 1 with no topology at all.
+LIGAND_IN_THE_CHAIN = ('ATOM      1  N   ALA A   1       1.000   2.000   3.000  1.00  0.00           N\n'
+                       'HETATM    2  C1  RET A 249A      7.378  16.376   2.137  1.00 15.00           C\n'
+                       'HETATM    3  O   HOH A 500       1.000   2.000   3.000  1.00  0.00           O\n')
+
+
+def test_the_filter_drops_a_heteroatom_that_travels_in_the_chosen_chain():
+    """1AT9's retinal rides in the protein's own chain, which is why filtering by chain alone is not enough."""
+    filtered = pdc_import.filter_chains(LIGAND_IN_THE_CHAIN, ['A'])
+
+    assert 'ALA A' in filtered
+    assert 'RET' not in filtered and 'HOH' not in filtered
+    assert 'ATOM' in filtered and 'HETATM' not in filtered
+
+
+def test_the_residues_the_filter_dropped_are_nameable_so_the_drop_is_not_silent():
+    assert pdc_import.dropped_residues(LIGAND_IN_THE_CHAIN, ['A']) == ['HOH', 'RET']
+    assert pdc_import.dropped_residues(LIGAND_IN_THE_CHAIN, ['B']) == [], \
+        'nothing is dropped out of a chain the filter does not keep anyway'
+
+
+# The stage reads the CG structure martinize2 writes with `-x`, which is a PDB: Angstroms, fixed columns, and the
+# same `{'residue_id', 'residue', 'name', 'position'}` shape `pdc_view.read_gro` returns for GROMACS' own units.
+CG_PDB = ('ATOM      1 BB   ALA A   1     -17.433  15.205  19.472  1.00  0.00\n'
+          'ATOM      2 SC1  ALA A   1     -18.788  15.544  17.737  1.00  0.00\n'
+          'CONECT    1    2\n'
+          'END\n')
+
+
+def test_the_structure_reader_returns_the_beads_in_nanometres(tmp_path):
+    structure = tmp_path / 'protein_cg.pdb'
+    structure.write_text(CG_PDB)
+
+    atoms = pdc_import.structure_atoms(structure)
+
+    assert [atom['name'] for atom in atoms] == ['BB', 'SC1']
+    assert [atom['residue'] for atom in atoms] == ['ALA', 'ALA']
+    assert [atom['residue_id'] for atom in atoms] == [1, 1]
+    assert atoms[0]['position'] == pytest.approx([-1.7433, 1.5205, 1.9472]), \
+        'a PDB writes Angstroms, every builder here nanometres'
+
+
+def test_a_file_that_holds_no_coordinate_records_is_refused_rather_than_read_as_empty(tmp_path):
+    """An empty structure is the shape of the defect this stage already had: a step that found nothing to read."""
+    empty = tmp_path / 'empty.pdb'
+    empty.write_text('REMARK nothing here\nEND\n')
+
+    with pytest.raises(ValueError, match='no coordinate'):
+        pdc_import.structure_atoms(empty)
