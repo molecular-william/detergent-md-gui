@@ -76,10 +76,25 @@ def leg_directory(run: Path, name: str) -> Path:
 def test_the_plan_gains_one_pair_per_step_in_order_before_the_assessment_leg():
     plan = [record.name for record in pdc.STAGES]
 
-    assert plan == ['System preparation', *LEGS, ASSESSMENT, 'Micelle assessment', 'CG extension MD',
-                    'Final assessment', 'Back-mapping (CG2AT2)'], 'one pair per step, in order, before the assessment'
+    assert plan == ['Protein preparation', 'System preparation', *LEGS, ASSESSMENT, 'Micelle assessment',
+                    'CG extension MD', 'Final assessment', 'Back-mapping (CG2AT2)'], \
+        'one pair per step, in order, before the assessment'
     order = {name: index for index, name in enumerate(plan)}
     assert order['Energy minimisation'] < order['NVT equilibration'] < order['NPT equilibration'] < order[ASSESSMENT]
+    assert order['Protein preparation'] < order['System preparation'], \
+        "the plan's step 1 landed in front of the build, not behind it"
+
+
+def test_the_prepare_step_stands_in_front_of_the_chain_and_the_legs_keep_their_places():
+    """The plan's step 1 landed after these tests were written, so the order it was written against is kept.
+
+    Its own file pins the step itself (`test_pdc_prepare_step.py`); this is the half that belongs to this chain: the
+    legs and the assessment still follow each other, with one step in front of the system build.
+    """
+    order = {record.name: index for index, record in enumerate(pdc.STAGES)}
+
+    assert order['Protein preparation'] < order['System preparation'] < order[ASSESSMENT]
+    assert order['Energy minimisation'] < order['NVT equilibration'] < order['NPT equilibration']
 
 
 def test_every_stage_name_that_existed_before_is_still_here_with_its_own_directory():
@@ -234,4 +249,6 @@ def test_the_run_record_carries_the_legs_step_counts(tmp_path):
 
     assert record['equilibration_steps'] == {'minimisation': 500, 'nvt': round(100 / 0.005),
                                             'npt': round(100 / 0.005)}
-    assert record['stage_plan'][1][0] == 'Energy minimisation'
+    assert record['stage_plan'][0][0] == 'Protein preparation'
+    assert record['stage_plan'][2][0] == 'Energy minimisation', \
+        'the legs start after the system build, and the plan says so by name'

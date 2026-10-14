@@ -18,3 +18,9 @@ pytest-xdist>=3.6,<4
 playwright>=1.40
 vermouth>=0.15
 mdtraj>=1.9,<2
+# pdb2pqr is not a test-only import either. It is the plan's step 1 -- the prepare stage's rebuild of a deposited
+# structure's missing side chains and its protonation -- and the pdc pipeline shells out to it by name
+# (`execution/adapters/pdc_preparation.py`). It is declared here because this file is the repository's one
+# requirements file. A checkout without it builds every run whose protein is complete, and the step that a run does
+# ask for refuses by name rather than substituting a rebuild of the repository's own.
+pdb2pqr>=3.7,<4

@@ -14,7 +14,7 @@ from ... import files, paths
 from .. import protocol, tools
 from ..environment import ROOT, TUTORIAL_TEMPLATE
 from ..stages import Stage
-from . import pdc_import
+from . import pdc_import, pdc_preparation
 
 SCRIPTS = Path(__file__).resolve().parent.parent / 'scripts'
 # The coarse-grained parameters a pdc topology has to carry, from the published Martini 3 lipid set: the bead types
@@ -53,7 +53,13 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             # when a caller chooses; `backmap` is `True` so nothing existing stops comparing its CG system with the
             # atomistic one it came from. Both are choices rather than numbers and are validated in
             # `validate_payload` (shape) and `prepare` (against the file).
-            'protein_chains': None, 'backmap': True}
+            #
+            # `prepare_protein` is the plan's step 1 and it is **off** by default, because the plan calls that step
+            # optional: a caller that has never heard of it builds exactly what it built before, from the deposited
+            # file. A run that asks for it has its protein rebuilt and protonated by PDB2PQR before martinize2 reads
+            # it -- which is what answers a structure whose side chains are incomplete, and therefore whose
+            # coarse-grained beads have no position.
+            'protein_chains': None, 'backmap': True, 'prepare_protein': False}
 _PROTEIN_LIMIT = 50
 
 # One shape across every run type: (label, lo, hi). Numbers only; a choice would need the registry, so it is
@@ -104,6 +110,15 @@ EQUILIBRATION_TEMPLATE = ROOT / 'resources/templates/protein_detergent'
 # pdc's: a pdc stage used to be the CG half's script under the CG half's name (`assessment.sh`, `extension.sh`,
 # `backmap.sh`, and a stage file literally called `assess.sh`).
 STAGES = (
+    # The plan's step 1, and the one step in front of everything else: a structure whose deposited file is missing
+    # side-chain atoms coarse-grains into beads with no position, and the placement refuses the whole build for it.
+    # PDB2PQR rebuilds them and protonates the protein, and the structure it writes is what `pdc_build` hands to
+    # martinize2. Optional -- a run that does not ask for it records `skipped` (exit 4) with its reason -- and its
+    # input is the run's own protein, which the adapter writes into the system-preparation stage's directory, so the
+    # declaration names it there rather than keeping a second copy of the same file.
+    Stage('Protein preparation', '0_prepare/pdc_prepare.sh',
+          ('../1_system/protein.pdb',),
+          (pdc_preparation.PREPARED_NAME, pdc_preparation.RECORD_NAME)),
     Stage('System preparation', '1_system/prepare_system.sh',
           ('protein.pdb', 'system_EMPTY.top', 'detergent.itp', *FORCEFIELD_FILES),
           ('system.gro', 'system.top', 'prepare_report.json')),
@@ -247,9 +262,15 @@ def validate_payload(payload):
     backmap = payload.get('backmap', DEFAULTS['backmap'])
     if not isinstance(backmap, bool):
         raise ValueError(f'the pdc back-map setting must be true or false, not {backmap!r}')
+    # The plan's step 1 is a choice too, and it is checked here for the same reason: a string that means "yes" to a
+    # caller would silently mean "no" to the builder.
+    prepare_protein = payload.get('prepare_protein', DEFAULTS['prepare_protein'])
+    if not isinstance(prepare_protein, bool):
+        raise ValueError(f'the pdc protein-preparation setting must be true or false, not {prepare_protein!r}')
     chains = normalize_chains(payload.get('protein_chains'))
     return {'seed': seed, 'aggregation_number': aggregation, 'salt_molar': salt,
             'placement_mode': placement_mode, 'protein_chains': chains, 'backmap': backmap,
+            'prepare_protein': prepare_protein,
             'template': payload.get('template'), 'protein': payload.get('protein') or None}
 
 
@@ -686,6 +707,13 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     # and quietly simulating something else. A protein-free build has nothing to select and records no selection.
     selected_chains = validate_chains(protein_path, choices['protein_chains']) if protein_path is not None else None
     numbers['protein_chains'] = selected_chains
+    numbers['prepare_protein'] = choices['prepare_protein']
+    # The plan's step 1 is a step *about a protein*: a run with none has nothing for it to rebuild, and a run that
+    # asked for it anyway would be recorded as having prepared a structure that does not exist. Refused here, where
+    # the protein is resolved, rather than as a stage that skips what the caller asked for.
+    if numbers['prepare_protein'] and protein_path is None:
+        raise ValueError('a protein-free build has no protein to prepare: protein preparation (PDB2PQR) needs a '
+                         'structure, and this run is an empty micelle')
 
     from micelle import registry
     record = registry.load_template(template_path)
@@ -708,11 +736,18 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
             shutil.copy2(SCRIPTS / source, directory / Path(stage.relative).name)
     for name in ('Micelle assessment', 'Final assessment'):
         shutil.copy2(SCRIPTS / 'pdc_assess.py', _stage_directory(run_dir, name) / 'pdc_assess.py')
+    # The prepare step's entry point, beside the script that runs it: the shell script is the stage's contract with
+    # the executor, and the work is the entry point's.
+    shutil.copy2(SCRIPTS / 'pdc_prepare.py',
+                 _stage_directory(run_dir, 'Protein preparation') / 'pdc_prepare.py')
     # The frame sampler is copied beside every stage that has a trajectory to read.
     for name in ('CG assessment MD', 'Micelle assessment', 'CG extension MD', 'Final assessment'):
         shutil.copy2(SCRIPTS / 'pdc_snapshot.py', _stage_directory(run_dir, name) / 'pdc_snapshot.py')
 
-    system = run_dir / Path(STAGES[0].relative).parent
+    # Which stage the system is prepared in, by name: the plan's positions are data and this module has already
+    # moved them once, so nothing here counts its way to a directory.
+    system_stage = stage_by_name('System preparation')
+    system = run_dir / Path(system_stage.relative).parent
     forced = {}
     for name in FORCEFIELD_FILES:
         source = FORCEFIELD_ROOT / name
@@ -725,8 +760,8 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         (system / 'protein.pdb').write_bytes(protein_path.read_bytes())
     else:
         (system / 'protein.pdb').write_text('; no protein: this is an empty-micelle build\n')
-    (system / Path(STAGES[0].inputs[2]).name).write_bytes((template_path.parent / record.topology).read_bytes())
-    (system / Path(STAGES[0].inputs[1]).name).write_text(_empty_topology())
+    (system / Path(system_stage.inputs[2]).name).write_bytes((template_path.parent / record.topology).read_bytes())
+    (system / Path(system_stage.inputs[1]).name).write_text(_empty_topology())
     # The detergent's coarse-grained model, derived from the run's own mapping: the topology the system will include
     # and the bead geometry the placement stamps. A build without a mapping is recorded as centres-only.
     model = {'mapping': None, 'terms': 0, 'reference_terms': 0, 'fallback_terms': 0}
@@ -764,8 +799,8 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         {'project_root': str(root), 'protein': str(protein) if protein else '', 'template': str(template),
          **numbers},
         indent=2, sort_keys=True))
-    (system / Path(STAGES[0].relative).name).write_text(_STAGE_SCRIPT.format(
-        label=STAGES[0].name, report=REPORT_NAME, root=str(root), python=sys.executable))
+    (system / Path(system_stage.relative).name).write_text(_STAGE_SCRIPT.format(
+        label=system_stage.name, report=REPORT_NAME, root=str(root), python=sys.executable))
     assessment_steps = _assessment_stage(run_dir, numbers)
     extension_ps = _extension_stage(run_dir, numbers)
     equilibration_steps = _equilibration_scripts(run_dir, numbers)
@@ -773,11 +808,14 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     # snapshots and tools, and moves it to the run root. A tool that is not resolvable is recorded as unresolved
     # rather than raising here, because readiness is the layer that blocks a run for it.
     recorded_tools = {}
-    for name in ('gmx', 'martinize2'):
+    for name in ('gmx', 'martinize2', pdc_preparation.TOOL):
         found = tools.tool_path(name)
         recorded_tools[name] = ({'path': found, 'sha256': files.sha256(found)} if found
                                 else {'path': name, 'ready': False,
-                                      'detail': 'not declared or not executable'})
+                                      'detail': ('not declared or not executable: the optional protein-preparation '
+                                                 'step refuses by name when a run asks for it'
+                                                 if name == pdc_preparation.TOOL
+                                                 else 'not declared or not executable')})
     for stage in STAGES:
         script = run_dir / Path(stage.relative)
         if not script.is_file():
@@ -884,6 +922,16 @@ def readiness(protein=None, template=None, project_root=None, **kwargs):
         checks.append({'label': name, 'path': executable or name, 'ready': ok, 'detail': detail})
         if not ok:
             blockers.append(f'{name}: {detail}')
+    # The preparer the optional Prepare step runs. A **check**, not a blocker, and that is the rule for a tool a run
+    # type may not invoke at all: a run that does not ask for protein preparation does not need `pdb2pqr`, and the
+    # step itself refuses by name when one does ask and the tool is not there. The row is here so the reader can see
+    # whether their machine has it before they switch the step on.
+    executable = tools.tool_path(pdc_preparation.TOOL)
+    ok, detail = probe_tool(executable) if executable else (False, 'Executable not found')
+    checks.append({'label': pdc_preparation.TOOL, 'path': executable or pdc_preparation.TOOL, 'ready': ok,
+                   'detail': (f'{detail} -- the optional Prepare step rebuilds and protonates with it' if ok else
+                              'not resolvable: a run that asks for protein preparation refuses at that step, and a '
+                              'run that does not ask for it needs nothing here')})
     return {'ready': not blockers, 'checks': checks, 'blockers': blockers}
 
 
@@ -922,7 +970,8 @@ def _protocol_prepare(run_dir, metadata):
 # their values are checked in `validate_payload` and `prepare` where the protein and the builder are known.
 CHOICE_SPECS = {'pdc_placement_mode': ('Initialisation', ('lattice', 'self-assembly')),
                 'protein_chains': ('Protein chains', ()),
-                'backmap': ('Back-mapping (CG2AT2)', (True, False))}
+                'backmap': ('Back-mapping (CG2AT2)', (True, False)),
+                'prepare_protein': ('Protein preparation (PDB2PQR)', (True, False))}
 
 PROTOCOL = protocol.Protocol(
     name='pdc',

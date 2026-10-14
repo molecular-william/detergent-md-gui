@@ -163,7 +163,7 @@ def test_the_stage_completes_when_the_run_was_prepared_with_a_detergent_mapping(
     pdc.prepare(run, protein='molecules/DDM/protein.pdb', template='molecules/DDM/micelle_template.json',
                 settings={'seed': 20260930, 'aggregation_number': 2}, project_root=root,
                 mapping=candidate_file(tmp_path))
-    stage = run / Path(pdc.STAGES[0].relative).parent
+    stage = run / Path(pdc.stage_by_name('System preparation').relative).parent
     write_cg_pdb(stage / 'cg' / 'protein_cg.pdb', [(1, 'PRO', 'B01', (0.0, 0.0, 0.0)),
                                                   (1, 'PRO', 'B02', (1.0, 0.0, 0.0)),
                                                   (1, 'PRO', 'B03', (0.0, 1.0, 0.0))])

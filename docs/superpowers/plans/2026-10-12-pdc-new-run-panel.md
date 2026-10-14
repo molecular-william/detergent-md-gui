@@ -1,7 +1,10 @@
 # A New Run panel for Protein-Detergent Simulations
 
 Status: **T1, T2, T3, T6 and T7 built and committed (2026-10-13).** T4's OPM download was wired by T2's own work — the
-panel drives the existing import, including its half-thickness honesty — so it is done in substance. **T5** (end to end)
+panel drives the existing import, including its half-thickness honesty — so it is done in substance. **The plan's
+step 1 — Prepare — landed (2026-10-14) as a stage of its own** (T12 below): PDB2PQR rebuilds a deposited structure's
+missing side chains and protonates the protein ahead of every other stage, off unless a run asks for it, and it is
+what answers the structure whose coarse-grained beads have no position. **T5** (end to end)
 and **T8** (the registry's experimental numbers) remain open, and T8 waits on the user's experimental aggregation
 numbers. The HTML mock of the panel is beside this plan at
 `docs/superpowers/drafts/2026-10-12-pdc-new-run-panel-draft.html`.
@@ -61,7 +64,7 @@ MemProtMD's own two routes (README, `pstansfeld/MemProtMD`), quoted rather than 
 
 | step | tool | notes |
 | --- | --- | --- |
-| 1 Prepare (optional) | PDB2PQR, then EM in water | missing side chains and protonation; prepared once and reused by later runs |
+| 1 Prepare (optional) | PDB2PQR | missing side chains and protonation; **built (T12) as its own stage, ahead of every other one and off unless a run asks for it** |
 | 2 Coarse-grain | `martinize2` | Martini 3, elastic network over Cα pairs within 1.0 nm at 1000 kJ/mol — already the spec's protocol |
 | 3 Self-assemble | our builder, then CG MD | detergents placed at random; the belt finds its own arrangement (change 1 below) |
 | 4 Sample | `gmx mdrun` | minimisation, equilibration, then the assessment leg — **none of which the protocol does today** (change 2) |
@@ -260,6 +263,70 @@ asserted by geometry (same row, within a tolerance) rather than by eye.
 **T11 — back-mapping is optional.** CG2AT2 becomes a toggle, on by default so nothing existing moves. Switched off, the
 back-map stage records `skipped` = exit 4 with its reason in `skip.json`, as the house contract requires, and the run
 still terminates `complete`. The panel carries the toggle and says in the review what the run will and will not produce.
+
+## The plan's step 1, built (2026-10-14)
+
+**T12 — the prepare step, as a stage.** The user's ask: *"add the step for rebuilding the missing sidechains."* Their
+downloaded 4iar has 20 of its 928 coarse-grained beads with no position — the deposited assembly is missing side-chain
+atoms for 6 arginines, 9 lysines and a tryptophan — and the build refuses that input with that reason. The fix is not a
+placement that tolerates absent atoms; it is the step this plan placed first: PDB2PQR for the missing side chains and
+the protonation, and the prepared structure is what the coarse-graining reads.
+
+Files: a new adapter `execution/adapters/pdc_preparation.py` (the tool, the command, the log-derived record, the
+carrying of the source's own statements), its stage entry point `execution/scripts/pdc_prepare.py` and script
+`execution/scripts/pdc_prepare.sh`, `execution/adapters/pdc.py` (the stage declaration first in `STAGES`, the
+`prepare_protein` choice, the readiness check, the recorded tool), `execution/scripts/pdc_build.py` (the prepared
+structure is what martinize2 is handed), `execution/pdc_preview.py` and `web/routes/pdc.py` (the preview takes the
+choice and keys its cache on it), the panel (`dashboard.html`, `new-run.js`) and
+`requirements-dashboard-tests.txt` (`pdb2pqr>=3.7,<4`).
+
+**Why a stage rather than a line in the build.** The plan's step 1 is a step with its own tool and its own cost, and
+the house pattern for "a run may ask for none of it" is a stage: `skipped` is exit 4 with its reason beside the
+script, and the stage ledger carries its wall time. T7's legs are the precedent. The alternative -- PDB2PQR inside
+`pdc_build` -- would have been fewer files but would have hidden a second tool's cost inside a step named for the
+system build, and given the step no record of its own.
+
+**Done (2026-10-14), measured on 4iar read-only from `workspace/dashboard/proteins/4iar.pdb`:**
+
+- **before**: 928 beads, **20 with no position** (the side chains of 9 lysines, 7 arginines and 1 tryptophan), and the
+  preview refuses at the *placement* step, in the gate's own sentence: "the protein has 20 coarse-grained bead(s)
+  without a position, of 928, so no detergent can be placed clear of it" — no frame drawn;
+- **the step**: `pdb2pqr 3.7.1`, `--ff=CHARMM --keep-chain --pdb-output`, **1.57 s**. Its own log: 312 missing atoms
+  reported across 25 residues; **104 heavy atoms built** (ILE A 39; ARG A 76, 78, 114, 188, 230, 385, 1062; LYS A 160,
+  164, 314, 387, 1042, 1051, 1059, 1083, 1085, 1104; TRP A 345; GLN A 189, 378; SER A 197; GLU A 198, 1057; ASP A
+  1074) and 3108 hydrogens; 2933 atoms in, 6145 out; two backbone gaps it cannot fill (`ALA A 190 -> SER A 197`,
+  `ILE A 339 -> TRP A 345`), recorded because no rebuild can; 450 of the source's own header records carried into the
+  prepared file — `pdb2pqr` writes none, and without them the file would state no membrane and a stated bilayer would
+  silently become the sphere;
+- **after**: the same **928 beads with no position among them**; the placement is valid as a **belt-torus** of tube
+  radius 2.1431 nm (DDM's own measured length) about a 2.7611 nm slab radius, **clearance 0.6325 nm** against the
+  0.5 nm gate, 150 detergents drawn in one pass and 0 rejected, box 8.8464 × 8.4813 × 18.2138 nm. The frame the card
+  draws is **1078 beads, none of them positionless**; the run's own stages agree (prepare exit 0 in 1.72 s;
+  `system.gro` 1078 atoms, none positionless; the frame is read from `protein_prepared.pdb REMARK`, half-thickness
+  1.68 nm preserved);
+- **what it costs the panel**: PDB2PQR 1.57 s, martinize2 14.81 s, placement 0.018 s on a cold derive; the second
+  derive of the same entry pays the preparation nothing (0.0 s) because the entry is cached and keyed on the choice.
+  The step's *default is off*, so no existing run changes: `prepare_protein` was added to `DEFAULTS` as `False`, and a
+  protein-free run is refused at the door for asking for a step about a protein it does not have.
+- **not included, and said so rather than implied**: the energy minimisation the plan's step also names. That route is
+  atomistic (`charmm36` + water + ions) where this pipeline is coarse-grained, and the chain already carries a CG
+  `Energy minimisation` leg in front of its assessment leg. The stage's own docstring and the panel's step-1 sentence
+  both say it.
+- **two defects found by running it rather than by reasoning**, both now pinned: a stage handed `--stage .` reaches the
+  run through a *relative* `Path('.')`, whose `.parent` is not the run — so the build looked for the prepared structure
+  inside its own directory, found nothing, and coarse-grained the deposited file the step existed to replace
+  (`pdc_build.main` and `pdc_prepare.main` resolve it now); and `pdb2pqr` derives its own log path from the PQR path it
+  is handed, so a relative output path had it exit 1 before reading a single atom (`pdc_preparation.prepare` resolves
+  both). The first was found only by running the real stages against 4iar; the unit tests, with their absolute
+  `tmp_path` directories, could not see it — which is why the acceptance for this task is a round trip and not a plan.
+- **tests**: 26 in `tests/dashboard/unit/test_pdc_prepare_step.py` (the plan's order and the default, the posted choice
+  reaching the job the route creates, the skip and the refusal paths, the log-derived record, the carried membrane
+  statement, the build reading the prepared file through the spelling a stage script uses, the preview's choice and
+  cache key, and the real tool on a fixture whose own defect is 4iar's), 5 browser in
+  `tests/dashboard/browser/test_pdc_prepare_browser.py`, 1 route test in
+  `tests/dashboard/integration/test_pdc_preview_api.py`, and the four pre-existing tests that counted their way to
+  `STAGES[0]` now name the system stage. Full fast tier **1658** passed (1630 before), browser tier **173** (168),
+  slow tier **7**, ruff clean on `dashboard` and `tests`.
 
 ## Not doing
 

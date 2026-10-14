@@ -33,6 +33,7 @@ def test_a_protein_free_build_is_expressible():
 
 def test_the_stage_list_is_the_protocol_in_order():
     assert [stage.name for stage in pdc.STAGES] == [
+        'Protein preparation',
         'System preparation', 'Energy minimisation', 'NVT equilibration', 'NPT equilibration',
         'CG assessment MD', 'Micelle assessment', 'CG extension MD',
         'Final assessment', 'Back-mapping (CG2AT2)']

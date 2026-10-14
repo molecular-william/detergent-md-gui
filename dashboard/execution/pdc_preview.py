@@ -44,7 +44,7 @@ from micelle import registry as micelle_registry
 from .. import files
 from ..models.molecules import detergent_cg
 from .adapters import pdc as pdc_adapter
-from .adapters import pdc_box, pdc_placement, pdc_protein, pdc_view
+from .adapters import pdc_box, pdc_placement, pdc_preparation, pdc_protein, pdc_view
 from .adapters.pdc import DETERGENT_TOPOLOGY
 from .scripts import pdc_build
 
@@ -53,8 +53,10 @@ from .scripts import pdc_build
 #: point of the snapshot design, so the preview's cache can never be mistaken for a run's input.
 CACHE_DIRECTORY = 'preview/cg'
 #: Bumped when the shape of what an entry holds changes, so an entry written by an older version is never read as if
-#: it were this one's. It is part of every key, which is what makes that true of entries on disk as well.
-CACHE_FORMAT = 1
+#: it were this one's. It is part of every key, which is what makes that true of entries on disk as well. Format 2:
+#: an entry can now hold a **prepared** protein -- `protein_prepared.pdb`, the preparer's log and its own
+#: `protein_input.pdb` -- which is a different entry from the one the same protein coarse-grained unprepared.
+CACHE_FORMAT = 2
 
 
 def _refusal(step, reasons, basis, cost, *, subject=None):
@@ -80,7 +82,7 @@ def _refusal(step, reasons, basis, cost, *, subject=None):
     return {'valid': False, 'step': step, 'reasons': sentences, 'pdb': None, 'basis': basis, 'cost': cost}
 
 
-def cache_key(protein_path, chains, executable) -> str:
+def cache_key(protein_path, chains, executable, *, prepare=False, prepare_executable=None) -> str:
     """The cache entry a protein-and-selection belongs to, from the things that decide the beads.
 
     The protein file's own bytes rather than its name: a re-imported structure at the same path is a different
@@ -89,6 +91,12 @@ def cache_key(protein_path, chains, executable) -> str:
     own bytes, because a different martinize2 builds a different coarse-grained protein, and `None` when nothing
     resolved (an entry made through a stubbed step is still keyed, and says which tool it is not for).
 
+    The prepare step is in the key too, both the choice and the preparer that would answer it: an entry whose beads
+    were built from a structure PDB2PQR rebuilt is a different coarse-grained protein from the same file's, and
+    reading one as the other would draw a frame the run would not build. The preparer's own bytes are read when it
+    resolves, so a different release is a different entry -- and only when the step is asked for, so an unprepared
+    entry's key does not move with a tool it never runs.
+
     The elastic network's constants and the force field are in the key as well, which is what keeps a change to them
     from leaving a frame silently drawn from the old ones.
     """
@@ -96,6 +104,12 @@ def cache_key(protein_path, chains, executable) -> str:
     digest.update(str(CACHE_FORMAT).encode())
     digest.update(Path(protein_path).read_bytes())
     digest.update(b'\0' + ','.join(str(chain) for chain in (chains or [])).encode())
+    digest.update(b'\0prepare:' + (b'1' if prepare else b'0'))
+    if prepare:
+        preparer = str(prepare_executable or '')
+        digest.update(b'\0' + preparer.encode())
+        if preparer and Path(preparer).is_file():
+            digest.update(b'\0' + files.sha256(preparer).encode())
     executable = str(executable or '')
     digest.update(b'\0' + executable.encode())
     if executable and Path(executable).is_file():
@@ -105,7 +119,8 @@ def cache_key(protein_path, chains, executable) -> str:
     return digest.hexdigest()[:16]
 
 
-def coarse_grained(cache_root, protein_path, chains, *, executable=None):
+def coarse_grained(cache_root, protein_path, chains, *, executable=None, prepare=False,
+                   prepare_executable=None):
     """The CG protein's beads, from the cache when it is there and from martinize2 when it is not.
 
     It calls the stage's own `pdc_build.select_protein` and `pdc_build.cg_protein`, so the file martinize2 reads, the
@@ -113,13 +128,33 @@ def coarse_grained(cache_root, protein_path, chains, *, executable=None):
     stage is where the two write: the entry directory, under the workspace's preview cache, rather than a stage
     directory of a run that does not exist.
 
+    `prepare` runs the plan's step 1 in the same entry, before the coarse-graining and only when the entry has no
+    coarse-grained structure yet -- a cached entry re-derives without paying the preparer again. The prepared
+    structure is what martinize2 is handed, exactly as `pdc_build.prepared_protein` hands it in a run, so a preview
+    and the build it previews coarse-grain one file. A preparation the tool refuses raises
+    `pdc_preparation.PreparationRefused`, which the caller turns into a refusal naming that step: the shape every
+    other builder gate's refusal arrives in.
+
     The gate on running the tool at all is the one `cg_protein` already applies -- the file its own command names --
     so a preview and a build re-derive a step in the same circumstances.
     """
-    entry = Path(cache_root) / cache_key(protein_path, chains, executable)
+    entry = Path(cache_root) / cache_key(protein_path, chains, executable, prepare=prepare,
+                                         prepare_executable=prepare_executable)
     entry.mkdir(parents=True, exist_ok=True)
     protein_input, selected, dropped = pdc_build.select_protein(entry, Path(protein_path), chains)
     structure = entry / pdc_build.CG_DIRECTORY / 'protein_cg.pdb'
+    prepared_path = entry / pdc_preparation.PREPARED_NAME
+    record = None
+    # The prepared structure is coarse-grained whenever it is here, and here it is whenever the form asked for it:
+    # the entry is keyed on that choice, so a prepared file cannot reach a derive that did not ask for one.
+    if prepare and not (structure.is_file() and prepared_path.is_file()):
+        record = pdc_preparation.prepare(protein_input, entry, executable=prepare_executable)
+        if not record.get('ok'):
+            raise pdc_preparation.PreparationRefused(record.get('reason')
+                                                     or 'the protein preparation step could not run')
+        prepared_path = Path(record['path'])
+    if prepared_path.is_file():
+        protein_input = prepared_path
     started = time.perf_counter()
     beads, command, secondary = pdc_build.cg_protein(entry, protein_input, executable=executable)
     seconds = time.perf_counter() - started
@@ -131,7 +166,10 @@ def coarse_grained(cache_root, protein_path, chains, *, executable=None):
                    'key': entry.name, 'path': str(entry),
                    'beads_bytes': structure.stat().st_size if structure.is_file() else 0,
                    'dropped_residues': dropped, 'protein_input': protein_input.name,
-                   'command': command, 'secondary_structure': secondary}
+                   'structure': str(protein_input), 'command': command, 'secondary_structure': secondary,
+                   # The step's own record and its wall time, or `None` and zero for a derive that did not ask for
+                   # it. `prepare_seconds` is what the panel's Cost row reports for it.
+                   'prepare': record, 'prepare_seconds': round(float(record['seconds']), 3) if record else 0.0}
 
 
 def resolve_mapping(mapping, root):
@@ -153,18 +191,21 @@ def resolve_mapping(mapping, root):
     return source if source.is_absolute() else Path(root) / source
 
 
-def _discard_unreadable(cache_root, protein_path, chains, executable) -> bool:
+def _discard_unreadable(cache_root, protein_path, chains, executable, *, prepare=False,
+                       prepare_executable=None) -> bool:
     """Remove a cache entry whose CG structure cannot be read, so the next derive builds it again.
 
     A truncated or half-written `protein_cg.pdb` would otherwise be re-used forever: `pdc_build.cg_protein`'s gate is
     the file's presence, and a reader of coordinates that answers nothing is the defect this stage already had once.
     Two previews of the same protein can also be in flight at once, and the second must not be left with the first's
     partial file. Only an entry that is genuinely unreadable is removed -- a protein the tool refuses leaves no
-    structure to remove.
+    structure to remove. The entry is keyed by the same choices the derive was keyed by, so a prepared derive discards
+    the prepared entry rather than the unprepared one it never looked at.
     """
     from .adapters import pdc_import
 
-    entry = Path(cache_root) / cache_key(protein_path, chains, executable)
+    entry = Path(cache_root) / cache_key(protein_path, chains, executable, prepare=prepare,
+                                         prepare_executable=prepare_executable)
     structure = entry / pdc_build.CG_DIRECTORY / 'protein_cg.pdb'
     if not structure.is_file():
         return False
@@ -206,18 +247,26 @@ def _box(points, placement, frame, margin_nm, initial_z_nm):
 def preview(*, project_root, cache_root, template, seed, protein=None, chains=None, mapping=None,
             molecule_id=None, aggregation_number=150, placement_mode=pdc_placement.DEFAULT_PLACEMENT_MODE,
             box_margin_nm=pdc_placement.DEFAULT_MARGIN_NM, initial_z_nm=pdc_placement.DEFAULT_INITIAL_Z_NM,
-            radius_nm=pdc_placement.DEFAULT_RADIUS_NM, executable=None):
+            radius_nm=pdc_placement.DEFAULT_RADIUS_NM, executable=None, prepare_protein=False,
+            prepare_executable=None):
     """The placement these inputs would build, as `{valid, step, reasons, pdb, basis, cost}`.
 
     `project_root` resolves `template`, `protein` and the molecule tree a mapping is derived against -- the same root
     a run's `pdc.prepare` is given. `cache_root` is the preview's own scratch root; the only thing written under it
-    is a coarse-grained protein. `molecule_id` is the detergent the mapping belongs to; a mapping is a mapping *of* a
-    molecule and the residue the structure is written with comes from it.
+    is a coarse-grained protein, and with `prepare_protein` a prepared one besides. `molecule_id` is the detergent the
+    mapping belongs to; a mapping is a mapping *of* a molecule and the residue the structure is written with comes
+    from it.
+
+    `prepare_protein` is the plan's step 1, and it is the reader's choice rather than the service's: with it, the
+    protein is rebuilt and protonated by `pdb2pqr` (or `prepare_executable`, where the route has resolved one) before
+    the coarse-graining reads it, exactly as the stage hands it over in a run. A preparation that cannot run comes
+    back as a refusal naming that step, with the tool's own sentence -- never as a frame built from the file the
+    caller asked to have prepared.
 
     Raises `ValueError` for a question that cannot be asked at all -- a template or protein that is not a file, a
-    chain the file does not name, a mapping that does not exist, a count below one -- because those are malformed
-    requests and not this build's refusals. Everything the *builders* refuse comes back as `valid: False` with their
-    own sentences.
+    chain the file does not name, a mapping that does not exist, a count below one, a preparation asked for with no
+    protein to prepare -- because those are malformed requests and not this build's refusals. Everything the
+    *builders* refuse comes back as `valid: False` with their own sentences.
     """
     seed = int(seed)
     aggregation_number = int(aggregation_number)
@@ -238,15 +287,21 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
         protein_path = candidate if candidate.is_absolute() else root / candidate
         if not protein_path.is_file():
             raise ValueError(f'the pdc protein is not a file: {protein_path}')
+    # A step about a protein cannot be asked for a form that has none: the same refusal `pdc.prepare` makes, in the
+    # terms this service answers in.
+    if prepare_protein and protein_path is None:
+        raise ValueError('protein preparation (PDB2PQR) needs a structure, and this form selects no protein')
 
     basis = {'protein': Path(protein_path).stem if protein_path else None, 'chains': list(chains or []),
              'template': template_path.name, 'detergent': None, 'residue': None, 'mapping': None,
              'aggregation_number': aggregation_number, 'placement_mode': mode, 'seed': seed,
              'beads': None, 'protein_beads': 0, 'box_nm': None, 'clearance_nm': None,
              'placement_shape': None, 'band_radius_nm': None, 'slab_radius_nm': None, 'tube_radius_nm': None,
-             'detergent_representation': None}
+             'detergent_representation': None,
+             # The plan's step 1: whether this derive would prepare the protein, and the record when it did.
+             'prepare_protein': bool(prepare_protein), 'prepare': None}
     cost = {'cg_cached': False, 'coarse_graining_seconds': 0.0, 'detergent_seconds': 0.0,
-            'placement_seconds': 0.0, 'seconds': 0.0, 'cg_bytes': 0, 'cg_key': None}
+            'placement_seconds': 0.0, 'seconds': 0.0, 'cg_bytes': 0, 'cg_key': None, 'prepare_seconds': 0.0}
     started = time.perf_counter()
 
     # The template first, because the build does: a template that cannot build a system stops the stage before
@@ -270,10 +325,19 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     beads, frame = [], None
     if protein_path is not None:
         try:
-            beads, cg = coarse_grained(cache_root, protein_path, selected_chains, executable=executable)
+            beads, cg = coarse_grained(cache_root, protein_path, selected_chains, executable=executable,
+                                       prepare=prepare_protein, prepare_executable=prepare_executable)
+        except pdc_preparation.PreparationRefused as error:
+            # The plan's step 1 refused, and its sentence is the tool's own. A refusal from *this* step is not a
+            # coarse-graining failure: it is the answer to "this structure could not be prepared", and the card says
+            # which step it came from.
+            cost['seconds'] = time.perf_counter() - started
+            return _refusal('protein preparation', [str(error)], basis, cost,
+                            subject=f'{protein_path} ({prepare_executable or pdc_preparation.TOOL})')
         except (OSError, subprocess.SubprocessError, ValueError, SystemExit) as error:
             # A cache entry that cannot be read is removed rather than left to fail identically forever.
-            discarded = _discard_unreadable(cache_root, protein_path, selected_chains, executable)
+            discarded = _discard_unreadable(cache_root, protein_path, selected_chains, executable,
+                                            prepare=prepare_protein, prepare_executable=prepare_executable)
             cost['seconds'] = time.perf_counter() - started
             detail = '; its cached entry was unreadable and has been discarded, so the next derive builds it again' \
                 if discarded else ''
@@ -281,10 +345,18 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
                             [f'the coarse-graining step could not build this protein: {error}{detail}'], basis, cost,
                             subject=f'{protein_path} ({executable or "martinize2"})')
         cost.update({'cg_cached': cg['cached'], 'coarse_graining_seconds': round(cg['seconds'], 3),
-                     'cg_bytes': cg['beads_bytes'], 'cg_key': cg['key']})
+                     'cg_bytes': cg['beads_bytes'], 'cg_key': cg['key'],
+                     'prepare_seconds': cg.get('prepare_seconds', 0.0)})
+        basis['prepare'] = cg.get('prepare')
+        # The frame is read from the file martinize2 was actually handed -- the prepared structure when this derive
+        # asked for one, the selection otherwise -- because that file's own membrane statement is the frame the belt
+        # is placed in. A caller that substituted the coarse-graining step answers with no such path, and falls back
+        # to the protein the run named.
+        structure = Path(cg['structure']) if cg.get('structure') else None
         frame = micelle_frame.frame_from_pdb(
-            (Path(cg['path']) / pdc_build.SELECTED_PROTEIN)
-            if (Path(cg['path']) / pdc_build.SELECTED_PROTEIN).is_file() else protein_path)
+            structure if structure is not None and structure.is_file()
+            else ((Path(cg['path']) / pdc_build.SELECTED_PROTEIN)
+                  if (Path(cg['path']) / pdc_build.SELECTED_PROTEIN).is_file() else protein_path))
     basis['protein_beads'] = len(beads)
 
     # The membrane the belt is placed in is the protein file's own statement of it, read through `micelle.frame` --

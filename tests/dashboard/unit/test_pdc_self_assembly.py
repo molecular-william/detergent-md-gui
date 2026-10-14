@@ -165,7 +165,7 @@ def _prepared_run(tmp_path: Path, *, placement_mode=None, aggregation_number=8):
         settings['placement_mode'] = placement_mode
     pdc.prepare(run, protein='molecules/DDM/protein.pdb', template='molecules/DDM/micelle_template.json',
                 settings=settings, project_root=root, mapping=candidate_file(tmp_path))
-    stage = run / Path(pdc.STAGES[0].relative).parent
+    stage = run / Path(pdc.stage_by_name('System preparation').relative).parent
     ellipsoid = _protein()
     write_cg_pdb(stage / 'cg' / 'protein_cg.pdb',
                  [(1, 'PRO', f'B{index:02d}', point) for index, point in enumerate(ellipsoid, 1)])

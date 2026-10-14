@@ -280,3 +280,42 @@ def test_a_real_cold_and_warm_preview_pay_the_coarse_graining_once(dashboard, mo
     # The cache is the workspace's own scratch area, and it is not a run: nothing appears in the runs list.
     assert (dashboard.paths.workspace / 'preview/cg').is_dir()
     assert dashboard.client.get('/api/jobs').get_json()['total'] == 0
+
+def test_the_route_reads_the_preparation_choice_and_refuses_a_value_that_is_not_one(dashboard, monkeypatch):
+    """The plan's step 1 is a choice the panel states, so the route reads it -- and a non-answer is not one.
+
+    Three answers, and each is a different claim: absent is the adapter's own default (off, so an existing caller's
+    preview is unchanged), `true` reaches the service as the choice it is, and a value that is neither is a *malformed
+    request* rather than a yes -- a route that read `maybe` as one of them would put a control on screen that means
+    the opposite of what it says.
+    """
+    from dashboard.execution import pdc_preview as preview_module
+
+    beads = [{'residue_id': 1, 'residue': 'PRO', 'name': f'B{index:03d}',
+              'position': [0.3 * index, 0.0, 0.0]} for index in range(1, 5)]
+    monkeypatch.setattr(preview_module, 'coarse_grained',
+                        lambda *args, **kwargs: (beads, {'cached': False, 'seconds': 0.5, 'key': 'stub',
+                                                         'path': '', 'beads_bytes': 0, 'dropped_residues': [],
+                                                         'protein_input': 'protein.pdb',
+                                                         'structure': str(kwargs.get('protein_path') or ''),
+                                                         'command': None, 'secondary_structure': None,
+                                                         'prepare': None, 'prepare_seconds': 0.0}))
+    entry = import_protein(dashboard, monkeypatch)
+    query = {'template': TEMPLATE, 'protein': entry['name'], 'pdc_seed': 20261013, 'aggregation_number': 12}
+
+    default = get(dashboard, **query)
+    assert default.status_code == 200 and default.get_json()['valid'] is True, default.get_data(as_text=True)
+    assert default.get_json()['basis']['prepare_protein'] is False
+    assert default.get_json()['cost']['prepare_seconds'] == 0.0
+
+    asked = get(dashboard, **{**query, 'prepare_protein': 'true'})
+    assert asked.status_code == 200 and asked.get_json()['valid'] is True, asked.get_data(as_text=True)
+    assert asked.get_json()['basis']['prepare_protein'] is True
+
+    malformed = get(dashboard, **{**query, 'prepare_protein': 'maybe'})
+    assert malformed.status_code == 400
+    assert 'prepare_protein' in malformed.get_json()['error']
+
+    none = get(dashboard, template=TEMPLATE, pdc_seed=20261013, aggregation_number=12, prepare_protein='true')
+    assert none.status_code == 400
+    assert 'structure' in none.get_json()['error'], 'a step about a protein cannot be asked for with none'

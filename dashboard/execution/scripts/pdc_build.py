@@ -2,8 +2,13 @@
 
 Run by `1_system/prepare_system.sh`, which the pdc adapter generates. Every rule this applies comes from an
 adapter whose own unit tests cover it -- the box from `pdc_box`, the placement and its gates from
-`pdc_placement`, the CG protein command from `pdc_protein`, the coordinate reader from `pdc_import` -- so the stage
-cannot drift from the rules by restating them here.
+`pdc_placement`, the CG protein command from `pdc_protein`, the coordinate reader from `pdc_import`, the structure
+the prepare step left from `pdc_preparation` -- so the stage cannot drift from the rules by restating them here.
+
+The structure the coarse-graining reads is the prepare step's, when a run asked for that step and the stage left one
+(`prepared_protein`): a deposited file whose side chains are incomplete coarse-grains into beads with no position, and
+the rebuilt file is what martinize2 is handed instead. Which of the two it was is in the report, because a build that
+simulated the prepared structure and one that simulated the deposited file are not the same system.
 
 The membrane the belt is placed in is the protein file's own statement of it (`REMARK 1/2 of bilayer thickness`),
 read through `micelle.frame` -- the file's statement travels with its coordinates, so the structure this stage was
@@ -35,7 +40,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from dashboard.execution.adapters import pdc, pdc_box, pdc_import, pdc_placement, pdc_protein
+from dashboard.execution.adapters import pdc, pdc_box, pdc_import, pdc_placement, pdc_preparation, pdc_protein
 from dashboard.execution.adapters.pdc import DETERGENT_GEOMETRY, DETERGENT_TOPOLOGY, REPORT_NAME, SETTINGS_NAME
 from micelle import frame as micelle_frame
 from micelle import output as micelle_output
@@ -473,6 +478,23 @@ def cg_protein(stage: Path, protein: Path, *, executable=None) -> tuple[list, li
     return pdc_import.structure_atoms(structure), command, record
 
 
+def prepared_protein(stage: Path) -> Path | None:
+    """The structure the prepare step left, when this run asked for it and the step ran.
+
+    The plan's step 1 is a stage of its own, and this is the one place the two are joined: the file it wrote is what
+    the coarse-graining reads, so a structure whose deposited side chains are incomplete is coarse-grained from the
+    rebuilt one and its beads all have positions. `None` is every run that did not ask for the step -- the default --
+    and every run whose step skipped, which is what keeps an existing build doing exactly what it did before.
+
+    Read by name rather than by counting: `pdc.stage_by_name` is where this protocol says which directory a stage
+    owns, and the plan's positions have already moved once. The stage directory is resolved first, so the sibling is
+    found whether the caller handed over the run's own `1_system` or the `.` a stage script passes.
+    """
+    directory = Path(stage).resolve().parent / Path(pdc.stage_by_name('Protein preparation').relative).parent
+    path = directory / pdc_preparation.PREPARED_NAME
+    return path if path.is_file() else None
+
+
 def build(stage: Path) -> int:
     settings = read_settings(stage)
     template = micelle_registry.load_template(resolve(settings, 'template', stage))
@@ -513,9 +535,14 @@ def build(stage: Path) -> int:
     # placement is the sphere it has always been.
     frame = None
     requested_protein = (settings.get('protein') or '').strip()
+    # The structure the coarse-graining reads: the prepared one when this run asked for the prepare step and the
+    # stage left one, and the run's own file otherwise. Which one it was is in the report, because a build that
+    # simulated the prepared structure and one that simulated the deposited file are not the same system.
+    prepared = prepared_protein(stage)
+    report['protein_prepared'] = str(prepared) if prepared is not None else None
     if requested_protein:
-        protein_input, selected_chains, dropped = select_protein(stage, resolve(settings, 'protein', stage),
-                                                                 settings.get('protein_chains'))
+        source = prepared if prepared is not None else resolve(settings, 'protein', stage)
+        protein_input, selected_chains, dropped = select_protein(stage, source, settings.get('protein_chains'))
         report['protein_input'] = protein_input.name if protein_input.name == SELECTED_PROTEIN else None
         report['protein_dropped_residues'] = dropped
         beads, command, secondary = cg_protein(stage, protein_input)
@@ -625,8 +652,13 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description='Build the protein-detergent complex system for a run.')
     parser.add_argument('--stage', default='.', help='the stage directory holding pdc-settings.json')
     args = parser.parse_args(argv)
+    # Resolved, because the generated stage script runs from its own directory and hands over `.`: the stage reached
+    # through that spelling is the *current* directory, and `Path('.').parent` is `.` -- not the run this stage is
+    # one step of. Measured on a real run: the prepare step's `protein_prepared.pdb` sits beside this stage, and a
+    # relative parent looked for it inside the stage's own directory, found nothing, and coarse-grained the deposited
+    # file it was supposed to have replaced.
     try:
-        return build(Path(args.stage))
+        return build(Path(args.stage).resolve())
     except (ValueError, OSError) as exc:
         print(f'pdc_build: {exc}', file=sys.stderr)
         return 2

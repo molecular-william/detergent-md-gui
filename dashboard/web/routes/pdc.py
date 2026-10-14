@@ -287,13 +287,29 @@ def requested_chains(source):
     return chains or None
 
 
+def requested_preparation(source) -> bool:
+    """The prepare step's own choice, as a form spells a boolean, or a refusal for a value that is neither.
+
+    Absent is the adapter's own default -- off, because the plan calls the step optional -- so an existing caller
+    that has never heard of it asks for exactly what it asked for before. A value that is neither a yes nor a no is a
+    malformed request rather than a yes: reading `"maybe"` as one of them is how a control comes to mean the opposite
+    of what it says.
+    """
+    raw = (source.args.get('prepare_protein') or '').strip().lower()
+    if raw in ('', 'false', '0', 'no', 'off'):
+        return False
+    if raw in ('true', '1', 'yes', 'on'):
+        return True
+    raise ValueError(f'prepare_protein must be true or false, not {raw!r}')
+
+
 def preview_choices(source):
     """The panel's numbers, in the builder's spelling and by the builder's own rules.
 
     Everything a preview and a run must agree about: a seed (the placement is deterministic in it, so a run without
-    one is not comparable with another), a count, a style, the chains. The semantic checks are `pdc.validate_payload`'s
-    -- the adapter's own admission, called rather than restated -- and only the spelling is translated here. So a
-    preview refuses the same inputs a run refuses, in the same terms.
+    one is not comparable with another), a count, a style, the chains, and whether the prepare step runs. The semantic
+    checks are `pdc.validate_payload`'s -- the adapter's own admission, called rather than restated -- and only the
+    spelling is translated here. So a preview refuses the same inputs a run refuses, in the same terms.
     """
     from ...execution.adapters import pdc
 
@@ -322,6 +338,7 @@ def preview_choices(source):
                 'aggregation_number': whole('aggregation_number', pdc.DEFAULTS['aggregation_number']),
                 'placement_mode': (source.args.get('placement_mode') or '').strip()
                                   or pdc.DEFAULTS['placement_mode'],
+                'prepare_protein': requested_preparation(source),
                 'protein_chains': requested_chains(source)}
     choices = pdc.validate_payload(supplied)
     choices['box_margin_nm'] = number('box_margin_nm', float(pdc.DEFAULTS['box_margin_nm']))
@@ -364,6 +381,7 @@ def pdc_preview_placement():
     coarse-grained protein under the workspace's preview cache (see `execution/pdc_preview.py`), which no stage reads.
     """
     from ...execution import pdc_preview, tools
+    from ...execution.adapters import pdc_preparation
 
     root = coordinator().ROOT
     try:
@@ -384,6 +402,10 @@ def pdc_preview_placement():
             molecule_id=(request.args.get('molecule_id') or '').strip() or None,
             aggregation_number=choices['aggregation_number'], placement_mode=choices['placement_mode'],
             seed=choices['seed'], box_margin_nm=choices['box_margin_nm'], initial_z_nm=choices['initial_z_nm'],
+            prepare_protein=choices['prepare_protein'],
+            # The preparer the optional Prepare step runs, resolved where every other tool is: the route resolves it
+            # and the service reports the refusal its absence produces, with the tool named.
+            prepare_executable=tools.tool_path(pdc_preparation.TOOL),
             # The tool the build shells out to, resolved where every other tool is: a declaration that cannot be
             # honoured resolves to nothing rather than to a substitute, and the refusal then names what is missing.
             executable=tools.tool_path('martinize2'))

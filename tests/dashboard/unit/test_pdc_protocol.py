@@ -116,4 +116,5 @@ def test_a_pdc_job_is_prepared_by_the_pdc_builder(tmp_path):
     # something this change introduced, and it is not the CG path this work is about.
     assert not (run / 'inputs').exists(), 'if this starts existing, pdc gained a snapshot and resume can be fixed'
     assert 'input_snapshot_sha256' not in manifest
-    assert set(manifest['tools']) == {'gmx', 'martinize2'}
+    assert set(manifest['tools']) == {'gmx', 'martinize2', 'pdb2pqr'}, \
+        'the preparer the optional prepare step runs is recorded with the tools the run always resolves'

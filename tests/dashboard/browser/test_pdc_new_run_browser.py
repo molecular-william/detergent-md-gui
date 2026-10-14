@@ -316,6 +316,9 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         'run_type': 'pdc', 'molecule_id': 'DDM', 'template': 'molecules/DDM/micelle_template.json',
         'protein': 'molecules/1qj8/1qj8.pdb', 'label': 'pdc panel test', 'pdc_placement_mode': 'lattice',
         'backmap': True,
+        # The plan's step 1, stated rather than omitted: the adapter's default is off, and a run that asked for the
+        # preparation must not be readable as one that did not -- the same reason the back-map choice is always sent.
+        'prepare_protein': False,
         'aggregation_number': 220, 'pdc_assessment_ns': 100, 'pdc_extension_ns': 900, 'pdc_seed': 20260928,
         'salt_molar': 0.15, 'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
         'selection_threshold_fraction': 0.1, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20,

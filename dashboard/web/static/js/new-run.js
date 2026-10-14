@@ -456,6 +456,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   const chainBoxes = () => [...form.elements].filter(el => el.name === 'protein_chains');
   const selectedChains = () => chainBoxes().filter(el => el.checked).map(el => el.value);
   const backmapping = () => !!field('backmap')?.checked;
+  // The plan's step 1: whether the protein is rebuilt and protonated before it is coarse-grained. The adapter reads
+  // `prepare_protein`, so that is the name the control carries and the only place this panel reads it.
+  const preparing = () => !!field('prepare_protein')?.checked;
   // The select's option value is the catalogue entry's id (`DDM:DDM`), which is what the Complexes panel's own picker
   // carries; what a run is *prepared* with is the template file, and `pdc.prepare`/`pdc.readiness` resolve that path
   // against the project root. So the path travels from the entry, never from the option's value.
@@ -570,7 +573,11 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     const defaults = catalogue?.defaults || {};
     for (const [key, value] of Object.entries(defaults)) {
       const input = field(DEFAULT_ALIASES[key] || key);
-      if (input && input.value === '') input.value = value;
+      // A checkbox's state is its `checked` attribute and never its value: a default written into `value` sets no
+      // state at all, and reads as though it had. The two checkboxes this pipeline has (`backmap`, the prepare step)
+      // carry their defaults in the markup, where a reader can see them.
+      if (!input || input.type === 'checkbox') continue;
+      if (input.value === '') input.value = value;
     }
   }
 
@@ -688,6 +695,30 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
         ? 'Continuation from the surviving checkpoint, then CG2AT2 with -o align: the final CG state becomes atomistic.'
         : 'Continuation from the surviving checkpoint only. Back-mapping is switched off, so the run stops '
           + 'coarse-grained and produces no atomistic structure.';
+    }
+    // The plan's step 1, and the same honesty: what the run will do with this structure, whether or not it was asked
+    // for. The step is optional, so its *off* state is a statement too -- and the one the refusal this panel shows is
+    // answered by is the *on* one.
+    const prepare = preparing();
+    setText(summary('prepare'), prepare ? 'PDB2PQR: rebuild the missing atoms, then protonate'
+                                       : 'off — the structure is coarse-grained as deposited');
+    say('.new-pdc-prepare-note', prepare
+      ? 'On: pdb2pqr rebuilds the residues the deposited file left incomplete and adds the hydrogens its protonation '
+        + 'states need; the prepared structure is what martinize2 reads, so this panel\'s frame is derived from it '
+        + 'too. Measured on 4iar: 104 heavy atoms across 25 residues in 1.5 s. It needs pdb2pqr on this machine — the '
+        + 'readiness list above reports whether it is resolvable — and the run pays it once, in its first stage.'
+      : 'Not asked for: martinize2 reads the structure as deposited. A protein whose file is missing side-chain atoms '
+        + 'coarse-grains into beads with no position (4iar: 20 of its 928), and the placement refuses that build '
+        + 'rather than placing a belt against a protein no distance can be measured to — this step is what answers it.');
+    const prepareStep = pdcNode('.new-pdc-prepare-step');
+    if (prepareStep) {
+      prepareStep.querySelector('strong').textContent = prepare ? '1 · Prepare (PDB2PQR)' : '1 · Prepare (optional)';
+      prepareStep.querySelector('span').textContent = prepare
+        ? 'PDB2PQR rebuilds the deposited file\'s missing side chains and protonates the protein, and the prepared '
+          + 'structure is what martinize2 coarse-grains. The minimisation MemProtMD\'s own route also names is the CG '
+          + 'Energy minimisation leg in step 4, not an atomistic one here.'
+        : 'Not asked for: martinize2 coarse-grains the file as deposited, and a structure whose side chains are '
+          + 'incomplete is refused by the placement. Switching this on rebuilds them with PDB2PQR first.';
     }
     const number = item && item.aggregation_number != null ? String(item.aggregation_number) : null;
     // The estimate is the server's: the review shows the answer the route gave (or its refusal), and with no
@@ -919,12 +950,13 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
             mapping: field('mapping_candidate').value || '', molecule: field('molecule_id').value || '',
             template: templatePath(), count: field('aggregation_number').value || '',
             mode: placementMode(), seed: field('pdc_seed').value || '',
-            margin: field('box_margin_nm').value || '', initial_z: field('initial_z_nm').value || ''};
+            margin: field('box_margin_nm').value || '', initial_z: field('initial_z_nm').value || '',
+            prepare: preparing()};
   }
   // What would be coarse-grained, or drawn from another mapping: a change to one of these is a different question,
   // and the frame on screen is no longer this form's. Everything the reader can still move without new
   // coarse-graining re-derives instead.
-  const previewExpensive = inputs => `${inputs.protein}|${inputs.chains.join(',')}|${inputs.mapping}|${inputs.molecule}`;
+  const previewExpensive = inputs => `${inputs.protein}|${inputs.chains.join(',')}|${inputs.mapping}|${inputs.molecule}|${inputs.prepare}`;
   const previewCheap = inputs => [inputs.count, inputs.mode, inputs.seed, inputs.margin, inputs.initial_z,
                                   inputs.template].join('|');
 
@@ -948,10 +980,17 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   function costSentence(cost, basis) {
     const placement = `placement ${seconds(cost.placement_seconds)}`;
     const mapping = cost.detergent_seconds ? ` · mapping to beads ${seconds(cost.detergent_seconds)}` : '';
+    // The plan's step 1, when this derive asked for it: the number is the tool's own wall time, and the tool's own
+    // count of what it built, rather than a headline from a plan.
+    const prepare = cost.prepare_seconds
+      ? ` · PDB2PQR ${seconds(cost.prepare_seconds)}` + (basis?.prepare?.heavy_atoms_added != null
+          ? ` (${basis.prepare.heavy_atoms_added} heavy atoms)`
+          : '')
+      : '';
     if (!basis?.protein_beads) return `no coarse-graining — the micelle is placed directly: ${placement}${mapping}`;
     return cost.cg_cached
-      ? `the coarse-grained protein was already cached (${kilobytes(cost.cg_bytes)}) · ${placement}${mapping}`
-      : `martinize2 ${seconds(cost.coarse_graining_seconds)} (${basis.protein_beads} beads) · ${placement}${mapping}`;
+      ? `the coarse-grained protein was already cached (${kilobytes(cost.cg_bytes)}) · ${placement}${mapping}${prepare}`
+      : `martinize2 ${seconds(cost.coarse_graining_seconds)} (${basis.protein_beads} beads) · ${placement}${mapping}${prepare}`;
   }
 
   function keptSentence(cost, basis) {
@@ -984,7 +1023,11 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   function previewQuery(inputs) {
     const query = new URLSearchParams({template: inputs.template, molecule_id: inputs.molecule,
                                        aggregation_number: inputs.count, placement_mode: inputs.mode,
-                                       pdc_seed: inputs.seed});
+                                       pdc_seed: inputs.seed,
+                                       // Always stated, so a frame cannot be read as one the other choice made: a
+                                       // derive that asked for the preparation and one that did not are two
+                                       // different coarse-grained proteins (the server keys its cache on it).
+                                       prepare_protein: inputs.prepare ? 'true' : 'false'});
     // A catalogue id can be an absolute path for an imported structure, and the route reads such a path with its
     // leading slash stripped -- the same spelling the estimate's own call uses.
     if (inputs.protein) query.set('protein', String(inputs.protein).replace(/^\/+/, ''));
@@ -1171,6 +1214,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   field('aggregation_number').addEventListener('input', loadEstimate);
   field('pdc_placement_mode')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); previewMoved(); });
   field('backmap')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
+  // The prepare step changes what martinize2 reads, so it is one of the expensive inputs: the frame on screen is no
+  // longer this form's once it moves, and the card says so rather than quietly drawing the old one.
+  field('prepare_protein')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); previewMoved(); });
   pdcNode('.new-pdc-import-button')?.addEventListener('click', importStructure);
   // The preview's own cheap inputs: each of these re-derives a frame that already exists, and the exchange rate is
   // the cache -- the coarse-grained protein is not rebuilt -- which is why these move and the three expensive ones
@@ -1207,6 +1253,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       const chains = selectedChains();
       if (field('protein').value && chains.length) payload.protein_chains = chains;
       payload.backmap = backmapping();
+      // The plan's step 1, sent always: the adapter's default is off, and a run whose preparation was asked for must
+      // not be readable as one that was not. A protein-free run cannot ask for it -- there is nothing to prepare --
+      // so it is stated only where the run has a structure, exactly as the chain selection is.
+      if (field('protein').value) payload.prepare_protein = preparing();
       // The style is a choice the adapter reads through its own placement-mode alias, so it travels under the
       // panel's spelling (`pdc_placement_mode`) exactly as the seed does.
       payload.pdc_placement_mode = placementMode();

@@ -87,7 +87,7 @@ def prepared(tmp_path: Path, protein: str | None = None):
     run.mkdir()
     pdc.prepare(run, protein='molecules/DDM/protein.pdb', template='molecules/DDM/micelle_template.json',
                 settings={'seed': 20261014, 'aggregation_number': 4}, project_root=root)
-    return run, run / Path(pdc.STAGES[0].relative).parent
+    return run, run / Path(pdc.stage_by_name('System preparation').relative).parent
 
 
 def cg_directory(stage: Path) -> Path:

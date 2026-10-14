@@ -29,6 +29,9 @@ TEMPLATE = {
 }
 PROTEIN = 'molecules/DDM/protein.pdb'
 TEMPLATE_PATH = 'molecules/DDM/micelle_template.json'
+#: The stage these tests are about, by name: the plan's positions are data and the prepare step landed in front of
+#: this one, so a test that counted its way to `STAGES[0]` would now be describing a different stage.
+SYSTEM_STAGE = 'System preparation'
 
 
 def gro_line(residue: str, name: str, number: int, xyz) -> str:
@@ -79,7 +82,7 @@ def prepared(tmp_path: Path, settings: dict | None = None, template: str = TEMPL
 
 
 def stage_directory(run: Path) -> Path:
-    return run / Path(pdc.STAGES[0].relative).parent
+    return run / Path(pdc.stage_by_name(SYSTEM_STAGE).relative).parent
 
 
 def test_every_stage_directory_the_contract_names_exists(tmp_path):
@@ -90,7 +93,7 @@ def test_every_stage_directory_the_contract_names_exists(tmp_path):
 
 
 def test_the_system_stage_script_runs_the_entry_point_from_its_own_directory(tmp_path):
-    script = (stage_directory(prepared(tmp_path)) / Path(pdc.STAGES[0].relative).name).read_text()
+    script = (stage_directory(prepared(tmp_path)) / Path(pdc.stage_by_name(SYSTEM_STAGE).relative).name).read_text()
 
     assert 'set -eu' in script
     assert 'cd "$(dirname "$0")"' in script
@@ -122,7 +125,7 @@ def test_the_settings_carry_the_decisions_the_run_recorded(tmp_path):
 def test_the_declared_inputs_are_written_before_the_stage_runs(tmp_path):
     stage = stage_directory(prepared(tmp_path))
 
-    for name in pdc.STAGES[0].inputs:
+    for name in pdc.stage_by_name(SYSTEM_STAGE).inputs:
         assert (stage / name).is_file(), f'{name} is declared an input and is missing'
     assert (stage / 'detergent.itp').read_text().startswith('[ moleculetype ]')
 
@@ -169,7 +172,8 @@ def test_the_run_record_names_the_stages_and_the_limits(tmp_path):
     assert record['run_type'] == 'pdc'
     assert record['stage_plan'] == [[stage.name, stage.relative] for stage in pdc.STAGES]
     assert any('centre per molecule' in line for line in record['limitations'])
-    assert set(record['tools']) == {'gmx', 'martinize2'}
+    assert set(record['tools']) == {'gmx', 'martinize2', 'pdb2pqr'}, \
+        'the preparer the optional prepare step runs is recorded with the tools the run always resolves'
 
 
 def test_the_entry_point_applies_the_builders_rather_than_restating_them():

@@ -50,7 +50,7 @@ def prepared(tmp_path: Path, settings: dict | None = None):
 
 
 def stage_directory(run: Path) -> Path:
-    return run / Path(pdc.STAGES[0].relative).parent
+    return run / Path(pdc.stage_by_name('System preparation').relative).parent
 
 
 def settings_of(run: Path) -> dict:
