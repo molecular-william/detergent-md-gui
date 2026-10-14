@@ -1,4 +1,5 @@
 import { $, cachedApi, invalidateResource, panelIds } from './shared.js';
+import { BEAD_RADIUS_PARAMETERS, applyBeadRadii } from './ngl-beads.js';
 
 export function createPdc() {
   const template = $('#pdc-template'), protein = $('#pdc-protein');
@@ -230,7 +231,13 @@ export function createPdc() {
     if (/^CONECT/m.test(text)) parameters.inferBonds = 'none';
     const component = stageRef.loadFile(new Blob([text], {type: 'text/plain'}), parameters);
     component.then(item => {
-      item.addRepresentation('ball+stick', {radiusScale: 0.75, aspectRatio: 2});
+      // The beads are drawn at the radius their own size class has in the model -- R 0.264 / S 0.230 / T 0.191 nm --
+      // rather than at the stand-in element's, which gets the ordering right and the proportions wrong. The table
+      // and the scale knob live in `ngl-beads.js` because two other views draw the same beads and neither should
+      // keep its own copy of the numbers. The radii go on the structure first, because that is what a representation
+      // resolves per atom.
+      applyBeadRadii(item.structure);
+      item.addRepresentation('ball+stick', BEAD_RADIUS_PARAMETERS);
       item.autoView();
       if (describe && viewerBasis) viewerBasis.textContent = describe(item);
     });
