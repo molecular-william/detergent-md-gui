@@ -225,7 +225,8 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
              'template': template_path.name, 'detergent': None, 'residue': None, 'mapping': None,
              'aggregation_number': aggregation_number, 'placement_mode': mode, 'seed': seed,
              'beads': None, 'protein_beads': 0, 'box_nm': None, 'clearance_nm': None,
-             'placement_shape': None, 'band_radius_nm': None, 'detergent_representation': None}
+             'placement_shape': None, 'band_radius_nm': None, 'slab_radius_nm': None, 'tube_radius_nm': None,
+             'detergent_representation': None}
     cost = {'cg_cached': False, 'coarse_graining_seconds': 0.0, 'detergent_seconds': 0.0,
             'placement_seconds': 0.0, 'seconds': 0.0, 'cg_bytes': 0, 'cg_key': None}
     started = time.perf_counter()
@@ -273,8 +274,16 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     placement = pdc_placement.place_detergents(points, record, aggregation_number, seed, radius_nm=radius, mode=mode,
                                               margin_nm=margin, initial_z_nm=initial_z, frame=frame)
     cost['placement_seconds'] = round(time.perf_counter() - started_placement, 3)
+    # The belt's own radius, and the two numbers it was derived from. `band_radius_nm` is what the card renders as
+    # "the belt is a band of radius X nm in the membrane plane", so it is the torus's **centre-line** -- the measured
+    # slab radius the belt was placed about. It used to carry the band record's `radius_nm`, which after the belt
+    # became a torus is the *tube's* radius (the detergent's own length, a constant for every protein and every
+    # selection): a reader checking whether the plane shrank with the subunits was shown one number that never moved.
+    # The tube's radius is stated under its own name, and the measurement beside it, so all three can be re-added.
+    band = placement['band'] or {}
     basis.update({'placement_shape': placement['placement_shape'], 'clearance_nm': placement['protein_clearance_nm'],
-                  'band_radius_nm': (placement['band'] or {}).get('radius_nm')})
+                  'band_radius_nm': band.get('centre_line_radius_nm'), 'slab_radius_nm': band.get('slab_radius_nm'),
+                  'tube_radius_nm': band.get('tube_radius_nm')})
     if not placement['valid']:
         cost['seconds'] = time.perf_counter() - started
         return _refusal(placement['issues'], basis, cost)

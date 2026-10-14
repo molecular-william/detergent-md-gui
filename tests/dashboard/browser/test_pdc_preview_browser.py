@@ -9,11 +9,15 @@ Four claims, and each is the plan's:
   the seed and the box margins do re-derive, because the coarse-grained protein is cached server-side;
 * **a refusal is the builder's sentence and no picture** -- never a blank block, and never a drawing of a system the
   build would refuse;
-* **the beads are drawn at half the model's radius, class by class, and coloured by their type family** -- the radii
-  read off the loaded structure are the module's own table times this card's own `PREVIEW_BEAD_SCALE`, each bead at
-  the radius its own size class has and a bead the model does not size at the R stand-in, and each bead's colour is
-  the Martini 3 polarity family the file's b-factor column carries; the drawn bonds are the file's `CONECT` records or
-  none at all.
+* **the beads are drawn at three tenths of the model's radius, class by class, and coloured by their type family** --
+  the radii read off the loaded structure are the module's own table times this card's own `PREVIEW_BEAD_SCALE`, each
+  bead at the radius its own size class has and a bead the model does not size at the R stand-in, and each bead's
+  colour is the Martini 3 polarity family the file's b-factor column carries; the drawn bonds are the file's `CONECT`
+  records or none at all.
+* **the empty micelle is derived from the detergent's own mapping** -- the panel hands the derive the mapping the
+  detergent has saved, so the frame carries that mapping's beads and their types. A derive that carries none is a
+  centres-only build -- one point per detergent, no moleculetype, hence no types -- and every bead's family code is
+  the unstated zero, which is the defect the last test in this file pins from the request the card sends.
 
 The route is served as a fixture, so nothing here reads the developer's workspace, and the frames are written by
 `pdc_view.system_pdb` -- the same writer a run's own snapshot goes through -- rather than being typed out by hand.
@@ -29,9 +33,10 @@ from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONST
 #: measurement and the model's table cannot drift.
 RADII_NM = {'R': 0.264, 'S': 0.230, 'T': 0.191}
 NANOMETRE_TO_ANGSTROM = 10.0
-#: The card's own reading scale -- the module's `BEAD_RADIUS_SCALE` at the value this preview wants, 0.5 since
-#: 2026-10-14, when the user reported the beads too big and asked for half.
-PREVIEW_BEAD_SCALE = 0.5
+#: The card's own reading scale -- the module's `BEAD_RADIUS_SCALE` at the value this preview wants, 0.3 since
+#: 2026-10-14, when the user reported the beads too big twice and asked for 0.3. A bead is drawn at its own class'
+#: radius times this, which is 0.792 / 0.690 / 0.573 A for R, S and T.
+PREVIEW_BEAD_SCALE = 0.3
 
 PROTEIN = {'id': 'molecules/1qj8/1qj8.pdb', 'name': '1qj8', 'path': 'molecules/1qj8/1qj8.pdb',
            'source': 'packaged', 'half_thickness_nm': 1.35, 'chains': ['A', 'B']}
@@ -80,8 +85,25 @@ def centres_pdb(molecules=3):
                                title='placement preview (DDM, AN=3, mode=lattice, seed=20261013)')
 
 
+def empty_micelle_pdb(molecules=3):
+    """An empty-micelle frame with the mapping's beads: no protein at all, one residue per detergent.
+
+    The frame the preview draws when the form carries the detergent's mapping, written by the same writer a run's
+    own snapshot goes through -- so the bead names, the element column and the family code column are the writer's
+    rather than typed here.
+    """
+    atoms = []
+    for molecule in range(molecules):
+        for name, xyz in zip(DDM_BEADS, DDM_PLACEMENT):
+            atoms.append({'residue_id': 1 + molecule, 'residue': 'DDM', 'name': name,
+                          'position': [xyz[0] + molecule * 3.0, xyz[1], xyz[2]]})
+    model = pdc_view.read_moleculetype_text(ddm_moleculetype(), source='detergent_CG.itp')
+    return pdc_view.system_pdb(atoms, detergent_residue='DDM', topology=model,
+                               title='placement preview (DDM, AN=3, mode=lattice, seed=20261013)')
+
+
 def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, clearance: float | None = 0.5436,
-           placement_shape='belt-torus', band: float | None = 2.1431, representation='the mapping\u2019s beads',
+           placement_shape='belt-torus', band: float | None = 3.1408, representation='the mapping\u2019s beads',
            cost=None, protein: str | None = '1qj8', chains=('A', 'B'), mode='lattice', aggregation=150,
            seed=20261013):
     """A response shaped as the route answers, with the fields the card renders."""
@@ -198,7 +220,7 @@ def test_deriving_the_preview_draws_the_frame_the_route_answered_with(dashboard,
         '1qj8 chains A+B · pre-assembled micelle · 150 detergents · seed 20261013')
     expect(page.locator('.new-pdc-preview-beads')).to_contain_text('1,024 beads')
     expect(page.locator('.new-pdc-preview-box')).to_contain_text('the box the build writes')
-    expect(page.locator('.new-pdc-preview-box')).to_contain_text('band of radius 2.14 nm')
+    expect(page.locator('.new-pdc-preview-box')).to_contain_text('band of radius 3.14 nm')
     expect(page.locator('.new-pdc-preview-cost')).to_contain_text('already cached')
     expect(page.locator('.new-pdc-preview-kept')).to_contain_text('preview/cg/0423f94ce62e7698')
     expect(page.locator('.new-pdc-preview-refusal')).to_be_hidden()
@@ -261,13 +283,20 @@ def test_the_expensive_inputs_mark_the_frame_stale_and_the_cheap_ones_re_derive(
 
 
 def test_the_empty_micelle_derives_with_no_coarse_graining_at_all(dashboard, live_page):
-    """The first-class case: no protein, no CG step, one centre per molecule, and no guessed bond on a coarse file."""
+    """The centres-only branch, chosen rather than inherited: no protein, no CG step, one centre per molecule.
+
+    A build with no mapping writes one point per detergent and no topology, and this is what it looks like -- so the
+    reader selects *no mapping* here instead of leaving the form on the detergent's own mapping, which is the panel's
+    default (a centres-only frame is what that default used to be, and it is the frame every bead came back
+    `family not stated` on; the last test in this file is the measurement of it).
+    """
     page, errors = live_page
     serve(page, answer(centres_pdb(), protein=None, chains=(), protein_beads=0, beads=3, clearance=None,
                        placement_shape='sphere', band=None, representation='one centre per molecule',
                        cost={'cg_cached': False, 'coarse_graining_seconds': 0.0, 'detergent_seconds': 0.0,
                              'placement_seconds': 0.001, 'seconds': 0.0005, 'cg_bytes': 0, 'cg_key': None}))
     open_panel(page, live_page.base_url, protein=None)
+    page.locator('#new-mapping').select_option('')
     derive(page)
 
     assert loaded_atoms(page, 3) == 3
@@ -278,15 +307,22 @@ def test_the_empty_micelle_derives_with_no_coarse_graining_at_all(dashboard, liv
     # The file carries no bond records at all, and a coarse file draws no guessed ones: three beads, no bonds.
     measured = page.locator('.new-pdc-preview-viewer').evaluate(MEASURE)
     assert measured['bonds'] == 0, f"{measured['bonds']} bonds drawn on a file that declares none"
+
+    # And the choice is remembered per detergent, so the next mount does not put the form back onto a mapping:
+    # choosing the centres-only build is a decision, not an untouched form.
+    open_panel(page, live_page.base_url, protein=None)
+    page.wait_for_function("() => document.querySelectorAll('#new-mapping option').length > 1", timeout=30000)
+    assert page.locator('#new-mapping').input_value() == '', 'the reader\'s own choice was defaulted over'
     assert errors == [], errors
 
 
-def test_the_beads_are_drawn_at_half_the_models_radius_with_the_bond_guess_off(dashboard, live_page):
-    """Measured off the loaded structure: each bead at half its own class' radius, and the file's own bonds and no others.
+def test_the_beads_are_drawn_at_three_tenths_of_the_models_radius_with_the_bond_guess_off(dashboard, live_page):
+    """Measured off the loaded structure: each bead at three tenths its own class' radius, and the file's own bonds.
 
-    The card drew these beads twice the model's size until 2026-10-14; the same day the user asked for half, so the
-    preview now reads the module's one table at its own `PREVIEW_BEAD_SCALE` (0.5) and a bead is drawn at half the
-    radius its class states. The frame is the writer's own output, so the classes are the ones
+    The card drew these beads twice the model's size until 2026-10-14, when the user asked for half; the same day's
+    second report put them at 0.3, so the preview now reads the module's one table at its own `PREVIEW_BEAD_SCALE`
+    (0.3) and a bead is drawn at three tenths the radius its class states -- 0.792 / 0.690 / 0.573 A for R, S and T.
+    The frame is the writer's own output, so the classes are the ones
     `pdc_view.system_pdb` wrote: the detergent's sugar beads are the model's S (2.30 A), their ring virtual sites its
     T (1.91 A) and their tails its R (2.64 A) -- while the two protein beads are beads the detergent's moleculetype
     does not size, so they keep the stand-in, the model's R.
@@ -306,7 +342,7 @@ def test_the_beads_are_drawn_at_half_the_models_radius_with_the_bond_guess_off(d
     beads = ['BB', 'SC1'] + [name for _ in range(MOLECULES) for name in DDM_BEADS]
     expected = [RADII_NM[DDM_CLASSES.get(name, 'R')] * PREVIEW_BEAD_SCALE for name in beads]
     drawn = [None if value is None else round(value / NANOMETRE_TO_ANGSTROM, 4) for value in measured['radii']]
-    assert drawn == expected, f"not half the model's own radii: {drawn} against {expected}"
+    assert drawn == expected, f"not three tenths of the model's own radii: {drawn} against {expected}"
     # The acceptance, in the unit the structure carries: the model's three classes at the card's own scale, and the
     # R to S proportion, which no multiplier of the card's can change.
     radii_nm = {value for value in drawn if value is not None}
@@ -402,6 +438,62 @@ def test_the_beads_are_coloured_by_type_family_and_the_legend_says_which(dashboa
     for entry in measured['entries']:
         assert entry['declared'] == FAMILY_COLOURS[entry['family']], entry
         assert entry['swatch'] == rgb(FAMILY_COLOURS[entry['family']]), entry
+    labels = {entry['family']: entry['label'] for entry in measured['entries']}
+    assert labels == {'unstated': 'family not stated', 'C': 'apolar (C)', 'N': 'nonpolar (N)', 'P': 'polar (P)',
+                      'Q': 'charged (Q)'}, labels
+    assert errors == [], errors
+
+
+def test_the_empty_micelle_preview_is_the_detergents_own_mapping_and_carries_its_families(dashboard, live_page):
+    """The defect, measured from the request the card sends: a derive with no mapping is a centres-only build.
+
+    The panel opens on the detergent's own mapping, so the derive for an empty micelle carries `mapping_candidate`
+    and the server writes that mapping's beads -- eleven per detergent, each with its own size class and its own
+    Martini 3 polarity family -- instead of one point per molecule with no moleculetype behind it, which is the frame
+    whose every bead read *family not stated*.
+
+    The route is served per URL: a request carrying a mapping is answered with the writer's own empty-micelle frame
+    and one that carries none with its centres-only frame, so what the card draws is decided by what it asked for
+    rather than by a body the fixture picked.
+    """
+    page, errors = live_page
+    requests = []
+
+    def frame_for(url):
+        mapped = 'mapping_candidate=' in url
+        return answer(empty_micelle_pdb() if mapped else centres_pdb(),
+                      protein=None, chains=(), protein_beads=0,
+                      beads=3 * len(DDM_BEADS) if mapped else 3, clearance=None,
+                      placement_shape='sphere', band=None,
+                      representation="the mapping\u2019s beads" if mapped else 'one centre per molecule')
+
+    serve(page, frame_for, requests)
+    open_panel(page, live_page.base_url, protein=None)
+
+    # What the form hands the derive: the mapping the store lists for this detergent, not the "no mapping" option a
+    # centres-only frame is chosen with.
+    assert page.locator('#new-mapping').input_value() == MAPPING_FILE
+    derive(page)
+
+    assert len(requests) == 1, requests
+    assert f'mapping_candidate={MAPPING_FILE}' in requests[0], requests[0]
+    assert loaded_atoms(page, 3 * len(DDM_BEADS)) == 3 * len(DDM_BEADS)
+    measured = page.locator('.new-pdc-preview-viewer').evaluate(MEASURE_COLOURS)
+
+    # Two stated families on DDM -- its sugar heads polar and its tails apolar, `#2f9e44` and `#7048e8` -- and every
+    # bead in its own family's colour rather than in the neutral one a centres-only frame gives all of them.
+    beads = [name for _ in range(3) for name in DDM_BEADS]
+    drawn = ['#' + colour for colour in measured['colours']]
+    expected = [FAMILY_COLOURS[DDM_FAMILIES[name]] for name in beads]
+    assert drawn == expected, f'the empty micelle is not drawn in its beads\u2019 families: {drawn} against {expected}'
+    stated = {colour for colour in drawn} - {FAMILY_COLOURS['unstated']}
+    assert stated == {FAMILY_COLOURS['P'], FAMILY_COLOURS['C']} == {'#2f9e44', '#7048e8'}, sorted(drawn)
+
+    # And the legend under it is the key to those colours: the polar and apolar swatches are the two the beads
+    # resolved to, which is the picture the user asked for -- and the two families the frame holds are the two it
+    # names, not one flat fill of the neutral colour.
+    legend = {entry['family']: entry['swatch'] for entry in measured['entries']}
+    assert legend['P'] == rgb(FAMILY_COLOURS['P']) and legend['C'] == rgb(FAMILY_COLOURS['C']), legend
     labels = {entry['family']: entry['label'] for entry in measured['entries']}
     assert labels == {'unstated': 'family not stated', 'C': 'apolar (C)', 'N': 'nonpolar (N)', 'P': 'polar (P)',
                       'Q': 'charged (Q)'}, labels
