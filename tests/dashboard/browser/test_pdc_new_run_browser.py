@@ -87,9 +87,12 @@ def test_the_panel_asks_for_the_pdc_inputs_and_for_nothing_else(dashboard, live_
                  'selection_threshold_fraction', 'snapshot_interval_ns', 'snapshot_cap'):
         assert page.locator(f'[name={name}]').count() == 1, f'{name} is not offered, or is offered twice'
 
-    # The workflow card is the top of the right column: what will run is read before the resolved values. With no
-    # protein and the pre-assembled default, step 3 states the style it is really running.
-    workflow = page.locator('.new-run-settings .card').first
+    # The system preview is the top of the right column and the workflow strip is the card under it: the picture the
+    # inputs would build is read first, then what the run will do. (The preview card is the plan's addition; before it
+    # the workflow card was this column's first child, which is what this line used to assert.)
+    preview = page.locator('.new-run-settings .card').first
+    expect(preview).to_contain_text('What these inputs would build')
+    workflow = page.locator('.new-run-settings .card').nth(1)
     expect(workflow).to_contain_text('What this run will do')
     expect(workflow.locator('.new-pdc-selfassembly strong')).to_have_text('3 · Build the micelle')
     assert errors == [], errors

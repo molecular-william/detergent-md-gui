@@ -285,3 +285,108 @@ def requested_chains(source):
     raw = source.args.getlist('chains') or source.args.getlist('protein_chains')
     chains = [part.strip() for value in raw for part in value.split(',') if part.strip()]
     return chains or None
+
+
+def preview_choices(source):
+    """The panel's numbers, in the builder's spelling and by the builder's own rules.
+
+    Everything a preview and a run must agree about: a seed (the placement is deterministic in it, so a run without
+    one is not comparable with another), a count, a style, the chains. The semantic checks are `pdc.validate_payload`'s
+    -- the adapter's own admission, called rather than restated -- and only the spelling is translated here. So a
+    preview refuses the same inputs a run refuses, in the same terms.
+    """
+    from ...execution.adapters import pdc
+
+    def whole(name, default=None):
+        raw = (source.args.get(name) or '').strip()
+        if not raw:
+            if default is None:
+                raise ValueError(f'{name} is required: the placement is deterministic in the seed the run will '
+                                 f'place with, so a preview without one is not this run')
+            return default
+        try:
+            return int(raw)
+        except ValueError:
+            raise ValueError(f'{name} must be a whole number, not {raw!r}') from None
+
+    def number(name, default):
+        raw = (source.args.get(name) or '').strip()
+        if not raw:
+            return default
+        try:
+            return float(raw)
+        except ValueError:
+            raise ValueError(f'{name} must be a number, not {raw!r}') from None
+
+    supplied = {'seed': whole('pdc_seed'),
+                'aggregation_number': whole('aggregation_number', pdc.DEFAULTS['aggregation_number']),
+                'placement_mode': (source.args.get('placement_mode') or '').strip()
+                                  or pdc.DEFAULTS['placement_mode'],
+                'protein_chains': requested_chains(source)}
+    choices = pdc.validate_payload(supplied)
+    choices['box_margin_nm'] = number('box_margin_nm', float(pdc.DEFAULTS['box_margin_nm']))
+    choices['initial_z_nm'] = number('initial_z_nm', float(pdc.DEFAULTS['initial_z_nm']))
+    return choices
+
+
+def preview_cache_root():
+    """Where a preview keeps its coarse-grained protein: the workspace's own scratch area.
+
+    Not a run's directory, and nothing any stage reads: a run re-derives its own placement snapshot in its own stage,
+    so the preview's cache can never be mistaken for a run's input. `Paths` always resolves a workspace (the
+    configured one, or the repository's own directory), so the missing case is a refusal rather than a fallback to
+    somewhere a preview has no business writing.
+    """
+    from ...execution import pdc_preview
+
+    workspace = paths.current().workspace
+    if workspace is None:
+        abort(500, 'this workspace has nowhere writable to keep a coarse-grained protein')
+    return Path(workspace) / pdc_preview.CACHE_DIRECTORY
+
+
+@blueprint.get('/api/pdc/preview/placement')
+def pdc_preview_placement():
+    """The frame these inputs would build, derived from the build's own placement step and nothing else.
+
+    A GET, because it is a derived read-only answer about the inputs -- the same shape as
+    `GET /api/pdc/proteins/<entry>/encapsulation` beside it. The picture is `pdc_view.system_pdb`'s own output, so it
+    is the same object the run records as its first snapshot: one residue per molecule, the mapping's beads, and the
+    model's own bonds as `CONECT` records.
+
+    **A refusal is an answer, not a bad request.** A template the builder's validator refuses, and a placement that
+    fails the clearance gate, come back as `200` with `valid: false` and the builder's own sentences -- the panel
+    renders them instead of inventing a message, and draws nothing. A *malformed* request (an unknown protein, a chain
+    the file does not name, a seed that is not a whole number, a template that is not a file) is a 400 with `{error}`,
+    exactly as `pdc_encapsulation` refuses.
+
+    Nothing a run reads is written and no run is created: the only thing this route leaves on disk is a
+    coarse-grained protein under the workspace's preview cache (see `execution/pdc_preview.py`), which no stage reads.
+    """
+    from ...execution import pdc_preview, tools
+
+    root = coordinator().ROOT
+    try:
+        choices = preview_choices(request)
+        protein = None
+        entry = (request.args.get('protein') or '').strip()
+        if entry:
+            # The catalogue's own spelling of the entry, so a caller naming it by id, by path or by stem gets the one
+            # structure it means -- and an entry the catalogue does not hold is a 404 that says so.
+            protein = catalogue_protein(root, entry)['path']
+        template = (request.args.get('template') or '').strip()
+        if not template:
+            raise ValueError('template is required: the preview places the detergent the template names')
+        answer = pdc_preview.preview(
+            project_root=root, cache_root=preview_cache_root(),
+            template=template, protein=protein, chains=choices['protein_chains'],
+            mapping=(request.args.get('mapping_candidate') or '').strip() or None,
+            molecule_id=(request.args.get('molecule_id') or '').strip() or None,
+            aggregation_number=choices['aggregation_number'], placement_mode=choices['placement_mode'],
+            seed=choices['seed'], box_margin_nm=choices['box_margin_nm'], initial_z_nm=choices['initial_z_nm'],
+            # The tool the build shells out to, resolved where every other tool is: a declaration that cannot be
+            # honoured resolves to nothing rather than to a substitute, and the refusal then names what is missing.
+            executable=tools.tool_path('martinize2'))
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    return jsonify(answer)

@@ -282,6 +282,101 @@
     </section>
     </div>
     <aside class="new-run-settings">
+    {# The system preview: the build's own placement step, derived on demand by `GET /api/pdc/preview/placement`.
+       It is the frame the run records as its own first snapshot, so it is the picture the run will show -- and every
+       statement around it is there to keep that from being read as a prediction of the whole run. Every hook here is
+       a class, because `tests/dashboard/integration/test_dom_ids.py` requires an id a module names in a selector to be
+       rendered on the single-molecule page too, and this fieldset is not rendered there. #}
+    <section class="card new-pdc-preview" aria-labelledby="new-preview-title">
+      <span class="eyebrow">SYSTEM PREVIEW</span>
+      <h3 id="new-preview-title">What these inputs would build</h3>
+      <p class="hint">The build's own placement step, derived for the fields on this form: the selected chains are
+        coarse-grained with <code>martinize2</code>, the detergents are placed with the run's own seed, and the box is
+        measured around them. It is the same frame the run records as its own first snapshot
+        (<code>1_system/snapshots/placement.pdb</code>) — not an illustration of it, and not the last run's system.</p>
+
+      <div class="new-pdc-preview-viewer" role="img"
+           aria-label="Coarse-grained protein and detergent belt inside the simulation box"></div>
+      <p class="hint new-pdc-preview-basis" role="status"></p>
+      <p class="new-pdc-preview-refusal" role="status" hidden></p>
+
+      <div class="new-pdc-preview-actions">
+        <button type="button" class="secondary new-pdc-preview-derive">Derive the preview</button>
+        <span class="hint new-pdc-preview-state" role="status">Nothing derived yet: press Derive the preview.</span>
+      </div>
+
+      <dl class="review-grid new-pdc-preview-facts">
+        <dt>Derived from</dt><dd class="new-pdc-preview-from">—</dd>
+        <dt>Beads</dt><dd class="new-pdc-preview-beads">—</dd>
+        <dt>Box</dt><dd class="new-pdc-preview-box">—</dd>
+        <dt>Cost</dt><dd class="new-pdc-preview-cost">—</dd>
+        <dt>Kept</dt><dd class="new-pdc-preview-kept">—</dd>
+      </dl>
+
+      <p class="hint"><strong>It is the placement, and nothing after it.</strong> Both generators are deterministic in
+        the seed, so for these inputs this frame is the frame the run will build. It is <em>not</em> a prediction of the
+        system that will run: solvation, the two equilibration legs, the belt's final size and the back-map all come
+        after this picture, and none of them is predicted here.</p>
+
+      <p class="hint"><strong>Heads to the water, tails to the core; beads drawn twice the model's own radius and bonds
+        at a quarter of a bead.</strong> The placement's direction is the way <em>out</em> of the micelle, and each
+        detergent is stamped with its head along it. The radii are the model's own, for the size class the file states
+        (<code>ngl-beads.js</code> is the one table, and the doubled radius and quarter-bead bond are that module's
+        parameters as this card passes them), so this card and the run's own viewer cannot draw one bead two ways.</p>
+
+      <p class="hint"><strong>What it does not show.</strong></p>
+      <ul class="hint new-pdc-preview-nots">
+        <li><strong>No solvent and no ions.</strong> The build leaves a <em>dry</em> system: water and salt are added
+          by the first equilibration leg, which is why nothing in this picture is in water. That is the build's own
+          artifact, not a reduction of it.</li>
+        <li><strong>Not the box you will simulate.</strong> This is the box the build writes — x and y from the
+          protein's own extent plus the margin, z from the initial z or the membrane slab. The NPT leg changes it, so
+          the density here is not the run's density.</li>
+        <li><strong>Not a verdict on the micelle.</strong> A placement is geometry, not dynamics: whether the belt
+          closes and survives is decided by the run's own assessment, after CG MD, and this panel never decides it.</li>
+        <li><strong>Not the final system.</strong> The assessment leg removes the detergents that are not in the
+          micelle, and the back-map turns the surviving state atomistic; neither is here.</li>
+        <li><strong>Beads, not chemistry.</strong> A coarse-grained bead has no element, so the file writes a neutral
+          stand-in for every bead (<code>pdc_view</code> states it) and each is drawn at the model's R radius. With a
+          mapping the picture is that mapping's beads and its own bonds; with none, the build records one centre per
+          molecule and writes no topology, and the card says which of the two it is showing.</li>
+      </ul>
+
+      <details class="new-pdc-preview-explanation">
+        <summary>Where this picture comes from, what it costs, and when there is none</summary>
+        <p class="hint"><strong>Where it comes from.</strong> The build's own placement step, run on demand:
+          <code>pdc_build.select_protein</code>, the coarse-grained protein, <code>pdc_placement.place_detergents</code>,
+          <code>pdc_box</code>, <code>pdc_build.stamp</code> and <code>pdc_view.system_pdb</code> — the functions the
+          stage calls, in the order it calls them. Nothing here is drawn by hand: a schematic would look like a
+          prediction of a system these inputs do not produce, which is the one thing this card will not do.</p>
+        <p class="hint"><strong>When the build refuses, this shows the refusal and no picture.</strong> The template's
+          own validator and the placement's clearance gate are the build's gates, and the card renders the builder's
+          own sentence rather than inventing a message or drawing a system the build would refuse. One scope worth
+          knowing: a refusal from the <em>sphere</em> is not a verdict on the protein — the sphere is the shape a build
+          makes when the protein's file states no membrane, and a file that states one is placed as a band in the
+          membrane plane instead.</p>
+        <p class="hint"><strong>With no protein there is no coarse-graining at all.</strong> The empty micelle is placed
+          directly around the box the count and the radius define, so it is the cheapest case this card has, and there
+          is no belt to size.</p>
+        <p class="hint"><strong>What it costs.</strong> The expensive half is the coarse-graining, and only that half
+          depends on the protein and its chain ticks. Measured on this machine with 1AT9:
+          <code>martinize2</code> takes <strong>6.7 s</strong> for one 231-residue chain and <strong>13.6 s</strong>
+          for all three (690 residues); the placement itself is <strong>5–40 ms</strong>. The Cost row reports what
+          <em>this</em> derive actually paid, and an empty micelle pays none of it. Once the coarse-grained protein
+          exists, the count, the style, the seed and the box margins re-derive in about a tenth of a second.</p>
+        <p class="hint"><strong>What is kept.</strong> The frames are not: they are derived per request, because a run
+          re-derives its own <code>placement.pdb</code> in its own stage. What is kept is the coarse-grained protein,
+          in this workspace's own <code>preview/cg/</code> directory (~50 KB per protein-and-selection), keyed by the
+          protein's own bytes, the subunit ticks and the <code>martinize2</code> that built it — so a change to any of
+          those three derives it again, and a change to anything else does not. Nothing a run reads lives there, and a
+          preview creates no run, no job and no manifest: it never appears in the runs list.</p>
+        <p class="hint"><strong>Why the card does not redraw on every keystroke.</strong> The picture is asked for: the
+          reader presses <em>Derive the preview</em>. A change to the protein, the subunit ticks or the mapping marks
+          the frame as no longer this form's and says so, rather than quietly drawing a picture that answers a
+          different question. The count, the style, the seed and the box margins are re-derived as they change,
+          because the cached coarse-grained protein makes those cheap.</p>
+      </details>
+    </section>
     <section class="card" aria-labelledby="new-workflow-title">
       <span class="eyebrow">WORKFLOW</span><h3 id="new-workflow-title">What this run will do</h3>
       <ul class="new-pdc-workflow">

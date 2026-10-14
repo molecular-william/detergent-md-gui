@@ -418,7 +418,7 @@ def _absolute(command: list, flags=('-f', '-x', '-o')) -> list:
     return resolved
 
 
-def cg_protein(stage: Path, protein: Path) -> tuple[list, list[str] | None, dict]:
+def cg_protein(stage: Path, protein: Path, *, executable=None) -> tuple[list, list[str] | None, dict]:
     """The CG protein's beads, running martinize2 only when the stage has not been built before.
 
     martinize2's own file names are its business, so what is read back is the file its own command names (`-x`, a
@@ -430,12 +430,23 @@ def cg_protein(stage: Path, protein: Path) -> tuple[list, list[str] | None, dict
     step needs lands in the stage directory instead (measured in a scratch directory: `-o cg/protein.top` wrote
     `./molecule_0.itp`).
 
+    `executable` is the tool as a caller has *resolved* it (`execution/tools.tool_path`, which verifies a declared
+    path before use), and `None` -- what a stage passes -- keeps the tool's own name, resolved on the PATH
+    `execution/tools.search_path()` builds for a stage. A caller outside a stage has no such PATH: measured in a
+    plain interpreter, `subprocess.run(['martinize2', ...])` raised `FileNotFoundError` while `tools.tool_path`
+    resolved the same tool at `dashboard/.venv/bin/martinize2`, so the name alone is not a portable command.
+
     Returns the beads, the command that was run (`None` when the step was already built) and what the secondary
     structure assignment was, all three of which the report carries.
     """
     directory = stage / CG_DIRECTORY
     directory.mkdir(exist_ok=True)
-    command = _absolute(pdc_protein.martinize_command(protein, directory))
+    # The command is `pdc_protein`'s to build, and the executable is handed over only when the caller resolved one:
+    # `None` is not a tool, it is the absence of a resolution, and the command then keeps the tool's own name --
+    # which is also what a caller that substitutes the builder with a two-argument stub expects.
+    tool = pdc_protein.martinize_command(protein, directory, executable=executable) if executable \
+        else pdc_protein.martinize_command(protein, directory)
+    command = _absolute(tool)
     structure = _output_path(command, '-x')
     if structure.is_file():
         return (pdc_import.structure_atoms(structure), None,

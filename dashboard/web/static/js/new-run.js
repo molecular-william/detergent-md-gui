@@ -1,4 +1,5 @@
 import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResource, guarded, DROP, panelIds } from './shared.js';
+import { BEAD_RADIUS_PARAMETERS, applyBeadRadii } from './ngl-beads.js';
 
 //: The workspace whose New Run panel this module's pdc mode serves.
 const PDC_WORKSPACE = 'protein-detergent';
@@ -858,22 +859,232 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       : `Imported ${body.pdbid}` + (body.half_thickness_nm != null
           ? ` — its file states a ${body.half_thickness_nm} nm half-thickness.`
           : ' — its file states no membrane, so the build would use the protein-extent box.'));
-    syncChains(); syncSummary(); loadEstimate(); checkReadiness();
+    syncChains(); syncSummary(); loadEstimate(); checkReadiness(); renderPreviewState();
+  }
+
+  // The system preview -----------------------------------------------------------------------------------------
+  //
+  // The card at the head of the right column, and the one rule that shapes it: **the picture is asked for**. The
+  // build's own placement step is not free -- martinize2 is seconds -- so it is not streamed on every keystroke. The
+  // reader presses *Derive the preview*; a change to the protein, the subunit ticks or the mapping marks the frame
+  // stale rather than redrawing it, because those three decide what would be coarse-grained; and the count, the
+  // style, the seed and the box margins re-derive, because the coarse-grained protein is cached on the server and
+  // those cost milliseconds. The cache is keyed there by the protein's bytes, the selection and the tool, so the
+  // three expensive inputs and no others invalidate it.
+  //
+  // What is drawn is the server's answer and nothing of this file's: `pdb`, `basis` and `cost` are rendered as they
+  // arrive, so the picture and the numbers beside it are one record and the panel never repeats the arithmetic. The
+  // bead radii are not this file's either -- `ngl-beads.js` is the one table and the one call -- and the only number
+  // the card owns is the scale it reads them at, which is why `PREVIEW_BEAD_SCALE` is here rather than in the table.
+  const PREVIEW_BEAD_SCALE = 2;
+  const previewNode = selector => pdcNode(`.new-pdc-preview ${selector}`);
+  const sayPreview = (selector, text) => { const target = previewNode(selector); if (target) setText(target, text); };
+  let previewFrame = null, previewRequest = 0, previewTimer;
+  // The stage lives on the host element, the way `pdc.js` keeps its own (`viewer.pdcStage`): one owner, and a test
+  // or a console can reach the thing that is drawn without a hook this module would have to publish.
+  const previewStage = () => previewNode('.new-pdc-preview-viewer')?.previewStage || null;
+
+  function previewInputs() {
+    return {protein: field('protein').value || '', chains: selectedChains(),
+            mapping: field('mapping_candidate').value || '', molecule: field('molecule_id').value || '',
+            template: templatePath(), count: field('aggregation_number').value || '',
+            mode: placementMode(), seed: field('pdc_seed').value || '',
+            margin: field('box_margin_nm').value || '', initial_z: field('initial_z_nm').value || ''};
+  }
+  // What would be coarse-grained, or drawn from another mapping: a change to one of these is a different question,
+  // and the frame on screen is no longer this form's. Everything the reader can still move without new
+  // coarse-graining re-derives instead.
+  const previewExpensive = inputs => `${inputs.protein}|${inputs.chains.join(',')}|${inputs.mapping}|${inputs.molecule}`;
+  const previewCheap = inputs => [inputs.count, inputs.mode, inputs.seed, inputs.margin, inputs.initial_z,
+                                  inputs.template].join('|');
+
+  function seconds(value) {
+    const count = Number(value) || 0;
+    return `${count >= 1 ? count.toFixed(1) : count.toFixed(3)} s`;
+  }
+  const kilobytes = bytes => `${Math.max(1, Math.round((Number(bytes) || 0) / 1024))} KB`;
+
+  function describeFrame(basis) {
+    const protein = basis?.protein
+      ? `${basis.protein}${(basis.chains || []).length ? ` chains ${basis.chains.join('+')}` : ''}`
+      : 'no protein (empty micelle)';
+    const style = basis?.placement_mode === 'self-assembly' ? 'self-assembly' : 'pre-assembled micelle';
+    return `${protein} · ${style} · ${basis?.aggregation_number} detergents · seed ${basis?.seed}`;
+  }
+
+  // The cost sentence is the server's own measurement, not the plan's headline: the numbers a reader sees are the
+  // ones this derive paid. What the coarse-graining is (and that it is cached) is stated in the card's disclosure,
+  // where it belongs, so the row can stay a measurement.
+  function costSentence(cost, basis) {
+    const placement = `placement ${seconds(cost.placement_seconds)}`;
+    const mapping = cost.detergent_seconds ? ` · mapping to beads ${seconds(cost.detergent_seconds)}` : '';
+    if (!basis?.protein_beads) return `no coarse-graining — the micelle is placed directly: ${placement}${mapping}`;
+    return cost.cg_cached
+      ? `the coarse-grained protein was already cached (${kilobytes(cost.cg_bytes)}) · ${placement}${mapping}`
+      : `martinize2 ${seconds(cost.coarse_graining_seconds)} (${basis.protein_beads} beads) · ${placement}${mapping}`;
+  }
+
+  function keptSentence(cost, basis) {
+    return basis?.protein_beads
+      ? `the coarse-grained protein, in this workspace's preview/cg/${cost.cg_key} (${kilobytes(cost.cg_bytes)}); `
+        + 'the frames are not kept — a run re-derives its own snapshot'
+      : 'nothing: an empty micelle coarse-grains nothing, and the frames are not kept';
+  }
+
+  function renderPreviewState() {
+    const state = previewNode('.new-pdc-preview-state');
+    if (!state || !previewFrame) return;
+    const stale = previewExpensive(previewFrame.inputs) !== previewExpensive(previewInputs());
+    state.classList.toggle('stale', stale);
+    if (previewFrame.refused) {
+      state.textContent = stale
+        ? 'The protein, the subunits or the mapping have changed since this refusal — derive it again.'
+        : 'The build refuses these inputs; the sentence above is its own.';
+      return;
+    }
+    state.textContent = stale
+      ? 'The protein, the subunits or the mapping have changed since this frame was derived — derive it again.'
+      : (previewCheap(previewFrame.inputs) !== previewCheap(previewInputs())
+          ? 'Derived for the inputs below; the count, the style, the seed or the box have moved since.'
+          : 'Derived for the inputs on this form.');
+  }
+
+  function previewQuery(inputs) {
+    const query = new URLSearchParams({template: inputs.template, molecule_id: inputs.molecule,
+                                       aggregation_number: inputs.count, placement_mode: inputs.mode,
+                                       pdc_seed: inputs.seed});
+    // A catalogue id can be an absolute path for an imported structure, and the route reads such a path with its
+    // leading slash stripped -- the same spelling the estimate's own call uses.
+    if (inputs.protein) query.set('protein', String(inputs.protein).replace(/^\/+/, ''));
+    if (inputs.chains.length) query.set('chains', inputs.chains.join(','));
+    if (inputs.mapping) query.set('mapping_candidate', inputs.mapping);
+    if (inputs.margin) query.set('box_margin_nm', inputs.margin);
+    if (inputs.initial_z) query.set('initial_z_nm', inputs.initial_z);
+    return query;
+  }
+
+  function showPreviewFrame(pdb) {
+    const host = previewNode('.new-pdc-preview-viewer');
+    if (!host || typeof NGL === 'undefined') return;
+    // The stage is built the moment there is something to draw, and asked to resize on a tab show and a window
+    // change: NGL sizes its drawing buffer when the stage is built and only recomputes it when asked, so a stage
+    // built at one width keeps that buffer inside a host that later grows.
+    if (!host.previewStage) host.previewStage = new NGL.Stage(host, {backgroundColor: 'white'});
+    const stage = host.previewStage;
+    stage.removeAllComponents();
+    // The guess is off, not optional. A coarse-grained bead has no element and no covalent radius, so NGL's
+    // distance-based `inferBonds` draws head beads onto tail beads -- measured in `pdc.js` at 90 bonds on a frame
+    // the model bonds 60 ways. The file carries the model's own bonds as CONECT records whenever the build has a
+    // mapping; when it carries none (a centres-only build, one bead per molecule) there is no bond to draw at all.
+    stage.loadFile(new Blob([pdb], {type: 'text/plain'}), {ext: 'pdb', inferBonds: 'none'}).then(component => {
+      applyBeadRadii(component.structure, {scale: PREVIEW_BEAD_SCALE});
+      component.addRepresentation('ball+stick', BEAD_RADIUS_PARAMETERS);
+      component.autoView();
+      stage.handleResize();
+    }).catch(error => sayPreview('.new-pdc-preview-basis',
+                                 `The frame the server sent could not be drawn: ${error.message || error}`));
+  }
+
+  function renderPreviewFrame(body) {
+    const basis = body.basis || {}, cost = body.cost || {}, box = basis.box_nm || [];
+    const viewer = previewNode('.new-pdc-preview-viewer'), refusal = previewNode('.new-pdc-preview-refusal');
+    if (refusal) { refusal.hidden = true; refusal.textContent = ''; }
+    if (viewer) viewer.hidden = false;
+    showPreviewFrame(body.pdb || '');
+    sayPreview('.new-pdc-preview-basis', `Placement for ${describeFrame(basis)} · `
+      + `${Number(basis.beads).toLocaleString()} beads · box ${box.map(value => Number(value).toFixed(2)).join(' × ')} nm `
+      + '· before any dynamics, so no solvent and no ions'
+      + (basis.clearance_nm != null ? ` · clearance from the protein ${Number(basis.clearance_nm).toFixed(3)} nm` : ''));
+    sayPreview('.new-pdc-preview-from', describeFrame(basis));
+    sayPreview('.new-pdc-preview-beads', `${Number(basis.beads).toLocaleString()} beads `
+      + `(${kilobytes((body.pdb || '').length)} of PDB) · `
+      + (basis.detergent_representation === 'one centre per molecule'
+          ? 'one centre per detergent: this build records no bead model'
+          : "the mapping's beads, bonded the model's way"));
+    sayPreview('.new-pdc-preview-box', `${box.map(value => Number(value).toFixed(2)).join(' × ')} nm — the box the build `
+      + 'writes, before equilibration changes it'
+      + (basis.band_radius_nm ? ` · the belt is a band of radius ${Number(basis.band_radius_nm).toFixed(2)} nm in the membrane plane` : ''));
+    sayPreview('.new-pdc-preview-cost', costSentence(cost, basis));
+    sayPreview('.new-pdc-preview-kept', keptSentence(cost, basis));
+    renderPreviewState();
+  }
+
+  function renderPreviewRefusal(reason, body) {
+    const basis = body?.basis || {}, cost = body?.cost || {};
+    const viewer = previewNode('.new-pdc-preview-viewer'), refusal = previewNode('.new-pdc-preview-refusal');
+    // The canvas belongs to NGL, not to this card: only its components are dropped, so a later frame still has
+    // somewhere to draw. Emptying the host is what detaches it, and then no frame can be drawn again.
+    previewStage()?.removeAllComponents();
+    if (viewer) viewer.hidden = true;
+    if (refusal) {
+      refusal.hidden = false;
+      // The builder's own sentence, and the scope it belongs to: a refusal from the sphere is not a verdict on the
+      // protein, because the protein file's own membrane statement is what decides which shape is placed.
+      const sphere = !!basis.protein && basis.placement_shape === 'sphere';
+      refusal.textContent = `No picture: the builder refuses these inputs. Its own reason is: ${reason}`
+        + (sphere ? ' — this placement is the sphere about the protein’s centroid, the shape a build takes when the '
+            + 'protein’s file states no membrane; a file that states one is placed as a band in the membrane plane '
+            + 'instead.' : '');
+    }
+    sayPreview('.new-pdc-preview-basis', 'No picture: the sentence above is the builder’s own, and nothing was drawn.');
+    sayPreview('.new-pdc-preview-from', basis.template ? describeFrame(basis) : '—');
+    sayPreview('.new-pdc-preview-beads', '—');
+    sayPreview('.new-pdc-preview-box', '—');
+    sayPreview('.new-pdc-preview-cost', costSentence(cost, basis));
+    sayPreview('.new-pdc-preview-kept', keptSentence(cost, basis));
+    renderPreviewState();
+  }
+
+  async function derivePreview() {
+    const inputs = previewInputs();
+    const mine = ++previewRequest;
+    const state = previewNode('.new-pdc-preview-state');
+    if (state) { state.classList.remove('stale'); setText(state, 'Deriving the placement…'); }
+    let response, body = {};
+    try {
+      response = await fetch('/api/pdc/preview/placement?' + previewQuery(inputs));
+      body = await response.json().catch(() => ({}));
+    } catch (error) {
+      if (mine !== previewRequest) return;
+      previewFrame = {inputs, refused: true};
+      renderPreviewRefusal('the preview could not be read, because the coordinator did not answer.', null);
+      return;
+    }
+    // An answer to an older question is dropped rather than put on screen: the reader may have moved the count
+    // while the coarse-graining ran, and a slow earlier frame landing on a newer question is how a panel lies.
+    if (mine !== previewRequest) return;
+    if (!response.ok) {
+      previewFrame = {inputs, refused: true};
+      renderPreviewRefusal(body.error || `the preview was refused (status ${response.status}).`, null);
+      return;
+    }
+    previewFrame = {inputs, refused: !body.valid};
+    if (body.valid) renderPreviewFrame(body);
+    else renderPreviewRefusal((body.reasons || []).join(' ') || 'the build gave no reason', body);
+  }
+
+  // A cheap change re-derives once a frame exists, debounced so a typed count is one request. An expensive change
+  // never does: it is the step the reader is asked to pay for, so it marks the frame stale and says so.
+  function previewMoved() {
+    renderPreviewState();
+    if (!previewFrame) return;
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(derivePreview, 250);
   }
 
   field('molecule_id').addEventListener('change', () => {
-    describeDetergent(); store();
+    describeDetergent(); store(); renderPreviewState();
     loadMappings().then(() => { syncSummary(); loadEstimate(); return checkReadiness(); }).catch(error => say('.new-pdc-detergent', error.message));
   });
-  field('template').addEventListener('change', () => { describeTemplate(); store(); syncSummary(); checkReadiness(); });
-  field('protein').addEventListener('change', () => { syncChains(); store(); syncSummary(); loadEstimate(); checkReadiness(); });
+  field('template').addEventListener('change', () => { describeTemplate(); store(); syncSummary(); checkReadiness(); previewMoved(); });
+  field('protein').addEventListener('change', () => { syncChains(); store(); syncSummary(); loadEstimate(); checkReadiness(); renderPreviewState(); });
   // The subunit ticks are rebuilt whenever the chosen entry changes, so the listener sits on the group that holds
   // them: a per-box handler would be lost with the box it was bound to. Every tick is a change to the question the
   // estimate answers, so the route is asked again and the numbers move with the choice.
   pdcNode('.new-pdc-chain-list')?.addEventListener('change', () => {
-    describeChains(); store(); syncSummary(); loadEstimate(); checkReadiness();
+    describeChains(); store(); syncSummary(); loadEstimate(); checkReadiness(); renderPreviewState();
   });
-  field('mapping_candidate').addEventListener('change', () => { store(); syncSummary(); loadEstimate(); checkReadiness(); });
+  field('mapping_candidate').addEventListener('change', () => { store(); syncSummary(); loadEstimate(); checkReadiness(); renderPreviewState(); });
   // Every number the adapter reads. `input` keeps the summary and the gate current while a value is typed -- a
   // number input fires `change` only on blur, so a gate that listened for that alone would leave the reader looking
   // at a blocker they had already cleared (and one readiness fetch per keystroke is noise, so it is debounced);
@@ -885,9 +1096,22 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     input.addEventListener('change', () => { syncSummary(); store(); checkReadiness(); });
   }
   field('aggregation_number').addEventListener('input', loadEstimate);
-  field('pdc_placement_mode')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
+  field('pdc_placement_mode')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); previewMoved(); });
   field('backmap')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
   pdcNode('.new-pdc-import-button')?.addEventListener('click', importStructure);
+  // The preview's own cheap inputs: each of these re-derives a frame that already exists, and the exchange rate is
+  // the cache -- the coarse-grained protein is not rebuilt -- which is why these move and the three expensive ones
+  // only mark the frame stale.
+  field('aggregation_number').addEventListener('input', previewMoved);
+  for (const name of ['pdc_seed', 'box_margin_nm', 'initial_z_nm']) field(name)?.addEventListener('input', previewMoved);
+  pdcNode('.new-pdc-preview-derive')?.addEventListener('click', derivePreview);
+  // NGL sizes its drawing buffer when the stage is built and only recomputes it when asked, so a card that comes
+  // back into view -- or a window that grows -- asks. Measured in the mock: a stage built at one width kept a 548 px
+  // buffer inside a 759 px host until it was asked to resize.
+  window.addEventListener('resize', () => previewStage()?.handleResize());
+  document.addEventListener('dashboard:tab', event => {
+    if (event.detail?.id === panelIds()['new-run']) previewStage()?.handleResize();
+  });
   field('pdbid')?.addEventListener('keydown', event => {
     if (event.key === 'Enter') { event.preventDefault(); importStructure(); }
   });

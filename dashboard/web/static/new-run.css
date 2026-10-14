@@ -62,10 +62,12 @@
 .new-pdc-verdict.refused{color:var(--danger)}
 .new-pdc-method,.new-pdc-caveat{margin:8px 0 0;font-size:12px}
 /* The explanation behind the verdict and the numbers waits until the reader asks: the same `<details>` disclosure
-   the advanced settings use, so a reader recognises it. The verdict and the table stay out of it. */
-#run-form .new-pdc-explanation{margin-top:10px}
-#run-form .new-pdc-explanation summary{font-size:12px;cursor:pointer}
-#run-form .new-pdc-explanation p{margin:6px 0 0}
+   the advanced settings use, so a reader recognises it. The verdict and the table stay out of it. The preview card's
+   own disclosure is the same shape with its own hook -- a class two cards share is a selector neither owns, and an
+   unqualified selector for it then matches two elements. */
+#run-form .new-pdc-explanation,#run-form .new-pdc-preview-explanation{margin-top:10px}
+#run-form .new-pdc-explanation summary,#run-form .new-pdc-preview-explanation summary{font-size:12px;cursor:pointer}
+#run-form .new-pdc-explanation p,#run-form .new-pdc-preview-explanation p{margin:6px 0 0}
 .new-pdc-belt-block,.new-pdc-empty-block{margin-top:10px}
 #run-form .leg{margin-top:12px}
 #run-form .leg label{display:flex;flex-direction:column;gap:2px;font-weight:650}
@@ -93,4 +95,30 @@
 #run-form .new-pdc-chain input{width:auto;margin:0}
 #run-form .new-pdc-backmap{display:flex;align-items:center;gap:8px;margin-top:12px;font-weight:650}
 #run-form .new-pdc-backmap input{width:auto}
+/* --- The system preview, at the head of the right column ------------------------------------------------------
+   The build's own placement step, drawn on demand. The card reuses the house pieces already in this file (`card`,
+   `eyebrow`, `hint`, `review-grid`, `new-pdc-verdict`, `new-pdc-explanation`) and adds the viewer host -- the rule
+   `pdc.css` gives `.pdc-viewer`, sized for a column rather than a full panel -- and two state lines. */
+#run-form .new-pdc-preview-viewer{height:320px;min-height:240px;border:1px solid var(--line);border-radius:8px;
+  background:#f7f9fc}
+/* A host with no canvas is a picture that did not start, and saying so beats an empty box. `:empty` is what the
+   viewer's absence looks like: NGL appends its own canvas the moment a stage is built. */
+#run-form .new-pdc-preview-viewer:empty::after{content:"The 3D viewer did not start (NGL is not loaded).";
+  display:grid;place-items:center;height:100%;color:var(--muted)}
+#run-form .new-pdc-preview-basis{margin:8px 0 0}
+#run-form .new-pdc-preview-actions{display:flex;align-items:center;gap:10px;margin-top:10px}
+#run-form .new-pdc-preview-state{margin:0;color:var(--muted)}
+/* The inputs have moved on since this frame was derived. Amber, not red: nothing is wrong, the picture is simply not
+   this form's any more -- and the card says so rather than silently redrawing one that answers another question. */
+#run-form .new-pdc-preview-state.stale{color:#7a4b00}
+/* The refusal is the builder's own sentence, in the danger colour the estimate's own refusal uses -- with its own
+   class rather than that one, because a selector two cards share is a selector neither of them owns. */
+#run-form .new-pdc-preview-refusal{margin:0;font-weight:600;color:var(--danger)}
+#run-form .new-pdc-preview-facts{margin:12px 0 0}
+#run-form .new-pdc-preview-nots{margin:6px 0 0;padding-left:20px}
+#run-form .new-pdc-preview-nots li{margin:4px 0}
+/* Two sticky cards in one column overlap, and this card is taller than a viewport: `position:sticky` was tried and
+   measured out. A 1280 px card stuck at `top:18px` covers everything after it in the column -- including the review's
+   own Start run button, which two existing browser tests then could not click -- so the preview scrolls with the
+   column and the review keeps the sticky position it had. The plan's decision 3 is reversed on that measurement. */
 @media(max-width:700px){#run-form .new-pdc-pair{grid-template-columns:1fr}}

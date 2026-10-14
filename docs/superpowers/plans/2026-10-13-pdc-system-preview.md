@@ -1,7 +1,11 @@
 # A system preview inside the Protein-Detergent New Run panel
 
-Status: **proposal, nothing built.** This is a plan and a mock for review; the panel, the route and the service
-described here do not exist yet. The mock is beside this plan at
+Status: **built, 2026-10-14.** The card, the service (`dashboard/execution/pdc_preview.py`) and the route
+(`GET /api/pdc/preview/placement`) are in the tree and covered by tests; the mock beside this plan is the design the
+reader approved, and *As built* below is what the code does where that differs or goes further. The rest of this
+document is the design call that decided it, kept as written.
+
+The mock is beside this plan at
 `docs/superpowers/drafts/2026-10-13-pdc-system-preview-draft.html` and carries five real placement frames, generated
 for it by the pipeline's own code and **re-derived 2026-10-14 through the placement's orientation fix** (see *The two
 changes the user asked for (2026-10-14)*).
@@ -337,13 +341,23 @@ Three things those numbers say:
   draft measured a 1652 px form because it linked only two stylesheets and no `main`; this mock reproduces the app's
   full head order, and the app's real numbers are the ones above.
 
-### Sticky: my decision, easy to reverse
+### Sticky: my decision, easy to reverse — **reversed, 2026-10-14, on measurement**
 
-`.run-review` is `position:sticky; top:18px` today. Two sticky cards in one column overlap, and the preview is the one
-that has to stay in view while the reader scrolls the left column to reach the count. The mock therefore gives the
-preview card `position:sticky; top:18px` and sets the review below it back to `static`. **If you would rather keep
-the review pinned, the preview becomes the static one — but then the picture scrolls out of view while the inputs are
-being changed, which is the whole reason it is there.**
+`.run-review` is `position:sticky; top:18px` today, and the plan above proposed giving the preview that position and
+setting the review back to `static`. **It was tried and taken out again.** A card 1280 px tall stuck at `top:18px` is
+taller than the viewport it sticks in, so it is painted over everything after it in the column — including the review's
+own *Start run* button: two existing browser tests (`test_pdc_subunits_browser.py`, `test_pdc_backmap_browser.py`)
+could no longer click the button and timed out waiting for it, which is what a reader would have found too. So the
+preview scrolls with the column and the review keeps the stickiness it always had. The mock's own card was 1077 px and
+its ruler was a page taller than a viewport, which is why the defect did not show up there; the built card is taller
+because it carries the reader-facing statements *and* the Cost/Kept rows the server fills in.
+
+Two smaller lessons from the same measurement, both about selectors rather than layout: a class two cards share is a
+selector neither owns, and an unqualified selector for it then matches two elements. The preview's refusal paragraph
+and its disclosure therefore have their own hooks (`.new-pdc-preview-refusal`, `.new-pdc-preview-explanation`) with the
+shared styling grouped in the CSS, rather than borrowing `.new-pdc-verdict`/`.new-pdc-explanation` — the first attempt
+did borrow them and broke the estimate's own browser tests, which is exactly the kind of breakage the panel's
+selector-based tests are for.
 
 ## The service and the route this needs
 
@@ -366,6 +380,129 @@ being changed, which is the whole reason it is there.**
   protein + chains + martinize2's hash + template), because it is the expensive half and depends on nothing the reader
   moves quickly; frames are derived per request and not kept. No stage of any run reads that directory — a run
   re-derives its own `1_system/snapshots/placement.pdb` in its own stage, which is the point of the snapshot design.
+
+## As built (2026-10-14): what the code does, and the three things that changed under the plan
+
+The route, the service and the card are as proposed above, with four divergences worth naming and three things about
+them that were only true once the code was written.
+
+**Where it lives.**
+
+| | |
+| --- | --- |
+| service | `dashboard/execution/pdc_preview.py` — `preview(...)`, `coarse_grained(...)`, `cache_key(...)`, `resolve_mapping(...)` |
+| route | `dashboard/web/routes/pdc.py` — `GET /api/pdc/preview/placement`, `preview_choices`, `preview_cache_root` |
+| card | `dashboard/web/templates/dashboard.html` (`.new-pdc-preview`), `dashboard/web/static/new-run.js` (`createPdcNewRun`), `dashboard/web/static/new-run.css` |
+| cache | `<workspace>/preview/cg/<key>/` — `preview/cg` is `pdc_preview.CACHE_DIRECTORY`, and the route resolves it against the *workspace*, never the repository |
+
+**The cache key, and therefore what invalidates an entry:** `sha256(CACHE_FORMAT, protein file bytes, chains,
+resolved martinize2 bytes, force field + elastic constants)[:16]`. So the four things that rebuild a coarse-grained
+protein are the protein's own content, the chain ticks, the tool that builds it, and a change to the protocol's
+elastic-network constants. Nothing else does — which is what makes the count, the style and the seed re-derive
+without paying for it. An entry that cannot be *read* is removed rather than re-used, so a half-written file (two
+previews of one protein at once) cannot leave a frame that fails identically forever. No run reads this directory,
+no stage writes it, and a preview creates no run, no job and no manifest.
+
+**Divergences from the plan's own proposal.**
+
+1. `basis` gained `template`, `detergent`, `residue`, `placement_shape`, `band_radius_nm` and
+   `detergent_representation`, and `cost` gained `detergent_seconds`, `cg_bytes`, `cg_key` and `seconds` — the card
+   prints what the derive *measured* rather than restating the plan's headline (see the numbers below), and it says
+   which of the two pictures it is showing (a mapping's beads, or one centre per molecule).
+2. **The tool is resolved, not named.** `pdc_build.cg_protein` now takes `executable=`, and the route hands it
+   `tools.tool_path('martinize2')`. This is not tidiness: measured in a plain interpreter, `subprocess.run
+   (['martinize2', ...])` raised `FileNotFoundError` while `tools.tool_path` resolved the same tool at
+   `dashboard/.venv/bin/martinize2` — a stage gets its PATH from `tools.search_path()`, and a web request does not.
+   A route that had passed the bare name would have looked correct in every stubbed test and failed on every preview.
+3. `pdc_view.read_moleculetype_text` was split out of `read_moleculetype`, so the preview reads the topology it just
+   derived instead of writing a scratch file only to read it back. The `source` it is given is
+   `detergent_CG.itp` — the name a run writes that same derivation under — and it is what the PDB's own REMARK
+   names.
+4. A mapping of another molecule is a 400 (`the mapping … is of X, not of Y`), and a template whose *files* are
+   missing is a refusal with `registry.load_template`'s own sentence — the case `pdc_build.build` turns into exit 2.
+
+**The three things that changed since this plan was written.**
+
+1. **The band, and therefore the refusal.** `pdc_build.build` reads the membrane from the protein file's REMARK and
+   hands it to `place_detergents`, so a protein that states one is placed as a band in its plane. Measured through
+   the built service on the workspace's own 1AT9, seed 20261013, 150 detergents, chain A: `placement_shape` =
+   `belt-band`, band radius **3.6408 nm**, clearance **0.5436 nm — valid**. The plan's 2026-10-14 correction is
+   therefore the whole story and the mock's refusal branch is the *sphere's*, which is what the built card says in
+   place: a refusal is rendered with the builder's sentence, and when the shape that refused is the sphere the card
+   adds that this is the shape a build takes when the protein's file states no membrane — that the file's own
+   statement is what decides the shape, and that the sphere's refusal is not a verdict on the protein. The mock's
+   `REFUSAL` constant and its "this mock carries no band frame" paragraph are mock-only and are not in the panel.
+2. **One table for the beads, and the panel reads it.** `new-run.js` imports `BEAD_RADIUS_PARAMETERS` and
+   `applyBeadRadii` from `ngl-beads.js` and passes its own `PREVIEW_BEAD_SCALE = 2` at the call — the module's rule
+   for every bead view, and `tests/dashboard/unit/test_ngl_beads.py` now names `new-run.js` among them and holds the
+   panel's scale to the mock's, so the picture the reader approved and the picture in the app cannot differ.
+3. **The bond guard.** The card loads every frame with `inferBonds: 'none'`. A coarse-grained bead is written with a
+   neutral stand-in element and has no covalent radius, so NGL's distance guess draws head beads onto tail beads
+   (`pdc.js` measured 90 bonds on a frame the model bonds 60 ways). With a mapping the file carries the model's own
+   bonds as `CONECT` records and no guessed bond is drawn; with none — a centres-only build, one bead per molecule —
+   there is nothing to draw and nothing is invented. Both cases are asserted in the browser tier, the second by
+   count (three beads, zero bonds).
+
+### The cost, measured through the built service
+
+1AT9 (`workspace/dashboard/proteins/1at9.pdb`), the DDM mapping the store holds, 150 detergents, seed 20261013,
+lattice, this machine:
+
+| derive | wall | coarse-graining | mapping → beads | placement | beads | PDB | CG protein |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| chain A, **cold** | **9.07 s** | 8.24 s (martinize2) | 0.80 s | 0.007 s | 1 142 | 95 645 B | 50 768 B |
+| chain A, **warm** | **0.11 s** | cached | 0.074 s | 0.005 s | 1 142 | 95 645 B | 50 768 B |
+| A+B+C, cold | 16.47 s | 16.41 s | 0.018 s | 0.011 s | 2 226 | 181 281 B | 152 292 B |
+| empty micelle, 150 | 0.03 s | none | 0.017 s | 0.001 s | 600 | 52 827 B | — |
+| empty micelle, centres only, 60 | 0.0005 s | none | — | 0.001 s | 60 | 5 221 B | — |
+
+The frame is byte-identical for the same seed and differs for another (measured, both directions). The one number
+worth explaining is the mapping's own derivation: **0.80 s on the first call in a process, 0.017–0.074 s after it**,
+because `models/bonded/generation` reads the published reference set once per process; the plan's "milliseconds" is
+true of a warm service and not of the first question a restarted one answers. The coarse-graining is what the cache
+removes, and it is 98 % of a cold derive.
+
+The plan's own headline figures are unchanged as *expectations* and are what the card's disclosure states: martinize2
+6.7 s for one 231-residue chain and 13.6 s for 690 residues (measured here at 8.2 s and 16.4 s through the service,
+which also pays the stage's read-back). The card's Cost row prints what *this* derive paid, not the expectation.
+
+### The rest of the plan, as built
+
+Everything under *What the preview is, exactly*, *What the panel says it does not show*, *When the build refuses*,
+*Where it sits* and *Decisions I made* is implemented as written, with two exceptions the measurement forced:
+
+1. **Decision 3 (sticky) is reversed** — see *Sticky* above: the card is taller than a viewport and covered the
+   review's own launch button, which two existing browser tests measurement-caught.
+2. The card's refusal paragraph and its disclosure carry their own classes rather than borrowing
+   `.new-pdc-verdict`/`.new-pdc-explanation`, because an unqualified selector for those then matched two elements
+   (again two existing browser tests said so). The styling is still one rule each, grouped in `new-run.css`.
+
+And two things the panel gained that the plan did not name, both because the built card renders what the server
+measured rather than a fixed sentence: the Cost row prints *this* derive's own numbers, and the Kept row names the
+cache entry (`preview/cg/<key>`, its size, and that frames are not kept). The plan's headline figures are what the
+disclosure states as expectations, labelled as measured on this machine with 1AT9.
+
+### The card, measured in the running app (2026-10-14)
+
+With the dashboard serving the panel and a real derive behind it — 1AT9 chains A+B+C, 150 DDM detergents, the DDM
+mapping, at a 1700 × 1050 viewport:
+
+| element | measured |
+| --- | --- |
+| `#run-form.new-run-layout` | 1637 × 2452 px at x=24 |
+| `.new-run-inputs` (left) | 809 × 1773 at x=24 |
+| `.new-run-settings` (right) | 809 × 2452 at x=853 |
+| side by side | yes — equal widths, different x, same y=416; no horizontal overflow |
+| preview card `.new-pdc-preview` | 809 × 1280 |
+| viewer host | 759 × 320; NGL's drawing buffer 758 × 320 |
+| first paired row cells | 374 px at x=49 and 374 px at x=433, both y=552 |
+
+And what the card showed, from the real route and the real martinize2: `3,276 beads · box 10.05 × 9.84 × 11.08 nm ·
+clearance from the protein 0.505 nm`, belt band radius 3.64 nm, cost `martinize2 16.6 s (1626 beads) · placement
+0.012 s · mapping to beads 0.645 s`, kept `preview/cg/e4502b1a46f998c7 (149 KB)`, 1 500 drawn bonds (150 molecules ×
+4 `[ bonds ]` + 6 `[ constraints ]` — the model's own, none guessed). Unticking a subunit turned the state line amber
+and left the picture in place, and clearing the protein derived the empty micelle in place: `1,650 beads · box
+9.96 × 9.97 × 9.96 nm · no coarse-graining`.
 
 ## What the mock is, and what it is not
 
@@ -414,7 +551,8 @@ estimate card shows — the route's answers, not the mock's arithmetic.
    offered as a second button; its marginal cost is small but it writes a 19 MB stage tree for a run that does not
    exist, and its picture is the same one.
 2. **The card is at the head of the right column**, first, above the workflow strip.
-3. **The preview card is the sticky one**; the review yields (see above).
+3. **The preview card is the sticky one**; the review yields (see above) — **reversed 2026-10-14: the card is static and
+   the review keeps its stickiness.** The card is taller than a viewport, so sticking it covered the launch button.
 4. **The picture is asked for, not streamed.** Coarse-graining is 7–14 s, so `Derive the preview` is a button; the
    panel marks the frame stale when the protein, the subunits or the mapping change, and re-derives automatically for
    the count, the style, the seed and the box margins, which need no new coarse-graining.
@@ -441,7 +579,7 @@ estimate card shows — the route's answers, not the mock's arithmetic.
 
 Each is test-first and lands with its own commit and gate run.
 
-**T1 — the preview service.** A module (proposed `dashboard/models/` or `analysis/runs/`) that takes the inputs and
+**T1 — the preview service. DONE, 2026-10-14.** A module (proposed `dashboard/models/` or `analysis/runs/`) that takes the inputs and
 returns the frame, running `select_protein`, the CG protein, `place_detergents`, `pdc_box` and `pdc_view.system_pdb`.
 Tests, against fixtures and never the workspace: an empty-micelle preview needs no coarse-graining at all; a template
 that fails `validate_template` returns `valid:false` with its reasons and no coordinates; a placement that fails the
@@ -449,11 +587,11 @@ clearance gate returns the gate's own sentence; the same seed returns byte-ident
 does not; the returned PDB carries `CONECT` records for a run with a mapping and none for a centres-only build.
 Acceptance: the service writes nothing outside its scratch root and creates no run.
 
-**T2 — the route.** `GET /api/pdc/preview/placement`, with the query shape and response above. Tests: every field of
+**T2 — the route. DONE, 2026-10-14.** `GET /api/pdc/preview/placement`, with the query shape and response above. Tests: every field of
 `basis` is present and equals the request's; an unknown protein and an unknown chain are 400s with the file's own
 chain list (the spelling `pdc_encapsulation` already uses); a domain refusal is not a 400 unless decision 3 says so.
 
-**T3 — the panel card.** The markup, the proposed CSS, the NGL stage built when the card is visible with a
+**T3 — the panel card. DONE, 2026-10-14.** The markup, the proposed CSS, the NGL stage built when the card is visible with a
 `handleResize` on tab show and window change (measured: a stage built at one width keeps that buffer — a 548 px buffer
 inside a 759 px host until it was asked to resize), the staleness rule from decision 4, and the facts rows. Tests
 (browser): the two halves still sit side by side at 1700 px and 1280 px with the card present (equal widths, different

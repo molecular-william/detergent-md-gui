@@ -97,6 +97,11 @@ def test_the_mock_draws_the_same_bead_and_bond_as_the_module():
     preview = re.search(r'PREVIEW_BEAD_SCALE\s*=\s*([0-9.]+);', draft)
     assert preview, 'the mock states no PREVIEW_BEAD_SCALE'
     assert float(preview.group(1)) == 2, 'the preview no longer draws the bead twice as large'
+    # And the panel now draws it too: the mock's own preview scale is the panel's, so the picture the reader approved
+    # and the picture the app builds cannot differ by the one number the preview adds for reading.
+    panel = re.search(r'PREVIEW_BEAD_SCALE\s*=\s*([0-9.]+);', (SOURCE.parent / 'new-run.js').read_text())
+    assert panel, 'the New Run panel states no PREVIEW_BEAD_SCALE'
+    assert float(panel.group(1)) == float(preview.group(1)), 'the mock and the panel draw the preview at two scales'
     assert _drawn_parameters(draft) == _drawn_parameters(module)
 
 
@@ -149,10 +154,12 @@ def test_the_scale_knob_defaults_to_the_models_own_radius():
     assert re.search(r'BEAD_RADIUS_SCALE\s*=\s*1\s*;', SOURCE.read_text())
 
 
-#: The four views that draw a bead. Each used to hold its own numbers -- a table, an element's van der Waals radius
-#: to divide by, or a scale of its own -- which is one model in four places. `ngl-beads.js` is now the one table and
-#: the one call for all of them, and this is what holds that: a fifth copy of either would be a fifth answer.
-BEAD_VIEWS = ('compositions.js', 'mapping-ngl.js', 'run-view.js', 'bonded-plot.js')
+#: The four views that draw a bead, and the preview card that is the fifth. Each used to hold its own numbers -- a
+#: table, an element's van der Waals radius to divide by, or a scale of its own -- which is one model in four places.
+#: `ngl-beads.js` is now the one table and the one call for all of them, and this is what holds that: a fifth copy of
+#: either would be a fifth answer. `new-run.js` is the protein-detergent New Run panel's system preview, which reads
+#: the same beads as the run's own viewer at twice the radius.
+BEAD_VIEWS = ('compositions.js', 'mapping-ngl.js', 'run-view.js', 'bonded-plot.js', 'new-run.js')
 JS_DIR = SOURCE.parent
 
 
@@ -177,6 +184,11 @@ def test_each_panel_states_its_own_scale_at_the_call():
         'the composition preview draws its beads larger than life, and that multiplier is its own'
     assert 'applyBeadRadii(beadStructure, {scale: 1})' in (JS_DIR / 'mapping-ngl.js').read_text()
     assert 'applyBeadRadii(component.structure, {scale: 1' in (JS_DIR / 'run-view.js').read_text()
+    # The system preview is the panel that draws a bead twice as large, and it says so at its own call.
+    new_run = (JS_DIR / 'new-run.js').read_text()
+    assert 'applyBeadRadii(component.structure, {scale: PREVIEW_BEAD_SCALE})' in new_run
+    assert re.search(r'PREVIEW_BEAD_SCALE\s*=\s*2\s*;', new_run), \
+        'the preview draws the model\'s beads twice as large, and that multiplier is the panel\'s own'
     bonded = (JS_DIR / 'bonded-plot.js').read_text()
     assert 'beadRadiusNm(bead.size' in bonded, \
         'the 3D bead diagram is Plotly, so it reads the table through `beadRadiusNm` rather than `applyBeadRadii`'

@@ -81,9 +81,22 @@ def read_moleculetype(path) -> dict:
     topology can be checked against each other by.
     """
     path = Path(path)
+    return read_moleculetype_text(path.read_text(), source=str(path))
+
+
+def read_moleculetype_text(text: str, *, source: str = '<text>') -> dict:
+    """One moleculetype read out of text, for a caller that derived it and has no file to point at.
+
+    The system preview derives a detergent's topology from its mapping and can draw it in the same request:
+    `pdc_view`'s own reader is the one place that knows what a moleculetype's bonds are, so the derivation's text is
+    read through it rather than through a second parser (or a scratch file written only to be read back). `source`
+    is what the caller's record calls the file this model came from -- the name the run writes it under -- and it
+    travels into the returned record, and from there into the PDB's own REMARK, so the picture keeps saying where
+    its bonds came from.
+    """
     atoms, pairs = [], {section: [] for section in BONDED_SECTIONS}
     section = None
-    for line in path.read_text().splitlines():
+    for line in str(text).splitlines():
         # A moleculetype's comments are `;`; a `#include` or a preprocessor line names no bond either.
         content = line.split(';', 1)[0].split('#', 1)[0].strip()
         if not content:
@@ -94,18 +107,18 @@ def read_moleculetype(path) -> dict:
         fields = content.split()
         if section == 'atoms':
             if len(fields) < 5:
-                raise ValueError(f'{path} has an atom line without a bead name: {line!r}')
+                raise ValueError(f'{source} has an atom line without a bead name: {line!r}')
             atoms.append(fields[4])
         elif section in pairs:
             if len(fields) < 2:
-                raise ValueError(f'{path} has a {section} line without a pair: {line!r}')
+                raise ValueError(f'{source} has a {section} line without a pair: {line!r}')
             try:
                 pairs[section].append((int(fields[0]), int(fields[1])))
             except ValueError as exc:
-                raise ValueError(f'{path} has an unreadable {section} pair: {line!r}') from exc
+                raise ValueError(f'{source} has an unreadable {section} pair: {line!r}') from exc
     if not atoms:
-        raise ValueError(f'{path} declares no atoms: there is no molecule to draw bonds for')
-    return {'atoms': atoms, 'bonds': pairs['bonds'], 'constraints': pairs['constraints'], 'path': str(path)}
+        raise ValueError(f'{source} declares no atoms: there is no molecule to draw bonds for')
+    return {'atoms': atoms, 'bonds': pairs['bonds'], 'constraints': pairs['constraints'], 'path': str(source)}
 
 
 def topology_residue(atoms, topology: dict | None, fallback: str) -> str:

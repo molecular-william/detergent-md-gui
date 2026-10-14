@@ -15,9 +15,13 @@ from pathlib import Path
 FORCE_CONSTANT = 1000          # kJ/mol/nm^2, the force constant the request names
 UPPER_BOUND_NM = 1.0           # 10 A, in the units the tool documents
 DEFAULT_FORCE_FIELD = 'martini3001'
+#: The command name the tool answers to when no caller has resolved one. A stage script relies on this -- its PATH is
+#: the one `execution/tools.search_path()` built, so whatever tool it finds there is the declared one -- while a caller
+#: that has already resolved the executable (`execution/tools.tool_path`) hands that path in instead.
+DEFAULT_EXECUTABLE = 'martinize2'
 
 
-def martinize_command(protein_pdb, out_dir, *, executable='martinize2', force_field=DEFAULT_FORCE_FIELD,
+def martinize_command(protein_pdb, out_dir, *, executable=DEFAULT_EXECUTABLE, force_field=DEFAULT_FORCE_FIELD,
                       structure_name='protein_cg.pdb', topology_name='protein.top'):
     """The command that produces the CG protein and its topology from the atomistic structure.
 
