@@ -221,6 +221,142 @@ def test_a_coarse_graining_step_that_fails_is_a_refusal_rather_than_a_traceback(
 
 # --- the builder's refusals ------------------------------------------------------------------------------------
 
+def strict_loads(text):
+    """`json.loads` at a browser's strictness: `NaN` and `Infinity` are not JSON, whatever Python's default accepts.
+
+    A browser's `JSON.parse` refuses the literal `NaN` that Python's `json.dumps` writes for a float `nan`, so an
+    answer carrying one is an answer no panel can read. The route's own answer is put through this in the integration
+    suite; here it holds the unit that produces it to the same rule.
+    """
+    def reject(value):
+        raise ValueError(f'{value} is not JSON: a browser refuses it')
+    return json.loads(text, parse_constant=reject)
+
+
+def stubbed_cg(beads):
+    """A `coarse_grained` that answers with `beads`, so a test can hand the placement the protein it needs."""
+    return lambda *args, **kwargs: (beads, {'cached': False, 'seconds': 0.5, 'key': 'stub',
+                                            'path': str(kwargs.get('entry') or ''), 'beads_bytes': 0,
+                                            'dropped_residues': [], 'protein_input': 'protein.pdb',
+                                            'command': None, 'secondary_structure': None})
+
+
+def refuses_at_template_load(tmp_path, monkeypatch):
+    """The loader's own `missing template topology` -- a template the build cannot read at all."""
+    return preview(tmp_path, template=template(tmp_path, topology='absent.itp'), mapping=None, aggregation_number=12)
+
+
+def refuses_at_template_validation(tmp_path, monkeypatch):
+    """`validate_template`'s own sentence, before anything is placed."""
+    return preview(tmp_path, template=template(tmp_path, beads=[]), mapping=None, aggregation_number=12)
+
+
+def refuses_at_coarse_graining(tmp_path, monkeypatch):
+    """A martinize2 that cannot run at all."""
+    def broken(command, **kwargs):
+        raise subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr(pdc_build.subprocess, 'run', broken)
+    return preview(tmp_path, protein=str(protein(tmp_path)), chains=['A'], mapping=None, aggregation_number=12)
+
+
+def refuses_at_placement(tmp_path, monkeypatch):
+    """The clearance gate's own sentence: a 3.2 nm shell no 3.0 nm sphere can clear."""
+    monkeypatch.setattr(pdc_preview, 'coarse_grained', stubbed_cg(shell(3.2)))
+    return preview(tmp_path, protein=str(protein(tmp_path)), chains=['A'], mapping=None, aggregation_number=60)
+
+
+def refuses_at_detergent_model(tmp_path, monkeypatch):
+    """`stamp`'s own sentence: a mapping whose beads state no hydrophobic core cannot be oriented."""
+    path = tmp_path / 'heads_only.json'
+    path.write_text(json.dumps({'schema_version': 3, 'molecule_id': 'DDM', 'name': 'heads only',
+                                'beads': [{'name': 'S1A', 'type': 'SP1r', 'size': 'S', 'atoms': [1]},
+                                          {'name': 'S1B', 'type': 'SP1r', 'size': 'S', 'atoms': [2]}],
+                                'connections': [['S1A', 'S1B']],
+                                'provenance': {'origin': 'manual', 'algorithm': None, 'references': []},
+                                'status': 'candidate-unvalidated', 'martini_version': '3'}))
+    return preview(tmp_path, mapping=str(path), molecule_id='DDM', aggregation_number=12)
+
+
+@pytest.mark.parametrize('at, expected_step', [(refuses_at_template_load, 'template'),
+                                               (refuses_at_template_validation, 'template'),
+                                               (refuses_at_coarse_graining, 'coarse-graining'),
+                                               (refuses_at_placement, 'placement'),
+                                               (refuses_at_detergent_model, 'detergent model')])
+def test_a_refusal_carries_a_reason_and_names_the_step_that_refused(tmp_path, monkeypatch, at, expected_step):
+    """Every gate a preview can be stopped by answers with a sentence and the step it belongs to.
+
+    The sentence is the builder's own -- never one this service wrote for it -- and the step is what lets the panel
+    say *where* the refusal came from when the sentence is all a reader gets. A refusal with neither is the state
+    this file exists to make unreachable.
+    """
+    answer = at(tmp_path, monkeypatch)
+
+    assert answer['valid'] is False and answer['pdb'] is None
+    assert answer['step'] == expected_step, answer
+    assert answer['reasons'] and all(str(reason).strip() for reason in answer['reasons']), answer['reasons']
+    assert answer['basis']['beads'] is None, 'a refusal carries no coordinates and no bead count to read as one'
+
+
+def test_a_gate_that_refuses_with_no_sentence_still_gets_one_naming_the_step(tmp_path, monkeypatch):
+    """A sentence can come back empty -- an exception with no message, a gate with nothing to add.
+
+    The panel's fallback for that used to be "the build gave no reason", which names nothing at all. The service
+    answers with the step and the file it was working on instead, so the reader is told what refused even when the
+    refuser said nothing.
+    """
+    beads = [{'residue_id': 1, 'residue': 'PRO', 'name': f'B{index:03d}', 'position': [float(index), 0.0, 0.0]}
+             for index in range(1, 5)]
+    monkeypatch.setattr(pdc_preview, 'coarse_grained', stubbed_cg(beads))
+    monkeypatch.setattr(pdc_preview.pdc_placement, 'place_detergents',
+                        lambda *args, **kwargs: {'centers': [], 'directions': [], 'mode': 'lattice',
+                                                 'placement_shape': None, 'band': None, 'belt_reason': None,
+                                                 'frame': None, 'aggregation_number': 12, 'radius_nm': 3.0,
+                                                 'seed': 7, 'protein_free': False, 'protein_clearance_nm': None,
+                                                 'issues': ['', None], 'valid': False})
+    protein_path = protein(tmp_path)
+
+    answer = preview(tmp_path, protein=str(protein_path), chains=['A'], mapping=None, aggregation_number=12)
+
+    assert answer['valid'] is False and answer['step'] == 'placement'
+    assert answer['reasons'] == [f'the placement step refused these inputs and named no reason '
+                                 f'while working on {protein_path}']
+
+
+def test_a_coarse_grained_protein_whose_beads_have_no_position_refuses_and_stays_readable(tmp_path, monkeypatch):
+    """The user's own 4iar, as a fixture: a CG bead at `nan` must refuse, and the answer must still be JSON.
+
+    martinize2 leaves a bead at `nan` where the structure holds no coordinates for the residue it averages; 4iar has
+    20 of them. The placement cannot measure a clearance against such a bead, so it refuses with that count -- and
+    the answer it hands the panel carries no `nan` number, which a browser's `JSON.parse` refuses outright (Python's
+    `json.dumps` writes it by default, which is how this reached the panel as "the build gave no reason").
+    """
+    beads = [{'residue_id': 1, 'residue': 'PRO', 'name': f'B{index:03d}', 'position': [float(index), 0.0, 0.0]}
+             for index in range(1, 5)]
+    beads[1]['position'] = [float('nan'), float('nan'), float('nan')]
+    monkeypatch.setattr(pdc_preview, 'coarse_grained', stubbed_cg(beads))
+
+    answer = preview(tmp_path, protein=str(protein(tmp_path)), chains=['A'], mapping=None, aggregation_number=12)
+
+    assert answer['valid'] is False and answer['pdb'] is None and answer['step'] == 'placement'
+    assert any('without a position' in reason for reason in answer['reasons']), answer['reasons']
+    assert answer['basis']['clearance_nm'] is None and answer['basis']['box_nm'] is None
+    assert strict_loads(json.dumps(answer))['step'] == 'placement', 'the answer a panel must be able to read'
+
+
+def test_a_refusal_the_route_answers_with_is_always_json_a_browser_can_read(tmp_path, monkeypatch):
+    """Every answer this service returns is JSON at a browser's strictness, refusal or picture.
+
+    `json.dumps` writes a float `nan` as the bare token `NaN`, which `JSON.parse` rejects -- so an answer carrying
+    one arrives at the panel as a parse failure, which is how a real refusal's own sentence was lost. No answer may
+    carry one.
+    """
+    for answer in (preview(tmp_path, mapping=str(mapping(tmp_path)), molecule_id='DDM', aggregation_number=12),
+                   refuses_at_coarse_graining(tmp_path, monkeypatch),
+                   refuses_at_detergent_model(tmp_path, monkeypatch)):
+        assert strict_loads(json.dumps(answer)) == json.loads(json.dumps(answer)), answer
+
+
 def test_a_template_the_builders_validator_refuses_comes_back_as_its_own_reasons(tmp_path):
     """`registry.validate_template` stops the build before anything is placed; its sentence is the panel's sentence."""
     answer = preview(tmp_path, template=template(tmp_path, beads=[]), mapping=None, aggregation_number=12)

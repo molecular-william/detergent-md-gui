@@ -22,6 +22,7 @@ Four claims, and each is the plan's:
 The route is served as a fixture, so nothing here reads the developer's workspace, and the frames are written by
 `pdc_view.system_pdb` -- the same writer a run's own snapshot goes through -- rather than being typed out by hand.
 """
+import json
 import re
 
 from playwright.sync_api import expect
@@ -138,6 +139,21 @@ def serve(page, body, requests=None):
     page.route(re.compile(r'/api/pdc/preview/placement'), route_preview)
 
 
+def serve_raw(page, body):
+    """Every read the panel makes before it can ask, with the preview route answering `body` as raw text.
+
+    `serve`'s `route.fulfill(json=...)` serialises through JavaScript, where a float `nan` becomes `null` and the
+    defect this file's last two tests are about cannot be reproduced at all: the body has to be the bytes Python's
+    own JSON writer produced, bare `NaN` token and all.
+    """
+    page.route(re.compile(r'/api/pdc/catalog'), lambda route: route.fulfill(json=CATALOG))
+    page.route(re.compile(r'/api/mappings\?'), lambda route: route.fulfill(json=MAPPINGS))
+    page.route(re.compile(r'/api/readiness\?'),
+               lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+    page.route(re.compile(r'/api/pdc/preview/placement'),
+               lambda route: route.fulfill(status=200, content_type='application/json', body=body))
+
+
 def open_panel(page, base_url, *, protein=PROTEIN['id']):
     page.goto(f'{base_url}/protein-detergent/new-run')
     page.get_by_role('tab', name='New run', exact=True).click()
@@ -251,6 +267,56 @@ def test_a_refusal_shows_the_builders_reason_and_no_picture(dashboard, live_page
     expect(page.locator('.new-pdc-preview-cost')).to_contain_text('martinize2 6.7 s')
     expect(page.locator('.new-pdc-preview-state')).to_have_text(
         'The build refuses these inputs; the sentence above is its own.')
+    assert errors == [], errors
+
+
+def test_an_answer_a_browser_cannot_parse_is_not_read_as_a_refusal(dashboard, live_page):
+    """The user's report, end to end: the server's answer carried a `nan`, and that must not be called a refusal.
+
+    The server answered 4iar with a frame -- `valid: true` -- whose `clearance_nm` was `nan`, because 20 of its 928
+    coarse-grained beads carry no position and a distance to a bead with no position is not a number. Python's
+    `json.dumps` writes a `nan` as the bare token `NaN`, which a browser's `JSON.parse` refuses. The card's
+    `response.json().catch(() => ({}))` swallowed that, and an empty object is an object with no `valid` and no
+    `reasons`: the card then said "the builder refuses these inputs. Its own reason is: the build gave no reason" --
+    two sentences the server never sent, about a picture the server had actually drawn. What happened is that the
+    answer could not be read, and that is what the card says now.
+    """
+    page, errors = live_page
+    body = json.dumps(answer(placement_pdb(), clearance=float('nan')))
+    assert 'NaN' in body, 'the server writes the token this test is about'
+
+    serve_raw(page, body)
+    open_panel(page, live_page.base_url)
+    derive(page)
+
+    refusal = page.locator('.new-pdc-preview-refusal')
+    expect(refusal).to_be_visible()
+    expect(refusal).to_contain_text('No picture: the answer could not be read.')
+    expect(refusal).to_contain_text('is not JSON this panel can parse')
+    assert 'the builder refuses these inputs' not in refusal.inner_text(), refusal.inner_text()
+    expect(page.locator('.new-pdc-preview-state')).to_have_text(
+        'No answer came back to read; the sentence above says so.')
+    assert page.locator('.new-pdc-preview-viewer canvas').count() == 0, 'an unreadable answer drew a picture'
+    assert errors == [], errors
+
+
+def test_a_refusal_with_no_sentence_of_its_own_names_the_step_that_refused(dashboard, live_page):
+    """A refusal whose sentence is empty must still say what refused: the step, not "the build gave no reason".
+
+    The service sends the step beside the sentences (`step: 'placement'`, from `pdc_preview._refusal`), so the card
+    can name the gate even when the gate said nothing of its own. The bare phrase it used to fall back on named
+    neither a step nor a cause.
+    """
+    page, errors = live_page
+    serve(page, {**answer(valid=False, reasons=[], placement_shape='sphere', band=None, clearance=0.174),
+                 'step': 'placement'})
+    open_panel(page, live_page.base_url)
+    derive(page)
+
+    refusal = page.locator('.new-pdc-preview-refusal')
+    expect(refusal).to_contain_text('No picture: the placement step refuses these inputs.')
+    expect(refusal).to_contain_text('the placement step refused these inputs and named no reason of its own')
+    assert 'the build gave no reason' not in refusal.inner_text(), refusal.inner_text()
     assert errors == [], errors
 
 

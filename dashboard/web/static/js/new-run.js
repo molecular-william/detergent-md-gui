@@ -969,7 +969,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     if (previewFrame.refused) {
       state.textContent = stale
         ? 'The protein, the subunits or the mapping have changed since this refusal — derive it again.'
-        : 'The build refuses these inputs; the sentence above is its own.';
+        : (previewFrame.unreadable
+            ? 'No answer came back to read; the sentence above says so.'
+            : 'The build refuses these inputs; the sentence above is its own.');
       return;
     }
     state.textContent = stale
@@ -1042,7 +1044,25 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     renderPreviewState();
   }
 
-  function renderPreviewRefusal(reason, body) {
+  // The card's own sentence about why it has no picture. A refusal names the step that refused when the answer says
+  // which one; an answer that never arrived, or that a browser cannot parse, is not a refusal at all -- those callers
+  // pass their own headline rather than have the card claim the builder refused something it was never asked about.
+  function refusalHeadline(body) {
+    const step = body?.step;
+    return `No picture: ${step ? `the ${step} step refuses` : 'the builder refuses'} these inputs. `
+      + 'Its own reason is:';
+  }
+
+  // A refusal the builder sent with no sentence of its own. It is still a refusal, and the one thing the answer does
+  // say is which step refused, so the card says that step. The phrase it used to fall back on -- "the build gave no
+  // reason" -- named nothing and cited no gate, which is how the user's 4iar refusal arrived with no reason in it.
+  function reasonlessRefusal(body) {
+    const step = body?.step;
+    return step ? `the ${step} step refused these inputs and named no reason of its own`
+                : 'the build refused these inputs and named no reason of its own';
+  }
+
+  function renderPreviewRefusal(reason, body, headline) {
     const basis = body?.basis || {}, cost = body?.cost || {};
     const viewer = previewNode('.new-pdc-preview-viewer'), refusal = previewNode('.new-pdc-preview-refusal');
     // The canvas belongs to NGL, not to this card: only its components are dropped, so a later frame still has
@@ -1054,7 +1074,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       // The builder's own sentence, and the scope it belongs to: a refusal from the sphere is not a verdict on the
       // protein, because the protein file's own membrane statement is what decides which shape is placed.
       const sphere = !!basis.protein && basis.placement_shape === 'sphere';
-      refusal.textContent = `No picture: the builder refuses these inputs. Its own reason is: ${reason}`
+      refusal.textContent = (headline || refusalHeadline(body)) + ` ${reason}`
         + (sphere ? ' — this placement is the sphere about the protein’s centroid, the shape a build takes when the '
             + 'protein’s file states no membrane; a file that states one is placed as a band in the membrane plane '
             + 'instead.' : '');
@@ -1076,16 +1096,36 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     let response, body = {};
     try {
       response = await fetch('/api/pdc/preview/placement?' + previewQuery(inputs));
-      body = await response.json().catch(() => ({}));
     } catch (error) {
       if (mine !== previewRequest) return;
-      previewFrame = {inputs, refused: true};
-      renderPreviewRefusal('the preview could not be read, because the coordinator did not answer.', null);
+      previewFrame = {inputs, refused: true, unreadable: true};
+      renderPreviewRefusal('the coordinator did not answer, so there is nothing to draw.', null,
+                           'No picture: the preview request failed.');
       return;
+    }
+    // The answer is read as text and parsed here, rather than through `response.json().catch(() => ({}))`. That
+    // catch turned a body this panel cannot read into `{}`, and an empty object has no `valid` -- so the card
+    // rendered it as "the builder refuses these inputs" with the missing-reason fallback, which is exactly what the
+    // user's 4iar refusal said. A real cause: Python's `json.dumps` writes a float `nan` as the bare token `NaN`,
+    // which a browser's `JSON.parse` refuses (it is not JSON), and the preview's answer carried a `nan` clearance
+    // because a coarse-grained bead had no position. An unreadable answer is not a verdict on these inputs.
+    let unreadable = null;
+    try {
+      const parsed = JSON.parse(await response.text());
+      body = parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (error) {
+      unreadable = error;
     }
     // An answer to an older question is dropped rather than put on screen: the reader may have moved the count
     // while the coarse-graining ran, and a slow earlier frame landing on a newer question is how a panel lies.
     if (mine !== previewRequest) return;
+    if (unreadable) {
+      previewFrame = {inputs, refused: true, unreadable: true};
+      renderPreviewRefusal(`the server's reply (status ${response.status}) is not JSON this panel can parse, so it `
+        + 'is no verdict on these inputs and nothing was drawn.', null,
+        'No picture: the answer could not be read.');
+      return;
+    }
     if (!response.ok) {
       previewFrame = {inputs, refused: true};
       renderPreviewRefusal(body.error || `the preview was refused (status ${response.status}).`, null);
@@ -1093,7 +1133,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     }
     previewFrame = {inputs, refused: !body.valid};
     if (body.valid) renderPreviewFrame(body);
-    else renderPreviewRefusal((body.reasons || []).join(' ') || 'the build gave no reason', body);
+    else renderPreviewRefusal((body.reasons || []).join(' ') || reasonlessRefusal(body), body);
   }
 
   // A cheap change re-derives once a frame exists, debounced so a typed count is one request. An expensive change

@@ -130,13 +130,25 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
         raise ValueError('the placement radius must be positive and the clearance cannot be negative')
     mode = canonical_mode(mode)
     points = None
+    unplaced = 0
     if protein_points is not None and len(protein_points):
         points = np.asarray([[float(value) for value in point] for point in protein_points])
         if points.ndim != 2:
             raise ValueError('protein coordinates must be a list of points')
+        # A bead with no position is not a bead any distance can be measured to. It is counted here and gates the
+        # whole placement below: `nan < gate` is False, so a clearance check over `nan` passes every site without
+        # measuring one, and the clearance reported would be a `nan` -- which stops being JSON the moment a browser
+        # reads it. Measured on 4iar (2026-10-14): 20 of its 928 CG beads are `nan`, and the panel lost the build's
+        # own sentence because of it.
+        unplaced = int(len(points) - int(np.isfinite(points).all(axis=1).sum()))
 
     band, belt_reason = None, None
-    if mode == 'lattice':
+    if unplaced:
+        # Nothing is drawn against a protein whose beads have no position: the sampler's own box is centred on the
+        # beads' mean -- a `nan` -- and `numpy` refuses to draw from it (`OverflowError`), and the tube's ladder
+        # would keep every site because no rejection could be measured.
+        centers, directions = np.empty((0, 3)), np.empty((0, 3))
+    elif mode == 'lattice':
         if points is not None and frame is not None:
             band, belt_reason = _belt_torus(points, aggregation_number, seed, frame, min_clearance_nm, radius_nm,
                                             template)
@@ -149,14 +161,19 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
                                              min_clearance_nm=min_clearance_nm, margin_nm=margin_nm,
                                              initial_z_nm=initial_z_nm)
 
-    issues = list(validate_positions(centers, aggregation_number)['issues'])
+    issues = [] if unplaced else list(validate_positions(centers, aggregation_number)['issues'])
+    if unplaced:
+        total = 0 if points is None else len(points)
+        issues.append(f'the protein has {unplaced} coarse-grained bead(s) without a position, of {total}, so '
+                      f'no detergent can be placed clear of it')
     clearance = None
-    if points is not None and len(points) and len(centers):
+    if not unplaced and points is not None and len(points) and len(centers):
         clearance = min(float(np.linalg.norm(center - points, axis=1).min()) for center in centers)
         if clearance < min_clearance_nm:
             issues.append(f'detergent too close to the protein: {clearance:.3f} nm < {min_clearance_nm} nm')
     return {'centers': centers.tolist(), 'directions': directions.tolist(), 'mode': mode,
-            'placement_shape': SHAPE_TORUS if band is not None else SHAPE_SPHERE,
+            # Nothing was drawn against a protein no measurement could be made of, so there is no shape to name.
+            'placement_shape': None if unplaced else (SHAPE_TORUS if band is not None else SHAPE_SPHERE),
             'band': band['record'] if band is not None else None,
             'belt_reason': belt_reason,
             'frame': frame.as_record() if frame is not None else None,

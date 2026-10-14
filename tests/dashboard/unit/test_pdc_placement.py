@@ -159,6 +159,44 @@ def distance_to_centre_line(sites, centre_radius, axis=(0.0, 0.0, 1.0), centre_n
     return np.hypot(radial, axial)
 
 
+def test_a_protein_bead_with_no_position_refuses_rather_than_measuring_a_clearance_of_nan(tmp_path):
+    """martinize2 leaves a bead at `nan` where its structure holds no coordinates for the residue.
+
+    Measured on the user's own 4iar (2026-10-14): 20 of the 928 beads its CG step wrote carry `nan` -- the
+    deposited assembly is missing the side-chain atoms of 16 residues (ARG, LYS and one TRP), so the bead
+    martinize2 averages them into has no position. `nan` is not a distance: `nan < gate` is False, so the clearance
+    gate passed every site without measuring one, and the clearance the placement reported was itself a `nan` --
+    a number no browser's `JSON.parse` will read, which is how the sentence the build answered with went missing
+    from the panel and came back as "the build gave no reason". A protein nothing can be measured against is
+    refused, with the count of its unplaced beads, and reports no clearance at all.
+    """
+    protein = PROTEIN + [[float('nan'), float('nan'), float('nan')]]
+
+    placement = pdc_placement.place_detergents(protein, _template(tmp_path), 12, seed=7)
+
+    assert placement['valid'] is False
+    assert [issue for issue in placement['issues'] if 'without a position' in issue], placement['issues']
+    assert placement['protein_clearance_nm'] is None, 'an unmeasurable clearance is not a number to report'
+    assert placement['centers'] == [], 'a refused placement places nothing'
+    assert placement['placement_shape'] is None, 'nothing was drawn, so there is no shape to name'
+
+
+def test_a_protein_with_no_position_does_not_make_the_self_assembling_sampler_raise(tmp_path):
+    """The same gate on the other branch: `numpy` refuses an unbounded uniform draw, and the builder must not 500.
+
+    `_self_assemble` centres its box on the protein's atom-mean, which is a `nan` when any bead has no position;
+    `Generator.uniform` then raises `OverflowError: Range exceeds valid bounds` -- measured on 4iar in
+    `self-assembly` style, an exception no caller catches and no browser parses. The finiteness gate runs before the
+    draw, so that branch never sees the `nan` and the refusal is the gate's own sentence.
+    """
+    protein = PROTEIN + [[float('nan'), float('nan'), float('nan')]]
+
+    placement = pdc_placement.place_detergents(protein, _template(tmp_path), 12, seed=7, mode='self-assembly')
+
+    assert placement['valid'] is False
+    assert [issue for issue in placement['issues'] if 'without a position' in issue], placement['issues']
+
+
 def test_a_stated_membrane_puts_the_placement_on_the_tubes_own_surface(tmp_path):
     """The correction's shape: the sites stand at the detergent's own length from the protein's cylinder.
 

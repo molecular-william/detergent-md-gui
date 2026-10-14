@@ -84,6 +84,70 @@ def get(dashboard, **query):
                                 '&'.join(f'{key}={value}' for key, value in query.items()))
 
 
+def strict_loads(text):
+    """`json.loads` at a browser's strictness: `NaN` and `Infinity` are not JSON, whatever Python's default accepts.
+
+    Python's `json.loads` reads the bare token `NaN` without complaint, which is why a `nan` number can travel this
+    whole path unnoticed by a Python test; a browser's `JSON.parse` throws on it, which is how the panel lost a
+    refusal's own sentence. Every body this route answers with is put through this instead.
+    """
+    def reject(value):
+        raise ValueError(f'{value} is not JSON: a browser refuses it')
+    return json.loads(text, parse_constant=reject)
+
+
+def test_a_coarse_grained_bead_with_no_position_refuses_with_a_reason_the_panel_can_read(dashboard, monkeypatch):
+    """The user's 4iar through the real route: the answer must carry the gate's sentence *and* be JSON a browser reads.
+
+    martinize2 leaves a CG bead at `nan` where the structure holds no coordinates for the residue it averages (4iar:
+    20 of 928). The clearance the placement reported against such a bead was itself a `nan`, and Python's
+    `json.dumps` writes that as the bare token `NaN` -- which a browser's `JSON.parse` refuses. The panel's
+    `response.json().catch(() => ({}))` then carried on with an empty object, whose absent `valid` read as "the
+    builder refuses these inputs" and whose absent `reasons` read as "the build gave no reason": a refusal the
+    server never sent, for a picture the server had actually drawn. Both halves are pinned here -- the gate refuses
+    with its own count, and what comes back is parseable.
+    """
+    from dashboard.execution import pdc_preview as preview_module
+
+    beads = [{'residue_id': 1, 'residue': 'PRO', 'name': f'B{index:03d}', 'position': [float(index), 0.0, 0.0]}
+             for index in range(1, 5)]
+    beads[1]['position'] = [float('nan'), float('nan'), float('nan')]
+    monkeypatch.setattr(preview_module, 'coarse_grained',
+                        lambda *args, **kwargs: (beads, {'cached': False, 'seconds': 0.5, 'key': 'stub',
+                                                         'path': '', 'beads_bytes': 0, 'dropped_residues': [],
+                                                         'protein_input': 'protein.pdb', 'command': None,
+                                                         'secondary_structure': None}))
+    entry = import_protein(dashboard, monkeypatch)
+
+    response = get(dashboard, template=TEMPLATE, protein=entry['name'], pdc_seed=20261013, aggregation_number=12)
+
+    assert response.status_code == 200, 'a refusal is an answer, not a bad request'
+    body = strict_loads(response.get_data(as_text=True))
+    assert body['valid'] is False and body['pdb'] is None
+    assert body['step'] == 'placement', body
+    assert [reason for reason in body['reasons'] if 'without a position' in reason], body['reasons']
+    assert body['basis']['clearance_nm'] is None, 'an unmeasurable clearance is not reported as a number'
+    assert 'NaN' not in response.get_data(as_text=True), 'a body a browser refuses to parse is a body it cannot read'
+
+
+def test_every_answer_this_route_sends_is_json_a_browser_can_parse(dashboard, monkeypatch):
+    """No answer may carry `NaN`: the panel can only render what a browser is able to read.
+
+    The valid path and the refusal path are both put through a strict parser, because the token travels as silently
+    through Python as it does loudly through `JSON.parse`, and the panel is the thing that pays for it.
+    """
+    write_mapping(dashboard)
+    empty_micelle = get(dashboard, template=TEMPLATE, molecule_id='DDM',
+                        mapping_candidate='mapping_candidate_fixture.json', aggregation_number=40,
+                        placement_mode='lattice', pdc_seed=20261013)
+    assert empty_micelle.status_code == 200
+    assert strict_loads(empty_micelle.get_data(as_text=True))['valid'] is True
+
+    malformed = get(dashboard, template=TEMPLATE, pdc_seed=20261013, aggregation_number=0)
+    assert malformed.status_code == 400
+    assert strict_loads(malformed.get_data(as_text=True)).get('error')
+
+
 def test_the_basis_is_the_question_that_was_asked_and_the_cost_says_what_was_paid(dashboard):
     """An empty micelle: no protein, so no coarse-graining at all -- and the cheapest preview the panel has."""
     write_mapping(dashboard)

@@ -139,6 +139,27 @@ def test_the_stage_reads_the_structures_own_membrane_and_places_the_belt_on_its_
         'the belt reaches the detergent length either side of the membrane centre, and no further'
 
 
+def test_the_stage_refuses_a_cg_protein_whose_beads_have_no_position(tmp_path):
+    """The run's own words, not only the preview's: a `nan` bead stops the stage with a reason and writes no system.
+
+    martinize2 leaves a bead at `nan` where the structure holds no coordinates for the residue it averages -- 4iar,
+    the user's own import of 2026-10-14, has 20 of its 928 beads that way -- and a distance to a bead with no
+    position is not a distance. The placement's gate refuses it, so the stage exits 2 with the sentence in its report
+    rather than writing a `system.gro` whose coordinates are `nan` for `grompp` to die on with nothing said.
+    """
+    stage = stage_directory(prepared(tmp_path))
+    write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb',
+                 [*CG_BEADS, (1, 'PRO', 'B04', (float('nan'), float('nan'), float('nan')))])
+
+    code = pdc_build.build(stage)
+    report = report_of(stage)
+
+    assert code == 2, 'a gate refused, and the report names which'
+    assert [issue for issue in report['reasons'] if 'without a position' in issue], report['reasons']
+    assert report['valid'] is False and report['protein_clearance_nm'] is None
+    assert not (stage / 'system.gro').exists(), 'nothing was placed, so there is no system to write'
+
+
 def test_the_band_builds_a_box_whose_z_clears_the_protein_rather_than_the_belt(tmp_path):
     """The box's z margin is the protein's: the belt sits inside the slab and is thinner than the protein here.
 

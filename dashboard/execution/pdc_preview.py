@@ -23,8 +23,9 @@ Two things this module exists to state rather than to hide:
   `preview/cg/` directory, keyed by exactly those three things plus the protocol's own constants. Nothing a run reads
   is written here, and no run is created: a frame is derived per request and not kept at all.
 * **a refusal is an answer, not a failure.** The template's own validator and the placement's clearance gate are the
-  builder's gates, and their sentences are handed back as `reasons` with no coordinates -- never a picture of a system
-  the build would refuse, and never a blank.
+  builder's gates, and their sentences are handed back as `reasons` -- with the `step` they belong to, and never with
+  coordinates -- so a panel can say which gate refused even when the gate had no sentence of its own. Never a picture
+  of a system the build would refuse, and never a blank.
 
 What it deliberately does not do: draw anything the build's own functions did not produce. A hand-drawn schematic
 would look like a prediction of a system these inputs do not make.
@@ -56,10 +57,27 @@ CACHE_DIRECTORY = 'preview/cg'
 CACHE_FORMAT = 1
 
 
-def _refusal(reasons, basis, cost):
-    """The builder's answer when nothing can be drawn: its own sentences, and no coordinates."""
-    return {'valid': False, 'reasons': [str(reason) for reason in reasons if str(reason).strip()],
-            'pdb': None, 'basis': basis, 'cost': cost}
+def _refusal(step, reasons, basis, cost, *, subject=None):
+    """The builder's answer when nothing can be drawn: its own sentences, the step that refused, and no coordinates.
+
+    The sentences the builder gave are handed back exactly as it wrote them. What this adds is the step they belong
+    to, and a fallback for the case where there is no sentence at all -- an exception with an empty message, a gate
+    with nothing to add. A refusal that cannot say why is not the "answer, not a failure" this module promises, so
+    the sentence then names the step and the file or command it was working on. The panel renders that rather than
+    inventing a sentence of its own; the phrase it used to fall back on ("the build gave no reason") named nothing,
+    which is how the user's 4iar refusal arrived on screen with no reason in it.
+    """
+    sentences = []
+    for reason in reasons or []:
+        if reason is None:
+            continue
+        text = str(reason).strip()
+        if text:
+            sentences.append(text)
+    if not sentences:
+        where = f' while working on {subject}' if subject else ''
+        sentences = [f'the {step} step refused these inputs and named no reason{where}']
+    return {'valid': False, 'step': step, 'reasons': sentences, 'pdb': None, 'basis': basis, 'cost': cost}
 
 
 def cache_key(protein_path, chains, executable) -> str:
@@ -189,7 +207,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
             molecule_id=None, aggregation_number=150, placement_mode=pdc_placement.DEFAULT_PLACEMENT_MODE,
             box_margin_nm=pdc_placement.DEFAULT_MARGIN_NM, initial_z_nm=pdc_placement.DEFAULT_INITIAL_Z_NM,
             radius_nm=pdc_placement.DEFAULT_RADIUS_NM, executable=None):
-    """The placement these inputs would build, as `{valid, reasons, pdb, basis, cost}`.
+    """The placement these inputs would build, as `{valid, step, reasons, pdb, basis, cost}`.
 
     `project_root` resolves `template`, `protein` and the molecule tree a mapping is derived against -- the same root
     a run's `pdc.prepare` is given. `cache_root` is the preview's own scratch root; the only thing written under it
@@ -236,11 +254,11 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     try:
         record = micelle_registry.load_template(template_path)
     except (ValueError, OSError) as error:
-        return _refusal([str(error)], basis, cost)
+        return _refusal('template', [str(error)], basis, cost, subject=template_path)
     basis.update({'detergent': record.name, 'residue': record.residue})
     template_issues = list(micelle_registry.validate_template(record))
     if template_issues:
-        return _refusal(template_issues, basis, cost)
+        return _refusal('template', template_issues, basis, cost, subject=template_path)
 
     # The chains are the file's question, and the adapter's own gate answers it: a chain the structure does not name
     # is refused there, with the file's own list, rather than silently building something else.
@@ -259,7 +277,9 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
             cost['seconds'] = time.perf_counter() - started
             detail = '; its cached entry was unreadable and has been discarded, so the next derive builds it again' \
                 if discarded else ''
-            return _refusal([f'the coarse-graining step could not build this protein: {error}{detail}'], basis, cost)
+            return _refusal('coarse-graining',
+                            [f'the coarse-graining step could not build this protein: {error}{detail}'], basis, cost,
+                            subject=f'{protein_path} ({executable or "martinize2"})')
         cost.update({'cg_cached': cg['cached'], 'coarse_graining_seconds': round(cg['seconds'], 3),
                      'cg_bytes': cg['beads_bytes'], 'cg_key': cg['key']})
         frame = micelle_frame.frame_from_pdb(
@@ -286,12 +306,12 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
                   'tube_radius_nm': band.get('tube_radius_nm')})
     if not placement['valid']:
         cost['seconds'] = time.perf_counter() - started
-        return _refusal(placement['issues'], basis, cost)
+        return _refusal('placement', placement['issues'], basis, cost, subject=protein_path or f'{mode} placement')
 
     box = _box(points, placement, frame, margin, initial_z)
     basis['box_nm'] = list(box)
 
-    model, seconds = (None, 0.0)
+    model, seconds, mapping_path = None, 0.0, None
     if mapping:
         mapping_path = resolve_mapping(mapping, root)
         if not mapping_path.is_file():
@@ -324,7 +344,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
                                      first_residue=max([bead['residue_id'] for bead in beads], default=0) + 1)
         except SystemExit as error:
             cost['seconds'] = time.perf_counter() - started
-            return _refusal([str(error)], basis, cost)
+            return _refusal('detergent model', [str(error)], basis, cost, subject=mapping_path)
         topology = pdc_view.read_moleculetype_text(model['topology'], source=DETERGENT_TOPOLOGY)
         basis['detergent_representation'] = 'the mapping\u2019s beads'
 
@@ -333,4 +353,4 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     pdb = pdc_view.system_pdb(atoms, detergent_residue=record.residue, topology=topology,
                               title=f'placement preview ({record.name}, AN={aggregation_number}, mode={mode}, '
                                     f'seed={seed})')
-    return {'valid': True, 'reasons': [], 'pdb': pdb, 'basis': basis, 'cost': cost}
+    return {'valid': True, 'step': None, 'reasons': [], 'pdb': pdb, 'basis': basis, 'cost': cost}
