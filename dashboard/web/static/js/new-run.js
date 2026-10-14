@@ -874,9 +874,13 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   //
   // What is drawn is the server's answer and nothing of this file's: `pdb`, `basis` and `cost` are rendered as they
   // arrive, so the picture and the numbers beside it are one record and the panel never repeats the arithmetic. The
-  // bead radii are not this file's either -- `ngl-beads.js` is the one table and the one call -- and the only number
-  // the card owns is the scale it reads them at, which is why `PREVIEW_BEAD_SCALE` is here rather than in the table.
-  const PREVIEW_BEAD_SCALE = 2;
+  // bead radii are not this file's either -- `ngl-beads.js` is the one table and the one call, and the file's
+  // element column is where each bead's own size class arrives -- so the only number the card owns is the scale it
+  // reads them at, which is why `PREVIEW_BEAD_SCALE` is here rather than in the table.
+  //: `1` -- the model's own radius. This preview drew its beads twice the model's size until 2026-10-14, when the
+  //: user reported them too big; with each bead now written with its own class, the model's radii are the picture,
+  //: and a multiplier here is the one number a reader would have to be told about to read a bead's size.
+  const PREVIEW_BEAD_SCALE = 1;
   const previewNode = selector => pdcNode(`.new-pdc-preview ${selector}`);
   const sayPreview = (selector, text) => { const target = previewNode(selector); if (target) setText(target, text); };
   let previewFrame = null, previewRequest = 0, previewTimer;

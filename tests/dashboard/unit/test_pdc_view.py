@@ -1,8 +1,10 @@
 """The system view: a .gro becomes a PDB the viewer can read, with the solvent left out.
 
 The claims worth pinning are the ones a picture would hide: water and ions are dropped by default, the coordinates
-are converted from nanometres to the Angstroms PDB uses, the residue column separates protein from detergent, and a
-malformed .gro is an error rather than a half-drawn system.
+are converted from nanometres to the Angstroms PDB uses, the residue column separates protein from detergent, a
+malformed .gro is an error rather than a half-drawn system, **and the element column states each bead's own size
+class** -- the stand-in a viewer resolves a radius from (`ngl-beads.js`), which is the difference between beads drawn
+in the model's 0.264/0.230/0.191 nm proportion and beads drawn all at one size.
 
 The fixtures are formatted rather than hand-typed: a .gro is fixed-width, and a hand-typed line that looks right
 shifts every float by a character.
@@ -10,7 +12,11 @@ shifts every float by a character.
 import pytest
 
 from dashboard.execution.adapters import pdc_view
-from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CONSTRAINTS, ddm_moleculetype
+from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_TYPES, ddm_moleculetype
+
+#: The stand-in element each class is written with -- `models/compositions/topology.py`'s own choice, written out here
+#: so this file fails if the writer's and the viewer's tables ever disagree.
+ELEMENTS = {'R': 'C', 'S': 'N', 'T': 'H'}
 
 
 def _line(residue, name, index, position):
@@ -150,6 +156,62 @@ def test_the_models_bonds_are_written_as_conect_records_and_the_remark_says_wher
                        (17, 18)]]
     assert "BONDS ARE THE MODEL'S OWN" in text and '[ constraints ]' in text
     assert 'ELEMENTS ARE RADIUS STAND-INS' in text, 'the elements are still stand-ins, and the file still says so'
+
+
+def _elements(text):
+    """Every HETATM's element column, in file order -- the column a viewer resolves a bead's class from (77-78)."""
+    return [line[76:78].strip() for line in text.splitlines() if line.startswith('HETATM')]
+
+
+def test_the_element_column_states_each_beads_own_size_class(tmp_path):
+    """The file states the class the model states, so a viewer's radii come out in proportion -- 2.64/2.30/1.91 A.
+
+    Measured before this: the writer met one `C` for every bead, so `ngl-beads.js` resolved every bead to the model's
+    R and drew the sugar ring's small beads at a tail bead's size -- uniform 2.64 A where the model says 0.264 / 0.230
+    / 0.191 nm. `models/compositions/topology.py`'s `render_pdb` already chose its stand-in from each bead's class;
+    this writer now reads the same class out of the moleculetype it is already handed.
+    """
+    (tmp_path / 'detergent_CG.itp').write_text(ddm_moleculetype())
+    topology = pdc_view.read_moleculetype(tmp_path / 'detergent_CG.itp')
+    atoms = pdc_view.read_gro(_system_gro(tmp_path, _detergent_beads(molecules=2)))
+
+    text = pdc_view.system_pdb(atoms, topology=topology)
+
+    expected = [ELEMENTS[DDM_CLASSES[name]] for name in list(DDM_BEADS) * 2]
+    assert _elements(text) == expected
+    assert len(set(expected)) == 3, 'the fixture must span R, S and T for this test to say anything'
+    assert 'ELEMENTS ARE RADIUS STAND-INS' in text, 'the elements are still stand-ins, and the file still says so'
+
+
+def test_the_moleculetype_reader_takes_each_beads_own_type(tmp_path):
+    """The type column is where a moleculetype states a bead's Martini 3 class, so it is read beside the name."""
+    path = tmp_path / 'detergent_CG.itp'
+    path.write_text(ddm_moleculetype())
+
+    moleculetype = pdc_view.read_moleculetype(path)
+
+    assert moleculetype['atoms'] == list(DDM_BEADS)
+    assert moleculetype['types'] == [DDM_TYPES[DDM_CLASSES[name]] for name in DDM_BEADS]
+
+
+def test_a_bead_whose_class_the_model_does_not_state_keeps_the_stand_in(tmp_path):
+    """Two ways a class goes unresolved, and both draw at the `C` stand-in -- the model's R, 0.264 nm.
+
+    A protein bead is not a bead the detergent's moleculetype sizes, and a detergent bead a mapping does not name has
+    no class either; without a topology there is no class anywhere. A picture that guessed a smaller class for these
+    would be inventing a size the model does not state, so they keep the neutral stand-in and the file says so.
+    """
+    (tmp_path / 'detergent_CG.itp').write_text(ddm_moleculetype())
+    topology = pdc_view.read_moleculetype(tmp_path / 'detergent_CG.itp')
+    atoms = pdc_view.read_gro(_system_gro(tmp_path, [(1, 'PRO', 'BB', (0.0, 0.0, 0.0))]
+                                        + _detergent_beads(molecules=1)
+                                        + [(3, 'DDM', 'ZZZ', (9.0, 0.0, 0.0))]))
+
+    elements = _elements(pdc_view.system_pdb(atoms, topology=topology))
+
+    # The protein bead, one detergent's eleven beads in the moleculetype's own order, then the bead no model names.
+    assert elements == ['C'] + [ELEMENTS[DDM_CLASSES[name]] for name in DDM_BEADS] + ['C'], elements
+    assert set(_elements(pdc_view.system_pdb(atoms))) == {'C'}, 'no topology, no class'
 
 
 def test_beads_that_do_not_match_the_moleculetype_are_left_unbonded_with_a_remark(tmp_path):

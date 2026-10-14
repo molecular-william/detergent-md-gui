@@ -9,8 +9,9 @@ Four claims, and each is the plan's:
   the seed and the box margins do re-derive, because the coarse-grained protein is cached server-side;
 * **a refusal is the builder's sentence and no picture** -- never a blank block, and never a drawing of a system the
   build would refuse;
-* **the beads are drawn at twice the model's radius and the bond guess is off** -- the radii read off the loaded
-  structure are the module's own table doubled, and the drawn bonds are the file's `CONECT` records or none at all.
+* **the beads are drawn at the model's own radius, class by class, and the bond guess is off** -- the radii read off
+  the loaded structure are the module's own table, each bead at the radius its own size class has and a bead the
+  model does not size at the R stand-in, and the drawn bonds are the file's `CONECT` records or none at all.
 
 The route is served as a fixture, so nothing here reads the developer's workspace, and the frames are written by
 `pdc_view.system_pdb` -- the same writer a run's own snapshot goes through -- rather than being typed out by hand.
@@ -20,7 +21,12 @@ import re
 from playwright.sync_api import expect
 
 from dashboard.execution.adapters import pdc_view
-from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CONSTRAINTS, DDM_PLACEMENT, ddm_moleculetype
+from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_PLACEMENT, ddm_moleculetype
+
+#: Martini 3's classes in nanometres, from `models/sugars/recognition.py`'s `RADII_NM`, written out so the preview's
+#: measurement and the model's table cannot drift.
+RADII_NM = {'R': 0.264, 'S': 0.230, 'T': 0.191}
+NANOMETRE_TO_ANGSTROM = 10.0
 
 PROTEIN = {'id': 'molecules/1qj8/1qj8.pdb', 'name': '1qj8', 'path': 'molecules/1qj8/1qj8.pdb',
            'source': 'packaged', 'half_thickness_nm': 1.35, 'chains': ['A', 'B']}
@@ -270,10 +276,16 @@ def test_the_empty_micelle_derives_with_no_coarse_graining_at_all(dashboard, liv
     assert errors == [], errors
 
 
-def test_the_beads_are_drawn_at_twice_the_models_radius_with_the_bond_guess_off(dashboard, live_page):
-    """Measured off the loaded structure: the module's table doubled, and the file's own bonds and no others.
+def test_the_beads_are_drawn_at_the_models_own_radius_with_the_bond_guess_off(dashboard, live_page):
+    """Measured off the loaded structure: each bead at its own class' radius, and the file's own bonds and no others.
 
-    The element every bead is written with is a neutral stand-in, so NGL's distance-based guess -- `inferBonds`, on by
+    The card drew these beads twice the model's size until 2026-10-14, when the user reported them too big; the
+    preview now reads the module's one table at the model's own scale (`PREVIEW_BEAD_SCALE` = 1). The frame is the
+    writer's own output, so the classes are the ones `pdc_view.system_pdb` wrote: the detergent's sugar beads are the
+    model's S (2.30 A), their ring virtual sites its T (1.91 A) and their tails its R (2.64 A) -- while the two
+    protein beads are beads the detergent's moleculetype does not size, so they keep the stand-in, the model's R.
+
+    The element a bead is written with is a neutral stand-in, so NGL's distance-based guess -- `inferBonds`, on by
     default -- draws head beads onto tail beads. The card switches it off, so the drawn bonds are the `CONECT` records
     `pdc_view.system_pdb` wrote, replicated per molecule, and nothing else.
     """
@@ -284,11 +296,17 @@ def test_the_beads_are_drawn_at_twice_the_models_radius_with_the_bond_guess_off(
     loaded_atoms(page, 2 + MOLECULES * len(DDM_BEADS))
     measured = page.locator('.new-pdc-preview-viewer').evaluate(MEASURE)
 
-    model_r_nm = 0.264
-    # Every bead is written with the neutral `C` stand-in, so every bead is the model's R, doubled for the preview.
-    assert set(round(value / 10.0, 4) for value in measured['radii']) == {round(2 * model_r_nm, 4)}, measured['radii']
+    # The frame's beads in file order: the two protein beads first, then each detergent's eleven.
+    beads = ['BB', 'SC1'] + [name for _ in range(MOLECULES) for name in DDM_BEADS]
+    expected = [RADII_NM[DDM_CLASSES.get(name, 'R')] for name in beads]
+    drawn = [None if value is None else round(value / NANOMETRE_TO_ANGSTROM, 4) for value in measured['radii']]
+    assert drawn == expected, f'not the model\'s own radii: {drawn} against {expected}'
+    # The acceptance, in the unit the structure carries: the model's three classes, and the R to S proportion.
+    radii_nm = {value for value in drawn if value is not None}
+    assert sorted({round(value * NANOMETRE_TO_ANGSTROM, 2) for value in radii_nm}) == [1.91, 2.30, 2.64], drawn
+    assert round(RADII_NM['R'] / RADII_NM['S'], 3) == 1.148
     assert measured['parameters']['radiusScale'] * measured['parameters']['aspectRatio'] == 1, measured['parameters']
-    expected = MOLECULES * len(DDM_BONDS + DDM_CONSTRAINTS)
-    assert measured['bonds'] == expected, (
-        f"{measured['bonds']} bonds drawn where the model bonds {expected}: the distance guess is back in")
+    expected_bonds = MOLECULES * len(DDM_BONDS + DDM_CONSTRAINTS)
+    assert measured['bonds'] == expected_bonds, (
+        f"{measured['bonds']} bonds drawn where the model bonds {expected_bonds}: the distance guess is back in")
     assert errors == [], errors

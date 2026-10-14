@@ -5,23 +5,25 @@
 // ranking of sizes rather than the model's. The model does state a size class per bead -- R, S or T, Martini 3's
 // molecular-volume classes -- and `dashboard/models/sugars/recognition.py`'s `RADII_NM` is this repository's one
 // table of the nanometres each class means. This module is that table and the one call that puts it on a loaded
-// structure, so the Complexes panel and the two other views that draw beads (the mapping's 3D overlay and the
-// composition preview) cannot disagree about how big a bead is.
+// structure, so the four views that draw beads (the Complexes panel, the run view, the mapping's 3D overlay and the
+// composition preview) and the New Run panel's system preview cannot disagree about how big a bead is.
 //
 // Truth and scale are separate knobs on purpose. `BEAD_RADIUS_SCALE` multiplies the model's radius for reading --
-// the system preview draws its beads twice the run view's -- and it never changes the radii the table states, so a
-// caller can move one without lying about the other.
+// the composition preview reads its beads larger than life, the run view and the system preview read the model's own
+// -- and it never changes the radii the table states, so a caller can move one without lying about the other.
 
 //: `recognition.RADII_NM`, in nanometres, by Martini 3 size class. The fast tier compares this table with the
 //: Python one, because a second copy of these numbers would be a second model.
 export const BEAD_RADII_NM = {R: 0.264, S: 0.230, T: 0.191};
 
-//: The stand-in element each class' beads are written with (`models/compositions/topology.py`), read back here so a
-//: file that states only elements can still say which class its beads are.
+//: The stand-in element each class' beads are written with (`models/compositions/topology.py`'s `render_pdb` and
+//: `execution/adapters/pdc_view.py`'s `system_pdb` both choose it), read back here so a file that states only
+//: elements can still say which class its beads are.
 export const SIZE_ELEMENTS = {C: 'R', N: 'S', H: 'T'};
 
-//: The one scale knob. `1` draws the model's own radius; `2` draws it twice as large, which is what the new-run
-//: panel's preview wants. Set it through `setBeadRadiusScale`, or per call through `applyBeadRadii`'s `scale`.
+//: The one scale knob. `1` draws the model's own radius, which is what the run view and the system preview want;
+//: `3.75` is what the composition preview reads its beads at, and it never changes what the table above states. Set
+//: it through `setBeadRadiusScale`, or per call through `applyBeadRadii`'s `scale`.
 export let BEAD_RADIUS_SCALE = 1;
 
 export function setBeadRadiusScale(value) {

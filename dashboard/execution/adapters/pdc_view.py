@@ -3,9 +3,14 @@
 Water and ions are excluded by default. They dominate the atom count, and the point of this view is the protein and
 the detergent belt around it; a viewer handed every bead shows a box of water with no visible aggregate.
 
-The element is a neutral stand-in ('C') rather than a chemistry claim, because a coarse-grained bead has no element:
-the size class lives in a mapping or a topology, and until this workflow carries one the radii are uniform. The
-docstring says so rather than implying a calibrated picture.
+The element is a stand-in rather than a chemistry claim, because a coarse-grained bead has no element: the size class
+lives in a mapping or a topology, and this writer reads it from the moleculetype it is handed and writes the element
+that class is drawn with (`SIZE_ELEMENTS`). A viewer handed only a stand-in draws a ranking of sizes -- carbon and
+nitrogen are nearly equal -- while Martini 3's classes are R 0.264 / S 0.230 / T 0.191 nm, so the column carries the
+class and the radii come out in the model's proportion (`models/compositions/topology.py`'s `render_pdb` and
+`ngl-beads.js` are the other two ends of that one convention). A bead whose class the model does not state -- a
+protein bead, a bead the moleculetype does not name, or any bead when there is no topology at all -- keeps the neutral
+`C` stand-in, which is the model's R: an unstated class is not a smaller one.
 
 Two things the file has to say truthfully, both measured against what a reader saw:
 
@@ -23,7 +28,13 @@ from pathlib import Path
 PROTEIN_RESIDUE = 'PRO'
 DETERGENT_RESIDUE = 'DET'
 WATER_RESIDUES = ('W', 'SW', 'PW', 'NA', 'CL')
-BEAD_ELEMENT = 'C'
+#: The stand-in element each size class' beads are written with. `models/compositions/topology.py` chooses the same
+#: three, whose van der Waals radii divide by one factor into 0.264 / 0.230 / 0.191 nm, so one radius scale serves
+#: every class and a viewer's per-element radii are the model's proportion.
+SIZE_ELEMENTS = {'R': 'C', 'S': 'N', 'T': 'H'}
+#: What a bead whose class is not resolved is written with: the R stand-in, because an unstated class is not a
+#: smaller one and this is the shell the pictures were drawn with before any class was stated.
+BEAD_ELEMENT = SIZE_ELEMENTS['R']
 #: The sections of a moleculetype that make up what a viewer draws as bonds. `[ angles ]`, `[ dihedrals ]`,
 #: `[ virtual_sitesn ]` and `[ exclusions ]` are not bonds and must not become any.
 BONDED_SECTIONS = ('bonds', 'constraints')
@@ -72,6 +83,39 @@ def read_gro_box(path) -> list[float]:
         raise ValueError(f'{path} has an unreadable box line: {lines[-1]!r}') from exc
 
 
+def size_class(bead_type) -> str:
+    """The Martini 3 size class a bead type names: an `S` or `T` first letter, else R.
+
+    Martini 3 spells the class in the type: `SP1r`, `SN6`, `ST2` are small, `TC4`, `TN2` tiny, and a regular bead's
+    type carries no prefix at all (`C1`, `P1`). `models/molecules/draft.py` reconciles a mapping's stated size with
+    its bead type by that same letter, so this is the repository's own reading of the column rather than a second
+    convention; the saved DDM mapping's types (`SP1r`, `SN6`, `SP4r`, `TC4`, `C1`) come back as the R/S/T it states
+    for them. A type that is empty or names neither letter states no class and is read as R -- the class whose
+    stand-in element an unstated class is written with anyway -- rather than guessed at from a chemical letter.
+    """
+    letter = str(bead_type or '').strip()[:1].upper()
+    return letter if letter in ('S', 'T') else 'R'
+
+
+def bead_element(bead_type) -> str:
+    """The stand-in element a bead of this type is written with, chosen from the class its type names."""
+    return SIZE_ELEMENTS[size_class(bead_type)]
+
+
+def bead_elements(topology: dict | None) -> dict[str, str]:
+    """The element each bead a moleculetype names is written with, by bead name.
+
+    The class belongs to the bead the model declares, so it is looked up by name -- the same identity the bonds are
+    matched by -- and a moleculetype that states no type column yields the R stand-in for every bead rather than a
+    class nothing stated.
+    """
+    if not topology:
+        return {}
+    types = list(topology.get('types') or [''] * len(topology['atoms']))
+    return {str(name).strip().upper(): bead_element(bead_type)
+            for name, bead_type in zip(topology['atoms'], types)}
+
+
 def read_moleculetype(path) -> dict:
     """The beads and the bonded terms a GROMACS moleculetype declares, as the model a picture is drawn from.
 
@@ -93,8 +137,12 @@ def read_moleculetype_text(text: str, *, source: str = '<text>') -> dict:
     is what the caller's record calls the file this model came from -- the name the run writes it under -- and it
     travels into the returned record, and from there into the PDB's own REMARK, so the picture keeps saying where
     its bonds came from.
+
+    Two columns of an `[ atoms ]` row are read: the bead's *name*, which is the one column a structure and a
+    topology can be checked against each other by, and its *type*, which is where a Martini 3 bead's size class is
+    spelled (`size_class`). The rest -- residue number, charge, mass -- say nothing this writer draws.
     """
-    atoms, pairs = [], {section: [] for section in BONDED_SECTIONS}
+    atoms, types, pairs = [], [], {section: [] for section in BONDED_SECTIONS}
     section = None
     for line in str(text).splitlines():
         # A moleculetype's comments are `;`; a `#include` or a preprocessor line names no bond either.
@@ -109,6 +157,7 @@ def read_moleculetype_text(text: str, *, source: str = '<text>') -> dict:
             if len(fields) < 5:
                 raise ValueError(f'{source} has an atom line without a bead name: {line!r}')
             atoms.append(fields[4])
+            types.append(fields[1])
         elif section in pairs:
             if len(fields) < 2:
                 raise ValueError(f'{source} has a {section} line without a pair: {line!r}')
@@ -118,7 +167,8 @@ def read_moleculetype_text(text: str, *, source: str = '<text>') -> dict:
                 raise ValueError(f'{source} has an unreadable {section} pair: {line!r}') from exc
     if not atoms:
         raise ValueError(f'{source} declares no atoms: there is no molecule to draw bonds for')
-    return {'atoms': atoms, 'bonds': pairs['bonds'], 'constraints': pairs['constraints'], 'path': str(source)}
+    return {'atoms': atoms, 'types': types, 'bonds': pairs['bonds'], 'constraints': pairs['constraints'],
+            'path': str(source)}
 
 
 def topology_residue(atoms, topology: dict | None, fallback: str) -> str:
@@ -196,8 +246,14 @@ def system_pdb(atoms, *, detergent_residue='DDM', include_water=False, title='PD
     detergent's moleculetype, when the caller has it -- adds that moleculetype's own bonds as CONECT records, once
     per detergent molecule. Without a topology the file carries no bonds at all and says so, which is the one
     answer a viewer cannot turn into invented chemistry.
+
+    The element column is the stand-in for each detergent bead's own size class (`bead_elements`), because that is
+    the one column a viewer resolves a radius from: written uniformly, every bead is drawn at the model's R however
+    the model sizes it. The classes are the moleculetype's, so they belong to the detergent; a protein bead, and a
+    bead the moleculetype does not name, are written with the `C` stand-in the file's REMARK states.
     """
     kept = [atom for atom in atoms if include_water or atom['residue'].upper() not in WATER_RESIDUES]
+    elements = bead_elements(topology)
 
     molecules, molecule_of = [], {}
     for atom in kept:
@@ -210,10 +266,12 @@ def system_pdb(atoms, *, detergent_residue='DDM', include_water=False, title='PD
     records, serials = [], [[] for _ in molecules]
     for serial, atom in enumerate(kept, start=1):
         index = molecule_of[(str(atom['residue']).upper(), atom['residue_id'])]
-        residue = DETERGENT_RESIDUE if is_detergent(atom, detergent_residue) else PROTEIN_RESIDUE
+        detergent = is_detergent(atom, detergent_residue)
+        residue = DETERGENT_RESIDUE if detergent else PROTEIN_RESIDUE
+        element = elements.get(str(atom['name']).strip().upper()) if detergent else None
         x, y, z = (round(float(value) * 10.0, 3) for value in atom['position'])  # nm -> Angstrom, as PDB is
         records.append(f'HETATM{serial:5d} {str(atom["name"])[:4]:<4s} {residue:>3s} A{index + 1:4d}    '
-                       f'{x:8.3f}{y:8.3f}{z:8.3f}{1.0:6.2f}{0.0:6.2f}          {BEAD_ELEMENT:>2s}')
+                       f'{x:8.3f}{y:8.3f}{z:8.3f}{1.0:6.2f}{0.0:6.2f}          {element or BEAD_ELEMENT:>2s}')
         serials[index].append(serial)
 
     detergents = [index for index, beads in enumerate(molecules)
@@ -227,7 +285,9 @@ def system_pdb(atoms, *, detergent_residue='DDM', include_water=False, title='PD
         conect += [f'CONECT{first:5d}{second:5d}' for first, second in bonds]
 
     lines = [f'REMARK 950 {title.upper()}: COARSE-GRAINED SYSTEM AS SET UP, WATER AND IONS OMITTED',
-             'REMARK 950 ELEMENTS ARE RADIUS STAND-INS, NOT CHEMISTRY']
+             f'REMARK 950 ELEMENTS ARE RADIUS STAND-INS, NOT CHEMISTRY: EACH BEAD IS WRITTEN WITH ITS OWN SIZE '
+             f'CLASS ({", ".join(f"{size} {element}" for size, element in sorted(SIZE_ELEMENTS.items()))}), AND A '
+             f'BEAD WHOSE CLASS THE MODEL DOES NOT STATE IS WRITTEN {BEAD_ELEMENT}']
     if detergents and topology is None:
         lines.append('REMARK 950 NO BONDS RECORDED: this stage carries no detergent moleculetype, so the picture '
                      'claims no bonds rather than leaving a viewer to invent them')

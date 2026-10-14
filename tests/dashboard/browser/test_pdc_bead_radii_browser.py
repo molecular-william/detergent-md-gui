@@ -14,24 +14,19 @@ reads the radii here reads the drawn bonds, so a regression that let the guess b
 
 The frame is a fixture rather than a run: the eleven beads of one DDM molecule are the coordinates the run's
 `1_system/system.gro` held, repeated `MOLECULES` times, three nanometres apart so no two beads in different
-molecules are near enough for a distance-based guess. It carries the model's own bonds as `CONECT` records and each
-bead's size class as its stand-in element -- the convention `models/compositions/topology.py` writes and the
-documented meaning of the element column these files carry. No test reads the developer's workspace.
+molecules are near enough for a distance-based guess. It is written by `pdc_view.system_pdb` -- the writer the route
+serves a run's own snapshot through -- so the element column this test resolves the classes from is the writer's own
+output and not a second copy of its convention. No test reads the developer's workspace.
 """
 import re
 from pathlib import Path
 
-from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CONSTRAINTS, DDM_PLACEMENT
+from dashboard.execution.adapters import pdc_view
+from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_PLACEMENT, ddm_moleculetype
 
 MOLECULES = 6
 SPACING_NM = 3.0
 
-#: One DDM molecule's beads by size class, as the DDM mapping states them in its beads' `size` fields: the sugar
-#: ring beads are small (S), the two ring virtual sites are tiny (T), and the three tail beads are regular (R).
-CLASSES = {'S1A': 'S', 'S1B': 'S', 'S1C': 'S', 'S1VS': 'T', 'S2A': 'S', 'S2B': 'S', 'S2C': 'S', 'S2VS': 'T',
-           'TAIL1': 'R', 'TAIL2': 'R', 'TAIL3': 'R'}
-#: The stand-in element each class is written with in the element column.
-ELEMENTS = {'R': 'C', 'S': 'N', 'T': 'H'}
 #: Martini 3's molecular-volume classes in nanometres, from `models/sugars/recognition.py`'s `RADII_NM`. Written out
 #: here so the test fails if the panel's table and the model's ever disagree.
 RADII_NM = {'R': 0.264, 'S': 0.230, 'T': 0.191}
@@ -68,25 +63,19 @@ MEASURE = """
 
 
 def placement_pdb():
-    """The placement frame as the panel loads it: the model's bonds as CONECT, each bead's class as its element.
+    """The placement frame as the panel loads it: written by the writer a run's own snapshot goes through.
 
-    The record layout is the one `pdc_view.system_pdb` writes, column for column, so the element column lands where
-    NGL reads it (77-78) and the residue reads as `DET`.
+    `pdc_view.system_pdb` puts the moleculetype's own bonds on the frame as `CONECT` records, gives every detergent
+    molecule its own residue, and writes each bead's size class in the element column -- the column NGL is handed and
+    the one a class is resolved from. Six molecules three nanometres apart, so no two beads of different molecules
+    are near enough for a viewer's distance-based guess to join them.
     """
-    lines = ['REMARK 950 TEST PLACEMENT: 6 DDM MOLECULES, ONE RESIDUE EACH',
-             'REMARK 950 ELEMENTS ARE THE SIZE CLASS STAND-IN, NOT CHEMISTRY']
-    records, serials = [], [[] for _ in range(MOLECULES)]
-    for molecule in range(MOLECULES):
-        for name, xyz in zip(DDM_BEADS, DDM_PLACEMENT):
-            serial = len(records) + 1
-            x, y, z = (round((xyz[0] + molecule * SPACING_NM) * NANOMETRE_TO_ANGSTROM, 3),
-                       round(xyz[1] * NANOMETRE_TO_ANGSTROM, 3), round(xyz[2] * NANOMETRE_TO_ANGSTROM, 3))
-            records.append(f'HETATM{serial:5d} {name[:4]:<4s} DET A{molecule + 1:4d}    '
-                           f'{x:8.3f}{y:8.3f}{z:8.3f}{1.0:6.2f}{0.0:6.2f}          {ELEMENTS[CLASSES[name]]:>2s}')
-            serials[molecule].append(serial)
-    conect = [f'CONECT{serials[molecule][first - 1]:5d}{serials[molecule][second - 1]:5d}'
-              for molecule in range(MOLECULES) for first, second in (*DDM_BONDS, *DDM_CONSTRAINTS)]
-    return '\n'.join(lines + records + conect + ['END']) + '\n'
+    atoms = [{'residue_id': 2 + molecule, 'residue': 'DDM', 'name': name,
+              'position': [xyz[0] + molecule * SPACING_NM, xyz[1], xyz[2]]}
+             for molecule in range(MOLECULES) for name, xyz in zip(DDM_BEADS, DDM_PLACEMENT)]
+    model = pdc_view.read_moleculetype_text(ddm_moleculetype(), source='detergent_CG.itp')
+    return pdc_view.system_pdb(atoms, detergent_residue='DDM', topology=model,
+                               title=f'placement frame ({MOLECULES} DDM molecules)')
 
 
 def model_bonds():
@@ -210,13 +199,22 @@ def test_the_sticks_are_thinner_and_the_balls_are_not_shrunk(dashboard, live_pag
 
 
 def test_the_panel_draws_each_bead_at_its_own_size_class_radius(dashboard, live_page):
-    """The radii on the loaded structure are the model's, class by class, and the ratio between them is its own."""
+    """The radii on the loaded structure are the model's, class by class: 2.64 / 2.30 / 1.91 A on an R-S-T frame.
+
+    This is the acceptance, measured off the loaded structure rather than argued: the three classes are the model's
+    three radii in the model's own proportion (R/S is 1.148), read from a frame whose beads span all three. Before the
+    writer chose its stand-in element from each bead's class, the file a run is served wrote `C` for every bead, so
+    `ngl-beads.js` resolved every bead to the model's R and this measurement was 2.64 A eleven times over for one
+    molecule -- the sugar ring's small beads drawn at a tail bead's size. The fixture here used to write its element
+    column by hand, which is how the panel's own measurement stayed green while the route's file was uniform; it is
+    the writer's output now, so the two cannot part again.
+    """
     page, errors = live_page
     measured = open_panel(page, live_page)
 
     assert measured['atoms'] == len(DDM_PLACEMENT) * MOLECULES
     drawn = measured_radii_nm(measured)
-    expected = [RADII_NM[CLASSES[name]] for name in beads_in_order()]
+    expected = [RADII_NM[DDM_CLASSES[name]] for name in beads_in_order()]
     assert drawn == expected, (
         'the beads are not drawn at their own size classes: '
         f'{[value for value in drawn[:len(DDM_BEADS)]]} against {expected[:len(DDM_BEADS)]}')
@@ -225,10 +223,15 @@ def test_the_panel_draws_each_bead_at_its_own_size_class_radius(dashboard, live_
     # model's R 0.264 / S 0.230 / T 0.191 -- not a stand-in element's, where carbon and nitrogen are nearly equal.
     by_class = {}
     for index, name in enumerate(beads_in_order()):
-        by_class.setdefault(CLASSES[name], set()).add(drawn[index])
+        by_class.setdefault(DDM_CLASSES[name], set()).add(drawn[index])
     assert {size: sorted(values) for size, values in by_class.items()} == {
         size: [radius] for size, radius in RADII_NM.items()}, f'the drawn radii are not the model\'s: {by_class}'
     assert len(set(drawn)) == 3, 'every bead class should be drawn at its own radius'
+    # And the numbers themselves, in the unit a structure file carries: the model's radii in Angstroms, and the
+    # R to S proportion the three of them state.
+    assert {size: round(sorted(values)[0] * NANOMETRE_TO_ANGSTROM, 2)
+            for size, values in by_class.items()} == {'R': 2.64, 'S': 2.30, 'T': 1.91}, by_class
+    assert round(sorted(by_class['R'])[0] / sorted(by_class['S'])[0], 3) == 1.148, by_class
     assert errors == []
 
 

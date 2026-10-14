@@ -3,7 +3,9 @@
 Status: **built, 2026-10-14.** The card, the service (`dashboard/execution/pdc_preview.py`) and the route
 (`GET /api/pdc/preview/placement`) are in the tree and covered by tests; the mock beside this plan is the design the
 reader approved, and *As built* below is what the code does where that differs or goes further. The rest of this
-document is the design call that decided it, kept as written.
+document is the design call that decided it, kept as written. Two of its numbers were changed after the fact by the
+rounds at *The two changes the user asked for* (bonds thinner, orientation fixed) and *The third change the user asked
+for* (beads proportional to their own class, and the preview at the model's scale rather than twice it).
 
 The mock is beside this plan at
 `docs/superpowers/drafts/2026-10-13-pdc-system-preview-draft.html` and carries five real placement frames, generated
@@ -99,6 +101,11 @@ that."* Both are landed; the second turned out not to be a picture at all.
 
 ### 1. The beads are drawn at the model's own radius, doubled for the preview
 
+**Superseded 2026-10-14 (third round, below):** the scale is **1** now — the preview draws the model's own radius —
+and the file states each bead's own size class, so the beads are in the model's 0.264 / 0.230 / 0.191 nm proportion
+rather than all one size. The measurements in this section are kept as the record of what the doubled, uniform
+picture was (every bead an R at 5.28 Å).
+
 The picture's bead size is now the module's, `dashboard/web/static/js/ngl-beads.js`: each bead is drawn at the radius
 its size class has in the model (R 0.264 / S 0.230 / T 0.191 nm, `models/sugars/recognition.RADII_NM`) times a scale
 of **2**, the preview's reading aid. The scale is a separate knob from the table on purpose — moving it cannot
@@ -109,8 +116,10 @@ sphere's `radius` attribute is the drawn ball, the cylinder's is the drawn stick
 matrix is 1). On a run-shaped frame — every bead written with the `C` stand-in, so every bead an R — the ball is
 drawn at **5.28 Å** in the preview (2 × the model's 2.64 Å) and the stick at **1.32 Å**.
 
-**The run view draws the same bead at the model's own radius** (`BEAD_RADIUS_SCALE` = 1): the panel and the preview
-therefore differ by exactly the factor the module states, and neither keeps its own copy of the table. The earlier
+**The run view draws the same bead at the model's own radius** (`BEAD_RADIUS_SCALE` = 1): at the time the panel and the
+preview differed by exactly the factor the module states, and since the third round the preview reads that same 1, so
+no view but the composition preview reads a bead larger than the model states. Neither keeps its own copy of the table.
+The earlier
 draft of this section had `pdc.js` at `radiusScale: 0.75` and the card at 1.5; both are now the module's parameters,
 so the two cannot drift and the built card has nothing to remember.
 
@@ -162,7 +171,10 @@ the numbers moved with it.
 
 **Measured in a browser on the drawn buffers**, before → after: the ball **2.64 Å** (R; 2.30 S, 1.91 T) unchanged in
 both, the stick **1.32 Å → 0.66 Å** for a tail bond and **1.15 Å → 0.575 Å** for a sugar bond — exactly half, with the
-ball untouched. In the mock, which draws the preview's 2× scale, the ball is 5.28 Å and the stick went 1.32 Å → 0.66 Å.
+ball untouched. In the mock, which drew the preview's 2× scale at the time, the ball was 5.28 Å and the stick went
+1.32 Å → 0.66 Å; since the third round the mock draws the model's own radius, so its ball is 2.64 Å for a bead the
+file sizes R and 2.30 / 1.91 Å for the S and T classes — the five frames it carries predate the per-class element
+column, so every bead in them is still the model's R.
 A browser test reads both numbers off the buffers
 (`tests/dashboard/browser/test_pdc_bead_radii_browser.py`), and a fast-tier test holds the mock's copy of the numbers
 to the module's (`tests/dashboard/unit/test_ngl_beads.py`), so the picture the reader approves and the panel that gets
@@ -201,6 +213,44 @@ no longer what the page shows. They were not patched in place: the model's own c
 a stamped frame, so the corrected frames had to be re-derived, which is what the paragraph above measures. What the fix
 does *not* change is any number the mock prints.
 
+## The third change the user asked for (2026-10-14, third round: the beads are proportional to the bead)
+
+The report, verbatim: *"The beads of the pdc system preview are too big. Make them proportional to the bead size."*
+Two causes, both one-liners, and the first is the one that made every bead one size:
+
+**1. The file stated one size for every bead.** `pdc_view.system_pdb` wrote the single stand-in element `C` for every
+bead, so `ngl-beads.js` resolved every bead to the model's R and drew them all at 0.264 nm — a true radius, but not
+one bead's own. The writer's own REMARK already promised the opposite (*"ELEMENTS ARE RADIUS STAND-INS, NOT
+CHEMISTRY"*), and `models/compositions/topology.py`'s `render_pdb` already chose its stand-in from each bead's size
+class (R → C, S → N, T → H). The writer now does the same, from the class the moleculetype it is handed already
+states: Martini 3 spells a small bead's type `SP1r`/`SN6` and a tiny one's `TC4`, leaves the regular class unmarked
+(`C1`), and `models/molecules/draft.py` reconciles a mapping's stated size with its type by that same letter, so this
+is the repository's own reading of the column and not a new table. Measured on the writer's own output, the eleven
+beads of a DDM molecule come back `N, N, N, H, N, N, N, H, C, C, C`, which a viewer draws at 2.30 / 1.91 / 2.64 Å —
+R/S = **1.148**, the model's proportion. A bead whose class the model does not state — a protein bead, a bead the
+moleculetype does not name, any bead on a stage with no topology — keeps the `C` stand-in, i.e. the model's R: an
+unstated class is not a smaller one.
+
+**2. The preview doubled the result.** `new-run.js` drew at **twice** the model's radius, the scale carried over from
+the mock when the user asked for bigger beads there. Against beads that are already the model's, that made the
+picture read as 5.28 Å — too big, which is what the report says. The preview now reads the one table at its own scale
+(`PREVIEW_BEAD_SCALE` = 1), and the mock's copy of that number moved with it.
+
+**Measured, and the acceptance is the radii read back off the loaded structure** (not off the parameters a panel
+sent): `tests/dashboard/browser/test_pdc_bead_radii_browser.py` — the Complexes panel's frame, now written by
+`pdc_view.system_pdb` rather than typed out by hand, which is how its measurement stayed green while the route's file
+was uniform — and `test_pdc_preview_browser.py`, the preview card. Both read **2.64 / 2.30 / 1.91 Å**, class by
+class, where the preview's own measurement read 0.528 nm eleven times over for one molecule. The writer is shared, so
+all three views that draw these files move together: the Complexes panel (`GET /api/pdc/<id>/system.pdb`), the run
+view (`GET /api/jobs/<id>/structure`, and a run's own recorded snapshots through `pdc_snapshot.write_snapshot`) and
+the preview card. The run view's `stages/2_mapping/model.json` path was already per-class; the element column is what
+its fallback reads, and it is now the model's rather than one stand-in.
+
+**The mock's five recorded frames are kept as they are**, and its prose says so: they were derived before this change
+and carry the uniform `C` column, so the page draws their beads at the model's R. Re-deriving them was not part of
+this change (the frames are a record of what the route answered on 2026-10-14, and the element column is the only
+line that would differ); a frame derived now carries the classes, and the writer's REMARK names the convention.
+
 ## What the preview is, exactly
 
 - **Inputs:** protein, subunit selection, detergent, template, mapping, count, initialisation style, seed, box margin,
@@ -231,9 +281,12 @@ The panel states these in its own words; they are the reason the design call has
    this panel never decides it.
 4. **Not the final system.** The assessment leg removes the detergents that are not in the micelle and the back-map
    turns the surviving state atomistic; neither is here.
-5. **Beads, not chemistry.** `pdc_view` writes a neutral stand-in element because a coarse-grained bead has no element;
-   with a mapping the picture is that mapping's beads, and with none the build records one centre per molecule and
-   writes no topology — and the panel says which of the two it is showing.
+5. **Beads, not chemistry.** `pdc_view` writes a stand-in element because a coarse-grained bead has no element, and
+   since 2026-10-14 it chooses that stand-in from each bead's own size class as its moleculetype states it (R C, S N,
+   T H — the class is the type's first letter, `TC4` and `SP1r`/`SN6` being Martini 3's spellings of tiny and small);
+   a bead whose class the model does not state is written `C`, the R stand-in, and the file's REMARK says so. With a
+   mapping the picture is that mapping's beads, and with none the build records one centre per molecule and writes no
+   topology — and the panel says which of the two it is showing.
 
 ## When the build refuses
 
@@ -668,8 +721,11 @@ representation draws from.
   stale import first reported the fix as having changed nothing.
 - The drawn bead sizes, measured in a browser off the two buffers the representation draws from: the ball 2.64 Å (R),
   2.30 (S) and 1.91 (T) — the model's own radii, unchanged by the thinner bonds — and the stick halved from 1.32 Å to
-  0.66 Å (tail) and 1.15 Å to 0.575 Å (sugar). The mock draws the same bead at twice those radii (5.28 Å) with the
-  same stick, measured on the page itself.
+  0.66 Å (tail) and 1.15 Å to 0.575 Å (sugar). The mock drew the same bead at twice those radii (5.28 Å) with the
+  same stick until the third round (see *The third change the user asked for*), where the preview's own scale became
+  the model's and the writer began stating each bead's class; the acceptance for that round is the radii read back off
+  the loaded structure in `test_pdc_bead_radii_browser.py` and `test_pdc_preview_browser.py` — 2.64 / 2.30 / 1.91 Å,
+  class by class, R/S = 1.148.
 - Tests: `tests/dashboard/unit/test_pdc_placement.py` and `tests/dashboard/unit/test_pdc_build_stamp.py` (see T6) and
   `tests/dashboard/unit/test_ngl_beads.py` (see T7), which pass; the fast tier as a whole was **not** green when the
   orientation landed, because another workstream was mid-flight in

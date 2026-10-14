@@ -90,13 +90,19 @@
   writes, a <code>martinize2</code> command with no room for its own warning, and a subunit selection carrying a
   ligand <code>martinize2</code> cannot type) are fixed in today's tree, which is why the frames now come from the
   build's own code path.</p>
-  <p><strong>Two drawing choices, both measured in the browser rather than eyeballed.</strong> The beads are drawn at
+  <p><strong>Three drawing choices, all measured in the browser rather than eyeballed.</strong> The beads are drawn at
   the radius their own size class has in the model (<code>ngl-beads.js</code>'s table: R 0.264 / S 0.230 / T 0.191
-  nm), doubled because the preview is a reading view, and the <strong>bonds are thinner: the sticks are drawn at a
-  quarter of the bead where the panel drew them at half</strong> — measured on the drawn buffers, the ball stayed
-  2.64 Å and the stick went from 1.32 Å to 0.66 Å for a tail bead. <code>ball+stick</code> draws the ball at
-  <code>radiusScale × aspectRatio × atomRadius</code> and the stick at <code>radiusScale × atomRadius</code>, so the
-  two knobs are independent and the ball did not shrink.</p>
+  nm) — the model's own radius, with no multiplier: this page doubled it until 2026-10-14, when the user reported the
+  beads too big, and the preview now reads the table at its own scale (<code>PREVIEW_BEAD_SCALE</code> = 1). And each
+  bead's class is the one the <em>file</em> states: the writer chooses its stand-in element from the bead's own class
+  (<code>C</code> R, <code>N</code> S, <code>H</code> T) rather than writing one <code>C</code> for every bead. The
+  five frames recorded below were derived before that and carry the old uniform column, so this page draws their beads
+  at the model's R; a frame derived now states the classes, and a viewer draws 2.64 / 2.30 / 1.91 Å — the writer's own
+  REMARK says which convention the file carries. The
+  <strong>bonds are thinner: the sticks are drawn at a quarter of the bead where the panel drew them at half</strong>
+  — measured on the drawn buffers, the ball stayed 2.64 Å and the stick went from 1.32 Å to 0.66 Å for a tail bead.
+  <code>ball+stick</code> draws the ball at <code>radiusScale × aspectRatio × atomRadius</code> and the stick at
+  <code>radiusScale × atomRadius</code>, so the two knobs are independent and the ball did not shrink.</p>
   <p><strong>Where the picture comes from is the design call this mock makes.</strong> There are three honest answers
   and one dishonest one:</p>
   <ul>
@@ -281,26 +287,30 @@
     the run will build. Nothing after it is predicted: not the belt's final size, not the box, not whether a micelle
     survives.</p>
 
-    <p class="hint"><strong>Heads to the water, tails to the core — and beads drawn twice as large as the model's own
-    radius, on bonds drawn at a quarter of a bead.</strong> The placement's direction is the way <em>out</em> of the
-    micelle, away from the protein, and each detergent is stamped with its head along it: a micelle's heads face the
-    water and its tails fill the core. (Fixed 2026-10-14: before that the stamp tied the molecule's tail-ward axis to
-    the direction, so every frame drew a micelle inside out — the frames this file carries were re-derived through
-    the fix, and the pre-fix measurement is in the banner.) The bead radius is a drawing choice, because a
-    coarse-grained bead has no element and no size of its own: it is the model's radius for the class the file states
-    (`ngl-beads.js`'s table), doubled for reading, and the model's own bonds are drawn with it — at
-    `BEAD_STICK_FRACTION`, a quarter of the bead, since 2026-10-14 (measured in the browser: the ball stayed 2.64 Å
-    and the stick went from 1.32 Å to 0.66 Å).</p>
+    <p class="hint"><strong>Heads to the water, tails to the core — and every bead drawn at the radius its own size
+    class has in the model, on bonds drawn at a quarter of a bead.</strong> The placement's direction is the way
+    <em>out</em> of the micelle, away from the protein, and each detergent is stamped with its head along it: a
+    micelle's heads face the water and its tails fill the core. (Fixed 2026-10-14: before that the stamp tied the
+    molecule's tail-ward axis to the direction, so every frame drew a micelle inside out — the frames this file
+    carries were re-derived through the fix, and the pre-fix measurement is in the banner.) The bead radius is a
+    drawing choice, because a coarse-grained bead has no element and no size of its own: it is the model's radius for
+    the class the file states (`ngl-beads.js`'s table), read at the model's own scale since 2026-10-14 — this page
+    drew them twice as large until then, and the user's report was that they were too big — and the model's own bonds
+    are drawn with it, at `BEAD_STICK_FRACTION`, a quarter of the bead, since 2026-10-14 (measured in the browser:
+    the ball stayed 2.64 Å and the stick went from 1.32 Å to 0.66 Å).</p>
 
     <p class="hint"><strong>What it does not show.</strong></p>
     <ul class="hint new-pdc-preview-nots">
       <li><strong>No solvent and no ions.</strong> The build leaves a dry system; water and salt are added in the first
       equilibration leg. Nothing in this picture is in water.</li>
-      <li><strong>No bead sizes <em>in these files</em>.</strong> The panel draws each bead at the radius its own size
-      class has in the model (R 0.264 / S 0.230 / T 0.191 nm), but a run's viewer file writes the same stand-in
-      element <code>C</code> for every bead and <code>pdc_view</code> has no class to state, so every bead here is
-      drawn as the model's R. Nothing in this picture therefore says a head bead is smaller than a tail one, because
-      the file does not; the per-class sizes appear where a file states them.</li>
+      <li><strong>Not every bead's size in the frames this page carries.</strong> The panel draws each bead at the
+      radius its own size class has in the model (R 0.264 / S 0.230 / T 0.191 nm), and since 2026-10-14 the writer
+      states that class in the file's element column (<code>C</code> for R, <code>N</code> for S, <code>H</code> for
+      T), so a sugar ring's small bead is drawn smaller than a tail bead. The five frames recorded here were derived
+      before that change: they carry the same <code>C</code> for every bead, so every bead in them is drawn as the
+      model's R. A frame derived now carries the classes — the file's own REMARK names the convention — and a bead
+      whose class the model does not state, a protein bead or a bead the moleculetype does not name, is still written
+      <code>C</code> and drawn as the model's R.</li>
       <li><strong>Not the box you will simulate.</strong> This is the box the build writes — <code>x</code> and
       <code>y</code> from the protein's own extent plus the margin, <code>z</code> at the initial <code>z</code>. The
       NPT leg changes it, so the density here is not the run's density.</li>
@@ -16536,10 +16546,12 @@ function show(pdb, describe) {
   // on a coarse-grained frame draws head beads onto tail beads (pdc.js measured 90 bonds on a 60-bond frame).
   if (/^CONECT/m.test(pdb)) parameters.inferBonds = 'none';
   stage.loadFile(new Blob([pdb], {type: 'text/plain'}), parameters).then(component => {
-    // The beads are sized the way the panel sizes them -- the model's radius for the class the file states, doubled
-    // because the preview is a reading view -- and the bonds are drawn at a quarter of the bead. A coarse-grained
-    // bead has no element and no van der Waals radius, which is why `pdc_view` writes every bead as a neutral C
-    // and why the radius here is a drawing choice rather than a size claim.
+    // The beads are sized the way the panel sizes them -- the model's radius for the class the file states, at the
+    // model's own scale since 2026-10-14 (`PREVIEW_BEAD_SCALE`, 1; this page drew them twice as large before, and
+    // the user's report was that they were too big) -- and the bonds are drawn at a quarter of the bead. A
+    // coarse-grained bead has no element and no van der Waals radius, which is why the writer chooses its element
+    // column from each bead's own size class (`C` R, `N` S, `H` T) and why the radius here is a drawing choice
+    // rather than a size claim: the class is what the file states, and the file is what the panel is given.
     applyBeadRadii(component.structure);
     component.addRepresentation('ball+stick', BEAD_RADIUS_PARAMETERS);
     component.autoView();
@@ -16551,10 +16563,12 @@ function show(pdb, describe) {
 // module's numbers are repeated rather than imported, and a fast-tier test reads both files and fails if they
 // disagree: the mock and the built card must not draw the same bead two ways. `BEAD_RADII_NM` and `SIZE_ELEMENTS`
 // are `models/sugars/recognition.RADII_NM`, this repository's one table of what a Martini 3 size class means, and
-// `PREVIEW_BEAD_SCALE` is the module's `BEAD_RADIUS_SCALE` at the value this preview wants.
+// `PREVIEW_BEAD_SCALE` is the module's `BEAD_RADIUS_SCALE` at the value this preview wants: 1, the model's own
+// radius, since 2026-10-14 -- this page and the card drew the beads twice as large before that, and the user's
+// report was that they were too big.
 const BEAD_RADII_NM = {R: 0.264, S: 0.230, T: 0.191};
 const SIZE_ELEMENTS = {C: 'R', N: 'S', H: 'T'};
-const PREVIEW_BEAD_SCALE = 2;
+const PREVIEW_BEAD_SCALE = 1;
 // `ball+stick` draws the ball at `atomRadius x radiusScale x aspectRatio` and the stick at `atomRadius x
 // radiusScale` -- measured in the vendored build off the two buffers the representation draws from. Holding
 // `radiusScale x aspectRatio = 1` therefore draws the ball at the bead's own radius while the radius scale -- and

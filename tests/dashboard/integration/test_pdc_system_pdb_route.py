@@ -11,11 +11,13 @@ This is the HTTP half of the fix; `test_pdc_bonds_browser.py` holds the panel's 
 """
 from __future__ import annotations
 
-from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CONSTRAINTS, ddm_moleculetype, ddm_system_gro
+from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, ddm_moleculetype, ddm_system_gro
 
 JOB_ID = '00000000abcd'
 MOLECULES = 3
 PROTEIN_BEADS = 1
+#: The stand-in element each class is written with -- the column the panel's viewer resolves a radius from.
+ELEMENTS = {'R': 'C', 'S': 'N', 'T': 'H'}
 
 
 def written_system(stage, *, topology=True, molecules=MOLECULES):
@@ -70,6 +72,25 @@ def test_the_built_system_gives_every_detergent_molecule_its_own_residue(dashboa
     numbers = [line[22:26].strip() for line in lines if line.startswith('HETATM')]
     assert len(set(numbers)) == MOLECULES + 1, f'the protein and three detergents: {sorted(set(numbers))}'
     assert numbers.count(numbers[1]) == len(DDM_BEADS), 'the eleven beads of one detergent are one residue'
+
+
+def test_the_built_system_states_each_beads_own_size_class(dashboard):
+    """The file the Complexes panel draws from carries the model's three classes, not one stand-in for every bead.
+
+    `ngl-beads.js` resolves a bead's radius from this column, so a file that says `C` everywhere draws every bead at
+    the model's R -- 2.64 A for the sugar ring's small beads and the tail's regular ones alike. The protein's bead is
+    not a bead the detergent's moleculetype sizes, so it keeps the stand-in, and that is the one class the file does
+    not state.
+    """
+    built_run(dashboard)
+
+    lines = dashboard.client.get(f'/api/pdc/{JOB_ID}/system.pdb').get_data(as_text=True).splitlines()
+
+    elements = [line[76:78].strip() for line in lines if line.startswith('HETATM')]
+    per_molecule = [ELEMENTS[DDM_CLASSES[name]] for name in DDM_BEADS]
+    assert elements == ['C'] * PROTEIN_BEADS + per_molecule * MOLECULES
+    assert elements.count('H') == 2 * MOLECULES, 'the two ring virtual sites are the tiny class'
+    assert 'ELEMENTS ARE RADIUS STAND-INS' in '\n'.join(lines)
 
 
 def test_a_run_with_no_topology_says_so_rather_than_leaving_a_viewer_to_guess(dashboard):

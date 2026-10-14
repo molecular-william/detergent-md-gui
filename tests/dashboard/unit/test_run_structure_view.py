@@ -19,7 +19,11 @@ from werkzeug.exceptions import NotFound
 
 from dashboard.execution.adapters import pdc_view
 from dashboard.web.routes.runs import run_topology, structure_target
-from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CONSTRAINTS, ddm_moleculetype, gro_atom_line
+from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, ddm_moleculetype, gro_atom_line
+
+#: The stand-in element each class is written with (`models/compositions/topology.py`), written out so this file
+#: fails if the writer's table and this one ever disagree.
+ELEMENTS = {'R': 'C', 'S': 'N', 'T': 'H'}
 
 MAPPED = 'stages/2_mapping/mapped.gro'
 TOPOLOGY = 'stages/3_initial_CG/DDM.itp'
@@ -116,6 +120,23 @@ def test_a_file_that_is_not_a_gro_is_refused_rather_than_half_drawn(tmp_path):
 
     with pytest.raises(ValueError, match='not a .gro'):
         pdc_view.structure_pdb(path)
+
+
+def test_the_run_views_beads_carry_their_own_size_class(tmp_path):
+    """A run's picture draws the classes the run's own model states, through the same writer the complex view uses.
+
+    The run view reads `structure_pdb`, so the element column here is what its viewer resolves a radius from when the
+    run states no `model.json` size classes of its own -- and uniform `C` on every bead is a picture where a sugar
+    ring's small beads are drawn at a tail bead's size, 2.64 A for all of them.
+    """
+    run = coarse_run(tmp_path)
+    topology = pdc_view.read_moleculetype(run / TOPOLOGY)
+
+    text = pdc_view.structure_pdb(run / MAPPED, topology=topology)
+
+    elements = [line[76:78].strip() for line in text.splitlines() if line.startswith('HETATM')]
+    assert elements == [ELEMENTS[DDM_CLASSES[name]] for name in DDM_BEADS]
+    assert len(set(elements)) == 3, elements
 
 
 def test_the_moleculetype_is_located_by_the_runs_own_layout(tmp_path):

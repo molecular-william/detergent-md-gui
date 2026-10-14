@@ -20,16 +20,26 @@ FAST_FORWARD_ROOT = PROJECT_ROOT / 'resources/parameterizers/fast_forward/fast_f
 
 #: One DDM molecule as a run's own `detergent_CG.itp` declares it: eleven beads, and the ten bonded terms that
 #: hold them together -- four `[ bonds ]` and the six `[ constraints ]` the head's ring is pinned by. The numbers
-#: are the run's (so a reader can check them against a stage's file); the bead types are not, because no test
-#: reads a type and a type nothing reads is a chance to drift.
+#: are the run's (so a reader can check them against a stage's file), and the bead types are the ones the saved DDM
+#: mapping carries (`SP1r`, `SN6`, `SP4r`, `TC4`, `C1`), because the type's first letter is where a moleculetype
+#: states a bead's Martini 3 size class and three tests now read that column.
 DDM_BEADS = ('S1A', 'S1B', 'S1C', 'S1VS', 'S2A', 'S2B', 'S2C', 'S2VS', 'TAIL1', 'TAIL2', 'TAIL3')
 DDM_BONDS = ((1, 11), (2, 5), (9, 10), (10, 11))
 DDM_CONSTRAINTS = ((1, 2), (1, 3), (2, 3), (5, 6), (5, 7), (6, 7))
+#: Each bead's own size class, as the DDM mapping states it in its beads' `size` fields: the sugar ring's beads are
+#: small, its two ring virtual sites are tiny, and the three tail beads are regular. Martini 3 spells the class in a
+#: bead type's first letter (`S`mall, `T`iny) and leaves the regular class unmarked.
+DDM_CLASSES = {'S1A': 'S', 'S1B': 'S', 'S1C': 'S', 'S1VS': 'T', 'S2A': 'S', 'S2B': 'S', 'S2C': 'S', 'S2VS': 'T',
+               'TAIL1': 'R', 'TAIL2': 'R', 'TAIL3': 'R'}
+#: The bead type each class is written with, and the mass that class' beads carry -- `bonded/generation.py` writes
+#: both from a mapping bead's `size`, so a fixture that states a class states it the way a run's file does.
+DDM_TYPES = {'R': 'C1', 'S': 'SP1r', 'T': 'TC4'}
+DDM_MASSES = {'R': 72, 'S': 54, 'T': 36}
 
 __all__ = ['PROJECT_ROOT', 'FAST_FORWARD_ROOT', 'Dashboard', 'build', 'physical_mapping',
            'write_aa_fixture', 'cg_fixture_run', 'QuietHandler', 'fast_forward_source',
-           'DDM_BEADS', 'DDM_BONDS', 'DDM_CONSTRAINTS', 'DDM_PLACEMENT', 'ddm_moleculetype',
-           'ddm_system_gro', 'gro_atom_line']
+           'DDM_BEADS', 'DDM_BONDS', 'DDM_CONSTRAINTS', 'DDM_CLASSES', 'DDM_TYPES', 'DDM_MASSES',
+           'DDM_PLACEMENT', 'ddm_moleculetype', 'ddm_system_gro', 'gro_atom_line']
 
 
 #: One DDM molecule's eleven beads, in nanometres, in the order the moleculetype lists them. These are the
@@ -71,9 +81,13 @@ def ddm_moleculetype() -> str:
     """The detergent moleculetype, in the shape a run's file has -- including the sections a viewer ignores.
 
     One place for it, because three tests need the same model: the reader that parses it, the writer that puts its
-    bonds into a PDB, and the panel that draws them all have to agree about what the molecule is.
+    bonds into a PDB, and the panel that draws them all have to agree about what the molecule is. Each bead carries
+    its own class, in the type's first letter and in the mass `bonded/generation.py` derives from that class, so the
+    file states the three sizes a picture is drawn at.
     """
-    atoms = '\n'.join(f'{index} SP1r 1 DDM {name} {index} 0 54' for index, name in enumerate(DDM_BEADS, 1))
+    atoms = '\n'.join(f'{index} {DDM_TYPES[DDM_CLASSES[name]]} 1 DDM {name} {index} 0 '
+                      f'{DDM_MASSES[DDM_CLASSES[name]]}'
+                      for index, name in enumerate(DDM_BEADS, 1))
     constraints = '\n'.join(f'{first} {second} 1 0.361013007037' for first, second in DDM_CONSTRAINTS)
     bonds = '\n'.join(f'{first} {second} 1 0.429374836245 5000' for first, second in DDM_BONDS)
     return ('; Automatic bonded draft\n[ moleculetype ]\nDDM 1\n\n'
