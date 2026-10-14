@@ -183,10 +183,16 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         "Mismatch metrics are lower-is-better; 0 means identical distributions where the scorer defines that range.",
         "native metric units",
         takes_dependencies=True),
-    # Before the reference/consumer split a run staged its reference under this name instead.
+    # Both trajectories are staged: an AA-only run's published reference, and a CG consumer's own coarse-grained
+    # output. `layout.frame_source` reads whichever the run holds and prefers the coarse-grained one, so the kind
+    # does not have to know which run type asked for it. The legacy pair is where a run wrote its reference before
+    # the reference/consumer split.
     Kind(
         'snapshots',
-        ("1_AA-reference/prod/lig.gro", "1_AA-reference/prod/lig.xtc"),
+        ("1_AA-reference/prod/lig.gro", "1_AA-reference/prod/lig.xtc",
+         "4_CG_sim/prod/lig_CG.gro", "4_CG_sim/prod/lig_CG.xtc",
+         "4_CG_sim/md.gro", "4_CG_sim/md.xtc",
+         "4_CG_sim/eq.gro", "4_CG_sim/eq.xtc"),
         _sources_only(observability.generate),
         "Trajectory snapshots",
         "Snapshots provide visual inspection and are not a distributional validation.",

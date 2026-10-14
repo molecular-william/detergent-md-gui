@@ -117,3 +117,66 @@ def test_a_recorded_name_that_is_not_there_says_what_is(tmp_path):
     with pytest.raises(ValueError) as error:
         layout.cg_topology(tmp_path, 'SUCR.itp')
     assert 'has no SUCR.itp' in str(error.value) and 'SUCR_initial.itp' in str(error.value)
+
+
+def test_the_frame_source_prefers_the_extracted_solute_over_the_stage_output(tmp_path):
+    """A current CG run holds both: the stage's raw `md.xtc` and the solute `trjconv` extracted from it.
+
+    They are two generations of one artifact, not two spellings of one, so `resolve`'s exactly-one rule would
+    refuse such a run -- the preference is stated instead of being an ambiguity.
+    """
+    write(tmp_path, 'stages/4_CG_sim/md.xtc', 'stages/4_CG_sim/md.gro',
+          'stages/4_CG_sim/prod/lig_CG.xtc', 'stages/4_CG_sim/prod/lig_CG.gro')
+
+    trajectory, structure, role = layout.frame_source(tmp_path)
+
+    assert trajectory == tmp_path / 'stages/4_CG_sim/prod/lig_CG.xtc'
+    assert structure == tmp_path / 'stages/4_CG_sim/prod/lig_CG.gro'
+    assert role == 'cg_trajectory'
+
+
+def test_the_frame_source_reads_the_stages_own_output_when_the_solute_was_never_extracted(tmp_path):
+    """The measured older layout: `4_CG_sim/{eq,md}.xtc` with no `prod/` beside them."""
+    write(tmp_path, 'stages/4_CG_sim/eq.xtc', 'stages/4_CG_sim/eq.gro',
+          'stages/4_CG_sim/md.xtc', 'stages/4_CG_sim/md.gro')
+
+    trajectory, structure, role = layout.frame_source(tmp_path)
+
+    assert trajectory == tmp_path / 'stages/4_CG_sim/md.xtc'
+    assert structure == tmp_path / 'stages/4_CG_sim/md.gro'
+    assert role == 'cg_stage_trajectory'
+
+
+def test_the_frame_source_reads_an_aa_only_runs_published_reference(tmp_path):
+    write(tmp_path, 'stages/07_reference/lig.xtc', 'stages/07_reference/lig.gro')
+
+    trajectory, structure, role = layout.frame_source(tmp_path)
+
+    assert trajectory == tmp_path / 'stages/07_reference/lig.xtc'
+    assert structure == tmp_path / 'stages/07_reference/lig.gro'
+    assert role == 'aa_trajectory'
+
+
+def test_the_frame_source_resolves_the_work_directory_spelling(tmp_path):
+    """The worker hands an analysis a work directory whose files sit at the root, not under `stages/`."""
+    write(tmp_path, '1_AA-reference/prod/lig.xtc', '1_AA-reference/prod/lig.gro')
+
+    assert layout.frame_source(tmp_path)[0] == tmp_path / '1_AA-reference/prod/lig.xtc'
+
+
+def test_a_run_with_no_trajectory_to_review_names_what_it_looked_for(tmp_path):
+    with pytest.raises(ValueError) as error:
+        layout.frame_source(tmp_path)
+
+    message = str(error.value)
+    assert 'no trajectory to review' in message
+    assert '07_reference/lig.xtc' in message and '4_CG_sim/md.xtc' in message
+
+
+def test_an_ambiguous_role_is_refused_rather_than_stepped_over(tmp_path):
+    """A run spelling one role two ways is a defect, not a reason to review a different trajectory."""
+    write(tmp_path, 'stages/07_reference/lig.xtc', 'stages/07_reference/lig.gro',
+          'stages/1_AA-reference/prod/lig.xtc', 'stages/1_AA-reference/prod/lig.gro')
+
+    with pytest.raises(ValueError, match='more than one aa_trajectory'):
+        layout.frame_source(tmp_path)

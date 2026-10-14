@@ -23,6 +23,16 @@ CANDIDATES = {
     'mapped_structure': ('2_mapping/mapped.gro',),
     'cg_trajectory': ('4_CG_sim/prod/lig_CG.xtc',),
     'cg_structure': ('4_CG_sim/prod/lig_CG.gro',),
+    #: The CG simulation stage's own output, before the pipeline extracted the solute: the whole box, solvent
+    #: included. A current run holds these *and* `cg_trajectory`, which is why a review picks between them by
+    #: preference rather than by `resolve`'s exactly-one rule.
+    'cg_stage_trajectory': ('4_CG_sim/md.xtc',),
+    'cg_stage_structure': ('4_CG_sim/md.gro',),
+    'cg_equilibrium_trajectory': ('4_CG_sim/eq.xtc',),
+    'cg_equilibrium_structure': ('4_CG_sim/eq.gro',),
+    #: Where a consumer run wrote its atomistic half before the reference/consumer split.
+    'legacy_aa_trajectory': ('1_AA-reference/3-run.xtc',),
+    'legacy_aa_structure': ('1_AA-reference/3-run.tpr',),
     'solute_topology': ('common/molecule/molecule.itp',),
 }
 
@@ -103,6 +113,44 @@ def cg_topology(root, name=None):
                          f'{CG_TOPOLOGY_GLOB} excluding {CG_TOPOLOGY_EXCLUDED}')
     raise ValueError(f'{root} holds more than one CG molecule topology: '
                      + ', '.join(path.name for path in found))
+
+
+def _any_present(root, role):
+    return any(_present(root, relative) for relative in candidates(role))
+
+
+#: The trajectory a run offers for frame-by-frame review, most preferred first, as `(trajectory, structure)`
+#: role pairs. A current CG run holds two of these at once -- the stage's raw `md.xtc` (system and solvent) and
+#: the solute the pipeline extracted from it (`prod/lig_CG.xtc`) -- because they are two generations of one
+#: artifact rather than two spellings of one, and `resolve`'s exactly-one rule would refuse such a run outright.
+#: So the preference is stated here instead of ranked at runtime: the extracted solute is what a frame should
+#: draw, then the stage's own production output, then its equilibration, and only then the atomistic reference
+#: the model was built from. A run spelling *one* of these roles two ways is still the ambiguity `resolve` refuses.
+REVIEW_SOURCES = (
+    ('cg_trajectory', 'cg_structure'),
+    ('cg_stage_trajectory', 'cg_stage_structure'),
+    ('cg_equilibrium_trajectory', 'cg_equilibrium_structure'),
+    ('aa_trajectory', 'aa_structure'),
+    ('legacy_aa_trajectory', 'legacy_aa_structure'),
+)
+
+
+def frame_source(root):
+    """`(trajectory, structure, role)` for the one trajectory this run offers to review, by the order above.
+
+    Which layout the run was written in is the run's own answer and not a stage name a caller supplies: an AA-only
+    run publishes under `07_reference/`, a CG consumer keeps its output under `4_CG_sim/`, and the work directory
+    an analysis subprocess is handed holds the same files at its root rather than under `stages/`. A run with no
+    trajectory at all is an error that names every spelling it looked for, so a report can say what is missing
+    instead of drawing nothing. Nothing here opens a file; the caller does.
+    """
+    root = Path(root)
+    for trajectory_role, structure_role in REVIEW_SOURCES:
+        if not _any_present(root, trajectory_role):
+            continue
+        return resolve(root, trajectory_role), resolve(root, structure_role), trajectory_role
+    raise ValueError(f'{root} offers no trajectory to review; looked for '
+                     + ', then '.join(_looked_for(trajectory) for trajectory, _ in REVIEW_SOURCES))
 
 
 def summary(root, topology_name=None):

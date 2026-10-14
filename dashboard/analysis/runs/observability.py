@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from ... import files
 from ...execution import tools
+from . import layout
 
 try:
     import MDAnalysis as mda
@@ -52,10 +53,10 @@ def artifacts(run_dir):
     return entries
 
 
-def _pdb_snapshot(universe, index, output):
+def _pdb_snapshot(universe, index, output, stem):
     universe.trajectory[index]
     with output.open('w') as fp:
-        fp.write(f"REMARK Dashboard snapshot frame {index} time {float(universe.trajectory.time):.3f} ps\n")
+        fp.write(f"REMARK Dashboard {stem} snapshot frame {index} time {float(universe.trajectory.time):.3f} ps\n")
         for serial, atom in enumerate(universe.atoms, 1):
             name = str(getattr(atom, 'name', 'X'))[:4].rjust(4)
             resname = str(getattr(atom, 'resname', 'MOL'))[:3].rjust(3)
@@ -66,7 +67,7 @@ def _pdb_snapshot(universe, index, output):
         fp.write('END\n')
 
 
-def _svg_snapshot(universe, index, output):
+def _svg_snapshot(universe, index, output, stem):
     universe.trajectory[index]
     atoms = universe.atoms
     if len(atoms) == 0:
@@ -78,9 +79,9 @@ def _svg_snapshot(universe, index, output):
     scale = min((width-2*margin) / max(xmax-xmin, 1e-6),
                 (height-2*margin) / max(ymax-ymin, 1e-6))
     colors = {'C':'#374151', 'O':'#d13b45', 'N':'#285ea8', 'S':'#b47817', 'P':'#b04bb8', 'H':'#9ca3af'}
-    parts = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" role="img" aria-label="AA trajectory snapshot frame {index}">',
+    parts = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" role="img" aria-label="{stem} trajectory snapshot frame {index}">',
              '<rect width="100%" height="100%" fill="#f8fafc"/>',
-             f'<text x="{margin}" y="25" font-family="sans-serif" font-size="16">AA snapshot · frame {index} · time {float(universe.trajectory.time):.3f} ps</text>']
+             f'<text x="{margin}" y="25" font-family="sans-serif" font-size="16">{stem} snapshot · frame {index} · time {float(universe.trajectory.time):.3f} ps</text>']
     for atom, (x, y, _z) in zip(atoms, coords):
         px = margin + (float(x)-xmin) * scale
         py = height-margin - (float(y)-ymin) * scale
@@ -88,29 +89,51 @@ def _svg_snapshot(universe, index, output):
         element = re.sub(r'[^A-Za-z]', '', name).upper()[:1] or 'X'
         label = f'atom {getattr(atom, "index", 0)+1} {name}'
         parts.append(f'<circle cx="{px:.2f}" cy="{py:.2f}" r="4" fill="{colors.get(element, "#6b7280")}"><title>{label}</title></circle>')
-    parts.append(f'<text x="{margin}" y="{height-14}" font-family="sans-serif" font-size="12" fill="#64748b">XY projection · coordinates are from the original AA trajectory; this is a review image.</text></svg>')
+    parts.append(f'<text x="{margin}" y="{height-14}" font-family="sans-serif" font-size="12" fill="#64748b">XY projection · coordinates are from the original trajectory; this is a review image.</text></svg>')
     output.write_text(''.join(parts))
 
 
-def generate(run_dir, stage='1_AA-reference', labels=('first', 'middle', 'last')):
-    """Write coordinate and SVG snapshots from the completed AA trajectory."""
-    if stage != '1_AA-reference':
-        raise ValueError('Snapshots are currently supported only for the AA reference stage')
+def _sample_indices(n_frames, samples):
+    """`samples` frame numbers spread over the whole trajectory, first and last included."""
+    if samples < 1:
+        raise ValueError('A frame series needs at least one sample')
+    if n_frames <= samples:
+        return list(range(n_frames))
+    step = (n_frames - 1) / (samples - 1)
+    return [round(position * step) for position in range(samples)]
+
+
+def _stride(n_frames, samples):
+    """How far apart the sampled frames sat, as a whole number of frames; 1 when every frame was taken."""
+    return max(1, round((n_frames - 1) / (samples - 1))) if samples > 1 and n_frames > samples else 1
+
+
+def _frames_series(universe, indices, output):
+    """One multi-model PDB holding every sampled frame, so a viewer loads the series in a single request."""
+    with mda.Writer(str(output), n_atoms=len(universe.atoms), multiframe=True) as writer:
+        for index in indices:
+            universe.trajectory[index]
+            writer.write(universe.atoms)
+
+
+def generate(run_dir, labels=('first', 'middle', 'last'), samples=40):
+    """Write coordinate and SVG snapshots from the run's own trajectory, resolved by its own layout.
+
+    Which trajectory that is is the run's own answer rather than a stage name: an AA-only run publishes its
+    reference under `07_reference/`, a CG consumer keeps its output under `4_CG_sim/`, and a run that holds a
+    coarse-grained trajectory is reviewed on that rather than on the atomistic one it was mapped from.
+    `layout.frame_source` reads whichever layout the run was written in and refuses a run that spells the same
+    role two ways, so the returned `role` and `trajectory` say which file a frame came from instead of leaving a
+    reader to guess. `samples` frames are also written to one multi-model PDB, which is what a viewer plays.
+    """
     if mda is None:
         raise RuntimeError('MDAnalysis is not installed; cannot read trajectory snapshots')
-    stage_dir = run_dir / stage
-    trajectory = stage_dir / '3-run.xtc'
-    topology = stage_dir / '3-run.tpr'
-    # New FF runs expose molecule-whole ligand files with a portable GRO topology.
-    if (stage_dir / 'prod/lig.xtc').is_file() and (stage_dir / 'prod/lig.gro').is_file():
-        trajectory = stage_dir / 'prod/lig.xtc'
-        topology = stage_dir / 'prod/lig.gro'
-    if not trajectory.is_file() or not topology.is_file():
-        raise FileNotFoundError(f'AA trajectory requires {stage}/3-run.xtc and {stage}/3-run.tpr')
+    trajectory, topology, role = layout.frame_source(run_dir)
     universe = mda.Universe(str(topology), str(trajectory))
     n_frames = len(universe.trajectory)
     if n_frames < 1:
-        raise ValueError('AA trajectory contains no frames')
+        raise ValueError(f'{trajectory.name} contains no frames')
+    stem = 'CG' if role.startswith('cg_') else 'AA'
     indices = {'first': 0, 'middle': (n_frames - 1)//2, 'last': n_frames - 1}
     target = run_dir / 'snapshots'; target.mkdir(exist_ok=True)
     created = []
@@ -118,11 +141,21 @@ def generate(run_dir, stage='1_AA-reference', labels=('first', 'middle', 'last')
         if label not in indices:
             raise ValueError(f'Unknown snapshot label: {label}')
         index = indices[label]
-        pdb = target / f'AA-{label}.pdb'; svg = target / f'AA-{label}.svg'
-        _pdb_snapshot(universe, index, pdb); _svg_snapshot(universe, index, svg)
+        pdb = target / f'{stem}-{label}.pdb'; svg = target / f'{stem}-{label}.svg'
+        _pdb_snapshot(universe, index, pdb, stem); _svg_snapshot(universe, index, svg, stem)
         created.extend([pdb.name, svg.name])
+    series_indices = _sample_indices(n_frames, samples)
+    series = target / f'{stem}-frames.pdb'
+    _frames_series(universe, series_indices, series)
+    created.append(series.name)
     universe.trajectory.close()
-    return {'frames': n_frames, 'files': created, 'trajectory': str(trajectory.relative_to(run_dir))}
+    try:
+        recorded = str(trajectory.relative_to(run_dir))
+    except ValueError:  # a resolved path outside the root the caller named is reported in full rather than guessed
+        recorded = str(trajectory)
+    return {'frames': n_frames, 'files': created, 'trajectory': recorded, 'role': role,
+            'series': {'file': series.name, 'stride': _stride(n_frames, samples), 'sampled': len(series_indices)}}
+
 
 
 def sasa_plot(run_dir):
