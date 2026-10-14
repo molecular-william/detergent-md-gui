@@ -98,8 +98,9 @@
   build's own code path.</p>
   <p><strong>Three drawing choices, all measured in the browser rather than eyeballed.</strong> A bead is drawn at the
   radius its own size class has in the model (<code>ngl-beads.js</code>'s table: R 0.264 / S 0.230 / T 0.191 nm),
-  times this preview's own reading scale (<code>PREVIEW_BEAD_SCALE</code>, 0.5 since 2026-10-14, when the user said the
-  beads read too big; the table itself, and so the model, is unchanged). The class is the one the <em>file</em> states:
+  times this preview's own reading scale (<code>PREVIEW_BEAD_SCALE</code>, <strong>0.3</strong> since 2026-10-14,
+  when the user said the beads read too big and then asked for 0.3 — 0.792 / 0.690 / 0.573 Å for R, S and T; the
+  table itself, and so the model, is unchanged). The class is the one the <em>file</em> states:
   the writer chooses its stand-in element from each bead's own class (<code>C</code> R, <code>N</code> S,
   <code>H</code> T) rather than writing one <code>C</code> for every bead. And the colour is the bead's own Martini 3
   <em>polarity family</em> — charged, polar, nonpolar, apolar, or not stated — which the writer carries in the file's
@@ -16567,12 +16568,12 @@ function show(pdb, describe) {
   if (/^CONECT/m.test(pdb)) parameters.inferBonds = 'none';
   stage.loadFile(new Blob([pdb], {type: 'text/plain'}), parameters).then(component => {
     // The beads are sized the way the panel sizes them -- the model's radius for the class the file states, times
-    // this preview's own scale (`PREVIEW_BEAD_SCALE`, 0.5 since 2026-10-14, when the user said the beads read too
-    // big) -- and the bonds are drawn at a quarter of the bead. A coarse-grained bead has no element and no van der
-    // Waals radius, which is why the writer chooses its element column from each bead's own size class (`C` R, `N`
-    // S, `H` T) and why the radius here is a drawing choice rather than a size claim: the class is what the file
-    // states, and the file is what the panel is given. The colour is the bead's own type family, out of the code the
-    // writer puts in the b-factor column.
+    // this preview's own scale (`PREVIEW_BEAD_SCALE`, 0.3 since 2026-10-14, when the user said the beads read too
+    // big and then asked for 0.3) -- and the bonds are drawn at a quarter of the bead. A coarse-grained bead has no
+    // element and no van der Waals radius, which is why the writer chooses its element column from each bead's own
+    // size class (`C` R, `N` S, `H` T) and why the radius here is a drawing choice rather than a size claim: the
+    // class is what the file states, and the file is what the panel is given. The colour is the bead's own type
+    // family, out of the code the writer puts in the b-factor column.
     applyBeadRadii(component.structure);
     component.addRepresentation('ball+stick', {...BEAD_RADIUS_PARAMETERS, ...BEAD_FAMILY_PARAMETERS});
     component.autoView();
@@ -16584,11 +16585,11 @@ function show(pdb, describe) {
 // module's numbers are repeated rather than imported, and a fast-tier test reads both files and fails if they
 // disagree: the mock and the built card must not draw the same bead two ways. `BEAD_RADII_NM` and `SIZE_ELEMENTS`
 // are `models/sugars/recognition.RADII_NM`, this repository's one table of what a Martini 3 size class means, and
-// `PREVIEW_BEAD_SCALE` is the module's `BEAD_RADIUS_SCALE` at the value this preview wants: 0.5 since 2026-10-14,
-// when the user said the beads read too big.
+// `PREVIEW_BEAD_SCALE` is the module's `BEAD_RADIUS_SCALE` at the value this preview wants: 0.3 since 2026-10-14,
+// when the user said the beads read too big and then asked for 0.3.
 const BEAD_RADII_NM = {R: 0.264, S: 0.230, T: 0.191};
 const SIZE_ELEMENTS = {C: 'R', N: 'S', H: 'T'};
-const PREVIEW_BEAD_SCALE = 0.5;
+const PREVIEW_BEAD_SCALE = 0.3;
 // `ball+stick` draws the ball at `atomRadius x radiusScale x aspectRatio` and the stick at `atomRadius x
 // radiusScale` -- measured in the vendored build off the two buffers the representation draws from. Holding
 // `radiusScale x aspectRatio = 1` therefore draws the ball at the bead's own radius while the radius scale -- and

@@ -538,7 +538,32 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
         option.disabled = !!candidate.error;
         return option;
       }));
-    if (wanted && candidates.some(candidate => candidate.file === wanted)) select.value = wanted;
+    select.value = mappingFor(molecule, wanted, candidates);
+  }
+
+  // Which mapping the panel hands the form, and therefore the preview and the run: the detergent's own first saved
+  // mapping, so the picture is made of the beads that mapping declares. It reached the writer as a centres-only
+  // frame until 2026-10-14 -- one point per detergent, no moleculetype, hence no types -- which is why every bead
+  // on this detergent's preview came back `family not stated`; the frame the reader asked to see carrying its own
+  // families is the mapping's beads, and a build with no mapping is a real build rather than the default.
+  //
+  // A reader who chooses it means it, so the choice is remembered per detergent (`'none'` for the centres-only
+  // option) and never defaulted over -- including when the reader moves to another detergent, whose own first
+  // mapping is then the default in its turn.
+  const MAPPING_NONE = 'none';
+  const mappingChoices = () => storage.get('pdc-mapping-choice', {}) || {};
+  function mappingFor(molecule, remembered, candidates) {
+    if (remembered && candidates.some(candidate => candidate.file === remembered)) return remembered;
+    const chosen = mappingChoices()[molecule];
+    if (chosen !== undefined) {
+      return chosen !== MAPPING_NONE && candidates.some(candidate => candidate.file === chosen) ? chosen : '';
+    }
+    const usable = candidates.find(candidate => !candidate.error);
+    return usable ? usable.file : '';
+  }
+  function rememberMapping() {
+    storage.set('pdc-mapping-choice',
+                {...mappingChoices(), [field('molecule_id').value]: field('mapping_candidate').value || MAPPING_NONE});
   }
 
   function fillDefaults() {
@@ -877,10 +902,11 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // bead radii are not this file's either -- `ngl-beads.js` is the one table and the one call, and the file's
   // element column is where each bead's own size class arrives -- so the only number the card owns is the scale it
   // reads them at, which is why `PREVIEW_BEAD_SCALE` is here rather than in the table.
-  //: `1` -- the model's own radius. This preview drew its beads twice the model's size until 2026-10-14, when the
-  //: user reported them too big; with each bead now written with its own class, the model's radii are the picture,
-  //: and a multiplier here is the one number a reader would have to be told about to read a bead's size.
-  const PREVIEW_BEAD_SCALE = 0.5;
+  //: `0.3` -- the model's own radius times this, for reading. This preview drew its beads twice the model's size
+  //: until 2026-10-14, when the user reported them too big and they went to half; the same day's second report put
+  //: them at 0.3, which is 0.792 / 0.690 / 0.573 A for an R, S and T bead. The radii themselves are the table's, so
+  //: a multiplier here is the one number a reader would have to be told about to read a bead's size.
+  const PREVIEW_BEAD_SCALE = 0.3;
   const previewNode = selector => pdcNode(`.new-pdc-preview ${selector}`);
   const sayPreview = (selector, text) => { const target = previewNode(selector); if (target) setText(target, text); };
   let previewFrame = null, previewRequest = 0, previewTimer;
@@ -1091,7 +1117,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   pdcNode('.new-pdc-chain-list')?.addEventListener('change', () => {
     describeChains(); store(); syncSummary(); loadEstimate(); checkReadiness(); renderPreviewState();
   });
-  field('mapping_candidate').addEventListener('change', () => { store(); syncSummary(); loadEstimate(); checkReadiness(); renderPreviewState(); });
+  field('mapping_candidate').addEventListener('change', () => { rememberMapping(); store(); syncSummary(); loadEstimate(); checkReadiness(); renderPreviewState(); });
   // Every number the adapter reads. `input` keeps the summary and the gate current while a value is typed -- a
   // number input fires `change` only on blur, so a gate that listened for that alone would leave the reader looking
   // at a blocker they had already cleared (and one readiness fetch per keystroke is noise, so it is debounced);

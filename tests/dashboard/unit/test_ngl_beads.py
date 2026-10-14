@@ -103,12 +103,13 @@ def test_the_mock_draws_the_same_bead_and_bond_as_the_module():
     for text, name in ((module, 'ngl-beads.js'), (draft, 'the mock')):
         assert re.search(r"BEAD_FAMILY_ORDER\s*=\s*\[\s*'unstated',\s*'C',\s*'N',\s*'P',\s*'Q'\s*\]", text), \
             f'{name} states no family order'
-    # The module's own scale is `1` -- a bead is drawn at the model's radius -- and the preview reads it at the same
-    # one: the panel's beads were drawn twice as large, and the user's report was that they were too big.
+    # The module's own scale is `1` -- a bead is drawn at the model's radius -- and the preview reads it at a scale
+    # of its own: the panel's beads were drawn twice as large, the user's first report had them halved and the
+    # second put them at 0.3, so the mock carries the number the reader approved.
     assert re.search(r'BEAD_RADIUS_SCALE\s*=\s*1\s*;', module)
     preview = re.search(r'PREVIEW_BEAD_SCALE\s*=\s*([0-9.]+);', draft)
     assert preview, 'the mock states no PREVIEW_BEAD_SCALE'
-    assert float(preview.group(1)) == 0.5, 'the mock draws the beads at the scale the user asked to have halved'
+    assert float(preview.group(1)) == 0.3, 'the mock draws the beads at the scale the user asked for'
     # And the panel now draws it too: the mock's own preview scale is the panel's, so the picture the reader approved
     # and the picture the app builds cannot differ by the one number the preview adds for reading.
     panel = re.search(r'PREVIEW_BEAD_SCALE\s*=\s*([0-9.]+);', (SOURCE.parent / 'new-run.js').read_text())
@@ -303,10 +304,11 @@ def test_each_panel_states_its_own_scale_at_the_call():
     assert 'applyBeadRadii(beadStructure, {scale: 1})' in (JS_DIR / 'mapping-ngl.js').read_text()
     assert 'applyBeadRadii(component.structure, {scale: 1' in (JS_DIR / 'run-view.js').read_text()
     # The system preview reads its beads at a scale of its own since 2026-10-14, when the user reported the beads
-    # too big and asked for half: the number is still the panel's own -- stated here, and held to the mock's.
+    # too big, halved them and then asked for 0.3: the number is still the panel's own -- stated here, and held to
+    # the mock's.
     new_run = (JS_DIR / 'new-run.js').read_text()
     assert 'applyBeadRadii(component.structure, {scale: PREVIEW_BEAD_SCALE})' in new_run
-    assert re.search(r'PREVIEW_BEAD_SCALE\s*=\s*0\.5\s*;', new_run), \
+    assert re.search(r'PREVIEW_BEAD_SCALE\s*=\s*0\.3\s*;', new_run), \
         'the preview draws at the scale the user asked for, and that multiplier is the panel\'s own'
     bonded = (JS_DIR / 'bonded-plot.js').read_text()
     assert 'beadRadiusNm(bead.size' in bonded, \

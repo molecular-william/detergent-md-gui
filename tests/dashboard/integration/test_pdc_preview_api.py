@@ -19,6 +19,7 @@ import math
 import pytest
 
 from dashboard.execution import tools
+from dashboard.execution.adapters import pdc_view
 
 
 def peptide(residues=6) -> str:
@@ -104,6 +105,16 @@ def test_the_basis_is_the_question_that_was_asked_and_the_cost_says_what_was_pai
     assert body['cost']['cg_cached'] is False and body['cost']['coarse_graining_seconds'] == 0
     assert body['cost']['cg_bytes'] == 0 and body['cost']['cg_key'] is None
     assert 'CONECT' in body['pdb'], 'the mapping bonds the beads, and the file carries those records'
+
+    # And the same moleculetype is what colours them: every bead carries its own family's code in the file's
+    # b-factor column, and the frame spans more than one family because the mapping's heads are polar (`SP1r`) and
+    # its tails apolar (`C1`, `TC4`). A frame the writer was handed no moleculetype for writes the unstated zero for
+    # every bead, which is the empty micelle's `family not stated` defect: this is that frame's acceptance, read off
+    # the route's own answer.
+    families = [int(round(float(line[60:66]))) for line in body['pdb'].splitlines() if line.startswith('HETATM')]
+    assert families and 0 not in families, f'a bead states no family: {sorted(set(families))}'
+    assert len(set(families)) >= 2, sorted(set(families))
+    assert {pdc_view.bead_family_code('SP1r'), pdc_view.bead_family_code('C1')} <= set(families), sorted(set(families))
 
     # Nothing a run reads, and no run: a preview is not a job.
     assert list(dashboard.paths.runs.glob('*')) == [] if dashboard.paths.runs.exists() else True
