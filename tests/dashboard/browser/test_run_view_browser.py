@@ -25,6 +25,18 @@ CG_RUN = 'cc00cc000002'
 FRAMES_RUN = 'ff00ff000003'
 PDC_RUN = 'dd00dd000004'
 OSMOTIC_RUN = 'ee00ee000005'
+#: A coarse-grained run that holds no moleculetype: the state the structure route has to report rather than guess
+#: bonds for. Planted by its own test, because the chooser's tests count the runs in the shared seed.
+NO_TOPOLOGY_RUN = 'aa00aa000007'
+#: A run that has published more attempts than the artifact route pages at once. The index is walked in *directory*
+#: order rather than by age, so an attempt whose directory sorts last lands on a later page while still being the
+#: newest by `modified_at` -- and the newest `result.json` is what names the frame series.
+MANY_RUN = 'bb00bb000006'
+#: The routes' own page size (`web/routes/common.py`: `limit` is capped at 100), written out so this file fails if it
+#: drifts rather than quietly testing a fixture that fits in one page.
+PAGE_CAP = 100
+#: One file per earlier attempt, so the newest attempt's five files land past the first page.
+EARLIER_ATTEMPTS = 120
 
 BEADS = ('B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08')
 #: The sizes the fixture's own `model.json` states: the maltose mapping's classes, six S and the two virtual sites T.
@@ -124,6 +136,37 @@ def published_snapshots(files):
     return contents
 
 
+def many_attempts():
+    """A run's artifact tree once it has published more attempts than one page of the index holds.
+
+    Earlier attempts each contribute one file under a signature that sorts *before* the newest attempt's own
+    (`00000000` against `1a2b3c4d`), and the newest attempt is published last so its `modified_at` is the newest. Its
+    `result.json` therefore sits on a later page while still being the record a reader has to resolve.
+    """
+    contents = {f'analyses/snapshots/00000000/attempt-{index:03d}/output/frame-{index:03d}.txt':
+                "an earlier attempt's output, and not a resolvable record\n"
+                for index in range(EARLIER_ATTEMPTS)}
+    contents |= published_snapshots({'CG-frames.pdb': frames_pdb(),
+                                     'CG-first.pdb': bead_pdb(),
+                                     'CG-middle.pdb': bead_pdb(),
+                                     'CG-last.pdb': bead_pdb()})
+    return contents
+
+
+def plant(dashboard, run_id, record, files):
+    """Insert one run and write its files, the way `seed` does -- for a run only this test needs.
+
+    `seed` is shared by the whole file and several tests count the runs it creates, so a run that belongs to one
+    test is built by that test rather than added to the common workspace.
+    """
+    owner = dashboard.coordinator
+    owner.database().insert(record)
+    for path, text in files.items():
+        target = owner.RUNS / run_id / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+
+
 def job(run_id, run_type, label, created, **extra):
     return {'id': run_id, 'run_type': run_type, 'label': label, 'created': created, 'status': 'completed',
             'molecule_name': label.split()[0], 'detergent': 'Sucrose', 'method': 'fast_forward'} | extra
@@ -139,6 +182,7 @@ def seed(dashboard):
         CG_RUN: (job(CG_RUN, 'aa_cg', 'Maltose CG consistency', '2026-10-02T10:00:00+00:00'),
                  {'stages/2_mapping/mapped.gro': mapped_gro(),
                   'stages/2_mapping/model.json': json_text(MODEL_JSON),
+                  'stages/3_initial_CG/LIG1.itp': moleculetype(),
                   'stages/3_initial_CG/LIG1.pdb': bead_pdb(),
                   'stages/4_CG_sim/md.gro': mapped_gro(),
                   'stages/5_assessment/score_matrix_LIG1.png': 'not really a png, but the figures route lists it'}),
@@ -172,6 +216,21 @@ def mapped_gro():
         rows.append(f'{1:5d}{"LIG1":<5}{name:>5}{index:5d}' + ''.join(f'{value:8.3f}' for value in xyz))
     rows.append('   2.48092   2.48092   2.48092')
     return '\n'.join(rows) + '\n'
+
+
+def moleculetype():
+    """The run's own `stages/3_initial_CG/LIG1.itp`: the eight mapped beads' names in the mapped file's own order,
+    and the seven bonded terms that hold them -- three the head ring is pinned by, four the run bonds.
+
+    A run's moleculetype is what states a coarse-grained model's connectivity, which is why the structure route
+    reads it: the panel's picture is drawn from that answer rather than from a distance guess.
+    """
+    atoms = '\n'.join(f'{index} SP1r 1 LIG1 {name} {index} 0 54' for index, name in enumerate(BEADS, 1))
+    ring, chains = MODEL_BONDS[:3], MODEL_BONDS[3:]
+    constraints = '\n'.join(f'{first} {second} 1 0.361013007037' for first, second in ring)
+    bonds = '\n'.join(f'{first} {second} 1 0.429374836245 5000' for first, second in chains)
+    return ("; the run's own bonded draft\n[ moleculetype ]\nLIG1 1\n\n"
+            f'[ atoms ]\n{atoms}\n\n[ constraints ]\n{constraints}\n\n[ bonds ]\n{bonds}\n')
 
 
 #: What the readout under the canvas reports, read off the component the viewer loaded -- never off the parameters
@@ -306,8 +365,9 @@ def test_an_aa_run_draws_its_published_gro_bondless_and_names_where_its_bonds_ar
 
     measured = page.locator('#run-view-viewer').evaluate(MEASURE)
     assert measured['atoms'] == 5
-    # A `.gro` carries no bond records and this viewer's GRO parser infers none: zero bonds drawn, which is the
-    # honest picture rather than a guess. The readout says which file and where the model's bonds actually are.
+    # A `.gro` carries no bond records, and this build's GRO parser guesses them from distances whatever
+    # `inferBonds` says -- the panel clears the store, so zero bonds are drawn. That is the honest picture rather
+    # than a guess, and the readout says which file and where the model's bonds actually are.
     assert measured['bonds'] == 0, 'a .gro must be drawn without invented bonds'
     expect(page.locator('#run-view-readout')).to_contain_text('bonds the file states')
     expect(page.locator('#run-view-readout')).to_contain_text('bonds the viewer resolved')
@@ -337,17 +397,54 @@ def test_an_aa_runs_molecule_is_the_one_case_the_viewers_own_guess_is_left_on(da
 # -------------------------------------------------------------------------------- a CG run: the CONECT guard, the radii
 
 
-def test_a_cg_run_draws_its_mapped_model_as_loose_beads_and_says_where_its_bonds_are(dashboard, live_page):
+def test_a_cg_runs_mapped_model_is_drawn_with_the_models_own_bonds(dashboard, live_page):
+    """T3's acceptance: the run's own moleculetype, read off `structure.bondStore` rather than off the request.
+
+    Measured before this: `stages/2_mapping/mapped.gro` drawn straight off the artifact route came back with **0**
+    bonds -- a `.gro` carries no bond records, and this build's GRO parser's own distance guess is cleared by the
+    panel's guard -- so a CG run's picture showed beads with no connectivity at all while its own
+    `stages/3_initial_CG/LIG1.itp` stated seven. The panel now asks the run structure route, which writes those
+    `[ bonds ]` + `[ constraints ]` as CONECT, and the count and the pairs are asserted on the component the viewer
+    loaded.
+    """
     seed(dashboard)
     page, errors = live_page
     open_panel(page, live_page, run=CG_RUN)
     wait_for_component(page, atoms=8)
 
     measured = page.locator('#run-view-viewer').evaluate(MEASURE)
+    drawn = {tuple(pair) for pair in measured['pairs']}
     assert measured['atoms'] == 8
-    assert measured['bonds'] == 0, 'a bead file with no bond records must not be guessed at'
+    assert measured['bonds'] == len(MODEL_BONDS), (
+        f"the run's moleculetype states {len(MODEL_BONDS)} bonds and the viewer drew {measured['bonds']}")
+    assert drawn == set(MODEL_BONDS), f"the drawn bonds are not the model's: {sorted(drawn ^ set(MODEL_BONDS))}"
     expect(page.locator('#run-view-what')).to_contain_text('stages/2_mapping/mapped.gro')
+    expect(page.locator('#run-view-readout')).to_contain_text("bonds the run's own topology states")
+    expect(page.locator('#run-view-readout')).to_contain_text("the run's own moleculetype, written as CONECT")
     expect(page.locator('#run-view-readout')).to_contain_text('stages/3_initial_CG/')
+    assert errors == []
+
+
+def test_a_cg_run_that_states_no_moleculetype_is_drawn_bondless_and_says_so(dashboard, live_page):
+    """The other half of the route: no topology is a state to report, not a licence to guess bonds.
+
+    Planted by this test rather than added to `seed`, because the chooser's own tests count the runs in that
+    workspace.
+    """
+    stage = dashboard.coordinator.RUNS / NO_TOPOLOGY_RUN / 'stages/2_mapping'
+    stage.mkdir(parents=True)
+    (stage / 'mapped.gro').write_text(mapped_gro())
+    dashboard.coordinator.database().insert(
+        job(NO_TOPOLOGY_RUN, 'aa_cg', 'Sorbitol CG, no topology', '2026-10-02T11:00:00+00:00'))
+
+    page, errors = live_page
+    open_panel(page, live_page, run=NO_TOPOLOGY_RUN)
+    wait_for_component(page, atoms=8)
+
+    measured = page.locator('#run-view-viewer').evaluate(MEASURE)
+    assert measured['bonds'] == 0, 'a bond nothing declares must not be drawn'
+    expect(page.locator('#run-view-readout')).to_contain_text('states no moleculetype')
+    expect(page.locator('#run-view-readout')).to_contain_text('the picture claims no bonds')
     assert errors == []
 
 
@@ -543,4 +640,33 @@ def test_a_runs_table_row_links_to_its_own_run_view(dashboard, live_page):
     expect(page.locator('#runview')).to_be_visible()
     expect(page.locator('#run-view-list button[aria-pressed=true]')).to_contain_text(AA_RUN)
     expect(page.locator('#run-view-identity')).to_contain_text(AA_RUN)
+    assert errors == []
+
+
+def test_the_newest_published_result_is_resolved_even_when_it_lies_past_the_first_page(dashboard, live_page):
+    """The reader walks the whole artifact index instead of trusting one page of it.
+
+    The route pages the index (`limit` is capped at 100) and the index is ordered by directory, so this run's newest
+    `analyses/snapshots/*/*/result.json` -- the record that names the frame series -- is on the second page. A reader
+    that stopped at the first page resolves no record at all for it and lists no frame series.
+    """
+    planted = {'stages/2_mapping/mapped.gro': mapped_gro()} | many_attempts()
+    assert len(planted) > PAGE_CAP, 'the fixture has to be past one page for this to test anything'
+    plant(dashboard, MANY_RUN, job(MANY_RUN, 'aa_cg', 'Sorbitol series, many attempts', '2026-10-06T10:00:00+00:00'),
+          planted)
+
+    page, errors = live_page
+    asked = []
+    page.on('request', lambda request: asked.append(request.url))
+    open_panel(page, live_page, run=MANY_RUN)
+    wait_for_component(page, atoms=8)
+
+    first = page.locator('#run-view-holds tr').first
+    expect(first).to_contain_text('snapshots/CG-frames.pdb')
+    assert first.get_attribute('aria-selected') == 'true'
+    assert page.locator('#run-view-viewer').evaluate(MEASURE)['frames'] == 5, \
+        'the newest record names the series, and the row plays it'
+    pages = sorted({int(url.split('page=')[1].split('&')[0])
+                    for url in asked if '/artifacts?' in url and 'page=' in url})
+    assert pages and max(pages) > 1, f'the reader never asked for a page past the first: {pages}'
     assert errors == []

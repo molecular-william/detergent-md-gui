@@ -32,3 +32,28 @@ def test_a_box_rule_refuses_input_it_cannot_compute():
         pdc_box.initial_box([[0, 0, 0]], margin_nm=0)
     with pytest.raises(ValueError, match='at least one placed'):
         pdc_box.extended_box([8.0, 6.0], [])
+
+
+def test_the_membrane_box_makes_z_clear_the_protein_rather_than_the_belt():
+    """Phase C1: an asymmetric protein in a 1.18 nm slab.
+
+    The belt's own span (a band inside the slab) is thinner than the protein, so a z taken from the placed centres
+    leaves the protein a fraction of the margin: the defect this rule replaces.
+    """
+    points = [[0.0, 0.0, -2.26], [0.0, 0.0, 3.80]]
+    box = pdc_box.membrane_box(points, half_thickness_nm=1.18, margin_nm=2.0)
+
+    assert box[2] == 2 * (3.80 + 2.0), 'the furthest atom from the plane sets it, not the placed centres'
+    assert box[:2] == [4.0, 4.0], 'x and y are the protein footprint plus the margin, as `initial_box` makes them'
+
+
+def test_a_membrane_box_reaches_at_least_the_slab_it_is_centred_on():
+    """A protein that barely enters the bilayer still gets a box the whole slab fits in: the belt lives inside it."""
+    box = pdc_box.membrane_box([[0.0, 0.0, -0.2], [0.0, 0.0, 0.2]], half_thickness_nm=1.48, margin_nm=2.0)
+
+    assert box[2] == 2 * (1.48 + 2.0)
+
+
+def test_a_protein_that_states_no_membrane_keeps_todays_box_exactly():
+    assert pdc_box.membrane_box([[0.0, 0.0, 0.0], [4.0, 2.0, 1.0]], half_thickness_nm=None) == [8.0, 6.0, 6.0]
+

@@ -6,12 +6,14 @@ import os
 import tempfile
 import uuid
 import zipfile
+from pathlib import Path
 
 from flask import Blueprint, Response, abort, jsonify, render_template, request, send_file
 
 from dashboard import files
 
 from ...execution import protocol
+from ...execution.adapters import pdc_view
 from ...execution.adapters.micelle import run_micelle_job
 from ...execution.coordination import admission
 from ...models.molecules import aa as aa_molecules
@@ -313,6 +315,91 @@ def figures_api(jid):
     entries = c.artifact_index(c.lookup(jid), refresh=request.args.get('refresh') == '1')
     return jsonify(artifacts=[e for e in entries if e['path'].endswith(('.png','.svg','surface-comparison.html'))],
                    revision=c.lookup(jid).get('artifact_revision'))
+
+
+def structure_target(run_dir, relative: str) -> Path:
+    """The file a run-relative path names, or a refusal that says which.
+
+    A path is relative to the run directory and to nothing else, so a path that resolves outside it -- through
+    `..`, or through a symlink anywhere along the way -- is a 404 rather than a way to read the filesystem. The
+    guard is the artifact route's own (`artifact_file`), written out here rather than shared because the two answer
+    differently: that one serves any file, this one refuses anything that is not a `.gro`.
+    """
+    run_dir = Path(run_dir).resolve()
+    if not relative:
+        abort(400, 'path is required: the run-relative .gro this route serves')
+    candidate = run_dir / relative
+    if any(part.is_symlink() for part in (candidate, *candidate.parents) if part.is_relative_to(run_dir)):
+        abort(404, f'{relative} is not a file in this run')
+    path = candidate.resolve()
+    if run_dir not in path.parents or not path.is_file():
+        abort(404, f'{relative} is not a file in this run')
+    if path.suffix.lower() != '.gro':
+        abort(400, f'{relative} is not a .gro: this route writes the bonds a .gro cannot carry, and a .pdb '
+                   'already carries its own records — the artifact route serves it')
+    return path
+
+
+def run_topology(run_dir, manifest=None) -> Path | None:
+    """The run's own coarse-grained moleculetype, or `None` when the run states none.
+
+    The location is the run's own layout rule (`analysis.runs.layout.cg_topology`): the `.itp` under
+    `stages/3_initial_CG/` that is not a system topology, searched at the run's root and under `stages/`. A fitted
+    run leaves several copies there, so the run's manifest names the one it simulated -- `FINAL_ITP`, which every
+    CG stage records in its environment. A run that recorded no name and holds exactly one `.itp` is answered by
+    that one; every other case resolves to `None` rather than to a ranked guess, because the topology is what
+    decides which beads exist and a picture of a model nobody ran is not worth drawing.
+    """
+    from ...analysis.runs import layout
+
+    name = None
+    for stage in (manifest or {}).get('stages') or []:
+        name = (stage.get('environment') or {}).get('FINAL_ITP')
+        if name:
+            break
+    try:
+        return layout.cg_topology(run_dir, name)
+    except ValueError:
+        return None
+
+
+@blueprint.get('/api/jobs/<jid>/structure')
+def run_structure_api(jid):
+    """A run's own structure file, with the model's own bonds written onto it.
+
+    Measured on this box: a `.gro` carries no bond records, and this vendored viewer's GRO parser guesses from
+    distances regardless of `inferBonds` -- eight mapped beads came back with four guessed bonds whichever flag was
+    passed -- so the client clears the store and a coarse-grained run's mapped model, the picture that run exists to
+    publish, comes out as beads with no connectivity at all. The run's own moleculetype under `stages/3_initial_CG/`
+    states which beads are bonded, and this route writes those `[ bonds ]` and `[ constraints ]` as CONECT records
+    over the file's own coordinates, through the same writer the complex system view uses
+    (`execution.adapters.pdc_view.structure_pdb`). The client's CONECT branch then draws exactly those bonds and
+    leaves its distance guess off, which is the one rule this repository already had.
+
+    The topology is located by the run's own layout rule (`analysis.runs.layout.cg_topology`, named by the
+    manifest's `FINAL_ITP` when the run recorded one), so a picture and an analysis read the same file. A topology
+    that is absent or unreadable is a state the answer reports -- coordinates, no CONECT, and a REMARK saying so --
+    never a guess, because the topology is what decides which beads exist.
+
+    A `.pdb` is refused with a reason: it already carries, or declines, its own records and the artifact route
+    serves it, so this route would be a second writer for the same bytes.
+    """
+    c = coordinator()
+    job = c.lookup(jid)
+    run_dir = c.run_path(job)
+    path = structure_target(run_dir, request.args.get('path', '').strip())
+    topology = run_topology(run_dir, c.manifest_data(job))
+    moleculetype = None
+    if topology is not None:
+        try:
+            moleculetype = pdc_view.read_moleculetype(topology)
+        except (OSError, ValueError):
+            moleculetype = None
+    try:
+        text = pdc_view.structure_pdb(path, topology=moleculetype, title=f'{path.name} (run {jid})')
+    except (OSError, ValueError) as error:
+        abort(400, f'{path.name} could not be read for the viewer: {error}')
+    return Response(text, mimetype='text/plain')
 
 
 @blueprint.get('/api/jobs/<jid>/artifacts/<path:relative>')

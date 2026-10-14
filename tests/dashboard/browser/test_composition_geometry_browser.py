@@ -64,19 +64,28 @@ LINKAGE_COLOUR = 0xDF203D
 BOND_COLOUR = 0x555555
 
 
-# The drawn ball radius, as NGL computes it: atomRadius x radiusScale x aspectRatio.
+# The drawn ball radius, as the viewer itself resolves it. `ball+stick` multiplies the atom's radius by
+# `radiusScale` and `aspectRatio`, and with `radiusType: 'explicit'` that atom radius is the one `ngl-beads.js`
+# wrote on the structure from the bead's size class. Reading it off the representation is the point: this test used
+# to recompute the product from the file's stand-in element, which is how a uniform 1.125 A ball passed for a class
+# radius. The `line` representation that carries connectivity is skipped -- it draws no ball.
 DRAWN_RADII = """(el, key) => {
   const component = el.compositionStages?.[key]?.compList?.[0];
   const structure = component?.structure;
-  const params = component?.reprList?.[0]?.parameters ?? {};
-  if (!structure || !params.radiusScale) return null;
-  const radii = {};
+  if (!structure || !structure.atomStore) return null;
+  const beads = [];
   for (let index = 0; index < structure.atomCount; index += 1) {
     const atom = structure.getAtomProxy(index);
-    const residue = String(atom.resname).slice(0, 3).trim();
-    (radii[residue] ??= []).push(atom.vdw * params.radiusScale * params.aspectRatio);
+    let drawn = 0;
+    for (const element of (component.reprList || [])) {
+      const repr = element.repr;
+      if (!repr || repr.type !== 'ball+stick' || !repr.getAtomRadius) continue;
+      drawn = Math.max(drawn, repr.getAtomRadius(atom));
+    }
+    beads.push({name: atom.atomname, residue: String(atom.resname).slice(0, 3).trim(),
+                element: String(atom.element || '').trim().toUpperCase(), drawn: drawn});
   }
-  return radii;
+  return beads;
 }"""
 
 
@@ -283,29 +292,36 @@ def test_a_response_without_the_structure_file_says_so_instead_of_showing_nothin
 def test_the_drawn_bead_radii_match_what_the_size_classes_mean(dashboard, live_page):
     """The plan for this panel said to measure the drawn radii rather than assume them.
 
-    NGL draws a ball at atomRadius x radiusScale x aspectRatio, and the first scale shipped here was a guess that
-    ignored aspectRatio, which drew every bead twice its intended size. This reads the product back out of the
-    viewer, so a drifting default or a changed scale fails here. Only R and S appear in the default composition;
-    the T class needs another tail recipe.
+    The beads are drawn through `ngl-beads.js` at the radius each one's size class has in the model, times this
+    panel's own display scale -- and the radius is read back **off the representation** here. That is the fix for a
+    measurement that was not one: `ball+stick` resolves `radiusType: 'size'` (0.15 A) unless it is told otherwise,
+    so this panel drew every bead at the same 1.125 A and the file's stand-in element made no difference on screen,
+    while the old instrument recomputed the product from that element and passed. Only R and S appear in the default
+    composition; the T class needs another tail recipe.
     """
     page, errors = live_page
     page.goto(f'{live_page.base_url}/detergent-validation/combinations')
     _preview(page)
     _mounted(page)
 
-    radii = page.locator(HOST).evaluate(DRAWN_RADII, 'joined')
-    assert radii, 'the viewer reported no radii'
-    # Martini's molecular-volume classes are 2.64 / 2.30 / 1.91 A for R / S / T, which the writer maps to C / N.
-    # The panel draws them larger than life -- at the physical size the beads are hard to tell apart at panel scale
-    # -- and the multiplier is asserted here rather than absorbed into the target, so that neither the classes nor
-    # the display size can drift without this test saying so.
-    DISPLAY_SCALE = 5
-    for residue, class_radius in (('SUG', 2.30), ('TAI', 2.64)):
-        target = class_radius * DISPLAY_SCALE
-        drawn = radii.get(residue)
-        assert drawn, (residue, radii)
-        for value in drawn:
-            assert abs(value - target) / target < 0.15, (residue, target, value)
+    drawn = page.locator(HOST).evaluate(DRAWN_RADII, 'joined')
+    assert drawn, 'the viewer reported no radii'
+    # The file's element column IS the size-class stand-in (the writer's own rule: R/S/T -> C/N/H), so each bead's
+    # class is read from the file the viewer was handed and each drawn radius is asserted against the model's own
+    # table (`ngl-beads.js`), times this panel's display scale -- asserted here rather than absorbed into the
+    # target, so neither the classes nor the display size can drift without this test saying so.
+    DISPLAY_SCALE = 3.75
+    class_radii = {'R': 2.64, 'S': 2.30, 'T': 1.91}
+    stand_ins = {'C': 'R', 'N': 'S', 'H': 'T'}
+    classes = set()
+    for bead in drawn:
+        size = stand_ins.get(bead['element'])
+        assert size, f'{bead["name"]}: the file states no size class this viewer can read: {bead}'
+        classes.add(size)
+        target = class_radii[size] * DISPLAY_SCALE
+        assert bead['drawn'] > 0, f'{bead["name"]} ({bead["residue"]}) is drawn at no radius at all: {bead}'
+        assert abs(bead['drawn'] - target) / target < 0.02, (bead, target)
+    assert classes, f'the composition states no size class at all: {drawn}'
     assert errors == []
 
 

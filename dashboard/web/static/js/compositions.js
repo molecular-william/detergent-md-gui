@@ -1,4 +1,5 @@
 import { $, cachedApi, post, setText, storage, panelIds } from './shared.js';
+import { BEAD_RADIUS_PARAMETERS, applyBeadRadii } from './ngl-beads.js';
 
 export function createCompositions({ openBondedModel, openCompositionRun }) {
   const host = $('#'+panelIds().combinations);
@@ -21,12 +22,14 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
     return plots[key];
   }
 
-  // NGL draws a ball at atomRadius x radiusScale x aspectRatio (ballandstick-representation.js), so the scale
-  // carries the calibration: NGL's van der Waals radii for C/N/H are 1.70/1.55/1.20 A, and
-  // 1.70x0.75x2 = 2.55 A against the 2.64 nm-class target, 1.55 -> 2.33 against 2.30, 1.20 -> 1.80 against
-  // 1.91. Within a few percent of every class, which is why the element stand-ins are C/N/H and not C/N/O.
+  // The beads are drawn at the radius their own size class has in the model, out of the one table and the one call
+  // (`ngl-beads.js`), times this panel's own display scale: a preview is read at a glance, and the model's 2.6
+  // Angstrom balls are hard to tell apart at panel scale. Measured on this vendored build (2026-10-14): `ball+stick`
+  // resolves `radiusType: 'size'` (0.15 A) unless it is told otherwise, so before this call every bead here was
+  // drawn at the same 1.125 A -- the stand-in element the file writes made no difference on screen at all, and the
+  // classes had no proportions. The scale is the one knob that moves this panel's picture and it never touches the
+  // table, which is what keeps a reading aid out of the model.
   const BEAD_RADIUS_SCALE = 3.75;
-  const BEAD_ASPECT_RATIO = 2;
 
   // One colour per bead type, so a bead keeps its colour in every view. The map is explicit and the fallback is
   // a single neutral grey rather than a generated hue: a type nobody has given a colour yet is visibly generic
@@ -73,13 +76,18 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
       groups.get(colour).push(at(bead.name));
     }
     component.then(item => {
+      // The radii go on the structure once, from the model's own size classes (`ngl-beads.js`), and every
+      // representation below is told to read them (`radiusType: 'explicit'` inside `BEAD_RADIUS_PARAMETERS`): the
+      // per-type representations are for colour, not for size, which is what a representation's single radius scale
+      // cannot do. One bead's radius is its class', so two panels of the same candidate cannot disagree about it.
+      applyBeadRadii(item.structure, {scale: BEAD_RADIUS_SCALE});
       for (const [colour, selection] of groups) {
         item.addRepresentation('ball+stick', {sele: selection.join(' or '), color: colour,
-          radiusScale: BEAD_RADIUS_SCALE, aspectRatio: BEAD_ASPECT_RATIO});
+          ...BEAD_RADIUS_PARAMETERS});
       }
       if (selected.length) {
         item.addRepresentation('ball+stick', {sele: selected.map(at).join(' or '), color: LINKAGE_COLOUR,
-          radiusScale: BEAD_RADIUS_SCALE, aspectRatio: BEAD_ASPECT_RATIO});
+          ...BEAD_RADIUS_PARAMETERS});
       }
       // NGL draws a stick only between two atoms inside one representation, so a scheme that gives each bead type
       // its own representation also cuts the bonds that cross between types: the sugar's ring beads A and B share

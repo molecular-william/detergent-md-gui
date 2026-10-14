@@ -9,11 +9,12 @@ Two modes, and a build states which one it used:
 * `lattice` (the default, and the behaviour every existing run had) places the detergents on the micelle builder's
   deterministic lattice -- the seed only choosing its phase. Its *shape* is the membrane's when the protein states
   one: a build handed a `micelle.frame.MembraneFrame` places the belt as a **band** in that frame's plane, a
-  cylinder whose radius is the protein's own in-slab radius plus the clearance gate and whose extent is the slab the
+  cylinder whose radius is the protein's own in-slab radius plus the clearance gate -- or the requested `radius_nm`
+  when that is larger, the setting being a floor rather than the band's radius -- and whose extent is the slab the
   structure stated, with every detergent facing across the membrane. A build with no stated membrane -- every
   packaged protein, every import that states nothing, and the empty micelle -- keeps the fixed-radius sphere about
-  the protein's centroid. The mode is still `lattice` either way: the band is the lattice's own arrangement of a
-  shape the frame decided, not a third generator.
+  the protein's centroid, where `radius_nm` *is* the radius. The mode is still `lattice` either way: the band is the
+  lattice's own arrangement of a shape the frame decided, not a third generator.
 * `self-assembly` places them **at random** inside the box the protein is inserted into, off the protein and off each
   other, so CG MD can let the belt find its own arrangement -- MemProtMD's Self Assembly route. The seed is the whole
   of the randomness, so the same seed rebuilds the same system and a different seed rebuilds a different one.
@@ -25,6 +26,9 @@ from micelle.packing import golden_angle_directions, pack_micelle
 from micelle.validation import validate_positions
 
 MIN_CLEARANCE_NM = 0.5
+# The placement radius: the sphere's own radius for a build with no membrane, and a *floor* on a protein build's
+# belt. A belt's radius is measured from the protein (`slab radius + MIN_CLEARANCE_NM`), and this setting can only
+# enlarge that -- never shrink it below the clearance the protein was measured to need. See `place_detergents`.
 DEFAULT_RADIUS_NM = 3.0
 # The two shapes a lattice build can have. A build records which it used, because the coordinates alone cannot say
 # whether a shell of sites about the centroid was a decision or the absence of a membrane to place them in.
@@ -67,8 +71,13 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
     `frame` is the membrane the protein stated for itself (`micelle.frame`), or `None`. It is the *only* thing that
     decides the lattice's shape: with one, the belt is a band in that frame's plane and the clearance gate is applied
     to the band exactly as it is to the sphere; without one -- or when the frame's slab holds no atom of the protein,
-    so no band radius can be measured -- the placement is the sphere it has always been. `radius_nm` is the sphere's
-    radius; a band's radius is measured from the protein, and the returned `band` record carries it.
+    so no band radius can be measured -- the placement is the sphere it has always been.
+
+    `radius_nm` is the sphere's own radius for a build with no membrane, and for a protein build it is a **floor** on
+    the belt: the band's radius is `max(measured slab radius + min_clearance_nm, radius_nm)`, so the setting can
+    enlarge a belt but can never shrink it below the clearance the protein was measured to need. The returned `band`
+    record carries both numbers. An empty micelle has no protein to measure and so no band: it keeps using
+    `radius_nm` as the sphere's radius exactly as it always did.
     """
     if aggregation_number < 1:
         raise ValueError('a placement needs at least one detergent')
@@ -84,7 +93,7 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
     band = None
     if mode == 'lattice':
         if points is not None and frame is not None:
-            band = _belt_band(points, aggregation_number, seed, frame, min_clearance_nm)
+            band = _belt_band(points, aggregation_number, seed, frame, min_clearance_nm, radius_nm)
         if band is None:
             centers, directions = pack_micelle(points, template, aggregation_number, seed, radius=radius_nm)
         else:
@@ -109,7 +118,7 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
             'issues': issues, 'valid': not issues}
 
 
-def _belt_band(points, count, seed, frame, min_clearance_nm):
+def _belt_band(points, count, seed, frame, min_clearance_nm, radius_nm):
     """The belt as a band in the membrane plane, or `None` when the frame's slab holds no atom of the protein.
 
     The band is a cylinder about the frame's own axis: its radius is the furthest *in-slab* atom's distance from that
@@ -122,9 +131,14 @@ def _belt_band(points, count, seed, frame, min_clearance_nm):
     atoms all sit in its soluble domains. There is no measured radius to build a band from then, and a guessed one is
     indistinguishable from a measured one once it is in a run, so the caller keeps the sphere it had.
 
-    The band's radius is *measured*, not chosen, and the gate is applied to the result rather than to the intent: an
-    atom outside the slab can still sit close to a site, and when one does the placement is refused with the same
-    reason it has always given instead of the band being moved out of its way.
+    The band's radius is *measured* (`slab radius + min_clearance_nm`), and `radius_nm` is a **floor** under it: the
+    greater of the two is used, so the setting can enlarge a belt but can never shrink it below the clearance the
+    protein was measured to need. The record carries both, so a reader can tell a measured belt from one the setting
+    enlarged.
+
+    The gate is applied to the result rather than to the intent: an atom outside the slab can still sit close to a
+    site, and when one does the placement is refused with the same reason it has always given instead of the band
+    being moved out of its way.
     """
     axis = np.asarray(unit_axis(frame.axis), dtype=float)
     inside = np.asarray(belt_points(points, frame), dtype=float)
@@ -132,11 +146,12 @@ def _belt_band(points, count, seed, frame, min_clearance_nm):
         return None
     axial = inside @ axis
     slab_radius = float(np.linalg.norm(inside - np.outer(axial, axis), axis=1).max())
-    radius = slab_radius + min_clearance_nm
+    radius = max(slab_radius + min_clearance_nm, float(radius_nm))
     centers, directions = _band_sites(count, seed, frame, radius)
     return {'centers': centers, 'directions': directions,
             'record': {'shape': SHAPE_BAND, 'radius_nm': round(radius, 6),
-                       'slab_radius_nm': round(slab_radius, 6), 'axis': list(axis),
+                       'slab_radius_nm': round(slab_radius, 6), 'radius_floor_nm': round(float(radius_nm), 6),
+                       'axis': list(axis),
                        'plane_low_nm': frame.plane_low_nm, 'plane_high_nm': frame.plane_high_nm,
                        'source': frame.source}}
 

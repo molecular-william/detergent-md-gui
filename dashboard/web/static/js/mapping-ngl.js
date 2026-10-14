@@ -10,8 +10,8 @@
 //              its residue column; atoms are addressed by position (`@0` is the first).
 //   spheres    a representation's opacity is one of its parameters, which is why beads arrive as a file of one
 //              atom each instead of as shapes -- the shape primitive in this build builds nothing renderable.
-const VDW_CARBON = 1.70;                        // NGL's van der Waals radius for carbon, the bead atoms' element
-const SIZE_RADII = {R: 2.64, S: 2.30, T: 1.91}; // Martini's molecular-volume classes, as the composition panel draws
+import { applyBeadRadii } from './ngl-beads.js';
+
 const BEAD_COLOURS = {R: 0x4a5568, S: 0x2b6cb0, T: 0xb7791f};
 const BEAD_OPACITY = 0.35;                      // translucent enough to read the atoms through a sphere
 // Every atom carries its mapping id. The PDB's serials ARE those ids -- serials() reads them back for picking --
@@ -112,14 +112,19 @@ export function mountOverlay3d(host, context, onAtom) {
         molecule.addRepresentation('ball+stick', {sele: 'all', colorScheme: 'element', radiusScale: 0.9});
         applyLabels();
       }
-      // One representation per size class: a representation has a single radius scale, so beads of different sizes
-      // cannot share one. The class is the residue name, which is the form this build's selections resolve.
+      // One representation per size class, so a bead keeps its colour: the class is the residue name, which is the
+      // form this build's selections resolve. The radius is no longer the representation's business -- the class
+      // radius is written onto the structure by `ngl-beads.js`, the one table and the one call, and each
+      // representation is told to read it (`radiusType: 'explicit'`). Measured on this vendored build: a `spacefill`
+      // left to its own default sizes a bead by its stand-in element's van der Waals radius, which ranks the classes
+      // and gets their proportions wrong (carbon and nitrogen are nearly the same size where R/S is 1.15).
       const beadStructure = beadFile && beadFile.structure;
       if (beadStructure && beadStructure.atomCount) {
-        for (const [size, radius] of Object.entries(SIZE_RADII)) {
+        applyBeadRadii(beadStructure, {scale: 1});
+        for (const [size, colour] of Object.entries(BEAD_COLOURS)) {
           if (!beadStructure.getAtomIndices(new NGL.Selection(size)).length) continue;
-          beadFile.addRepresentation('spacefill', {sele: size, color: BEAD_COLOURS[size], opacity: BEAD_OPACITY,
-                                                   radiusScale: radius / VDW_CARBON});
+          beadFile.addRepresentation('spacefill', {sele: size, color: colour, opacity: BEAD_OPACITY,
+                                                   radiusType: 'explicit', radiusScale: 1});
         }
       }
       stage.autoView();

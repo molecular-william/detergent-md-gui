@@ -281,8 +281,19 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
                 raise ValueError('This stage already has an attempt; reset it through resume preparation before running again')
             started = datetime.datetime.now(datetime.timezone.utc).isoformat()
             entry = {'inputs': list(required_inputs.get(name, ())), 'outputs': list(required_outputs.get(name, ())), 'cwd': str(script.parent), 'environment': recorded_environment(), 'name': name, 'command': stage_command(name, script), 'started_at': started, 'status': 'running', 'log': str(log), 'exit_code': None}
-            entry['inputs_sha256'] = files.hashes(script.parent)
-            entry['dependency_sha256'] = {str(p.relative_to(stage_root)): files.sha256(p) for pattern in required_inputs.get(name,()) for p in script.parent.glob(pattern) if p.is_file() and not p.is_symlink() and p.resolve().is_relative_to(stage_root.resolve())}
+            # What the stage is *given*, not what it works in. The stage directory is where a stage writes -- a series
+            # driver's condition directories, their trajectories and the per-condition force-field copies all sit
+            # inside it -- so hashing the whole directory records the run's own output as its provenance, and an
+            # in-place resume re-enters the stage and pays for it again (measured on the project's own series: 57
+            # files / 1,830.6 MB, against a declared 19 files / ~14 KB). The declaration already names the set the
+            # stage must be given, so the recorded map follows it: read once, spelled relative to the stage directory
+            # for `inputs_sha256` and relative to the execution root for `dependency_sha256`.
+            declared_inputs = [(path, files.sha256(path))
+                               for pattern in required_inputs.get(name, ())
+                               for path in script.parent.glob(pattern)
+                               if path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(stage_root.resolve())]
+            entry['inputs_sha256'] = {str(path.relative_to(script.parent)): digest for path, digest in declared_inputs}
+            entry['dependency_sha256'] = {str(path.relative_to(stage_root)): digest for path, digest in declared_inputs}
             data['stages'].append(entry); files.atomic_json(manifest, data)
             stage_log = stage_log_path(run_dir, name=script.parent.name, resume_count=data.get('resume_count'))
             if stage_log is None:

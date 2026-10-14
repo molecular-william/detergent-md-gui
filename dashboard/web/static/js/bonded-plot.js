@@ -1,7 +1,13 @@
 // Plotly owns the 3D scene; the workspace controller owns draft state.
-// Keep the visual scale aligned with dashboard.models.sugar_recognition.RADII_NM.
-const BEAD_RADII_NM = {R: 0.264, S: 0.230, T: 0.191};
+// The bead radii come from `ngl-beads.js`, the one table of what each size class means
+// (`models/sugars/recognition.RADII_NM`); this module only turns one into a marker size.
+import { beadRadiusNm } from './ngl-beads.js';
+
 const TYPE_COLORS = ['#2455b0', '#b24b8f', '#168477', '#d27a1f', '#6c4bb2', '#5d7187', '#c03b3b', '#4d8c45'];
+//: Marker pixels per nanometre of bead radius, on this plot's own axes. Not a bead-radii scale: the shared
+//: `applyBeadRadii` does not apply here, because Plotly has no structure to size -- this is how a nanometre of
+//: radius becomes a circle on screen, and the radii themselves are the model's.
+const MARKER_PIXELS_PER_NM = 72;
 
 export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotError}) {
   let selectedBeads = [];
@@ -34,7 +40,7 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
         x: group.map(bead => bead.position[0]), y: group.map(bead => bead.position[1]),
         z: group.map(bead => bead.position[2]), text: group.map(bead => bead.name),
         textposition: 'top center', customdata: group.map(bead => [bead.name, bead.size || 'R']),
-        marker: {size: group.map(bead => (BEAD_RADII_NM[bead.size] || BEAD_RADII_NM.R) * 72 + (selectedBeads.includes(bead.name) ? 4 : 0)),
+        marker: {size: group.map(bead => (beadRadiusNm(bead.size || 'R') ?? beadRadiusNm('R')) * MARKER_PIXELS_PER_NM + (selectedBeads.includes(bead.name) ? 4 : 0)),
                  color: group.map(bead => selectedBeads.includes(bead.name) ? '#df203d' : typeColors.get(type)),
                  line: {width: 1, color: '#ffffff'}},
         hovertemplate: `<b>%{text}</b><br>type ${type}<br>size class %{customdata[1]}<br>x %{x:.3f} nm<br>y %{y:.3f} nm<br>z %{z:.3f} nm<extra></extra>`,

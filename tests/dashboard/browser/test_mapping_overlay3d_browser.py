@@ -164,7 +164,7 @@ def test_every_sphere_sits_at_the_centre_of_the_atoms_its_bead_maps(dashboard, l
 
 
 def test_the_spheres_are_drawn_translucent_and_sized_by_their_class(dashboard, live_page):
-    """Opacity and per-class radius are why the beads are a file and representations rather than shapes."""
+    """Opacity and per-class colour are why the beads are a file and representations rather than shapes."""
     page, errors = live_page
     _seed_candidate(dashboard)
     _open_editor(page, live_page)
@@ -175,6 +175,55 @@ def test_the_spheres_are_drawn_translucent_and_sized_by_their_class(dashboard, l
         assert rep['sele'] in ('R', 'S', 'T'), rep
         assert 0 < rep['opacity'] < 1, rep
         assert 0.8 < rep['radiusScale'] < 2.0, rep
+    assert errors == []
+
+
+#: The radius each sphere is drawn at, read off the representation rather than recomputed from the file. A sphere
+#: is drawn at the atom radius the one helper wrote on the structure (`ngl-beads.js`, `radiusType: 'explicit'`),
+#: times the representation's own scale.
+RADII = """(el) => {
+  const stage = el.overlayStage;
+  const beads = stage?.compList?.[1]?.structure;
+  if (!beads) return null;
+  const radii = {};
+  for (const element of (stage.compList[1].reprList || [])) {
+    const repr = element.repr;
+    if (!repr || repr.type !== 'spacefill' || !repr.getAtomRadius) continue;
+    for (let index = 0; index < beads.atomCount; index += 1) {
+      const atom = beads.getAtomProxy(index);
+      const drawn = Math.round(repr.getAtomRadius(atom) * 1000) / 1000;
+      if (drawn > 0) (radii[String(atom.resname).trim()] ??= []).push(drawn);
+    }
+  }
+  return radii;
+}
+"""
+
+
+def test_the_spheres_are_drawn_at_the_radius_their_own_size_class_has(dashboard, live_page):
+    """T6: the overlay's spheres come out of `ngl-beads.js`, and the migration left this picture where it was.
+
+    This panel drew the model's own radius through a table of its own -- a `spacefill` at `class radius / carbon's
+    van der Waals radius`, with element `C` on every bead. It now reads the shared table and the shared call and is
+    told to use what that wrote (`radiusType: 'explicit'`), so the sphere is the class radius and not an element's:
+    measured on this vendored build, a `spacefill` left to its own default sizes a bead by that element, which ranks
+    the classes and gets their proportions wrong (1.70 against 1.55 where the model's R/S is 1.15).
+    """
+    page, errors = live_page
+    _seed_candidate(dashboard)
+    _open_editor(page, live_page)
+
+    radii = _drawn(page, RADII, lambda value: value and any(value.values()))
+    assert radii, 'the viewer reported no sphere radii'
+    table = {'R': 2.64, 'S': 2.30, 'T': 1.91}
+    for size, values in radii.items():
+        assert size in table, f'the viewer drew a sphere for {size!r}, which is not a size class'
+        for value in values:
+            assert abs(value - table[size]) < 0.005, (size, table[size], value)
+    # Every bead in this file carries `C` in its element column, whose van der Waals radius is 1.70 A. A sphere
+    # drawn at that would be an element's radius rather than the class's, and the two would then be 1.10 apart
+    # where the model's R and S are 1.15 apart -- which is the defect this migration is here to not reintroduce.
+    assert any(abs(value - 1.70) > 0.01 for values in radii.values() for value in values), radii
     assert errors == []
 
 

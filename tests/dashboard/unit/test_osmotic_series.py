@@ -18,6 +18,7 @@ a test that reads the developer's tree reports nothing about the code when the t
 """
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -281,10 +282,10 @@ def test_the_stage_declares_the_given_files_as_inputs_and_the_conditions_as_outp
     stage's own `conditions/` directory is declared as an input, which is what keeps the declared set the settings,
     the solute files and the mdps rather than the trajectories they produce.
 
-    **What this does not cover, and why.** The executor records a stage's inputs by hashing the stage *directory*
-    (`workflow.py`: `entry['inputs_sha256'] = files.hashes(script.parent)`), so a resume still re-hashes whatever the
-    conditions hold, declared here or not. Making the recorded hash follow this declaration is a change in
-    `workflow.py`, and this test pins the adapter's half of the invariant rather than claiming the other half.
+    **The executor's half is proved below.** The declaration is only half the invariant: the executor used to record
+    a stage's inputs by hashing the stage *directory* (`workflow.py`: `entry['inputs_sha256'] = files.hashes(...)`),
+    so an in-place resume re-hashed whatever the conditions held, declared here or not. It records the declared inputs
+    now, and `test_entering_and_resuming_a_series_reads_its_declaration_and_not_its_own_output` pins that half.
     """
     inputs = osmotic.STAGE_DEFS[0].inputs
     outputs = osmotic.STAGE_DEFS[0].outputs
@@ -334,3 +335,97 @@ def test_resuming_the_run_keeps_every_conditions_checkpoint_on_disk(tmp_path):
     assert (condition / 'md.cpt').read_text() == 'the checkpoint the failure wrote'
     assert json.loads((condition / 'condition.json').read_text())['status'] == 'failed'
     assert (tmp_path / '01_simulate' / 'conditions' / '01_1molal').is_dir(), 'the series is untouched'
+
+
+# --- the executor's half: the record follows the declaration, not the stage directory ----------------------------
+
+CONDITIONS = ('00_0.5molal', '01_1.0molal')
+#: What one condition's own trajectory holds. The project's own series measured 57 files / 1,830.6 MB against a
+#: declared 19 files / ~14 KB; the *shape* is the finding, so a few megabytes stand in for the gigabytes and the
+#: assertion is on the ratio -- kilobytes read against megabytes present -- rather than on the absolute total.
+CONDITION_BYTES = 4 * 1024 * 1024
+
+
+def series_run(root):
+    """A one-stage series laid out the way `prepare` writes one: the declaration in `inputs/`, the work in the stage.
+
+    `execution_root` is the run directory itself for this run type -- the osmotic stage stands at the run root as
+    `01_simulate/` -- so a declared `../inputs/...` pattern resolves to the `inputs/` tree the build wrote. Everything
+    one condition *produces* (its trajectory, its built system, the per-condition force-field copy the runner stages
+    beside it) is written inside the stage directory, which is exactly why its contents are the wrong thing to hash.
+    """
+    inputs, stage = root / 'inputs', root / '01_simulate'
+    (root / 'logs').mkdir(parents=True, exist_ok=True)
+    stage.mkdir(parents=True)
+    (stage / 'run.sh').write_text('#!/bin/bash\ntrue\n')
+    (inputs / 'conditions').mkdir(parents=True)
+    (inputs / 'conditions.json').write_text('{}')
+    for condition in CONDITIONS:
+        given = inputs / 'conditions' / condition
+        given.mkdir()
+        for name in osmotic.CONDITION_FILES + osmotic.SOLUTE_FILES:
+            (given / name).write_text('kilobytes\n')
+        work = stage / 'conditions' / condition
+        (work / 'prod').mkdir(parents=True)
+        (work / 'prod' / 'md_whole.xtc').write_bytes(b'x' * CONDITION_BYTES)
+        (work / 'built.json').write_text('{}')
+        (work / 'system.top').write_text('{}')
+        (work / 'martini_v3.0.0.itp').write_bytes(b'x' * CONDITION_BYTES)
+    return stage
+
+
+def test_entering_and_resuming_a_series_reads_its_declaration_and_not_its_own_output(tmp_path, monkeypatch):
+    """The executor's half of the invariant: the entry records what the stage is *given*.
+
+    The stage directory is where the series works, so it holds each condition's trajectory and the force-field copy
+    staged beside it. Recording the entry by hashing that directory -- which an in-place resume re-enters and does
+    again every time -- reads the run's own output back to write its own provenance. Measured here on the bytes the
+    entry actually reads by the time the stage's own command is about to run: the declaration, kilobytes in all.
+    """
+    from dashboard import files
+    from dashboard.execution import workflow
+
+    stage = series_run(tmp_path)
+    monkeypatch.setattr(
+        workflow, 'stage_definitions',
+        lambda metadata: (osmotic.STAGES, osmotic.REQUIRED_INPUTS, osmotic.REQUIRED_OUTPUTS))
+
+    def execute(command, **kwargs): return subprocess.CompletedProcess(command, 0)
+
+    workflow.run(tmp_path, tmp_path / 'logs' / 'console.log', execute=execute)
+    # Enter it again the way an in-place resume does: the stage is dropped from the manifest and re-entered in place.
+    workflow.prepare_resume_in_place(tmp_path, 'Osmotic series')
+
+    counted, read, at_command = {'bytes': 0}, [], {}
+    real_sha256 = files.sha256
+
+    def counting_sha256(path):
+        counted['bytes'] += Path(path).stat().st_size
+        read.append(Path(path))
+        return real_sha256(path)
+
+    def measure(command, **kwargs):
+        # Everything the entry read, by the time the stage's own command is about to run -- and nothing the run does
+        # afterwards, which is where the declared outputs are hashed.
+        at_command.update(bytes=counted['bytes'], paths=list(read))
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(files, 'sha256', counting_sha256)
+    workflow.run(tmp_path, tmp_path / 'logs' / 'console.log', execute=measure)
+
+    expected = {'../inputs/conditions.json'} | {f'../inputs/conditions/{condition}/{name}'
+                                               for condition in CONDITIONS
+                                               for name in osmotic.CONDITION_FILES + osmotic.SOLUTE_FILES}
+    entry = json.loads((tmp_path / 'manifest.json').read_text())['stages'][0]
+    assert entry['status'] == 'completed'
+    assert set(entry['inputs_sha256']) == expected, 'the entry records the files the stage was given'
+    present = sum(path.stat().st_size for path in stage.rglob('*') if path.is_file())
+    assert present > 8 * 1024 * 1024, 'the fixture stands in for a stage directory holding gigabytes'
+    assert at_command['bytes'] < 64 * 1024, (
+        f'the entry read {at_command["bytes"]} bytes of the stage directory\'s {present}: a resume re-hashes its own output')
+    assert not [path for path in at_command['paths'] if path.suffix == '.xtc'], \
+        'the entry re-hashed the condition trajectories'
+    assert not [path for path in at_command['paths'] if path.name == 'martini_v3.0.0.itp'], \
+        'the entry re-hashed the per-condition force-field copies'
+    assert not [path for path in at_command['paths'] if path.name == 'run.sh'], \
+        'the entry read a launcher, which no stage is given as an input'

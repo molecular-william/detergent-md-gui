@@ -147,3 +147,37 @@ def test_the_element_stand_ins_are_the_ones_the_composition_writer_uses():
 def test_the_scale_knob_defaults_to_the_models_own_radius():
     """`1` draws what the table states; a bigger number is a reading aid and never a new model."""
     assert re.search(r'BEAD_RADIUS_SCALE\s*=\s*1\s*;', SOURCE.read_text())
+
+
+#: The four views that draw a bead. Each used to hold its own numbers -- a table, an element's van der Waals radius
+#: to divide by, or a scale of its own -- which is one model in four places. `ngl-beads.js` is now the one table and
+#: the one call for all of them, and this is what holds that: a fifth copy of either would be a fifth answer.
+BEAD_VIEWS = ('compositions.js', 'mapping-ngl.js', 'run-view.js', 'bonded-plot.js')
+JS_DIR = SOURCE.parent
+
+
+def test_every_bead_view_reads_the_one_table_and_keeps_no_copy_of_it():
+    for name in BEAD_VIEWS:
+        text = (JS_DIR / name).read_text()
+        assert "from './ngl-beads.js'" in text, f'{name} does not read the one module'
+        assert not re.search(r'(BEAD_RADII_NM|SIZE_RADII)\s*=\s*\{', text), f'{name} keeps a radii table of its own'
+        assert not re.search(r'(BEAD_ASPECT_RATIO|VDW_CARBON)\s*=', text), f'{name} keeps a scale of its own'
+        assert not re.search(r'\b0\.264\b', text), f'{name} spells a radius the model table already states'
+
+
+def test_each_panel_states_its_own_scale_at_the_call():
+    """The module's default is the model's own radius, and a panel that reads a bead larger says so where it draws.
+
+    `1` is what three of these views use and it is passed rather than inherited, so the panel's answer is in the
+    panel; the composition preview is the one that reads the model's 2.6 Angstrom beads larger than life.
+    """
+    compositions = (JS_DIR / 'compositions.js').read_text()
+    assert 'applyBeadRadii(item.structure, {scale: BEAD_RADIUS_SCALE})' in compositions
+    assert re.search(r'BEAD_RADIUS_SCALE\s*=\s*3\.75\s*;', compositions), \
+        'the composition preview draws its beads larger than life, and that multiplier is its own'
+    assert 'applyBeadRadii(beadStructure, {scale: 1})' in (JS_DIR / 'mapping-ngl.js').read_text()
+    assert 'applyBeadRadii(component.structure, {scale: 1' in (JS_DIR / 'run-view.js').read_text()
+    bonded = (JS_DIR / 'bonded-plot.js').read_text()
+    assert 'beadRadiusNm(bead.size' in bonded, \
+        'the 3D bead diagram is Plotly, so it reads the table through `beadRadiusNm` rather than `applyBeadRadii`'
+    assert 'MARKER_PIXELS_PER_NM = 72' in bonded, 'the diagram states its own pixels-per-nanometre factor'

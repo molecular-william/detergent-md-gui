@@ -108,6 +108,51 @@ def read_moleculetype(path) -> dict:
     return {'atoms': atoms, 'bonds': pairs['bonds'], 'constraints': pairs['constraints'], 'path': str(path)}
 
 
+def topology_residue(atoms, topology: dict | None, fallback: str) -> str:
+    """The residue name a moleculetype describes, as this structure spells it.
+
+    The molecule a run's topology belongs to is the one whose beads are the moleculetype's `[ atoms ]`, in order --
+    not whichever residue the file happens to write first. Measured on a run's own `4_CG_sim/md.gro`: the first
+    bead is solvent, and naming the molecule after it would leave the solute drawn with no bonds in the one picture
+    a reader most wants. `fallback` is the answer when the topology describes nothing here, which is the case the
+    caller reports rather than bonds for.
+    """
+    if topology is None:
+        return fallback
+    names = list(topology['atoms'])
+    for key in dict.fromkeys((atom['residue'], atom['residue_id']) for atom in atoms):
+        beads = [atom for atom in atoms if (atom['residue'], atom['residue_id']) == key]
+        if [str(bead['name']) for bead in beads] == names:
+            return str(key[0])
+    return fallback
+
+
+def structure_pdb(path, *, topology: dict | None = None, title: str | None = None) -> str:
+    """A run's own structure file as a PDB, with the model's own bonds where a topology is given.
+
+    A `.gro` carries coordinates and no bond records, and this repository's vendored viewer infers none from a
+    `.gro` whatever `inferBonds` says -- so a coarse-grained run's mapped model, drawn straight from its stage
+    file, comes out as beads with no connectivity at all, while the run's own moleculetype states exactly which
+    beads are bonded. That moleculetype's `[ bonds ]` and `[ constraints ]` are written here through `system_pdb`,
+    the same writer the complex system view uses, with the molecule it describes -- found by its beads, not by
+    whichever residue the file lists first -- treated as the one it bonds.
+
+    A `.pdb` is refused rather than rewritten: it already carries, or declines, its own records and the artifact
+    route serves it, so a second writer for the same bytes would be a second source of truth. And a structure whose
+    beads are not the moleculetype's is left unbonded with the reason in a REMARK -- never with a bond the model
+    does not state.
+    """
+    path = Path(path)
+    if path.suffix.lower() != '.gro':
+        raise ValueError(f'{path} is not a .gro: this writer adds the bonds a .gro cannot carry, and a .pdb '
+                         'already states its own records')
+    atoms = read_gro(path)
+    if not atoms:
+        raise ValueError(f'{path} holds no atoms')
+    return system_pdb(atoms, detergent_residue=topology_residue(atoms, topology, atoms[0]['residue']),
+                      topology=topology, title=title or f'{path.name} - a run structure')
+
+
 def is_detergent(atom, detergent_residue) -> bool:
     """Whether a bead belongs to the detergent the caller named, rather than to the protein."""
     return str(atom['residue']).upper() == str(detergent_residue).upper()

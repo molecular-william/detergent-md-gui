@@ -122,7 +122,8 @@ def _asymmetric_protein():
 def test_a_stated_membrane_puts_the_lattice_on_a_band_rather_than_a_sphere():
     """The lattice's shape is the membrane's when the structure states one: a cylinder band in the bilayer plane."""
     points = _asymmetric_protein()
-    placed = pdc_placement.place_detergents(points, None, 12, seed=4, frame=_frame())
+    # A radius below the 1.5 nm the band measures: the setting is a floor, so it does not move this belt.
+    placed = pdc_placement.place_detergents(points, None, 12, seed=4, frame=_frame(), radius_nm=1.0)
 
     centres = np.asarray(placed['centers'])
     axis = np.array([0.0, 0.0, 1.0])
@@ -243,4 +244,40 @@ def test_a_band_that_cannot_clear_the_protein_is_refused_with_the_reason_it_has_
     assert not refused['valid']
     assert any(issue.startswith('detergent too close to the protein') for issue in refused['issues'])
     assert refused['protein_clearance_nm'] < pdc_placement.MIN_CLEARANCE_NM
+
+
+# --- `radius_nm` as a floor on a protein build ---------------------------------------------------------------
+
+def test_a_radius_larger_than_the_measured_band_lifts_the_belt_to_it():
+    """The setting may enlarge a belt; it can never shrink it below the clearance measured from the protein."""
+    points = _asymmetric_protein()          # a 1.0 nm in-slab radius, so the band measures 1.0 + 0.5 = 1.5 nm
+    measured = pdc_placement.place_detergents(points, None, 12, seed=4, frame=_frame(), radius_nm=1.0)
+    lifted = pdc_placement.place_detergents(points, None, 12, seed=4, frame=_frame(), radius_nm=2.5)
+
+    assert measured['band']['radius_nm'] == 1.5, 'a setting below the measurement leaves the belt where it was'
+    assert lifted['band']['radius_nm'] == 2.5, 'a setting above it sets the belt'
+    assert lifted['band']['slab_radius_nm'] == 1.0, 'and the measured radius it was derived from is still recorded'
+
+    centres = np.asarray(lifted['centers'])
+    axis = np.array([0.0, 0.0, 1.0])
+    transverse = np.linalg.norm(centres - np.outer(centres @ axis, axis), axis=1)
+    assert np.allclose(transverse, 2.5), 'the cylinder is the larger radius, not the measured one'
+
+
+def test_a_radius_smaller_than_the_measured_band_changes_nothing():
+    points = _asymmetric_protein()
+    smaller = pdc_placement.place_detergents(points, None, 12, seed=4, frame=_frame(), radius_nm=0.75)
+    measured = pdc_placement.place_detergents(points, None, 12, seed=4, frame=_frame(), radius_nm=1.5)
+
+    assert smaller['centers'] == measured['centers'], 'the floor is the measured clearance, not the setting'
+    assert smaller['band']['radius_nm'] == measured['band']['radius_nm'] == 1.5
+
+
+def test_an_empty_micelle_still_uses_the_radius_as_the_sphere_it_builds():
+    """No protein, no measured band: `radius_nm` is the sphere's own radius, exactly as it was before any floor."""
+    placed = pdc_placement.place_detergents(None, None, 8, seed=3, radius_nm=2.0, frame=_frame())
+
+    assert placed['placement_shape'] == 'sphere' and placed['band'] is None
+    assert np.allclose(np.linalg.norm(np.asarray(placed['centers']), axis=1), 2.0)
+
 

@@ -15,9 +15,10 @@
 //   3. an all-atom file with no `CONECT` -> the viewer's own inference is left on, because that is the one case
 //      it is right about.
 //
-// A `.gro` in this vendored build infers no bonds whatever `inferBonds` says -- its GRO parser has no bond
-// inference and the files carry none -- which is why branch 2's caption names the run's own topology rather than
-// implying a connectivity the coordinates do not have.
+// A `.gro` carries no bond records, and this vendored build's GRO parser guesses bonds from distances whatever
+// `inferBonds` says -- measured: the eight mapped beads of a `.gro` came back with four bonds under either flag. So
+// the caller clears the store on branch 2, and the caption names the run's own topology rather than implying a
+// connectivity the coordinates hold.
 
 //: The run types whose structures are coarse-grained. A `pdc` run's files are beads and its own CONECT records;
 //: it is listed here so the rule agrees with itself even where the path does not say so.
@@ -60,11 +61,11 @@ export function loadParameters(text, {path, runType} = {}) {
             reason: 'the file carries CONECT — drawn from its own records, the distance guess is off'};
   }
   if (ext === 'gro') {
-    // This vendored build's GRO parser has no bond inference and a `.gro` carries none, so the picture is bondless
-    // whatever `inferBonds` says. The caption says so rather than implying a connectivity, and names where the
-    // model's own bonds actually are.
+    // This vendored build's GRO parser guesses from distances whatever the flag, and a `.gro` carries no bond
+    // records of its own, so the picture is bondless once the caller clears the store: the caption says so rather
+    // than implying a connectivity, and names where the model's own bonds actually are.
     return {ext, inferBonds: 'none',
-            reason: 'a .gro carries coordinates and no bond records, and this viewer\'s GRO parser infers none'
+            reason: 'a .gro carries coordinates and no bond records, so this viewer draws no bond of its own'
                     + (isCoarseGrained(path, runType)
                         ? ", so a coarse-grained model is drawn as loose beads and its own [ bonds ] and "
                           + '[ constraints ] are in the run\'s topology file under stages/3_initial_CG/'

@@ -527,7 +527,17 @@ def build(stage: Path) -> int:
                                   initial_z_nm=settings['initial_z_nm'])
     report['box_nm_initial'] = initial
 
-    box = pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=settings['box_margin_nm'])
+    # A band is the one case where the box is built in the membrane frame: z clears the protein and the slab it sits
+    # in, so the margin is the protein's rather than the belt's -- the belt is inside the slab, and on a protein whose
+    # soluble domain reaches past it the belt's own span gave that protein a fraction of the margin it asked for.
+    # `extended_box` stays the rule everywhere else: a protein-free build, a protein that states no membrane, and a
+    # stated membrane holding none of the protein's atoms (both of those are the sphere, and the sphere is what the
+    # old rule clears).
+    if frame is not None and placement['band'] is not None:
+        box = pdc_box.membrane_box(points, half_thickness_nm=frame.half_thickness_nm,
+                                   margin_nm=settings['box_margin_nm'], initial_z_nm=settings['initial_z_nm'])
+    else:
+        box = pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=settings['box_margin_nm'])
     atoms = [{'residue_id': bead['residue_id'], 'residue': bead['residue'], 'name': bead['name'],
               'position': bead['position']} for bead in beads]
     model = _detergent_model(stage)

@@ -253,9 +253,21 @@ export function createRunView() {
   }
 
   async function artifactIndex(jobId, term) {
-    const query = new URLSearchParams({limit: String(PAGE_LIMIT), search: term});
-    const body = await api(`/api/jobs/${encodeURIComponent(jobId)}/artifacts?${query}`);
-    return body.artifacts || [];
+    // A page is not the index. The route pages the artifact index and caps `limit` at 100, and the index is walked
+    // in *directory* order rather than by age, so a run that has published many attempts -- a series' conditions, or
+    // a run analysed again since -- can hold the newest `analyses/snapshots/*/*/result.json`, the record that names
+    // the frame series, past the first page. The reader therefore walks every page until the last short one and
+    // returns the whole index, so the newest record is resolved wherever it landed.
+    const entries = [];
+    for (let page = 1; ; page += 1) {
+      const query = new URLSearchParams({limit: String(PAGE_LIMIT), page: String(page), search: term});
+      const body = await api(`/api/jobs/${encodeURIComponent(jobId)}/artifacts?${query}`);
+      const held = body.artifacts || [];
+      entries.push(...held);
+      const total = Number(body.total);
+      if (held.length < PAGE_LIMIT || !Number.isFinite(total) || entries.length >= total) break;
+    }
+    return dedupe(entries);
   }
 
   function dedupe(entries) {
@@ -313,11 +325,16 @@ export function createRunView() {
 
   function renderHolds(job) {
     holds.replaceChildren(...structures.map(entry => {
-      const line = row(entry.path, entry.frames
+      // A coarse-grained `.gro` is served with the run's own `[ bonds ]` + `[ constraints ]` written as CONECT (the
+      // structure route); an all-atom `.gro` carries none, which is what the row says.
+      const bonds = entry.frames
         ? 'none recorded — this is the sampled frame series the transport row plays'
-        : (structureExtension(entry.path) === 'gro'
-            ? 'none — a .gro carries no bond records'
-            : 'read when the file is opened'));
+        : (structureExtension(entry.path) !== 'gro'
+            ? 'read when the file is opened'
+            : (isCoarseGrained(entry.path, job.run_type)
+                ? "the run's own [ bonds ] + [ constraints ], written as CONECT by the structure route"
+                : 'none — a .gro carries no bond records'));
+      const line = row(entry.path, bonds);
       line.setAttribute('aria-selected', String(entry.path === (structures[0] || {}).path));
       line.style.cursor = 'pointer';
       line.addEventListener('click', () => { draw(job, entry.path).catch(error => { what.textContent = error.message; }); });
@@ -432,6 +449,19 @@ export function createRunView() {
     return response.text();
   }
 
+  //: The route that writes a run's own bonds onto one of its structures. A `.gro` carries no bond records -- and
+  //: this vendored build's GRO parser guesses them from distances whatever `inferBonds` says, which the caller then
+  //: clears -- so a coarse-grained model drawn off the artifact route is beads with no connectivity at all, while
+  //: the run's own moleculetype, under `stages/3_initial_CG/`, states exactly which beads are bonded. This route is
+  //: where those `[ bonds ]` and `[ constraints ]` become CONECT records, and its answer is read as the PDB it is.
+  //: `null` means the route refused; the caller then falls back to the artifact route and the file is drawn the way
+  //: it always was.
+  async function structureText(job, path) {
+    const response = await fetch(`/api/jobs/${encodeURIComponent(job.id)}/structure`
+      + `?path=${encodeURIComponent(path)}`);
+    return response.ok ? response.text() : null;
+  }
+
   function stageFor() {
     if (!viewer) return null;
     // Created on first use: NGL sizes itself to its host element, and the host is sized for it in run-view.css.
@@ -442,9 +472,30 @@ export function createRunView() {
   async function draw(job, path) {
     const entry = structures.find(candidate => candidate.path === path) || {path, rank: structureRank(path)};
     what.textContent = `Loading ${path}…`;
-    const text = await artifactText(job.id, path);
     const coarse = isCoarseGrained(path, job.run_type);
-    const parameters = loadParameters(text, {path, runType: job.run_type});
+    // A coarse-grained `.gro` carries no bond records, and this build's GRO parser guesses from distances whatever
+    // `inferBonds` says -- measured: the eight mapped beads of a `.gro` came back with four guessed bonds, which the
+    // guard below then clears. Either way the picture is beads with no connectivity, while the run's own moleculetype
+    // states the bonds: the run structure route is where they become CONECT records, and the answer is read as the
+    // PDB it is, so the CONECT branch below draws exactly those bonds with the distance guess off. Every other file
+    // keeps the artifact route and the rule in `run-view-structure.js`; a refused route falls back to that path.
+    let text = null, served = false;
+    if (coarse && structureExtension(path) === 'gro') {
+      text = await structureText(job, path);
+      served = text !== null;
+    }
+    let parameters;
+    if (served) {
+      parameters = {ext: 'pdb', inferBonds: 'none',
+        reason: conectCount(text)
+          ? "the run's own moleculetype, written as CONECT over this file's coordinates "
+            + '(stages/3_initial_CG/) — the model\'s bonds, and the distance guess is off'
+          : 'coarse-grained, and this run states no moleculetype under stages/3_initial_CG/, so the picture claims '
+            + 'no bonds rather than guessing them'};
+    } else {
+      text = await artifactText(job.id, path);
+      parameters = loadParameters(text, {path, runType: job.run_type});
+    }
     const renderer = stageFor();
     if (!renderer) {
       what.textContent = 'This page could not start a 3D view. The file\'s own numbers, which do not need a '
@@ -471,8 +522,10 @@ export function createRunView() {
     if (parameters.inferBonds === 'none' && conectCount(text) === 0) dropBonds(component.structure);
     if (coarse) {
       // A bead's radius is a size class the model states, not the stand-in element's: `ngl-beads.js` is the one
-      // table and the one call, so this view draws the same beads as Complexes and the bead editor.
-      applyBeadRadii(component.structure, {sizeOf: atom => {
+      // table and the one call, so this view draws the same beads as Complexes and the bead editor. The scale is
+      // this panel's own and stated at the call: 1 -- the run view draws the model's radius, and the panel that
+      // reads it larger (the composition preview) is where the multiplier belongs.
+      applyBeadRadii(component.structure, {scale: 1, sizeOf: atom => {
         const named = sizeClasses && sizeClasses[String(atom.atomname || '').trim().toUpperCase()];
         return named || sizeClassOf(atom);
       }});
@@ -490,7 +543,7 @@ export function createRunView() {
       + 'models)' : (coarse ? 'coarse-grained' : 'all-atom')}.`;
     readout([
       ['atoms drawn', String(structure.atomCount)],
-      ['bonds the file states', String(conectCount(text))],
+      [served ? "bonds the run's own topology states" : 'bonds the file states', String(conectCount(text))],
       ['bonds the viewer resolved', String(structure.bondCount), 'ok'],
       ['how the bonds were decided', parameters.reason],
       ['bead radii', coarse
