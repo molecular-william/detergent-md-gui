@@ -52,21 +52,24 @@ def write_cg_pdb(path: Path, atoms) -> Path:
     return path
 
 
-def test_a_detergent_is_rotated_so_its_head_points_along_the_placement_direction():
-    """Heads to the water, tails to the core: the placement direction is outward, so the head takes it.
+def test_a_detergent_is_placed_with_its_head_end_at_the_site_it_was_given():
+    """Heads to the water, tails to the core -- and the *head end* is what the site names.
 
-    Measured on the draft's own frames before this was fixed: every one of the five frames put the head beads
-    0.317 nm *inward* of each detergent's centre and the tail beads 0.845 nm outward -- heads facing the micelle,
-    which is the inverse of a micelle. The direction the placement hands over is outward from the centre (see
-    `test_pdc_placement.py`, which pins that), so the molecule's head-ward axis is the one that takes it.
+    The placement's sites are the head ends of the belt's detergents (the tube's outer surface), so `stamp`
+    translates each copy until its head-most bead sits at the site and its body hangs back toward the centre-line.
+    Measured before this: the molecule's *mean* was put at the site, which left every head bead 0.25 nm past the
+    site it was supposed to stand on. The direction the placement hands over is the way out of the tube, so the
+    molecule's head-ward axis is the one that takes it.
     """
     along = pdc_build.stamp(DRAFT, [[3.0, 0.0, 0.0]], [[1.0, 0.0, 0.0]], first_residue=10)
     against = pdc_build.stamp(DRAFT, [[3.0, 0.0, 0.0]], [[-1.0, 0.0, 0.0]], first_residue=10)
 
     beads = {atom['name']: atom['position'] for atom in along}
-    assert beads['HEAD'] == [3.25, 0.0, 0.0] and beads['TAIL1'] == [2.75, 0.0, 0.0]
+    assert beads['HEAD'] == [3.0, 0.0, 0.0], 'the head end is the site, not the molecule\'s middle'
+    assert beads['TAIL1'] == [2.5, 0.0, 0.0], 'and the tail hangs back toward the centre-line'
     flipped = {atom['name']: atom['position'] for atom in against}
-    assert flipped['HEAD'] == [2.75, 0.0, 0.0] and flipped['TAIL1'] == [3.25, 0.0, 0.0]
+    assert flipped['HEAD'] == [3.0, 0.0, 0.0], 'the anchor holds whichever way the head faces'
+    assert flipped['TAIL1'] == [3.5, 0.0, 0.0], 'and the body follows the direction it was given'
 
 
 def test_a_stamped_micelle_has_its_heads_toward_the_water_and_its_tails_in_the_core():

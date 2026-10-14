@@ -54,6 +54,30 @@ def test_a_membrane_box_reaches_at_least_the_slab_it_is_centred_on():
     assert box[2] == 2 * (1.48 + 2.0)
 
 
+def test_a_membrane_box_contains_a_belt_that_reaches_past_the_slab():
+    """The user's correction, in the box's own arithmetic: the belt reaches the detergent length either side.
+
+    Measured on 1AT9: the slab is 1.48 nm and the belt's own extent is now the detergent's length (about 2.14 nm
+    for DDM), so a z taken from the slab alone would cut the belt in half. The caller states the belt's reach and
+    the box clears whichever of the three is furthest from the plane.
+    """
+    points = [[0.0, 0.0, -0.2], [0.0, 0.0, 0.2]]
+    without = pdc_box.membrane_box(points, half_thickness_nm=1.48, margin_nm=2.0)
+    with_belt = pdc_box.membrane_box(points, half_thickness_nm=1.48, margin_nm=2.0, belt_reach_nm=2.1431)
+
+    assert without[2] == 2 * (1.48 + 2.0), 'no belt stated: the slab still sets the box'
+    assert with_belt[2] == pytest.approx(2 * (2.1431 + 2.0)), "the belt's own reach sets it, and the slab is inside it"
+    assert with_belt[:2] == without[:2], 'and x and y are untouched by the belt, as every rule here intends'
+
+
+def test_a_belt_inside_the_slab_does_not_shrink_a_membrane_box():
+    """A reach shorter than the slab or the protein changes nothing: the box is a maximum, not a replacement."""
+    points = [[0.0, 0.0, -3.0], [0.0, 0.0, 3.4]]
+
+    assert pdc_box.membrane_box(points, half_thickness_nm=1.48, margin_nm=2.0, belt_reach_nm=1.0)[2] \
+        == 2 * (3.4 + 2.0)
+
+
 def test_a_protein_that_states_no_membrane_keeps_todays_box_exactly():
     assert pdc_box.membrane_box([[0.0, 0.0, 0.0], [4.0, 2.0, 1.0]], half_thickness_nm=None) == [8.0, 6.0, 6.0]
 

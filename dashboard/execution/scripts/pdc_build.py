@@ -12,7 +12,8 @@ placement has always built; so does an empty micelle, which has no membrane to s
 
 Two things it deliberately does not do yet, and says so rather than guessing:
 
-* the detergent is represented by **one centre per molecule** (what the placement produces). Placing the
+* the detergent is represented by **one point per molecule** (what the placement produces), and that point is the
+  molecule's **head end** -- the tube's outer surface for a belt, the shell for a sphere. Placing the
   detergent's own beads needs the template's bead geometry, which the shipped templates do not carry -- their one
   bead is typed `registered-template`.
 * `system.top` is not written. Its `[ molecules ]` section needs the molecule names from the two `.itp` files
@@ -46,7 +47,8 @@ CG_DIRECTORY = 'cg'
 SELECTED_PROTEIN = 'protein_selected.pdb'
 
 LIMITATIONS = [
-    'the detergent is one centre per molecule, not its bead geometry: the shipped templates carry no bead shape',
+    'the detergent is one point per molecule -- its head end -- not its bead geometry: the shipped templates '
+    'carry no bead shape',
     'system.top is not written yet, because its [ molecules ] names come from the two .itp files',
 ]
 
@@ -111,15 +113,22 @@ def write_report(stage: Path, report: dict) -> None:
 
 
 def stamp(draft: dict, centres, directions, *, first_residue: int = 900) -> list[dict]:
-    """One detergent per placement, as beads: rotated so its head points along the direction, moved to the centre.
+    """One detergent per placement, as beads: rotated so its head points along the direction, its head end at the centre.
 
     The placement's direction is the way *out* of the micelle -- away from the protein and into the water the next
-    stage adds (`pack_micelle`'s own shell and, for a stated membrane, the band's heading across the bilayer;
+    stage adds (`pack_micelle`'s own shell and, for a stated membrane, the tube's meridian direction at each site;
     `pdc_placement._outward` for a self-assembled cloud). A
     micelle's heads face that water and its tails fill the core, so the molecule's own axis is taken **head-ward**:
     from the mean of its tail beads to the mean of its head beads. Taken the other way round it put every head bead
     0.317 nm inside its detergent's centre and every tail 0.845 nm outside it -- a micelle inside out, which is what
     the preview's first frames were drawn from.
+
+    The **site names the molecule's head end**, not its middle: the head-most bead is translated onto the site and
+    the rest of the molecule hangs back along the direction, so the head end stands where the placement says the
+    detergent reaches. For a belt that is the whole point -- the site is the tube's outer surface, at the detergent's
+    own length from the protein's cylinder, and the body then points at the centre-line -- and it is the same
+    convention on the sphere, whose sites are its shell. Measured before this: the molecule's bead *mean* was put at
+    the site, which left every head bead 0.25 nm past a site that was meant to be its own end.
 
     Every copy keeps the bead names the topology declares -- `grompp` reconciles topology and coordinates by atom
     name, so a per-molecule name would break the pair -- and each copy gets its own residue number, which is how a
@@ -139,6 +148,8 @@ def stamp(draft: dict, centres, directions, *, first_residue: int = 900) -> list
     axis = np.mean([positions[bead['name']] for bead in head], axis=0) \
         - np.mean([positions[bead['name']] for bead in tail], axis=0)
     axis = axis / np.linalg.norm(axis)
+    # How far the molecule's own head end stands from its middle, along that axis: what the site is anchored to.
+    head_end = max(float((positions[bead['name']] - middle) @ axis) for bead in head)
 
     atoms = []
     for index, (centre, direction) in enumerate(zip(centres, directions), start=1):
@@ -147,7 +158,8 @@ def stamp(draft: dict, centres, directions, *, first_residue: int = 900) -> list
         rotation = _rotation(axis, target)
         residue_id = first_residue + index
         for bead in beads:
-            position = np.asarray(centre, dtype=float) + rotation @ (positions[bead['name']] - middle)
+            position = np.asarray(centre, dtype=float) + rotation @ (positions[bead['name']] - middle) \
+                - head_end * target
             atoms.append({'residue_id': residue_id, 'residue': draft['residue'], 'name': bead['name'],
                           'position': [round(float(value), 5) for value in position]})
     return atoms
@@ -519,10 +531,12 @@ def build(stage: Path) -> int:
         'protein_beads': len(points),
         'placement_mode': placement['mode'],
         # Which shape the lattice took, and the membrane it took it in. The coordinates alone cannot say whether a
-        # shell about the centroid was a decision or the absence of a membrane, so the build states both.
+        # shell about the centroid was a decision or the absence of a membrane, so the build states both -- and, when
+        # the shape is the sphere even though the file stated a membrane, the measurement that was missing.
         'placement_shape': placement['placement_shape'],
         'membrane_frame': frame.as_record() if frame is not None else None,
         'placement_band': placement['band'],
+        'placement_belt_reason': placement['belt_reason'],
         'protein_clearance_nm': placement['protein_clearance_nm'],
         'placement_issues': placement['issues'],
     })
@@ -538,15 +552,16 @@ def build(stage: Path) -> int:
                                   initial_z_nm=settings['initial_z_nm'])
     report['box_nm_initial'] = initial
 
-    # A band is the one case where the box is built in the membrane frame: z clears the protein and the slab it sits
-    # in, so the margin is the protein's rather than the belt's -- the belt is inside the slab, and on a protein whose
-    # soluble domain reaches past it the belt's own span gave that protein a fraction of the margin it asked for.
-    # `extended_box` stays the rule everywhere else: a protein-free build, a protein that states no membrane, and a
-    # stated membrane holding none of the protein's atoms (both of those are the sphere, and the sphere is what the
-    # old rule clears).
+    # A tube is the one case where the box is built in the membrane frame: z clears the protein, the slab it sits in
+    # and the belt itself, so the margin is the protein's rather than the belt's -- and since the correction the belt
+    # reaches the detergent's own length either side of the membrane centre, which on a 1.48 nm slab is further than
+    # the slab by itself. `extended_box` stays the rule everywhere else: a protein-free build, a protein that states
+    # no membrane, and a stated membrane holding none of the protein's atoms (both of those are the sphere, and the
+    # sphere is what the old rule clears).
     if frame is not None and placement['band'] is not None:
         box = pdc_box.membrane_box(points, half_thickness_nm=frame.half_thickness_nm,
-                                   margin_nm=settings['box_margin_nm'], initial_z_nm=settings['initial_z_nm'])
+                                   margin_nm=settings['box_margin_nm'], initial_z_nm=settings['initial_z_nm'],
+                                   belt_reach_nm=placement['band'].get('belt_reach_nm') or 0.0)
     else:
         box = pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=settings['box_margin_nm'])
     atoms = [{'residue_id': bead['residue_id'], 'residue': bead['residue'], 'name': bead['name'],
