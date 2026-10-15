@@ -67,6 +67,10 @@ export function createRunView() {
   //: D19 -- the cadence, in nanoseconds per frame, set before the series is generated. Blank means the default even
   //: spread, which is what the field's placeholder says.
   const intervalInput = $('#run-view-generate-interval');
+  //: D20 -- whether every frame is superposed on the first. A fitted series is a derived view: it removes the
+  //: translation and rotation the molecule does as a whole -- 60% of the raw displacement on this workspace's own
+  //: sucrose run -- and leaves the internal motion a reader is looking for.
+  const alignInput = $('#run-view-generate-align');
 
   const transport = createTransport();
   let scope = {slug: '', types: []};
@@ -379,13 +383,22 @@ export function createRunView() {
     }
     const series = published.series || {};
     const cadence = Number(series.interval_ns);
+    const fit = series.aligned;
     if (published.frames) {
-      // The two numbers the decision is about, printed where the reader decides it: how many frames are published
-      // and what each one stands for. The cadence is the record's own rather than a re-derivation here.
+      // The numbers the decision is about, printed where the reader decides it: how many frames are published, what
+      // each one stands for, and whether the series is fitted. Cadence and fit are both the record's own rather than
+      // re-derivations here, and the switch follows the series so pressing Generate reproduces what is playing.
+      if (fit && alignInput) alignInput.checked = true;
+      const rmsd = fit && fit.rmsd_nm ? Number(fit.rmsd_nm.max) : null;
       generateNote.textContent = (Number.isFinite(cadence) && cadence
-        ? `Playing ${Number(series.sampled) || '?'} frames at ${cadence} ns per frame.`
-        : 'A series is published for this run.')
+        ? `Playing ${Number(series.sampled) || '?'} frames at ${cadence} ns per frame`
+        : 'A series is published for this run')
+        + (fit ? `, fitted on model ${Number(fit.reference) || 1}`
+                 + (Number.isFinite(rmsd) ? ` — internal RMSD up to ${rmsd} nm` : '') + '.'
+               : '.')
         + ' Pressing Generate replaces it.';
+    } else if (alignInput) {
+      alignInput.checked = false;
     }
   }
 
@@ -413,7 +426,8 @@ export function createRunView() {
       const line = document.createElement('p');
       line.textContent = (Number.isFinite(frames) && frames ? `This run already plays ${frames} frames`
                                                            : 'This run already plays a published series')
-        + (Number.isFinite(cadence) && cadence ? ` at ${cadence} ns per frame.` : ', and its cadence was not recorded.')
+        + (Number.isFinite(cadence) && cadence ? ` at ${cadence} ns per frame` : ', and its cadence was not recorded')
+        + (series.aligned ? `, fitted on model ${Number(series.aligned.reference) || 1}` : '') + '.'
         + ' Generating publishes a new series at the cadence you set: this panel plays the newest, and the earlier '
         + "attempt stays in the run's own analysis tree.";
       const actions = document.createElement('div');
@@ -446,14 +460,20 @@ export function createRunView() {
     if (published.frames && !(await confirmReplace())) return;
     generating = true;
     generate.disabled = true;
-    generateNote.textContent = requested === null ? 'Queueing the snapshots analysis…'
-      : `Queueing the snapshots analysis at ${requested} ns per frame…`;
+    // An empty body is the default spread: each setting is sent only when it was asked for, so a reader who changes
+    // nothing queues what the producer's own defaults describe.
+    const body = {};
+    if (requested !== null) body.interval_ns = requested;
+    const aligning = !!(alignInput && alignInput.checked);
+    if (aligning) body.align = true;
+    const asked = [requested === null ? null : `a frame every ${requested} ns`,
+                   aligning ? 'fitted on the first frame' : null].filter(Boolean).join(', ');
+    generateNote.textContent = `Queueing the snapshots analysis${asked ? ' with ' + asked : ''}…`;
     try {
-      await post(`/api/jobs/${encodeURIComponent(job.id)}/snapshots`,
-                 requested === null ? {} : {interval_ns: requested});
-      generateNote.textContent = requested === null
-        ? "Sampling frames from this run's own trajectory…"
-        : `Sampling a frame every ${requested} ns of this run's own trajectory…`;
+      await post(`/api/jobs/${encodeURIComponent(job.id)}/snapshots`, body);
+      generateNote.textContent = asked
+        ? `Sampling ${asked} from this run's own trajectory…`
+        : "Sampling frames from this run's own trajectory…";
       stopPolling();
       pollTimer = setInterval(() => { watchGeneration(job); }, GENERATE_POLL_MS);
     } catch (error) {

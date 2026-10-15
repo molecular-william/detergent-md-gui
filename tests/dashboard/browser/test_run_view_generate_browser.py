@@ -19,6 +19,8 @@ status, and a task that reports `failed` names the failure instead of spinning.
 """
 import json
 
+import pytest
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import expect
 
 from tests.dashboard.browser.test_run_view_browser import (
@@ -47,6 +49,9 @@ from tests.dashboard.browser.test_run_view_browser import (
 TRAJECTORY_RUN = 'ab00ab000008'
 #: The run's own coarse-grained trajectory, where the `snapshots` kind reads it from.
 TRAJECTORY = 'stages/4_CG_sim/md.xtc'
+#: A second run of the same shape, for the case where a series is *already* published: a run's artifact index is
+#: built on its first read and held, so a record written after that read is not what a reader would have seen.
+ALIGNED_RUN = 'ab00ab000010'
 
 
 def cg_files(trajectory=True):
@@ -90,14 +95,16 @@ def tasks_stub(page, status):
                                     'directory': 'analyses/snapshots/1a2b3c4d/5e6f7a8b'}])))
 
 
-def published_series(dashboard, series=None):
-    """Write the attempt a completed `snapshots` analysis leaves, with the record naming its own cadence.
+def published_series(dashboard, series=None, run_id=None):
+    """Write the attempt a completed `snapshots` analysis leaves, with the record naming its own cadence and fit.
 
     `series` defaults to a record that *states* the cadence (12 frames at 5 ns), which is what the prompt and the
-    note print; passing `{'stride': 7, 'sampled': 5}` gives the older shape whose cadence was not recorded.
+    note print; passing `{'stride': 7, 'sampled': 5}` gives the older shape whose cadence was not recorded, and an
+    `aligned` entry gives the fitted shape.
     """
+    run_id = run_id or TRAJECTORY_RUN
     series = series or {'file': 'CG-frames.pdb', 'stride': 500, 'sampled': 12, 'interval_ns': 5.0,
-                        'duration_ns': 200.0, 'frame_ps': 10.0, 'requested_interval_ns': 5.0}
+                        'duration_ns': 200.0, 'frame_ps': 10.0, 'requested_interval_ns': 5.0, 'aligned': None}
     contents = published_snapshots({'CG-frames.pdb': frames_pdb(count=12), 'CG-first.pdb': bead_pdb(),
                                     'CG-middle.pdb': bead_pdb(), 'CG-last.pdb': bead_pdb()})
     record_path = f'{SNAPSHOT_ATTEMPT}/result.json'
@@ -105,7 +112,7 @@ def published_series(dashboard, series=None):
     record['result']['series'] = series
     contents[record_path] = json_text(record)
     for path, text in contents.items():
-        target = dashboard.coordinator.RUNS / TRAJECTORY_RUN / path
+        target = dashboard.coordinator.RUNS / run_id / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text)
 
@@ -184,18 +191,23 @@ def test_a_published_series_is_named_before_it_is_replaced(dashboard, live_page)
     expect(dialog).to_contain_text('already plays 12 frames at 5 ns per frame')
     expect(dialog).to_contain_text("stays in the run's own analysis tree")
 
-    dialog.get_by_role('button', name='Cancel').click()
-    page.wait_for_timeout(300)
+    # The cancel is bracketed for the request it must *not* make: an assertion on the stub's own list would pass
+    # on a slow handler whatever the panel did, and the interception is what makes it a check.
+    with pytest.raises(PlaywrightTimeoutError):
+        with page.expect_request(
+                lambda request: request.method == 'POST' and request.url.endswith('/snapshots'), timeout=1200):
+            dialog.get_by_role('button', name='Cancel').click()
     assert sent == [], 'a cancel must not queue anything'
     assert dialog.count() == 0, 'the prompt is removed when it closes'
 
     page.locator('#run-view-generate-interval').fill('2')
     page.locator('#run-view-generate').click()
-    page.locator('dialog.run-view-dialog').get_by_role('button', name='Replace').click()
-    page.wait_for_function(
-        "() => document.querySelector('#run-view-generate-note').textContent.includes('every 2 ns')")
-    assert len(sent) == 1, f'the control sent {len(sent)} requests'
-    assert json.loads(sent[0].post_data) == {'interval_ns': 2.0}
+    # Matched on the method as well as the path: the panel's own fetch of the published frames carries
+    # `analyses/snapshots/` in its URL, so a path-only bracket catches a GET the reader never asked for.
+    with page.expect_request(
+            lambda request: request.method == 'POST' and request.url.endswith('/snapshots')) as replaced:
+        page.locator('dialog.run-view-dialog').get_by_role('button', name='Replace').click()
+    assert json.loads(replaced.value.post_data) == {'interval_ns': 2.0}, replaced.value.post_data
     assert errors == []
 
 
@@ -234,6 +246,51 @@ def test_the_cadence_field_is_sent_where_the_prompt_is_not_needed(dashboard, liv
     assert page.locator('dialog.run-view-dialog').count() == 0, 'nothing to replace, so nothing to ask'
     assert len(sent) == 1
     assert json.loads(sent[0].post_data) == {'interval_ns': 5.0}
+    assert errors == []
+
+
+def test_the_align_switch_reaches_the_request_and_a_fitted_series_is_reported(dashboard, live_page):
+    """The switch is what the producer turns into a fit, and a fitted series says so where the reader decides.
+
+    Both halves are the same question from two sides: what the reader asks for has to arrive (`align: true`), and
+    what the run already holds has to be visible -- how many models were superposed and how far they moved -- so a
+    reader can tell a fitted series from the run's own coordinates before pressing anything.
+    """
+    seed(dashboard)
+    plant_trajectory_run(dashboard, cg_files())
+    page, errors = live_page
+    open_panel(page, live_page, run=TRAJECTORY_RUN)
+    wait_for_component(page, atoms=8)
+
+    switch = page.locator('#run-view-generate-align')
+    expect(switch).to_be_visible()
+    expect(switch).not_to_be_checked(), 'a run whose series is the run\'s own starts switched off'
+
+    sent = []
+    queue_stub(page, sent)
+    switch.check()
+    # The click is bracketed by the request it makes: the note now names the cadence *before* the request goes out
+    # (the queueing line), so waiting on text would return before the request was intercepted.
+    with page.expect_request(
+            lambda request: request.method == 'POST' and request.url.endswith('/snapshots')) as queued:
+        page.locator('#run-view-generate').click()
+    assert json.loads(queued.value.post_data) == {'align': True}, queued.value.post_data
+    assert sent, 'the stub beside the bracket answers the same request'
+
+    # And the other side: a published fitted series is reported, and the switch follows it. Planted before the panel
+    # reads the run, because a run's artifact index is built on its first read and held.
+    plant(dashboard, ALIGNED_RUN, job(ALIGNED_RUN, 'aa_cg', 'Sorbitol CG, fitted', '2026-10-07T10:00:00+00:00'),
+          cg_files())
+    published_series(dashboard, series={'file': 'CG-frames.pdb', 'stride': 100, 'sampled': 12, 'interval_ns': 1.0,
+                                        'topology': 'stages/3_initial_CG/LIG1.itp',
+                                        'aligned': {'reference': 1, 'atoms': 8,
+                                                    'rmsd_nm': {'min': 0.001, 'max': 0.23, 'mean': 0.11}}},
+                     run_id=ALIGNED_RUN)
+    open_panel(page, live_page, run=ALIGNED_RUN)
+    wait_for_component(page, atoms=8)
+    expect(page.locator('#run-view-generate-note')).to_contain_text('fitted on model 1')
+    expect(page.locator('#run-view-generate-note')).to_contain_text('internal RMSD up to 0.23 nm')
+    expect(page.locator('#run-view-generate-align')).to_be_checked()
     assert errors == []
 
 

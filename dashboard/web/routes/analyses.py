@@ -150,6 +150,8 @@ def queue_analysis(jid, kind):
             if not 0 < interval <= 1000:
                 abort(400, 'The sampling cadence must be between 0 and 1000 ns per frame')
             payload = {**payload, 'interval_ns': interval}
+        if 'align' in payload and not isinstance(payload['align'], bool):
+            abort(400, 'Aligning the frames is a yes or no')
     task, status = coordinator().analysis_coordinator.queue(jid, kind, payload)
     return jsonify(task), status
 

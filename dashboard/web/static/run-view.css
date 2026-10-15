@@ -73,12 +73,18 @@
    the field after the button. The group is `0 0 auto` and never splits, so the row's own wrap moves all of it to a
    second line rather than folding the three transport controls, and the field is wide enough to read "0.01" and
    "1000" without clipping the spinner. */
-.run-view-transport .transport-generate-group { display: flex; align-items: center; gap: 8px; flex: 0 0 auto }
+/* The group shrinks and wraps inside itself before the row moves it: a control that cannot give up width pushes the
+   page sideways at 390 px, which is what a fourth element in this group did. Right-aligned as it wraps, so the row's
+   own right edge stays the edge the controls are read from. */
+.run-view-transport .transport-generate-group { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end;
+  gap: 8px; flex: 0 1 auto; min-width: 0 }
 .run-view-transport .transport-generate { flex: 0 0 auto; white-space: nowrap }
 .run-view-transport .transport-generate:disabled { cursor: not-allowed; color: var(--muted); background: #f3f4f6 }
 .run-view-transport .transport-interval { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; margin: 0;
   font-size: 12px; font-weight: 400; color: var(--muted); white-space: nowrap }
-.run-view-transport .transport-interval input { width: 12ch; margin: 0; padding: 2px 4px; font: inherit; color: var(--ink) }
+.run-view-transport .transport-interval input[type="number"] { width: 12ch; margin: 0; padding: 2px 4px;
+  font: inherit; color: var(--ink) }
+.run-view-transport .transport-interval input[type="checkbox"] { margin: 0 }
 
 /* D19: the prompt that asks before a published series is replaced. Built in `run-view.js` rather than in the
    template, the way the mapping editor's own prompt is, so the numbers it names come from the record it read. */

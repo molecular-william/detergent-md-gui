@@ -383,7 +383,7 @@ def structure_remarks(title, topology, counts, *, extra=(), clause='COARSE-GRAIN
     return lines + list(extra)
 
 
-def series_pdb(frames, *, topology=None, detergent_residue=None, title='frame series', note=None,
+def series_pdb(frames, *, topology=None, detergent_residue=None, title='frame series', note=None, fit=None,
                include_water=False):
     """A run's sampled frames as one multi-model PDB, written with the conventions the run's own structure uses.
 
@@ -403,6 +403,14 @@ def series_pdb(frames, *, topology=None, detergent_residue=None, title='frame se
     built = [structure_records(atoms, detergent_residue=detergent_residue, include_water=include_water,
                                topology=topology) for atoms in frames]
     extra = [f'REMARK 950 SAMPLED SERIES: {len(frames)} models' + (f', {note}' if note else '')]
+    if fit:
+        # A fitted series is a *derived* view of the trajectory, so the file has to say so: every model superposed
+        # on one of them means the molecule's own translation and rotation are gone, and a reader who took the
+        # remaining motion for the whole motion would be reading a composite the run never wrote.
+        extra.append('REMARK 950 FITTED SERIES: every model is superposed on the reference model\'s own '
+                     f'{fit["atoms"]} beads (model {fit["reference"]}), so the translation and rotation the '
+                     'molecule does as a whole are removed and what remains is its internal motion -- RMSD to that '
+                     f'model {fit["rmsd_nm"]["min"]:.3f}-{fit["rmsd_nm"]["max"]:.3f} nm')
     counts = built[0][2] if built else {'detergent_molecules': 0, 'unbonded': 0}
     lines = structure_remarks(title, topology, counts, extra=extra)
     for index, (records, conect, _) in enumerate(built, start=1):

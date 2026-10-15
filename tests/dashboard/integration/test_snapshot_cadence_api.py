@@ -1,7 +1,8 @@
-"""The one payload that changes what an analysis writes, checked before it is queued.
+"""The payloads that change what an analysis writes, checked before they are queued.
 
 Every other kind's payload is a filter over inputs it already has; `snapshots`' cadence decides which frames end up
-in the file the run view plays. A cadence that names nothing -- zero, negative, past the ceiling, or not a number --
+in the file the run view plays, and its `align` decides whether that file is the run's own coordinates or a fitted
+view of them. A cadence that names nothing -- zero, negative, past the ceiling, or not a number --
 is a 400 the reader can act on rather than a failure inside a worker they have to go and read, so the check lives on
 the route and this is what holds it there. A cadence that is usable is passed through as the number it will be used
 as, and the queue's own payload record is what proves it.
@@ -48,3 +49,19 @@ def test_an_empty_payload_is_still_the_default_spread(queued):
 
     assert response.status_code == 202, response.get_json()
     assert response.get_json()['payload'] == {}
+
+
+def test_a_switch_that_is_not_yes_or_no_is_refused(queued):
+    """`align` is a boolean or it is a mistake: `"yes"` and `1` would both queue something nobody asked for."""
+    for value in ('yes', 1, 'true'):
+        response = queued.client.post(f'/api/jobs/{JID}/snapshots', json={'align': value})
+
+        assert response.status_code == 400, f'{value!r} was queued'
+        assert 'yes or no' in response.get_json()['error'], response.get_json()
+
+
+def test_the_fit_is_queued_as_the_switch_it_was(queued):
+    response = queued.client.post(f'/api/jobs/{JID}/snapshots', json={'align': True, 'interval_ns': 5})
+
+    assert response.status_code == 202, response.get_json()
+    assert response.get_json()['payload'] == {'align': True, 'interval_ns': 5.0}

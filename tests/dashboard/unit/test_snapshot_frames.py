@@ -292,6 +292,120 @@ def test_the_producer_is_handed_the_moleculetype_it_draws_bonds_from(tmp_path):
     assert text.count('CONECT') == 3 * result['series']['sampled']
 
 
+#: A moleculetype with four beads and three bonds, for the runs the fitting tests build.
+BONDED_TOPOLOGY = ('; the run\'s own bonded draft\n[ moleculetype ]\nSUCR 1\n\n[ atoms ]\n'
+                   + '\n'.join(f'{index} SP1r 1 SUCR B0{index} {index} 0 54' for index in range(1, 5))
+                   + '\n\n[ bonds ]\n1 2 1 0.429 5000\n2 3 1 0.429 5000\n3 4 1 0.429 5000\n')
+BEADS_NM = [[0.0, 0.0, 0.0], [0.4, 0.0, 0.0], [0.8, 0.0, 0.0], [0.8, 0.4, 0.0]]
+
+
+def _moving_run(root, transform, frames=4):
+    """A CG run whose trajectory *moves* the molecule: one transform of the same beads per frame.
+
+    `support.cg_fixture_run` writes a trajectory whose every frame holds the same coordinates, which cannot show
+    whether a fit did anything. This writes the moleculetype and the structure through it, then rewrites the
+    trajectory with `transform(frame, positions_nm)` applied, so the motion is exactly what the test asked for.
+    """
+    import numpy as np
+    _, trajectory, structure, _ = support.cg_fixture_run(root, BEADS_NM, frames=1, topology=BONDED_TOPOLOGY)
+    universe = mda.Universe(str(structure))
+    with mda.Writer(str(trajectory), n_atoms=len(universe.atoms), multiframe=True) as writer:
+        for frame in range(frames):
+            universe.atoms.positions = np.asarray(transform(frame, np.asarray(BEADS_NM, dtype=float))) * 10.0
+            writer.write(universe.atoms)
+    return root
+
+
+def _model_coordinates(path, model=1):
+    """The xyz of one `MODEL` block in a series PDB, in nanometres -- the unit the record states lengths in.
+
+    A PDB stores ångström, so the conversion lives here rather than in each assertion: a test that compared
+    ångström with a record's nanometres would be a unit slip that looks like a tolerance.
+    """
+    blocks, current = [], None
+    for line in path.read_text().splitlines():
+        if line.startswith('MODEL'):
+            current = []
+            blocks.append(current)
+        elif current is not None and line.startswith(('ATOM', 'HETATM')):
+            current.append([float(value) for value in re.findall(r'-?\d+\.\d{3}', line)[:3]])
+    return np.asarray(blocks[model - 1]) / 10.0
+
+
+def _centroid_spread(path):
+    """How far the models' centroids sit apart: the molecule's own translation, left in the file."""
+    centroids = [block.mean(axis=0) for block in
+                 [_model_coordinates(path, model) for model in range(1, 4)]]
+    return float(np.linalg.norm(np.asarray(centroids) - centroids[0], axis=1).max())
+
+
+def test_a_fitted_series_removes_the_molecules_own_translation(tmp_path):
+    """Without a fit a moving molecule walks across the picture; the fit is what holds it still.
+
+    The fixture moves the molecule a nanometre a frame, which is the motion a reader cannot tell from internal
+    motion by eye. Measured: the raw series' centroids walk, the fitted series' do not, and the record states the
+    fit it made.
+    """
+    shove = lambda frame, positions: positions + np.array([frame * 1.0, 0.0, 0.0])   # a nanometre a frame, x
+    root = _moving_run(tmp_path / 'raw', shove)
+    observability.generate(root, samples=3)
+    raw = _centroid_spread(root / 'snapshots/CG-frames.pdb')
+
+    fitted_root = _moving_run(tmp_path / 'fitted', shove)
+    result = observability.generate(fitted_root, samples=3, align=True)
+    fitted = _centroid_spread(fitted_root / 'snapshots/CG-frames.pdb')
+
+    # The sampled frames are 0, 2 and 3 of four, so the raw series walks 3 nm; a trajectory stores nanometres, so
+    # the fit's own residual is that format's precision rather than zero.
+    assert raw == pytest.approx(3.0, abs=1e-3), f'the fixture did not move as asked: {raw} nm'
+    assert fitted == pytest.approx(0.0, abs=1e-3), f'the fit left {fitted} nm of translation in the file'
+    fit = result['series']['aligned']
+    assert fit and fit['reference'] == 1 and fit['atoms'] == 4
+    assert fit['rmsd_nm']['max'] == pytest.approx(0.0, abs=1e-3), fit['rmsd_nm']
+    assert any('FITTED SERIES' in line for line in (fitted_root / 'snapshots/CG-frames.pdb').read_text().splitlines())
+
+
+def test_a_fitted_series_removes_rotation_and_keeps_the_internal_motion(tmp_path):
+    """A turning molecule is fitted away too, and what the fit cannot remove is the motion worth watching.
+
+    Every frame is the same beads turned 18 degrees about the first bead and one bead displaced: the rotation is
+    the fit's business, the displaced bead is not, so the series must come out still and the record must report the
+    displacement that remains.
+    """
+    import numpy as np
+
+    def turned(frame, positions):
+        angle = np.radians(18.0 * frame)
+        rotation = np.array([[np.cos(angle), -np.sin(angle), 0.0], [np.sin(angle), np.cos(angle), 0.0], [0.0, 0.0, 1.0]])
+        moved = (positions - positions[0]) @ rotation.T + positions[0]
+        if frame:
+            moved = moved.copy()
+            moved[3] = moved[3] + np.array([0.1 * frame, 0.0, 0.0])   # one bead drifts: the internal motion
+        return moved
+
+    root = _moving_run(tmp_path, turned)
+    result = observability.generate(root, samples=3, align=True)
+
+    series = root / 'snapshots/CG-frames.pdb'
+    assert _centroid_spread(series) == pytest.approx(0.0, abs=1e-3), 'the fit left the rotation in the file'
+    fit = result['series']['aligned']
+    assert 0.0 < fit['rmsd_nm']['max'] <= 0.5, f"the displaced bead's motion is not in the record: {fit['rmsd_nm']}"
+    # The raw series, for contrast, turns: the same fixture without the fit is not still.
+    plain = _moving_run(tmp_path / 'plain', turned)
+    observability.generate(plain, samples=3)
+    assert _centroid_spread(plain / 'snapshots/CG-frames.pdb') > 0.01
+
+
+def test_a_series_is_recorded_as_unaligned_unless_the_fit_was_asked_for(tmp_path):
+    """The default is the run's own coordinates, and the record says so rather than leaving it to be assumed."""
+    root = _moving_run(tmp_path, lambda frame, positions: positions)
+
+    result = observability.generate(root, samples=2)
+
+    assert result['series']['aligned'] is None
+    assert 'FITTED SERIES' not in (root / 'snapshots/CG-frames.pdb').read_text()
+
+
 def test_an_unknown_label_is_refused(tmp_path):
     with pytest.raises(ValueError, match='Unknown snapshot label'):
         observability.generate(_aa_only_run(tmp_path), labels=('first', 'every'))

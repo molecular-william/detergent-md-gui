@@ -157,6 +157,11 @@
                      title="Nanoseconds between the sampled frames. Leave it blank for 40 frames spread evenly over the trajectory."
                      aria-describedby="run-view-generate-note">
             </label>
+            <label class="transport-interval" for="run-view-generate-align">align
+              <input type="checkbox" id="run-view-generate-align"
+                     title="Superpose every frame on the first one, so the molecule's own translation and rotation are removed and its internal motion is what you watch."
+                     aria-describedby="run-view-generate-note">
+            </label>
           </div>
         </div>
         {# The state of a generation, on its own line: it is prose about what the analysis is doing, not a control. #}
