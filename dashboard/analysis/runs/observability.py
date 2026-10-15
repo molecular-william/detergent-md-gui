@@ -103,6 +103,43 @@ def _sample_indices(n_frames, samples):
     return [round(position * step) for position in range(samples)]
 
 
+#: The frames a series holds by default: an even spread over the whole trajectory, first and last included. A
+#: cadence in nanoseconds is the other way to ask, and it needs a trajectory that states its own time step.
+SERIES_SAMPLES = 40
+#: The most frames a series may hold however it was asked for. A series is one multi-model PDB the browser loads
+#: whole, so the cap is what keeps a long trajectory from publishing a file no viewer should be handed.
+SERIES_CAP = 200
+
+
+def _series_indices(n_frames, dt_ps, samples, interval_ns, cap):
+    """The frames the series holds: an even spread, or every `interval_ns` of the trajectory's own time.
+
+    A requested cadence is honoured in *frames* -- `interval_ns * 1000 / dt` -- because a frame is what a reader
+    indexes and the trajectory's time step is what turns one into a moment. The first frame is always in the
+    series: a series that starts after the trajectory's start hides the state the run began from, which is the
+    same rule the reference pair follows. Refused rather than guessed when the trajectory states no time step,
+    because then a cadence in nanoseconds names nothing.
+    """
+    if interval_ns is None:
+        return _sample_indices(n_frames, samples)
+    if not dt_ps or dt_ps <= 0:
+        raise ValueError('this trajectory states no time step, so a cadence in nanoseconds names nothing: '
+                         'ask for an even spread instead')
+    step = max(1, int(round(float(interval_ns) * 1000.0 / float(dt_ps))))
+    return list(range(0, n_frames, step))[:cap]
+
+
+def _cadence_ns(indices, dt_ps):
+    """The nanoseconds between the frames a series actually holds, whatever was asked for.
+
+    Recorded rather than re-derived by the reader: the panel prints this number beside the series it plays, and the
+    prompt that asks before replacing one names it, so it has to be the cadence of the file rather than the request.
+    """
+    if len(indices) < 2 or not dt_ps or dt_ps <= 0:
+        return None
+    return round((indices[-1] - indices[0]) * float(dt_ps) / 1000.0 / (len(indices) - 1), 6)
+
+
 def _stride(n_frames, samples):
     """How far apart the sampled frames sat, as a whole number of frames; 1 when every frame was taken."""
     return max(1, round((n_frames - 1) / (samples - 1))) if samples > 1 and n_frames > samples else 1
@@ -116,7 +153,8 @@ def _frames_series(universe, indices, output):
             writer.write(universe.atoms)
 
 
-def generate(run_dir, labels=('first', 'middle', 'last'), samples=40):
+def generate(run_dir, labels=('first', 'middle', 'last'), samples=SERIES_SAMPLES, interval_ns=None,
+             cap=SERIES_CAP):
     """Write coordinate and SVG snapshots from the run's own trajectory, resolved by its own layout.
 
     Which trajectory that is is the run's own answer rather than a stage name: an AA-only run publishes its
@@ -144,7 +182,7 @@ def generate(run_dir, labels=('first', 'middle', 'last'), samples=40):
         pdb = target / f'{stem}-{label}.pdb'; svg = target / f'{stem}-{label}.svg'
         _pdb_snapshot(universe, index, pdb, stem); _svg_snapshot(universe, index, svg, stem)
         created.extend([pdb.name, svg.name])
-    series_indices = _sample_indices(n_frames, samples)
+    series_indices = _series_indices(n_frames, float(universe.trajectory.dt or 0), samples, interval_ns, cap)
     series = target / f'{stem}-frames.pdb'
     _frames_series(universe, series_indices, series)
     created.append(series.name)
@@ -154,7 +192,11 @@ def generate(run_dir, labels=('first', 'middle', 'last'), samples=40):
     except ValueError:  # a resolved path outside the root the caller named is reported in full rather than guessed
         recorded = str(trajectory)
     return {'frames': n_frames, 'files': created, 'trajectory': recorded, 'role': role,
-            'series': {'file': series.name, 'stride': _stride(n_frames, samples), 'sampled': len(series_indices)}}
+            'series': {'file': series.name, 'stride': _stride(n_frames, samples), 'sampled': len(series_indices),
+                       'interval_ns': _cadence_ns(series_indices, float(universe.trajectory.dt or 0)),
+                       'duration_ns': round(n_frames * float(universe.trajectory.dt or 0) / 1000.0, 6),
+                       'frame_ps': float(universe.trajectory.dt or 0),
+                       'requested_interval_ns': interval_ns}}
 
 
 

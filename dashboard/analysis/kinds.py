@@ -24,6 +24,17 @@ def _sources_only(function: Callable) -> Callable:
     return lambda work, payload=None: function(work)
 
 
+def _snapshots(work, payload=None):
+    """The snapshots producer, which is the one row whose payload changes what it writes: the sampling cadence.
+
+    `interval_ns` is nanoseconds per frame and `samples` is the even spread used when no cadence is asked for; both
+    are checked at the route, so a producer that receives one has already been told it is usable.
+    """
+    payload = payload or {}
+    return observability.generate(work, samples=int(payload.get('samples', observability.SERIES_SAMPLES)),
+                                  interval_ns=payload.get('interval_ns'))
+
+
 @dataclass(frozen=True)
 class Kind:
     """Everything one kind is. `run` is called as `run(work, payload)` for every kind, without exception."""
@@ -197,7 +208,7 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
          "4_CG_sim/prod/lig_CG.gro", "4_CG_sim/prod/lig_CG.xtc",
          "4_CG_sim/md.gro", "4_CG_sim/md.xtc",
          "4_CG_sim/eq.gro", "4_CG_sim/eq.xtc"),
-        _sources_only(observability.generate),
+        _snapshots,
         "Trajectory snapshots",
         "Snapshots provide visual inspection and are not a distributional validation.",
         "coordinates",

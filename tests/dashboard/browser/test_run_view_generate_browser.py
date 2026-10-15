@@ -23,9 +23,9 @@ from playwright.sync_api import expect
 
 from tests.dashboard.browser.test_run_view_browser import (
     CG_RUN,
-    FRAMES_RUN,
     MEASURE,
     MODEL_JSON,
+    SNAPSHOT_ATTEMPT,
     bead_pdb,
     frames_pdb,
     job,
@@ -87,13 +87,29 @@ def tasks_stub(page, status):
                                     'directory': 'analyses/snapshots/1a2b3c4d/5e6f7a8b'}])))
 
 
-def published_the_series(dashboard):
-    """Write the attempt a completed `snapshots` analysis would have left, after the click rather than before it."""
-    for path, text in published_snapshots({'CG-frames.pdb': frames_pdb(), 'CG-first.pdb': bead_pdb(),
-                                           'CG-middle.pdb': bead_pdb(), 'CG-last.pdb': bead_pdb()}).items():
+def published_series(dashboard, series=None):
+    """Write the attempt a completed `snapshots` analysis leaves, with the record naming its own cadence.
+
+    `series` defaults to a record that *states* the cadence (12 frames at 5 ns), which is what the prompt and the
+    note print; passing `{'stride': 7, 'sampled': 5}` gives the older shape whose cadence was not recorded.
+    """
+    series = series or {'file': 'CG-frames.pdb', 'stride': 500, 'sampled': 12, 'interval_ns': 5.0,
+                        'duration_ns': 200.0, 'frame_ps': 10.0, 'requested_interval_ns': 5.0}
+    contents = published_snapshots({'CG-frames.pdb': frames_pdb(count=12), 'CG-first.pdb': bead_pdb(),
+                                    'CG-middle.pdb': bead_pdb(), 'CG-last.pdb': bead_pdb()})
+    record_path = f'{SNAPSHOT_ATTEMPT}/result.json'
+    record = json.loads(contents[record_path])
+    record['result']['series'] = series
+    contents[record_path] = json_text(record)
+    for path, text in contents.items():
         target = dashboard.coordinator.RUNS / TRAJECTORY_RUN / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text)
+
+
+def published_the_series(dashboard):
+    """Write the attempt after the click rather than before it: the state a completed analysis leaves behind."""
+    published_series(dashboard)
 
 
 def test_the_control_is_offered_where_a_trajectory_can_be_sampled(dashboard, live_page):
@@ -136,17 +152,92 @@ def test_the_control_is_disabled_with_its_reason_where_the_run_wrote_no_trajecto
     expect(control).to_be_disabled()
     assert 'no trajectory' in (control.get_attribute('title') or '').lower()
     expect(page.locator('#run-view-generate-note')).to_contain_text('nothing to sample')
+    expect(page.locator('#run-view-generate-interval')).to_be_disabled()
     assert errors == []
 
 
-def test_the_control_is_hidden_where_the_run_already_published_a_series(dashboard, live_page):
-    """The row's job where a series exists is to play it; a control offering to build a second one is noise."""
+def test_a_published_series_is_named_before_it_is_replaced(dashboard, live_page):
+    """The prompt states the frames and the cadence already published, and a cancel queues nothing.
+
+    Replacing a series is a decision about two numbers, so the prompt prints both -- how many frames the run plays
+    and what each one stands for -- rather than asking the reader to remember them. Cancel is a dead end: a dialog
+    that queued the analysis anyway would make the question a decoration.
+    """
     seed(dashboard)
+    plant_trajectory_run(dashboard, cg_files())
+    published_series(dashboard)
     page, errors = live_page
-    open_panel(page, live_page, run=FRAMES_RUN)
+    open_panel(page, live_page, run=TRAJECTORY_RUN)
     wait_for_component(page, atoms=8)
 
-    expect(page.locator('#run-view-generate')).to_be_hidden()
+    expect(page.locator('#run-view-generate')).to_be_enabled()
+    expect(page.locator('#run-view-generate-note')).to_contain_text('12 frames at 5 ns per frame')
+
+    sent = []
+    queue_stub(page, sent)
+    page.locator('#run-view-generate').click()
+    dialog = page.locator('dialog.run-view-dialog')
+    expect(dialog).to_be_visible()
+    expect(dialog).to_contain_text('already plays 12 frames at 5 ns per frame')
+    expect(dialog).to_contain_text("stays in the run's own analysis tree")
+
+    dialog.get_by_role('button', name='Cancel').click()
+    page.wait_for_timeout(300)
+    assert sent == [], 'a cancel must not queue anything'
+    assert dialog.count() == 0, 'the prompt is removed when it closes'
+
+    page.locator('#run-view-generate-interval').fill('2')
+    page.locator('#run-view-generate').click()
+    page.locator('dialog.run-view-dialog').get_by_role('button', name='Replace').click()
+    page.wait_for_function(
+        "() => document.querySelector('#run-view-generate-note').textContent.includes('every 2 ns')")
+    assert len(sent) == 1, f'the control sent {len(sent)} requests'
+    assert json.loads(sent[0].post_data) == {'interval_ns': 2.0}
+    assert errors == []
+
+
+def test_the_cadence_field_is_sent_where_the_prompt_is_not_needed(dashboard, live_page):
+    """A run with no series is generated without a question, and the field's number is what the request carries."""
+    seed(dashboard)
+    plant_trajectory_run(dashboard, cg_files())
+    page, errors = live_page
+    open_panel(page, live_page, run=TRAJECTORY_RUN)
+    wait_for_component(page, atoms=8)
+
+    field = page.locator('#run-view-generate-interval')
+    expect(field).to_be_visible()
+    expect(field).to_be_enabled()
+    assert field.get_attribute('placeholder') == '40 frames', 'the blank default is stated where it is chosen'
+
+    sent = []
+    queue_stub(page, sent)
+    field.fill('5')
+    page.locator('#run-view-generate').click()
+    page.wait_for_function(
+        "() => document.querySelector('#run-view-generate-note').textContent.includes('every 5 ns')")
+    assert page.locator('dialog.run-view-dialog').count() == 0, 'nothing to replace, so nothing to ask'
+    assert len(sent) == 1
+    assert json.loads(sent[0].post_data) == {'interval_ns': 5.0}
+    assert errors == []
+
+
+def test_a_cadence_that_is_not_a_positive_number_is_refused_before_it_is_sent(dashboard, live_page):
+    """The field holds text a number input allows and a cadence cannot be: refused with the reason, nothing sent."""
+    seed(dashboard)
+    plant_trajectory_run(dashboard, cg_files())
+    page, errors = live_page
+    open_panel(page, live_page, run=TRAJECTORY_RUN)
+    wait_for_component(page, atoms=8)
+
+    sent = []
+    queue_stub(page, sent)
+    page.locator('#run-view-generate-interval').fill('-3')
+    page.locator('#run-view-generate').click()
+    page.wait_for_timeout(300)
+
+    expect(page.locator('#run-view-generate-note')).to_contain_text('positive number of nanoseconds')
+    assert sent == [], 'a cadence that means nothing must not be sent'
+    expect(page.locator('#run-view-generate')).to_be_enabled()
     assert errors == []
 
 
@@ -169,9 +260,12 @@ def test_the_row_plays_the_series_once_the_queued_analysis_completes(dashboard, 
         "() => document.querySelector('#run-view-viewer')?.runViewStage?.compList?.[0]?.trajList?.length > 0",
         timeout=30000)
     measured = page.locator('#run-view-viewer').evaluate(MEASURE)
-    assert measured['frames'] == 5, f'the row plays {measured["frames"]} frames of the published series'
-    assert measured['models'] == 5, 'and the series the panel drew carries the five models the record names'
-    expect(page.locator('#run-view-generate')).to_be_hidden()
+    assert measured['frames'] == 12, f'the row plays {measured["frames"]} frames of the published series'
+    assert measured['models'] == 12, 'and the series the panel drew carries the models the record names'
+    # The control stays offered with a series published -- that is how the cadence is changed -- and what it reports
+    # is the record's own numbers rather than this panel's arithmetic on them.
+    expect(page.locator('#run-view-generate')).to_be_enabled()
+    expect(page.locator('#run-view-generate-note')).to_contain_text('Playing 12 frames at 5 ns per frame')
     assert len(sent) == 1
     assert errors == []
 

@@ -125,6 +125,54 @@ def test_a_series_never_asks_for_more_frames_than_the_trajectory_has(tmp_path):
     assert (tmp_path / 'snapshots/AA-frames.pdb').read_text().count('MODEL') == 3
 
 
+def test_the_default_series_spreads_the_frames_it_was_asked_for():
+    """No cadence asked for is the even spread, unchanged: the first frame, the last, and `samples` of them."""
+    indices = observability._series_indices(200, 10.0, 40, None, observability.SERIES_CAP)
+
+    assert len(indices) == 40
+    assert indices[0] == 0 and indices[-1] == 199
+
+
+def test_a_cadence_in_nanoseconds_is_honoured_in_frames():
+    """5 ns at a 10 ps time step is every 500th frame of a real run's own trajectory.
+
+    The numbers are the measured ones: `a2a457cf9413`'s `md.xtc` holds 20,001 frames at 10 ps (200 ns), so a 5 ns
+    cadence is 41 frames and the record states 5.0 -- which is what the panel prints and the prompt names.
+    """
+    indices = observability._series_indices(20001, 10.0, 40, 5.0, observability.SERIES_CAP)
+
+    assert len(indices) == 41
+    assert indices[:3] == [0, 500, 1000] and indices[-1] == 20000
+    assert observability._cadence_ns(indices, 10.0) == 5.0
+
+
+def test_a_cadence_finer_than_the_cap_is_capped_and_still_states_its_cadence():
+    """A series is one PDB a browser loads whole, so the cap binds and the record says what was drawn."""
+    indices = observability._series_indices(20001, 10.0, 40, 1.0, observability.SERIES_CAP)
+
+    assert len(indices) == observability.SERIES_CAP == 200
+    assert indices[0] == 0
+    assert observability._cadence_ns(indices, 10.0) == 1.0
+
+
+def test_a_cadence_on_a_trajectory_with_no_time_step_is_refused():
+    """A trajectory whose frames carry no time cannot honour nanoseconds: refused with that reason, not guessed."""
+    with pytest.raises(ValueError, match='states no time step'):
+        observability._series_indices(20, 0.0, 40, 5.0, observability.SERIES_CAP)
+
+
+def test_the_series_record_states_its_own_cadence(tmp_path):
+    """The record carries the cadence of the frames it published, which is what the note and the prompt print."""
+    result = observability.generate(_aa_only_run(tmp_path, frames=200), samples=40)
+
+    series = result['series']
+    assert series['sampled'] == 40 and series['stride'] == 5
+    # This fixture's trajectory carries no time step, so where a cadence cannot be known the record says so rather
+    # than inventing one: `None` is what the panel prints as "its cadence was not recorded".
+    assert series['frame_ps'] == 0.0 and series['interval_ns'] is None and series['duration_ns'] == 0.0
+    assert series['requested_interval_ns'] is None
+
+
 def test_a_run_with_no_trajectory_is_refused(tmp_path):
     """Refused as a value error, and as the resolver's own type: that is what a caller records a skip from."""
     with pytest.raises(layout.NoTrajectory, match='no trajectory to review'):

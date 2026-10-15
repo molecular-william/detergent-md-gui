@@ -139,6 +139,17 @@ def queue_analysis(jid, kind):
         except (ValueError, OSError) as exc:
             abort(400, str(exc))
         payload = {**payload, 'molecule_id': molecule_id, 'target_dataset': dataset}
+    if kind == 'snapshots':
+        # The one payload that changes what an analysis *writes*. Checked here so a cadence that means nothing is a
+        # 400 the reader can act on rather than a failure inside the worker they have to go and read.
+        if 'interval_ns' in payload and payload['interval_ns'] is not None:
+            try:
+                interval = float(payload['interval_ns'])
+            except (TypeError, ValueError):
+                abort(400, 'The sampling cadence must be a number of nanoseconds per frame')
+            if not 0 < interval <= 1000:
+                abort(400, 'The sampling cadence must be between 0 and 1000 ns per frame')
+            payload = {**payload, 'interval_ns': interval}
     task, status = coordinator().analysis_coordinator.queue(jid, kind, payload)
     return jsonify(task), status
 

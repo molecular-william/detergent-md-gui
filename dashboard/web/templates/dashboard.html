@@ -139,7 +139,22 @@
              published no series yet. Hidden where a series exists -- the row's job is then to play it -- and drawn
              disabled with its reason where the run wrote no trajectory, the same convention the transport itself
              follows (D17). #}
+          {# D11 keeps this row to two play buttons and the slider: it is `flex-wrap: nowrap` and folds into two
+             lines at any width the moment a fourth control joins it. The generate control is the one exception the
+             reader asked for, and it closes the row on the right. #}
           <button type="button" class="transport-generate" id="run-view-generate" hidden>Generate trajectory</button>
+        </div>
+        {# D19: the cadence and the state of a generation, on their own line so the transport row keeps its width.
+           The cadence is set before the series is generated -- it is the one thing about a series a reader decides,
+           how much of the run one frame stands for -- and blank means the default spread, which the placeholder
+           says. #}
+        <div class="run-view-generate" id="run-view-generate-bar" hidden>
+          <label class="transport-interval" for="run-view-generate-interval">ns/frame
+            <input type="number" id="run-view-generate-interval" min="0.01" max="1000" step="0.01" inputmode="decimal"
+                   placeholder="40 frames"
+                   title="Nanoseconds between the sampled frames. Leave it blank for 40 frames spread evenly over the trajectory."
+                   aria-describedby="run-view-generate-note">
+          </label>
           <span class="transport-generate-note" id="run-view-generate-note" role="status"></span>
         </div>
         <p id="run-view-transport-note" class="hint" role="status"></p>

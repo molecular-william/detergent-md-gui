@@ -64,6 +64,11 @@ export function createRunView() {
   //: D18 -- the one control in this panel that writes: it queues the snapshots analysis, which samples the run's own
   //: trajectory into the multi-model file the transport row plays.
   const generate = $('#run-view-generate'), generateNote = $('#run-view-generate-note');
+  //: D19 -- the cadence, in nanoseconds per frame, set before the series is generated. Blank means the default even
+  //: spread, which is what the field's placeholder says.
+  const intervalInput = $('#run-view-generate-interval');
+  //: The line the cadence and the generation's own state sit on, shown with the control and never before it.
+  const generateBar = $('#run-view-generate-bar');
 
   const transport = createTransport();
   let scope = {slug: '', types: []};
@@ -354,34 +359,104 @@ export function createRunView() {
   }
 
   async function updateGenerate(job) {
-    // Runs on every run load: the control follows what the run holds, and whether it has published a series already.
+    // Runs on every run load: the control follows what the run holds. It is offered wherever a trajectory exists --
+    // with a series already published it is how the cadence is changed, and pressing it asks before it replaces --
+    // and drawn disabled with its reason where the run wrote no trajectory to sample.
     stopPolling();
     generating = false;
     if (!generate) return;
-    generate.hidden = true;
-    generate.disabled = false;
-    generateNote.textContent = '';
-    if (published.frames) return;   // the row plays a published series; there is nothing to generate
-    const holds = await holdsTrajectory(job);
     generate.hidden = false;
+    generate.disabled = false;
+    if (generateBar) generateBar.hidden = false;
+    generateNote.textContent = '';
+    const holds = await holdsTrajectory(job);
     generate.disabled = !holds;
+    if (intervalInput) intervalInput.disabled = !holds;
     generate.title = holds
       ? "Sample moments from this run's own trajectory and publish them as one multi-model file, which this row then "
         + 'plays. That is the snapshots analysis, run against this run.'
       : 'This run wrote no trajectory under stages/, so there are no frames to sample.';
     if (!holds) {
       generateNote.textContent = 'No trajectory in this run: nothing to sample.';
+      return;
     }
+    const series = published.series || {};
+    const cadence = Number(series.interval_ns);
+    if (published.frames) {
+      // The two numbers the decision is about, printed where the reader decides it: how many frames are published
+      // and what each one stands for. The cadence is the record's own rather than a re-derivation here.
+      generateNote.textContent = (Number.isFinite(cadence) && cadence
+        ? `Playing ${Number(series.sampled) || '?'} frames at ${cadence} ns per frame.`
+        : 'A series is published for this run.')
+        + ' Pressing Generate replaces it.';
+    }
+  }
+
+  function intervalRequested() {
+    // `null` is "no cadence asked for", which is the default spread; `undefined` is a value that cannot be read as
+    // one. The caller reports those two differently, so they are not folded into a falsy number.
+    if (!intervalInput) return null;
+    const text = intervalInput.value.trim();
+    if (!text) return null;
+    const value = Number(text);
+    return Number.isFinite(value) && value > 0 ? value : undefined;
+  }
+
+  function confirmReplace() {
+    // The prompt names what replacing means here: the series the row plays is superseded by a new attempt, and the
+    // earlier attempt stays in the run's own analysis tree rather than being deleted. Built here rather than in the
+    // template, the way the mapping editor's prompt is, and it resolves rather than deciding.
+    return new Promise(resolve => {
+      const series = published.series || {};
+      const frames = Number(series.sampled), cadence = Number(series.interval_ns);
+      const dialog = document.createElement('dialog');
+      dialog.className = 'run-view-dialog';
+      const title = document.createElement('h3');
+      title.textContent = 'Replace this run’s published frame series?';
+      const line = document.createElement('p');
+      line.textContent = (Number.isFinite(frames) && frames ? `This run already plays ${frames} frames`
+                                                           : 'This run already plays a published series')
+        + (Number.isFinite(cadence) && cadence ? ` at ${cadence} ns per frame.` : ', and its cadence was not recorded.')
+        + ' Generating publishes a new series at the cadence you set: this panel plays the newest, and the earlier '
+        + "attempt stays in the run's own analysis tree.";
+      const actions = document.createElement('div');
+      actions.className = 'toolbar';
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.textContent = 'Cancel';
+      cancel.addEventListener('click', () => dialog.close('cancel'));
+      const replace = document.createElement('button');
+      replace.type = 'button';
+      replace.textContent = 'Replace';
+      replace.addEventListener('click', () => dialog.close('replace'));
+      actions.append(cancel, replace);
+      dialog.append(title, line, actions);
+      document.body.append(dialog);
+      dialog.addEventListener('close',
+        () => { dialog.remove(); resolve(dialog.returnValue === 'replace'); }, {once: true});
+      dialog.showModal();
+    });
   }
 
   async function queueGeneration(job) {
     if (generating) return;
+    const requested = intervalRequested();
+    if (requested === undefined) {
+      generateNote.textContent = 'The cadence must be a positive number of nanoseconds per frame, or blank for the '
+        + 'default spread.';
+      return;
+    }
+    if (published.frames && !(await confirmReplace())) return;
     generating = true;
     generate.disabled = true;
-    generateNote.textContent = 'Queueing the snapshots analysis…';
+    generateNote.textContent = requested === null ? 'Queueing the snapshots analysis…'
+      : `Queueing the snapshots analysis at ${requested} ns per frame…`;
     try {
-      await post(`/api/jobs/${encodeURIComponent(job.id)}/snapshots`, {});
-      generateNote.textContent = "Sampling frames from this run's own trajectory…";
+      await post(`/api/jobs/${encodeURIComponent(job.id)}/snapshots`,
+                 requested === null ? {} : {interval_ns: requested});
+      generateNote.textContent = requested === null
+        ? "Sampling frames from this run's own trajectory…"
+        : `Sampling a frame every ${requested} ns of this run's own trajectory…`;
       stopPolling();
       pollTimer = setInterval(() => { watchGeneration(job); }, GENERATE_POLL_MS);
     } catch (error) {
