@@ -3,9 +3,11 @@ import json
 import re
 import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 
 from ... import files
 from ...execution import tools
+from ...execution.adapters import pdc_view
 from . import layout
 
 try:
@@ -53,7 +55,59 @@ def artifacts(run_dir):
     return entries
 
 
-def _pdb_snapshot(universe, index, output, stem):
+def _frame_atoms(universe, index):
+    """One frame's coordinates as the `read_gro`-shaped dicts `pdc_view` writes from, in nanometres.
+
+    The one unit conversion lives here: MDAnalysis holds ångström and every writer in `pdc_view` takes what a
+    `.gro` states, which is nanometres, so a bead two units apart in the two readers is caught by the coordinates
+    the writers emit rather than silently drawn at the wrong scale.
+    """
+    universe.trajectory[index]
+    return [{'name': str(getattr(atom, 'name', 'X')), 'residue': str(getattr(atom, 'resname', 'MOL')),
+             'residue_id': int(getattr(atom, 'resid', 1)),
+             'position': tuple(float(value) / 10.0 for value in atom.position)}
+            for atom in universe.atoms]
+
+
+def _run_topology(run_dir):
+    """The moleculetype the run simulated, by the run's own layout rule, or `None` when it states none.
+
+    The same resolution the structure route makes, because a series and the run's own structure must read one
+    topology: the manifest's `FINAL_ITP` names the `.itp` a CG stage simulated, and `layout.cg_topology` refuses an
+    ambiguous directory rather than ranking an answer.
+    """
+    run_dir = Path(run_dir)
+    name = None
+    try:
+        manifest = json.loads((run_dir / 'manifest.json').read_text())
+    except (OSError, ValueError):
+        manifest = {}
+    for stage in manifest.get('stages') or []:
+        name = (stage.get('environment') or {}).get('FINAL_ITP')
+        if name:
+            break
+    try:
+        return layout.cg_topology(run_dir, name)
+    except ValueError:
+        return None
+
+
+def _pdb_snapshot(universe, index, output, stem, *, topology=None, coarse=False):
+    if coarse:
+        # A coarse-grained moment is written through the writer the run's own structure uses: the size-class element
+        # stand-in, the Martini 3 family code in the b-factor column, and the moleculetype's own bonds as CONECT.
+        # The run view draws a CG file with `colorScheme: 'bfactor'` and its distance guess off, so a moment written
+        # as bare coordinates is drawn as grey spheres with no bonds -- measured on this run's own first series.
+        atoms = _frame_atoms(universe, index)
+        if not atoms:
+            raise ValueError('Trajectory contains no atoms')
+        moment = float(universe.trajectory.time)
+        output.write_text(pdc_view.system_pdb(
+            atoms, detergent_residue=atoms[0]['residue'], topology=topology,
+            title=f'{stem} frame {index} at {moment:.3f} ps'))
+        return
+    # An all-atom moment keeps the reader's own records: real elements from the atom names, which is the column an
+    # all-atom view colours from, and no bonds, because a real molecule's are what the viewer's guess reproduces.
     universe.trajectory[index]
     with output.open('w') as fp:
         fp.write(f"REMARK Dashboard {stem} snapshot frame {index} time {float(universe.trajectory.time):.3f} ps\n")
@@ -145,8 +199,24 @@ def _stride(n_frames, samples):
     return max(1, round((n_frames - 1) / (samples - 1))) if samples > 1 and n_frames > samples else 1
 
 
-def _frames_series(universe, indices, output):
-    """One multi-model PDB holding every sampled frame, so a viewer loads the series in a single request."""
+def _frames_series(universe, indices, output, *, topology=None, coarse=False, note=None, title='frame series'):
+    """One multi-model PDB holding every sampled frame, so a viewer loads the series in a single request.
+
+    A coarse-grained series goes through `pdc_view.series_pdb`, the writer the run's own structure uses, so every
+    model carries the two things the run view reads a bead from: the family code that colours it and the model's own
+    bonds. Written straight out of the reader it carries neither, and the panel -- which draws a CG file with
+    `bfactor` colours and its distance guess off -- shows grey, unbonded spheres beside the same run's own
+    structure. Measured on `a2a457cf9413`'s first series: b-factor `0.00` on every bead, zero CONECT records.
+
+    An all-atom series keeps the reader's own multi-model output: the elements are real chemistry there, and the
+    viewer's own guess reproduces its bonds.
+    """
+    if coarse:
+        frames = [_frame_atoms(universe, index) for index in indices]
+        if not frames:
+            raise ValueError('A frame series needs at least one sample')
+        output.write_text(pdc_view.series_pdb(frames, topology=topology, note=note, title=title))
+        return
     with mda.Writer(str(output), n_atoms=len(universe.atoms), multiframe=True) as writer:
         for index in indices:
             universe.trajectory[index]
@@ -172,6 +242,18 @@ def generate(run_dir, labels=('first', 'middle', 'last'), samples=SERIES_SAMPLES
     if n_frames < 1:
         raise ValueError(f'{trajectory.name} contains no frames')
     stem = 'CG' if role.startswith('cg_') else 'AA'
+    # Resolved before anything is written: the moments and the series are both written through the run's own
+    # conventions, and which conventions those are is decided by the source's role and the moleculetype the run
+    # simulated -- a coarse-grained frame gets the family code and the model's own bonds, an all-atom frame keeps
+    # real elements and no records it cannot know.
+    coarse = role.startswith('cg_')
+    topology_path = _run_topology(run_dir) if coarse else None
+    moleculetype = None
+    if topology_path is not None:
+        try:
+            moleculetype = pdc_view.read_moleculetype(topology_path)
+        except (OSError, ValueError):
+            moleculetype = None
     indices = {'first': 0, 'middle': (n_frames - 1)//2, 'last': n_frames - 1}
     target = run_dir / 'snapshots'; target.mkdir(exist_ok=True)
     created = []
@@ -180,11 +262,17 @@ def generate(run_dir, labels=('first', 'middle', 'last'), samples=SERIES_SAMPLES
             raise ValueError(f'Unknown snapshot label: {label}')
         index = indices[label]
         pdb = target / f'{stem}-{label}.pdb'; svg = target / f'{stem}-{label}.svg'
-        _pdb_snapshot(universe, index, pdb, stem); _svg_snapshot(universe, index, svg, stem)
+        _pdb_snapshot(universe, index, pdb, stem, topology=moleculetype, coarse=coarse)
+        _svg_snapshot(universe, index, svg, stem)
         created.extend([pdb.name, svg.name])
     series_indices = _series_indices(n_frames, float(universe.trajectory.dt or 0), samples, interval_ns, cap)
     series = target / f'{stem}-frames.pdb'
-    _frames_series(universe, series_indices, series)
+    cadence = _cadence_ns(series_indices, float(universe.trajectory.dt or 0))
+    _frames_series(universe, series_indices, series, topology=moleculetype, coarse=coarse,
+                   title=f'{trajectory.name} sampled frames',
+                   # A trajectory with no time step has no cadence to state: the REMARK says how many models it
+                   # holds and stops there rather than printing a number the reader would take for a measurement.
+                   note=(f'{cadence} ns per frame' if coarse and cadence else None))
     created.append(series.name)
     universe.trajectory.close()
     try:
@@ -193,7 +281,8 @@ def generate(run_dir, labels=('first', 'middle', 'last'), samples=SERIES_SAMPLES
         recorded = str(trajectory)
     return {'frames': n_frames, 'files': created, 'trajectory': recorded, 'role': role,
             'series': {'file': series.name, 'stride': _stride(n_frames, samples), 'sampled': len(series_indices),
-                       'interval_ns': _cadence_ns(series_indices, float(universe.trajectory.dt or 0)),
+                       'topology': str(topology_path) if topology_path else None,
+                       'interval_ns': cadence,
                        'duration_ns': round(n_frames * float(universe.trajectory.dt or 0) / 1000.0, 6),
                        'frame_ps': float(universe.trajectory.dt or 0),
                        'requested_interval_ns': interval_ns}}

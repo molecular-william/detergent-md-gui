@@ -23,7 +23,10 @@ from playwright.sync_api import expect
 
 from tests.dashboard.browser.test_run_view_browser import (
     CG_RUN,
+    FAMILY_COLOURS,
     MEASURE,
+    MEASURE_FAMILY,
+    MODEL_BONDS,
     MODEL_JSON,
     SNAPSHOT_ATTEMPT,
     bead_pdb,
@@ -275,6 +278,16 @@ def test_the_row_plays_the_series_once_the_queued_analysis_completes(dashboard, 
     measured = page.locator('#run-view-viewer').evaluate(MEASURE)
     assert measured['frames'] == 12, f'the row plays {measured["frames"]} frames of the published series'
     assert measured['models'] == 12, 'and the series the panel drew carries the models the record names'
+    # A frame must be as *readable* as the run's own structure: the same beads, the family colour a CG file is
+    # coloured by, and the model's own bonds. A series carrying neither draws grey, unbonded spheres -- measured on
+    # the first series this pipeline published, which is why this assertion is here rather than implied.
+    assert measured['bonds'] == len(MODEL_BONDS), \
+        f'the series drew {measured["bonds"]} bonds for a model that states {len(MODEL_BONDS)}'
+    family = page.locator('#run-view-viewer').evaluate(MEASURE_FAMILY)
+    assert family['scheme'] == 'bfactor', family['scheme']
+    assert family['colours'] == [FAMILY_COLOURS['P']] * 8, \
+        f'the beads are not drawn in their own family colour: {family["colours"]}'
+    assert family['hidden'] is False, 'a coarse picture with no legend under it'
     # The control stays offered with a series published -- that is how the cadence is changed -- and what it reports
     # is the record's own numbers rather than this panel's arithmetic on them.
     expect(page.locator('#run-view-generate')).to_be_enabled()

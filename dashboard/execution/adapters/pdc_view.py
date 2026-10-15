@@ -301,6 +301,21 @@ def system_pdb(atoms, *, detergent_residue='DDM', include_water=False, title='PD
     a code, not a temperature factor, and the file's own REMARK says so; a bead whose type states no family -- a
     protein bead, or any bead when there is no topology -- is written the code for `unstated`.
     """
+    records, conect, counts = structure_records(atoms, detergent_residue=detergent_residue,
+                                               include_water=include_water, topology=topology)
+    lines = structure_remarks(title, topology, counts)
+    lines += records + conect + ['END']
+    return '\n'.join(lines) + '\n'
+
+
+def structure_records(atoms, *, detergent_residue, include_water=False, topology=None):
+    """One structure's `HETATM` records, its `CONECT` records, and the counts a REMARK needs to report.
+
+    Split out of `system_pdb` because a sampled frame series writes the same three conventions once per model --
+    the element stand-in by size class, the Martini 3 family code in the b-factor column, and the moleculetype's
+    own bonds as `CONECT` -- and a second writer for them would be a second set of conventions. The counts come
+    back so the caller's REMARKs can say what it could and could not bond.
+    """
     kept = [atom for atom in atoms if include_water or atom['residue'].upper() not in WATER_RESIDUES]
     elements = bead_elements(topology)
     families = bead_families(topology)
@@ -336,23 +351,61 @@ def system_pdb(atoms, *, detergent_residue='DDM', include_water=False, title='PD
             unbonded.append(index)
             continue
         conect += [f'CONECT{first:5d}{second:5d}' for first, second in bonds]
+    return records, conect, {'detergent_molecules': len(detergents), 'unbonded': len(unbonded)}
 
-    lines = [f'REMARK 950 {title.upper()}: COARSE-GRAINED SYSTEM AS SET UP, WATER AND IONS OMITTED',
+
+def structure_remarks(title, topology, counts, *, extra=(), clause='COARSE-GRAINED SYSTEM AS SET UP, '
+                                                                  'WATER AND IONS OMITTED'):
+    """The block that says what the element column, the b-factor column and the bonds in a file of ours mean.
+
+    One function for every structure this module writes, so a series and a single frame cannot describe their own
+    columns two ways. `extra` is where a caller adds what only it knows -- a series states how many models it holds
+    and at what cadence.
+    """
+    lines = [f'REMARK 950 {title.upper()}: {clause}',
              f'REMARK 950 ELEMENTS ARE RADIUS STAND-INS, NOT CHEMISTRY: EACH BEAD IS WRITTEN WITH ITS OWN SIZE '
              f'CLASS ({", ".join(f"{size} {element}" for size, element in sorted(SIZE_ELEMENTS.items()))}), AND A '
              f'BEAD WHOSE CLASS THE MODEL DOES NOT STATE IS WRITTEN {BEAD_ELEMENT}',
              'REMARK 950 THE B-FACTOR COLUMN CARRIES A MARTINI 3 POLARITY FAMILY, NOT A TEMPERATURE FACTOR: '
              + ', '.join(f'{code} {family.upper()}' for code, family in enumerate(BEAD_FAMILIES))
              + ", READ FROM EACH BEAD'S OWN TYPE; A VIEWER COLOURS FROM IT"]
-    if detergents and topology is None:
+    if counts['detergent_molecules'] and topology is None:
         lines.append('REMARK 950 NO BONDS RECORDED: this stage carries no detergent moleculetype, so the picture '
                      'claims no bonds rather than leaving a viewer to invent them')
-    if detergents and topology is not None:
+    if counts['detergent_molecules'] and topology is not None:
         lines.append(f"REMARK 950 BONDS ARE THE MODEL'S OWN, NOT GUESSED: {len(topology['bonds'])} [ bonds ] + "
                      f"{len(topology['constraints'])} [ constraints ] of {Path(topology['path']).name}, replicated "
                      f'per detergent molecule')
-    if unbonded:
-        lines.append(f'REMARK 950 NO BONDS RECORDED FOR {len(unbonded)} OF {len(detergents)} DETERGENT MOLECULES: '
-                     'their beads are not the moleculetype\'s beads, as it declares them in [ atoms ]')
-    lines += records + conect + ['END']
+    if counts['unbonded']:
+        lines.append(f"REMARK 950 NO BONDS RECORDED FOR {counts['unbonded']} OF {counts['detergent_molecules']} "
+                     "DETERGENT MOLECULES: their beads are not the moleculetype's beads, as it declares them in "
+                     '[ atoms ]')
+    return lines + list(extra)
+
+
+def series_pdb(frames, *, topology=None, detergent_residue=None, title='frame series', note=None,
+               include_water=False):
+    """A run's sampled frames as one multi-model PDB, written with the conventions the run's own structure uses.
+
+    `frames` is one atom list per sampled moment, each `read_gro`-shaped: `name`, `residue`, `residue_id` and
+    `position` in nanometres. A viewer plays a series out of `MODEL`/`ENDMDL` blocks in one file, and the two things
+    a frame needs to be *readable* are the two a single structure needs -- the family code that colours a bead and
+    the model's own bonds -- written per model, because a reader addresses `CONECT` within a model.
+
+    Reading a trajectory straight into a PDB writer gives neither. Measured: the first series this repository
+    published came out of MDAnalysis's writer with b-factor `0.00` on every bead and no `CONECT` record at all, so
+    the run view drew uncoloured, unbonded spheres beside the same run's own structure, which carries both. The
+    residue is the moleculetype's, found in the coordinates rather than assumed, and a caller with no topology gets
+    a file that says it carries no bonds rather than one a viewer will guess at.
+    """
+    if detergent_residue is None and frames:
+        detergent_residue = topology_residue(frames[0], topology, str(frames[0][0]['residue']))
+    built = [structure_records(atoms, detergent_residue=detergent_residue, include_water=include_water,
+                               topology=topology) for atoms in frames]
+    extra = [f'REMARK 950 SAMPLED SERIES: {len(frames)} models' + (f', {note}' if note else '')]
+    counts = built[0][2] if built else {'detergent_molecules': 0, 'unbonded': 0}
+    lines = structure_remarks(title, topology, counts, extra=extra)
+    for index, (records, conect, _) in enumerate(built, start=1):
+        lines += [f'MODEL     {index:4d}'] + records + conect + ['ENDMDL']
+    lines.append('END')
     return '\n'.join(lines) + '\n'

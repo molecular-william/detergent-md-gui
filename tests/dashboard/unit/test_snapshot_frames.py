@@ -173,6 +173,75 @@ def test_the_series_record_states_its_own_cadence(tmp_path):
     assert series['requested_interval_ns'] is None
 
 
+def _cg_run_with_bonds(root, frames=4, bonds=((1, 2), (2, 3), (3, 4))):
+    """A CG run whose moleculetype states bonds, so a series has something to carry.
+
+    `support.cg_fixture_run` writes the shape a CG run has -- its `stages/3_initial_CG` moleculetype, its structure
+    and its trajectory -- and the moleculetype is given `[ bonds ]` here because the fixture's own carries none.
+    """
+    topology = ('; the run\'s own bonded draft\n[ moleculetype ]\nSUCR 1\n\n[ atoms ]\n'
+                + '\n'.join(f'{index} SP1r 1 SUCR B0{index} {index} 0 54' for index in range(1, 5))
+                + '\n\n[ bonds ]\n'
+                + '\n'.join(f'{first} {second} 1 0.429374836245 5000' for first, second in bonds) + '\n')
+    positions = [[0.0, 0.0, 0.0], [0.4, 0.0, 0.0], [0.8, 0.0, 0.0], [1.2, 0.0, 0.0]]
+    support.cg_fixture_run(root, positions, frames=frames, topology=topology)
+    return root
+
+
+def test_a_cg_series_carries_the_family_code_and_the_models_own_bonds(tmp_path):
+    """The two things the run view reads a bead from, per model, or the picture is grey spheres with no bonds.
+
+    Measured on the first series this repository published: MDAnalysis's own PDB writer emitted b-factor `0.00` on
+    every bead and no `CONECT` record, so the panel -- which draws a CG file with `bfactor` colours and its distance
+    guess off -- showed neither the family nor the connectivity of the model it was drawing. The series must state
+    both, in the same columns the run's own single-frame structure uses.
+    """
+    # No cadence is asked for: this fixture's trajectory carries no time step (a written XTC with no times), so a
+    # cadence in nanoseconds would be refused -- which is the rule the neighbouring test holds.
+    result = observability.generate(_cg_run_with_bonds(tmp_path, frames=4), samples=2)
+
+    text = (tmp_path / 'snapshots/CG-frames.pdb').read_text()
+    lines = text.splitlines()
+    families = [line[60:66].strip() for line in lines if line.startswith('HETATM')]
+    assert set(families) == {'3.00'}, f'the b-factor column is not the beads\' own family: {sorted(set(families))}'
+    # 5001 bonds the model states ... the moleculetype in this fixture bonds it 3 ways, once per model.
+    assert text.count('CONECT') == 3 * result['series']['sampled'], \
+        f"the series carries {text.count('CONECT')} CONECT records for 3 bonds over {result['series']['sampled']} models"
+    # Anchored to the line: "the MODEL'S own bonds" is a REMARK in this file, so a substring count is not a count
+    # of models.
+    assert len(re.findall(r'^MODEL', text, re.M)) == result['series']['sampled']
+    assert any(line.startswith('REMARK 950 BONDS ARE THE MODEL\'S OWN') for line in lines)
+    assert any('SAMPLED SERIES: 2 models' in line for line in lines), \
+        'the file does not say how many models it holds'
+    assert result['series']['topology'] and 'SUCR_initial.itp' in result['series']['topology']
+    # The moments the strip's buttons jump to are written the same way: a reader landing on one sees the same beads.
+    first = (tmp_path / 'snapshots/CG-first.pdb').read_text()
+    assert first.count('CONECT') == 3, 'a single moment must carry the model\'s bonds too'
+    assert {line[60:66].strip() for line in first.splitlines() if line.startswith('HETATM')} == {'3.00'}
+
+
+def test_a_cg_series_with_no_moleculetype_says_it_has_no_bonds(tmp_path):
+    """No topology is a state the file reports: the same conventions, and a REMARK instead of invented bonds."""
+    root = tmp_path
+    support.cg_fixture_run(root, [[0.0, 0.0, 0.0], [0.4, 0.0, 0.0]], names=('B01', 'B02'), frames=3)
+    (root / 'stages/3_initial_CG/SUCR_initial.itp').unlink()
+
+    observability.generate(root, samples=2)
+
+    text = (root / 'snapshots/CG-frames.pdb').read_text()
+    assert 'CONECT' not in text, 'a run that states no moleculetype must not be given bonds'
+    assert any('NO BONDS RECORDED' in line for line in text.splitlines())
+
+
+def test_an_all_atom_series_keeps_the_readers_own_records(tmp_path):
+    """Real chemistry, not beads: the elements come from the atoms and the panel guesses the bonds it can see."""
+    result = observability.generate(_aa_only_run(tmp_path, frames=5), samples=2)
+
+    text = (tmp_path / 'snapshots/AA-frames.pdb').read_text()
+    assert 'CONECT' not in text and 'REMARK 950 BONDS' not in text
+    assert result['series']['topology'] is None
+
+
 def test_a_run_with_no_trajectory_is_refused(tmp_path):
     """Refused as a value error, and as the resolver's own type: that is what a caller records a skip from."""
     with pytest.raises(layout.NoTrajectory, match='no trajectory to review'):

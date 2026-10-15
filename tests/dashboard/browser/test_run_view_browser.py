@@ -40,6 +40,9 @@ PAGE_CAP = 100
 EARLIER_ATTEMPTS = 120
 
 BEADS = ('B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08')
+#: The Martini 3 polarity family code the fixture's own moleculetype states: every bead is an `SP1r`, which is polar,
+#: and a viewer colours from this column (`ngl-beads.js`'s `BEAD_FAMILY_ORDER`).
+FAMILY_CODE = 3
 #: The sizes the fixture's own `model.json` states: the maltose mapping's classes, six S and the two virtual sites T.
 SIZES = {'B01': 'S', 'B02': 'S', 'B03': 'S', 'B04': 'T', 'B05': 'S', 'B06': 'S', 'B07': 'S', 'B08': 'T'}
 #: The stand-in element each class is written with in a bead file's element column (`models/compositions/topology.py`).
@@ -97,22 +100,39 @@ def bead_pdb(coordinates=None, conect=True):
     lines = ['REMARK 950 TEST BEAD FRAME, ELEMENTS ARE THE SIZE CLASS STAND-IN']
     for index, (name, xyz) in enumerate(zip(BEADS, coordinates), 1):
         element = ELEMENTS[SIZES[name]]
-        lines.append(f'HETATM{index:5d} {name:>4} LIG1 A   1    '
-                     + ''.join(f'{value:8.3f}' for value in xyz) + f'  1.00  0.00          {element:>2}')
+        lines.append(bead_record(index, name, xyz, element))
     if conect:
         lines += [f'CONECT{first:5d}{second:5d}' for first, second in MODEL_BONDS]
     return '\n'.join(lines + ['END']) + '\n'
 
 
+def bead_record(serial, name, xyz, element, *, residue='DET', family=FAMILY_CODE):
+    """One bead's `HETATM` line in the producer's own columns (`pdc_view.system_pdb`): the size-class element
+    stand-in at 77-78 and the family code at 61-66.
+
+    Written from one place because the columns are the point: a fixture whose records sit a column off the standard
+    still *looks* like a PDB and carries a family code that no reader can find -- which is exactly what this
+    fixture did until a test measured the colours it produced rather than the text it wrote.
+    """
+    x, y, z = xyz
+    return (f'HETATM{serial:5d} {name:<4s} {residue:>3s} A{1:4d}    {x:8.3f}{y:8.3f}{z:8.3f}'
+            f'{1.0:6.2f}{float(family):6.2f}          {element:>2s}')
+
+
 def frames_pdb(count=5):
-    """The multi-model PDB the `snapshots` analysis writes: one `MODEL` per sampled frame, `ENDMDL` between them."""
+    """The multi-model PDB the `snapshots` analysis writes: one `MODEL` per sampled frame, `ENDMDL` between them.
+
+    It carries what the producer writes (`pdc_view.series_pdb`): the family code in the b-factor column and the
+    model's own bonds as `CONECT`, per model. A fixture with neither is a fixture the panel can only draw as grey,
+    unbonded spheres -- which is exactly the defect that reached a published series once.
+    """
     lines = []
     for model in range(count):
         lines.append(f'MODEL     {model + 1:4d}')
         for index, (name, (x, y, z)) in enumerate(zip(BEADS, MAPPED_NM), 1):
-            element = ELEMENTS[SIZES[name]]
-            lines.append(f'HETATM{index:5d} {name:>4} LIG1 A   1    '
-                         + f'{(x + model * 0.05) * 10:8.3f}{y * 10:8.3f}{z * 10:8.3f}  1.00  0.00          {element:>2}')
+            lines.append(bead_record(index, name, ((x + model * 0.05) * 10, y * 10, z * 10),
+                                     ELEMENTS[SIZES[name]]))
+        lines += [f'CONECT{first:5d}{second:5d}' for first, second in MODEL_BONDS]
         lines.append('ENDMDL')
     return '\n'.join(lines + ['END']) + '\n'
 
@@ -474,7 +494,7 @@ def test_a_cg_file_that_carries_conect_is_drawn_from_it_and_never_guessed_at(das
 
 
 def test_the_guard_is_what_keeps_the_guess_out_of_a_conect_file(dashboard, live_page):
-    """The counterfactual, on the same bytes: without the guard the file's seven bonds are drawn as sixteen.
+    """The counterfactual: without the guard, the file's seven records are drawn with the guess's own added on.
 
     Read through NGL directly rather than through the panel, because the panel must not offer a way to switch the
     guard off -- what this proves is that the parameter the guard sets is what stands between the two numbers.
@@ -486,6 +506,13 @@ def test_the_guard_is_what_keeps_the_guess_out_of_a_conect_file(dashboard, live_
     select_row(page, 'LIG1.pdb')
     wait_for_component(page, atoms=8)
 
+    # The guess bites where beads sit closer than their stand-in elements' covalent radii sum, and the stand-ins are
+    # now written where a reader finds them (`N` for the S class, `H` for T). Measured: at the file's own spacings
+    # that sum is under every bonded pair, so the guess adds nothing and the counterfactual needs beads packed
+    # closer. The subject is the *parameter*, so the fixture is a compressed copy of the same bead file rather than
+    # the file a run writes -- what must hold either way is that the guard is the difference between the file's
+    # seven records and more.
+    packed = [tuple(value * NANOMETRE_TO_ANGSTROM * 0.5 for value in xyz) for xyz in MAPPED_NM]
     measured = page.locator('#run-view-viewer').evaluate("""async (element, text) => {
       const host = document.createElement('div');
       host.style.width = '200px'; host.style.height = '200px';
@@ -498,7 +525,7 @@ def test_the_guard_is_what_keeps_the_guess_out_of_a_conect_file(dashboard, live_
         pairs.push([store.atomIndex1[index] + 1, store.atomIndex2[index] + 1]);
       }
       return {bonds: component.structure.bondCount, pairs: pairs};
-    }""", bead_pdb())
+    }""", bead_pdb(coordinates=packed))
     assert measured['bonds'] > len(MODEL_BONDS), (
         f'the distance guess should have inflated the 7 records; it drew {measured["bonds"]}')
     # The defect's signature: the file's own edges are drawn again on top of themselves, plus edges the model has
@@ -655,7 +682,11 @@ def test_the_published_frame_series_is_listed_first_and_is_the_file_the_row_play
     assert first.get_attribute('aria-selected') == 'true'
     measured = page.locator('#run-view-viewer').evaluate(MEASURE)
     assert measured['frames'] == 5, 'the multi-model PDB must be a trajectory, not five models drawn at once'
-    assert measured['bonds'] == 0
+    # The series carries the model's own bonds, as the producer writes them (`pdc_view.series_pdb`). This asserted
+    # zero until the file was made to carry them: a published series with no CONECT is a picture of grey spheres
+    # with no connectivity, which is the defect a reader reported from the panel.
+    assert measured['bonds'] == len(MODEL_BONDS), \
+        f"the series drew {measured['bonds']} bonds for a model that states {len(MODEL_BONDS)}"
     expect(page.locator('#run-view-frames button')).to_have_count(3)
     assert errors == []
 
