@@ -1,0 +1,104 @@
+{
+  "comment": "Mutants for scripts/mutation_check.py. Each entry changes one line, and `tests` is the selection that must notice. `expect: survived` is a control: a mutant that changes nothing has to be reported as surviving, or the harness cannot distinguish 'caught' from 'never ran'.",
+  "mutants": [
+    {
+      "id": "transferability-circular-off",
+      "why": "a dihedral's spread must stay withheld; the flag that withholds it is the section test",
+      "file": "dashboard/analysis/runs/transferability.py",
+      "old": "        circular = section == 'dihedrals'",
+      "new": "        circular = False",
+      "tests": "tests/dashboard/unit/test_transferability_reader.py",
+      "expect": "caught"
+    },
+    {
+      "id": "transferability-pairs-always-match",
+      "why": "a mean over unlike edges must be reported as not comparable",
+      "file": "dashboard/analysis/runs/transferability.py",
+      "old": "'pairs_match': len(named_edges) == 1",
+      "new": "'pairs_match': len(named_edges) >= 1",
+      "tests": "tests/dashboard/unit/test_transferability_reader.py",
+      "expect": "caught"
+    },
+    {
+      "id": "transferability-edges-lost",
+      "why": "the edge set is what tells a comparison of one interaction from a mean over several",
+      "file": "dashboard/analysis/runs/transferability.py",
+      "old": "record['edges'].add(tuple(sorted(bead for _, bead in row['pair'])))",
+      "new": "record['edges'].add(())",
+      "tests": "tests/dashboard/unit/test_transferability_reader.py",
+      "expect": "caught"
+    },
+    {
+      "id": "transferability-spread-sign",
+      "why": "a spread is a positive percentage; the sign of the difference is not arbitrary",
+      "file": "dashboard/analysis/runs/transferability.py",
+      "old": "            spread = 100.0 * (max(atomistic_means) - min(atomistic_means)) / average",
+      "new": "            spread = 100.0 * (min(atomistic_means) - max(atomistic_means)) / average",
+      "tests": "tests/dashboard/unit/test_transferability_reader.py",
+      "expect": "caught"
+    },
+    {
+      "id": "transferability-single-molecule-spread",
+      "why": "None means 'not comparable' and 0.0 means 'identical'; one molecule is the former",
+      "file": "dashboard/analysis/runs/transferability.py",
+      "old": "        if len(atomistic_means) > 1:",
+      "new": "        if len(atomistic_means) > 0:",
+      "tests": "tests/dashboard/unit/test_transferability_reader.py",
+      "expect": "caught"
+    },
+    {
+      "id": "transferability-two-bead-term-dropped",
+      "why": "a bond is the linkage with two beads; the three-bead floor would erase it",
+      "file": "dashboard/analysis/runs/transferability.py",
+      "old": "            if len(atoms) < 2:",
+      "new": "            if len(atoms) < 3:",
+      "tests": "tests/dashboard/unit/test_transferability_reader.py",
+      "expect": "caught"
+    },
+    {
+      "id": "consistency-range-boundary",
+      "why": "the run card's badge depends on which side of the AA range a CG mean falls",
+      "file": "dashboard/analysis/runs/consistency.py",
+      "old": "        row['inside_range'] = bool(row['aa']['min'] <= row['cg']['mean'] <= row['aa']['max'])",
+      "new": "        row['inside_range'] = bool(row['aa']['min'] < row['cg']['mean'] < row['aa']['max'])",
+      "tests": "tests/dashboard/unit/test_consistency_report.py",
+      "expect": "caught"
+    },
+    {
+      "id": "cg-timestep-on-the-wrong-half",
+      "why": "stamping dt on the coarse-grained half is the defect a20d844 fixed",
+      "file": "dashboard/execution/adapters/cg.py",
+      "old": "    if folder == aa_dir:",
+      "new": "    if folder != aa_dir:",
+      "tests": "tests/dashboard/unit/test_cg_adapter_molecule_scoped.py",
+      "expect": "caught"
+    },
+    {
+      "id": "cg-fit-temperature-anchor-moved",
+      "why": "the anchor ff_inter is rewritten at; a template that no longer carries it must fail",
+      "file": "dashboard/execution/adapters/cg.py",
+      "old": "    return text.replace('-temperature 300', f'-temperature {round(float(temperature_k))}')",
+      "new": "    return text.replace('-temperature 301', f'-temperature {round(float(temperature_k))}')",
+      "tests": "tests/dashboard/unit/test_cg_adapter_molecule_scoped.py",
+      "expect": "caught"
+    },
+    {
+      "id": "pdc-generated-stages-inverted",
+      "why": "which stages are filled at prepare time decides which scripts run pdc's own",
+      "file": "dashboard/execution/adapters/pdc.py",
+      "old": "                  if stage.relative not in GENERATED_STAGES}",
+      "new": "                  if stage.relative in GENERATED_STAGES}",
+      "tests": "tests/dashboard/unit/test_pdc_own_scripts.py",
+      "expect": "caught"
+    },
+    {
+      "id": "control-noop",
+      "why": "the instrument's own control: a mutant that changes nothing must be reported as surviving",
+      "file": "dashboard/analysis/runs/transferability.py",
+      "old": "        circular = section == 'dihedrals'",
+      "new": "        circular = section == 'dihedrals'",
+      "tests": "tests/dashboard/unit/test_transferability_reader.py",
+      "expect": "survived"
+    }
+  ]
+}
