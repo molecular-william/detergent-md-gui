@@ -152,6 +152,8 @@ def queue_analysis(jid, kind):
             payload = {**payload, 'interval_ns': interval}
         if 'align' in payload and not isinstance(payload['align'], bool):
             abort(400, 'Aligning the frames is a yes or no')
+        if 'align_on' in payload and not isinstance(payload['align_on'], str):
+            abort(400, 'The fragment to fit on is named as a string')
     task, status = coordinator().analysis_coordinator.queue(jid, kind, payload)
     return jsonify(task), status
 

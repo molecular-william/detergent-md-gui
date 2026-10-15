@@ -289,8 +289,62 @@ def test_the_align_switch_reaches_the_request_and_a_fitted_series_is_reported(da
     open_panel(page, live_page, run=ALIGNED_RUN)
     wait_for_component(page, atoms=8)
     expect(page.locator('#run-view-generate-note')).to_contain_text('fitted on model 1')
-    expect(page.locator('#run-view-generate-note')).to_contain_text('internal RMSD up to 0.23 nm')
+    expect(page.locator('#run-view-generate-note')).to_contain_text('RMSD across the fitted beads up to 0.23 nm')
     expect(page.locator('#run-view-generate-align')).to_be_checked()
+    assert errors == []
+
+
+def test_the_fit_can_be_aimed_at_one_of_the_models_own_fragments(dashboard, live_page):
+    """The fragments are the run's own, offered from the same `model.json` the bead sizes come from.
+
+    Fitting on everything spreads a molecule's motion over the whole model; fitting on one fragment concentrates it
+    in the others, which is what a reader watching one ring against another is asking for. Both halves matter: the
+    choice has to be offered from the run's own document, and it has to arrive at the producer.
+    """
+    seed(dashboard)
+    plant_trajectory_run(dashboard, cg_files())
+    mapping = dashboard.coordinator.RUNS / TRAJECTORY_RUN / 'stages/2_mapping/model.json'
+    mapping.parent.mkdir(parents=True, exist_ok=True)
+    mapping.write_text(json.dumps({'name': 'fixture', 'beads': [
+        {'export_name': 'B01', 'letter': 'A', 'size': 'S'}, {'export_name': 'B02', 'letter': 'A', 'size': 'S'},
+        {'export_name': 'B03', 'letter': 'B', 'size': 'S'}, {'export_name': 'B04', 'letter': 'B', 'size': 'S'}]}))
+    page, errors = live_page
+    open_panel(page, live_page, run=TRAJECTORY_RUN)
+    wait_for_component(page, atoms=8)
+
+    label = page.locator('label:has(#run-view-generate-align-on)')
+    expect(label).to_be_visible(), 'the run states fragments, so the target is offered'
+    target = page.locator('#run-view-generate-align-on')
+    expect(target).to_have_value('')
+    assert [option.strip() for option in target.locator('option').all_inner_texts()] == [
+        'whole molecule', 'A (2 beads)', 'B (2 beads)'], target.locator('option').all_inner_texts()
+
+    sent = []
+    queue_stub(page, sent)
+    target.select_option('B')
+    expect(page.locator('#run-view-generate-align')).to_be_checked(), 'choosing a fragment is asking for the fit'
+    with page.expect_request(
+            lambda request: request.method == 'POST' and request.url.endswith('/snapshots')) as queued:
+        page.locator('#run-view-generate').click()
+    assert json.loads(queued.value.post_data) == {'align': True, 'align_on': 'B'}, queued.value.post_data
+
+    # A series already fitted on a fragment says so, and the control agrees with what is playing.
+    plant(dashboard, ALIGNED_RUN, job(ALIGNED_RUN, 'aa_cg', 'Sorbitol CG, fitted', '2026-10-07T10:00:00+00:00'),
+          cg_files())
+    (dashboard.coordinator.RUNS / ALIGNED_RUN / 'stages/2_mapping').mkdir(parents=True, exist_ok=True)
+    (dashboard.coordinator.RUNS / ALIGNED_RUN / 'stages/2_mapping/model.json').write_text(json.dumps(
+        {'name': 'fixture', 'beads': [{'export_name': 'B01', 'letter': 'A', 'size': 'S'},
+                                      {'export_name': 'B02', 'letter': 'A', 'size': 'S'},
+                                      {'export_name': 'B03', 'letter': 'B', 'size': 'S'},
+                                      {'export_name': 'B04', 'letter': 'B', 'size': 'S'}]}))
+    published_series(dashboard, series={'file': 'CG-frames.pdb', 'stride': 100, 'sampled': 12, 'interval_ns': 1.0,
+                                        'aligned': {'reference': 1, 'atoms': 2, 'of': 4, 'target': 'B',
+                                                    'rmsd_nm': {'min': 0.001, 'max': 0.1, 'mean': 0.05}}},
+                     run_id=ALIGNED_RUN)
+    open_panel(page, live_page, run=ALIGNED_RUN)
+    wait_for_component(page, atoms=8)
+    expect(page.locator('#run-view-generate-note')).to_contain_text('fitted on fragment B (2 of 4 beads)')
+    expect(page.locator('#run-view-generate-align-on')).to_have_value('B')
     assert errors == []
 
 

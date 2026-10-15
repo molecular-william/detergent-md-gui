@@ -85,6 +85,8 @@
 .run-view-transport .transport-interval input[type="number"] { width: 12ch; margin: 0; padding: 2px 4px;
   font: inherit; color: var(--ink) }
 .run-view-transport .transport-interval input[type="checkbox"] { margin: 0 }
+.run-view-transport .transport-interval select { max-width: 11ch; margin: 0; padding: 2px 4px; font: inherit;
+  color: var(--ink) }
 
 /* D19: the prompt that asks before a published series is replaced. Built in `run-view.js` rather than in the
    template, the way the mapping editor's own prompt is, so the numbers it names come from the record it read. */

@@ -423,6 +423,76 @@ def test_the_kind_forwards_the_settings_it_is_handed(tmp_path):
     assert _centroid_spread(root / 'snapshots/CG-frames.pdb') == pytest.approx(0.0, abs=1e-3)
 
 
+def _fragment_mapping(root, groups):
+    """The run's own mapping, as `2_mapping/model.json` states it: each bead's fragment, by the name it is called.
+
+    The document the panel takes its bead sizes from is the same one that says which beads make up which ring, so a
+    fixture that names fragments is how a run with a mapped sugar looks to a reader of both.
+    """
+    beads = [{'export_name': name, 'name': f'S{index}{letter}', 'letter': letter, 'size': 'S', 'type': 'SP1r'}
+             for letter, names in groups.items() for index, name in enumerate(names, 1)]
+    path = root / 'stages/2_mapping/model.json'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({'name': 'fixture', 'beads': beads}))
+
+
+def test_a_series_can_be_fitted_on_one_fragment_of_the_model(tmp_path):
+    """Fitting on one fragment is how a reader watches the others; fitting on everything averages them together.
+
+    The fixture turns its molecule and swings one bead that belongs to the *other* fragment, so the two fittings
+    differ in what they hold: measured, the fitted fragment's beads stand still while the other fragment moves.
+    """
+    def turned(frame, positions):
+        angle = np.radians(20.0 * frame)
+        rotation = np.array([[np.cos(angle), -np.sin(angle), 0.0], [np.sin(angle), np.cos(angle), 0.0], [0.0, 0.0, 1.0]])
+        moved = (positions - positions[0]) @ rotation.T + positions[0]
+        if frame:
+            moved = moved.copy()
+            moved[3] = moved[3] + np.array([0.3 * frame, 0.0, 0.0])   # the second fragment's bead swings out
+        return moved
+
+    root = _moving_run(tmp_path, turned)
+    _fragment_mapping(root, {'A': ['B01', 'B02'], 'B': ['B03', 'B04']})
+
+    result = observability.generate(root, samples=3, align=True, align_on='A')
+
+    fit = result['series']['aligned']
+    assert fit['target'] == 'A' and fit['atoms'] == 2 and fit['of'] == 4, fit
+    text = (root / 'snapshots/CG-frames.pdb').read_text()
+    assert 'CHAIN LETTERS' in text and 'A 2 beads (B01, B02)' in text and 'B 2 beads (B03, B04)' in text
+    assert [line[21] for line in text.splitlines() if line.startswith('HETATM')][:4] == ['A', 'A', 'B', 'B']
+    assert 'FITTED SERIES: every model is superposed on the 2 beads of fragment A' in text
+    first, last = _model_coordinates(root / 'snapshots/CG-frames.pdb', 1), _model_coordinates(root / 'snapshots/CG-frames.pdb', 3)
+    assert np.abs(last[:2] - first[:2]).max() < 0.02, 'the fragment the fit was made on did not hold still'
+    assert np.abs(last[2:] - first[2:]).max() > 0.1, 'the other fragment did not move relative to it'
+
+
+def test_a_fragment_the_model_does_not_state_is_refused(tmp_path):
+    """A target nobody can find is a mistake, and the refusal says what the model does state instead."""
+    root = _moving_run(tmp_path, lambda frame, positions: positions)
+    _fragment_mapping(root, {'A': ['B01', 'B02'], 'B': ['B03', 'B04']})
+
+    with pytest.raises(ValueError) as wrong:
+        observability.generate(root, samples=2, align=True, align_on='Z')
+
+    message = str(wrong.value)
+    assert "places no bead in fragment 'Z'" in message and 'A (B01, B02)' in message, message
+
+
+def test_a_run_that_states_no_fragments_can_only_be_fitted_on_the_whole_molecule(tmp_path):
+    """No mapping, no fragments: the fit still works on everything, and the file keeps the letter it always had."""
+    root = _moving_run(tmp_path, lambda frame, positions: positions + np.array([frame * 1.0, 0.0, 0.0]))
+
+    with pytest.raises(ValueError):
+        observability.generate(root, samples=2, align=True, align_on='A')
+
+    result = observability.generate(root, samples=3, align=True)
+    assert result['series']['aligned'] and 'target' not in result['series']['aligned']
+    text = (root / 'snapshots/CG-frames.pdb').read_text()
+    assert {line[21] for line in text.splitlines() if line.startswith('HETATM')} == {'A'}
+    assert 'CHAIN LETTERS' not in text
+
+
 def test_an_unknown_label_is_refused(tmp_path):
     with pytest.raises(ValueError, match='Unknown snapshot label'):
         observability.generate(_aa_only_run(tmp_path), labels=('first', 'every'))

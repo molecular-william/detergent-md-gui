@@ -34,6 +34,12 @@ from pathlib import Path
 
 PROTEIN_RESIDUE = 'PRO'
 DETERGENT_RESIDUE = 'DET'
+#: The chain letter a bead gets when the run's own mapping does not place it in a fragment. The chain is unreserved
+#: in a file of ours -- the residue number already tells two molecules apart -- so a file that states no fragments
+#: keeps the letter every earlier file carried.
+CHAIN_UNSTATED = 'A'
+#: Where a bead's fragment letter is read from, named in the file so the claim can be checked against the run.
+SUBUNIT_SOURCE = 'stages/2_mapping/model.json'
 WATER_RESIDUES = ('W', 'SW', 'PW', 'NA', 'CL')
 #: The stand-in element each size class' beads are written with. `models/compositions/topology.py` chooses the same
 #: three, whose van der Waals radii divide by one factor into 0.264 / 0.230 / 0.191 nm, so one radius scale serves
@@ -280,7 +286,8 @@ def molecule_bonds(topology: dict | None, beads, serials) -> list[tuple[int, int
             for first, second in (*topology['bonds'], *topology['constraints'])]
 
 
-def system_pdb(atoms, *, detergent_residue='DDM', include_water=False, title='PDC system', topology=None):
+def system_pdb(atoms, *, detergent_residue='DDM', include_water=False, title='PDC system', topology=None,
+               subunits=None):
     """A PDB for the viewer: one HETATM per bead, protein as PRO, detergent as DET, water and ions dropped.
 
     The detergent is identified by the residue the template declares, so the caller names it rather than this module
@@ -302,19 +309,23 @@ def system_pdb(atoms, *, detergent_residue='DDM', include_water=False, title='PD
     protein bead, or any bead when there is no topology -- is written the code for `unstated`.
     """
     records, conect, counts = structure_records(atoms, detergent_residue=detergent_residue,
-                                               include_water=include_water, topology=topology)
-    lines = structure_remarks(title, topology, counts)
+                                               include_water=include_water, topology=topology, subunits=subunits)
+    lines = structure_remarks(title, topology, counts, subunits=subunits)
     lines += records + conect + ['END']
     return '\n'.join(lines) + '\n'
 
 
-def structure_records(atoms, *, detergent_residue, include_water=False, topology=None):
+def structure_records(atoms, *, detergent_residue, include_water=False, topology=None, subunits=None):
     """One structure's `HETATM` records, its `CONECT` records, and the counts a REMARK needs to report.
 
     Split out of `system_pdb` because a sampled frame series writes the same three conventions once per model --
     the element stand-in by size class, the Martini 3 family code in the b-factor column, and the moleculetype's
     own bonds as `CONECT` -- and a second writer for them would be a second set of conventions. The counts come
     back so the caller's REMARKs can say what it could and could not bond.
+
+    `subunits` maps a bead's name to the fragment the run's own mapping puts it in (`{'B01': 'A', ...}`), and is
+    written into the chain column: the chain is unreserved in a file of ours -- the residue number already tells
+    two detergent molecules apart -- and a reader who wants to hold one ring still has to be able to name it.
     """
     kept = [atom for atom in atoms if include_water or atom['residue'].upper() not in WATER_RESIDUES]
     elements = bead_elements(topology)
@@ -336,7 +347,10 @@ def structure_records(atoms, *, detergent_residue, include_water=False, topology
         element = elements.get(str(atom['name']).strip().upper()) if detergent else None
         family = families.get(str(atom['name']).strip().upper()) if detergent else None
         x, y, z = (round(float(value) * 10.0, 3) for value in atom['position'])  # nm -> Angstrom, as PDB is
-        records.append(f'HETATM{serial:5d} {str(atom["name"])[:4]:<4s} {residue:>3s} A{index + 1:4d}    '
+        # One character, because that is the column: the model's own letter where it fits, its first character
+        # otherwise, and the file's REMARK says so rather than leaving a truncated label to be discovered.
+        chain = str((subunits or {}).get(str(atom['name']).strip().upper(), CHAIN_UNSTATED))[:1]
+        records.append(f'HETATM{serial:5d} {str(atom["name"])[:4]:<4s} {residue:>3s} {chain}{index + 1:4d}    '
                        f'{x:8.3f}{y:8.3f}{z:8.3f}{1.0:6.2f}'
                        f'{float(BEAD_FAMILIES.index(family or FAMILY_UNSTATED)):6.2f}'
                        f'          {element or BEAD_ELEMENT:>2s}')
@@ -354,7 +368,8 @@ def structure_records(atoms, *, detergent_residue, include_water=False, topology
     return records, conect, {'detergent_molecules': len(detergents), 'unbonded': len(unbonded)}
 
 
-def structure_remarks(title, topology, counts, *, extra=(), clause='COARSE-GRAINED SYSTEM AS SET UP, '
+def structure_remarks(title, topology, counts, *, extra=(), subunits=None,
+                      clause='COARSE-GRAINED SYSTEM AS SET UP, '
                                                                   'WATER AND IONS OMITTED'):
     """The block that says what the element column, the b-factor column and the bonds in a file of ours mean.
 
@@ -369,6 +384,19 @@ def structure_remarks(title, topology, counts, *, extra=(), clause='COARSE-GRAIN
              'REMARK 950 THE B-FACTOR COLUMN CARRIES A MARTINI 3 POLARITY FAMILY, NOT A TEMPERATURE FACTOR: '
              + ', '.join(f'{code} {family.upper()}' for code, family in enumerate(BEAD_FAMILIES))
              + ", READ FROM EACH BEAD'S OWN TYPE; A VIEWER COLOURS FROM IT"]
+    if subunits:
+        # Grouped by fragment, in the model's own words: a reader fitting on a ring has to know which letter that
+        # ring is, and the bead names are what the moleculetype and the trajectory both call them.
+        groups = {}
+        for name, letter in subunits.items():
+            groups.setdefault(str(letter), []).append(name)
+        stated = ', '.join(f'{letter} {len(names)} ' + ('bead' if len(names) == 1 else 'beads')
+                           + f' ({", ".join(sorted(names))})' for letter, names in sorted(groups.items()))
+        truncated = ', '.join(sorted(letter for letter in groups if len(letter) > 1))
+        lines.append(f"REMARK 950 CHAIN LETTERS CARRY THE MODEL'S OWN FRAGMENTS, NOT CHAINS: {stated}, READ FROM "
+                     f'EACH BEAD\'S NAME IN {SUBUNIT_SOURCE}. A BEAD THE MODEL DOES NOT PLACE IS {CHAIN_UNSTATED}'
+                     + (f'; A FRAGMENT THE MODEL NAMES IN MORE THAN ONE CHARACTER IS WRITTEN ITS FIRST'
+                        f' ({truncated})' if truncated else ''))
     if counts['detergent_molecules'] and topology is None:
         lines.append('REMARK 950 NO BONDS RECORDED: this stage carries no detergent moleculetype, so the picture '
                      'claims no bonds rather than leaving a viewer to invent them')
@@ -384,7 +412,7 @@ def structure_remarks(title, topology, counts, *, extra=(), clause='COARSE-GRAIN
 
 
 def series_pdb(frames, *, topology=None, detergent_residue=None, title='frame series', note=None, fit=None,
-               include_water=False):
+               subunits=None, include_water=False):
     """A run's sampled frames as one multi-model PDB, written with the conventions the run's own structure uses.
 
     `frames` is one atom list per sampled moment, each `read_gro`-shaped: `name`, `residue`, `residue_id` and
@@ -400,19 +428,24 @@ def series_pdb(frames, *, topology=None, detergent_residue=None, title='frame se
     """
     if detergent_residue is None and frames:
         detergent_residue = topology_residue(frames[0], topology, str(frames[0][0]['residue']))
-    built = [structure_records(atoms, detergent_residue=detergent_residue, include_water=include_water,
+    built = [structure_records(atoms, detergent_residue=detergent_residue, subunits=subunits,
+                              include_water=include_water,
                                topology=topology) for atoms in frames]
     extra = [f'REMARK 950 SAMPLED SERIES: {len(frames)} models' + (f', {note}' if note else '')]
     if fit:
         # A fitted series is a *derived* view of the trajectory, so the file has to say so: every model superposed
         # on one of them means the molecule's own translation and rotation are gone, and a reader who took the
         # remaining motion for the whole motion would be reading a composite the run never wrote.
-        extra.append('REMARK 950 FITTED SERIES: every model is superposed on the reference model\'s own '
-                     f'{fit["atoms"]} beads (model {fit["reference"]}), so the translation and rotation the '
-                     'molecule does as a whole are removed and what remains is its internal motion -- RMSD to that '
-                     f'model {fit["rmsd_nm"]["min"]:.3f}-{fit["rmsd_nm"]["max"]:.3f} nm')
+        target = fit.get('target')
+        fitted = (f'the {fit["atoms"]} beads of fragment {target}' if target
+                  else f'the reference model\'s own {fit["atoms"]} beads')
+        extra.append(f'REMARK 950 FITTED SERIES: every model is superposed on {fitted} (model {fit["reference"]})'
+                     + (f' of {fit["of"]}' if fit.get('of') else '')
+                     + ', so the translation and rotation those beads do are removed and what remains is the '
+                       'motion of everything else relative to them -- RMSD across the fitted beads '
+                       f'{fit["rmsd_nm"]["min"]:.3f}-{fit["rmsd_nm"]["max"]:.3f} nm')
     counts = built[0][2] if built else {'detergent_molecules': 0, 'unbonded': 0}
-    lines = structure_remarks(title, topology, counts, extra=extra)
+    lines = structure_remarks(title, topology, counts, extra=extra, subunits=subunits)
     for index, (records, conect, _) in enumerate(built, start=1):
         lines += [f'MODEL     {index:4d}'] + records + conect + ['ENDMDL']
     lines.append('END')

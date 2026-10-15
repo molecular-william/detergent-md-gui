@@ -71,6 +71,10 @@ export function createRunView() {
   //: translation and rotation the molecule does as a whole -- 60% of the raw displacement on this workspace's own
   //: sucrose run -- and leaves the internal motion a reader is looking for.
   const alignInput = $('#run-view-generate-align');
+  //: D21 -- which fragment the fit is made on. Fitting on everything spreads the motion over the whole model;
+  //: fitting on one ring concentrates it in the others, which is how a reader watches one ring move against
+  //: another. The fragments are the run's own mapping's, so this offers what the file's chain letters state.
+  const alignOnInput = $('#run-view-generate-align-on');
 
   const transport = createTransport();
   let scope = {slug: '', types: []};
@@ -85,6 +89,7 @@ export function createRunView() {
   let pollTimer = null;
   let stage = null;
   let sizeClasses = null;
+  let subunits = null;
 
   // ------------------------------------------------------------------------------------------------ the scope
 
@@ -272,6 +277,8 @@ export function createRunView() {
     updateGenerate(job);
     loadFigures(job);
     sizeClasses = await loadSizeClasses(job);
+    subunits = await loadSubunits(job);
+    renderAlignTargets();
     if (!structures.length) {
       what.textContent = 'This run holds no structure file this viewer can open (.gro or .pdb under stages/).';
       readout([]);
@@ -384,6 +391,7 @@ export function createRunView() {
     const series = published.series || {};
     const cadence = Number(series.interval_ns);
     const fit = series.aligned;
+    if (fit && fit.target && alignOnInput) alignOnInput.value = fit.target;
     if (published.frames) {
       // The numbers the decision is about, printed where the reader decides it: how many frames are published, what
       // each one stands for, and whether the series is fitted. Cadence and fit are both the record's own rather than
@@ -393,8 +401,9 @@ export function createRunView() {
       generateNote.textContent = (Number.isFinite(cadence) && cadence
         ? `Playing ${Number(series.sampled) || '?'} frames at ${cadence} ns per frame`
         : 'A series is published for this run')
-        + (fit ? `, fitted on model ${Number(fit.reference) || 1}`
-                 + (Number.isFinite(rmsd) ? ` — internal RMSD up to ${rmsd} nm` : '') + '.'
+        + (fit ? `, fitted on ${fit.target ? `fragment ${fit.target}` : `model ${Number(fit.reference) || 1}`}`
+                 + (fit.target ? ` (${Number(fit.atoms) || '?'} of ${Number(fit.of) || '?'} beads)` : '')
+                 + (Number.isFinite(rmsd) ? ` — RMSD across the fitted beads up to ${rmsd} nm` : '') + '.'
                : '.')
         + ' Pressing Generate replaces it.';
     } else if (alignInput) {
@@ -427,7 +436,9 @@ export function createRunView() {
       line.textContent = (Number.isFinite(frames) && frames ? `This run already plays ${frames} frames`
                                                            : 'This run already plays a published series')
         + (Number.isFinite(cadence) && cadence ? ` at ${cadence} ns per frame` : ', and its cadence was not recorded')
-        + (series.aligned ? `, fitted on model ${Number(series.aligned.reference) || 1}` : '') + '.'
+        + (series.aligned ? `, fitted on ${series.aligned.target ? `fragment ${series.aligned.target}`
+                                                              : `model ${Number(series.aligned.reference) || 1}`}`
+                          : '') + '.'
         + ' Generating publishes a new series at the cadence you set: this panel plays the newest, and the earlier '
         + "attempt stays in the run's own analysis tree.";
       const actions = document.createElement('div');
@@ -465,9 +476,12 @@ export function createRunView() {
     const body = {};
     if (requested !== null) body.interval_ns = requested;
     const aligning = !!(alignInput && alignInput.checked);
-    if (aligning) body.align = true;
+    const target = alignOnInput ? String(alignOnInput.value || '') : '';
+    if (aligning || target) body.align = true;
+    if (aligning && target) body.align_on = target;
     const asked = [requested === null ? null : `a frame every ${requested} ns`,
-                   aligning ? 'fitted on the first frame' : null].filter(Boolean).join(', ');
+                   aligning ? (target ? `fitted on fragment ${target}` : 'fitted on the first frame') : null]
+      .filter(Boolean).join(', ');
     generateNote.textContent = `Queueing the snapshots analysis${asked ? ' with ' + asked : ''}…`;
     try {
       await post(`/api/jobs/${encodeURIComponent(job.id)}/snapshots`, body);
@@ -510,6 +524,11 @@ export function createRunView() {
   }
 
   if (generate) generate.addEventListener('click', () => { if (selected) queueGeneration(selected); });
+  if (alignOnInput) alignOnInput.addEventListener('change', () => {
+    // Choosing a fragment *is* asking for a fit: leaving the switch off would queue a setting the panel then shows
+    // as unused, and the reader would have to hunt for the other control to make their own choice take effect.
+    if (alignOnInput.value && alignInput) alignInput.checked = true;
+  });
 
   function row(path, bonds) {
     const line = document.createElement('tr');
@@ -639,6 +658,50 @@ export function createRunView() {
     } catch (error) {
       return null;
     }
+  }
+
+  // Reads the fragments the run's own mapping states, for the fit's target: the same document the bead sizes come
+  // from, so a fragment means one thing in this panel. `null` is "this run states none", which is not an error --
+  // a run without a mapping can only be fitted on the whole molecule.
+  async function loadSubunits(job) {
+    try {
+      const document_ = JSON.parse(await artifactText(job.id, 'stages/2_mapping/model.json'));
+      const groups = new Map();
+      for (const bead of document_.beads || []) {
+        const letter = String(bead.letter || '').trim().toUpperCase();
+        const name = String(bead.export_name || bead.name || '').trim();
+        if (!letter || !name) continue;
+        if (!groups.has(letter)) groups.set(letter, []);
+        groups.get(letter).push(name);
+      }
+      return groups.size ? groups : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  // The fit's target: one option per fragment the run's own mapping states, plus fitting on everything. Offered
+  // only where the run states fragments, and set to whatever the published series was fitted on, so the control
+  // agrees with what is playing rather than with what was last clicked.
+  function renderAlignTargets() {
+    if (!alignOnInput) return;
+    const label = alignOnInput.closest('label');
+    alignOnInput.replaceChildren();
+    const whole = document.createElement('option');
+    whole.value = '';
+    whole.textContent = 'whole molecule';
+    alignOnInput.append(whole);
+    for (const [letter, names] of subunits || []) {
+      const option = document.createElement('option');
+      option.value = letter;
+      option.textContent = `${letter} (${names.length} bead${names.length === 1 ? '' : 's'})`;
+      alignOnInput.append(option);
+    }
+    if (label) label.hidden = !subunits;
+    const fitted = published.series && published.series.aligned;
+    const wanted = fitted && fitted.target ? String(fitted.target) : '';
+    alignOnInput.value = wanted;
+    if (alignOnInput.value !== wanted) alignOnInput.value = '';   // a target this run no longer states
   }
 
   async function artifactText(jobId, path) {

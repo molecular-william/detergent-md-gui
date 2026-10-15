@@ -35,7 +35,8 @@ def _snapshots(work, payload=None):
     """
     payload = payload or {}
     return observability.generate(work, samples=int(payload.get('samples', observability.SERIES_SAMPLES)),
-                                  interval_ns=payload.get('interval_ns'), align=bool(payload.get('align')))
+                                  interval_ns=payload.get('interval_ns'), align=bool(payload.get('align')),
+                                  align_on=payload.get('align_on'))
 
 
 @dataclass(frozen=True)
@@ -211,6 +212,9 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
          "4_CG_sim/prod/lig_CG.gro", "4_CG_sim/prod/lig_CG.xtc",
          "4_CG_sim/md.gro", "4_CG_sim/md.xtc",
          "4_CG_sim/eq.gro", "4_CG_sim/eq.xtc",
+         # The run's own mapping, which is what says which beads make up which fragment: a reader fitting on one
+         # ring of a sugar is asking about a grouping only this document states, and the file carries it too.
+         "2_mapping/model.json",
          # The moleculetype the frames are drawn with. A series must carry the model's own bonds and each bead's
          # Martini 3 family or the panel can only draw grey spheres -- measured on the first series published -- and
          # both of those live in the run's `3_initial_CG/` moleculetype, so it is a source like any other rather than

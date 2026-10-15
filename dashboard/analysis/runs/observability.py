@@ -57,25 +57,61 @@ def artifacts(run_dir):
     return entries
 
 
-def _fit_positions(mobile, reference):
+def _run_subunits(run_dir):
+    """The fragments the run's own mapping states, as `{bead name: letter}` -- `{}` when it states none.
+
+    Read from `2_mapping/model.json`, the document the panel takes its bead sizes from too, so a ring means the
+    same thing in the file, in the record and on screen. `export_name` is what the moleculetype and the trajectory
+    call the bead, so the join needs no guessing; a run whose mapping is missing or unreadable simply has no
+    fragments to offer, and a fit on one is refused rather than silently fitted on everything.
+    """
+    for relative in (Path('2_mapping/model.json'), Path('stages/2_mapping/model.json')):
+        path = run_dir / relative
+        if not path.is_file():
+            continue
+        try:
+            document = json.loads(path.read_text())
+        except (OSError, ValueError):
+            return {}
+        beads = {}
+        for bead in document.get('beads') or []:
+            name = str(bead.get('export_name') or bead.get('name') or '').strip().upper()
+            letter = str(bead.get('letter') or '').strip().upper()
+            if name and letter:
+                beads[name] = letter
+        return beads
+    return {}
+
+
+def _fit_positions(mobile, reference, selection=None):
     """The rotation and translation that superpose `mobile` on `reference`, and the RMSD that remains.
 
     Kabsch, written out rather than called: the reference here is a coordinate array of the first sampled frame
     rather than a Universe, and the fit is twelve lines that a test can hold against a known rotation. A reflection
     is flipped to a rotation explicitly -- an improper fit would mirror the molecule and call it motion.
     """
-    mobile_centroid, reference_centroid = mobile.mean(axis=0), reference.mean(axis=0)
+    if selection is not None:
+        # A fit on a *selection*: the rotation and translation come from those beads alone, and are then applied to
+        # every bead -- which is what leaves the rest of the molecule free to move relative to them.
+        mobile_centroid = mobile[selection].mean(axis=0)
+        reference_centroid = reference[selection].mean(axis=0)
+    else:
+        mobile_centroid, reference_centroid = mobile.mean(axis=0), reference.mean(axis=0)
     centred, target = mobile - mobile_centroid, reference - reference_centroid
-    left, _, right = np.linalg.svd(centred.T @ target)
+    rows = slice(None) if selection is None else selection
+    left, _, right = np.linalg.svd(centred[rows].T @ target[rows])
     rotation = left @ right
     if np.linalg.det(rotation) < 0:
         left[:, -1] *= -1
         rotation = left @ right
     fitted = centred @ rotation + reference_centroid
-    return fitted, float(np.sqrt(((fitted - reference) ** 2).sum(axis=1).mean()))
+    # The RMSD is measured on what was fitted: a reader fitting on one ring is asking about that ring, and the
+    # motion of the rest is the point of the picture, not an error in it.
+    judged = fitted[selection] - reference[selection] if selection is not None else fitted - reference
+    return fitted, float(np.sqrt((judged ** 2).sum(axis=1).mean()))
 
 
-def _frame_atoms(universe, index, *, reference=None):
+def _frame_atoms(universe, index, *, reference=None, selection=None):
     """One frame's coordinates as the `read_gro`-shaped dicts `pdc_view` writes from, in nanometres.
 
     The one unit conversion lives here: MDAnalysis holds ångström and every writer in `pdc_view` takes what a
@@ -90,7 +126,7 @@ def _frame_atoms(universe, index, *, reference=None):
     positions = np.asarray(universe.atoms.positions, dtype=float)
     rmsd = None
     if reference is not None:
-        positions, rmsd = _fit_positions(positions, reference)
+        positions, rmsd = _fit_positions(positions, reference, selection)
     return [{'name': str(getattr(atom, 'name', 'X')), 'residue': str(getattr(atom, 'resname', 'MOL')),
              'residue_id': int(getattr(atom, 'resid', 1)),
              'position': tuple(float(value) / 10.0 for value in position)}
@@ -135,18 +171,19 @@ def _recorded_path(path, root):
         return str(path)
 
 
-def _pdb_snapshot(universe, index, output, stem, *, topology=None, coarse=False, reference=None):
+def _pdb_snapshot(universe, index, output, stem, *, topology=None, coarse=False, reference=None, selection=None,
+                  subunits=None):
     if coarse:
         # A coarse-grained moment is written through the writer the run's own structure uses: the size-class element
         # stand-in, the Martini 3 family code in the b-factor column, and the moleculetype's own bonds as CONECT.
         # The run view draws a CG file with `colorScheme: 'bfactor'` and its distance guess off, so a moment written
         # as bare coordinates is drawn as grey spheres with no bonds -- measured on this run's own first series.
-        atoms, _ = _frame_atoms(universe, index, reference=reference)
+        atoms, _ = _frame_atoms(universe, index, reference=reference, selection=selection)
         if not atoms:
             raise ValueError('Trajectory contains no atoms')
         moment = float(universe.trajectory.time)
         output.write_text(pdc_view.system_pdb(
-            atoms, detergent_residue=atoms[0]['residue'], topology=topology,
+            atoms, detergent_residue=atoms[0]['residue'], topology=topology, subunits=subunits,
             title=f'{stem} frame {index} at {moment:.3f} ps'))
         return
     # An all-atom moment keeps the reader's own records: real elements from the atom names, which is the column an
@@ -242,19 +279,25 @@ def _stride(n_frames, samples):
     return max(1, round((n_frames - 1) / (samples - 1))) if samples > 1 and n_frames > samples else 1
 
 
-def _fit_record(rmsds, atoms):
+def _fit_record(rmsds, atoms, *, target=None, of=None):
     """What a fitted series states about its own fit: how many beads were superposed and how far they moved.
 
     Recorded in nanometres, like every other length in this record, and read off the fit itself rather than
     re-derived by a reader: this is the number that says whether fitting a series was worth it.
     """
-    return {'reference': 1, 'atoms': atoms,
-            'rmsd_nm': {'min': round(min(rmsds) / 10.0, 4), 'max': round(max(rmsds) / 10.0, 4),
-                        'mean': round(float(np.mean(rmsds)) / 10.0, 4)}}
+    record = {'reference': 1, 'atoms': atoms,
+              'rmsd_nm': {'min': round(min(rmsds) / 10.0, 4), 'max': round(max(rmsds) / 10.0, 4),
+                          'mean': round(float(np.mean(rmsds)) / 10.0, 4)}}
+    if target:
+        # Which fragment was held still, and how many beads the molecule has: a reader comparing two fittings has to
+        # be able to tell the fit of one ring from the fit of another.
+        record['target'] = target
+        record['of'] = of
+    return record
 
 
 def _frames_series(universe, indices, output, *, topology=None, coarse=False, note=None, reference=None,
-                   title='frame series'):
+                   selection=None, subunits=None, target=None, title='frame series'):
     """One multi-model PDB holding every sampled frame, so a viewer loads the series in a single request.
 
     A coarse-grained series goes through `pdc_view.series_pdb`, the writer the run's own structure uses, so every
@@ -267,28 +310,32 @@ def _frames_series(universe, indices, output, *, topology=None, coarse=False, no
     viewer's own guess reproduces its bonds.
     """
     if coarse:
-        built = [_frame_atoms(universe, index, reference=reference) for index in indices]
+        built = [_frame_atoms(universe, index, reference=reference, selection=selection) for index in indices]
         frames = [atoms for atoms, _ in built]
         if not frames:
             raise ValueError('A frame series needs at least one sample')
         rmsds = [rmsd for _, rmsd in built if rmsd is not None]
-        fit = _fit_record(rmsds, len(frames[0])) if rmsds else None
-        output.write_text(pdc_view.series_pdb(frames, topology=topology, note=note, title=title, fit=fit))
+        fitted = len(selection) if selection is not None else len(frames[0])
+        fit = _fit_record(rmsds, fitted, target=target, of=len(frames[0])) if rmsds else None
+        output.write_text(pdc_view.series_pdb(frames, topology=topology, note=note, title=title, fit=fit,
+                                              subunits=subunits))
         return fit
     rmsds = []
     with mda.Writer(str(output), n_atoms=len(universe.atoms), multiframe=True) as writer:
         for index in indices:
             universe.trajectory[index]
             if reference is not None:
-                positions, rmsd = _fit_positions(np.asarray(universe.atoms.positions, dtype=float), reference)
+                positions, rmsd = _fit_positions(np.asarray(universe.atoms.positions, dtype=float), reference,
+                                                 selection)
                 universe.atoms.positions = positions
                 rmsds.append(rmsd)
             writer.write(universe.atoms)
-    return _fit_record(rmsds, len(universe.atoms)) if rmsds else None
+    fitted = len(selection) if selection is not None else len(universe.atoms)
+    return _fit_record(rmsds, fitted, target=target, of=len(universe.atoms)) if rmsds else None
 
 
 def generate(run_dir, labels=('first', 'middle', 'last'), samples=SERIES_SAMPLES, interval_ns=None,
-             cap=SERIES_CAP, align=False):
+             cap=SERIES_CAP, align=False, align_on=None):
     """Write coordinate and SVG snapshots from the run's own trajectory, resolved by its own layout.
 
     Which trajectory that is is the run's own answer rather than a stage name: an AA-only run publishes its
@@ -302,6 +349,12 @@ def generate(run_dir, labels=('first', 'middle', 'last'), samples=SERIES_SAMPLES
     molecule does as a whole and leaves its internal motion. Measured on this workspace's own 200 ns sucrose
     trajectory: 60% of the raw displacement to the first frame is the molecule's own movement, so without the fit
     the motion worth watching is the minority of what a reader sees.
+
+    `align_on` names the fragment to fit *on* -- one ring of a mapped sugar, say -- and the fit is then computed on
+    that ring's beads and applied to every bead, so the rest of the molecule is what moves on screen. Fitting on
+    everything spreads the motion over the whole model; fitting on one fragment concentrates it in the others, which
+    is what a reader asking to watch one ring relative to another is asking for. A fragment the run's own mapping
+    does not place is refused rather than quietly fitted on everything.
     """
     if mda is None:
         raise RuntimeError('MDAnalysis is not installed; cannot read trajectory snapshots')
@@ -323,6 +376,9 @@ def generate(run_dir, labels=('first', 'middle', 'last'), samples=SERIES_SAMPLES
             moleculetype = pdc_view.read_moleculetype(topology_path)
         except (OSError, ValueError):
             moleculetype = None
+    # The run's own mapping, when it has one: which beads make up which fragment. It is read here and not in the
+    # writer, because the fit needs the same grouping the file states, and two readers of one document drift.
+    subunits = _run_subunits(run_dir) if coarse else {}
     indices = {'first': 0, 'middle': (n_frames - 1)//2, 'last': n_frames - 1}
     target = run_dir / 'snapshots'; target.mkdir(exist_ok=True)
     created = []
@@ -331,23 +387,41 @@ def generate(run_dir, labels=('first', 'middle', 'last'), samples=SERIES_SAMPLES
     # where the series does not have it.
     series_indices = _series_indices(n_frames, float(universe.trajectory.dt or 0), samples, interval_ns, cap)
     cadence = _cadence_ns(series_indices, float(universe.trajectory.dt or 0))
-    reference = None
+    reference, selection = None, None
+    if align_on:
+        align = True
     if align:
         # The reference is the first sampled frame: a fit against an arbitrary frame would be a fit against a
         # structure the series does not show.
         universe.trajectory[series_indices[0]]
         reference = np.asarray(universe.atoms.positions, dtype=float).copy()
+    if align_on:
+        wanted = {name for name, letter in subunits.items() if letter == str(align_on).strip().upper()[:1]}
+        names = [str(name).strip().upper() for name in universe.atoms.names]
+        selection = np.array([index for index, name in enumerate(names) if name in wanted], dtype=int)
+        if not len(selection):
+            # Grouped once, from the same document the writer groups from: a message that listed the beads
+            # differently from the file's own REMARK would be a second answer to one question.
+            groups = {}
+            for name, letter in subunits.items():
+                groups.setdefault(letter, []).append(name)
+            stated = ', '.join(f'{letter} ({", ".join(sorted(members))})'
+                               for letter, members in sorted(groups.items())) or 'no fragment'
+            raise ValueError(f"The run's own mapping places no bead in fragment '{align_on}', so there is nothing "
+                             f'to fit on: it states {stated}')
     for label in labels:
         if label not in indices:
             raise ValueError(f'Unknown snapshot label: {label}')
         index = indices[label]
         pdb = target / f'{stem}-{label}.pdb'; svg = target / f'{stem}-{label}.svg'
-        _pdb_snapshot(universe, index, pdb, stem, topology=moleculetype, coarse=coarse, reference=reference)
+        _pdb_snapshot(universe, index, pdb, stem, topology=moleculetype, coarse=coarse, reference=reference,
+                      selection=selection, subunits=subunits)
         _svg_snapshot(universe, index, svg, stem)
         created.extend([pdb.name, svg.name])
     series = target / f'{stem}-frames.pdb'
     fit = _frames_series(universe, series_indices, series, topology=moleculetype, coarse=coarse,
-                   reference=reference,
+                   reference=reference, selection=selection, subunits=subunits,
+                   target=(str(align_on).strip().upper()[:1] if align_on else None),
                    title=f'{trajectory.name} sampled frames',
                    # A trajectory with no time step has no cadence to state: the REMARK says how many models it
                    # holds and stops there rather than printing a number the reader would take for a measurement.

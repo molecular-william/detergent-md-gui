@@ -162,6 +162,11 @@
                      title="Superpose every frame on the first one, so the molecule's own translation and rotation are removed and its internal motion is what you watch."
                      aria-describedby="run-view-generate-note">
             </label>
+            <label class="transport-interval" for="run-view-generate-align-on" hidden>fit on
+              <select id="run-view-generate-align-on"
+                      title="Fit every frame on one of the run's own fragments, so the rest of the molecule is what moves. The fragments are the run's own mapping."
+                      aria-describedby="run-view-generate-note"></select>
+            </label>
           </div>
         </div>
         {# The state of a generation, on its own line: it is prose about what the analysis is doing, not a control. #}

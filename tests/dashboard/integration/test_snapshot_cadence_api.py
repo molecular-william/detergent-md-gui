@@ -65,3 +65,19 @@ def test_the_fit_is_queued_as_the_switch_it_was(queued):
 
     assert response.status_code == 202, response.get_json()
     assert response.get_json()['payload'] == {'align': True, 'interval_ns': 5.0}
+
+
+def test_a_fragment_that_is_not_named_as_a_string_is_refused(queued):
+    """The fit's target is a fragment letter or it is a mistake; the run's own model decides whether it exists."""
+    for value in (1, True, ['B']):
+        response = queued.client.post(f'/api/jobs/{JID}/snapshots', json={'align': True, 'align_on': value})
+
+        assert response.status_code == 400, f'{value!r} was queued'
+        assert 'named as a string' in response.get_json()['error'], response.get_json()
+
+
+def test_the_fragment_to_fit_on_is_queued_as_it_was_asked(queued):
+    response = queued.client.post(f'/api/jobs/{JID}/snapshots', json={'align': True, 'align_on': 'B'})
+
+    assert response.status_code == 202, response.get_json()
+    assert response.get_json()['payload'] == {'align': True, 'align_on': 'B'}
