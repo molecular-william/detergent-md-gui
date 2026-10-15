@@ -1,6 +1,8 @@
 # A Run view panel, in both workspaces
 
-Status: **draft for review. Nothing built.** Two things are handed over together: this plan and the layout draft
+Status: **draft for review. Nothing built.** *(Corrected 2026-10-14: the panel landed in `98f5825` — registered in
+both workspaces, scoped per workspace, with the transport row; the citations below were re-pointed to the moved code.
+Read this as the plan it was, not as current state.)* Two things are handed over together: this plan and the layout draft
 `docs/superpowers/drafts/2026-10-13-run-view-panel-draft.html`. The draft decides the layout; this plan decides the
 scope, the routes and the bond rule. Their review is the next step, and the specification changes before any code.
 
@@ -61,11 +63,14 @@ the one that forgets the guard.
     `stages/4_CG_sim/{boxed,solvated,min,eq,md}.gro`, the CG topology `stages/3_initial_CG/LIG1.itp`, the mapping
     `stages/2_mapping/model.json` (each bead's `size` class and `export_name`), the trajectories
     `stages/4_CG_sim/{eq,md}.xtc`, and five figures under `stages/5_assessment/` + `stages/3_initial_CG/`.
-  - No run of any type has a `snapshots/` directory. `analysis/runs/observability.py:95-125` writes them, and it
-    hard-codes `stage='1_AA-reference'` looking for `prod/lig.gro` + `prod/lig.xtc` — a layout an `aa_only` run does
-    not have (its solute lives at `07_reference/`) and an `aa_cg` run does not have either (its AA half is a *shared
-    reference*, `stages/1_AA-reference/` holding only the stage script). So the `snapshots` kind
-    (`analysis/kinds.py:186-194`) has produced nothing for any of the 14 live runs.
+  - No run of any type has a `snapshots/` directory. `analysis/runs/observability.py:119-157` (`generate`, with its
+    helpers `_sample_indices` `:96-103`, `_stride` `:106-108`, `_frames_series` `:111-116`) writes them. *(Corrected
+    2026-10-14: when this plan was written that producer hard-coded `stage='1_AA-reference'` looking for
+    `prod/lig.gro` + `prod/lig.xtc` — a layout an `aa_only` run does not have (its solute lives at `07_reference/`)
+    and an `aa_cg` run does not have either (its AA half is a *shared reference*, `stages/1_AA-reference/` holding
+    only the stage script) — so the `snapshots` kind (`analysis/kinds.py:194-205`) had produced nothing for any of
+    the 14 live runs. The landed producer instead resolves the run's own layout through `layout.frame_source`, and
+    the kind carries `runs_for_every_run=True`, so it runs for every run with a trajectory.)*
   - A `.gro` loaded into this vendored NGL draws **no bonds at all** — the GRO parser has no bond inference and the
     files carry none. The invented-bond failure lives entirely on the `.pdb` path.
 
@@ -326,7 +331,7 @@ match the `[ atoms ]` order comes back unbonded with the REMARK; integration, th
 directory. Acceptance: the reader sees the model's own bonds for a CG run, and **no** bond the model does not have.
 
 **T4 — frames, or an honest empty strip.** Either wire the `snapshots` kind to the `aa_only` layout
-(`analysis/runs/observability.py:95-125`: resolve `07_reference/lig.gro` + `lig.xtc` as well as `1_AA-reference/
+(`analysis/runs/observability.py:119-157`, with `layout.frame_source` at `:131`: resolve `07_reference/lig.gro` + `lig.xtc` as well as `1_AA-reference/
 prod/…`, and record which layout it read) so the artifact route serves the published `AA-first.pdb` — or ship the strip
 empty with its reason. The first is a small change to a tested function and makes the strip real for the six `aa_only`
 runs; the second is honest and costs the ask's word "frames". **Recommend the first.** Tests: the resolver returns the

@@ -1,6 +1,6 @@
 # Detergent MD project guide
 
-The local dashboard runs AA-only simulations from compatible molecule directories and AA→CG parameterization for any molecule with a compatible AA topology. The packaged DDM example (`molecules/DDM`) is a worked reference. The broader membrane-protein workflow and the micelle builder remain paused project goals; see [the roadmap](../README.md#roadmap).
+The local dashboard runs AA-only simulations from compatible molecule directories, AA→CG parameterization for any molecule with a compatible AA topology, a protein-detergent complex pipeline (`pdc`), and a sugar osmotic-pressure series. The packaged DDM example (`molecules/DDM`) is a worked reference. The micelle builder remains paused; see [the roadmap](../README.md#roadmap).
 
 Read [DDM calibration](DDM_CALIBRATION.md) for scientific results and bonded-workspace limitations before changing DDM scoring, fitting, or carbohydrate mapping. For the carbohydrate validation panel, target registry, Sucrose diagnostic procedure, and paper-scale evidence boundary, read [Carbohydrate Validation Operations](research/2026-09-24-carbohydrate-validation-operations.md) and [Martini 3 carbohydrate validation](research/2026-09-24-martini3-carbohydrate-validation.md).
 
@@ -22,7 +22,10 @@ dashboard/app.py constructs the application. execution/ owns coordination and st
 * execution/adapters/aa.py — AA-only stage pipeline
 * execution/adapters/cg_names.py — molecule naming for CG runs
 * execution/adapters/composition.py — molecule-combination runs
-* execution/adapters/micelle.py — protein-detergent micelle prototype (paused)
+* execution/adapters/pdc.py — protein-detergent complex stage pipeline: placement, sampling, assessment and back-mapping; it generates its own stage scripts and runs pdc's own `pdc_*.sh`
+* execution/adapters/pdc_import.py, pdc_preparation.py, pdc_protein.py, pdc_placement.py, pdc_box.py, pdc_solvation.py, pdc_assessment.py, pdc_view.py — pdc's steps; execution/pdc_preview.py derives the New Run panel's system preview
+* execution/adapters/osmotic.py — sugar osmotic-pressure series (one run owning N concentrations), with osmotic_box.py and osmotic_mdp.py
+* execution/adapters/micelle.py — the dashboard's adapter for a `micelle` build; `micelle/` remains the scientific owner (paused)
 * execution/stages.py — declarative stage tables
 * execution/workflow.py — shared stage execution, provenance and resumable state
 * execution/environment.py — environment, tool probes, MDP edits
@@ -54,13 +57,13 @@ Fast_Forward also needs lmfit, cgsmiles, matplotlib, MDAnalysis, numba, pbr, pys
 Readiness checks tool executables and imports before launch. Every run captures resolved tool paths, versions, commands, environment, and input/script hashes. No package installation happens inside simulation jobs.
 
 ## Paths, state, canonical inputs
-dashboard/paths.py owns application path configuration. A workspace contains jobs.sqlite3, runs/, uploads/, mapping_drafts/, bonded_states/, model_registry/, and compositions/. SQLite is the only live job store; old JSON job snapshots are not read.
+dashboard/paths.py owns application path configuration. A workspace contains jobs.sqlite3, runs/, uploads/, mapping_drafts/, bonded_states/, model_registry/, compositions/, proteins/ and preview/. `proteins/` holds structures a pdc run imported (each with a sidecar recording its stated half-thickness and chains); `preview/` is the New Run panel's martinize2 cache, which no run reads. SQLite is the only live job store; old JSON job snapshots are not read.
 
 The checkout selects workspace/dashboard/ in config/dashboard-paths.json. DASHBOARD_WORKSPACE=/absolute/path overrides that selection for an isolated instance. With neither setting, the legacy dashboard/ workspace is supported. Paths resolve at application construction; changing configuration requires a restart after all workers stop.
 
 molecules/, references/, and resources/ remain canonical input sources. Reference indexing copies metadata and hashes; it does not make another canonical copy of the original reference files. Each run takes immutable snapshots of the inputs and executable helpers it actually used.
 
-Scientific reports live under reports/dashboard/; acceptance evidence lives under reports/validation/. Historical prototypes are under docs/design/prototypes/. Archived development artifacts and relocation inventories are under archive/dashboard-development-20260917/. Root-level runs/ retains unrelated standalone benchmark output.
+Scientific reports live under reports/dashboard/; acceptance evidence lives under reports/validation/. Historical prototypes are under docs/design/prototypes/. Root-level runs/ retains unrelated standalone benchmark output. The archived development tree `archive/dashboard-development-20260917/` earlier notes named is gone from this checkout (it was gitignored).
 
 ## Run storage and lifecycle
 New attempts use this layout beneath the configured workspace:
@@ -143,12 +146,15 @@ model catalog. `cg_composition` runs are independent of the AA-to-CG workflow
 and contain only CG simulation, CG assessment, and CG SASA stages; they do not
 fabricate or require an AA reference. Composition artifacts and their hashes
 are immutable, so changing a choice creates another record.
-The web UI is a single page with five tabs.
+The web UI is two workspaces, `detergent-validation` and `protein-detergent` (`dashboard/web/sections.py`), each a set of panels reachable at its own URL segment (`/<workspace-slug>/<panel>`). Validation carries Runs, Run view, Single Molecule Simulations, Bead Assignment, Bond Interactions, Combinations, Mapping Validation and Osmotic Series; protein-detergent carries Runs, Run view, Protein-Detergent Simulations and Complexes. The template writes each section from the registry and `tabs.js` mounts it by DOM id.
 
 ### Runs
 Background polling updates individual status fields every five seconds. Forms, expanded details, mapping edits, and scroll position are not rebuilt. Terminal runs can be manually deleted from their run card; active workers are protected. Tabs, form values, and mapping drafts are remembered in browser storage. Elapsed time is reported only when recorded; ETA is shown only when present in current GROMACS output. Legacy runs without timestamps show "Not recorded".
 
-Each run card shows the six or seven workflow stages from its manifest and indexes files created inside the run directory. Artifact links are path-checked; SVG files are previewed in the card. When an AA 3-run.xtc and matching 3-run.tpr exist, Capture AA snapshots writes first/middle/last PDB coordinates and SVG XY review images under snapshots/. Snapshot generation never invents frames; old or incomplete runs report the missing trajectory inputs.
+Each run card shows the workflow stages from its manifest and indexes files created inside the run directory. Artifact links are path-checked; SVG files are previewed in the card. **Trajectory snapshots run by default now**: the `snapshots` analysis is queued for every run that reaches a terminal state (`analysis/kinds.py` `for_every_run`, `analysis_coordinator.queue_defaults`), resolves the run's own trajectory through `analysis/runs/layout.frame_source` — an AA-only run's `07_reference/` pair, a CG run's `4_CG_sim/` — and writes first/middle/last PDB + SVG review images plus one multi-model `<AA|CG>-frames.pdb`, recording its frame count, source trajectory, role and stride. A run with no trajectory records `skipped` with the producer's reason and stays `complete`. Snapshot generation never invents frames.
+
+### Run view
+One run, its structures, its frames and its figures, registered in **both** workspaces and scoped per workspace by `web/sections.py`'s `run_types` (validation: `aa_only`, `aa_cg`, `cg_composition`, `osmotic`; protein-detergent: `pdc`). The panel asks `/api/jobs` for each in-scope type by name (`?run_type=`), so it renders this workspace's runs rather than narrowing a page. AA and CG structures come from the artifact route; a CG structure is sized from the model's own size classes and coloured by type family through `static/js/ngl-beads.js`, with the legend drawn from the same table. The bond rule is one helper (`static/js/run-view-structure.js`): a file carrying CONECT is drawn from those records and never guessed at, a coarse-grained file is `inferBonds: 'none'` even without CONECT, and only an all-atom file with no CONECT is left to the viewer's inference. A transport row (play forward/reverse and a frame slider, one line under the canvas) drives the renderer's own trajectory player and is drawn disabled, with its reason, when a file holds a single frame. A `pdc` run is delegated to Complexes rather than drawn twice. `GET /api/jobs/<id>/structure?path=<run-relative .gro>` serves a coarse-grained structure with the run's own `[ bonds ]`/`[ constraints ]` written as CONECT (the topology located by `analysis/runs/layout.cg_topology`, named by the manifest's `FINAL_ITP`); a `.pdb` is refused to the artifact route.
 
 Analysis graphs expand inline: ff_assess PNG plots and a Plot SASA action that generates an image from measured AA/CG XVG data. Original XVG data are preserved; SVG artifacts remain previewable. Reads use byte offsets and bounded chunks; the display keeps up to 256 KB.
 
@@ -162,8 +168,13 @@ Exposes AA/CG equilibration and production durations, temperature, trajectory ou
 
 Lists compatible completed AA runs for AA reference reuse. Selecting one copies its identity-checked ligand reference into the new run, records its ID and checksum, and marks AA reference as skipped; source artifacts are never modified.
 
+In the **protein-detergent** workspace the same panel queues a `pdc` run and reads its controls from `execution/adapters/pdc.py` (`validate_payload`, `SETTING_SPECS`, `CHOICE_SPECS`): the detergent template and protein, the **initialisation** style (`lattice` or `self-assembly`), an aggregation number, salt, a positive integer seed, assessment/extension durations, the three equilibration legs (minimisation steps, NVT ps, NPT ps), the protein **subunit** selection, whether the back-map runs, and the **Prepare protein** toggle (`prepare_protein`, off by default). `GET /api/pdc/preview/placement` derives a live **system preview** — the frame the build would write (protein + detergent in the box, before solvation) — through the build's own functions, caching only the martinize2 protein step under the workspace's `preview/`; a gate that refuses is returned as a reason, never as a drawn picture. The **encapsulation estimate** (`GET /api/pdc/proteins/<entry>/encapsulation`) reports how many detergents the apolar surface implies. Structural import lands the file in the workspace's `proteins/` with a sidecar.
+
+### Osmotic Series
+A sugar concentration series is **one run owning N concentrations** (`settings.molalities`), gated to sugars and built by `execution/adapters/osmotic.py`; the old one-concentration `osmotic_molality` shape is removed rather than deprecated. Each concentration gets its own directory (`condition_directory`) and its own checkpoint, resumed with `gmx mdrun -cpi` up to `osmotic_attempts_max` attempts, and a failed condition either carries on or stops the series (`series_on_failure`). The panel reads `GET /api/osmotic/catalogue`, queues the series with `POST /api/osmotic/series`, and reads the series as it stands from `GET /api/osmotic/conditions`. The dividing area and the water/solute counts are recorded at build time so the analysis divides by the number the build agreed to.
+
 ### CG Bead Assignment
-Compare two candidates against the original DDM coordinates and bond graph. Drag or use arrow keys to rotate the atom view; edit bead names, sizes, and atom indices; add or remove beads; export JSON or save a new draft. The 2D chemical diagram shows stereochemistry and bead circles over assigned atoms; it can be downloaded as standalone SVG. A new draft never overwrites its parent and remains unvalidated.
+Compare two candidates against the original DDM coordinates and bond graph. Drag or use arrow keys to rotate the atom view; edit bead names, sizes, and atom indices; add or remove beads; export JSON or save a new draft. The bead assignment is drawn in three dimensions only — the 3D NGL overlay, one translucent sphere per bead at the mean of its atoms (the 2D depiction went 2026-10-12, `aa318e0`); the server's RDKit depiction stays because the mapping export bundle embeds its SVG. A new draft never overwrites its parent and remains unvalidated.
 
 Mapping checks cover heavy-atom coverage, duplicate assignments, unknown atoms, hydrogens, empty groups, disconnected groups, nominal bead sizes (R=4, S=3, T=2), and the ±1 per 10 heavy-atom mismatch guideline. Branching/shape exceptions need scientific justification. These checks do not validate bead chemistry, symmetry, bonded parameters, or physical behaviour. The original DDM candidates have structural findings; the connected smoke draft fixes coverage and connectivity but is still not a production model.
 
@@ -179,11 +190,11 @@ Cancellation sets "Cancelling…" until the worker confirms process termination.
 
 Resume continues the existing run ID after lease, dependency, and resource checks. The selected and downstream stage directories must exist and must not be symlinks; their current launchers, inputs, and outputs are executed as found. Retry and Clone create new run IDs after readiness checks; original logs and simulation outputs stay intact. In-place resume records its prior manifest and job metadata in `resume_history/` without replacing current stage directories. Job updates use SQLite transactions; immutable model and review records use atomic JSON replacement. Stage failures and cancellations are recorded in manifests.
 
-JSON and log endpoints are under /api/jobs, /api/readiness, /api/mappings, /api/compositions, and /api/cg-models. Mapping edits are stored in the configured workspace's mapping_drafts/ directory; original candidates stay under the canonical molecule source.
+JSON and log endpoints are under /api/jobs, /api/readiness, /api/mappings, /api/compositions, /api/cg-models, /api/osmotic and /api/pdc. Mapping edits are stored in the configured workspace's mapping_drafts/ directory; original candidates stay under the canonical molecule source.
 
 ### Mapping exports and diagrams
 
-Beside the 2D depiction the editor draws the same assignment in three dimensions with the vendored NGL viewer: the heavy atoms as ball-and-stick, and every bead as a translucent sphere at the centre of the atoms it maps, sized by its R/S/T class. Spheres are served as a file of one atom per bead and drawn as one representation per size class, because a representation carries a single radius scale. Clicking a sphere selects every atom that bead maps and clicking an atom selects that atom, both through the editor's own toggle, so the two views cannot hold different selections. `POST /api/mappings/overlay3d` serves both files; the unit conversion (a mapping context holds nanometres, a PDB file angstroms), the centres and the radii live in `models/mappings/overlay3d.py` with unit tests, and the browser behavior is covered by `tests/dashboard/browser/test_mapping_overlay3d_browser.py`.
+The editor draws the same assignment in three dimensions with the vendored NGL viewer: the heavy atoms as ball-and-stick, and every bead as a translucent sphere at the centre of the atoms it maps, sized by its R/S/T class. Spheres are served as a file of one atom per bead and drawn as one representation per size class, because a representation carries a single radius scale. Clicking a sphere selects every atom that bead maps and clicking an atom selects that atom, both through the editor's own toggle, so the two views cannot hold different selections. `POST /api/mappings/overlay3d` serves both files; the unit conversion (a mapping context holds nanometres, a PDB file angstroms), the centres and the radii live in `models/mappings/overlay3d.py` with unit tests, and the browser behavior is covered by `tests/dashboard/browser/test_mapping_overlay3d_browser.py`.
 Each candidate can export .ndx, .map, .gro, or a ZIP containing all three plus candidate metadata, source hash, and validation report. All files use matching bead IDs B01, B02, …; original display names remain in model.json. This avoids GRO name truncation and Fast_Forward's restriction to alphanumeric bead identifiers. Missing, repeated, unknown, or hydrogen assignments block export. Size and connectivity findings remain visible and recorded as review issues.
 
 The .map header is [ molecule ] LIG1 <molecule_name>, as required by Fast_Forward. The .gro frame is calculated from equal-weight heavy-atom COGs, converted from ångströms to nm, and has no periodic box. These are review artifacts, not fitted parameters or a ready-to-run system. Original atom indices refer to the matching SwissParam ligand-only order.
@@ -231,7 +242,7 @@ The reset command removes only its explicit generated-state list, recreates empt
 
 Set {"workspace": "/new/workspace"} in config/dashboard-paths.json only after verification, while both workspaces remain stopped. Historical commands and manifests retain their original paths. Console display resolves recorded stage logs within the selected workspace; references and resume resolve run IDs there.
 
-For the 2026-09 reorganization, original runtime stores are retained in archive/dashboard-development-20260917/runtime-original/; the hash/database proof is archive/dashboard-development-20260917/workspace-migration.json. To roll back the workspace selection, stop the dashboard and select that archive directory. Preserve the current workspace first: the archived original does not contain work created after cutover.
+For the 2026-09 reorganization, original runtime stores were retained in archive/dashboard-development-20260917/runtime-original/. That tree is gitignored and is **gone from this checkout**; the workspace-migration hash/database proof lived beside it. The current workspace is the live store; never switch its root while jobs are active.
 
 ## Paused work
 ### Micelle builder
@@ -244,7 +255,7 @@ Approved design: docs/superpowers/specs/2026-09-14-detergent-micelle-builder-des
 Implementation plan: docs/superpowers/plans/2026-09-14-detergent-micelle-builder.md.
 
 ### Membrane-protein workflow
-The broader memembed -> martinize -> insane -> cg2at chain is a project goal. Historical assets are under archive/MemProtMD/. Nothing in the maintained dashboard/ tree depends on it.
+The protein-detergent complex pipeline (`pdc`) is the maintained implementation of this workflow and runs end to end; see Source ownership and Dashboard workspace above. The historical `memembed -> martinize -> insane -> cg2at` chain is **not** maintained: the `archive/MemProtMD/` tree earlier notes named is gone from this checkout, and nothing in the maintained dashboard/ tree depends on it. The project goal it describes is met by `pdc`, whose back-map stage uses the CG2AT2 build vendored under `tools/cg2at/`.
 
 ## Verification
 ```bash
@@ -256,18 +267,18 @@ dashboard/.venv/bin/python -m pytest -m browser -q
 
 Tests live under tests/dashboard/{unit,integration,browser}. Shared fixtures redirect every writable store; tests generate their own mapping candidates. The suite checks commands, lifecycle and recovery, quota and dependency guards, parsing, API contracts, and browser interactions without long simulations. Browser tests use installed Playwright and Chrome, temporary databases, and loopback servers.
 
-Optional process parallelism is provided by requirements-dashboard-tests.txt. That file also carries the test-only imports `playwright` (browser tests) and `vermouth` (sugar topology), so install it before running the full suite. Install it with dashboard/.venv/bin/python -m pip install -r requirements-dashboard-tests.txt. Then use -n 4 for the fast suite, -n 2 for browser tests, and -n 1 for the slow marker:
+Optional process parallelism is provided by requirements-dashboard-tests.txt. That file also carries the test-only imports `playwright` (browser tests), `vermouth` (sugar topology) and `mdtraj` (pdc secondary structure; see below), so install it before running the full suite. Install it with dashboard/.venv/bin/python -m pip install -r requirements-dashboard-tests.txt. `pytest.ini`'s `addopts` default the fast tier to `-n 8 --dist loadfile`; name `-n 6` for the browser tier and `-n 0` for the slow marker:
 
 ```bash
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -n 4 -q
-dashboard/.venv/bin/python -m pytest -m browser -n 2 -q
-dashboard/.venv/bin/python -m pytest -m slow -n 1 -q
+dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q
+dashboard/.venv/bin/python -m pytest -m browser -q -n 6
+dashboard/.venv/bin/python -m pytest -m slow -q -n 0
 ```
-Serial pytest commands require no additional runner plugin. Threaded execution is unsafe because tests patch shared dashboard module state.
+Threaded execution is unsafe because tests patch shared dashboard module state.
 
 ### Environment gaps
 
-Measured on this checkout with `dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q -p no:cacheprovider`: **309 passed, 19 deselected, no skips**.
+Measured on this checkout, 2026-10-15: `dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q` → **1,658 passed**, 180 deselected, 0 skipped, ~33 s at `-n 8`. The browser tier (`-m browser -q -n 6`) is **173 passed** in ~85 s; the slow tier (`-m slow -q -n 0`) is **7 passed** in ~20 s. Suite = **1,838 tests collected**. `dashboard/.venv/bin/ruff check dashboard tests` exits 0; repo-wide `ruff check .` exits 1 on the 19 pre-existing `micelle/` findings.
 
 The two tests that used to skip by design on a missing vendor tree now run, because the Fast_Forward source tree is provisioned and patched:
 
@@ -278,7 +289,9 @@ The two tests that used to skip by design on a missing vendor tree now run, beca
 
 Both still resolve their path through `tests/dashboard/tool_paths.py` instead of a literal path, so a missing vendor tree skips with a reason rather than failing for a reason unrelated to the code under test. Provisioning is not the whole story on its own: pristine upstream passes the parser test and fails the membership test, which is why the tracked patch is part of setup (see Environment). `unit/test_carbohydrates.py::test_installed_fast_forward_is_the_vendored_source` fails when the installed package is not the vendored source, so a rebuilt virtualenv cannot silently revert to upstream behaviour.
 
-Measured toolchain on this machine: GROMACS 2026.3 at `/usr/local/gromacs/2026.3/bin/gmx` (CUDA, OpenMPI), Fast_Forward 0.0.1.dev1 built from the patched vendor tree (fitter sha256 `0ab9252d…`), MDAnalysis 2.9.0, numba 0.61.2, vermouth 0.15.0. `config/tools.json` declares those tools and `dashboard/execution/tools.py` is the one resolver: a declared path is verified executable before it is used, a declared command name is resolved on the composed search path (the workspace virtualenv, the declared tools' directories, then the inherited `PATH`), and a declaration that cannot be honoured resolves to nothing rather than to a substitute. Readiness reports such a declaration as a check, not a blocker. The guide's earlier text named a hard-coded `~/Downloads/gromacs-2026.0` build; that path appears nowhere in the code now. The same file pins the Fast_Forward source revision (`fast_forward_source`, `fast_forward_commit` = `61e407e6…`, the local commit carrying the two dihedral fixes on top of upstream `718ce2de`); each run's tool report records it as `fast_forward_source`, and the vendored-source guard in `unit/test_carbohydrates.py` fails when the checkout or its cleanliness disagrees with the pin.
+Measured toolchain on this machine: GROMACS 2026.3 at `/usr/local/gromacs/2026.3/bin/gmx` (CUDA, OpenMPI), Fast_Forward 0.0.1.dev1 built from the patched vendor tree (fitter sha256 `0ab9252d…`), MDAnalysis 2.9.0, numba 0.61.2, vermouth 0.15.0. `config/tools.json` declares those tools and `dashboard/execution/tools.py` is the one resolver: a declared path is verified executable before it is used, a declared command name is resolved on the composed search path (the workspace virtualenv, the declared tools' directories, then the inherited `PATH`), and a declaration that cannot be honoured resolves to nothing rather than to a substitute. A name that is not declared at all (`martinize2`, `pdb2pqr`) falls back to the same search path (`tool_path`'s `shutil.which`). Readiness reports such a declaration as a check, not a blocker. The guide's earlier text named a hard-coded `~/Downloads/gromacs-2026.0` build; that path appears nowhere in the code now. The same file pins the Fast_Forward source revision (`fast_forward_source`, `fast_forward_commit` = `61e407e6…`, the local commit carrying the two dihedral fixes on top of upstream `718ce2de`); each run's tool report records it as `fast_forward_source`, and the vendored-source guard in `unit/test_carbohydrates.py` fails when the checkout or its cleanliness disagrees with the pin.
+
+Two more tools enter through `requirements-dashboard-tests.txt` (`mdtraj`, `pdb2pqr`), and neither is test-only. A pdc CG stage asks martinize2 for secondary structure with the bare `-dssp` flag, which vermouth answers with `mdtraj` (`mdtraj.compute_dssp`) and with nothing else — without it the stage records a fallback to `MDAnalysis.analysis.dssp`, and the two routes disagree (42 of 230 residues on 1AT9), so the assignment's letters are written into the run report. `pdb2pqr` is the optional `prepare_protein` step; `pdc.readiness` reports it as a check, and a run that asks for the step refuses by name when the tool is not resolvable.
 
 `unit/test_mapping_references.py` derives the expected reference ranks from the sources present rather than asserting ranks 1-3: `references/M3-Small-Molecules/` and `references/M3-Bible/` are partial clones, so `models/martini_v3.0.0_small_molecules_v1.itp` and `src/MartiniCGSmilesDB_v6.xlsx` are missing and `load_index` reports rank 1 only (verified: 1 source, 50 records, no diagnostics). Provisioning those files widens the index without changing the test.
 

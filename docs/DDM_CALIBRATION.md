@@ -142,7 +142,8 @@ code has since contradicted; every verdict quotes the file:line that supports it
    without clearing the preview when `loadMapping` resolves falsy.
 5. **Scoring display: partly closed.** Captions prefer recorded artifact metadata (`figures.js:63-68`,
    written by `analysis/worker.py:101` and `analysis/metadata.py:20`, attached at
-   `analysis/runs/observability.py:44-52`; closed by `ac39797`), with the generic legacy caption left
+   `analysis/runs/observability.py:49-51` (the resolution is `metadata_for` at
+   `observability.py:25-38`; closed by `ac39797`), with the generic legacy caption left
    as a fallback. Missing values are **not** rendered as zero: `runs-diagnostics.js:21-29` maps
    `null`/`undefined`/`''` to `'n/a'`. **Closed** for the two things that were open here: an artifact
    without per-pair `kind` is labelled `Unclassified (legacy artifact)` with its reason and the re-run,

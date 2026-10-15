@@ -28,7 +28,7 @@ citation: does a CG run of our mapping reproduce our own AA ensemble.
   So the CG side is readable today, at known paths, once a CG run exists.
 - An AA-only run uses the newer layout: `stages/07_reference/lig.xtc` (run `03875cf39790`). Two layouts,
   one of them zero-padded. A resolver is needed, and it must not guess: a path that is absent is reported.
-- `dashboard/analysis/runs/observability.py:199` (`unparameterized_observables`) already parses an ITP's
+- `dashboard/analysis/runs/observability.py:232` (`unparameterized_observables`) already parses an ITP's
   bonds/angles/dihedrals and computes distributions absent from the fitted topology — but it is hard-coded
   to `2_mapping/mapped.*` and `3_initial_CG/DDM_initial.itp`, i.e. to the DDM run, and it measures the
   **mapped AA** side only.

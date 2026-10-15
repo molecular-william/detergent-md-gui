@@ -4,8 +4,24 @@ State, measurements and open items for this repository. `AGENTS.md` holds the ru
 derived from. Read it before starting work on the DDM CG chain, the crons or the coordinator.
 
 ## Where things stand (2026-10-05, linkage and surfaces work)
-Tree clean except untracked reference assets: vendored M3-Lipid duplicates, `.git-upstream/`, the user's PDFs. **The M3-Lipid set stays untracked by the user's instruction. Do not tidy it into the index.** Nothing pushed since pre-refactor baseline `e0504a3`. The branch is 294+ commits ahead of `origin/main`.
+Tree clean except untracked reference assets: vendored M3-Lipid duplicates, `.git-upstream/`, the user's PDFs. **The M3-Lipid set stays untracked by the user's instruction. Do not tidy it into the index.** Nothing pushed since pre-refactor baseline `e0504a3`. The branch is 426 commits ahead of `origin/main`, HEAD `fe30ef2`.
 
+## Landed 2026-10-12 → 2026-10-14: the protein-detergent chain and the run view
+**The protein-detergent chain is a real pipeline now.** `execution/adapters/pdc.py` owns ten stages and runs its own `pdc_*.sh` scripts rather than the CG half's: Protein preparation (optional PDB2PQR rebuild+protonation, `prepare_protein`, off by default, skippable), System preparation, Energy minimisation, NVT equilibration, NPT equilibration, **CG assessment MD (production only — it reads `../4_npt/`, so the chain no longer equilibrates twice)**, Micelle assessment, CG extension MD, Final assessment, Back-mapping (CG2AT2, a toggle). The three equilibration legs run `resources/templates/protein_detergent/{minimisation,nvt,npt}.mdp` (`pdc.LEGS`), and only `1_system/prepare_system.sh` plus those legs are filled at prepare time (`pdc.GENERATED_STAGES`). The prepare step's rules live in `execution/adapters/pdc_preparation.py` (measured on 4iar: 20 of 928 beads were `nan`, 312 missing atoms across 25 residues).
+
+**The protein belt is a torus.** With a stated membrane the lattice places detergents on a tube whose centre-line is the protein's slab circle and whose radius is the detergent's measured length, heads on the outer surface and tails facing the centre (`pdc_placement._belt_torus`, `SHAPE_TORUS`); `radius_nm` is a **floor** on that centre-line. A build with no stated membrane — the empty micelle, a packaged protein, an import that states none — keeps the old sphere, where `radius_nm` is the radius (`SHAPE_SPHERE`).
+
+**Secondary structure is mdtraj's, through martinize2.** The CG stage asks martinize2 with the bare `-dssp` flag, which vermouth answers with `mdtraj.compute_dssp` (`pdc_build.SS_SOURCE`); `MDAnalysis.analysis.dssp` is the recorded fallback (`SS_FALLBACK_SOURCE`). The two disagree — 42 of 230 residues on 1AT9 — so the assignment's letters are written into the run report. `mdtraj` and `pdb2pqr` are declared in `requirements-dashboard-tests.txt`.
+
+**The osmotic run type is one run owning N concentrations.** `settings.molalities` is the plan; each concentration gets its own directory and its own checkpoint, resumed with `gmx mdrun -cpi`; `series_on_failure` is `carry_on` or `stop`; the type is gated to sugars. The one-concentration `osmotic_molality` shape is removed from the vocabulary, not deprecated.
+
+**New panels.** A `Run view` in **both** workspaces (a chooser scoped per workspace by `web/sections.SECTIONS[...]['run_types']`, AA and CG structures through the artifact route, figures listed inline, the transport row under the canvas, `pdc` runs delegated to Complexes) — landed `98f5825`. The protein-detergent `New run` with a live **system preview** (`GET /api/pdc/preview/placement`, `execution/pdc_preview.py`) and the `prepare_protein` toggle, plus the encapsulation estimate and subunit/back-map choices. The `Osmotic Series` panel.
+
+**Bead rendering and the bond rule.** One shared size table and one family colouring with an on-screen legend (`web/static/js/ngl-beads.js`: `BEAD_RADII_NM`, `BEAD_FAMILY_COLOURS`); `run-view-structure.js` decides the loader — a file carrying `CONECT` is drawn from those records and never guessed at, a coarse-grained file is `inferBonds: 'none'`, and only an all-atom file with no CONECT is left to the viewer's inference. `GET /api/jobs/<id>/structure` serves a run's coarse-grained structure with its own topology's bonds as CONECT.
+
+**Snapshots run by default.** The `snapshots` kind carries `runs_for_every_run=True` (`kinds.py:194-205`) and `analysis_coordinator.queue_defaults` queues it for every run that reaches a terminal state; a run with no trajectory records `skipped` with the producer's reason and stays `complete`. The producer resolves the run's own layout (`observability.generate` → `layout.frame_source`): `07_reference/` for an AA-only run, `4_CG_sim/` for a consumer, and it records the trajectory, role and stride it used.
+
+## Where things stand (2026-10-05, linkage and surfaces work) — continued
 ### Landed
 | commit | what |
 | --- | --- |
@@ -96,7 +112,7 @@ Restart the coordinator after that arm completes. The user asked for this explic
 `ddm-200ns-chain` (`42fbd11d10c5`, every 30 minutes) is the fourth and the only temporary one. A scheduled job recurs forever by default, so it takes itself off the schedule once it has done its one thing, and it reports and removes itself if the reference failed or has written nothing for six hours. A busy queue is the one case it stays for. Removal is `hermes -p moldym cron remove <id>`; **the profile flag is required**, because without it the command targets the default profile's own store and would not find the job. The result is verified against the store, with a loud line naming the command if it did not take.
 
 ## The coordinator
-`http://127.0.0.1:5000`, concurrency 2 (`config/dashboard.json`), restarted for each Python change. The database holds 38 jobs (13 completed, 25 failed) and 7 saved mapping candidates. Log at `/home/wee/.hermes/profiles/moldym/cache/scratch/coordinator-run.log`.
+`http://127.0.0.1:5000`, concurrency 2 (`config/dashboard.json`), restarted for each Python change. Measured from `workspace/dashboard/jobs.sqlite3` on 2026-10-15: **8 jobs, all completed** (6 `aa_only`, 2 `aa_cg`) and **6 saved mapping candidates**. (The figure this section carried earlier — 38 jobs, 13 completed — described a workspace that no longer exists.) Log at `/home/wee/.hermes/profiles/moldym/cache/scratch/coordinator-run.log`.
 
 Worth keeping: the four E3 runs, `2321ee23a536` (the DDM AA reference `dbc366ae772b` supersedes), `8a73fe6448f2` (pdc completed end to end), the six DDM arms above, and the two BARTENDER attempts that produced results (`a2a457cf9413` task `9a0d4e97180a`, `1322f9e0782e` task `f840a2186aaf`). The arms are the record of what was eliminated, so they are evidence even though every one failed. Ignore the failed pdc probes and the two earlier failed DDM `aa_cg` runs from 30 September.
 
