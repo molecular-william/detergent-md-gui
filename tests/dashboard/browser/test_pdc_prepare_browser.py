@@ -138,10 +138,15 @@ def test_the_derive_carries_the_choice_and_the_cost_row_reports_the_step(dashboa
     expect(page.locator('.new-pdc-preview-cost')).to_contain_text('104 heavy atoms')
 
     # And switched back off, the next derive says so rather than leaving the reader to assume the last choice stood.
+    #
+    # The wait is on this derive's *request*, not on the cost row: the row already holds the previous derive's answer,
+    # so waiting for "the text is not empty" returns at once and the assertion reads whichever request happened to be
+    # last -- the race this test was rewritten for, measured intermittent under a loaded parallel browser tier.
     page.locator('[name=prepare_protein]').uncheck()
-    page.locator('.new-pdc-preview-derive').click()
-    page.wait_for_function("() => document.querySelector('.new-pdc-preview-cost').textContent.length > 0", timeout=30000)
-    assert 'prepare_protein=false' in requests[-1], requests[-1]
+    with page.expect_request(lambda request: 'prepare_protein=false' in request.url) as derived:
+        page.locator('.new-pdc-preview-derive').click()
+    assert 'prepare_protein=false' in derived.value.url, derived.value.url
+    assert '/api/pdc/preview/placement?' in derived.value.url, derived.value.url
 
 
 def test_a_refusal_from_the_preparation_is_the_tools_own_sentence_and_no_picture(dashboard, live_page):
