@@ -92,6 +92,21 @@ def _run_topology(run_dir):
         return None
 
 
+def _recorded_path(path, root):
+    """A path as the record should carry it: relative to the tree the producer was handed, never a staged copy.
+
+    The producer reads a staged directory, so an absolute path into it names a temporary file that is gone by the
+    time a reader looks -- while the same path relative to that tree is the run-relative name every other record
+    uses (`sources.json`'s keys). A path outside the tree is recorded in full rather than guessed at.
+    """
+    if path is None:
+        return None
+    try:
+        return str(Path(path).relative_to(root))
+    except ValueError:
+        return str(path)
+
+
 def _pdb_snapshot(universe, index, output, stem, *, topology=None, coarse=False):
     if coarse:
         # A coarse-grained moment is written through the writer the run's own structure uses: the size-class element
@@ -281,7 +296,7 @@ def generate(run_dir, labels=('first', 'middle', 'last'), samples=SERIES_SAMPLES
         recorded = str(trajectory)
     return {'frames': n_frames, 'files': created, 'trajectory': recorded, 'role': role,
             'series': {'file': series.name, 'stride': _stride(n_frames, samples), 'sampled': len(series_indices),
-                       'topology': str(topology_path) if topology_path else None,
+                       'topology': _recorded_path(topology_path, run_dir),
                        'interval_ns': cadence,
                        'duration_ns': round(n_frames * float(universe.trajectory.dt or 0) / 1000.0, 6),
                        'frame_ps': float(universe.trajectory.dt or 0),
