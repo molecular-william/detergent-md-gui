@@ -5,13 +5,17 @@ that workspace. These build the two layouts a completed run is written in -- an 
 a CG consumer's `4_CG_sim/` -- and check the drawn atoms against the trajectory they came from rather than against
 a file that happens to be present.
 """
+import json
 import re
+import shutil
 
 import MDAnalysis as mda
 import numpy as np
 import pytest
 
+from dashboard.analysis import worker
 from dashboard.analysis.runs import layout, observability
+from dashboard.execution import workflow
 from tests.dashboard import support
 
 
@@ -246,6 +250,46 @@ def test_a_run_with_no_trajectory_is_refused(tmp_path):
     """Refused as a value error, and as the resolver's own type: that is what a caller records a skip from."""
     with pytest.raises(layout.NoTrajectory, match='no trajectory to review'):
         observability.generate(tmp_path)
+
+
+def test_the_producer_is_handed_the_moleculetype_it_draws_bonds_from(tmp_path):
+    """The kind declares the moleculetype as a source, and the worker stages the manifest that names it.
+
+    Measured: the first series this repository published carried neither bonds nor family codes for a run that has
+    both, because a producer is handed a *staged* directory holding only the kind's declared sources -- the
+    trajectory and its coordinates -- and the `.itp` the run simulated was not one of them, nor was the manifest
+    where `FINAL_ITP` names it. This stages the way the worker does and holds the series that comes out.
+    """
+    root = tmp_path / 'run'
+    topology = ('; the run\'s own bonded draft\n[ moleculetype ]\nSUCR 1\n\n[ atoms ]\n'
+                + '\n'.join(f'{index} SP1r 1 SUCR B0{index} {index} 0 54' for index in range(1, 5))
+                + '\n\n[ bonds ]\n1 2 1 0.429 5000\n2 3 1 0.429 5000\n3 4 1 0.429 5000\n')
+    support.cg_fixture_run(root, [[0.0, 0.0, 0.0], [0.4, 0.0, 0.0], [0.8, 0.0, 0.0], [1.2, 0.0, 0.0]],
+                           frames=3, topology=topology)
+    # A run of this shape holds its own AA reference beside the CG half, which is what keeps the kind's declared
+    # sources in play: without it `source_entries` falls to the legacy pair and stages nothing, which is a state no
+    # completed run is in. The pair is a copy of the fixture's own, so it is a readable trajectory either way.
+    reference = root / 'stages/1_AA-reference/prod'
+    reference.mkdir(parents=True, exist_ok=True)
+    for name in ('lig.gro', 'lig.xtc'):
+        shutil.copy2(root / f'stages/4_CG_sim/prod/lig_CG.{name.split(".")[-1]}', reference / name)
+    # The manifest a fitted run writes: `FINAL_ITP` is the one thing that says which `.itp` the simulation ran.
+    (root / 'manifest.json').write_text(json.dumps({'run_type': 'aa_cg', 'stages': [
+        {'name': 'CG simulation', 'environment': {'INITIAL_ITP': 'SUCR_initial.itp',
+                                                 'FINAL_ITP': 'SUCR_initial.itp'}}]}))
+    work = tmp_path / 'work'
+    for relative, path in worker.source_entries(workflow.execution_root(root), 'snapshots').items():
+        target = work / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+    shutil.copy2(root / 'manifest.json', work / 'manifest.json')
+
+    result = observability.generate(work, samples=2)
+
+    assert result['series']['topology'] and 'SUCR_initial.itp' in result['series']['topology'], \
+        'the moleculetype was not staged, so the series cannot carry the model\'s bonds'
+    text = (work / 'snapshots/CG-frames.pdb').read_text()
+    assert text.count('CONECT') == 3 * result['series']['sampled']
 
 
 def test_an_unknown_label_is_refused(tmp_path):

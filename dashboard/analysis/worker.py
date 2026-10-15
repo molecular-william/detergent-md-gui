@@ -79,6 +79,15 @@ def execute(request_path):
                     if path.is_symlink() or not path.resolve().is_relative_to(run.resolve()): raise ValueError('Invalid analysis dependency')
                     target = work/'analysis'/name; target.parent.mkdir(exist_ok=True)
                     shutil.copy2(path, target); sources[str(path.relative_to(run))] = files.sha256(target)
+        # The run's own manifest comes along, for the one thing no source path can state: the *name* of the file the
+        # run simulated. A fitted run leaves six `.itp` files under `3_initial_CG/`, and `FINAL_ITP` in this manifest
+        # is what says which one the simulation ran with -- a producer that must draw the model's own bonds has no
+        # other way to find it. Staged before the baseline, so it is an input rather than something an analysis
+        # published.
+        manifest = run / 'manifest.json'
+        if manifest.is_file():
+            shutil.copy2(manifest, work / manifest.name)
+            sources.setdefault('manifest.json', files.sha256(work / manifest.name))
         baseline = files.hashes(work)
         files.atomic_json(attempt/'sources.json', sources)
         progress('Calculating ' + kind)
