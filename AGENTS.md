@@ -1,6 +1,6 @@
 # Project guidance for coding agents
 
-Rules and facts for working here. State, measurements and open items live in `docs/HANDOFF.md`; read that before touching the DDM CG chain, the crons or the coordinator.
+Rules and facts for working here. State, measurements and open items live in `docs/HANDOFF.md`; read that before touching the DDM CG chain or the coordinator.
 
 ## Read first
 - Repo layout, dashboard, persistence, migration, testing: `docs/PROJECT_GUIDE.md`.
@@ -18,7 +18,7 @@ Reproducible local workflow for membrane-protein detergent sims: validate input,
 - Maintained AA to CG path: `execution/adapters/aa.py`, then `execution/adapters/cg.py`, then Fast_Forward, then GROMACS. Any molecule with a compatible AA topology runs it. Packaged `molecules/DDM` = reference example + smoke candidate. `cg.py` = the generic CG adapter, the only CG stage pipeline. No `ddm` shim.
 - Maintained assets: `resources/`, `dashboard/`. Historical `memembed`, then `martinize`, then `insane`, then `cg2at`: NOT maintained. The `archive/MemProtMD/` tree earlier notes named is gone from the repository.
 - Force fields local: CG takes `resources/forcefields/martini_v3.itp`; AA copies `resources/templates/small_mols_fast_forward/1_AA_reference/charmm36-jul2022.ff`; 32 MDP templates under `resources/templates/` (the three pdc equilibration legs are `resources/templates/protein_detergent/{minimisation,nvt,npt}.mdp`). Detergent support + residue/topology coverage: verify per molecule.
-- Tools declared in `config/tools.json`, resolved by `dashboard/execution/tools.py`. Declared path verified executable before use; a declaration that cannot be honoured resolves to NOTHING, never a substitute. A name that is not declared at all (`martinize2`, `pdb2pqr`) falls back to the composed search path. Record resolved version + path in each run manifest. (`~/Downloads/gromacs-2026.0` = source tree, no built `gmx`. In use: `/usr/local/gromacs/2026.3/bin/gmx`.)
+- Tools declared in `config/tools.json`, resolved by `dashboard/execution/tools.py`. Declared path verified executable before use; a declaration that cannot be honoured resolves to NOTHING, never a substitute. A name that is not declared at all (`martinize2`, `pdb2pqr`) falls back to the composed search path. Record resolved version + path in each run manifest. (In use: `/usr/local/gromacs/2026.3/bin/gmx`. The `~/Downloads/gromacs-2026.0` source tree earlier notes named is gone from this box -- measured 2026-10-15.)
 - Carbohydrate validation = immutable analysis attached to a completed source run. Representation modes `/api/mappings/representations`; target metadata `/api/mappings/validation-targets`; reports `/api/jobs/<run-id>/carbohydrate-validation`.
 - Checked-in carbohydrate targets = citation metadata only until molecule-specific measurements + uncertainties supplied. `setup` analyses + short trajectories = diagnostic execution checks; they do NOT authorize a model or establish validation.
 - Bead Assignment editor: ONE diagram now -- the 3D NGL overlay (heavy atoms; each bead a translucent sphere at the mean of its atoms). The 2D depiction went 2026-10-12 (`aa318e0`); the server's RDKit depiction STAYS because the mapping export bundle embeds its SVG. `POST /api/mappings/overlay3d` serves the files from `models/mappings/overlay3d.py`; it reads the assignment being edited, including an unsaved local draft.
@@ -81,6 +81,8 @@ Sucrose diagnostic records in the operations note = preserved examples, not a su
 - **Fitted linkage values are not a diagnosis.** Length shared with maltose, stiffness exceeded by two stable molecules, values reproducible by resampling a stable one. Spend no further arm on the link's parameters.
 - Phase 4 (sucrose + maltose experimental sources) deferred by the user, not abandoned.
 - `-improperIncrement 10` goes to every BARTENDER fit, so that term's values will not match anything fitted before `4fc2513` wherever a linkage dihedral is written as an improper. Accepted price of a fit that returns at all.
+- **The scheduled cron drivers are cancelled (2026-10-15).** Do not create a schedule and do not rebuild the drivers; what they were serving is in `docs/HANDOFF.md`, written off or left for manual action.
+- **The mapping refinement panel is cancelled (2026-10-15).** The human review gate made the workflow more complicated than the decision it supported. The routes and the `refinement-score` analysis that already existed stay; no panel is built, and the roadmap section for it is withdrawn.
 
 ## Environment gotchas that cost time
 - A running dashboard is two caches: Python routes/models frozen at process start; `static/` + templates re-read per request. Restart after a Python change; hard-reload after a JS change; a job queued before a fix runs old code. Exception: a *stage script* and a *template* are read at prepare time, so an edit reaches the next run with no restart (verified on arm C and the 5 fs equilibration).
@@ -94,19 +96,22 @@ Sucrose diagnostic records in the operations note = preserved examples, not a su
 - A pdc run that asks for `prepare_protein` refuses **by name** when `pdb2pqr` is not resolvable, but `pdc.readiness` reports it as a **check**, not a blocker: a run that does not ask for the step needs nothing there.
 - A run's `md.log` may be empty when it died violently; LINCS warnings + the segfault are in `logs/<stage>.log`; frame-by-frame evidence in the stage's `md.edr` (`gmx energy`). A long production's progress is in `stages/06_production/run.log`, and its step lines need `tr '\r' '\n'` before `grep` sees them.
 - The surfaces analysis publishes a self-contained ~7 MB HTML. Serve via `/api/jobs/<id>/artifacts/<run-relative-path>?inline=1` -- the route sets a sandboxed CSP on `.html` permitting inline scripts + eval, which the Plotly scene needs. Build the URL from the path the API returned, never from a filesystem path.
-- Hermes cron: a job recurs forever unless something stops it; `hermes cron remove` needs `-p <profile>`; a no-agent job's empty stdout delivers nothing (the watchdog pattern).
 - **Measure with the right instrument before believing a finding.** Three grep/AST checks in one session gave three false findings: `\|` is a literal pipe in ERE (alternation search matched nothing); an AST scan counting only `ast.Assert` reported `unittest`'s `self.assert*` tests as assertion-free; a "prose assertion" search matched `assert cond, "message"` -- the message, not the comparison. Also `ps -eo ... -p <pid>` lists EVERY process, because `-e` wins. And `find ... | head -3` hides a real hit: a present file read as absent that way.
 - GitNexus needs a bigger buffer pool to index this repo: `GITNEXUS_LBUG_BUFFER_POOL_SIZE=4294967296 npx -y gitnexus@latest analyze --index-only`. Without it: `The LadybugDB buffer pool (256 MiB) was exhausted`. Index in `.gitnexus/` (gitignored).
 
 ## Verify
 ```
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q     # fast tier: 1,658, ~33 s
+dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q     # fast tier: 1,687, ~30 s
 dashboard/.venv/bin/python -m pytest -m browser -q -n 6                   # browser tier: 173, ~85 s
-dashboard/.venv/bin/python -m pytest -m slow -q -n 0                      # slow tier: 7, ~20 s
+dashboard/.venv/bin/python -m pytest -m slow -q -n 0                      # slow tier: 7, ~19 s
 dashboard/.venv/bin/ruff check dashboard tests                            # gate: F, E9, I must exit 0
+scripts/gate_commit.sh <message-file> <paths...>                          # fast tier + ruff on the named paths; stages only those; commits only when both are clean
+dashboard/.venv/bin/python scripts/mutation_check.py                      # 11 mutants over analysis/ + adapters: 10 caught, 1 survived (the control)
 ```
-Suite = 1,838 tests (1,658 fast + 173 browser + 7 slow), measured 2026-10-15. The browser tier runs at `-n 6` on this
-box's 72 cores; the fast tier at `-n 8` (pytest.ini's `addopts`) in ~33 s.
+Suite = 1,867 tests (1,687 fast + 173 browser + 7 slow), measured 2026-10-15 after the 29 tests added that day -- the
+property tests under `tests/dashboard/unit/test_properties_*.py` (they import `hypothesis`, declared in
+`requirements-dashboard-tests.txt`) and the run card's range-boundary test. The browser tier runs at `-n 6` on this
+box's 72 cores; the fast tier at `-n 8` (pytest.ini's `addopts`) in ~30 s.
 Repo-wide `ruff check .` exits 1 on the 19 pre-existing `micelle/` findings, unchanged.
 
 <!-- gitnexus:start -->
