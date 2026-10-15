@@ -9,8 +9,9 @@
 // composition preview) and the New Run panel's system preview cannot disagree about how big a bead is.
 //
 // Truth and scale are separate knobs on purpose. `BEAD_RADIUS_SCALE` multiplies the model's radius for reading --
-// the composition preview reads its beads larger than life, the run view and the system preview read the model's own
-// -- and it never changes the radii the table states, so a caller can move one without lying about the other.
+// the composition preview reads its beads larger than life, the run view and the New Run preview read them smaller
+// (0.3) so a bonded pair reads as two beads -- and it never changes the radii the table states, so a caller can move
+// one without lying about the other.
 
 //: `recognition.RADII_NM`, in nanometres, by Martini 3 size class. The fast tier compares this table with the
 //: Python one, because a second copy of these numbers would be a second model.
@@ -88,9 +89,10 @@ export function renderBeadLegend(host) {
 //: elements can still say which class its beads are.
 export const SIZE_ELEMENTS = {C: 'R', N: 'S', H: 'T'};
 
-//: The one scale knob. `1` draws the model's own radius, which is what the run view and the system preview want;
-//: `3.75` is what the composition preview reads its beads at, and it never changes what the table above states. Set
-//: it through `setBeadRadiusScale`, or per call through `applyBeadRadii`'s `scale`.
+//: The one scale knob's default. `1` draws the model's own radius, which is the honest default for a reader who
+//: wants the model's numbers; `3.75` is what the composition preview reads its beads at, and `0.3` is what the run
+//: view and the New Run preview draw at, so a bonded pair reads as two beads rather than one lump. It never changes
+//: what the table above states. Set it through `setBeadRadiusScale`, or per call through `applyBeadRadii`'s `scale`.
 export let BEAD_RADIUS_SCALE = 1;
 
 export function setBeadRadiusScale(value) {

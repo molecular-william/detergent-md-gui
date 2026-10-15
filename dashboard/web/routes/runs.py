@@ -300,9 +300,12 @@ def resume_job(jid):
 def artifacts_api(jid):
     """One shape for every request form, as /api/jobs answers: an object naming the page."""
     c = coordinator()
-    # Refresh when figures are requested so newly generated diagnostics become visible
-    # without waiting for a job-state transition or process restart.
-    entries = c.artifact_index(c.lookup(jid), refresh=request.args.get('media') == '1')
+    # A client that has just changed this run's files asks for a re-read: `media=1` where it is about to show the
+    # figures, `refresh=1` where it queued an analysis and is waiting for what that analysis will publish. The index
+    # is cached in the store, and a *completed* run's is otherwise frozen for the life of the process -- which is
+    # what a run that published frames would have to wait for a restart to show.
+    entries = c.artifact_index(c.lookup(jid), refresh=request.args.get('refresh') == '1'
+                               or request.args.get('media') == '1')
     page, limit = pagination(); search = request.args.get('search','').lower()
     entries = [e for e in entries if search in e['path'].lower()]
     if request.args.get('media') == '1': entries = [e for e in entries if e['path'].endswith(('.png','.svg','surface-comparison.html'))]

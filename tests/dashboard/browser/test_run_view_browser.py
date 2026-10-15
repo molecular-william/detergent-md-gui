@@ -14,7 +14,8 @@ Two of the four traps the plan measured are proved here, on real NGL objects:
    the pairs, read from `structure.bondStore` -- not the flag that was sent.
 2. **Coarse-grained beads must be drawn at the radii the model's size classes give them**, through the one helper
    `ngl-beads.js` holds, not at their stand-in element's. The radii are read back off the loaded structure, the way
-   `test_pdc_bead_radii_browser.py` reads them, and held to the model's own table.
+   `test_pdc_bead_radii_browser.py` reads them, and held to the model's own table times this panel's own display
+   scale -- both numbers asserted, so neither the table nor the read can drift.
 
 The third and fourth traps belong with the transport row and are proved in `test_run_view_transport_browser.py`.
 """
@@ -47,6 +48,10 @@ ELEMENTS = {'R': 'C', 'S': 'N', 'T': 'H'}
 #: both hold. Written out here so this file fails if either drifts.
 RADII_NM = {'R': 0.264, 'S': 0.230, 'T': 0.191}
 NANOMETRE_TO_ANGSTROM = 10.0
+#: The scale this panel draws beads at (`run-view.js`'s `BEAD_SCALE`): the model's own radius times this, for
+#: reading only. Written out here so the display size has to be changed in two places, and so the assertion below
+#: names both numbers -- the model's radius and the multiplier -- rather than folding them into one.
+DRAWN_BEAD_SCALE = 0.3
 #: The mapped model's own coordinates (`stages/2_mapping/mapped.gro`), in nanometres, one per bead.
 MAPPED_NM = ((1.069, 1.486, 0.935), (1.226, 1.382, 1.177), (1.034, 1.180, 1.111), (1.109, 1.349, 1.074),
              (1.369, 1.334, 1.403), (1.436, 1.083, 1.494), (1.151, 1.058, 1.521), (1.318, 1.158, 1.473))
@@ -505,7 +510,13 @@ def test_the_guard_is_what_keeps_the_guess_out_of_a_conect_file(dashboard, live_
 
 
 def test_cg_beads_are_drawn_at_the_radius_their_own_size_class_has(dashboard, live_page):
-    """Trap 2: the model's own radii, through `ngl-beads.js`, and the three classes are the model's three."""
+    """Trap 2: the model's own radii through `ngl-beads.js`, times this panel's display scale.
+
+    The two classes are the model's own -- a stand-in element would draw them all one size -- and the scale is the
+    0.3 the reader asked for, which is also what the New Run preview draws at, so the same bead is the same size in
+    both panels. At 1 a mapped sugar reads as one lump: a Martini 3 bonded pair sits 1.4-2.2 A apart while an S
+    bead's own radius is 2.30 A.
+    """
     seed(dashboard)
     page, errors = live_page
     open_panel(page, live_page, run=CG_RUN)
@@ -515,11 +526,12 @@ def test_cg_beads_are_drawn_at_the_radius_their_own_size_class_has(dashboard, li
 
     measured = page.locator('#run-view-viewer').evaluate(MEASURE)
     drawn = [None if value is None else round(value / NANOMETRE_TO_ANGSTROM, 4) for value in measured['radii']]
-    expected = [RADII_NM[SIZES[name]] for name in BEADS]
+    expected = [round(RADII_NM[SIZES[name]] * DRAWN_BEAD_SCALE, 4) for name in BEADS]
     assert drawn == expected, f'the beads are not drawn at their own size classes: {drawn} against {expected}'
     # The stand-in elements are nearly the same size as each other; the model's classes are not.
     assert len(set(drawn)) == 2, 'a size ranking from the element column, not the model'
     expect(page.locator('#run-view-readout')).to_contain_text('model.json size classes')
+    expect(page.locator('#run-view-readout')).to_contain_text(f'drawn at {DRAWN_BEAD_SCALE}x')
     assert errors == []
 
 

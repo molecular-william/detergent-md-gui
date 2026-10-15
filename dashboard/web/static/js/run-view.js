@@ -15,7 +15,7 @@
 // cannot fail, and both failure modes it exists for (a selection matching nothing, an inference quietly adding
 // bonds) render as a plausible picture with a clean console.
 
-import { $, api, panelIds } from './shared.js';
+import { $, api, panelIds, post } from './shared.js';
 import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, applyBeadRadii, renderBeadLegend, sizeClassOf } from './ngl-beads.js';
 import { conectCount, isCoarseGrained, loadParameters, structureExtension, structureRank } from './run-view-structure.js';
 
@@ -29,6 +29,16 @@ const END_MODE = 'once';
 //: The route pages the artifact index and caps `limit` at 100, so every request here states its own limit.
 const PAGE_LIMIT = 100;
 const ALL_TYPES = '';
+//: D18 -- the scale this panel draws its beads at, on top of `ngl-beads.js`'s table. The table's radii are the
+//: model's and this multiplies them for reading only: at 1 a mapped sucrose reads as one lump, because a Martini 3
+//: bonded pair sits 1.4-2.2 A apart while an S bead's own radius is 2.30 A, so every bonded pair overlaps by 2-3 A.
+//: 0.3 is what the user asked for here, and the same scale the New Run preview draws at (`PREVIEW_BEAD_SCALE`), so
+//: the two panels read a bead the same size; the composition preview is the view that reads them larger (3.75). It
+//: is passed at the `applyBeadRadii` call and never written into the table.
+const BEAD_SCALE = 0.3;
+//: How often the panel asks whether a queued snapshots analysis has finished. The analysis samples a trajectory and
+//: writes a file, which takes minutes; a poll every four seconds costs nothing and reports within a reader's glance.
+const GENERATE_POLL_MS = 4000;
 
 const TYPE_LABELS = {
   aa_only: 'AA run only',
@@ -51,6 +61,9 @@ export function createRunView() {
   const legend = document.querySelector('.run-view-stage .bead-legend');
   const strip = $('#run-view-frames'), stripNote = $('#run-view-frames-note');
   const figures = $('#run-view-figures'), figuresNote = $('#run-view-figures-note');
+  //: D18 -- the one control in this panel that writes: it queues the snapshots analysis, which samples the run's own
+  //: trajectory into the multi-model file the transport row plays.
+  const generate = $('#run-view-generate'), generateNote = $('#run-view-generate-note');
 
   const transport = createTransport();
   let scope = {slug: '', types: []};
@@ -61,6 +74,8 @@ export function createRunView() {
   let structures = [];
   let moments = [];
   let published = {frames: null, moments: [], series: null};
+  let generating = false;
+  let pollTimer = null;
   let stage = null;
   let sizeClasses = null;
 
@@ -209,7 +224,10 @@ export function createRunView() {
     loadFigures(job);
   }
 
-  async function loadRun(job) {
+  async function loadRun(job, {refresh = false} = {}) {
+    // `refresh` asks the artifact routes to re-read the run directory rather than serve the index the store holds:
+    // a completed run's index is otherwise frozen, so a run whose analysis published while this panel watched would
+    // show nothing new until a restart. Only the path that queued that analysis sets it.
     delegation.hidden = true;
     delegation.replaceChildren();
     viewer.hidden = false;
@@ -223,8 +241,8 @@ export function createRunView() {
     published = {frames: null, moments: [], series: null};
     try {
       const [gro, pdb, indexes] = await Promise.all([
-        artifactIndex(job.id, '.gro'), artifactIndex(job.id, '.pdb'),
-        artifactIndex(job.id, 'analyses/snapshots/')]);
+        artifactIndex(job.id, '.gro', {refresh}), artifactIndex(job.id, '.pdb', {refresh}),
+        artifactIndex(job.id, 'analyses/snapshots/', {refresh})]);
       entries = dedupe([...gro, ...pdb]);
       published = await publishedSnapshots(job.id, indexes);
     } catch (error) {
@@ -244,6 +262,7 @@ export function createRunView() {
 
     renderHolds(job);
     renderStrip(job);
+    updateGenerate(job);
     loadFigures(job);
     sizeClasses = await loadSizeClasses(job);
     if (!structures.length) {
@@ -256,7 +275,7 @@ export function createRunView() {
     await draw(job, structures[0].path);
   }
 
-  async function artifactIndex(jobId, term) {
+  async function artifactIndex(jobId, term, {refresh = false} = {}) {
     // A page is not the index. The route pages the artifact index and caps `limit` at 100, and the index is walked
     // in *directory* order rather than by age, so a run that has published many attempts -- a series' conditions, or
     // a run analysed again since -- can hold the newest `analyses/snapshots/*/*/result.json`, the record that names
@@ -265,6 +284,7 @@ export function createRunView() {
     const entries = [];
     for (let page = 1; ; page += 1) {
       const query = new URLSearchParams({limit: String(PAGE_LIMIT), page: String(page), search: term});
+      if (refresh) query.set('refresh', '1');
       const body = await api(`/api/jobs/${encodeURIComponent(jobId)}/artifacts?${query}`);
       const held = body.artifacts || [];
       entries.push(...held);
@@ -314,6 +334,90 @@ export function createRunView() {
     }
     return {frames: null, moments: [], series: null};
   }
+
+  // ----------------------------------------------------------------- generating a frame series (D18)
+
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  async function holdsTrajectory(job) {
+    // The frames come from a file the run wrote, so the button's first question is whether this run holds one. The
+    // artifact index answers it: a `.xtc` under `stages/`, and not under a stage's own `inputs/`, which holds copies
+    // of what the run was handed rather than what it wrote.
+    try {
+      const entries = await artifactIndex(job.id, '.xtc');
+      return entries.some(entry => entry.path.startsWith('stages/') && !entry.path.includes('/inputs/'));
+    } catch (error) {
+      return false;
+    }
+  }
+
+  async function updateGenerate(job) {
+    // Runs on every run load: the control follows what the run holds, and whether it has published a series already.
+    stopPolling();
+    generating = false;
+    if (!generate) return;
+    generate.hidden = true;
+    generate.disabled = false;
+    generateNote.textContent = '';
+    if (published.frames) return;   // the row plays a published series; there is nothing to generate
+    const holds = await holdsTrajectory(job);
+    generate.hidden = false;
+    generate.disabled = !holds;
+    generate.title = holds
+      ? "Sample moments from this run's own trajectory and publish them as one multi-model file, which this row then "
+        + 'plays. That is the snapshots analysis, run against this run.'
+      : 'This run wrote no trajectory under stages/, so there are no frames to sample.';
+    if (!holds) {
+      generateNote.textContent = 'No trajectory in this run: nothing to sample.';
+    }
+  }
+
+  async function queueGeneration(job) {
+    if (generating) return;
+    generating = true;
+    generate.disabled = true;
+    generateNote.textContent = 'Queueing the snapshots analysis…';
+    try {
+      await post(`/api/jobs/${encodeURIComponent(job.id)}/snapshots`, {});
+      generateNote.textContent = "Sampling frames from this run's own trajectory…";
+      stopPolling();
+      pollTimer = setInterval(() => { watchGeneration(job); }, GENERATE_POLL_MS);
+    } catch (error) {
+      generating = false;
+      generate.disabled = false;
+      generateNote.textContent = `The analysis was not queued: ${error.message}`;
+    }
+  }
+
+  async function watchGeneration(job) {
+    // The panel does not guess that the analysis finished: it reads the task list back and reports what the record
+    // says, so a failure is named rather than left spinning.
+    let tasks = [];
+    try {
+      tasks = (await api(`/api/jobs/${encodeURIComponent(job.id)}/analyses`)) || [];
+    } catch (error) {
+      return;   // a page that cannot read the list keeps waiting rather than reporting a failure it did not see
+    }
+    const mine = tasks.filter(task => task.kind === 'snapshots');
+    const newest = mine[mine.length - 1];
+    if (!newest) return;
+    if (newest.status === 'failed' || newest.status === 'cancelled') {
+      stopPolling();
+      generating = false;
+      generate.disabled = false;
+      generateNote.textContent = `The snapshots analysis ${newest.status}: ${newest.error || 'see its own log'}`;
+      return;
+    }
+    if (newest.status === 'completed') {
+      stopPolling();
+      generateNote.textContent = 'Frames published — re-reading the run.';
+      await loadRun(job, {refresh: true});
+    }
+  }
+
+  if (generate) generate.addEventListener('click', () => { if (selected) queueGeneration(selected); });
 
   function row(path, bonds) {
     const line = document.createElement('tr');
@@ -532,10 +636,10 @@ export function createRunView() {
     if (parameters.inferBonds === 'none' && conectCount(text) === 0) dropBonds(component.structure);
     if (coarse) {
       // A bead's radius is a size class the model states, not the stand-in element's: `ngl-beads.js` is the one
-      // table and the one call, so this view draws the same beads as Complexes and the bead editor. The scale is
-      // this panel's own and stated at the call: 1 -- the run view draws the model's radius, and the panel that
-      // reads it larger (the composition preview) is where the multiplier belongs.
-      applyBeadRadii(component.structure, {scale: 1, sizeOf: atom => {
+      // table and the one call, so this view draws the same beads as Complexes and the bead editor. The display
+      // scale is this panel's own and stated at the call -- `BEAD_SCALE`, 0.3 -- and it multiplies the table's
+      // radius on the way onto the structure, which is the value the readout below reports back.
+      applyBeadRadii(component.structure, {scale: BEAD_SCALE, sizeOf: atom => {
         const named = sizeClasses && sizeClasses[String(atom.atomname || '').trim().toUpperCase()];
         return named || sizeClassOf(atom);
       }});
@@ -560,7 +664,9 @@ export function createRunView() {
       ['bonds the viewer resolved', String(structure.bondCount), 'ok'],
       ['how the bonds were decided', parameters.reason],
       ['bead radii', coarse
-        ? (sizeClasses ? "the run's own stages/2_mapping/model.json size classes" : 'uniform — no readable size class')
+        ? (sizeClasses
+            ? `the run's own stages/2_mapping/model.json size classes, drawn at ${BEAD_SCALE}x`
+            : 'uniform — no readable size class')
         : 'not applicable (all-atom)'],
     ]);
     attachRow(job, component, path, entry);

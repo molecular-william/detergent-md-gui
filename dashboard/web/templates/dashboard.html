@@ -135,6 +135,12 @@
             <input type="range" id="run-view-frame" min="0" max="0" step="1" value="0" aria-describedby="run-view-transport-note">
             <span id="run-view-frame-readout" class="transport-frame-readout">frame 0 of 0</span>
           </label>
+          {# D18: the one action that gives this row frames, where the run holds a trajectory to sample and has
+             published no series yet. Hidden where a series exists -- the row's job is then to play it -- and drawn
+             disabled with its reason where the run wrote no trajectory, the same convention the transport itself
+             follows (D17). #}
+          <button type="button" class="transport-generate" id="run-view-generate" hidden>Generate trajectory</button>
+          <span class="transport-generate-note" id="run-view-generate-note" role="status"></span>
         </div>
         <p id="run-view-transport-note" class="hint" role="status"></p>
         <div id="run-view-readout" class="run-view-readout" aria-live="polite"></div>

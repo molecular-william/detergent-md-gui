@@ -85,6 +85,20 @@ def test_the_ball_keeps_the_models_radius_and_the_stick_is_a_quarter_of_it():
     assert drawn['radiusScale'] * drawn['aspectRatio'] == 1, 'the ball would not be drawn at the model\'s radius'
 
 
+def test_the_run_view_and_the_preview_draw_a_bead_at_the_same_scale():
+    """Two panels, one reader: the run view reads a bead at exactly the scale the New Run preview does.
+
+    The value itself is pinned beside the call that uses it; this holds the two panels together, so the same mapped
+    sugar cannot be drawn one size in the preview the reader approves and another in the run they then inspect.
+    """
+    panel = re.search(r'const BEAD_SCALE\s*=\s*([0-9.]+);', (SOURCE.parent / 'run-view.js').read_text())
+    assert panel, 'the run view states no BEAD_SCALE'
+    preview = re.search(r'PREVIEW_BEAD_SCALE\s*=\s*([0-9.]+);', (SOURCE.parent / 'new-run.js').read_text())
+    assert preview, 'the New Run panel states no PREVIEW_BEAD_SCALE'
+    assert float(preview.group(1)) == float(panel.group(1)), \
+        f'the run view draws at {panel.group(1)} and the preview at {preview.group(1)}: one bead, two sizes'
+
+
 def test_the_mock_draws_the_same_bead_and_bond_as_the_module():
     """The mock's copy of these numbers is the module's, because the preview and the run view draw one bead.
 
@@ -277,7 +291,7 @@ def test_the_scale_knob_defaults_to_the_models_own_radius():
 #: table, an element's van der Waals radius to divide by, or a scale of its own -- which is one model in four places.
 #: `ngl-beads.js` is now the one table and the one call for all of them, and this is what holds that: a fifth copy of
 #: either would be a fifth answer. `new-run.js` is the protein-detergent New Run panel's system preview, which reads
-#: the same beads as the run's own viewer at twice the radius.
+#: the same beads as the run's own viewer, at the one scale the reader asked both for (0.3).
 BEAD_VIEWS = ('compositions.js', 'mapping-ngl.js', 'run-view.js', 'bonded-plot.js', 'new-run.js')
 JS_DIR = SOURCE.parent
 
@@ -292,17 +306,22 @@ def test_every_bead_view_reads_the_one_table_and_keeps_no_copy_of_it():
 
 
 def test_each_panel_states_its_own_scale_at_the_call():
-    """The module's default is the model's own radius, and a panel that reads a bead larger says so where it draws.
+    """The module's default is the model's own radius, and a panel that reads a bead differently says so where it draws.
 
-    `1` is what four of these views use and it is passed rather than inherited, so the panel's answer is in the
-    panel; the composition preview is the one that reads the model's 2.6 Angstrom beads larger than life.
+    Every one of these views passes its scale rather than inheriting it, so the panel's answer is in the panel: `1`
+    is the mapping overlay's, the composition preview reads the model's beads larger than life, and the run view and
+    the New Run preview read them at 0.3 so a bonded pair reads as two beads rather than one lump.
     """
     compositions = (JS_DIR / 'compositions.js').read_text()
     assert 'applyBeadRadii(item.structure, {scale: BEAD_RADIUS_SCALE})' in compositions
     assert re.search(r'BEAD_RADIUS_SCALE\s*=\s*3\.75\s*;', compositions), \
         'the composition preview draws its beads larger than life, and that multiplier is its own'
     assert 'applyBeadRadii(beadStructure, {scale: 1})' in (JS_DIR / 'mapping-ngl.js').read_text()
-    assert 'applyBeadRadii(component.structure, {scale: 1' in (JS_DIR / 'run-view.js').read_text()
+    view = (JS_DIR / 'run-view.js').read_text()
+    assert 'applyBeadRadii(component.structure, {scale: BEAD_SCALE,' in view, \
+        'the run view does not pass its own scale to the one call that writes radii'
+    assert re.search(r'const BEAD_SCALE\s*=\s*0\.3\s*;', view), \
+        'the run view draws at the scale the reader asked for, and that multiplier is the panel\'s own'
     # The system preview reads its beads at a scale of its own since 2026-10-14, when the user reported the beads
     # too big, halved them and then asked for 0.3: the number is still the panel's own -- stated here, and held to
     # the mock's.
