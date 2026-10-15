@@ -208,6 +208,19 @@ def test_the_cadence_field_is_sent_where_the_prompt_is_not_needed(dashboard, liv
     expect(field).to_be_visible()
     expect(field).to_be_enabled()
     assert field.get_attribute('placeholder') == '40 frames', 'the blank default is stated where it is chosen'
+    # The reader's own placement, asserted as boxes rather than as an intention: the field sits to the *right* of
+    # the button and is wide enough to hold a cadence with its spinner, which is what "a bit longer" bought.
+    boxes = page.evaluate('''() => {
+      const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+      const button = box('#run-view-generate'), field = box('#run-view-generate-interval');
+      return {button_left: button.x, button_right: button.right, field_left: field.x, field_width: field.width,
+              row_right: box('#run-view-transport').right, page_overflow:
+                document.documentElement.scrollWidth - document.documentElement.clientWidth};
+    }''')
+    assert boxes['field_left'] >= boxes['button_right'] - 1, \
+        f'the field is not to the right of the button: {boxes}'
+    assert boxes['field_width'] >= 80, f'the field is {boxes["field_width"]:.0f} px wide'
+    assert boxes['page_overflow'] == 0, 'the row must not push the page sideways'
 
     sent = []
     queue_stub(page, sent)

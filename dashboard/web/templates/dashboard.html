@@ -129,34 +129,38 @@
            row; `flex-wrap: nowrap` is the whole point of the rule. Disabled with its reason when the file on
            screen holds a single frame (D17). #}
         <div id="run-view-transport" class="run-view-transport" role="group" aria-label="Playback" hidden>
-          <button type="button" class="transport-reverse" id="run-view-reverse" aria-label="Play in reverse" aria-pressed="false">◀</button>
-          <button type="button" class="transport-forward" id="run-view-forward" aria-label="Play forward" aria-pressed="false">▶</button>
-          <label class="transport-frame">Frame
-            <input type="range" id="run-view-frame" min="0" max="0" step="1" value="0" aria-describedby="run-view-transport-note">
-            <span id="run-view-frame-readout" class="transport-frame-readout">frame 0 of 0</span>
-          </label>
+          {# The three controls, in their own non-splitting group: the row may wrap, but never between these. #}
+          <div class="transport-controls">
+            <button type="button" class="transport-reverse" id="run-view-reverse" aria-label="Play in reverse" aria-pressed="false">◀</button>
+            <button type="button" class="transport-forward" id="run-view-forward" aria-label="Play forward" aria-pressed="false">▶</button>
+            <label class="transport-frame">Frame
+              <input type="range" id="run-view-frame" min="0" max="0" step="1" value="0" aria-describedby="run-view-transport-note">
+              <span id="run-view-frame-readout" class="transport-frame-readout">frame 0 of 0</span>
+            </label>
+          </div>
           {# D18: the one action that gives this row frames, where the run holds a trajectory to sample and has
              published no series yet. Hidden where a series exists -- the row's job is then to play it -- and drawn
              disabled with its reason where the run wrote no trajectory, the same convention the transport itself
              follows (D17). #}
-          {# D11 keeps this row to two play buttons and the slider: it is `flex-wrap: nowrap` and folds into two
-             lines at any width the moment a fourth control joins it. The generate control is the one exception the
-             reader asked for, and it closes the row on the right. #}
-          <button type="button" class="transport-generate" id="run-view-generate" hidden>Generate trajectory</button>
+          {# D19: the reader's own addition to D11 -- the generate control and the cadence it will use, on the row's
+             right, the field after the button. They wrap together as one group rather than splitting: the row is
+             `flex-wrap: wrap` so the three transport controls always stay on one line, and the group moves below
+             them when the width cannot hold both, which is what keeps the page from scrolling sideways at 390 px.
+             The cadence is set before the series is generated -- it is the one thing about a series a reader
+             decides, how much of the run one frame stands for -- and blank means the default spread, which the
+             placeholder says. #}
+          <div class="transport-generate-group">
+            <button type="button" class="transport-generate" id="run-view-generate" hidden>Generate trajectory</button>
+            <label class="transport-interval" for="run-view-generate-interval">ns/frame
+              <input type="number" id="run-view-generate-interval" min="0.01" max="1000" step="0.01" inputmode="decimal"
+                     placeholder="40 frames"
+                     title="Nanoseconds between the sampled frames. Leave it blank for 40 frames spread evenly over the trajectory."
+                     aria-describedby="run-view-generate-note">
+            </label>
+          </div>
         </div>
-        {# D19: the cadence and the state of a generation, on their own line so the transport row keeps its width.
-           The cadence is set before the series is generated -- it is the one thing about a series a reader decides,
-           how much of the run one frame stands for -- and blank means the default spread, which the placeholder
-           says. #}
-        <div class="run-view-generate" id="run-view-generate-bar" hidden>
-          <label class="transport-interval" for="run-view-generate-interval">ns/frame
-            <input type="number" id="run-view-generate-interval" min="0.01" max="1000" step="0.01" inputmode="decimal"
-                   placeholder="40 frames"
-                   title="Nanoseconds between the sampled frames. Leave it blank for 40 frames spread evenly over the trajectory."
-                   aria-describedby="run-view-generate-note">
-          </label>
-          <span class="transport-generate-note" id="run-view-generate-note" role="status"></span>
-        </div>
+        {# The state of a generation, on its own line: it is prose about what the analysis is doing, not a control. #}
+        <p class="hint" id="run-view-generate-note" role="status"></p>
         <p id="run-view-transport-note" class="hint" role="status"></p>
         <div id="run-view-readout" class="run-view-readout" aria-live="polite"></div>
         <p class="hint">Read back from the component the viewer loaded, not from what this panel asked for: a

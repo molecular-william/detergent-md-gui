@@ -67,8 +67,6 @@ export function createRunView() {
   //: D19 -- the cadence, in nanoseconds per frame, set before the series is generated. Blank means the default even
   //: spread, which is what the field's placeholder says.
   const intervalInput = $('#run-view-generate-interval');
-  //: The line the cadence and the generation's own state sit on, shown with the control and never before it.
-  const generateBar = $('#run-view-generate-bar');
 
   const transport = createTransport();
   let scope = {slug: '', types: []};
@@ -367,7 +365,6 @@ export function createRunView() {
     if (!generate) return;
     generate.hidden = false;
     generate.disabled = false;
-    if (generateBar) generateBar.hidden = false;
     generateNote.textContent = '';
     const holds = await holdsTrajectory(job);
     generate.disabled = !holds;
