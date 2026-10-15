@@ -25,14 +25,17 @@ def _sources_only(function: Callable) -> Callable:
 
 
 def _snapshots(work, payload=None):
-    """The snapshots producer, which is the one row whose payload changes what it writes: the sampling cadence.
+    """The snapshots producer, which is the one row whose payload changes what it writes.
 
-    `interval_ns` is nanoseconds per frame and `samples` is the even spread used when no cadence is asked for; both
-    are checked at the route, so a producer that receives one has already been told it is usable.
+    Three settings reach it: `interval_ns` (nanoseconds per frame), `samples` (the even spread used when no cadence
+    is asked for) and `align` (whether every model is superposed on the first). All three are checked at the route,
+    so a producer that receives one has already been told it is usable -- and all three have to be *forwarded* here:
+    a setting the route accepts and this row drops is a switch that does nothing, which is how the fit was queued
+    and never applied.
     """
     payload = payload or {}
     return observability.generate(work, samples=int(payload.get('samples', observability.SERIES_SAMPLES)),
-                                  interval_ns=payload.get('interval_ns'))
+                                  interval_ns=payload.get('interval_ns'), align=bool(payload.get('align')))
 
 
 @dataclass(frozen=True)

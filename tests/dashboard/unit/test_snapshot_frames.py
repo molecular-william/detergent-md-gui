@@ -406,6 +406,23 @@ def test_a_series_is_recorded_as_unaligned_unless_the_fit_was_asked_for(tmp_path
     assert 'FITTED SERIES' not in (root / 'snapshots/CG-frames.pdb').read_text()
 
 
+def test_the_kind_forwards_the_settings_it_is_handed(tmp_path):
+    """A payload the route accepts has to reach the producer: a dropped key is a switch that does nothing.
+
+    Measured: the fit was queued, the payload carried `align: true`, and the series came out unfitted because this
+    row forwarded the cadence and not the switch. The row is the only place the two meet, so it is tested here.
+    """
+    from dashboard.analysis import kinds
+
+    root = _moving_run(tmp_path, lambda frame, positions: positions + np.array([frame * 1.0, 0.0, 0.0]))
+
+    result = kinds.TABLE['snapshots'].run(root, {'samples': 3, 'align': True})
+
+    fit = result['series']['aligned']
+    assert fit and fit['reference'] == 1, 'the fit the payload asked for did not reach the producer'
+    assert _centroid_spread(root / 'snapshots/CG-frames.pdb') == pytest.approx(0.0, abs=1e-3)
+
+
 def test_an_unknown_label_is_refused(tmp_path):
     with pytest.raises(ValueError, match='Unknown snapshot label'):
         observability.generate(_aa_only_run(tmp_path), labels=('first', 'every'))
