@@ -87,21 +87,28 @@ def test_a_field_that_is_not_text_reads_as_no_beads(value):
        means=st.lists(st.floats(min_value=-180, max_value=180, allow_nan=False, allow_infinity=False),
                       min_size=2, max_size=4))
 def test_the_linkage_spread_is_recomputed_the_same_way_or_withheld(section, means):
-    """Independent derivation: the result's own per-molecule means, in the order the input gave them."""
+    """Independent derivation: the result's own per-molecule means, in the order the input gave them.
+
+    The guard is the *divisor* -- the mean of the means -- and not the sum: `[0.0, 5e-324]` sums to a positive
+    number whose mean underflows to zero, so a guard on the sum divides by zero. The case is in this strategy
+    deliberately, because that is how the production guard was found: the spread of a set whose mean is zero is not
+    a percentage of anything.
+    """
     entries = {f'M{index}': entry([(1, 'B'), (2, 'A')], mean, section) for index, mean in enumerate(means)}
     linkages = transferability.compare(entries)['linkages']
 
     assert len(linkages) == 1, 'one section, one bead-type signature, one role'
     linkage = linkages[0]
     assert linkage['circular'] is (section == 'dihedrals')
+    mean_of_means = sum(means) / len(means)
     if section == 'dihedrals':
         assert linkage['spread_pct'] is None, 'a wrapped mean has no percentage to report'
-    elif sum(means):
-        expected = 100.0 * (max(means) - min(means)) / (sum(means) / len(means))
+    elif mean_of_means:
+        expected = 100.0 * (max(means) - min(means)) / mean_of_means
 
         assert linkage['spread_pct'] == pytest.approx(expected)
     else:
-        assert linkage['spread_pct'] is None, 'means that sum to zero have no percentage to report'
+        assert linkage['spread_pct'] is None, 'means whose own mean is zero have no percentage to report'
 
 
 @PROFILE

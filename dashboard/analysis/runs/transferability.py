@@ -110,8 +110,12 @@ def link_terms(entries):
                 means.append(mean)
         circular = section == 'dihedrals'
         spread = None
-        if len(means) > 1 and not circular and sum(means):
-            spread = 100.0 * (max(means) - min(means)) / (sum(means) / len(means))
+        # The divisor is the mean of the means, so *it* is what the guard has to test: `sum(means)` can be non-zero
+        # while the mean underflows to zero -- `[0.0, 5e-324]` is the case a property test found, the smallest
+        # denormal halving to nothing -- and the spread of a set whose mean is zero is not a percentage of anything.
+        mean_of_means = sum(means) / len(means) if means else 0.0
+        if len(means) > 1 and not circular and mean_of_means:
+            spread = 100.0 * (max(means) - min(means)) / mean_of_means
         result.append({'section': section, 'types': list(names), 'role': role, 'molecules': molecules,
                        'circular': circular, 'spread_pct': spread, 'rows': bucket['rows']})
     return result
