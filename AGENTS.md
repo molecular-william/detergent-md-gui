@@ -8,7 +8,8 @@ Rules and facts for working here. State, measurements and open items live in `do
 - Roadmap: `README.md`.
 - Carbohydrate mapping/validation: `docs/research/2026-09-24-carbohydrate-validation-operations.md` + `docs/research/2026-09-24-martini3-carbohydrate-validation.md`. Read before touching recognizer, validation routes, analysis worker.
 - Micelle builder: PAUSED. Design in `docs/superpowers/specs/`, `docs/superpowers/plans/`. `micelle/` = partial implementation, NOT a validated model.
-- Protein-detergent *panel*: second workflow, not a profile of the single-molecule one. Spec `docs/superpowers/specs/2026-09-28-protein-detergent-complex-panel-design.md`, plan in `docs/superpowers/plans/`. Reuses `micelle/` for detergent placement + existing executor for stages. Nothing implemented. Back-mapping: CG2AT2 run from source, vendored under `tools/` when the stage is built -- its align method and Martini 3 fragment DB match the protocol.
+- Protein-detergent complex (`pdc`): second workflow, not a profile of the single-molecule one, and **implemented**. Adapter `execution/adapters/pdc.py` owns the stages and generates its own scripts; `micelle/` still owns the placement science (`micelle/frame.py`, `packing.py`, `validation.py`). Spec `docs/superpowers/specs/2026-09-28-protein-detergent-complex-panel-design.md`, plans in `docs/superpowers/plans/`. Back-mapping: CG2AT2 vendored under `tools/cg2at/` (`tools/cg2at/cg2at`); `pdc_backmap.sh` runs its **align** method with the `martini_3-0_charmm36` fragment DB.
+- Osmotic-pressure series: `execution/adapters/osmotic.py` (+ `osmotic_box.py`, `osmotic_mdp.py`) and `dashboard/web/routes/osmotic.py`; panel `osmotic-pressure`. Plans `docs/superpowers/plans/2026-10-06-osmotic-concentration-series.md`, `2026-10-13-osmotic-series-panel.md`.
 
 ## Goal
 Reproducible local workflow for membrane-protein detergent sims: validate input, orient protein, build Martini CG system, run staged GROMACS jobs, convert CG to atomistic, run atomistic stages, calculate analyses, expose status and results in a dashboard.
@@ -16,13 +17,20 @@ Reproducible local workflow for membrane-protein detergent sims: validate input,
 ## Repo facts
 - Maintained AA to CG path: `execution/adapters/aa.py`, then `execution/adapters/cg.py`, then Fast_Forward, then GROMACS. Any molecule with a compatible AA topology runs it. Packaged `molecules/DDM` = reference example + smoke candidate. `cg.py` = the generic CG adapter, the only CG stage pipeline. No `ddm` shim.
 - Maintained assets: `resources/`, `dashboard/`. Historical `memembed`, then `martinize`, then `insane`, then `cg2at`: NOT maintained. The `archive/MemProtMD/` tree earlier notes named is gone from the repository.
-- Force fields local: CG takes `resources/forcefields/martini_v3.itp`; AA copies `resources/templates/small_mols_fast_forward/1_AA_reference/charmm36-jul2022.ff`; 29 MDP templates under `resources/templates/`. Detergent support + residue/topology coverage: verify per molecule.
-- Tools declared in `config/tools.json`, resolved by `dashboard/execution/tools.py`. Declared path verified executable before use; a declaration that cannot be honoured resolves to NOTHING, never a substitute. Record resolved version + path in each run manifest. (`~/Downloads/gromacs-2026.0` = source tree, no built `gmx`. In use: `/usr/local/gromacs/2026.3/bin/gmx`.)
+- Force fields local: CG takes `resources/forcefields/martini_v3.itp`; AA copies `resources/templates/small_mols_fast_forward/1_AA_reference/charmm36-jul2022.ff`; 32 MDP templates under `resources/templates/` (the three pdc equilibration legs are `resources/templates/protein_detergent/{minimisation,nvt,npt}.mdp`). Detergent support + residue/topology coverage: verify per molecule.
+- Tools declared in `config/tools.json`, resolved by `dashboard/execution/tools.py`. Declared path verified executable before use; a declaration that cannot be honoured resolves to NOTHING, never a substitute. A name that is not declared at all (`martinize2`, `pdb2pqr`) falls back to the composed search path. Record resolved version + path in each run manifest. (`~/Downloads/gromacs-2026.0` = source tree, no built `gmx`. In use: `/usr/local/gromacs/2026.3/bin/gmx`.)
 - Carbohydrate validation = immutable analysis attached to a completed source run. Representation modes `/api/mappings/representations`; target metadata `/api/mappings/validation-targets`; reports `/api/jobs/<run-id>/carbohydrate-validation`.
 - Checked-in carbohydrate targets = citation metadata only until molecule-specific measurements + uncertainties supplied. `setup` analyses + short trajectories = diagnostic execution checks; they do NOT authorize a model or establish validation.
 - Bead Assignment editor: ONE diagram now -- the 3D NGL overlay (heavy atoms; each bead a translucent sphere at the mean of its atoms). The 2D depiction went 2026-10-12 (`aa318e0`); the server's RDKit depiction STAYS because the mapping export bundle embeds its SVG. `POST /api/mappings/overlay3d` serves the files from `models/mappings/overlay3d.py`; it reads the assignment being edited, including an unsaved local draft.
 - Bonded panel atoms come from the SELECTED candidate's own molecule (`bonded.js` `resolveStructure`), not the packaged reference. Reading the reference for every candidate drew sucrose/trehalose/maltose on DDM's atoms (fixed `c6f018e`). Do not reintroduce.
 - Sucrose path provisional: recognizer handles one hexopyranose ring, preserves remaining graph as a draft. Generated Sucrose mappings = diagnostic inputs, not official Martini parameters.
+- Protein-detergent stages run **pdc's own scripts**, not the CG half's: every non-generated stage file is named `pdc_...` (`pdc_assessment.sh`, `pdc_assess.sh`, `pdc_extension.sh`, `pdc_backmap.sh`). Only `1_system/prepare_system.sh`, the three equilibration legs and `0_prepare/pdc_prepare.sh` are filled at prepare time (`pdc.GENERATED_STAGES`). The directory names `2_assessment`, `3_assessment`, `4_extension` are historic. The chain no longer equilibrates twice: `CG assessment MD` is production only (it reads `../4_npt/`), and `Energy minimisation`/`NVT`/`NPT` (`pdc.LEGS`, mdps under `resources/templates/protein_detergent/`) are the equilibration.
+- A protein build's belt is a **torus** when the protein states a membrane: the protein's slab circle is the tube's centre-line, the tube's radius is the detergent's measured length, heads sit on the outer surface and tails face the centre (`pdc_placement._belt_torus`, `SHAPE_TORUS`). A build with no stated membrane -- the empty micelle, a packaged protein, an import that states none -- keeps the fixed-radius **sphere**, where `radius_nm` *is* the radius (`SHAPE_SPHERE`); on a belt `radius_nm` is a **floor** under the measured centre-line.
+- Protein secondary structure: martinize2's bare `-dssp`, which vermouth answers with **mdtraj** (`execution/scripts/pdc_build.SS_SOURCE = 'mdtraj.compute_dssp'`), with MDAnalysis' own DSSP as the recorded fallback (`SS_FALLBACK_SOURCE`). The two routes disagree (42 of 230 residues on 1AT9) and the assignment's letters travel in the run report. `mdtraj` and `pdb2pqr` are declared in `requirements-dashboard-tests.txt`.
+- Bead rendering is one size table plus one family colouring, with the on-screen legend drawn from the same table (`web/static/js/ngl-beads.js`: `BEAD_RADII_NM`, `BEAD_FAMILY_ORDER`/`BEAD_FAMILY_COLOURS`/`BEAD_FAMILY_LABELS`, `renderBeadLegend`). A file carrying `CONECT` is **never** distance-guessed; a coarse-grained file is `inferBonds: 'none'` even without it (`run-view-structure.loadParameters`, `pdc.js`).
+- `GET /api/jobs/<id>/structure?path=<run-relative .gro>` writes the run's own `[ bonds ]`+`[ constraints ]` as CONECT (topology located by `analysis/runs/layout.cg_topology`, named by the manifest's `FINAL_ITP`); a `.pdb` is refused to the artifact route (`web/routes/runs.py:run_structure_api`).
+- `snapshots` runs for **every** run with a trajectory, queued by `analysis_coordinator.queue_defaults` from `kinds.for_every_run()`; a run with no trajectory records `skipped` with a reason and stays `complete`. Frames resolve by the run's layout (`observability.generate` -> `layout.frame_source`), so an AA-only run reads its `07_reference/` pair and a CG run its `4_CG_sim/`.
+- Panels: `Run view` (`run-view`, in BOTH workspaces, scoped per workspace by `web/sections.SECTIONS[...]['run_types']`); the protein-detergent `New run` (`pdc.js`/`new-run.js`) with a live **system preview** (`GET /api/pdc/preview/placement`) and the `prepare_protein` toggle; the `Osmotic Series` panel (`osmotic.js`).
 
 ## Engineering rules
 - Test against fixtures, NEVER the developer's workspace. A test that read a candidate out of `workspace/dashboard/mapping_drafts/` by filename passed only while that file existed and reported nothing about the code. Shared fixtures redirect every writable store: build the record you need.
@@ -38,6 +46,7 @@ Reproducible local workflow for membrane-protein detergent sims: validate input,
 ## Workflow contract
 - AA-only runs use `STAGES` from `execution/adapters/aa.py`: solvation, neutralization, minimization, NVT equilibration, NPT equilibration, NPT production, reference publication.
 - CG runs consume an AA reference (own parent AA-only job, or a completed shared reference) and run `STAGES` from `execution/adapters/cg.py`: AA reference, trajectory mapping, CG topology (`ff_inter`), CG simulation, CG assessment (`ff_assess`), SASA analysis. Only stages shelling out to a published tool name it; the mapping is our own script, named for what it does.
+- Protein-detergent (`pdc`) runs use `STAGES` from `execution/adapters/pdc.py`, in order: Protein preparation (optional PDB2PQR rebuild+protonation, `prepare_protein`, off by default), System preparation, Energy minimisation, NVT equilibration, NPT equilibration, CG assessment MD (production only), Micelle assessment, CG extension MD, Final assessment, Back-mapping (CG2AT2, a toggle). A leg the run asks none of records `skipped` = exit 4. `pdc.LEGS` maps each equilibration leg to its mdp; `pdc.stage_by_name` is how a caller names one rather than counting.
 - Every stage records start/end, command, environment, inputs, outputs, exit code, log path.
 - Stage with nothing to do records `skipped` = exit 4, reason in `skip.json` beside the script; run carries on. Nothing attempted, nothing owed.
 - Runs terminate `complete`, `failed`, `cancelled`, or `blocked`.
@@ -80,7 +89,9 @@ Sucrose diagnostic records in the operations note = preserved examples, not a su
 - A mapping candidate's `molecule_snapshot` is a *file* record (`files`, `atom_order_sha256`), not a molecule record: no id for `CGNames` to resolve.
 - A hydroxyl oxygen has TWO neighbours once its hydrogen counts. Any check saying otherwise undercounts every sugar fragment; cost a wrong diagnosis twice.
 - Relative + absolute paths both matter: the fast tier runs from the repository root with `dashboard/.venv/bin/python`.
-- `/api/jobs` pages at 20 (limit capped 100), newest first. Anything filtering the job list (panel, driver, script) must pass `?limit=`. Never print that endpoint to a terminal: 38 jobs is >1 MB.
+- `/api/jobs` pages at 20 (limit capped 100), newest first, and takes `?run_type=` (validated against `protocol.RUN_TYPES`); the Run view and Osmotic panels read their scope that way rather than narrowing a page in the browser. Anything filtering the job list (panel, driver, script) must pass `?limit=`. Never print that endpoint to a terminal: the full record shape carries `analyses[].outputs`, so the whole list runs to megabytes.
+- **The osmotic run type is one run owning N concentrations**, listed in `settings.molalities` and gated to sugars; each concentration gets its own directory and its own checkpoint (resumed with `gmx mdrun -cpi`), and `series_on_failure` is `carry_on` or `stop`. The old one-concentration shape (`osmotic_molality`) is removed from the vocabulary, so it cannot be rebuilt by accident.
+- A pdc run that asks for `prepare_protein` refuses **by name** when `pdb2pqr` is not resolvable, but `pdc.readiness` reports it as a **check**, not a blocker: a run that does not ask for the step needs nothing there.
 - A run's `md.log` may be empty when it died violently; LINCS warnings + the segfault are in `logs/<stage>.log`; frame-by-frame evidence in the stage's `md.edr` (`gmx energy`). A long production's progress is in `stages/06_production/run.log`, and its step lines need `tr '\r' '\n'` before `grep` sees them.
 - The surfaces analysis publishes a self-contained ~7 MB HTML. Serve via `/api/jobs/<id>/artifacts/<run-relative-path>?inline=1` -- the route sets a sandboxed CSP on `.html` permitting inline scripts + eval, which the Plotly scene needs. Build the URL from the path the API returned, never from a filesystem path.
 - Hermes cron: a job recurs forever unless something stops it; `hermes cron remove` needs `-p <profile>`; a no-agent job's empty stdout delivers nothing (the watchdog pattern).
@@ -89,14 +100,14 @@ Sucrose diagnostic records in the operations note = preserved examples, not a su
 
 ## Verify
 ```
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q     # fast tier: 1617, ~30 s
-dashboard/.venv/bin/python -m pytest -m browser -q -n 6                   # browser tier: 166, ~85 s
-dashboard/.venv/bin/python -m pytest -m slow -q -n 0                      # slow tier: 7
-dashboard/.venv/bin/python -m ruff check dashboard tests                  # gate: F, E9, I must exit 0
+dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q     # fast tier: 1,658, ~33 s
+dashboard/.venv/bin/python -m pytest -m browser -q -n 6                   # browser tier: 173, ~85 s
+dashboard/.venv/bin/python -m pytest -m slow -q -n 0                      # slow tier: 7, ~20 s
+dashboard/.venv/bin/ruff check dashboard tests                            # gate: F, E9, I must exit 0
 ```
-Suite = 1,790 tests (1,617 fast + 166 browser + 7 slow), measured 2026-10-14. The browser tier runs at `-n 6` on this
-box's 72 cores; the fast tier at `-n 8` in ~30 s.
-Repo-wide `ruff check .` exits 1 on the ~23 pre-existing `micelle/` findings, unchanged.
+Suite = 1,838 tests (1,658 fast + 173 browser + 7 slow), measured 2026-10-15. The browser tier runs at `-n 6` on this
+box's 72 cores; the fast tier at `-n 8` (pytest.ini's `addopts`) in ~33 s.
+Repo-wide `ruff check .` exits 1 on the 19 pre-existing `micelle/` findings, unchanged.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
