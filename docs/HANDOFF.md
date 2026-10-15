@@ -3,8 +3,55 @@
 State, measurements and open items for this repository. `AGENTS.md` holds the rules; this holds the record they were
 derived from. Read it before starting work on the DDM CG chain, the crons or the coordinator.
 
+## Landed 2026-10-15: the gate, the mutation signal, and 29 property tests
+
+**The local gate the docs kept naming now exists.** This file's "no CI" row named `gate_commit.sh` as the
+repository's enforcement, and no such file was anywhere in the tree -- so nothing blocked a red commit and nothing
+named one. `scripts/gate_commit.sh <message-file> <paths...>` is that mechanism (`c6ec468`): it runs the fast tier
+and captures each status from the command itself rather than from a pipeline, gives `ruff` only the `.py` paths
+that still exist (a template parses as Python; a deleted path arrives as `E902`), stages exactly the named paths
+with `git add -A --`, and commits with `git commit -F <message-file>`. Proven both ways before it landed: a file
+with an unused import is refused with `gate: NOT committing (pytest 0, ruff 1)` and nothing staged. It earned its
+keep in the same session by refusing `test_properties_mapping_schema.py` for an unused `pytest` import.
+
+**There is a mutation signal, confined to `analysis/` and the adapters.** `scripts/mutation_check.py` with
+`scripts/mutants.json` (`901920a`) applies one mutation at a time, runs the test selection that mutant names, and
+reports caught or survived -- eleven mutants, about four seconds each. Measured: **10 caught, 1 survived, 0 error,
+0 stale**. The survivor is the control, a mutant whose replacement is its own target: a harness that cannot report
+a survivor cannot tell "the tests caught this" from "the selection never ran". Three safeguards, one per way the
+instrument could lie -- a target that does not occur exactly once is `stale` and fails the run; the file is
+restored and the restore verified by hash; a module with an uncommitted change is refused rather than restored
+over.
+
+**What it found on its first run: the run card's range boundary was unpinned** (`2791f76`). Flipping
+`aa.min <= cg.mean <= aa.max` to the strict form survived the whole fast tier, because every other fixture in
+`unit/test_consistency_report.py` sits strictly inside the range or strictly outside it. The range is closed, and
+the new test asserts both ends with values exact in binary (0.25, 0.5), so the comparison is *on* the boundary
+rather than near it.
+
+**Property tests, and the one defect the first of them found** (`ed5b2ab`). Three files under
+`tests/dashboard/unit/`: `test_properties_mapping_schema.py` (arbitrary bodies; the ring-scale range from both
+ends; the name and bead-count bounds measured after `strip()`), `test_properties_terms.py` (a written term read
+back at every length; arbitrary text as well-formed or absent beads; the linkage's spread recomputed from the
+result's own per-molecule means), `test_properties_mdp.py` (every key exactly once -- the `doubly defined`
+refusal -- every value back through `cg._mdp_value`, the timestep on the atomistic half only, the barostat never
+stamped). The validator property found the defect: `check_schema` read `data.get('representation_mode')` *before*
+the isinstance test meant to refuse a non-dict, so that test was dead code and a list or `None` came back as an
+`AttributeError` where the contract is the `ValueError` a route turns into a 400 -- latent rather than live, since
+every mapping route goes through `routes/common.json_object`, which answers 400 first. `hypothesis>=6,<7` is
+declared in `requirements-dashboard-tests.txt`.
+
+**State, measured 2026-10-15.** Tests: fast tier **1,687 passed** in ~30 s, browser **173** in ~85 s, slow **7**
+in ~19 s, **1,867 collected**; `ruff check dashboard tests` exits 0, repo-wide `ruff check .` exits 1 on the 19
+pre-existing `micelle/` findings. Branch **432 commits ahead of `origin/main`**, HEAD `2791f76`, tree clean apart
+from the untracked reference assets. Store: **8 jobs, all completed** (6 `aa_only`, 2 `aa_cg`) and **5 saved
+mapping candidates**. Coordinator on `http://127.0.0.1:5000`, pid 280798, started 2026-10-14 18:27, logging to
+`~/.hermes/profiles/moldym/cache/scratch/dashboard-1827.log`. **No cron jobs are scheduled**: profile `moldym`'s
+store holds zero (`jobs.json` emptied 2026-10-14 10:23), the last firing in `executions.db` is 2026-10-13 13:04,
+and `hermes -p moldym cron list` answers "No scheduled jobs" -- see the cron section and the open items below.
+
 ## Where things stand (2026-10-05, linkage and surfaces work)
-Tree clean except untracked reference assets: vendored M3-Lipid duplicates, `.git-upstream/`, the user's PDFs. **The M3-Lipid set stays untracked by the user's instruction. Do not tidy it into the index.** Nothing pushed since pre-refactor baseline `e0504a3`. The branch is 426 commits ahead of `origin/main`, HEAD `fe30ef2`.
+Tree clean except untracked reference assets: vendored M3-Lipid duplicates, `.git-upstream/`, the user's PDFs. **The M3-Lipid set stays untracked by the user's instruction. Do not tidy it into the index.** Nothing pushed since pre-refactor baseline `e0504a3`. The branch is 426 commits ahead of `origin/main`, HEAD `fe30ef2` -- both **as of this 2026-10-05 snapshot**; measured on 2026-10-15 it is 432 / `2791f76`, in the section above.
 
 ## Landed 2026-10-12 → 2026-10-14: the protein-detergent chain and the run view
 **The protein-detergent chain is a real pipeline now.** `execution/adapters/pdc.py` owns ten stages and runs its own `pdc_*.sh` scripts rather than the CG half's: Protein preparation (optional PDB2PQR rebuild+protonation, `prepare_protein`, off by default, skippable), System preparation, Energy minimisation, NVT equilibration, NPT equilibration, **CG assessment MD (production only — it reads `../4_npt/`, so the chain no longer equilibrates twice)**, Micelle assessment, CG extension MD, Final assessment, Back-mapping (CG2AT2, a toggle). The three equilibration legs run `resources/templates/protein_detergent/{minimisation,nvt,npt}.mdp` (`pdc.LEGS`), and only `1_system/prepare_system.sh` plus those legs are filled at prepare time (`pdc.GENERATED_STAGES`). The prepare step's rules live in `execution/adapters/pdc_preparation.py` (measured on 4iar: 20 of 928 beads were `nan`, 312 missing atoms across 25 residues).
@@ -106,32 +153,67 @@ Restart the coordinator after that arm completes. The user asked for this explic
 - `ff_inter` is fitted at 303 K (`cg.fit_temperature` rounds the run's 303.15 for an int argument) and the thermostats are at 303.15 K, so the fit and the simulation agree.
 - `-constraints 10000` (`75029f0`) is Fast_Forward's own default and it matters. A bond fitted above it becomes a rigid constraint, which is how DDM's inter-ring link (fitted at 12964.8) became rigid while maltose's (2985.6) stayed flexible.
 
-## The four crons are quiet, and one of them removes itself
+## The four crons are quiet, and one of them removes itself -- **and as of 2026-10-15 not one of them is scheduled**
+
+**Measured on 2026-10-15: profile `moldym` holds zero jobs.** `~/.hermes/profiles/moldym/cron/jobs.json` reads
+`{"jobs": [], "updated_at": "2026-10-14T10:23:23"}` -- the store was emptied on 14 October at 10:23 -- the newest
+row in `cron/executions.db` is a firing of an unnamed job at 2026-10-13 13:04, `cron/output/` holds no files at
+all, and `hermes -p moldym cron list` answers "No scheduled jobs in profile 'moldym'". Nothing is driving a chain,
+and nothing will re-create one on its own: the record below describes what these four did while they existed, and
+it is evidence about them, not about the tree today. The consequence for the DDM item is that the CG arm
+`ddm-200ns-chain` was built to queue **was never queued** -- the 200 ns reference `dbc366ae772b` is `completed` in
+the store and no CG consumer of it exists in either the store or `workspace/dashboard/runs/`. Re-creating a driver
+is a decision for the user, not a repair to make silently (see the open items).
+
+What the four did while they ran:
+
 `e3-chain` (`71a071938314`), `ddm-fit-chain` (`b4d8dfb2c7b8`) and `pdc-empty-micelle` (`eecb5a6b759f`) fire every 10 minutes with no LLM. All three print nothing when they have nothing to do, verified by hand with `--verbose` and by reading their tick files; the pdc one used to print a line every tick. All three also read `/api/jobs` unpaged until an earlier session, so `e3-chain` could not see the maltose runs and reported "nothing to do" for a step it never looked at. They page to `total` now. The driver that POSTs a comparison additionally guards on a completed attempt existing, because the analysis memo key moves with any code change and a re-POST would rebuild it every tick.
 
 `ddm-200ns-chain` (`42fbd11d10c5`, every 30 minutes) is the fourth and the only temporary one. A scheduled job recurs forever by default, so it takes itself off the schedule once it has done its one thing, and it reports and removes itself if the reference failed or has written nothing for six hours. A busy queue is the one case it stays for. Removal is `hermes -p moldym cron remove <id>`; **the profile flag is required**, because without it the command targets the default profile's own store and would not find the job. The result is verified against the store, with a loud line naming the command if it did not take.
 
 ## The coordinator
-`http://127.0.0.1:5000`, concurrency 2 (`config/dashboard.json`), restarted for each Python change. Measured from `workspace/dashboard/jobs.sqlite3` on 2026-10-15: **8 jobs, all completed** (6 `aa_only`, 2 `aa_cg`) and **6 saved mapping candidates**. (The figure this section carried earlier — 38 jobs, 13 completed — described a workspace that no longer exists.) Log at `/home/wee/.hermes/profiles/moldym/cache/scratch/coordinator-run.log`.
+`http://127.0.0.1:5000`, concurrency 2 (`config/dashboard.json`), restarted for each Python change. Measured from `workspace/dashboard/jobs.sqlite3` on 2026-10-15: **8 jobs, all completed** (6 `aa_only`, 2 `aa_cg`) and **5 saved mapping candidates** -- the sixth was the stray head-only candidate, deleted through `DELETE /api/mappings/drafts/<name>` on 2026-10-15 with a byte-exact copy of it kept at `~/.hermes/profiles/moldym/cache/scratch/mapping_candidate_d17dac35a91a40ada85301877e70a7d1.json` (sha256 `4fdb9c92…`, the file's own). (The figure this section carried earlier — 38 jobs, 13 completed — described a workspace that no longer exists.)
 
-Worth keeping: the four E3 runs, `2321ee23a536` (the DDM AA reference `dbc366ae772b` supersedes), `8a73fe6448f2` (pdc completed end to end), the six DDM arms above, and the two BARTENDER attempts that produced results (`a2a457cf9413` task `9a0d4e97180a`, `1322f9e0782e` task `f840a2186aaf`). The arms are the record of what was eliminated, so they are evidence even though every one failed. Ignore the failed pdc probes and the two earlier failed DDM `aa_cg` runs from 30 September.
+**The process, measured 2026-10-15 16:40: pid 280798, started 2026-10-14 18:27, `PPID` 1 (the shell that launched it is gone), cwd the repository root, and it logs to `/home/wee/.hermes/profiles/moldym/cache/scratch/dashboard-1827.log`.** It is serving code whose every file predates it (the newest is `pdc_preparation.py` at 18:19, the process at 18:27), so no restart is owed. The path this section used to name, `…/scratch/coordinator-run.log`, is a stale file from an earlier process -- it stops at 2026-10-13 13:04 -- and a reader who tails it concludes the dashboard is dead.
+
+**Most of that list no longer exists, and saying so is the point of this paragraph.** Measured on 2026-10-15 with `find workspace/dashboard/runs -name "*<id>*"` and a query against `jobs.sqlite3`: the runs that survive are the eight the store still holds -- the four E3 runs (`a2a457cf9413`, `22075892b606`, plus the two AA references `a54ac8f64710`, `0bfa1a39ef76`), the two earlier sucrose runs (`13ba0a087fad`, `03875cf39790`), the second AA reference (`38f54e67f13d`), and `dbc366ae772b` (the 200 ns DDM reference). Gone from both the store and the disk: `2321ee23a536`, `8a73fe6448f2` (the pdc run that completed end to end), every one of the six DDM arms (`860eb013a82c`, `e08dc53410f9`, `6404c3951674`, `207ff34ce8bc`, `5bb303eb9ff5`, `c48c50265874`), and `1322f9e0782e` -- the BARTENDER run whose fitted link is quoted throughout the arms section above. Their numbers remain evidence about what the old code did; their directories do not exist to re-read, and a lost record has no substitute, so do not go looking for them in a later session and do not rebuild a file at the same path to stand in for one.
 
 **`8a73fe6448f2`'s system is void for geometry.** It was built while `detergent_cg.bead_centres` divided by ten. Every DDM arm dies before any production sampling, so their coordinates are evidence about the failure and about nothing else.
 
 ## Still open
-| item | state |
+
+Checked against the tree, the live store and the running app on 2026-10-15. A row that was paid, or that was never
+true, is marked rather than carried forward.
+
+| item | state (2026-10-15) |
 | --- | --- |
-| the DDM CG run, Task 2.4 | arm in flight. Six arms failed with a stochastic onset; the six candidate causes above are eliminated. `dbc366ae772b`'s CG arm is the first run whose parameters come from a 200 ns sample, and it is the current test |
-| the tail-off control | superseded. It cannot be a mapping edit: the validator refuses a candidate that leaves heavy atoms unmapped ("Missing heavy atoms: 1 ... 12" for the dodecyl chain). It needs DDM's head as a molecule of its own, with its own AA topology. The user set it aside on 2026-10-05 |
-| Phase 4: sucrose and maltose sources | `resources/validation/carbohydrates/targets-v1.json` is still `metadata_only` for both; lead is `10.1016/j.carres.2004.12.038`. The user deferred this on 2026-10-05 |
-| pdc phases C-E | the pipeline runs end to end and the panel queues it. C is the contact-graph criterion and retry policy, since nothing judges whether the detergents contact the protein. D is back-mapping, the biggest of the three; CG2AT2 is not vendored yet. E is documentation |
-| D1's other half | the run card does deep-link the tab with the run preselected, and a browser test pins it. What is missing is the numbered line D1 asked for, "CG 4 of 6 ring distances inside the AA spread", which is a bare button today |
-| the iterative mapping refinement panel | README, five planned increments, none started: reference import, controlled variant generation, evidence execution, transparent ranking, human review gate |
+| the DDM CG run, Task 2.4 | **stalled, not "in flight".** Six arms failed with a stochastic onset and the six candidate causes are eliminated. `dbc366ae772b` -- the 200 ns reference the matched-sampling arm consumes -- is `completed`, its CG consumer was never queued, and **no driver is scheduled** (see the crons section). The question the item exists to answer, whether the fitted-parameter difference was the sampling, is therefore unanswered and nothing is advancing it. The user's decision: re-create the one chain driver, or write the item off |
+| the tail-off control | superseded. Not a mapping edit: the validator refuses a candidate that leaves heavy atoms unmapped ("Missing heavy atoms: 1 ... 12" for the dodecyl chain), so it needs DDM's head as a molecule of its own with its own AA topology. The user set it aside 2026-10-05 |
+| Phase 4: sucrose and maltose sources | `resources/validation/carbohydrates/targets-v1.json` still carries `availability: metadata_only` for both entries (re-read 2026-10-15); lead is `10.1016/j.carres.2004.12.038`. Deferred by the user 2026-10-05 |
+| pdc phase C, the retry half | the contact rule **exists**: `micelle/validation.assess_micelle` builds the tail-bead contact graph, judges the largest cluster against the aggregation number, and reports `protein_contact_count` with its own stated limitation. What does not exist anywhere is a retry policy -- `grep retry` over `pdc_assessment.py`, `pdc_assess.py` and `micelle/validation.py` finds nothing |
+| pdc phase D, back-mapping | **paid, and the earlier row was wrong.** CG2AT2 is vendored under `tools/cg2at/` (a clone dated 2026-09-30, `cg2at -> database/bin/cg2at.py`) and `dashboard/execution/scripts/pdc_backmap.sh` drives it; `docs/PROJECT_GUIDE.md:258` says the same. The sentence "CG2AT2 is not vendored yet" described the tree before that clone |
+| pdc phase E | documentation; the pdc depth reference is `references/pdc-workflow.md`. Nothing else is claimed open here |
+| D1's other half | **paid.** `runs.js:consistencyLine` renders the numbered line -- "Consistency: CG 6 of 6 ring distances inside the AA observed range" -- off the `consistency` field `/api/jobs` already carries, measured on both `aa_cg` runs as `{'compared': 6, 'outside': 0, 'pairs': 6}`. D1 asked for "inside the AA *spread*"; the card says *range* deliberately, because the spread is the cross-molecule comparison on the mapping-validation tab. A browser test pins the line |
+| the iterative mapping refinement panel | **partly built, not "none started".** `/api/refinement/reviews`, `/api/refinement/variants` and the `refinement-score` analysis kind exist (landed 2026-09-24/25) -- increments 1, 2 and 4's artefact. Increment 3 (evidence execution) and 5 (the human review gate) have no code, and `grep -rn refinement dashboard/web/static` is empty: there is no panel |
 | the micelle builder | paused at the user's request; `micelle/` is a partial skeleton and explicitly not a validated model |
-| **no CI** | there is no `.github/workflows`. Enforcement is `gate_commit.sh`, a local script that runs the fast tier and ruff on named paths and blocks the commit. The browser and slow tiers run only when named; the gate reports the browser tier on front-end paths (`-n 6`) but does not gate on it |
-| **no coverage or mutation signal** | 1,261 fast-tier tests with no signal on which are load-bearing. Mutation testing confined to `analysis/` and the adapters is the high-value use; three mutations on freshly written tests, three caught, in about a minute |
-| **no property-based tests** | the mapping-schema validator, the MDP writer and the published-artifact readers are the fuzzable surfaces, including the regex that parses a term's beads (`"(1,A) - (1,B) - (2,A)"`) |
-| a stray mapping candidate | `mapping_candidate_d17dac35a91a40ada85301877e70a7d1.json` is the head-only mapping built for the tail-off control. The validator refuses it for DDM runs, so it is inert, but it shows in the candidate picker. Delete it or keep it for the head-only molecule |
+| **no CI** | still no `.github/workflows` -- the path does not exist. Enforcement is now real rather than named: `scripts/gate_commit.sh` (`c6ec468`) runs the fast tier and `ruff` over the named paths, stages only those paths, and blocks on any finding. The browser and slow tiers still run only when named |
+| **no coverage signal** | no coverage configuration and no per-line signal on which tests are load-bearing. Unchanged |
+| **a mutation signal exists, and it is narrow** | `scripts/mutation_check.py` + `scripts/mutants.json` (`901920a`): 11 mutants confined to `analysis/` and the adapters, 10 caught, 1 survived (the control), about 4 s each. Extending the list is the next work here |
+| **property-based tests** | three files landed (`ed5b2ab`): the mapping validator, the term reader and the MDP writer. Still unfuzzed: the published-artifact readers beyond `term_beads`, the export writers, and `pdc_placement`'s geometry |
+| a stray mapping candidate | **closed 2026-10-15.** Deleted through `DELETE /api/mappings/drafts/<name>`; a byte-exact copy is kept at `~/.hermes/profiles/moldym/cache/scratch/mapping_candidate_d17dac35a91a40ada85301877e70a7d1.json` (sha256 `4fdb9c92…`) in case the head-only molecule is ever built. 5 candidates remain |
+
+## Closed 2026-10-15
+- The local gate the "no CI" row named exists: `scripts/gate_commit.sh`, proven refusing a red ruff and landing the
+  commit after it (`c6ec468`).
+- A mutation signal, confined to `analysis/` and the adapters, with a control that survived (`901920a`).
+- 29 tests: 28 property tests over the validator, the term reader and the MDP writer, plus the range-boundary test
+  the mutation check asked for (`ed5b2ab`, `2791f76`).
+- The validator's dead type check, which raised `AttributeError` for a non-dict body instead of the `ValueError` a
+  route turns into a 400 (`ed5b2ab`).
+- The stray head-only mapping candidate, deleted through the route with a copy kept (`d17dac35…`).
+- Three rows of this file that were wrong: D1's numbered line (present), CG2AT2 (vendored), the refinement panel
+  (partly built). Two more that had gone stale without being paid: the fast-tier count and the cron list.
+
 
 ## Closed 2026-10-12
 - The suffix `pyproject.toml` measurement ("79.3 s serial / 19.6 s with these flags") is gone from that file.
