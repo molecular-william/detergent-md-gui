@@ -1,7 +1,7 @@
 # Handoff and history
 
 State, measurements and open items for this repository. `AGENTS.md` holds the rules; this holds the record they were
-derived from. Read it before starting work on the DDM CG chain, the crons or the coordinator.
+derived from. Read it before starting work on the DDM CG chain or the coordinator.
 
 ## Landed 2026-10-15: the gate, the mutation signal, and 29 property tests
 
@@ -53,9 +53,8 @@ in ~19 s, **1,867 collected**; `ruff check dashboard tests` exits 0, repo-wide `
 pre-existing `micelle/` findings. Branch **432 commits ahead of `origin/main`**, HEAD `2791f76`, tree clean apart
 from the untracked reference assets. Store: **8 jobs, all completed** (6 `aa_only`, 2 `aa_cg`) and **5 saved
 mapping candidates**. Coordinator on `http://127.0.0.1:5000`, pid 280798, started 2026-10-14 18:27, logging to
-`~/.hermes/profiles/moldym/cache/scratch/dashboard-1827.log`. **No cron jobs are scheduled**: profile `moldym`'s
-store holds zero (`jobs.json` emptied 2026-10-14 10:23), the last firing in `executions.db` is 2026-10-13 13:04,
-and `hermes -p moldym cron list` answers "No scheduled jobs" -- see the cron section and the open items below.
+`~/.hermes/profiles/moldym/cache/scratch/dashboard-1827.log`. **No cron jobs are scheduled and none is to be rebuilt** -- the user cancelled
+the scheduled drivers on 2026-10-15 (see the cancellation note below).
 
 ## Where things stand (2026-10-05, linkage and surfaces work)
 Tree clean except untracked reference assets: vendored M3-Lipid duplicates, `.git-upstream/`, the user's PDFs. **The M3-Lipid set stays untracked by the user's instruction. Do not tidy it into the index.** Nothing pushed since pre-refactor baseline `e0504a3`. The branch is 426 commits ahead of `origin/main`, HEAD `fe30ef2` -- both **as of this 2026-10-05 snapshot**; measured on 2026-10-15 it is 432 / `2791f76`, in the section above.
@@ -148,7 +147,10 @@ One column separates DDM from all three stable molecules: the **sample size**. E
 
 Measured cost: the short reference ran at 676.9 and 590.5 ns/day in this box. The long one has been running at ~1250 ns/day.
 
-**`ddm-200ns-chain` (`42fbd11d10c5`, every 30 minutes, no LLM)** waits for it, then queues the CG arm that consumes it as its reference (`mapping_candidate_2bcc24c3e5f149fab1e4f11f5d80ae0e.json`, label "DDM CG from the 200 ns reference (matched sampling), published protocol, 20 ns"). **That arm is the first DDM run whose parameters were fitted from a 200 ns sample.** It either resolves the question or rules the sampling out. The job removes itself once it has acted; that path was exercised for real (created, removed, confirmed absent through `hermes -p moldym cron list`, recreated). Its output is `local`, so read it with `hermes -p moldym cron runs`.
+The CG arm that consumes this reference -- `mapping_candidate_2bcc24c3e5f149fab1e4f11f5d80ae0e.json`,
+"DDM CG from the 200 ns reference (matched sampling), published protocol, 20 ns" -- was **never queued**: the
+scheduled driver that was to queue it is cancelled, so queueing it is a deliberate manual act now, and the item it
+served is written off below.
 
 Restart the coordinator after that arm completes. The user asked for this explicitly: the running process still held the Python module from before `cdb2ccc` and `767c90d`, so the linkage card and the envelope card showed their empty states. It was deferred so as not to orphan the 200 ns run's subprocess group; the window between the reference finishing and the CG arm starting is the natural seam. A later session restarted it, and both cards render since.
 
@@ -160,23 +162,14 @@ Restart the coordinator after that arm completes. The user asked for this explic
 - `ff_inter` is fitted at 303 K (`cg.fit_temperature` rounds the run's 303.15 for an int argument) and the thermostats are at 303.15 K, so the fit and the simulation agree.
 - `-constraints 10000` (`75029f0`) is Fast_Forward's own default and it matters. A bond fitted above it becomes a rigid constraint, which is how DDM's inter-ring link (fitted at 12964.8) became rigid while maltose's (2985.6) stayed flexible.
 
-## The four crons are quiet, and one of them removes itself -- **and as of 2026-10-15 not one of them is scheduled**
-
-**Measured on 2026-10-15: profile `moldym` holds zero jobs.** `~/.hermes/profiles/moldym/cron/jobs.json` reads
-`{"jobs": [], "updated_at": "2026-10-14T10:23:23"}` -- the store was emptied on 14 October at 10:23 -- the newest
-row in `cron/executions.db` is a firing of an unnamed job at 2026-10-13 13:04, `cron/output/` holds no files at
-all, and `hermes -p moldym cron list` answers "No scheduled jobs in profile 'moldym'". Nothing is driving a chain,
-and nothing will re-create one on its own: the record below describes what these four did while they existed, and
-it is evidence about them, not about the tree today. The consequence for the DDM item is that the CG arm
-`ddm-200ns-chain` was built to queue **was never queued** -- the 200 ns reference `dbc366ae772b` is `completed` in
-the store and no CG consumer of it exists in either the store or `workspace/dashboard/runs/`. Re-creating a driver
-is a decision for the user, not a repair to make silently (see the open items).
-
-What the four did while they ran:
-
-`e3-chain` (`71a071938314`), `ddm-fit-chain` (`b4d8dfb2c7b8`) and `pdc-empty-micelle` (`eecb5a6b759f`) fire every 10 minutes with no LLM. All three print nothing when they have nothing to do, verified by hand with `--verbose` and by reading their tick files; the pdc one used to print a line every tick. All three also read `/api/jobs` unpaged until an earlier session, so `e3-chain` could not see the maltose runs and reported "nothing to do" for a step it never looked at. They page to `total` now. The driver that POSTs a comparison additionally guards on a completed attempt existing, because the analysis memo key moves with any code change and a re-POST would rebuild it every tick.
-
-`ddm-200ns-chain` (`42fbd11d10c5`, every 30 minutes) is the fourth and the only temporary one. A scheduled job recurs forever by default, so it takes itself off the schedule once it has done its one thing, and it reports and removes itself if the reference failed or has written nothing for six hours. A busy queue is the one case it stays for. Removal is `hermes -p moldym cron remove <id>`; **the profile flag is required**, because without it the command targets the default profile's own store and would not find the job. The result is verified against the store, with a loud line naming the command if it did not take.
+## The cron drivers: cancelled by the user, 2026-10-15
+The scheduled drivers are cancelled and every mention of them has been removed from this file and from the skill.
+Nothing is scheduled, checked today: `~/.hermes/profiles/moldym/cron/jobs.json` reads `{"jobs": []}`, `cron/output/`
+holds no files, and `hermes -p moldym cron list` answers "No scheduled jobs in profile 'moldym'". **Do not rebuild
+one.** What they were, in one line: a no-LLM job that woke on a timer, asked the live API what already existed,
+queued only the next thing that did not, and took itself off the schedule when finished. The narration of what each
+one did went with them, deliberately -- what survives that matters is that the DDM arm one of the four existed to
+queue was never queued, and that item is written off below.
 
 ## The coordinator
 `http://127.0.0.1:5000`, concurrency 2 (`config/dashboard.json`), restarted for each Python change. Measured from `workspace/dashboard/jobs.sqlite3` on 2026-10-15: **8 jobs, all completed** (6 `aa_only`, 2 `aa_cg`) and **5 saved mapping candidates** -- the sixth was the stray head-only candidate, deleted through `DELETE /api/mappings/drafts/<name>` on 2026-10-15 with a byte-exact copy of it kept at `~/.hermes/profiles/moldym/cache/scratch/mapping_candidate_d17dac35a91a40ada85301877e70a7d1.json` (sha256 `4fdb9c92…`, the file's own). (The figure this section carried earlier — 38 jobs, 13 completed — described a workspace that no longer exists.)
@@ -194,14 +187,14 @@ true, is marked rather than carried forward.
 
 | item | state (2026-10-15) |
 | --- | --- |
-| the DDM CG run, Task 2.4 | **stalled, not "in flight".** Six arms failed with a stochastic onset and the six candidate causes are eliminated. `dbc366ae772b` -- the 200 ns reference the matched-sampling arm consumes -- is `completed`, its CG consumer was never queued, and **no driver is scheduled** (see the crons section). The question the item exists to answer, whether the fitted-parameter difference was the sampling, is therefore unanswered and nothing is advancing it. The user's decision: re-create the one chain driver, or write the item off |
+| the DDM CG run, Task 2.4 | **written off by the user, 2026-10-15.** Six arms failed with a stochastic onset and the six candidate causes are eliminated. `dbc366ae772b` -- the 200 ns reference the matched-sampling arm consumes -- is `completed`; that arm was never queued, its driver is cancelled, and no schedule may be rebuilt. The sampling question stays answered by the cheaper resampling control: a stable sugar cut into 2,001-frame windows reproduced DDM's fitted link (mean 2.7776, sigma 0.1546 against 2.7763/0.1563) |
 | the tail-off control | superseded. Not a mapping edit: the validator refuses a candidate that leaves heavy atoms unmapped ("Missing heavy atoms: 1 ... 12" for the dodecyl chain), so it needs DDM's head as a molecule of its own with its own AA topology. The user set it aside 2026-10-05 |
 | Phase 4: sucrose and maltose sources | `resources/validation/carbohydrates/targets-v1.json` still carries `availability: metadata_only` for both entries (re-read 2026-10-15); lead is `10.1016/j.carres.2004.12.038`. Deferred by the user 2026-10-05 |
 | pdc phase C, the retry half | the contact rule **exists**: `micelle/validation.assess_micelle` builds the tail-bead contact graph, judges the largest cluster against the aggregation number, and reports `protein_contact_count` with its own stated limitation. What does not exist anywhere is a retry policy -- `grep retry` over `pdc_assessment.py`, `pdc_assess.py` and `micelle/validation.py` finds nothing |
 | pdc phase D, back-mapping | **paid, and the earlier row was wrong.** CG2AT2 is vendored under `tools/cg2at/` (a clone dated 2026-09-30, `cg2at -> database/bin/cg2at.py`) and `dashboard/execution/scripts/pdc_backmap.sh` drives it; `docs/PROJECT_GUIDE.md:258` says the same. The sentence "CG2AT2 is not vendored yet" described the tree before that clone |
 | pdc phase E | documentation; the pdc depth reference is `references/pdc-workflow.md`. Nothing else is claimed open here |
 | D1's other half | **paid.** `runs.js:consistencyLine` renders the numbered line -- "Consistency: CG 6 of 6 ring distances inside the AA observed range" -- off the `consistency` field `/api/jobs` already carries, measured on both `aa_cg` runs as `{'compared': 6, 'outside': 0, 'pairs': 6}`. D1 asked for "inside the AA *spread*"; the card says *range* deliberately, because the spread is the cross-molecule comparison on the mapping-validation tab. A browser test pins the line |
-| the iterative mapping refinement panel | **partly built, not "none started".** `/api/refinement/reviews`, `/api/refinement/variants` and the `refinement-score` analysis kind exist (landed 2026-09-24/25) -- increments 1, 2 and 4's artefact. Increment 3 (evidence execution) and 5 (the human review gate) have no code, and `grep -rn refinement dashboard/web/static` is empty: there is no panel |
+| the iterative mapping refinement panel | **cancelled by the user, 2026-10-15.** The human review gate made the workflow more complicated than the decision it supported. No panel is built and no further increment is planned. What was already landed stays: `/api/refinement/reviews`, `/api/refinement/variants` and the `refinement-score` analysis kind, all from 2026-09-24/25, reachable and tested. Deleting them is a separate decision, not implied by this one |
 | the micelle builder | paused at the user's request; `micelle/` is a partial skeleton and explicitly not a validated model |
 | **no CI** | still no `.github/workflows` -- the path does not exist. Enforcement is `gate_commit.sh`: the script has lived in Hermes's skill directory since 2026-10-12 (and the skill's `references/verification-and-commit-gates.md` documents it), and as of 2026-10-15 the repository carries its own copy at `scripts/gate_commit.sh` (`c6ec468`) so a reader inside the repo can run it. It runs the fast tier and `ruff` over the named paths, stages only those paths, blocks on any finding, and reports the browser tier without gating on it. The browser and slow tiers still run only when named |
 | **no coverage signal** | no coverage configuration and no per-line signal on which tests are load-bearing. Unchanged |
@@ -219,7 +212,10 @@ true, is marked rather than carried forward.
   route turns into a 400 (`ed5b2ab`).
 - The stray head-only mapping candidate, deleted through the route with a copy kept (`d17dac35…`).
 - Three rows of this file that were wrong: D1's numbered line (present), CG2AT2 (vendored), the refinement panel
-  (partly built). Two more that had gone stale without being paid: the fast-tier count and the cron list.
+  (the spec was withdrawn). Two more that had gone stale without being paid: the fast-tier count and the cron
+  list.
+- Two user decisions, taken on 2026-10-15 after this verification: the scheduled cron drivers were cancelled and
+  every mention of them removed; the mapping refinement panel was cancelled and its spec withdrawn.
 
 
 ## Closed 2026-10-12

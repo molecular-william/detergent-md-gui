@@ -77,20 +77,16 @@ and where the evidence for each one lives:
   observable, not a proof, so treat a future failure in `test_dashboard_browser.py` as this class
   until shown otherwise.
 
-### Iterative mapping refinement panel
-A fourth dashboard panel that manages candidate generation and evidence without changing immutable runs or silently selecting a model. It is a review queue linking a mapping candidate, its source structure/reference model, execution settings, analysis artifacts, and reviewer decision.
+### Iterative mapping refinement panel — cancelled
 
-Planned increments:
+Cancelled by the user on 2026-10-15, along with the five planned increments that
+stood here. The reason: the human review gate (increment 5) made the workflow more
+complicated than the decision it supported.
 
-1. Reference import and candidate records. Import reference CG PDB/ITP pairs; parse and preserve source files, checksums, force-field/version metadata, bead names/types, bonded terms, and any available atom-map file. Extend mapping JSON with parent_candidate, reference_sources, review_state, labels, and a revision number; revisions always create new files.
-2. Controlled candidate generation. Bounded variants from a selected draft: bead size changes obeying coverage/connectivity; local ±1 polarity variants; optional Martini d/a/e/v labels when supported; alternate boundaries from the user or inferred from the bond graph. Every generated candidate records parent, transformation, random seed (if applicable), and validation report; no draft is overwritten.
-3. Evidence execution. A short reproducible run using the existing workflow. Panel displays stage progress and links to structural validation, AA-to-CG COG error, fitted distributions, SASA and Connolly surface comparisons, topology-independent observables, numerical stability, and experimental-target residuals.
-4. Transparent ranking. Diagnostic score computed only from available, quality-checked metrics. Metric values, normalization, weights, missing-data mask, and score version persist in analysis/refinement_score.json. Rankings are labeled diagnostic; they
-cannot approve a model automatically.
-5. Human review gate. States draft, needs-review, approved-for-test, and rejected, with reviewer, timestamp, notes, and required justification for size/polarity exceptions. Approval is blocked for structural errors, unstable trajectories, missing required force-field terms, or unresolved atom correspondence.
-
-Scientific validation remains a separate decision. The panel accelerates
-review; it does not convert a high diagnostic score into a valid model.
+What was already built stays where it is — `/api/refinement/reviews`,
+`/api/refinement/variants` and the `refinement-score` run analysis, all from
+2026-09-24/25 — and no panel is planned. Do not rebuild the increments from this
+roadmap without asking first; the spec for them was withdrawn in the same decision.
 
 ## Micelle builder
 A native spherical single-detergent Martini micelle builder around membrane
