@@ -30,6 +30,7 @@ from one column, not from a per-atom colour, and the family is the one thing a b
 one class can be a polar sugar head and an apolar tail. Both are read from the same place, the moleculetype's type
 column, and `ngl-beads.js` holds the viewer's end of the same two tables.
 """
+import json
 from pathlib import Path
 
 PROTEIN_RESIDUE = 'PRO'
@@ -240,8 +241,38 @@ def topology_residue(atoms, topology: dict | None, fallback: str) -> str:
     return fallback
 
 
-def structure_pdb(path, *, topology: dict | None = None, title: str | None = None) -> str:
+def read_subunits(run_dir) -> dict[str, str]:
+    """The fragments the run's own mapping states, as `{bead name: letter}` -- `{}` when it states none.
+
+    Read from `2_mapping/model.json`, the document the panel takes its bead sizes from and the one that says which
+    beads make up which ring, so a fragment means the same thing in a file, in the record and on screen.
+    `export_name` is what the moleculetype and the trajectory call the bead, so the join needs no guessing. A run
+    whose mapping is missing or unreadable has no fragments to offer, which is a state and not an error: a picture
+    of it is written the way every picture was written before fragments existed.
+    """
+    for relative in ('2_mapping/model.json', 'stages/2_mapping/model.json'):
+        path = Path(run_dir) / relative
+        if not path.is_file():
+            continue
+        try:
+            document = json.loads(path.read_text())
+        except (OSError, ValueError):
+            return {}
+        beads = {}
+        for bead in document.get('beads') or []:
+            name = str(bead.get('export_name') or bead.get('name') or '').strip().upper()
+            letter = str(bead.get('letter') or '').strip().upper()
+            if name and letter:
+                beads[name] = letter
+        return beads
+    return {}
+
+
+def structure_pdb(path, *, topology: dict | None = None, title: str | None = None, subunits=None) -> str:
     """A run's own structure file as a PDB, with the model's own bonds where a topology is given.
+
+    `subunits` is `read_subunits(run_dir)` when the caller has it: it puts each bead's fragment in the chain
+    column, so the single structure and a frame series of the same run name their rings the same way.
 
     A `.gro` carries coordinates and no bond records, and this repository's vendored viewer infers none from a
     `.gro` whatever `inferBonds` says -- so a coarse-grained run's mapped model, drawn straight from its stage
@@ -262,7 +293,8 @@ def structure_pdb(path, *, topology: dict | None = None, title: str | None = Non
     atoms = read_gro(path)
     if not atoms:
         raise ValueError(f'{path} holds no atoms')
-    return system_pdb(atoms, detergent_residue=topology_residue(atoms, topology, atoms[0]['residue']),
+    return system_pdb(atoms, subunits=subunits,
+                      detergent_residue=topology_residue(atoms, topology, atoms[0]['residue']),
                       topology=topology, title=title or f'{path.name} - a run structure')
 
 

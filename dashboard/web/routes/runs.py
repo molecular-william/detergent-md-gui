@@ -399,7 +399,10 @@ def run_structure_api(jid):
         except (OSError, ValueError):
             moleculetype = None
     try:
-        text = pdc_view.structure_pdb(path, topology=moleculetype, title=f'{path.name} (run {jid})')
+        # The same fragments the frames carry: a reader who fits a series on one ring sees the same letters on the
+        # single structure it came from, because both are written from the run's own mapping.
+        text = pdc_view.structure_pdb(path, topology=moleculetype, subunits=pdc_view.read_subunits(run_dir),
+                                      title=f'{path.name} (run {jid})')
     except (OSError, ValueError) as error:
         abort(400, f'{path.name} could not be read for the viewer: {error}')
     return Response(text, mimetype='text/plain')

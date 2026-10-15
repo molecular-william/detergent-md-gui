@@ -57,32 +57,6 @@ def artifacts(run_dir):
     return entries
 
 
-def _run_subunits(run_dir):
-    """The fragments the run's own mapping states, as `{bead name: letter}` -- `{}` when it states none.
-
-    Read from `2_mapping/model.json`, the document the panel takes its bead sizes from too, so a ring means the
-    same thing in the file, in the record and on screen. `export_name` is what the moleculetype and the trajectory
-    call the bead, so the join needs no guessing; a run whose mapping is missing or unreadable simply has no
-    fragments to offer, and a fit on one is refused rather than silently fitted on everything.
-    """
-    for relative in (Path('2_mapping/model.json'), Path('stages/2_mapping/model.json')):
-        path = run_dir / relative
-        if not path.is_file():
-            continue
-        try:
-            document = json.loads(path.read_text())
-        except (OSError, ValueError):
-            return {}
-        beads = {}
-        for bead in document.get('beads') or []:
-            name = str(bead.get('export_name') or bead.get('name') or '').strip().upper()
-            letter = str(bead.get('letter') or '').strip().upper()
-            if name and letter:
-                beads[name] = letter
-        return beads
-    return {}
-
-
 def _fit_positions(mobile, reference, selection=None):
     """The rotation and translation that superpose `mobile` on `reference`, and the RMSD that remains.
 
@@ -378,7 +352,7 @@ def generate(run_dir, labels=('first', 'middle', 'last'), samples=SERIES_SAMPLES
             moleculetype = None
     # The run's own mapping, when it has one: which beads make up which fragment. It is read here and not in the
     # writer, because the fit needs the same grouping the file states, and two readers of one document drift.
-    subunits = _run_subunits(run_dir) if coarse else {}
+    subunits = pdc_view.read_subunits(run_dir) if coarse else {}
     indices = {'first': 0, 'middle': (n_frames - 1)//2, 'last': n_frames - 1}
     target = run_dir / 'snapshots'; target.mkdir(exist_ok=True)
     created = []

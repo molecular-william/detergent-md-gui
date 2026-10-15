@@ -114,3 +114,26 @@ def test_a_file_that_is_not_a_gro_and_a_file_that_is_not_there_are_refused(dashb
 
 def test_an_unknown_run_is_a_404(dashboard):
     assert dashboard.client.get('/api/jobs/ffffffffffff/structure?path=stages/2_mapping/mapped.gro').status_code == 404
+
+
+def test_a_runs_mapped_structure_carries_the_fragments_its_mapping_states(dashboard):
+    """The ring letters on the single structure are the ones a frame series of the same run carries.
+
+    Both are written from the run's own `2_mapping/model.json`, so a reader fitting a series on one ring sees the
+    same letter here -- one document, one set of names, whichever picture is on screen.
+    """
+    import json
+
+    root = coarse_run(dashboard)
+    mapping = root / 'stages/2_mapping/model.json'
+    mapping.write_text(json.dumps({'name': 'fixture', 'beads': [
+        {'export_name': 'B01', 'letter': 'A', 'size': 'S'}, {'export_name': 'B02', 'letter': 'A', 'size': 'S'}]}))
+
+    text = dashboard.client.get(f'/api/jobs/{JOB_ID}/structure?path={MAPPED}').get_data(as_text=True)
+
+    assert "CHAIN LETTERS CARRY THE MODEL'S OWN FRAGMENTS" in text, 'the file does not say what the letters are'
+    assert 'A 2 beads (B01, B02)' in text, text.splitlines()[0]
+    assert {line[21] for line in text.splitlines() if line.startswith('HETATM')} == {'A'}
+    mapping.unlink()
+    plain = dashboard.client.get(f'/api/jobs/{JOB_ID}/structure?path={MAPPED}').get_data(as_text=True)
+    assert 'CHAIN LETTERS' not in plain, 'a run whose mapping is gone still claims fragments'
