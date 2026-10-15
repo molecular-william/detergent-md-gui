@@ -59,6 +59,26 @@ def test_a_cg_mean_outside_the_aa_range_is_reported_as_outside():
     assert row['inside_range'] is False and row['inside_spread'] is False
 
 
+def test_a_cg_mean_exactly_on_the_aa_boundary_is_inside_the_range():
+    """The observed range is closed: a mean equal to the AA minimum or maximum is still inside it.
+
+    This case was unpinned until `scripts/mutation_check.py` asked for it -- flipping the row's `<=`
+    to `<` survived the whole fast tier, because every other fixture sits strictly inside or strictly
+    outside the range. The values are chosen to be exact in binary (0.25, 0.5), so the comparison is
+    on the boundary rather than near it: ten samples at each end is a 0.375 mean, and a constant CG
+    series reproduces either end exactly.
+    """
+    boundary = measured({PAIR_AB: [0.25] * 10 + [0.5] * 10})
+    at_minimum = consistency.compare(boundary, measured({PAIR_AB: [0.25] * 20}))[0]
+    at_maximum = consistency.compare(boundary, measured({PAIR_AB: [0.5] * 20}))[0]
+    below = consistency.compare(boundary, measured({PAIR_AB: [0.125] * 20}))[0]
+
+    assert boundary['samples'][PAIR_AB][:1] == [0.25] and boundary['samples'][PAIR_AB][-1:] == [0.5]
+    assert at_minimum['cg']['mean'] == at_minimum['aa']['min'] and at_minimum['inside_range'] is True
+    assert at_maximum['cg']['mean'] == at_maximum['aa']['max'] and at_maximum['inside_range'] is True
+    assert below['inside_range'] is False, 'a mean under the minimum is outside, so the guard is not a tautology'
+
+
 def test_a_pair_without_cg_samples_is_reported_rather_than_scored():
     cg = measured({PAIR_AC: ramp(0.49, 0.002)})
     rows = consistency.compare(AA, cg)
