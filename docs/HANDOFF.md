@@ -5,14 +5,21 @@ derived from. Read it before starting work on the DDM CG chain, the crons or the
 
 ## Landed 2026-10-15: the gate, the mutation signal, and 29 property tests
 
-**The local gate the docs kept naming now exists.** This file's "no CI" row named `gate_commit.sh` as the
-repository's enforcement, and no such file was anywhere in the tree -- so nothing blocked a red commit and nothing
-named one. `scripts/gate_commit.sh <message-file> <paths...>` is that mechanism (`c6ec468`): it runs the fast tier
-and captures each status from the command itself rather than from a pipeline, gives `ruff` only the `.py` paths
-that still exist (a template parses as Python; a deleted path arrives as `E902`), stages exactly the named paths
-with `git add -A --`, and commits with `git commit -F <message-file>`. Proven both ways before it landed: a file
-with an unused import is refused with `gate: NOT committing (pytest 0, ruff 1)` and nothing staged. It earned its
-keep in the same session by refusing `test_properties_mapping_schema.py` for an unused `pytest` import.
+**The gate the docs name exists in two places now, and the docs were right all along.** This file's "no CI" row
+named `gate_commit.sh` as the repository's enforcement; a session on 2026-10-15 first reported that script as
+absent from the machine, **and that report was wrong**. The error was a `find … -maxdepth 6`, which cannot reach
+`~/.hermes/profiles/moldym/skills/software-development/detergent-md-dashboard/scripts/gate_commit.sh` -- ten levels
+deep -- where the gate has lived since 2026-10-12 and where the skill's `references/verification-and-commit-gates.md`
+documents it, browser-tier behaviour included. What was actually true is narrower and worth keeping: **the
+repository carried no copy**, so a reader working inside the repo could not run the thing this file named.
+`scripts/gate_commit.sh` (`c6ec468`, brought to full parity in the commit that corrected this paragraph) is that
+copy: it resolves the repository from its own location so it needs no environment, captures each status from the
+command itself rather than from a pipeline, gives `ruff` only the `.py` paths that still exist (a template parses as
+Python; a deleted path arrives as `E902`), stages exactly the named paths with `git add -A --`, commits with
+`git commit -F <message-file>`, and reports the browser tier on front-end paths without gating on it. Proven both
+ways before it landed: a file with an unused import is refused with `gate: NOT committing (pytest 0, ruff 1)` and
+nothing staged; its first real use caught an unused `pytest` import in a freshly written test file. Two copies of
+one script is a trap of its own, so a behaviour change belongs in both -- or this file should name one of them.
 
 **There is a mutation signal, confined to `analysis/` and the adapters.** `scripts/mutation_check.py` with
 `scripts/mutants.json` (`901920a`) applies one mutation at a time, runs the test selection that mutant names, and
@@ -196,15 +203,15 @@ true, is marked rather than carried forward.
 | D1's other half | **paid.** `runs.js:consistencyLine` renders the numbered line -- "Consistency: CG 6 of 6 ring distances inside the AA observed range" -- off the `consistency` field `/api/jobs` already carries, measured on both `aa_cg` runs as `{'compared': 6, 'outside': 0, 'pairs': 6}`. D1 asked for "inside the AA *spread*"; the card says *range* deliberately, because the spread is the cross-molecule comparison on the mapping-validation tab. A browser test pins the line |
 | the iterative mapping refinement panel | **partly built, not "none started".** `/api/refinement/reviews`, `/api/refinement/variants` and the `refinement-score` analysis kind exist (landed 2026-09-24/25) -- increments 1, 2 and 4's artefact. Increment 3 (evidence execution) and 5 (the human review gate) have no code, and `grep -rn refinement dashboard/web/static` is empty: there is no panel |
 | the micelle builder | paused at the user's request; `micelle/` is a partial skeleton and explicitly not a validated model |
-| **no CI** | still no `.github/workflows` -- the path does not exist. Enforcement is now real rather than named: `scripts/gate_commit.sh` (`c6ec468`) runs the fast tier and `ruff` over the named paths, stages only those paths, and blocks on any finding. The browser and slow tiers still run only when named |
+| **no CI** | still no `.github/workflows` -- the path does not exist. Enforcement is `gate_commit.sh`: the script has lived in Hermes's skill directory since 2026-10-12 (and the skill's `references/verification-and-commit-gates.md` documents it), and as of 2026-10-15 the repository carries its own copy at `scripts/gate_commit.sh` (`c6ec468`) so a reader inside the repo can run it. It runs the fast tier and `ruff` over the named paths, stages only those paths, blocks on any finding, and reports the browser tier without gating on it. The browser and slow tiers still run only when named |
 | **no coverage signal** | no coverage configuration and no per-line signal on which tests are load-bearing. Unchanged |
 | **a mutation signal exists, and it is narrow** | `scripts/mutation_check.py` + `scripts/mutants.json` (`901920a`): 11 mutants confined to `analysis/` and the adapters, 10 caught, 1 survived (the control), about 4 s each. Extending the list is the next work here |
 | **property-based tests** | three files landed (`ed5b2ab`): the mapping validator, the term reader and the MDP writer. Still unfuzzed: the published-artifact readers beyond `term_beads`, the export writers, and `pdc_placement`'s geometry |
 | a stray mapping candidate | **closed 2026-10-15.** Deleted through `DELETE /api/mappings/drafts/<name>`; a byte-exact copy is kept at `~/.hermes/profiles/moldym/cache/scratch/mapping_candidate_d17dac35a91a40ada85301877e70a7d1.json` (sha256 `4fdb9c92…`) in case the head-only molecule is ever built. 5 candidates remain |
 
 ## Closed 2026-10-15
-- The local gate the "no CI" row named exists: `scripts/gate_commit.sh`, proven refusing a red ruff and landing the
-  commit after it (`c6ec468`).
+- The gate the "no CI" row named also exists inside the repo as `scripts/gate_commit.sh` (`c6ec468`, parity with the
+  skill's own copy in the commit after it), proven refusing a red ruff and landing the commit after that.
 - A mutation signal, confined to `analysis/` and the adapters, with a control that survived (`901920a`).
 - 29 tests: 28 property tests over the validator, the term reader and the MDP writer, plus the range-boundary test
   the mutation check asked for (`ed5b2ab`, `2791f76`).

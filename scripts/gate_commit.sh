@@ -4,6 +4,13 @@
 #
 #   scripts/gate_commit.sh <message-file> <path> [<path> ...]
 #
+# This repository carried no copy of the gate until 2026-10-15 (`c6ec468`). The script the docs meant is Hermes's
+# own (its skill directory: `~/.hermes/profiles/moldym/skills/software-development/detergent-md-dashboard/scripts/
+# gate_commit.sh`, documented in that skill's `references/verification-and-commit-gates.md`), and the docs' "no CI"
+# row described it -- including the browser tier being reported rather than gating. This copy is for working inside
+# the repo: it resolves the repository from its own location so it needs no environment, and it keeps that
+# behaviour. Two copies exist; change the behaviour in both or they will disagree.
+#
 # Why it is a shell script and not a chain of `&&`s: a pipeline reports its own status, not the
 # status of the step inside it, so `pytest ... | tail && git commit` lands a failing suite inside
 # a commit whose message claims the gate passed. Every status here is captured into a variable
@@ -32,16 +39,18 @@ PATHS=("$@")
 
 PY_PATHS=()
 SKIPPED=()
+FRONT_END=0
 for p in "${PATHS[@]}"; do
   case "$p" in
     *.py)
       if [ -f "$p" ]; then PY_PATHS+=("$p"); else SKIPPED+=("$p"); fi
       ;;
+    *.js|*.css|*.html|*.jinja|tests/dashboard/browser/*) FRONT_END=1 ;;
   esac
 done
 
 echo "gate: fast tier"
-"$PY" -m pytest -m 'not browser and not slow' -q > "$OUT/gate-pytest.txt" 2>&1
+"$PY" -m pytest -m 'not browser and not slow' -q -p no:cacheprovider > "$OUT/gate-pytest.txt" 2>&1
 PYTEST_STATUS=$?
 tail -n 3 "$OUT/gate-pytest.txt"
 echo "gate: pytest exit $PYTEST_STATUS (full output $OUT/gate-pytest.txt)"
@@ -58,6 +67,18 @@ fi
 if [ ${#SKIPPED[@]} -gt 0 ]; then
   echo "gate: ruff not given (deleted or absent): ${SKIPPED[*]}"
 fi
+
+# The browser tier is *reported*, never gating: it was red against the old vertical rail and the decision to
+# promote it is the user's, not this script's. When it is promoted, add its status to the condition below. On
+# front-end paths it runs at -n 6 -- 173 tests in ~85 s on this 72-core box, measured 2026-10-15 -- not at -n 2,
+# which left the machine idle and made one load-sensitive test look like a code failure.
+BROWSER_LOG="$OUT/gate-browser.txt"
+BROWSER_REPORT='not run (no front-end path named)'
+if [ "$FRONT_END" -eq 1 ]; then
+  "$PY" -m pytest -m browser -q -n 6 -p no:cacheprovider > "$BROWSER_LOG" 2>&1
+  BROWSER_REPORT="exit $? -- $(tail -n 1 "$BROWSER_LOG")"
+fi
+echo "gate: browser tier (reported, not gating): $BROWSER_REPORT"
 
 if [ "$PYTEST_STATUS" -ne 0 ] || [ "$RUFF_STATUS" -ne 0 ]; then
   echo "gate: NOT committing (pytest $PYTEST_STATUS, ruff $RUFF_STATUS)"
