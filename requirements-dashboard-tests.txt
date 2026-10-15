@@ -24,3 +24,10 @@ mdtraj>=1.9,<2
 # requirements file. A checkout without it builds every run whose protein is complete, and the step that a run does
 # ask for refuses by name rather than substituting a rebuild of the repository's own.
 pdb2pqr>=3.7,<4
+# hypothesis is a test-only import, declared here because this file is the repository's one requirements file. It
+# carries the property tests (`tests/dashboard/unit/test_properties_*.py`) over the surfaces a hand-written case
+# does not reach: the mapping validator against arbitrary bodies, the term-bead reader against arbitrary text, and
+# the MDP writer against any settings the adapter accepts. It earned its place on the first run -- the validator's
+# property found a non-dict body reaching `data.get` before the isinstance check meant to catch it, so the function
+# raised AttributeError where its contract is the ValueError a route turns into a 400.
+hypothesis>=6,<7

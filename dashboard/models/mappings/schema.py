@@ -18,8 +18,15 @@ RING_SCALES = (0.5, 2.0)
 
 
 def check_schema(data, *, allow_empty=False, representation_mode=None):
+    # The type check is first because `data.get` on a non-dict is an AttributeError: with the isinstance half
+    # folded into the condition below, a caller that passed a list or `None` got a server error out of a
+    # validator whose whole contract is the ValueError a route turns into a 400 -- the `not isinstance(data, dict)`
+    # that was meant to catch it never ran. Found by unit/test_properties_mapping_schema.py, which is why that
+    # test asserts the exception *type* rather than that something was raised.
+    if not isinstance(data, dict):
+        raise ValueError('A mapping document must be an object')
     representation_mode = representation_mode or data.get('representation_mode')
-    if not isinstance(data, dict) or not isinstance(data.get('name'), str) or not 1 <= len(data['name'].strip()) <= 160:
+    if not isinstance(data.get('name'), str) or not 1 <= len(data['name'].strip()) <= 160:
         raise ValueError('Give this candidate a name (1–160 characters)')
     beads = data.get('beads')
     minimum = 0 if allow_empty else 1
