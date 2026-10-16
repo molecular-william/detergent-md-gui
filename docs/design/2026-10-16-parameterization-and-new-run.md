@@ -1,0 +1,152 @@
+# Producing a CG parameterization, and consuming one
+
+**Status: design for judgement.** Base draft: `docs/design/prototypes/parameterization-and-new-run.html`. This
+supersedes the bonded half of `docs/design/prototypes/new-run-prototype.html`, whose step 04 already said *"Use CG Bond
+Interactions to fit without simulating"* — the implementation went the other way (a run-level choice), and the
+refactor now in flight removed that choice without giving the capability a home. This record gives it one.
+
+## The model
+
+A **parameterized CG molecule** is a mapping plus its bonded terms plus the provenance of those terms. It is not a run:
+no MD, so it does not belong in Runs. It is produced in **CG Bond Interactions**, from a linked AA reference, and a
+later AA–CG run consumes it.
+
+    mapping (beads, rings, connections, exclusions, bead types)     ← the CG Bead Assignment panel
+      └─ parameterization: bonds, angles, dihedrals, constraints    ← this panel
+           · fitted by which engine, on which ensemble
+           · with which options (-constraints threshold, torsion model)
+           · against which AA reference (run id + hash)
+           · checked by which re-derivations, with their numbers
+      saved as revisions of the mapping, one of them current
+    a run consumes the mapping and its current revision, and never re-fits a parameterized model
+
+The pieces of that already exist in the tree and are worth naming, because this design assembles rather than invents:
+
+* a mapping already carries `bonded_options` and `bonded_overrides` (`models/mappings/store.py:87`,
+  `models/mappings/graph.py:74`) — the parameterization's home is already there;
+* the panel already saves the torsion model **to the mapping** ("Save to mapping"), which is the grain this design
+  follows;
+* `/api/bonded-states` (GET/POST), `/api/bonded-states/automatic` (POST), `/<state_id>` (GET/PATCH/DELETE) and
+  `/<state_id>/interactions` (GET) already exist in `web/routes/bonded.py`;
+* `ff_inter` (Fast-Forward) fits from `2_mapping/mapped.{gro,xtc}` — which the mapper `sugar_mapping.py` produces from
+  an AA reference in minutes of CPU and **no MD** (`execution/scripts/map_trajectory.sh`);
+* `bartender_fit.py` already drives BARTENDER with `-refit -owntraj` and its sections
+  (`bonds, constraints, angles, dihedrals`);
+* `models/bonded.refine()` already re-fits declared torsions from `*_dihedrals.dat` when
+  `bonded_options.torsion_model == 'circular-harmonic'`, refusing a broad torsion (`abs(mean) < 0.1`) rather than
+  forcing one;
+* `dihedral-fit` and `bonded-cross-check` declare inputs in stages 2 and 3 only, so both can run **before any CG MD**.
+
+## Decisions
+
+**D1 — The parameterization belongs to the mapping, and bonded states become its revisions.** A run consumes a
+*model*, not a state id: there is no bonded-parameters control on the run panel, and its absence is the point. The
+current revision is what a reader and a run read; older ones stay as history. Reversal cost: reintroduce a run-level
+state select and give states an identity independent of their mapping.
+*This is the biggest structural decision here.* Today "Bonded state" is a separate record selected beside a mapping;
+under D1 the mapping's own revision line is the thing.
+
+**D2 — Producing a parameterization is a job of this panel, not a run.** Its inputs are (mapping, AA reference, engine,
+options); its outputs are the fitted terms, the diagnostics, the fit's provenance and the checks. It runs with status
+and can be cancelled, and it is listed in the panel — not in Runs. Reversal cost: none, the alternative (a run type
+that stops after stage 3) is rejected.
+
+**D3 — Three engines, each saying which ensemble it saw.**
+*Reference-informed automatic* (`/api/bonded-states/automatic`) — bead-type families with geometry as the fallback, no
+AA frames, instant; its diagnostics name every fallback. *Fast-Forward* — `ff_inter` on the **mapped** AA trajectory,
+with the `-constraints` threshold recorded, because that threshold decides whether a fitted pair becomes a constraint
+or a spring. *BARTENDER* — `-refit -owntraj` against **our mapped trajectory**, not its own GFN sampling; the panel
+must state the ensemble because the same command takes 40 s against one input and 400 s against another, and a number
+without its ensemble is not a measurement. Reversal cost: per engine, a dropped control.
+
+**D4 — The AA reference is linked, not implied.** A picker over completed AA-only runs (the same list the run panel
+uses), recorded with the model, and the default a later run inherits. A model whose reference is gone says so rather
+than silently fitting against nothing. Reversal cost: drop the field and the run's default.
+
+**D5 — The run panel's bonded step becomes read-only provenance**, with two honest states: *"this model is
+parameterized — fitted with Fast-Forward against a54ac8f64710, revision 3, hash …, torsion model circular-harmonic"*
+and the run promises to use it and not re-fit; or *"this model carries no parameterization — the run will fit it in
+stage 3 and record that it did"*. The choice of fit-or-reuse is a property of the model, not of the run. Reversal
+cost: restore a run-level choice, which is what the old prototype had.
+
+**D6 — The checks belong to producing a parameterization.** `dihedral-fit` and `bonded-cross-check` need no CG
+trajectory, so the panel runs them as part of the job and shows their numbers beside the terms they question. The same
+two run as analyses of an AA–CG run, so the numbers are visible from either end. Reversal cost: keep them run-only.
+
+## What the panel looks like
+
+    CG BOND INTERACTIONS                                            [ … ]
+    ┌ Model ────────────────────────────────────────────────────────────────────────┐
+    │ Mapping      [ DDM · ring mapping          ▾ ]   beads 11 · 9 physical · 2 VS  │
+    │ AA reference [ DDM · AA reference A · 10 ns ▾ ]  300 K · 10 ns · hash example A │
+    │ Parameter    [ Fast-Forward fit ▾ ]  ▢ circular-harmonic torsions   scale [1.0] │
+    │              thresholds recorded: -constraints 10000 · temperature 300 K        │
+    │              [ Fit this model ]   builds the mapped trajectory first (minutes,  │
+    │                                    no MD), then fits                            │
+    └────────────────────────────────────────────────────────────────────────────────┘
+    ┌ Job ──────────────────────────────────────────────────────────────────────────┐
+    │ fitting 2/4 · mapping frames 3.0 MB · ff_inter: distances, angles, dihedrals    │
+    │ [ Cancel ]                                                    started 14:31:02 │
+    └────────────────────────────────────────────────────────────────────────────────┘
+    ┌ Result · revision 3 (current) ─────────────────────────────────────────────────┐
+    │ 34 terms · 6 constraints · torsion model circular-harmonic · fitted from         │
+    │ mapped AA frames (20 001) against a54ac8f64710                                  │
+    │ checks: dihedral-fit — 1 declared torsion, criterion k 9.03 vs fitted 36.64      │
+    │         bonded-cross-check — 12 terms, 2 written as constraints here, springs    │
+    │         there                                                                     │
+    │ [ Save as revision ]  [ Compare with revision 2 ]  [ Open the checks … ]         │
+    └────────────────────────────────────────────────────────────────────────────────┘
+    ┌ Interactions ────────────────────────────┐ ┌ Molecular connectivity ──────────┐
+    │ kind · beads · function · params · source │ │  the existing 3D bead diagram    │
+    │ (the existing table, with a `source`      │ │  (selection drives the editor)    │
+    │  column: reference | ff_inter | bartender │ │                                  │
+    │  | manual)                                │ │                                  │
+    └───────────────────────────────────────────┘ └──────────────────────────────────┘
+    Revisions of this mapping:  1 ✓  ·  2 ✓  ·  3 current  ·  4 draft
+
+What changed from today's panel: the AA-reference picker, the engine select with its options and cost, the job box,
+the result box with provenance and the checks' numbers, a `source` column in the interactions table, and the revision
+strip at the bottom. The 3D diagram, the manual interaction editor, the state name, and the read-only constraints and
+virtual-site parents all stay as they are.
+
+## What the run panel looks like
+
+    NEW RUN · AA–CG
+    01 · MOLECULE          [ Maltose ▾ ]            molecules/Maltose · 45 atoms
+    02 · CG MODEL          [ Maltose · E3 mapping ▾ ]
+                           parameterization  revision 3 · Fast-Forward · 34 terms
+                           AA reference      a54ac8f64710 · 300 K · 10 ns
+                           torsion model     circular-harmonic, scale 1.0
+                           [ Open in CG Bond Interactions ]    [ Re-parameterize… ]
+    03 · STAGE SETTINGS    durations, temperature, seeds, mdrun flags — the numbers this
+                           run uses (defaults from the profile, editable, one Default
+                           button each)
+    ─────────────────────────────────────────────────────────────────────────────────
+    Run summary   Model     Maltose · E3 mapping · revision 3
+                  AA source a54ac8f64710 (from the model)
+                  Bonded    used as-is · this run does not re-fit
+                  Stages    1 AA reference (reused) → 2 mapping → 3 CG parameterization
+                            (rings, model's topology, checks) → 4 CG simulation →
+                            5 assessment → 6 SASA
+                  [ Launch AA–CG run ]
+
+and, when the model carries no parameterization:
+
+    Bonded    this model is not parameterized — stage 3 will fit it and record that it did
+              [ Parameterize first in CG Bond Interactions… ]   (optional, not required)
+
+Gone, and gone on purpose: *Execution* (a duration preset wearing a pipeline name), *Bonded parameters* and *Bonded
+workflow* (a per-run choice of something the model now owns). `02 · CG MODEL` replaces the old *CG mapping* select,
+because what a run consumes is a mapping **with** its parameterization.
+
+## Questions to judge
+
+1. **The fallback (D5):** a model with no parameterization — the run fits it (my recommendation, it keeps your rule
+   that every AA–CG run produces a parameterized molecule) or refuses and sends you to the panel? Say which; it is one
+   branch either way.
+2. **BARTENDER's own sampling (D3):** offer only `-refit -owntraj` against our mapped trajectory (my recommendation,
+   and the repository's own position — it measures against our AA reference, not against BARTENDER's GFN sampling), or
+   also let it generate its own samples for a molecule you have never simulated?
+3. **D1's structural change:** states become revisions of the mapping. Do you want the old flat "Bonded state" list
+   kept as a way to compare two arbitrary revisions, or is a revision strip on one mapping enough?
+4. **Where the job is visible:** the panel only (my recommendation), or a line in Runs' activity as well?
