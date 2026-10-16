@@ -404,8 +404,12 @@ def _protocol_readiness(metadata):
     molecule_id = metadata.get('molecule_id')
     if not molecule_id:
         return protocol.blocked('molecule_id is required to check an AA to CG run')
+    # This adapter *is* the AA-CG run type, so its own profile is the fallback rather than `standard`: the panel
+    # offers no profile choice for this run type and sends none, and a `standard` fallback silently skipped the
+    # mapping check below (`if profile in ('draft-smoke','draft-smoke-reference')`) while asking the readiness list
+    # about a profile no AA-CG run has ever run under.
     ready = readiness(molecule_id, metadata.get('method') or 'gromacs',
-                      metadata.get('profile') or 'standard',
+                      metadata.get('profile') or AA_CG_PROFILE,
                       metadata.get('mapping_candidate'), metadata.get('molecule_root'))
     # An AA-to-CG run needs everything the atomistic half needs, because its own reference is built from a molecule
     # that has to be simulatable. The web route used to collect both answers and merge them by hand, which put a run
