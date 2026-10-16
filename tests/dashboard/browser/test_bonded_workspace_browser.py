@@ -80,6 +80,60 @@ def test_bonded_workspace_filters_states_and_creates_a_new_state_from_two_beads(
     assert errors == []
 
 
+def test_the_torsion_switch_belongs_to_the_mapping_and_saves_to_it(dashboard, live_page):
+    """Stage 3's refinement has one switch, and it is the mapping's rather than a run's.
+
+    `bonded.refine` reads `bonded_options` out of the mapping's own `model.json` -- staged from the candidate a run
+    recorded when it was queued -- so this control is the only route by which a chosen torsion model reaches a run's
+    topology. That is why it lives in this workspace and not on the New run panel, why its own text has to name both
+    the terms it changes and the mapping it belongs to, and why the scale is out of reach unless the model that uses
+    it is chosen: `models/bonded.validate` accepts exactly those two keys and refuses a scale without the model.
+
+    The last claim is the one a rendered control alone cannot make, so it is read back off disk: the saved candidate
+    carries the options, and reopening the panel reads them into the controls.
+    """
+    from dashboard.models import mappings
+
+    saved = mappings.save_draft(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
+    page.locator('.bonded-mapping-select').select_option(saved['file'])
+
+    model = page.locator('.bonded-torsion-model')
+    scale = page.locator('.bonded-torsion-scale')
+    save = page.get_by_role('button', name='Save to mapping')
+    # A mapping that states no options is the model's own default, and nothing is offered to save.
+    expect(model).to_have_value('legacy')
+    expect(scale).to_be_disabled()
+    expect(save).to_be_disabled()
+    expect(page.locator('.bonded-torsion-status')).to_contain_text('keeps the periodic torsions')
+
+    # What the control says it does: the terms of the CG topology, and whose property it is.
+    wording = page.locator('.bonded-torsion').inner_text()
+    assert 'CG topology' in wording, wording
+    assert 'property of this mapping' in wording, wording
+    assert 'New run panel' in wording, wording
+
+    # The scale belongs to the circular-harmonic model and to nothing else.
+    model.select_option('circular-harmonic')
+    expect(scale).to_be_enabled()
+    expect(save).to_be_enabled()
+    expect(page.locator('.bonded-torsion-status')).to_contain_text('fits every torsion')
+    scale.fill('0.5')
+    save.click()
+    expect(page.locator('.bonded-panel-message')).to_contain_text('Torsion model saved')
+
+    # Read back: the options are in the mapping the runs are queued from, and reopening the panel shows them.
+    assert mappings.get(saved['file'])['bonded_options'] == {'torsion_model': 'circular-harmonic',
+                                                             'torsion_scale': 0.5}
+    expect(save).to_be_disabled()
+    page.reload()
+    page.locator('.bonded-mapping-select').select_option(saved['file'])
+    expect(page.locator('.bonded-torsion-model')).to_have_value('circular-harmonic')
+    expect(page.locator('.bonded-torsion-scale')).to_have_value('0.5')
+    assert errors == [], errors
+
+
 def test_the_diagram_draws_the_candidates_own_molecule_and_not_the_packaged_one(dashboard, live_page):
     """A non-DDM candidate was drawn on the packaged DDM atoms, so its geometry was another molecule's.
 

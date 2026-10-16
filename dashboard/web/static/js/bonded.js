@@ -51,6 +51,10 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
   const deleteState = $('.bonded-delete', host);
   const tableHost = $('.bonded-interaction-table', host);
   const selectionStatus = $('.bonded-selection-status', host);
+  const torsionModel = $('.bonded-torsion-model', host);
+  const torsionScale = $('.bonded-torsion-scale', host);
+  const torsionSave = $('.bonded-save-torsion', host);
+  const torsionStatus = $('.bonded-torsion-status', host);
   const plot = mountBondedPlot($('.bonded-plot', host), {
     onBeadSelection: selected => { selectedBeads = selected; renderState(); },
     onTermSelection: id => { selectedTermId = id; renderState(); },
@@ -212,6 +216,76 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
     updateControls();
   }
 
+  // The mapping's torsion model ------------------------------------------------------------------------------------
+  //
+  // `bonded.refine`, run in stage 3, reads `bonded_options` out of the mapping's own `model.json` -- the mapping the
+  // run staged from the candidate it recorded when it was queued -- and rewrites that topology's dihedrals from it.
+  // So this is not a run setting and does not belong on the New run panel: it changes the terms of the topology, and
+  // it is a property of the mapping that every run of it shares (D4a, D7). The two keys below are the only ones
+  // `models/bonded.validate` accepts, and it refuses a scale without a circular-harmonic model -- so the scale is
+  // offered only with that model and travels only with it, and the server stays the authority on both values.
+  const TORSION_MODELS = new Set(['legacy', 'circular-harmonic']);
+  //: What this mapping says now: `legacy` is the model's own default when the mapping states nothing.
+  function storedTorsion() {
+    const options = (selectedMapping && selectedMapping.bonded_options) || {};
+    const model = options.torsion_model === 'circular-harmonic' ? 'circular-harmonic' : 'legacy';
+    return {torsion_model: model,
+            torsion_scale: model === 'circular-harmonic' ? Number(options.torsion_scale ?? 1) : null};
+  }
+  //: What the panel would write.
+  function chosenTorsion() {
+    const model = TORSION_MODELS.has(torsionModel.value) ? torsionModel.value : 'legacy';
+    return {torsion_model: model,
+            torsion_scale: model === 'circular-harmonic' ? Number(torsionScale.value) : null};
+  }
+  function torsionSentence(options) {
+    return options.torsion_model === 'circular-harmonic'
+      ? `stage 3 fits every torsion to the AA distribution at stiffness ${options.torsion_scale}`
+      : 'stage 3 keeps the periodic torsions the fit recorded';
+  }
+  // What the controls say about the mapping: the scale only means something to the circular-harmonic model, and the
+  // save button only does something when the mapping would change.
+  function updateTorsion() {
+    if (!torsionModel) return;
+    const stored = storedTorsion(), chosen = chosenTorsion();
+    torsionModel.disabled = !selectedMapping;
+    torsionScale.disabled = !selectedMapping || chosen.torsion_model !== 'circular-harmonic';
+    const changed = chosen.torsion_model !== stored.torsion_model
+      || (chosen.torsion_scale ?? null) !== (stored.torsion_scale ?? null);
+    torsionSave.disabled = !selectedMapping || !changed;
+    setText(torsionStatus, !selectedMapping
+      ? 'Choose a mapping to read its torsion model.'
+      : changed
+        ? `Unsaved: ${torsionSentence(chosen)}. Save it to the mapping to use it.`
+        : `This mapping: ${torsionSentence(stored)}.`);
+  }
+  // The reading, and the one place the controls are filled from the mapping rather than from themselves.
+  function renderTorsion() {
+    if (!torsionModel) return;
+    const stored = storedTorsion();
+    torsionModel.value = stored.torsion_model;
+    torsionScale.value = stored.torsion_scale ?? 1;
+    updateTorsion();
+  }
+  // Saving is an in-place rewrite of the saved candidate, the same write the mapping editor's own in-place save
+  // makes: the file keeps its identity (so a run's recorded `mapping_candidate` still names this mapping) and its
+  // content changes, which is what makes the switch reach the runs that follow it.
+  async function saveTorsion() {
+    if (!selectedMapping) return;
+    const chosen = chosenTorsion();
+    // The scale key is left out rather than sent as null: the model's validator reads a present `torsion_scale`
+    // under either model, and refuses one it cannot use.
+    const options = chosen.torsion_scale === null ? {torsion_model: chosen.torsion_model} : chosen;
+    torsionSave.disabled = true;
+    try {
+      const saved = await post('/api/mappings/drafts', {...selectedMapping, bonded_options: options, in_place: true});
+      selectedMapping = saved;
+      invalidateResource('/api/mappings');
+      renderTorsion();
+      notice(`Torsion model saved to ${saved.file}: runs queued from it refine this way.`);
+    } catch (error) { notice(error.message); updateTorsion(); }
+  }
+
   async function loadStates(mapping, token) {
     // The candidate identity first: it names the saved file these states were fitted from, so
     // distinct candidates stay distinct even when their chemistry is identical. Only if that finds
@@ -259,6 +333,9 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       // Before anything is drawn from it: every geometry below is measured against this molecule's atoms.
       structure = await resolveStructure(mapping);
       if (token !== generation) return;
+      // The mapping's own torsion model, read with the mapping rather than with a state: it belongs to the mapping,
+      // and a run of it is queued from whatever this file says at that moment.
+      renderTorsion();
       await loadStates(mapping, token);
       if (token !== generation) return;
       await draw(states.find(state => state.state_id === stateSelect.value), mapping, token);
@@ -310,14 +387,21 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
 
   mappingSelect.onchange = () => refreshMapping();
   stateSelect.onchange = () => { const token = ++generation; draw(states.find(state => state.state_id === stateSelect.value), selectedMapping, token).catch(error => { if (token === generation) notice(error.message); }); };
+  torsionModel.onchange = () => updateTorsion();
+  torsionScale.oninput = () => updateTorsion();
+  torsionSave.onclick = () => saveTorsion();
   automatic.onclick = () => generateAutomatic();
   createInteraction.onclick = () => createNewInteraction();
   saveNew.onclick = () => saveDraft();
   shortRun.onclick = async () => {
     if (!selectedState || !selectedMapping) return;
     try {
+      // The run no longer names a bonded state: an AA–CG run fits its own bonded parameters from the AA reference
+      // (D1), so a saved state's parameters cannot be handed to it. What this button still does is what it says --
+      // a short CG execution check of this mapping -- under an explicit `draft-smoke` profile, which the route
+      // honours for a caller that names one.
       const response = await post('/', {detergent: 'DDM', method: 'fast_forward', profile: 'draft-smoke', label: `Short bonded validation · ${selectedMapping.name}`,
-        mapping_candidate: selectedMapping.file, bonded_state_id: selectedState.state_id, temporary_validation: true,
+        mapping_candidate: selectedMapping.file, temporary_validation: true,
         aa_equil_ps: 10, aa_production_ps: 50, cg_equil_ps: 10, cg_production_ps: 100, temperature_k: 300, output_interval_ps: 1,
         cg_seed: Math.floor(Math.random() * 2147483646) + 1});
       notice(`Short validation queued: ${response.id}. Inspect it in Runs.`);
@@ -336,6 +420,9 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
     mappingSelect.replaceChildren(...mappingData.candidates.filter(candidate => !candidate.error).map(candidate => new Option(candidate.name, candidate.file)));
     if (mappingData.candidates.some(candidate => candidate.file === chosen)) mappingSelect.value = chosen;
     if (!mappingSelect.value && mappingSelect.options.length) mappingSelect.selectedIndex = 0;
+    // Before the first fetch: with no mapping read yet the switch has nothing to describe, so it says so and stays
+    // inert rather than offering a value it cannot save.
+    renderTorsion();
     await refreshMapping();
   }
   async function select(file) {

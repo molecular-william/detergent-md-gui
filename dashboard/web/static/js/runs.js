@@ -158,11 +158,13 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
           const dot = document.createElement('span'); dot.className = 'timeline-dot'; dot.setAttribute('aria-hidden', 'true');
           dot.textContent = {completed:'✓', reused:'↗', skipped:'–', failed:'×', cancelled:'■', running:'●', cancelling:'●'}[state] || '';
           const label = document.createElement('span'); label.className = 'timeline-label';
-          // Two spellings for one stage: it was named after the tool it used to call, and 21 runs record it that way.
-          // Their manifests keep the words they ran under -- only the visible abbreviation is shared, and the full
-          // name still reaches the tooltip and the aria-label, so history is not rewritten to match the code.
+          // Two stages carry two spellings each: stage 2 was named after the tool it used to call, and stage 3 is
+          // `CG parameterization` now that it locks the rings, fits, refines and records rather than calling one
+          // tool. Runs already on disk record the old words, and a run's manifest is history rather than a page to
+          // be rewritten -- so both spellings map to the one abbreviation, and the recorded name still reaches the
+          // tooltip and the aria-label, which is why history does not read differently from later runs.
           label.textContent = {'AA reference':'AA ref.', 'trajectory mapping':'Map', 'trajectory mapping (ff_map)':'Map',
-                               'CG topology (ff_inter)':'Fit', 'CG simulation':'CG run',
+                               'CG topology (ff_inter)':'Fit', 'CG parameterization':'Fit', 'CG simulation':'CG run',
                                'CG assessment (ff_assess)':'Assess', 'SASA analysis':'SASA'}[name] || name;
           step.append(dot, label); timeline.append(step);
         }

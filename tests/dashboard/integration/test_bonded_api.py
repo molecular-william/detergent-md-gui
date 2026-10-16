@@ -1,5 +1,7 @@
 from copy import deepcopy
 
+import pytest
+
 from dashboard.models.bonded import states as bonded_states
 from tests.dashboard.support import physical_mapping
 
@@ -90,37 +92,29 @@ def test_plotly_asset_is_local_and_fixed_path(dashboard):
     assert response.data.startswith(b'/*!') or b'Plotly' in response.data[:1000]
 
 
-def test_a_bonded_state_from_another_mapping_is_refused(dashboard):
-    """Reusing a fitted state with the wrong mapping would assemble another molecule's topology.
+def test_a_run_can_no_longer_be_handed_a_bonded_state(dashboard, monkeypatch):
+    """D1: fitting is the run type's own, so a run record carries no state and no workflow.
 
-    The refusal is RunConflict, which the error table answers as 409. It is the check that keeps a
-    fitted state attached to the mapping it was fitted for.
-
-    The second mapping differs in *chemistry* (a renamed bead, which changes the bead names written
-    into the ITP) rather than only in the candidate's name, so this stays a refusal whichever
-    identity the compatibility check uses -- see the name-in-hash open item in DDM_CALIBRATION.
+    This replaces the admission that refused a state fitted for another mapping -- 409, "does not belong to the
+    selected mapping". The two controls are gone from the run contract, so a payload that still names them is not
+    read (the door below no longer takes the arguments at all) and the record it produces names neither. The
+    compatibility checks themselves stay where they are tested: `models/bonded` still compares a state with the
+    mapping it was fitted for, for the workspace that fits and compares states.
     """
-    client = dashboard.client
-    mapping = physical_mapping()
-    saved = client.post('/api/mappings/drafts', json=mapping).json
-    other = deepcopy(mapping)
-    other['beads'][0]['name'] = 'ZZZ'
-    other_saved = client.post('/api/mappings/drafts', json=other).json
-    assert other_saved['file'] != saved['file'], 'the two saved candidates must be distinct'
+    from dashboard.execution.adapters import aa, cg
+    from dashboard.execution.coordination import coordinator as backend
 
-    first, second = [bead['name'] for bead in mapping['beads'][:2]]
-    state = client.post('/api/bonded-states', json={
-        'mapping': mapping,
-        'name': 'Fitted for the first mapping',
-        'interactions': [{'kind': 'bonds', 'beads': [first, second], 'function': 1,
-                          'parameters': ['0.30', '100']}],
-    }).json
-    assert state['current']['status'] == 'complete'
+    monkeypatch.setattr(backend.threading.Thread, 'start', lambda self: None)
+    monkeypatch.setattr(cg, 'readiness', lambda *args, **kwargs: {'ready': True})
+    monkeypatch.setattr(aa, 'readiness', lambda *args, **kwargs: {'ready': True, 'checks': [], 'blockers': []})
 
-    refused = client.post('/', json={
-        'method': 'fast_forward', 'molecule_id': 'DDM', 'mapping_candidate': other_saved['file'],
-        'bonded_state_id': state['state_id'], 'bonded_intent': 'reuse_state',
-    })
+    with dashboard.app.test_request_context():
+        job = dashboard.coordinator.create_job(
+            'DDM', 'fast_forward', profile='draft-smoke', run_type='aa_cg', molecule_id='DDM',
+            mapping_snapshot=physical_mapping())
 
-    assert refused.status_code == 409, refused.json
-    assert 'does not belong to the selected mapping' in refused.json['error']
+    for retired in ('bonded_state_id', 'bonded_state_snapshot', 'bonded_state_revision', 'bonded_intent'):
+        assert retired not in job, f'{retired} is a per-run bonded choice; the run type fits its own (D1)'
+    with pytest.raises(TypeError, match='bonded_state_id'):
+        dashboard.coordinator.create_job('DDM', 'fast_forward', run_type='aa_cg', molecule_id='DDM',
+                                         bonded_state_id='x')

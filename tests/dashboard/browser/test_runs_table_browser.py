@@ -33,6 +33,43 @@ def test_a_run_recorded_under_the_old_stage_name_keeps_its_short_label(dashboard
     assert errors == [], errors
 
 
+def test_the_renamed_stage_reads_the_same_under_both_spellings(dashboard, live_page):
+    """Stage 3 is `CG parameterization` now; every run already on disk records `CG topology (ff_inter)`.
+
+    A rename that showed those runs as a long recorded string, or as nothing, would make history read differently
+    from the runs after it for a change it had nothing to do with. So both spellings map to the one abbreviation the
+    stage has always shown, and the recorded words stay recorded -- unrewritten, and still on the step's own
+    description, which is the tooltip a reader gets and the label a screen reader announces.
+    """
+    runs = dashboard.coordinator.RUNS
+    recorded = {'00000000000b': 'CG topology (ff_inter)', '00000000000c': 'CG parameterization'}
+    dashboard.coordinator.database().replace([
+        {'id': job_id, 'label': f'Recorded as {name}', 'detergent': 'DDM', 'method': 'fast_forward',
+         'status': 'completed', 'stage': 'complete', 'created': '2026-09-16T10:00:00+00:00',
+         'started_at': '2026-09-16T10:00:00+00:00', 'layout_version': 2}
+        for job_id, name in recorded.items()])
+    for job_id, name in recorded.items():
+        directory = runs / job_id
+        (directory / 'logs').mkdir(parents=True)
+        plan = ['AA reference', 'trajectory mapping', name]
+        files.atomic_json(directory / 'manifest.json',
+                          {'stage_plan': plan, 'stages': [{'name': step, 'status': 'completed'} for step in plan]})
+
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
+
+    old = page.locator('.job[data-id="00000000000b"] .timeline-step').nth(2)
+    new = page.locator('.job[data-id="00000000000c"] .timeline-step').nth(2)
+    # One abbreviation for both spellings: the run recorded under the old name shows the label the new name gets.
+    expect(old.locator('.timeline-label')).to_have_text('Fit')
+    expect(new.locator('.timeline-label')).to_have_text('Fit')
+    # The recorded name is not rewritten and is not lost: it is the step's own description.
+    expect(old).to_have_attribute('aria-label', 'CG topology (ff_inter): completed')
+    expect(old).to_have_attribute('title', 'CG topology (ff_inter): completed')
+    expect(new).to_have_attribute('aria-label', 'CG parameterization: completed')
+    assert errors == [], errors
+
+
 def test_runs_views_checkpoints_and_inline_console(dashboard, live_page):
     runs = dashboard.coordinator.RUNS
     stages = ['AA reference', 'trajectory mapping', 'CG topology (ff_inter)', 'CG simulation', 'CG assessment (ff_assess)', 'SASA analysis']

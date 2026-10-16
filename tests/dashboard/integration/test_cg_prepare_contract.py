@@ -24,7 +24,9 @@ SETTINGS = {'aa_production_ps': 200, 'cg_production_ps': 20, 'aa_nvt_ps': 5}
 SNAPSHOT = {'id': 'DDM', 'sha256': {'molecule.itp': '0' * 64}}
 
 # The metadata the coordinator builds for an AA-to-CG job, plus keys the protocol does not forward so the filter has
-# something to drop.
+# something to drop -- including the two the run contract has since retired (`bonded_state_snapshot`,
+# `bonded_intent`). A record that still carries them is dropped at this door rather than reaching the adapter: no
+# run can be handed a pre-fitted bonded state or told how to fit (D1).
 METADATA = dict(
     detergent='DDM', profile='draft-smoke', settings=SETTINGS,
     mapping_candidate={'label': 'a-mapping'}, bonded_state_snapshot={'states': []},
@@ -79,13 +81,15 @@ def test_an_aa_only_setting_never_reaches_the_cg_dialect(prepared):
 
 def test_metadata_the_run_type_has_no_argument_for_is_dropped(prepared):
     """Dropped rather than forwarded into a `TypeError` three calls down -- and the arguments it does have all
-    arrive, which is the half that a filter written by hand gets wrong."""
+    arrive, which is the half that a filter written by hand gets wrong.
+
+    The two retired bonded keys are in this list for the reason they went: a job record written before D1 still
+    names them, and the run type is no longer able to receive them."""
     kwargs = prepared['seen'][0]['kwargs']
-    for absent in ('run_type', 'runs_root', 'molecule_id'):
+    for absent in ('run_type', 'runs_root', 'molecule_id', 'bonded_state_snapshot', 'bonded_intent'):
         assert absent not in kwargs
-    assert set(kwargs) == {'detergent', 'profile', 'settings', 'mapping_candidate', 'bonded_state_snapshot',
-                           'bonded_intent', 'shared_reference', 'reference_root', 'molecule_snapshot',
-                           'molecule_root'}
+    assert set(kwargs) == {'detergent', 'profile', 'settings', 'mapping_candidate',
+                           'shared_reference', 'reference_root', 'molecule_snapshot', 'molecule_root'}
     assert kwargs['shared_reference']['source_run_id'] == '111111111111', 'the reference still arrives'
     assert kwargs['molecule_snapshot'] == SNAPSHOT
 

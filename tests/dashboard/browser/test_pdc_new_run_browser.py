@@ -123,14 +123,21 @@ def test_the_two_halves_sit_side_by_side_and_stack_at_the_breakpoint(dashboard, 
 
 
 def test_the_validation_workspace_still_gets_the_single_molecule_panel(dashboard, live_page):
-    """The other workspace is unchanged: its heading, its own controls, and no detergent list."""
+    """The other workspace is unchanged: its heading, its own controls, and no detergent list.
+
+    `Bonded parameters` and `Bonded workflow` are *not* in the kept list any more: those two controls left the
+    single-molecule panel in the AA-CG refactor (fitting is the AA-CG run type's own), and this test is the one that
+    would have gone on asserting they were there.
+    """
     page, errors = live_page
     page.goto(f'{live_page.base_url}/detergent-validation/new-run')
     page.get_by_role('tab', name='New run', exact=True).click()
     expect(page.locator('#new h2')).to_have_text('Single Molecule Simulations')
     panel_text = page.locator('#new').inner_text()
-    for label in DROPPED:
+    for label in ('Run type', 'Method', 'AA reference source'):
         assert label in panel_text, f'{label} is missing from the single-molecule panel'
+    for label in ('Bonded parameters', 'Bonded workflow'):
+        assert label not in panel_text, f'{label} is still offered on the single-molecule panel'
     assert page.locator('#new-detergent').count() == 0, 'the pdc fieldset is rendered in the other workspace'
     assert page.locator('#new-import').count() == 0
 

@@ -35,6 +35,31 @@ def seed(dashboard, *, trajectory=False, analyses=()):
     return coordinator, run
 
 
+def test_a_runs_own_kinds_are_its_types_defaults_beside_the_universal_ones(dashboard):
+    """D5: the kinds a run queues for itself are two facets of one table, read in one place.
+
+    `snapshots` runs for every run (`runs_for_every_run`). `dihedral-fit` and `bonded-cross-check` are an
+    AA-to-CG run's own: they declare inputs in stages 2 and 3 only -- no CG trajectory -- so they are available
+    the moment the fit is, which is what the sources planted here are. A run type that declares no defaults of its
+    own is not a special case, and neither is a record that names none at all: this run type's defaults are not
+    every run's, so a record that cannot say what it is gets the universal kinds only.
+    """
+    coordinator, run = seed(dashboard, trajectory=True)
+    for relative in ('2_mapping/mapped.gro', '2_mapping/mapped.xtc', '2_mapping/model.json',
+                     '3_initial_CG/SUCR_ff_inter.itp', '3_initial_CG/SUCR_initial.itp'):
+        source = run / 'stages' / relative
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text('Where a kind is resolved from, not what it reads: the queue hashes these.\n')
+
+    assert coordinator.automatic_analyses(JID) == ['snapshots']
+
+    coordinator.database().update(JID, run_type='aa_cg')
+    assert coordinator.automatic_analyses(JID) == ['snapshots', 'bonded-cross-check', 'dihedral-fit']
+
+    coordinator.database().update(JID, run_type='aa_only')
+    assert coordinator.automatic_analyses(JID) == ['snapshots']
+
+
 def tasks(coordinator):
     return coordinator.lookup(JID).get('analyses', [])
 

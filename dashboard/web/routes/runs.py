@@ -166,15 +166,23 @@ def queue():
     if 'molecule_id' in data:
         try: aa_molecules.validate_id(data['molecule_id'])
         except ValueError as exc: abort(400, str(exc))
-    intent=data.get('bonded_intent','fit_and_simulate')
-    if intent not in ('fit_and_simulate','fit_only','reuse_state'): abort(400,'Unknown bonded run intent')
+    # There is no per-run bonded intent or bonded-state selection to read any more (D1): `aa_cg` always fits its own
+    # bonded parameters from the AA reference. The run contract lost both fields, so the route neither validates an
+    # intent nor passes either key to `create_job` -- `admission.validate_run_type` is what still refuses a payload
+    # that names a field its run type does not own (`AA_ONLY_FORBIDDEN`).
     # One question to the run type: which settings does it accept? The route used to answer this by unioning the AA
     # and CG dialect tables itself -- `cg.SETTING_SPECS | aa.SETTING_SPECS | aa.CHOICE_SPECS` for everything that was
     # not `aa_only` or `pdc`. That is the right answer for the run types composing those two halves and the wrong one
     # for `osmotic`, whose own settings (the molality above all) are in neither.
-    adapter = protocol.adapter_for(protocol.run_type_of(data))
+    run_type = protocol.run_type_of(data)
+    adapter = protocol.adapter_for(run_type)
     specs = set(adapter.settings_specs()) | set(adapter.choice_specs())
-    job = c.create_job(data.get('detergent') or data.get('molecule_id') or data.get('composition_id'), data.get('method'), data.get('label', ''), profile=data.get('profile', 'standard'), settings={k: data.get(k) for k in specs if data.get(k) not in (None, '')}, reference_run_id=data.get('reference_run_id') or None, mapping_candidate=data.get('mapping_candidate'), bonded_state_id=data.get('bonded_state_id') or None, bonded_intent=intent, temporary_validation=str(data.get('temporary_validation','')).lower() in ('1','true','yes'), molecule_id=data.get('molecule_id'),run_type=data.get('run_type'), composition_id=data.get('composition_id'), protein=data.get('protein') or None, template=data.get('template') or None)
+    # The AA-CG run type's profile is the run type's own, not a panel choice (D2): the New run panel no longer offers
+    # it, so a request that names none is stamped with the shape recorded by every AA-CG run, and the manifest keeps
+    # saying which shape ran. A caller that names one explicitly still gets what it asked for -- an AA-CG run attaching
+    # a short AA reference is a case the reference-compatibility check below has to be able to see and refuse.
+    profile = data.get('profile') or ('draft-smoke-reference' if run_type == 'aa_cg' else 'standard')
+    job = c.create_job(data.get('detergent') or data.get('molecule_id') or data.get('composition_id'), data.get('method'), data.get('label', ''), profile=profile, settings={k: data.get(k) for k in specs if data.get(k) not in (None, '')}, reference_run_id=data.get('reference_run_id') or None, mapping_candidate=data.get('mapping_candidate'), temporary_validation=str(data.get('temporary_validation','')).lower() in ('1','true','yes'), molecule_id=data.get('molecule_id'),run_type=data.get('run_type'), composition_id=data.get('composition_id'), protein=data.get('protein') or None, template=data.get('template') or None)
     return jsonify(view_of(c, job)), 201
 
 
@@ -211,7 +219,7 @@ def retry(jid):
     job = c.lookup(jid)
     if job['status'] != 'failed':
         abort(409, 'Only failed runs can be retried')
-    new = c.create_job(job['detergent'], job['method'], job.get('label', ''), retry_of=jid, profile=job.get('profile', 'standard'), settings=job.get('settings'), reference_run_id=job.get('reference_run_id'), mapping_snapshot=job.get('mapping_snapshot'), molecule_id=job.get('molecule_id'), molecule_snapshot=job.get('molecule_snapshot'),run_type=job.get('run_type'),bonded_state_id=job.get('bonded_state_id'),bonded_intent=job.get('bonded_intent','fit_and_simulate'))
+    new = c.create_job(job['detergent'], job['method'], job.get('label', ''), retry_of=jid, profile=job.get('profile', 'standard'), settings=job.get('settings'), reference_run_id=job.get('reference_run_id'), mapping_snapshot=job.get('mapping_snapshot'), molecule_id=job.get('molecule_id'), molecule_snapshot=job.get('molecule_snapshot'),run_type=job.get('run_type'))
     return jsonify(view_of(c, new)), 201
 
 
@@ -285,7 +293,7 @@ def clone_job(jid):
                      retry_of=jid, profile=data.get('profile', source.get('profile','standard')),
                      settings=data.get('settings', source.get('settings')), reference_run_id=(data.get('reference_run_id',source.get('reference_run_id')) or None) if effective_type!='aa_only' else None,
                      mapping_candidate=data.get('mapping_candidate'), mapping_snapshot=source.get('mapping_snapshot') if data.get('run_type',source.get('run_type'))!='aa_only' and data.get('mapping_candidate', source.get('mapping_candidate')) == source.get('mapping_candidate') else None, molecule_id=data.get('molecule_id', source.get('molecule_id')),
-                     run_type=effective_type,bonded_state_id=None if effective_type=='aa_only' else data.get('bonded_state_id',source.get('bonded_state_id')),bonded_intent=data.get('bonded_intent',source.get('bonded_intent','fit_and_simulate')))
+                     run_type=effective_type)
     return jsonify(view_of(c, new)), 201
 
 

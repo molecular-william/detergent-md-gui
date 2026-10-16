@@ -16,18 +16,23 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
   }
   const AA_FIELDS = ['aa_nvt_ps','aa_npt_ps','aa_production_ps','temperature_k','pressure_bar','output_interval_ps','box_nm','aa_seed','mdrun_ntomp','mdrun_ranks','mdrun_nb','mdrun_pme'];
   const CG_FIELDS = ['cg_equil_ps','cg_production_ps','sasa_probe_nm','cg_seed'];
+  //: The profile an AA–CG run is queued under. The panel does not offer the choice (D2): the run route stamps this
+  //: string for the run type and the manifest records it, and the panel asks for the *same* profile's durations and
+  //: readiness -- otherwise the form would show one profile's settings and the run would use another's, or a stale
+  //: `standard` value would hold the launch button disabled with a reviewed-model blocker that cannot apply.
+  const AA_CG_PROFILE = 'draft-smoke-reference';
+  const profileForRunType = run_type => run_type === 'aa_cg' ? AA_CG_PROFILE : form.elements.profile.value;
   // Persist all controls, including disabled values inherited from a reference.
   function formValues() { return Object.fromEntries([...form.elements].filter(el=>el.name).map(el=>[el.name,el.value])); }
   function saveForm() { storage.set('form',formValues()); }
   let referenceRecords = [], referenceGeneration = 0, lockedReference = null;
-  let referencesLoaded=false, mappingsLoaded=false, statesLoaded=false, mounted=false, mounting=null;
+  let referencesLoaded=false, mappingsLoaded=false, mounted=false, mounting=null;
   // The shared cache drops a resource when something changes it elsewhere; these flags
   // remember that this module already fetched it, so they have to drop with it. Saving a
-  // bonded state in the CG Bond Interactions tab was the case that bit: the New-run
+  // mapping draft in the Mappings workspace was the case that bit: the New-run
   // dropdown kept offering the list it had fetched before the save.
   document.addEventListener('dashboard:resources-changed', event => {
     const prefix = event.detail?.prefix || '';
-    if (prefix.startsWith('/api/bonded-states')) statesLoaded = false;
     if (prefix.startsWith('/api/references')) { referencesLoaded = false; referenceRecords = []; }
     if (prefix.startsWith('/api/mappings')) mappingsLoaded = false;
   });
@@ -92,13 +97,20 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     form.elements.detergent.value=select.value;
   }
   function syncRunSummary() {
-    const aaOnly=form.elements.run_type.value==='aa_only';
+    const runType=form.elements.run_type.value;
+    const aaOnly=runType==='aa_only';
+    const compositionOnly=runType==='cg_composition';
     const textFor=(field, fallback)=>field?.selectedOptions?.[0]?.textContent || fallback;
     setText($('#run-type-summary'), aaOnly?'AA-only run':'AA–CG run');
     setText($('#run-aa-summary'), aaOnly?'New AA reference':textFor(form.elements.reference_run_id,'New AA reference'));
     setText($('#run-mapping-summary'), aaOnly?'Not needed for AA-only':textFor(form.elements.mapping_candidate,'Select a mapping'));
-    const intent=form.elements.bonded_intent.value;
-    setText($('#run-bonded-summary'), aaOnly?'Not needed':intent==='reuse_state'?textFor(form.elements.bonded_state_id,'Select a bonded state'):intent==='fit_only'?'Fit, then stop for review':'Fit, then simulate');
+    // Fitting is the run type's now (D1), not a per-run intent: an AA–CG run always fits its own bonded parameters
+    // from the AA reference, a composition carries its own bonded state, and an AA-only run never fits. There is no
+    // per-run state or workflow left to report, so this row says which of the three applies rather than quoting a
+    // control that no longer exists.
+    setText($('#run-bonded-summary'), aaOnly?'Not needed'
+      :compositionOnly?'From the composition'
+      :'Fitted from the AA reference by the run');
     const temp=form.elements.temperature_k.value || '—';
     const aa=form.elements.aa_production_ps.value || '—';
     const cg=form.elements.cg_production_ps.value || '—';
@@ -106,20 +118,29 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     setText($('#run-settings-summary'), aaOnly?protocol:`${protocol} · CG ${cg} ps`);
   }
   function syncRunType() {
-    const aaOnly=form.elements.run_type.value==='aa_only';
-    const compositionOnly=form.elements.run_type.value==='cg_composition';
+    const runType=form.elements.run_type.value;
+    const aaOnly=runType==='aa_only';
+    const aaCg=runType==='aa_cg';
+    const compositionOnly=runType==='cg_composition';
     $('#cg-inputs').classList.toggle('hidden',aaOnly);
     $$('.cg-setting').forEach(label=>label.classList.toggle('hidden',aaOnly));
     $('#execution-title').textContent=aaOnly?'AA run settings':compositionOnly?'CG composition settings':'Execution and CG inputs';
     setText($('#run-type-help'), aaOnly?'Standalone AA execution is selected. CG mapping and bonded controls are not needed.':compositionOnly?'Run a saved composition through CG simulation, assessment, and CG-only SASA.':'Choose the workflow before selecting CG-specific inputs.');
     $('#cg-inputs').querySelectorAll('input,select,button').forEach(control=>{control.disabled=aaOnly;});
     $$('.cg-setting').forEach(label=>label.querySelectorAll('input,select,button').forEach(control=>{control.disabled=aaOnly;}));
+    // The profile is the run type's own for an AA–CG run (D2): the panel does not offer the choice, and the route
+    // stamps the string the run and the manifest use. The control stays in the document for the AA-only panel,
+    // whose handling is unchanged, so this only adds the AA–CG case -- hidden by the attribute, which is what
+    // `dashboard.css` styles, and disabled so a value hidden by hand cannot travel by accident.
+    const profileLabel=form.elements.profile.closest('label');
+    const offeredProfile=!aaOnly && !aaCg;
+    profileLabel.hidden=!offeredProfile;
+    profileLabel.querySelectorAll('input,select,button').forEach(control=>{control.disabled=!offeredProfile;});
     applyReferenceSettings(aaOnly?null:referenceRecords.find(r=>r.id===form.elements.reference_run_id.value));
     $('#start-run').textContent=aaOnly?'Start AA run':compositionOnly?'Start CG composition run':'Start AA–CG run';
     $('#molecule-panel').classList.toggle('hidden', compositionOnly);
     $('#composition-run-selector').classList.toggle('hidden', !compositionOnly);
     $('#run-mapping').closest('label').classList.toggle('hidden', compositionOnly);
-    $('#run-bonded-state').closest('label').classList.toggle('hidden', compositionOnly);
     $('#reference-run').closest('label').classList.toggle('hidden', compositionOnly);
     form.elements.molecule_id.disabled = compositionOnly;
     form.elements.molecule_id.required = !compositionOnly;
@@ -145,7 +166,7 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
   $('#refresh-molecules').onclick=()=>{invalidateResource('/api/molecules'); invalidateResource('/api/references'); mount().catch(error=>setText($('#molecule-details'),error.message));};
   form.elements.molecule_id.addEventListener('change',updateMolecule);
   form.elements.run_type.addEventListener('change',syncRunType);
-  for (const input of [form.elements.mapping_candidate, form.elements.bonded_state_id, form.elements.bonded_intent, form.elements.reference_run_id, form.elements.temperature_k, form.elements.aa_production_ps, form.elements.cg_production_ps]) {
+  for (const input of [form.elements.mapping_candidate, form.elements.reference_run_id, form.elements.temperature_k, form.elements.aa_production_ps, form.elements.cg_production_ps]) {
     input?.addEventListener('input', syncRunSummary);
     input?.addEventListener('change', syncRunSummary);
   }
@@ -207,12 +228,6 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     refreshReadiness();
 
   }
-  async function loadRunBondedStates() {
-    const select=form.elements.bonded_state_id;if(!select)return;
-    const chosen=select.value||(!statesLoaded&&savedForm?.bonded_state_id)||'';const result=await cachedApi('/api/bonded-states?view=summary',{maxAge:10000});statesLoaded=true;select.replaceChildren(new Option('Fit bonded parameters during this run',''));
-    for(const state of result.states||[]) { const option=new Option(`${state.name} · r${state.revision} · ${state.current.status}`,state.state_id);option.disabled=state.current.status!=='complete';select.append(option); }
-    select.value=chosen;setText($('#bonded-run-help'),chosen?'This run will reuse the selected immutable bonded-state revision.':'No state selected: fit bonded parameters during this run.');
-  }
   let stageDefaults;
   // The force fields come from the registry, so the panel offers what the server can actually run rather than a
   // copy of the list held here. Choosing one moves the temperature to the value that entry's parameterisation
@@ -231,10 +246,13 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     };
   }
   async function loadStageDefaults() {
-    const profile = form.elements.profile.value;
     const run_type=form.elements.run_type.value;
+    const profile=profileForRunType(run_type);
     const result=await cachedApi('/api/defaults?' + new URLSearchParams({profile,run_type}));
-    if(run_type!==form.elements.run_type.value || profile!==form.elements.profile.value)return;
+    // The answer is dropped unless both the run type and the profile it would be asked under are still the ones on
+    // the form: an AA–CG run's profile is the run type's own now, so a stale answer has to be judged against that
+    // and not against a control it no longer reads.
+    if(run_type!==form.elements.run_type.value || profile!==profileForRunType(form.elements.run_type.value))return;
     stageDefaults = result;
     fillForceFields(result.force_fields);
     for (const [field, value] of Object.entries(stageDefaults.values)) {
@@ -280,7 +298,7 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     if(!compositionOnly && !selectedMolecule){const message='Select an available molecule directory before starting.';setText($('#readiness'),message);setText($('#launch-blocker'),message);setText($('#review-status'),'Action required');$('#review-status').dataset.ready='false';return;}
     try {
       const query={run_type,molecule_id:form.elements.molecule_id.value, detergent:form.elements.detergent.value};
-      if(run_type==='aa_cg')Object.assign(query,{method:form.elements.method.value,profile:form.elements.profile.value,mapping_candidate:form.elements.mapping_candidate.value,reference_run_id:form.elements.reference_run_id.value});
+      if(run_type==='aa_cg')Object.assign(query,{method:form.elements.method.value,profile:profileForRunType(run_type),mapping_candidate:form.elements.mapping_candidate.value,reference_run_id:form.elements.reference_run_id.value});
       if(run_type==='cg_composition')Object.assign(query,{composition_id:form.elements.composition_id.value});
       const ready = await api('/api/readiness?' + new URLSearchParams(query),{signal:readinessController.signal});
       if (generation !== readinessGeneration) return;
@@ -302,9 +320,7 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     } catch (error) { if(generation!==readinessGeneration || error.name==='AbortError')return;setText($('#readiness'), error.message);setText($('#launch-blocker'),error.message); setText($('#review-status'),'Readiness unavailable'); $('#review-status').dataset.ready='false'; }
   }
   for (const input of [form.elements.detergent, form.elements.method, form.elements.profile, form.elements.mapping_candidate, form.elements.composition_id]) input.addEventListener('change', refreshReadiness);
-  form.elements.bonded_state_id.addEventListener('change', syncRunSummary);
   form.elements.reference_run_id.addEventListener('change', syncRunSummary);
-  form.elements.bonded_intent.addEventListener('change', syncRunSummary);
   for (const input of [form.elements.temperature_k, form.elements.aa_production_ps, form.elements.cg_production_ps]) input.addEventListener('input', syncRunSummary);
   form.elements.mapping_candidate.addEventListener('change', () => {
     if (form.elements.mapping_candidate.value && form.elements.profile.value === 'standard') {
@@ -331,7 +347,12 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
       if(!await validateCloneSource())return;
       const data=formValues();
       const fields=data.run_type==='aa_only'?AA_FIELDS:[...AA_FIELDS,...CG_FIELDS];
-      if(data.run_type==='aa_only')for(const key of ['method','profile','mapping_candidate','bonded_state_id','bonded_intent','reference_run_id',...CG_FIELDS])delete data[key];
+      if(data.run_type==='aa_only')for(const key of ['method','profile','mapping_candidate','reference_run_id',...CG_FIELDS])delete data[key];
+      // The AA–CG run type owns both its fitting (D1) and its profile (D2). The panel carries no bonded-intent or
+      // bonded-state control any more, and the profile key is dropped here rather than never sent because the one
+      // `profile` control on this form now serves the AA-only and composition panels: the route stamps the AA–CG
+      // run type's own string, so a key the panel cannot offer must not travel.
+      if(data.run_type==='aa_cg')delete data.profile;
       delete data.aa_equil_ps;
       if(data.clone_of) {
         data.settings=Object.fromEntries(fields.filter(k=>data[k] !== '' && data[k] != null).map(k=>[k,data[k]]));
@@ -349,7 +370,7 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     $('#'+panelIds()['new-run']).setAttribute('aria-busy','true');$('#start-run').disabled=true;
     mounting=(async()=>{
       await validateCloneSource();
-      await Promise.all([loadMolecules(),loadStageDefaults(),loadRunBondedStates()]);
+      await Promise.all([loadMolecules(),loadStageDefaults()]);
       await loadRunMappings();
       const modelCatalog=await cachedApi('/api/cg-models?view=summary',{maxAge:10000});
       form.elements.composition_id.replaceChildren(new Option('Select a saved composition',''));
@@ -370,7 +391,7 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
   async function cloneRun(source) {
     selectTab('new');
     applyReferenceSettings(null);
-    for (const [key,value] of Object.entries({...source.settings,run_type:source.run_type || 'aa_cg',detergent:source.detergent,molecule_id:source.molecule_id || source.detergent,method:source.run_type==='aa_only'?form.elements.method.value:source.method,profile:source.run_type==='aa_only'?form.elements.profile.value:source.profile || 'standard',mapping_candidate:source.mapping_candidate || '',bonded_state_id:source.bonded_state_id || '',bonded_intent:source.bonded_intent || 'fit_and_simulate',label:(source.label || source.id)+' copy',clone_of:source.id,reference_run_id:source.reference_run_id || ''})) {
+    for (const [key,value] of Object.entries({...source.settings,run_type:source.run_type || 'aa_cg',detergent:source.detergent,molecule_id:source.molecule_id || source.detergent,method:source.run_type==='aa_only'?form.elements.method.value:source.method,profile:source.run_type==='aa_only'?form.elements.profile.value:source.profile || 'standard',mapping_candidate:source.mapping_candidate || '',label:(source.label || source.id)+' copy',clone_of:source.id,reference_run_id:source.reference_run_id || ''})) {
       if (form.elements[key]) form.elements[key].value = value;
     }
     setCloneSource(source.id);syncRunType();

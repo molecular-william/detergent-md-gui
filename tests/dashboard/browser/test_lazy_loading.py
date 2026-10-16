@@ -35,11 +35,14 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_
     assert not any('/artifacts?' in u for u in urls)
     page.locator('#tab-new').click()
     expect(page.locator('#run-mapping option')).to_have_count(2)
-    expect(page.locator('#run-bonded-state option')).to_have_count(2)
+    # The panel used to offer a bonded-state select here, filled from `/api/bonded-states?view=summary`. Fitting is
+    # the AA-CG run type's own now (D1), so the control is gone and the panel asks for no bonded-state list at all:
+    # the only bonded question left on this page is the Bonded workspace's own, and that carries a mapping hash.
+    expect(page.locator('#run-bonded-state')).to_have_count(0)
+    assert not [u for u in urls if u.startswith('/api/bonded-states')], urls
     expect(page.locator('#review-status')).not_to_have_text('Checking readiness…')
     # The catalogue is fetched once, scoped to the molecule the editor is bound to.
     assert [u for u in urls if u.startswith('/api/mappings?view=summary')] == ['/api/mappings?view=summary&molecule_id=DDM']
-    assert urls.count('/api/bonded-states?view=summary') == 1
     # Returning to the editor keeps what was typed, and the hash activation below reaches the same panel.
     # Arrow-key activation is covered in test_tab_layout_browser, where the order is the rail's own.
     page.locator('#tab-mappings').click()
@@ -57,7 +60,9 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_
     # Two catalogue questions exist: the editor's molecule-scoped one and the global
     # one another panel asks for. The round trip must refetch neither.
     assert sorted(catalogues) == ['/api/mappings?view=summary', '/api/mappings?view=summary&molecule_id=DDM'], catalogues
-    assert urls.count('/api/bonded-states?view=summary') == 1
+    # The Bonded workspace asks its own question once, keyed by the mapping it drew; the New run panel's unkeyed
+    # copy of that list is gone with its control, so exactly one such read happens on this round trip.
+    assert len([u for u in urls if u.startswith('/api/bonded-states?view=summary')]) == 1, urls
     assert urls.count('/api/mappings/'+saved['file']+'?') == 1
     assert not errors
     # A fresh direct link to Bonded does not construct the mapping editor.

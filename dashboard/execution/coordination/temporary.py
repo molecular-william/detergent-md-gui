@@ -15,7 +15,7 @@ def cleanup(jobs, runs_root, store, *, now=None):
     grouped={}
     for job in jobs:
         if not job.get('temporary_validation'): continue
-        key=job.get('bonded_state_id') or job.get('mapping_candidate') or 'unassigned'
+        key=job.get('mapping_candidate') or 'unassigned'
         grouped.setdefault(key,[]).append(job)
     protected={j.get('reference_run_id') for j in jobs if j.get('reference_run_id')}; results=[]
     protected.update(j.get('resume_of') for j in jobs if j.get('status') in ('queued','waiting','running','cancelling'))

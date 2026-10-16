@@ -62,6 +62,17 @@ class Kind:
     #: so: looking at a trajectory is what every completed run owes its reader, and a run with nothing to sample is
     #: not an error -- the producer refuses it in its own words and the attempt is recorded as a skip.
     runs_for_every_run: bool = False
+    #: The run types that get this kind without anyone asking, because the run type itself owes it rather than a
+    #: person. `aa_cg` fits its own bonded parameters before it simulates anything, so the two analyses that
+    #: re-derive what the fit wrote -- `dihedral-fit` and `bonded-cross-check` -- are available the moment stage 3
+    #: ends and belong to every AA-CG run: both declare inputs in stages 2 and 3 only (the mapped trajectory and
+    #: the topology the fit wrote), so there is no coarse-grained trajectory to wait for.
+    #:
+    #: `carbohydrate-validation` is the counter-example, named so that it stays one: it declares
+    #: `4_CG_sim/prod/lig_CG.{gro,xtc}` and cannot run until the coarse-grained simulation has produced a
+    #: trajectory, which is why no run type defaults to it. A type that consumes a pre-parameterized molecule
+    #: (`composition`, `pdc`) fits nothing, so it defaults to no kind at all.
+    default_for_run_types: tuple[str, ...] = ()
 
 
 TABLE: dict[str, Kind] = {row.name: row for row in (
@@ -97,7 +108,8 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         bonded_estimate.cross_check,
         "Bonded terms \u00b7 our fit against the estimate",
         "The fitted force constants beside the ones an independent equipartition estimate reads from the same frames. The two are not expected to be equal -- one is a coupled distribution-matching fit, the other is per term -- but a term we write as a rigid constraint and the estimate reads as a spring is a different molecule.",
-        "nm, kJ/mol/nm^2, and which side calls each term a constraint"),
+        "nm, kJ/mol/nm^2, and which side calls each term a constraint",
+        default_for_run_types=('aa_cg',)),
     Kind(
         'carbohydrate-validation',
         (
@@ -127,7 +139,8 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         dihedral_fit.publish,
         "Dihedral terms \u00b7 a criterion against the tool default",
         "For every proper dihedral the topology declares, the multiplicity and force constant an AIC/BIC-chosen cosine fit reads from the same frames, beside the ones the tool wrote. Where they disagree, the tool default is what is being questioned -- agreement is not evidence the tool chose well.",
-        "degrees, kJ/mol, and a multiplicity"),
+        "degrees, kJ/mol, and a multiplicity",
+        default_for_run_types=('aa_cg',)),
     # All three ensembles of one consumer run: its atomistic reference, the trajectory mapped onto
     # the beads, and the simulated coarse-grained trajectory, plus the topology that names the
     # beads.
@@ -266,3 +279,49 @@ def for_every_run() -> tuple[str, ...]:
     rather than a list kept beside the table, because a second list is a second thing to keep in step.
     """
     return tuple(name for name, row in TABLE.items() if row.runs_for_every_run)
+
+
+#: The body keys each kind's queue route validates, read off `web/routes/analyses.py`'s `queue_analysis` rather than
+#: from what a producer would like to receive. Only two kinds have a body contract: `carbohydrate-validation` aborts
+#: without a tier, a representation mode, a mapping snapshot, a molecule id and a target dataset, and `snapshots`
+#: validates a sampling cadence, an align flag and the fragment to align on. Every other kind's route hands the body
+#: to the worker untouched -- any object, or none at all -- so it is absent from this mapping and `published()`
+#: reports `payload: None`, which is what lets the control offer a bare button for it.
+#:
+#: This is a declaration, not a derivation, because the route states its contract as inline `abort`s rather than as
+#: data the analysis layer could read (the route is also the layer above this one, so importing it here would invert
+#: the dependency). `tests/dashboard/unit/test_kinds_published.py` parses the route and fails if the two answer
+#: differently, so the mapping cannot drift from the route it names.
+_PAYLOAD: dict[str, tuple[str, ...]] = {
+    'carbohydrate-validation': ('tier', 'representation_mode', 'mapping_snapshot', 'molecule_id', 'target_dataset_id'),
+    'snapshots': ('interval_ns', 'align', 'align_on'),
+}
+
+
+def published() -> list[dict]:
+    """The whole table as JSON-safe dicts, one per kind, in table order.
+
+    This is what the Analyses control reads (`GET /api/analysis-kinds`): the UI must not keep a second copy of the
+    vocabulary, so a kind added to the table appears in the control without a second edit. Every value is a plain
+    JSON type -- the row's name, its title as the label and its ideal result as the summary, `sources` and
+    `default_for_run_types` as `list[str]`, the `runs_for_every_run` flag as `bool`, and the route's body contract
+    as `list[str]` or `None` -- so no tuple, callable or other dashboard object can reach the response.
+    """
+    return [{'name': row.name, 'label': row.title, 'inputs': list(row.sources),
+             'payload': list(_PAYLOAD[row.name]) if row.name in _PAYLOAD else None,
+             'runs_for_every_run': row.runs_for_every_run,
+             'default_for_run_types': list(row.default_for_run_types), 'summary': row.ideal_result}
+            for row in TABLE.values()]
+
+
+def default_for(run_type: str) -> list[str]:
+    """The kinds a run of `run_type` gets without anyone asking, in table order.
+
+    `analysis_coordinator` queues these beside `for_every_run()` once a run's stages finish, so a run type's own
+    checks arrive without a person knowing their names. A run type nobody defaulted a kind for gets an empty list
+    rather than an error: "this run type asks for no analysis of its own" is a state, not a mistake.
+
+    `runs_for_every_run` is deliberately a separate facet and is not returned here -- those kinds are queued for
+    every run whatever its type, so a kind carrying both would be queued twice.
+    """
+    return [row.name for row in TABLE.values() if run_type in row.default_for_run_types]

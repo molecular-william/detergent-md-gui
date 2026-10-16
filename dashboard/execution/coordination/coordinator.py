@@ -11,10 +11,10 @@ from functools import wraps
 
 from dashboard import files, store
 
+from ...analysis import kinds
 from ...analysis.runs import observability
 from ...analysis.runs import references as aa_references
 from ...models import compositions, mappings
-from ...models.bonded import states as bonded_states
 from ...models.mappings import context as mapping_context
 from ...models.molecules import aa as aa_molecules
 from ...web import views
@@ -388,8 +388,6 @@ class Coordinator:
                             'detergent': job['detergent'], 'profile': job.get('profile', 'standard'),
                             'settings': job.get('settings') or {},
                             'mapping_candidate': job.get('mapping_snapshot'),
-                            'bonded_state_snapshot': job.get('bonded_state_snapshot'),
-                            'bonded_intent': job.get('bonded_intent', 'fit_and_simulate'),
                             'molecule_snapshot': job.get('molecule_snapshot'),
                             'molecule_root': self.ROOT / 'molecules',
                             **({'shared_reference': job['shared_reference'], 'reference_root': self.RUNS}
@@ -413,12 +411,13 @@ class Coordinator:
                     if worker.cancel.is_set():
                         raise workflow.Cancelled('Cancelled by user')
                     self.database().update(jid, stage=name, command=' '.join(entry['command']))
-                workflow.run(work, log, execute=worker.execute, on_stage=stage_changed, stop_after='CG topology (ff_inter)' if job.get('bonded_intent') == 'fit_only' else None)
+                workflow.run(work, log, execute=worker.execute, on_stage=stage_changed)
+                # An AA-to-CG run used to be able to stop itself here after the fit ("fit only") and record the
+                # topology it produced as a reusable bonded state. Fitting is the run type's own now (D1): the
+                # run's fit is its stage 3 record -- `3_initial_CG/{final_itp}`, `*_ff_inter.itp` and
+                # `bonded_fit.json` -- and nothing about the fit is a per-run choice, so neither the stop nor the
+                # state write has a caller left.
                 if aa_only:aa_references.verify(work,molecule_snapshot=job['molecule_snapshot'])
-                if job.get('bonded_intent') == 'fit_only' and job.get('mapping_snapshot'):
-                    topology = workflow.execution_root(work) / f"3_initial_CG/{prepared.get('cg_names', {}).get('final_itp', 'DDM.itp')}"
-                    state = bonded_states.create(job['mapping_snapshot'], f"Fit from {jid}", 'fast-forward-fit', {'run_id': jid}, topology.read_text(), 'complete')
-                    self.database().update(jid, bonded_state_id=state['state_id'], bonded_state_revision=state['revision'], bonded_state_snapshot=state['current'])
         except Exception as exc:
             # The lifecycle has already recorded the failure; the run log line is this site's own.
             if created:
@@ -426,14 +425,13 @@ class Coordinator:
                     fp.write(f'\nRun failed: {exc}\n')
 
 
-    def create_job(self, detergent, method, label='', retry_of=None, profile='standard', settings=None, reference_run_id=None, resume_of=None, resume_from=None, mapping_candidate=None, mapping_snapshot=None, bonded_state_id=None, bonded_intent='fit_and_simulate', temporary_validation=False, molecule_id=None, molecule_snapshot=None, run_type=None, composition_id=None, protein=None, template=None):
+    def create_job(self, detergent, method, label='', retry_of=None, profile='standard', settings=None, reference_run_id=None, resume_of=None, resume_from=None, mapping_candidate=None, mapping_snapshot=None, temporary_validation=False, molecule_id=None, molecule_snapshot=None, run_type=None, composition_id=None, protein=None, template=None):
         try:
             admission.validate_run_type({'run_type': run_type, 'composition_id': composition_id,
                                          'molecule_id': molecule_id, 'molecule_snapshot': molecule_snapshot,
                                          'reference_run_id': reference_run_id, 'mapping_candidate': mapping_candidate,
-                                         'mapping_snapshot': mapping_snapshot, 'bonded_state_id': bonded_state_id,
+                                         'mapping_snapshot': mapping_snapshot,
                                          'method': method,
-                                         'bonded_intent': None if bonded_intent in (None, 'fit_and_simulate') else bonded_intent,
                                          **(settings or {})})
         except ValueError as exc:
             raise InvalidRequest(str(exc))
@@ -486,15 +484,12 @@ class Coordinator:
                     molecule_root=self.ROOT / 'molecules',
                 )
             except FileNotFoundError: raise InvalidRequest('Selected mapping is unavailable; refresh the candidate list')
-        bonded_snapshot = None
-        if bonded_state_id:
-            try: bonded_snapshot = bonded_states.get(bonded_state_id)
-            except (KeyError, OSError, ValueError): raise InvalidRequest('Selected bonded state is unavailable')
-            if mapping_snapshot is None or not bonded_states.belongs_to(bonded_snapshot, mapping_snapshot):
-                raise RunConflict('Bonded state does not belong to the selected mapping')
-            if bonded_snapshot.get('current',{}).get('status') != 'complete': raise RunConflict('Selected bonded state is incomplete; fit it before reuse')
-        if bonded_intent == 'reuse_state' and bonded_snapshot is None:
-            raise RunConflict('Reuse state intent requires a complete bonded state')
+        # A run used to be able to name a fitted bonded state and reuse it instead of fitting (`bonded_state_id`
+        # with `bonded_intent='reuse_state'`), which is what the three refusals here protected: the state had to
+        # exist, had to belong to the selected mapping, and had to be complete. Fitting is a property of the run
+        # type rather than a per-run choice (D1), so nothing can be handed to a run any more and there is nothing
+        # left to refuse. `models/bonded` keeps the states and their own compatibility checks untouched: they are
+        # still fitted, edited and compared in the Bonded workspace.
         settings = protocol.adapter_for(run_type or 'aa_cg').normalize_settings(settings, profile)
         reference_snapshot=None
         if reference_run_id and shared:
@@ -524,7 +519,10 @@ class Coordinator:
         if not ready['ready']:
             raise RunConflict('; '.join(ready['blockers']))
         job = {'id': uuid.uuid4().hex[:12], 'detergent': detergent, 'method': method, 'label': str(label)[:160],
-               'status': 'queued', 'stage': 'queued', 'created': self.now(), 'retry_of': retry_of, 'profile': profile, 'settings': settings, 'reference_run_id': reference_run_id, 'scientifically_validated': False, 'temporary_validation': bool(temporary_validation), 'bonded_intent': bonded_intent}
+               'status': 'queued', 'stage': 'queued', 'created': self.now(), 'retry_of': retry_of, 'profile': profile, 'settings': settings, 'reference_run_id': reference_run_id, 'scientifically_validated': False, 'temporary_validation': bool(temporary_validation)}
+        # What the run will fit is the mapping it was given; no bonded state and no intent ride on the record any
+        # more (D1). A run that finds one in an old payload simply ignores it, which is where the retired pair of
+        # controls now leads.
         # The run type has to be on the record before the worker starts: everything downstream -- readiness, the
         # stage plan, which adapter writes the run -- is chosen by it, and a job that only carries a method is read
         # as a CG run by the adapter that answers about methods.
@@ -535,8 +533,6 @@ class Coordinator:
             job['template'] = template
         if mapping_snapshot is not None:
             job.update(mapping_candidate=mapping_snapshot.get('file'), mapping_snapshot=mapping_snapshot)
-        if bonded_snapshot is not None:
-            job.update(bonded_state_id=bonded_state_id, bonded_state_revision=bonded_snapshot.get('revision'), bonded_state_snapshot=bonded_snapshot.get('current'))
         if molecule_snapshot is not None:
             job.update(molecule_id=molecule_snapshot['id'], molecule_snapshot=molecule_snapshot)
         job.update(layout_version=2, resume_of=resume_of, resume_from=resume_from)
@@ -629,6 +625,23 @@ class Coordinator:
     def manifest_data(self, job):
         """The run's manifest, read through the run's own path and the shared cache."""
         return self.MANIFEST_CACHE.read(self.run_path(job)/'manifest.json')
+
+
+    def automatic_analyses(self, jid):
+        """The kinds a run queues for itself when it stops: the universal ones, then its run type's own.
+
+        The automatic kinds are a facet of the kind table rather than a list kept here -- `kinds.for_every_run()`
+        is the kind that runs for any run, and `kinds.default_for(run_type)` is the run type's own, which is where
+        an AA-to-CG run's `dihedral-fit` and `bonded-cross-check` come from (D5): they read stages 2 and 3 only, so
+        they are available the moment the fit is. A run type with no defaults of its own is not a special case --
+        the second list is empty and the answer is the first.
+
+        A record that names no run type gets the universal kinds and nothing else: this run type's defaults are not
+        every run's, and a record that cannot say what it is does not get to claim them.
+        """
+        job = self.lookup(jid)
+        run_type = job.get('run_type')
+        return list(kinds.for_every_run()) + (list(kinds.default_for(run_type)) if run_type else [])
 
 
 

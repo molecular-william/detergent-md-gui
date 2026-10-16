@@ -13,7 +13,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from ... import files, paths
+from ... import files
 from ...models import bonded, mappings
 from ...models.molecules import aa as aa_molecules
 from ...models.molecules import draft as draft_model
@@ -30,6 +30,13 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 # in between are read through those three; a name is not part of the interface
 # merely because it is importable.
 
+#: The profile an AA-to-CG run is stamped with. Fitting is a property of this run type rather than a per-run
+#: choice (D1/D2): the run always fits its own bonded parameters from a full-length AA reference, and a CG run
+#: handed a pre-parameterized molecule never fits. So the profile is this run type's default instead of a select
+#: on its panel, the manifest records it as it always has, and nothing in `prepare` keys on it. `standard` stays
+#: available to `aa_only`, the only run type that has ever used it.
+AA_CG_PROFILE = 'draft-smoke-reference'
+
 STAGE_DEFS = (
     Stage('AA reference', '1_AA-reference/aa_reference.sh',
           ('molecule.pdb', 'system_EMPTY.top', 'em.mdp', 'eq.mdp', 'run.mdp'),
@@ -38,7 +45,7 @@ STAGE_DEFS = (
           ('../1_AA-reference/prod/lig.xtc', '../1_AA-reference/prod/lig.tpr',
            '../1_AA-reference/prod/lig.gro', 'mapping.map'),
           ('mapped.xtc', 'mapped.gro', 'mapping_validation.json')),
-    Stage('CG topology (ff_inter)', '3_initial_CG/fit_topology.sh',
+    Stage('CG parameterization', '3_initial_CG/fit_topology.sh',
           ('../2_mapping/mapped.xtc', '../2_mapping/mapped.gro', 'initial.mdp',
            'topol.top', '{initial_itp}'),
           ('mapped.tpr', '{final_itp}', '*_bonds_distr.dat',
@@ -187,7 +194,15 @@ def normalize_settings(settings=None, profile='standard'):
     return cg_settings | aa_settings
 
 
-def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM', profile='standard', settings=None, mapping_candidate=None, bonded_state_snapshot=None, bonded_intent='fit_and_simulate', shared_reference=None, reference_root=None, molecule_snapshot=None, molecule_root=None):
+def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM', profile=AA_CG_PROFILE, settings=None, mapping_candidate=None, shared_reference=None, reference_root=None, molecule_snapshot=None, molecule_root=None):
+    """Prepare one AA-to-CG run's stage directory.
+
+    What this run type stages, it stages for every AA-to-CG run: the mapping export, the ring-constraint pass,
+    the refinement and the topology the fit writes. The two controls that made any of that a per-run choice are
+    gone (D1): a caller cannot hand this run a pre-fitted bonded state, and there is no "fit only" stop. The
+    profile is a duration preset recorded in the manifest and keyed on by nothing here; a caller that names none
+    is given this run type's own (`AA_CG_PROFILE`).
+    """
     aa.validate_profile(profile)
     if molecule_snapshot is None or not shared_reference:
         raise ValueError('CG preparation requires a molecule snapshot and shared AA reference')
@@ -207,53 +222,55 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
         path.parent.mkdir(exist_ok=True)
         shutil.copy2(SCRIPTS / path.name, path)
 
-    if profile in ('draft-smoke','draft-smoke-reference'):
-        data = draft_model.load(mapping_candidate, molecule_root=molecule_root)
-        exports = mappings.export_files(data)
-        for filename in ('mapping.map', 'mapping.ndx', 'model.json', 'README.txt'):
-            (run_dir / '2_mapping' / filename).write_text(exports[filename])
-        (run_dir / '2_mapping/draft-source.json').write_text(json.dumps(data, indent=2))
-        cg = run_dir / '3_initial_CG'
-        shutil.copy2(Path(bonded.__file__), cg/'bonded.py')
-        shutil.copy2(SCRIPTS/'refine_bonded.py', cg/'refine_bonded.py')
-        (cg / names.initial_itp).write_text(
-            draft_model.initial_topology(
-                data, molecule_root=molecule_root, residue_name=names.residue_name
-            )
+    # Everything below is what an AA-to-CG run stages, and none of it is a per-run choice: the run type fits its
+    # own bonded parameters from the AA reference it consumes (D1). It used to sit inside
+    # `if profile in ('draft-smoke', 'draft-smoke-reference')`, which made "is a mapping staged at all" a
+    # property of a duration preset -- a `standard` AA-to-CG run staged no mapping, no topology and no fit.
+    # The pieces whose work can be empty are staged always and are inert when unused: a mapping with no rings
+    # has nothing to expand, and the refinement does nothing without a torsion model in the mapping.
+    data = draft_model.load(mapping_candidate, molecule_root=molecule_root)
+    exports = mappings.export_files(data)
+    for filename in ('mapping.map', 'mapping.ndx', 'model.json', 'README.txt'):
+        (run_dir / '2_mapping' / filename).write_text(exports[filename])
+    (run_dir / '2_mapping/draft-source.json').write_text(json.dumps(data, indent=2))
+    cg = run_dir / '3_initial_CG'
+    shutil.copy2(Path(bonded.__file__), cg/'bonded.py')
+    shutil.copy2(SCRIPTS/'refine_bonded.py', cg/'refine_bonded.py')
+    # The ring-constraint pass is staged for every mapping, because the stage script calls it unconditionally:
+    # it reads `2_mapping/ring_targets.json` and returns when there is none, so a mapping without rings needs
+    # the script present and inert rather than absent.
+    shutil.copy2(SCRIPTS/'prepare_ring_constraints.py', cg/'prepare_ring_constraints.py')
+    (cg / names.initial_itp).write_text(
+        draft_model.initial_topology(
+            data, molecule_root=molecule_root, residue_name=names.residue_name
         )
-        if bonded_intent == 'reuse_state' and bonded_state_snapshot and isinstance(bonded_state_snapshot.get('topology'), str):
-            (cg / 'BOND_STATE.itp').write_text(bonded_state_snapshot['topology'])
-            source_id = bonded_state_snapshot.get('source', {}).get('run_id')
-            source_dir = paths.current().runs/source_id/'stages/3_initial_CG' if source_id else None
-            if source_dir and source_dir.is_dir():
-                for source_file in source_dir.glob('*_distr.dat'):
-                    shutil.copy2(source_file, cg/source_file.name)
-        # The one mapper, copied for every mapping rather than only the ringed ones: a mapping with no rings has
-        # nothing to expand and writes no ring targets, and the branch that called ff_map instead is gone with it.
-        shutil.copy2(SCRIPTS/'sugar_mapping.py', run_dir/'2_mapping/sugar_mapping.py')
-        if data.get('rings'):
-            shutil.copy2(SCRIPTS/'prepare_ring_constraints.py', cg/'prepare_ring_constraints.py')
-            for suffix in ('.itp', '.source.json'):
-                shutil.copy2(ROOT/'references'/('martini_v3.0.0_sugars_v2'+suffix), cg/('reference_sugars_v2'+suffix))
+    )
+    # The one mapper, copied for every mapping rather than only the ringed ones: a mapping with no rings has
+    # nothing to expand and writes no ring targets, and the branch that called ff_map instead is gone with it.
+    shutil.copy2(SCRIPTS/'sugar_mapping.py', run_dir/'2_mapping/sugar_mapping.py')
+    if data.get('rings'):
+        # Only the ring pass reads the sugar reference, so it is staged where a ring pass will run.
+        for suffix in ('.itp', '.source.json'):
+            shutil.copy2(ROOT/'references'/('martini_v3.0.0_sugars_v2'+suffix), cg/('reference_sugars_v2'+suffix))
 
-        shutil.copy2(TUTORIAL_TEMPLATE / '3_initial_CG/martini_v3.0.0.itp', cg / 'martini_v3.0.0.itp')
-        shutil.copy2(TUTORIAL_TEMPLATE / '3_initial_CG/initial.mdp', cg / 'initial.mdp')
-        update_mdp(cg / 'initial.mdp', {'nsteps': 0})
-        (cg / 'topol.top').write_text(f'#include "martini_v3.0.0.itp"\n#include "{names.initial_itp}"\n[ system ]\n{names.residue_name} draft\n[ molecules ]\n{names.residue_name} 1\n')
-        sim = run_dir / '4_CG_sim'
-        shutil.copytree(TUTORIAL_TEMPLATE / '4_CG_sim/inputs', sim / 'inputs')
-        (sim / 'system_EMPTY.top').write_text(f'#include "inputs/martini_v3.0.0.itp"\n#include "inputs/martini_v3.0.0_solvents_v1.itp"\n#include "{names.final_itp}"\n[ system ]\n{names.residue_name} draft in pure water\n[ molecules ]\n{names.residue_name} 1\n')
-        for folder, mdp_names in ((aa_dir, ('em.mdp','eq.mdp','run.mdp')), (sim / 'inputs', ('minimization.mdp','eq.mdp','md.mdp'))):
-            if folder == aa_dir and not inline_aa: continue
-            update_mdp(folder / mdp_names[0], {'nsteps': 20000, 'define': ''})
-            for filename, steps in zip(mdp_names[1:], (5000, 25000)):
-                update_mdp(folder / filename, mdp_integration(folder, aa_dir, steps))
-        shutil.copy2(SCRIPTS / 'validate_run.py', run_dir / '5_assessment/validate_run.py')
-        shutil.copy2(SCRIPTS / 'distance_diagnostics.py', run_dir / '5_assessment/distance_diagnostics.py')
-        sasa = run_dir / '6_SASA'
-        (sasa / 'AA').mkdir(); (sasa / 'CG').mkdir()
-        shutil.copy2(TUTORIAL_TEMPLATE / '5_SASA/vdwradii_AA.dat', sasa / 'AA/vdwradii.dat')
-        (sasa / 'CG/vdwradii.dat').write_text(''.join(f'{names.residue_name} B{i:02d} { {"R":0.264,"S":0.230,"T":0.191}[b["size"]]}\n' for i,b in enumerate(data['beads'],1)))
+    shutil.copy2(TUTORIAL_TEMPLATE / '3_initial_CG/martini_v3.0.0.itp', cg / 'martini_v3.0.0.itp')
+    shutil.copy2(TUTORIAL_TEMPLATE / '3_initial_CG/initial.mdp', cg / 'initial.mdp')
+    update_mdp(cg / 'initial.mdp', {'nsteps': 0})
+    (cg / 'topol.top').write_text(f'#include "martini_v3.0.0.itp"\n#include "{names.initial_itp}"\n[ system ]\n{names.residue_name} draft\n[ molecules ]\n{names.residue_name} 1\n')
+    sim = run_dir / '4_CG_sim'
+    shutil.copytree(TUTORIAL_TEMPLATE / '4_CG_sim/inputs', sim / 'inputs')
+    (sim / 'system_EMPTY.top').write_text(f'#include "inputs/martini_v3.0.0.itp"\n#include "inputs/martini_v3.0.0_solvents_v1.itp"\n#include "{names.final_itp}"\n[ system ]\n{names.residue_name} draft in pure water\n[ molecules ]\n{names.residue_name} 1\n')
+    for folder, mdp_names in ((aa_dir, ('em.mdp','eq.mdp','run.mdp')), (sim / 'inputs', ('minimization.mdp','eq.mdp','md.mdp'))):
+        if folder == aa_dir and not inline_aa: continue
+        update_mdp(folder / mdp_names[0], {'nsteps': 20000, 'define': ''})
+        for filename, steps in zip(mdp_names[1:], (5000, 25000)):
+            update_mdp(folder / filename, mdp_integration(folder, aa_dir, steps))
+    shutil.copy2(SCRIPTS / 'validate_run.py', run_dir / '5_assessment/validate_run.py')
+    shutil.copy2(SCRIPTS / 'distance_diagnostics.py', run_dir / '5_assessment/distance_diagnostics.py')
+    sasa = run_dir / '6_SASA'
+    (sasa / 'AA').mkdir(); (sasa / 'CG').mkdir()
+    shutil.copy2(TUTORIAL_TEMPLATE / '5_SASA/vdwradii_AA.dat', sasa / 'AA/vdwradii.dat')
+    (sasa / 'CG/vdwradii.dat').write_text(''.join(f'{names.residue_name} B{i:02d} { {"R":0.264,"S":0.230,"T":0.191}[b["size"]]}\n' for i,b in enumerate(data['beads'],1)))
 
     settings = normalize_settings(settings, profile)
     if inline_aa:
@@ -286,9 +303,11 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
         'sha256': {str(p.relative_to(FORCE_FIELD)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(FORCE_FIELD.rglob('*')) if p.is_file()}}
     metadata['inputs_sha256'] = {str(p.relative_to(run_dir)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(run_dir.rglob('*')) if p.is_file() and p != manifest}
     metadata['environment'] = recorded_environment()
-    if profile == 'draft-smoke':
-        metadata['analysis_topology'] = 'GRO atom/residue order + explicit ITP interactions; MDAnalysis 2.10 does not support GROMACS 2026 TPR 138. Trajectories made whole with gmx trjconv.'
-        metadata['limitations'] = ['Draft mapping and nonbonded bead types, not scientifically validated', f'AA production {settings["aa_production_ps"]} ps; CG production {settings["cg_production_ps"]} ps; pure water', 'Bonded parameters fit to the recorded AA reference; no convergence or thermodynamic validation']
+    # What this run is, recorded for every AA-to-CG run rather than only the `draft-smoke` profile: the mapping and
+    # the fitted terms are the run type's own (D1), so the two caveats belong to the run type. `analysis_topology`
+    # names how a reader may read the run at all -- MDAnalysis 2.10 cannot read this GROMACS build's TPR.
+    metadata['analysis_topology'] = 'GRO atom/residue order + explicit ITP interactions; MDAnalysis 2.10 does not support GROMACS 2026 TPR 138. Trajectories made whole with gmx trjconv.'
+    metadata['limitations'] = ['Draft mapping and nonbonded bead types, not scientifically validated', f'AA production {settings["aa_production_ps"]} ps; CG production {settings["cg_production_ps"]} ps; pure water', 'Bonded parameters fit to the recorded AA reference; no convergence or thermodynamic validation']
     metadata['tools'] = tool_metadata()
     files.atomic_json(manifest, metadata)
 
@@ -418,8 +437,7 @@ def _protocol_prepare(run_dir, metadata):
     a run directory in, a prepared run out.
     """
     keys = ('structure', 'detergent', 'profile', 'settings', 'mapping_candidate',
-            'bonded_state_snapshot', 'bonded_intent', 'shared_reference',
-            'reference_root', 'molecule_snapshot', 'molecule_root')
+            'shared_reference', 'reference_root', 'molecule_snapshot', 'molecule_root')
     values = {key: metadata[key] for key in keys if key in metadata}
     # The CG settings dialect is its own vocabulary. A key from the AA half that this run type does not use is dropped
     # rather than refused, because those settings describe the reference it consumes instead of the run it builds --
