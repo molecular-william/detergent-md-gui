@@ -579,12 +579,12 @@ function renderHolds(monitor) {
     <table>
       <caption class="hint" style="text-align:left">Every structure file this run holds, in the order this panel
         would draw them — the mapped model before the boxes it passed through, the reference before the simulation.
-        The file on the canvas now is marked; the frames panel below is where frames come from.</caption>
-      <thead><tr><th>file</th><th>state</th></tr></thead>
+        The file on the canvas now is marked, and a file that holds a trajectory says so; the frames panel below is
+        where frames come from.</caption>
       <tbody>${monitor.structures.map(entry => `
-        <tr><td><code>${entry.path}</code>${monitor.structure && monitor.structure.path === entry.path
-            ? ' <span class="hint">· on the canvas</span>' : ''}</td>
-        <td class="hint">${entry.frames ? 'plays as a trajectory' : ''}</td></tr>`).join('')}
+        <tr><td><code>${entry.path}</code>${entry.frames ? ' <span class="hint">· a trajectory</span>' : ''}${
+          monitor.structure && monitor.structure.path === entry.path
+            ? ' <span class="hint">· on the canvas</span>' : ''}</td></tr>`).join('')}
       </tbody>
     </table>`;
 }
