@@ -382,7 +382,15 @@ def test_the_protein_detergent_workspace_offers_only_complex_runs(dashboard, liv
 # ----------------------------------------------------------------------------------------------- an AA run, drawn
 
 
-def test_an_aa_run_draws_its_published_gro_bondless_and_names_where_its_bonds_are(dashboard, live_page):
+def test_an_aa_runs_gro_is_drawn_with_the_guess_that_is_right_about_chemistry(dashboard, live_page):
+    """An all-atom `.gro` is bondless by *format*, not by intent: the guess draws the molecule it names.
+
+    This test used to assert the opposite -- zero bonds on a `.gro` -- because the rule sent every `.gro` down the
+    coarse-grained branch and emptied the store. That is right for a bead, where the guess is wrong by construction,
+    and wrong for chemistry, which is the one case it is right about: the atomistic half of a comparison was left
+    with no bonds at all. The readout names which guess the bonds came from, and the coarse-grained branch is held
+    to its own answer by the tests above.
+    """
     seed(dashboard)
     page, errors = live_page
     open_panel(page, live_page, run=AA_RUN)
@@ -390,14 +398,11 @@ def test_an_aa_run_draws_its_published_gro_bondless_and_names_where_its_bonds_ar
 
     measured = page.locator('#run-view-viewer').evaluate(MEASURE)
     assert measured['atoms'] == 5
-    # A `.gro` carries no bond records, and this build's GRO parser guesses them from distances whatever
-    # `inferBonds` says -- the panel clears the store, so zero bonds are drawn. That is the honest picture rather
-    # than a guess, and the readout says which file and where the model's bonds actually are.
-    assert measured['bonds'] == 0, 'a .gro must be drawn without invented bonds'
+    assert measured['bonds'] > 0, 'an all-atom .gro keeps the guess its chemistry is drawn by'
     expect(page.locator('#run-view-readout')).to_contain_text('bonds the file states')
     expect(page.locator('#run-view-readout')).to_contain_text('bonds the viewer resolved')
+    expect(page.locator('#run-view-readout')).to_contain_text("this viewer's distance guess")
     expect(page.locator('#run-view-transport-note')).to_contain_text('.gro')
-    expect(page.locator('#run-view-readout')).to_contain_text('a .gro carries coordinates and no bond records')
     expect(page.locator('#run-view-what')).to_contain_text('stages/07_reference/lig.gro')
     assert errors == []
 
