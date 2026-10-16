@@ -305,6 +305,9 @@ function stageFor(monitor) {
   if (!monitor.stage) {
     monitor.stage = new NGL.Stage(monitor.element.querySelector(`#canvas-${monitor.side}`),
                                   {backgroundColor: 'white'});
+    // The handle a test reads the component list from, the way the panel exposes its own stage: "one thing on the
+    // canvas" is a claim about `compList.length`, and only the page can be asked for it.
+    monitor.element.runViewStage = monitor.stage;
     // NGL's own drag handlers are what a reader uses to turn the model; nothing here overrides them.
   }
   return monitor.stage;
@@ -442,6 +445,10 @@ async function readSeries(jobId) {
 
 async function draw(monitor, path, token = monitor.token) {
   const stage = stageFor(monitor);
+  // Everything off the stage before anything goes on it. Without this, a second pick leaves the *first* series on
+  // the canvas: it holds its own frame 0 still while the new one plays over it, which reads exactly like a play
+  // button that does nothing. The panel clears the stage for the same reason.
+  stage.removeAllComponents();
   const status = document.querySelector('#status');
   monitor.element.querySelector(`#play-${monitor.side}`).disabled = true;
   monitor.element.querySelector(`#frame-${monitor.side}`).disabled = true;
@@ -539,12 +546,15 @@ function renderHolds(monitor) {
   summaryCount(details, monitor.structures.length);
   body.innerHTML = `
     <table>
-      <caption class="hint" style="text-align:left">Every structure file this run holds, and the trajectory a frame
-        series would be sampled from.</caption>
+      <caption class="hint" style="text-align:left">Every structure file this run holds. <strong>Draw</strong> puts
+        that file on this monitor's canvas, in place of whatever is there now — the same canvas the run's frame
+        series plays on, so choosing a file is how you look at a step of the run rather than its whole trajectory.</caption>
       <thead><tr><th>file</th><th>state</th><th></th></tr></thead>
       <tbody>${monitor.structures.map(entry => `
-        <tr><td><code>${entry.path}</code></td><td class="hint">${entry.frames ? 'plays as a trajectory' : ''}</td>
-        <td><button class="secondary" data-path="${entry.path}">draw</button></td></tr>`).join('')}
+        <tr><td><code>${entry.path}</code>${monitor.structure && monitor.structure.path === entry.path
+            ? ' <span class="hint">· on the canvas</span>' : ''}</td>
+        <td class="hint">${entry.frames ? 'plays as a trajectory' : ''}</td>
+        <td><button class="secondary" data-path="${entry.path}" title="Draw this file on this monitor's canvas">draw</button></td></tr>`).join('')}
       </tbody>
     </table>`;
   body.querySelectorAll('button[data-path]').forEach(button =>
@@ -617,19 +627,22 @@ async function renderFigures(monitor) {
   try {
     // The route answers with the analysis artifacts that published pictures, each naming its own files. Shown as
     // images rather than a list of paths: a figure a reader has to download to see is not a figure.
+    // One row per published figure. The route answers with each analysis's *current* set, so this lists what the
+    // run shows today: expanding every artifact's own file list, as an earlier draft did, turned three snapshot
+    // figures into eighteen rows with the same three names six times over.
     const answer = await getJSON(`/api/jobs/${monitor.run.id}/figures`);
-    const artifacts = answer.artifacts || [];
-    const pictures = artifacts.flatMap(artifact => (artifact.metadata?.stats?.files || [])
-      .filter(name => /\.(svg|png)$/i.test(name))
-      .map(name => ({kind: artifact.metadata?.kind || 'figure',
-                     path: artifact.path.replace(/[^/]+$/, name)})));
+    const pictures = answer.artifacts || [];
+    const superseded = Number(answer.superseded) || 0;
     summaryCount(details, pictures.length);
-    body.innerHTML = pictures.length
+    body.innerHTML = (pictures.length
       ? `<table><thead><tr><th>figure</th><th></th></tr></thead><tbody>${pictures.map(picture => `
-          <tr><td><code>${picture.path.split('/').pop()}</code> <span class="hint">${picture.kind}</span></td>
+          <tr><td><code>${picture.path.split('/').pop()}</code>
+          <span class="hint">${picture.metadata?.kind || (picture.path.startsWith('analyses/') ? 'analysis' : 'stage')}</span></td>
           <td><a href="${artifactURL(monitor.run.id, picture.path)}" target="_blank">open</a></td></tr>`).join('')}
         </tbody></table>`
-      : '<p class="hint">No figures published by this run.</p>';
+      : '<p class="hint">No figures published by this run.</p>')
+      + (superseded ? `<p class="hint">${superseded} superseded set${superseded === 1 ? '' : 's'} of the same `
+                      + "analyses stay in this run's own tree — the Runs gallery lists them.</p>" : '');
   } catch (error) {
     summaryCount(details, null);
     body.textContent = `Figures could not be listed (${error.message}).`;

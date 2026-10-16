@@ -621,6 +621,7 @@ export function createRunView() {
         + 'that drew it, and this one drew none.';
       return;
     }
+    const superseded = Number(body.superseded) || 0;
     figures.replaceChildren(...entries.map(entry => {
       const item = document.createElement('li');
       const link = document.createElement('a');
@@ -634,9 +635,13 @@ export function createRunView() {
       item.append(link);
       return item;
     }));
+    // One set per analysis, not one per attempt: the route answers with what the run currently publishes, and says
+    // how many of its own earlier sets it left out -- a reader who wants those can open them in the Runs gallery.
     figuresNote.textContent = `${entries.length} figure${entries.length === 1 ? '' : 's'}, straight from the stages `
-      + 'that wrote them, opened inline through the run artifact route. The zoomable, pannable gallery stays in the '
-      + 'Runs panel.';
+      + 'that wrote them, opened inline through the run artifact route.'
+      + (superseded ? ` ${superseded} superseded set${superseded === 1 ? '' : 's'} of the same analyses stay in this `
+                      + "run's own analysis tree." : '')
+      + ' The zoomable, pannable gallery stays in the Runs panel.';
   }
 
   // ------------------------------------------------------------------------------------- structures and the row

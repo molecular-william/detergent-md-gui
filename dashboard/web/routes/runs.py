@@ -12,6 +12,7 @@ from flask import Blueprint, Response, abort, jsonify, render_template, request,
 
 from dashboard import files
 
+from ...analysis.runs.figures import current_figures
 from ...execution import protocol
 from ...execution.adapters import pdc_view
 from ...execution.adapters.micelle import run_micelle_job
@@ -314,9 +315,18 @@ def artifacts_api(jid):
 
 @blueprint.get('/api/jobs/<jid>/figures')
 def figures_api(jid):
+    """The figures the run currently publishes, and how many published sets a newer one replaced.
+
+    Not every image the index holds: an analysis publishes its figures again on every attempt, so the plain listing
+    is mostly a file's own earlier selves -- measured, this workspace's sucrose CG run holds 38 images of which 33
+    are the same three snapshot SVGs. `dashboard.analysis.runs.figures` holds the rule and its reasoning; the older
+    sets stay on disk and are reachable through the artifact route the Runs gallery reads.
+    """
     c = coordinator()
     entries = c.artifact_index(c.lookup(jid), refresh=request.args.get('refresh') == '1')
-    return jsonify(artifacts=[e for e in entries if e['path'].endswith(('.png','.svg','surface-comparison.html'))],
+    figures, superseded = current_figures(
+        [e for e in entries if e['path'].endswith(('.png', '.svg', 'surface-comparison.html'))])
+    return jsonify(artifacts=figures, superseded=superseded,
                    revision=c.lookup(jid).get('artifact_revision'))
 
 

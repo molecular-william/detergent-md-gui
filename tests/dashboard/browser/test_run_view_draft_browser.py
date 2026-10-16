@@ -119,3 +119,64 @@ def test_the_combo_offers_only_completed_runs_and_filters_as_you_type(dashboard,
     assert page.locator('#choose-A .list button').count() == 0
     assert 'No completed run matches' in page.locator('#choose-A .list').inner_text()
     assert errors == []
+
+
+def test_each_monitor_holds_one_thing_however_many_runs_are_picked(dashboard, live_page):
+    """The frozen first frame a reader reported: an earlier series stayed on the canvas under the newer one.
+
+    NGL keeps one component list per stage, so "one thing on the canvas" is a claim about `compList.length` after a
+    second pick -- which is exactly how it was reported, as a snapshot that stayed put while the play button ran.
+    """
+    seed(dashboard)
+    plant_trajectory_run(dashboard, cg_files())
+    published_series(dashboard)
+    page, errors = live_page
+    open_draft(page, live_page)
+
+    choose_run(page, 'A', TRAJECTORY_RUN)
+    page.wait_for_function(
+        "() => (document.querySelector('.monitor[data-side=A]').runViewStage?.compList?.length || 0) > 0",
+        timeout=20000)
+    choose_run(page, 'B', TRAJECTORY_RUN)
+    page.wait_for_function(
+        "() => document.querySelector('#label-B').textContent.includes('frame series')", timeout=20000)
+
+    counts = page.evaluate("""() => ['A', 'B'].map(side =>
+        document.querySelector(`.monitor[data-side=${side}]`).runViewStage.compList.length)""")
+    assert counts == [1, 1], f'a monitor is holding more than one thing: {counts}'
+    assert errors == []
+
+
+def test_the_figure_list_shows_each_published_figure_once(dashboard, live_page):
+    """Two attempts of one analysis are one picture, not two rows with the same name.
+
+    The defect read as "CG-first.svg repeated six times": an analysis publishes its figures again every time it runs,
+    and a listing that takes every artifact (or expands each artifact's own file list) multiplies them again.
+    """
+    import os
+
+    seed(dashboard)
+    plant_trajectory_run(dashboard, cg_files())
+    run = dashboard.coordinator.RUNS / TRAJECTORY_RUN
+    for signature, epoch in (('aaaa', 1_700_000_000), ('bbbb', 1_700_100_000)):
+        directory = run / f'analyses/snapshots/{signature}/1111/output/2222/snapshots'
+        directory.mkdir(parents=True, exist_ok=True)
+        for name in ('CG-first.svg', 'CG-middle.svg', 'CG-last.svg'):
+            (directory / name).write_text('<svg xmlns="http://www.w3.org/2000/svg"/>')
+            os.utime(directory / name, (epoch, epoch))
+    (run / 'stages/5_assessment').mkdir(parents=True, exist_ok=True)
+    (run / 'stages/5_assessment/score_matrix_LIG1.png').write_bytes(b'png')
+
+    page, errors = live_page
+    open_draft(page, live_page)
+    choose_run(page, 'A', TRAJECTORY_RUN)
+    page.wait_for_function(
+        "() => /\\(4\\)/.test(document.querySelector('#figures-A summary').textContent)", timeout=20000)
+
+    page.locator('#figures-A').evaluate('el => { el.open = true; }')
+    names = page.locator('#figures-A .body tbody tr td:first-child code').all_inner_texts()
+    assert names == ['CG-first.svg', 'CG-last.svg', 'CG-middle.svg', 'score_matrix_LIG1.png'], names
+    assert len(names) == len(set(names)), f'the same figure is listed twice: {names}'
+    assert page.locator('#figures-A .body').inner_text().count('superseded') == 1, \
+        'the set that was replaced is counted rather than dropped in silence'
+    assert errors == []

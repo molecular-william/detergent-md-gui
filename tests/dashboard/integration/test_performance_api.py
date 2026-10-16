@@ -91,6 +91,37 @@ def test_figures_use_index_and_explicit_refresh(dashboard):
     assert len(client.get('/api/jobs/'+job['id']+'/figures?refresh=1').json['artifacts']) == 2
 
 
+def test_the_figure_list_holds_one_set_per_analysis_not_one_per_attempt(dashboard):
+    """A run's figures are the newest set of each analysis, with the superseded ones counted rather than listed.
+
+    Measured on this workspace's own sucrose CG run before the rule: 38 images, 33 of them the same three snapshot
+    SVGs from eleven attempts of one analysis, so the file a reader wanted was buried among its own earlier selves.
+    """
+    job = {'id': '654321fedcba', 'status': 'completed'}
+    dashboard.coordinator.database().insert(job)
+    run = dashboard.coordinator.run_path(job)
+    import os
+    for signature, epoch in (('aaaa', 1_700_000_000), ('bbbb', 1_700_100_000)):
+        directory = run / f'analyses/snapshots/{signature}/1111/output/2222/snapshots'
+        directory.mkdir(parents=True, exist_ok=True)
+        for name in ('CG-first.svg', 'CG-middle.svg'):
+            (directory / name).write_text('<svg/>')
+            # The stamps are the whole test: both sets are written in the same instant, and without distinct times
+            # the rule has nothing to choose on -- which is how this test first passed for the wrong set.
+            os.utime(directory / name, (epoch, epoch))
+    assessment = run / 'stages/5_assessment'
+    assessment.mkdir(parents=True, exist_ok=True)
+    (assessment / 'score_matrix_LIG1.png').write_bytes(b'png')
+
+    answer = dashboard.client.get(f'/api/jobs/{job["id"]}/figures?refresh=1').json
+
+    paths = [entry['path'] for entry in answer['artifacts']]
+    assert paths == ['analyses/snapshots/bbbb/1111/output/2222/snapshots/CG-first.svg',
+                     'analyses/snapshots/bbbb/1111/output/2222/snapshots/CG-middle.svg',
+                     'stages/5_assessment/score_matrix_LIG1.png'], paths
+    assert answer['superseded'] == 1, 'the superseded set is counted, not silently dropped'
+
+
 def test_display_storage_cache_does_not_cache_admission(dashboard):
     client = dashboard.client
     with patch.object(dashboard.coordinator, 'storage_report', return_value={'run_bytes': 123}) as report:
