@@ -1,0 +1,698 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run view — two monitors (draft)</title>
+<!--
+  A layout draft for the Run view, for review. It is not the panel: it talks to the same API (same origin), so the
+  runs, structures and published frame series in it are the real ones, and the canvases are real NGL. What is being
+  judged here is the *shape*:
+
+    * two monitors side by side, each with its own "choose a run" combo above its own NGL canvas
+    * each monitor's own "what this run holds" / "frames" / "figures" sub-panels *below* the canvas, collapsed
+    * only completed runs are offered, and the combo filters as you type
+
+  Deliberately simplified against the live panel: the transport is play/pause + one slider (the panel's has the
+  moments strip, the cadence field, the fit-on select and the overwrite dialog), the legend is a caption rather
+  than a drawing, and nothing is remembered between visits.
+-->
+<style>
+:root{color-scheme:light;--ink:#1c2940;--muted:#5a697d;--line:#dae2eb;--accent:#2455b0;--surface:#fff;
+     --bg:#f3f6fa;--danger:#a52230;--good:#286644}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,sans-serif}
+header,main{max-width:1700px;margin:auto;padding:20px 24px}
+header{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;flex-wrap:wrap;padding-top:28px}
+h1{font-size:26px;letter-spacing:-.6px;margin:3px 0}
+h2{font-size:16px;margin:0}
+h3{font-size:14px;margin:0 0 8px}
+p{margin:6px 0}
+.eyebrow{font-size:11px;letter-spacing:2px;color:var(--accent);font-weight:700}
+.hint{color:var(--muted);font-size:12px}
+.card{padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);box-shadow:0 3px 10px #162c4810}
+.toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+button{font:inherit;font-weight:600;border:1px solid transparent;border-radius:8px;padding:8px 12px;cursor:pointer;
+  background:var(--accent);color:#fff}
+button.secondary{background:#fff;color:var(--accent);border-color:var(--line)}
+button:disabled{opacity:.55;cursor:not-allowed}
+input,select{font:inherit;color:inherit;padding:8px;border:1px solid #b5c3d4;background:#fff;border-radius:6px}
+label{font-weight:600;font-size:13px}
+.badge{font-size:12px;padding:3px 9px;border-radius:18px;background:#e3f2ea;color:var(--good);font-weight:650;
+  white-space:nowrap}
+.badge.type{background:#e8eef6;color:#25456e}
+
+/* ---- the review note, deliberately at the top of the draft ------------------------------------------- */
+.review{border-left:4px solid var(--accent);background:#eef4fd;padding:12px 16px;border-radius:8px;margin:16px 0}
+.review ul{margin:6px 0 0 18px;padding:0}
+.review li{margin:3px 0;font-size:13px}
+
+/* ---- two monitors ------------------------------------------------------------------------------------ */
+.monitors{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+@media (max-width:1080px){.monitors{grid-template-columns:1fr}}
+.monitor{display:grid;gap:12px;min-width:0}
+.monitor[data-empty=true] .canvas-wrap{opacity:.55}
+
+/* choose a run: an input with its own filtered listbox, so the list can carry a type and a date */
+.chooser{position:relative}
+.chooser .row{display:flex;align-items:center;gap:8px}
+.chooser input{flex:1;min-width:0}
+.chooser .list{position:absolute;z-index:20;left:0;right:0;top:calc(100% + 4px);max-height:280px;overflow:auto;
+  background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 22px #162c4822;display:none}
+.chooser[data-open=true] .list{display:block}
+.chooser .list button{display:block;width:100%;text-align:left;background:#fff;color:var(--ink);border:0;
+  border-radius:0;padding:7px 10px;font-weight:500;font-size:13px}
+.chooser .list button[aria-selected=true],.chooser .list button:hover{background:#eef4fd}
+.chooser .list .group{padding:6px 10px 2px;font-size:11px;letter-spacing:1px;color:var(--muted);font-weight:700;
+  background:#f7f9fc}
+.chooser .list .meta{color:var(--muted);font-weight:400}
+.chooser .list .none{padding:8px 10px;color:var(--muted);font-size:13px}
+
+/* the canvas and its transport */
+.canvas-wrap{position:relative;height:min(46vh,520px);min-height:300px;border:1px solid var(--line);border-radius:12px;
+  background:#fff;overflow:hidden}
+.canvas{position:absolute;inset:0}
+.canvas-wrap .label{position:absolute;left:12px;top:10px;font-size:12px;color:var(--muted);background:#ffffffd9;
+  padding:3px 8px;border-radius:6px;pointer-events:none}
+.canvas-wrap .empty{position:absolute;inset:0;display:grid;place-content:center;text-align:center;color:var(--muted);
+  font-size:14px;padding:24px}
+.transport{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.transport input[type=range]{flex:1;min-width:120px}
+.now{font-size:12px;color:var(--muted);white-space:nowrap}
+
+/* the sub-panels: collapsed by default, one line each, the open one gets the width */
+.panels{display:grid;gap:6px}
+.panels details{border:1px solid var(--line);border-radius:8px;background:var(--surface);overflow:hidden}
+.panels summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:13px;padding:7px 12px;background:#f8fafd;
+  list-style:none}
+.panels summary::-webkit-details-marker{display:none}
+.panels summary::after{content:'▸';float:right;color:var(--muted)}
+.panels details[open] summary{background:#edf3ff}
+.panels details[open] summary::after{content:'▾'}
+.panels .body{padding:10px 12px;border-top:1px solid var(--line);font-size:13px}
+.panels .body table{border-collapse:collapse;width:100%;font-size:12px}
+.panels .body th{text-align:left;color:var(--muted);font-weight:600}
+.panels .body td,.panels .body th{padding:4px 6px;border-bottom:1px solid var(--line)}
+.panels .body td:last-child{text-align:right;white-space:nowrap}
+code{font:12px/1.5 ui-monospace,monospace;overflow-wrap:anywhere}
+.grow{flex:1;min-width:0}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <p class="eyebrow">DRAFT · LAYOUT ONLY</p>
+    <h1>Run view — two monitors</h1>
+    <p class="hint">Real runs, real structures, real NGL, same API. The live panel is
+      <a href="/detergent-validation/run-view">here</a>.</p>
+  </div>
+  <div class="toolbar card" style="padding:12px 16px">
+    <label><input type="checkbox" id="link" checked> link playback by time</label>
+    <button class="secondary" id="pair" title="Put a coarse-grained run on the left and the atomistic reference it consumed on the right">pair CG with its AA reference</button>
+    <button class="secondary" id="swap">swap sides</button>
+  </div>
+</header>
+
+<main>
+  <div class="review">
+    <strong>What to look at</strong>
+    <ul>
+      <li>Two monitors side by side: each has its own <em>choose a run</em> on top, its own canvas, its own transport.</li>
+      <li>The three sub-panels sit <em>below</em> each canvas, collapsed to one line: <em>what this run holds</em>,
+          <em>frames</em>, <em>figures</em>. Nothing opens by itself.</li>
+      <li>Only completed runs are offered (<span id="hidden"></span>), and the combo filters as you type —
+          type a molecule, a type or a date.</li>
+      <li>Defaults on load: a CG run on the left and the atomistic reference it consumed on the right.</li>
+    </ul>
+  </div>
+
+  <div class="monitors" id="monitors"></div>
+  <p class="hint" id="status"></p>
+</main>
+
+<script src="/static/vendor/ngl.js"></script>
+<script type="module">
+'use strict';
+
+// The panel's own rules, imported rather than restated: which loader a structure gets, whether the distance guess
+// runs, how a run's structure files are ranked, and the one bead table. A draft that copied these would be a second
+// answer to questions this repository has already answered once.
+import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, applyBeadRadii, sizeClassOf } from './js/ngl-beads.js';
+import { conectCount, isCoarseGrained, isStructurePath, loadParameters, structureRank }
+  from './js/run-view-structure.js';
+
+//: The panel's own display scale for a coarse-grained bead: the drawn size, not the model's radius.
+const BEAD_SCALE = 0.3;
+
+// ------------------------------------------------------------------------------------------------ plumbing
+async function getJSON(path) {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(`${path} → ${response.status}`);
+  return response.json();
+}
+async function getText(path) {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(`${path} → ${response.status}`);
+  return response.text();
+}
+const artifactURL = (id, path, inline = true) =>
+  `/api/jobs/${encodeURIComponent(id)}/artifacts/` + path.split('/').map(encodeURIComponent).join('/')
+  + (inline ? '?inline=1' : '');
+const structureURL = (id, path) => `/api/jobs/${id}/structure?path=${encodeURIComponent(path)}`;
+
+// An all-atom file is drawn at the reader's own radii; a coarse-grained one takes the panel's bead table above.
+const AA_PARAMETERS = {radiusScale: 0.55, aspectRatio: 2};
+
+let runs = [];            // completed only
+let monitors = [];
+
+// ------------------------------------------------------------------------------------------------ the combo
+function chooser(host, side, onPick) {
+  host.innerHTML = `
+    <div class="chooser" data-open="false">
+      <div class="row">
+        <label class="grow">Choose a run (completed only)
+          <input type="text" class="filter" autocomplete="off" spellcheck="false"
+                 placeholder="type a molecule, run type, id or date…">
+        </label>
+      </div>
+      <div class="list" role="listbox"></div>
+    </div>`;
+  const box = host.querySelector('.chooser');
+  const input = box.querySelector('.filter');
+  const list = box.querySelector('.list');
+  let chosen = null, active = 0;
+
+  const matches = (run, text) => {
+    const needle = text.trim().toLowerCase();
+    if (!needle) return true;
+    // Words in any order, matched against what a reader would type: the molecule, the model, the id, the date.
+    return needle.split(/\s+/).every(word => `${run.label || ''} ${run.molecule_id} ${run.run_type} ${run.id} `
+      .toLowerCase().includes(word) || String(run.created).slice(0, 10).includes(word));
+  };
+
+  function render() {
+    const shown = runs.filter(run => matches(run, input.value));
+    active = Math.min(active, Math.max(shown.length - 1, 0));
+    if (!shown.length) {
+      list.innerHTML = '<div class="none">No completed run matches that.</div>';
+      return;
+    }
+    // Grouped by run type, in the order the list already sorts by: the family a run belongs to is what a reader is
+    // usually reaching for when comparing two.
+    const groups = [...new Set(shown.map(run => run.run_type))];
+    list.innerHTML = groups.map(type => {
+      const rows = shown.map((run, index) => ({run, index})).filter(({run}) => run.run_type === type);
+      return `<div class="group">${type}</div>` + rows.map(({run, index}) => `
+        <button role="option" data-index="${index}" aria-selected="${index === active}">
+          ${run.label || run.molecule_id} <span class="meta">· ${run.run_type} · ${run.id} ·
+          ${String(run.created).slice(0, 10)}</span>
+        </button>`).join('');
+    }).join('');
+    list.querySelectorAll('button').forEach(button => {
+      button.addEventListener('mousedown', event => { event.preventDefault(); pick(shown[Number(button.dataset.index)]); });
+    });
+  }
+
+  function pick(run) {
+    if (!run) return;
+    chosen = run;
+    input.value = `${run.label || run.molecule_id} · ${run.run_type} · ${run.id}`;
+    box.dataset.open = 'false';
+    onPick(run);
+  }
+
+  box.querySelector('.filter').addEventListener('focus', () => { box.dataset.open = 'true'; render(); });
+  input.addEventListener('input', () => { box.dataset.open = 'true'; active = 0; render(); });
+  input.addEventListener('keydown', event => {
+    const shown = runs.filter(run => matches(run, input.value));
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      active = Math.max(0, Math.min(shown.length - 1, active + (event.key === 'ArrowDown' ? 1 : -1)));
+      render();
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      pick(shown[active]);
+    } else if (event.key === 'Escape') {
+      box.dataset.open = 'false';
+      input.blur();
+    }
+  });
+  document.addEventListener('click', event => { if (!box.contains(event.target)) box.dataset.open = 'false'; });
+
+  return {
+    set(run) { chosen = run; input.value = run ? `${run.label || run.molecule_id} · ${run.run_type} · ${run.id}` : ''; },
+    get() { return chosen; },
+  };
+}
+
+// ------------------------------------------------------------------------------------------------ a monitor
+function buildMonitor(side) {
+  const element = document.createElement('section');
+  element.className = 'monitor';
+  element.dataset.side = side;
+  element.innerHTML = `
+    <div class="card" style="padding:12px" id="choose-${side}"></div>
+    <div class="canvas-wrap">
+      <div class="canvas" id="canvas-${side}"></div>
+      <div class="label" id="label-${side}">nothing chosen yet</div>
+      <div class="empty" id="empty-${side}">Choose a completed run above.</div>
+    </div>
+    <div class="transport card" style="padding:10px 12px">
+      <button class="secondary" id="play-${side}" disabled>▶</button>
+      <input type="range" id="frame-${side}" min="0" max="0" value="0" disabled>
+      <span class="now" id="now-${side}">—</span>
+      <button class="secondary" id="reset-${side}" disabled>reset view</button>
+      <div class="hint" id="readout-${side}" style="flex-basis:100%"></div>
+    </div>
+    <div class="panels">
+      <details id="holds-${side}"><summary>what this run holds <span class="hint"></span></summary>
+        <div class="body">Nothing chosen yet.</div></details>
+      <details id="frames-${side}"><summary>frames <span class="hint"></span></summary>
+        <div class="body">Nothing chosen yet.</div></details>
+      <details id="figures-${side}"><summary>figures <span class="hint"></span></summary>
+        <div class="body">Nothing chosen yet.</div></details>
+    </div>`;
+
+  const monitor = {
+    side, element,
+    stage: null, component: null, player: null,
+    run: null, structures: [], series: null, cadence: null, models: 0,
+    chooser: chooser(element.querySelector(`#choose-${side}`), side, run => loadRun(monitor, run)),
+  };
+
+  const play = element.querySelector(`#play-${side}`);
+  play.addEventListener('click', () => togglePlay(monitor));
+  element.querySelector(`#reset-${side}`).addEventListener('click', () => monitor.component && monitor.component.autoView());
+  element.querySelector(`#frame-${side}`).addEventListener('input', event => {
+    setFrame(monitor, Number(event.target.value), true);
+  });
+  return monitor;
+}
+
+function showReadout(monitor) {
+  const structure = monitor.structure;
+  if (!structure) return;
+  const parts = [`${structure.atoms} atoms drawn`, `${structure.conect} CONECT in the file`,
+                 `${structure.bonds} bonds drawn`];
+  if (monitor.models) parts.push(`${monitor.models} models in the series`);
+  monitor.element.querySelector(`#readout-${monitor.side}`).textContent =
+    parts.join(' · ') + ` — ${structure.parameters.reason}`;
+}
+
+function stageFor(monitor) {
+  if (!monitor.stage) {
+    monitor.stage = new NGL.Stage(monitor.element.querySelector(`#canvas-${monitor.side}`),
+                                  {backgroundColor: 'white'});
+    // NGL's own drag handlers are what a reader uses to turn the model; nothing here overrides them.
+  }
+  return monitor.stage;
+}
+
+function setFrame(monitor, index, fromUser) {
+  if (!monitor.player) return;
+  const frame = Math.max(0, Math.min(monitor.models - 1, index));
+  // This build exposes the frames through the trajectory, not the player: `trajectory.setFrame` moves the picture and
+  // the player is only the clock. Driving the player's own `setFrame` is a live button over a dead slider.
+  if (monitor.playing && monitor.player) monitor.player.pause();
+  if (monitor.trajectory) monitor.trajectory.setFrame(frame);
+  const slider = monitor.element.querySelector(`#frame-${monitor.side}`);
+  slider.value = String(frame);
+  const ns = monitor.cadence ? (frame * monitor.cadence).toFixed(1) : null;
+  monitor.element.querySelector(`#now-${monitor.side}`).textContent =
+    `${frame + 1} / ${monitor.models}` + (ns !== null ? ` · ${ns} ns` : '');
+  if (fromUser && document.querySelector('#link').checked) syncOthers(monitor, frame);
+}
+
+function syncOthers(source, frame) {
+  // Linked by *time*, not by frame index: the two series rarely share a cadence (the CG one is 1 ns a frame, an
+  // atomistic one may be 5), and stepping both to frame 40 would compare two different moments.
+  for (const other of monitors) {
+    if (other === source || !other.player || !other.models) continue;
+    const ns = source.cadence ? frame * source.cadence : null;
+    const target = ns !== null && other.cadence ? Math.round(ns / other.cadence) : frame;
+    setFrame(other, target, false);
+  }
+}
+
+function togglePlay(monitor) {
+  if (!monitor.player) return;
+  // The player exposes play and pause, not "am I playing": the flag is the draft's own, and it is also what the
+  // linked stepping checks before moving a frame under a running player.
+  const playing = !!monitor.playing;
+  monitor.playing = !playing;
+  if (playing) monitor.player.pause();
+  else {
+    monitor.player.play();
+    // One play button for two monitors at different strides: the follower is stepped by time while the leader runs.
+    if (document.querySelector('#link').checked) {
+      const tick = setInterval(() => {
+        if (!monitor.playing) { clearInterval(tick); return; }
+        const slider = monitor.element.querySelector(`#frame-${monitor.side}`);
+        syncOthers(monitor, Number(slider.value));
+      }, 120);
+    }
+  }
+  monitor.element.querySelector(`#play-${monitor.side}`).textContent = playing ? '▶' : '⏸';
+}
+
+// ------------------------------------------------------------------------------------------------ loading a run
+async function loadRun(monitor, run) {
+  // Every load carries a token, and only the newest may touch the monitor: a run picked while the previous one
+  // is still fetching would otherwise be overwritten by whichever request finishes last -- measured here as a
+  // slider left disabled underneath a series that was on screen.
+  const token = (monitor.token = (monitor.token || 0) + 1);
+  monitor.run = run;
+  monitor.element.dataset.empty = 'false';
+  monitor.element.querySelector(`#empty-${monitor.side}`).hidden = true;
+  monitor.element.querySelector(`#label-${monitor.side}`).textContent =
+    `${run.label || run.molecule_id} · ${run.run_type} · ${run.id}`;
+  const status = document.querySelector('#status');
+  try {
+    const [structures, series] = await Promise.all([readStructures(run.id), readSeries(run.id)]);
+    // The same token, one level up: a load that has been superseded must not go on to replace what is on screen.
+    // Measured: without this the older run's label landed over the newer run's picture and the transport it had
+    // already disabled stayed disabled underneath a series that was playing.
+    if (token !== monitor.token) return;
+    monitor.structures = structures;
+    monitor.series = series;
+    renderHolds(monitor);
+    renderFrames(monitor);
+    renderFigures(monitor);
+    await draw(monitor, structures[0] ? structures[0].path : null, token);
+  } catch (error) {
+    status.textContent = `${run.id}: ${error.message}`;
+  }
+}
+
+async function readStructures(jobId) {
+  const entries = [];
+  for (let page = 1; ; page += 1) {
+    const body = await getJSON(`/api/jobs/${jobId}/artifacts?limit=100&page=${page}&search=stages/`);
+    const held = body.artifacts || [];
+    entries.push(...held);
+    if (held.length < 100 || entries.length >= Number(body.total || 0)) break;
+  }
+  // What the viewer can open, in the order the panel lists it: the file the run exists to publish before the boxes
+  // it passed through (`structureRank`), never an `inputs/` file a stage was fed.
+  return entries.filter(entry => entry.path.startsWith('stages/') && isStructurePath(entry.path)
+                                 && !entry.path.includes('/inputs/'))
+    .map(entry => ({path: entry.path, rank: structureRank(entry.path)}))
+    .sort((first, second) => first.rank - second.rank || second.path.localeCompare(first.path));
+}
+
+async function readSeries(jobId) {
+  // Found the way the panel finds it: the newest `result.json` under the run's own `analyses/snapshots/`, walked
+  // through the artifact index rather than read from the task list. The index is what a *published* output leaves
+  // behind, and it survives a task row that has been pruned; the record's `output_directory` and its named files are
+  // what say where the frames are. A run that has never run that analysis has nothing to play, which is reported.
+  const entries = [];
+  for (let page = 1; ; page += 1) {
+    const body = await getJSON(`/api/jobs/${jobId}/artifacts?limit=100&page=${page}&search=analyses/snapshots/`);
+    const held = body.artifacts || [];
+    entries.push(...held);
+    if (held.length < 100 || entries.length >= Number(body.total || 0)) break;
+  }
+  const records = entries.filter(entry => entry.path.endsWith('result.json'))
+    .sort((first, second) => String(second.modified_at || '').localeCompare(String(first.modified_at || '')));
+  if (!records.length) return {state: 'never run'};
+  for (const entry of records) {
+    let record = null;
+    try {
+      record = JSON.parse(await getText(artifactURL(jobId, entry.path)));
+    } catch (error) {
+      continue;
+    }
+    const attempt = entry.path.slice(0, entry.path.lastIndexOf('/') + 1);
+    const output = String(record.output_directory || '').replace(/^\/+|\/+$/g, '');
+    const root = output ? `${attempt}${output}/` : attempt;
+    const named = Object.keys(record.outputs_sha256 || {});
+    const files = (named.length ? named : (record.result?.files || []).map(name => `snapshots/${name}`))
+      .filter(name => name.endsWith('.pdb'));
+    const frames = files.find(name => /-frames\.pdb$/.test(name));
+    if (frames) {
+      return {state: 'published', record: record.result?.series || {}, path: root + frames,
+              url: artifactURL(jobId, root + frames)};
+    }
+    return {state: 'completed without a frame series'};
+  }
+  return {state: 'no readable record'};
+}
+
+async function draw(monitor, path, token = monitor.token) {
+  const stage = stageFor(monitor);
+  const status = document.querySelector('#status');
+  monitor.element.querySelector(`#play-${monitor.side}`).disabled = true;
+  monitor.element.querySelector(`#frame-${monitor.side}`).disabled = true;
+  monitor.element.querySelector(`#reset-${monitor.side}`).disabled = true;
+  monitor.player = null;
+  monitor.models = 0;
+  try {
+    // Read the file's text first: the panel's own rule answers what this file is and whether the viewer's distance
+    // guess runs on it, and a guess over a file that already states its bonds is how a picture ends up bonded in
+    // ways the model never said.
+    const text = await getText(structureURL(monitor.run.id, path));
+    const coarse = isCoarseGrained(path, monitor.run.run_type);
+    const parameters = loadParameters(text, {path, runType: monitor.run.run_type});
+    const component = await stage.loadFile(new Blob([text], {type: 'text/plain'}),
+      {...parameters, defaultRepresentation: false});
+    if (token !== monitor.token) { stage.removeComponent(component); return; }
+    if (coarse) {
+      applyBeadRadii(component.structure, {scale: BEAD_SCALE, sizeOf: atom => sizeClassOf(atom)});
+      component.addRepresentation('ball+stick', {...BEAD_RADIUS_PARAMETERS, ...BEAD_FAMILY_PARAMETERS});
+    } else {
+      component.addRepresentation('ball+stick', AA_PARAMETERS);
+    }
+    component.autoView();
+    monitor.component = component;
+    monitor.structure = {path, atoms: component.structure.atomCount, bonds: component.structure.bondCount,
+                         coarse, parameters, conect: conectCount(text)};
+    showReadout(monitor);
+    // `bondCount` is resolved by the renderer, not by the parser: a count taken straight after `loadFile` reads
+    // zero and calls a bonded picture bondless, so it is re-read on the next frame.
+    requestAnimationFrame(() => { monitor.structure.bonds = component.structure.bondCount; showReadout(monitor); });
+    monitor.element.querySelector(`#reset-${monitor.side}`).disabled = false;
+    monitor.element.querySelector(`#label-${monitor.side}`).textContent =
+      `${monitor.run.label || monitor.run.molecule_id} · ${component.structure.atomCount} atoms`
+      + (monitor.series && monitor.series.url ? ` · frame series (${monitor.models} models)` : '');
+
+    if (monitor.series && monitor.series.url) {
+      const frames = await getText(monitor.series.url);
+      // The trap this draft first fell into: a multi-model PDB loaded without `asTrajectory` comes back as ONE
+      // structure holding every model's atoms (200 models of 8 beads parsed as 1600 atoms) and no trajectory, and
+      // `loadFile` never attaches one -- `addTrajectory()` does. `asTrajectory: true` is what splits the models.
+      const series = await stage.loadFile(new Blob([frames], {type: 'text/plain'}),
+        {ext: 'pdb', defaultRepresentation: false, asTrajectory: true, inferBonds: 'none'});
+      if (token !== monitor.token) { stage.removeComponent(series); return; }
+      // One component draws one thing: the series replaces the single structure rather than covering it.
+      stage.removeComponent(component);
+      if (coarse) {
+        applyBeadRadii(series.structure, {scale: BEAD_SCALE, sizeOf: atom => sizeClassOf(atom)});
+        series.addRepresentation('ball+stick', {...BEAD_RADIUS_PARAMETERS, ...BEAD_FAMILY_PARAMETERS});
+      } else {
+        series.addRepresentation('ball+stick', AA_PARAMETERS);
+      }
+      series.autoView();
+      series.addTrajectory();
+      // This build keeps trajectories on `trajList`, not on `component.trajectory` -- the bundle is the authority,
+      // and a draft that trusted the property name would draw a plausible first frame with a dead slider.
+      const element = series.trajList && series.trajList[0];
+      const trajectory = element ? element.trajectory : null;
+      monitor.component = series;
+      monitor.trajectory = trajectory;
+      monitor.models = trajectory ? trajectory.frameCount : 0;
+      monitor.player = trajectory
+        ? new NGL.TrajectoryPlayer(trajectory, {step: 1, timeout: 120, start: 0, end: monitor.models - 1,
+                                                mode: 'loop', direction: 'forward'})
+        : null;
+      monitor.cadence = Number(monitor.series.record.interval_ns) || null;
+      const slider = monitor.element.querySelector(`#frame-${monitor.side}`);
+      slider.max = String(Math.max(monitor.models - 1, 0));
+      slider.disabled = false;
+      monitor.element.querySelector(`#play-${monitor.side}`).disabled = false;
+      monitor.element.querySelector(`#label-${monitor.side}`).textContent =
+        `${monitor.run.label || monitor.run.molecule_id} · frame series: ${monitor.models} models of `
+        + `${series.structure.atomCount} atoms, `
+        + (monitor.cadence ? `${monitor.cadence} ns a frame` : 'cadence not recorded by the record');
+      showReadout(monitor);
+      monitor.structure.bonds = series.structure.bondCount;
+      requestAnimationFrame(() => { monitor.structure.bonds = series.structure.bondCount; showReadout(monitor); });
+      setFrame(monitor, 0, false);
+    }
+  } catch (error) {
+    if (token === monitor.token) {
+      status.textContent = `${monitor.run.id}: ${path} could not be drawn (${error.message})`;
+    }
+  }
+}
+
+// ------------------------------------------------------------------------------------------------ sub-panels
+function summaryCount(details, count) {
+  details.querySelector('summary .hint').textContent = count === null ? '' : `(${count})`;
+}
+
+function renderHolds(monitor) {
+  const details = monitor.element.querySelector(`#holds-${monitor.side}`);
+  const body = details.querySelector('.body');
+  const run = monitor.run;
+  summaryCount(details, monitor.structures.length);
+  body.innerHTML = `
+    <table>
+      <caption class="hint" style="text-align:left">Every structure file this run holds, and the trajectory a frame
+        series would be sampled from.</caption>
+      <thead><tr><th>file</th><th>state</th><th></th></tr></thead>
+      <tbody>${monitor.structures.map(entry => `
+        <tr><td><code>${entry.path}</code></td><td class="hint">${entry.frames ? 'plays as a trajectory' : ''}</td>
+        <td><button class="secondary" data-path="${entry.path}">draw</button></td></tr>`).join('')}
+      </tbody>
+    </table>`;
+  body.querySelectorAll('button[data-path]').forEach(button =>
+    button.addEventListener('click', () => draw(monitor, button.dataset.path)));
+}
+
+function renderFrames(monitor) {
+  const details = monitor.element.querySelector(`#frames-${monitor.side}`);
+  const body = details.querySelector('.body');
+  const series = monitor.series || {state: 'never run'};
+  if (series.state !== 'published') {
+    summaryCount(details, null);
+    // The one thing to say about frames: a run has never had them sampled, or the sampling failed. The button is
+    // the same route the panel uses, so a draft cannot invent a second way to produce frames.
+    body.innerHTML = `<p>The snapshots analysis is <strong>${series.state}</strong>${
+      series.error ? `: <code>${series.error}</code>` : ''}.</p>
+      <div class="toolbar"><label>ns per frame <input type="number" id="cad-${monitor.side}" min="0.01" step="0.01"
+        placeholder="default spread" style="width:11ch"></label>
+      <button id="gen-${monitor.side}">Generate trajectory</button></div>
+      <p class="hint" id="gennote-${monitor.side}">Publishes frames from this run's own trajectory; the newest
+        attempt is what plays.</p>`;
+  } else {
+    const record = series.record;
+    const fit = record.aligned;
+    // Built before the template: a `${}` inside a `${}` is legal but unreadable, and one stray backslash in the
+    // quoting is a script that never parses -- which is what the first version of this file did, silently.
+    const where = fit ? (fit.target ? `fragment ${fit.target}` : 'the whole molecule') : '';
+    const fitText = fit
+      ? where + ` — ${fit.atoms} of ${fit.of || '?'} beads, RMSD up to ${fit.rmsd_nm ? fit.rmsd_nm.max : '?'} nm`
+      : "none (the run's own coordinates)";
+    summaryCount(details, record.sampled);
+    body.innerHTML = `
+      <table>
+        <tbody>
+          <tr><th>models</th><td>${record.sampled}</td></tr>
+          <tr><th>cadence</th><td>${record.interval_ns ? `${record.interval_ns} ns a frame` : 'not recorded'}</td></tr>
+          <tr><th>covers</th><td>${record.duration_ns ? `${Number(record.duration_ns).toFixed(1)} ns` : '—'}</td></tr>
+          <tr><th>fit</th><td>${fitText}</td></tr>
+          <tr><th>file</th><td><code>${series.path}</code></td></tr>
+        </tbody>
+      </table>
+      <p class="hint">Replacing it is the same control as generating it, with a prompt naming what is there.</p>`;
+  }
+  const generate = body.querySelector(`#gen-${monitor.side}`);
+  if (generate) generate.addEventListener('click', () => queueFrames(monitor));
+}
+
+async function queueFrames(monitor) {
+  const note = monitor.element.querySelector(`#gennote-${monitor.side}`);
+  const field = monitor.element.querySelector(`#cad-${monitor.side}`);
+  const requested = field.value.trim() === '' ? null : Number(field.value);
+  if (requested !== null && !(requested > 0)) {
+    note.textContent = 'The cadence is a positive number of nanoseconds a frame, or blank for the default spread.';
+    return;
+  }
+  const body = requested === null ? {} : {interval_ns: requested};
+  note.textContent = 'Queueing the snapshots analysis…';
+  try {
+    await fetch(`/api/jobs/${monitor.run.id}/snapshots`, {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    note.textContent = 'Queued: the panel re-reads this run when it finishes.';
+  } catch (error) {
+    note.textContent = `The analysis was not queued: ${error.message}`;
+  }
+}
+
+async function renderFigures(monitor) {
+  const details = monitor.element.querySelector(`#figures-${monitor.side}`);
+  const body = details.querySelector('.body');
+  try {
+    // The route answers with the analysis artifacts that published pictures, each naming its own files. Shown as
+    // images rather than a list of paths: a figure a reader has to download to see is not a figure.
+    const answer = await getJSON(`/api/jobs/${monitor.run.id}/figures`);
+    const artifacts = answer.artifacts || [];
+    const pictures = artifacts.flatMap(artifact => (artifact.metadata?.stats?.files || [])
+      .filter(name => /\.(svg|png)$/i.test(name))
+      .map(name => ({kind: artifact.metadata?.kind || 'figure',
+                     path: artifact.path.replace(/[^/]+$/, name)})));
+    summaryCount(details, pictures.length);
+    body.innerHTML = pictures.length
+      ? `<table><thead><tr><th>figure</th><th></th></tr></thead><tbody>${pictures.map(picture => `
+          <tr><td><code>${picture.path.split('/').pop()}</code> <span class="hint">${picture.kind}</span></td>
+          <td><a href="${artifactURL(monitor.run.id, picture.path)}" target="_blank">open</a></td></tr>`).join('')}
+        </tbody></table>`
+      : '<p class="hint">No figures published by this run.</p>';
+  } catch (error) {
+    summaryCount(details, null);
+    body.textContent = `Figures could not be listed (${error.message}).`;
+  }
+}
+
+// ------------------------------------------------------------------------------------------------ start
+async function start() {
+  const status = document.querySelector('#status');
+  // The route caps one page at 100 and refuses more rather than quietly returning fewer -- so a reader walks the
+  // pages instead of asking for everything, which is also what the live panel's own list does.
+  const all = [];
+  for (let page = 1; ; page += 1) {
+    const body = await getJSON(`/api/jobs?view=summary&limit=100&page=${page}`);
+    const held = body.jobs || [];
+    all.push(...held);
+    if (held.length < 100 || all.length >= Number(body.total || 0)) break;
+  }
+  runs = all.filter(run => run.status === 'completed');
+  document.querySelector('#hidden').textContent =
+    `${all.length - runs.length} of ${all.length} runs are not completed and are not offered`;
+  runs.sort((first, second) => String(second.created).localeCompare(String(first.created))
+                              || String(second.id).localeCompare(String(first.id)));
+
+  monitors = [buildMonitor('A'), buildMonitor('B')];
+  const host = document.querySelector('#monitors');
+  monitors.forEach(monitor => host.append(monitor.element));
+
+  // The default pair: a coarse-grained run and the atomistic reference it consumed (`reference_run_id`), which is
+  // the comparison this panel exists for. Both monitors are filled, so the layout is judged with real pictures.
+  // `reference_run_id` is in a run's own record and not in the list, so the CG candidate is looked up once. The
+  // pair this panel exists for is a coarse-grained run and the atomistic reference it was built from, so that is
+  // what opens: on this workspace that is the Sucrose CG run and its CHARMM36m reference.
+  let cg = runs.find(run => run.run_type === 'aa_cg') || runs[0];
+  let reference = null;
+  try {
+    const detail = await getJSON(`/api/jobs/${cg.id}`);
+    reference = runs.find(run => run.id === detail.reference_run_id) || null;
+  } catch (error) { reference = null; }
+  const pair = [cg, reference || runs.find(run => run.id !== cg.id)];
+  monitors.forEach((monitor, index) => {
+    const run = pair[index];
+    if (run) { monitor.chooser.set(run); loadRun(monitor, run); }
+  });
+  status.textContent = `${runs.length} completed runs available.`;
+}
+
+document.querySelector('#swap').addEventListener('click', () => {
+  const [first, second] = [monitors[0].chooser.get(), monitors[1].chooser.get()];
+  if (first) { monitors[1].chooser.set(first); loadRun(monitors[1], first); }
+  if (second) { monitors[0].chooser.set(second); loadRun(monitors[0], second); }
+});
+document.querySelector('#pair').addEventListener('click', () => {
+  const chosen = monitors.map(monitor => monitor.chooser.get()).filter(Boolean);
+  const cg = chosen.find(run => run.reference_run_id);
+  if (!cg) { document.querySelector('#status').textContent = 'Neither side is a coarse-grained run.'; return; }
+  const reference = runs.find(run => run.id === cg.reference_run_id);
+  if (reference) { monitors[0].chooser.set(reference); loadRun(monitors[0], reference);
+                   monitors[1].chooser.set(cg); loadRun(monitors[1], cg); }
+});
+
+window.addEventListener('resize', () => monitors.forEach(monitor => monitor.stage && monitor.stage.handleResize()));
+start().catch(error => { document.querySelector('#status').textContent = `Could not start: ${error.message}`; });
+</script>
+</body>
+</html>
