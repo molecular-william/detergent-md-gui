@@ -91,7 +91,7 @@ def test_the_run_view_and_the_preview_draw_a_bead_at_the_same_scale():
     The value itself is pinned beside the call that uses it; this holds the two panels together, so the same mapped
     sugar cannot be drawn one size in the preview the reader approves and another in the run they then inspect.
     """
-    panel = re.search(r'const BEAD_SCALE\s*=\s*([0-9.]+);', (SOURCE.parent / 'run-view.js').read_text())
+    panel = re.search(r'const BEAD_SCALE\s*=\s*([0-9.]+);', (SOURCE.parent / 'run-view-monitor.js').read_text())
     assert panel, 'the run view states no BEAD_SCALE'
     preview = re.search(r'PREVIEW_BEAD_SCALE\s*=\s*([0-9.]+);', (SOURCE.parent / 'new-run.js').read_text())
     assert preview, 'the New Run panel states no PREVIEW_BEAD_SCALE'
@@ -292,7 +292,7 @@ def test_the_scale_knob_defaults_to_the_models_own_radius():
 #: `ngl-beads.js` is now the one table and the one call for all of them, and this is what holds that: a fifth copy of
 #: either would be a fifth answer. `new-run.js` is the protein-detergent New Run panel's system preview, which reads
 #: the same beads as the run's own viewer, at the one scale the reader asked both for (0.3).
-BEAD_VIEWS = ('compositions.js', 'mapping-ngl.js', 'run-view.js', 'bonded-plot.js', 'new-run.js')
+BEAD_VIEWS = ('compositions.js', 'mapping-ngl.js', 'run-view-monitor.js', 'bonded-plot.js', 'new-run.js')
 JS_DIR = SOURCE.parent
 
 
@@ -317,7 +317,7 @@ def test_each_panel_states_its_own_scale_at_the_call():
     assert re.search(r'BEAD_RADIUS_SCALE\s*=\s*3\.75\s*;', compositions), \
         'the composition preview draws its beads larger than life, and that multiplier is its own'
     assert 'applyBeadRadii(beadStructure, {scale: 1})' in (JS_DIR / 'mapping-ngl.js').read_text()
-    view = (JS_DIR / 'run-view.js').read_text()
+    view = (JS_DIR / 'run-view-monitor.js').read_text()
     assert 'applyBeadRadii(component.structure, {scale: BEAD_SCALE,' in view, \
         'the run view does not pass its own scale to the one call that writes radii'
     assert re.search(r'const BEAD_SCALE\s*=\s*0\.3\s*;', view), \
@@ -340,7 +340,7 @@ def test_each_panel_states_its_own_scale_at_the_call():
 #: so the same bead type is one colour in all four.
 FAMILY_VIEWS = {'pdc.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend'],
                 'new-run.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend'],
-                'run-view.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend']}
+                'run-view-monitor.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend']}
 
 
 def test_every_bead_view_colours_from_the_one_family_table():

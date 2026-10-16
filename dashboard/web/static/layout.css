@@ -48,7 +48,7 @@ nav[role=tablist] button .tab-glyph { width: 18px; flex: 0 0 18px; text-align: c
 /* `new-run.css` anchors these on `#run-form.new-run-layout`, so the measure has to be stated at least as
    specifically or the form keeps its own two columns and the spans below index into a template they do not fit. */
 #run-form.new-run-layout, .new-run-layout, .mapping-editor-layout, .composition-workspace, .pdc-workspace,
-.run-view-layout, .bonded-columns {
+.bonded-columns {
   grid-template-columns: repeat(12, minmax(0, 1fr));
 }
 .new-run-inputs { grid-column: span 6 }
@@ -65,7 +65,6 @@ nav[role=tablist] button .tab-glyph { width: 18px; flex: 0 0 18px; text-align: c
    the right, and the "what this view is not" note across the measure below both. The panel's own sheet states a
    two-column grid for the same container and loses to this rule only because this sheet is linked after it --
    the same arrangement `new-run.css` has with the measure. */
-.run-view-runs { grid-column: span 4 }
 .run-view-stage { grid-column: span 8 }
 .run-view-notes { grid-column: span 12 }
 
@@ -79,7 +78,7 @@ nav[role=tablist] button .tab-glyph { width: 18px; flex: 0 0 18px; text-align: c
   .new-run-inputs, .new-run-settings, .mapping-editor-diagram-column, .mapping-editor-controls,
   .bonded-columns > *, .composition-sidebar, .composition-preview,
   .pdc-workspace > .pdc-setup, .pdc-workspace > .pdc-view, .pdc-workspace > .pdc-status,
-  .run-view-runs, .run-view-stage, .run-view-notes { grid-column: span 12 }
+  .run-view-stage, .run-view-notes { grid-column: span 12 }
 }
 
 @media (max-width: 900px) {

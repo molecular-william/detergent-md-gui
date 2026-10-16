@@ -1,5 +1,12 @@
 # The Run view becomes two monitors
 
+**Landed.** All five steps are in: `web/static/js/run-view-monitor.js` is one monitor (the old panel's per-run code
+moved, not rewritten, with every id suffixed by side), `run-view.js` is the host, the template's section is the
+shell, and the draft and its test are deleted together. Two deviations, both deliberate: the generate controls live
+in the **frames** panel rather than in the transport row, because that is where a series is made and the row is what
+*plays* one; and the panel's moments strip, its `fit on:` fragment select and its overwrite prompt all survive inside
+each monitor rather than being narrowed to the draft's two controls.
+
 The layout in `dashboard/web/static/run-view-draft.html` becomes the panel. That draft was built to be judged and it
 has been: this record says what it becomes, what of the panel's own behaviour moves into it, and in what order so no
 commit leaves the panel half a layout.

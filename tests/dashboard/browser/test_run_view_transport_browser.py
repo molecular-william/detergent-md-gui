@@ -20,7 +20,7 @@ from tests.dashboard.browser.test_run_view_browser import AA_RUN, FRAMES_RUN, ME
 #: The renderer's own state, read back rather than inferred from what the panel asked for.
 PLAYHEAD = """
 () => {
-  const host = document.querySelector('#run-view-viewer');
+  const host = document.querySelector('#run-view-viewer-A');
   const transport = host.runViewTransport;
   const trajectory = transport.trajectory;
   const player = transport.player;
@@ -33,16 +33,16 @@ PLAYHEAD = """
     timeout: player ? player.parameters.timeout : null,
     start: player ? player.parameters.start : null,
     end: player ? player.parameters.end : null,
-    slider: Number(document.querySelector('#run-view-frame').value),
-    minimum: Number(document.querySelector('#run-view-frame').min),
-    maximum: Number(document.querySelector('#run-view-frame').max),
-    readout: document.querySelector('#run-view-frame-readout').textContent,
-    rate: document.querySelector('#run-view-transport-note').textContent,
-    forward: document.querySelector('#run-view-forward').getAttribute('aria-pressed'),
-    reverse: document.querySelector('#run-view-reverse').getAttribute('aria-pressed'),
-    disabled: ['#run-view-reverse', '#run-view-forward', '#run-view-frame']
+    slider: Number(document.querySelector('#run-view-frame-A').value),
+    minimum: Number(document.querySelector('#run-view-frame-A').min),
+    maximum: Number(document.querySelector('#run-view-frame-A').max),
+    readout: document.querySelector('#run-view-frame-readout-A').textContent,
+    rate: document.querySelector('#run-view-transport-note-A').textContent,
+    forward: document.querySelector('#run-view-forward-A').getAttribute('aria-pressed'),
+    reverse: document.querySelector('#run-view-reverse-A').getAttribute('aria-pressed'),
+    disabled: ['#run-view-reverse-A', '#run-view-forward-A', '#run-view-frame-A']
       .map(selector => document.querySelector(selector).disabled),
-    titles: ['#run-view-reverse', '#run-view-forward', '#run-view-frame']
+    titles: ['#run-view-reverse-A', '#run-view-forward-A', '#run-view-frame-A']
       .map(selector => document.querySelector(selector).title),
   };
 }
@@ -57,15 +57,15 @@ GEOMETRY = """
             height: Math.round(rectangle.height), top: rectangle.top, bottom: rectangle.bottom,
             right: rectangle.right, centre: rectangle.top + rectangle.height / 2};
   };
-  const controls = ['#run-view-reverse', '#run-view-forward', '#run-view-frame'].map(box);
+  const controls = ['#run-view-reverse-A', '#run-view-forward-A', '#run-view-frame-A'].map(box);
   return {
     controls: controls,
     tops: controls.map(control => control.y),
     centres: controls.map(control => control.centre),
     tallest: Math.max(...controls.map(control => control.height)),
-    row: box('#run-view-transport'),
+    row: box('#run-view-transport-A'),
     panel: box('#runview'),
-    canvas: box('#run-view-viewer'),
+    canvas: box('#run-view-viewer-A'),
     overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
   };
 }
@@ -74,7 +74,7 @@ GEOMETRY = """
 
 def move_slider(page, value):
     page.evaluate("""(value) => {
-      const slider = document.querySelector('#run-view-frame');
+      const slider = document.querySelector('#run-view-frame-A');
       slider.value = String(value);
       slider.dispatchEvent(new Event('input', {bubbles: true}));
     }""", value)
@@ -87,8 +87,8 @@ def test_the_row_is_drawn_and_disabled_with_its_reason_where_the_file_holds_one_
     open_panel(page, live_page, run=AA_RUN)
     wait_for_component(page, atoms=5)
 
-    measured = page.locator('#run-view-viewer').evaluate(PLAYHEAD)
-    expect(page.locator('#run-view-transport')).to_be_visible()
+    measured = page.locator('#run-view-viewer-A').evaluate(PLAYHEAD)
+    expect(page.locator('#run-view-transport-A')).to_be_visible()
     assert measured['disabled'] == [True, True, True], 'all three controls are disabled'
     assert all(title.strip() for title in measured['titles']), 'and each says why in its own title'
     assert 'holds one frame' in measured['titles'][0]
@@ -105,7 +105,7 @@ def test_the_published_frame_series_gives_the_row_a_real_trajectory(dashboard, l
     open_panel(page, live_page, run=FRAMES_RUN)
     wait_for_component(page, atoms=8)
 
-    measured = page.locator('#run-view-viewer').evaluate(PLAYHEAD)
+    measured = page.locator('#run-view-viewer-A').evaluate(PLAYHEAD)
     assert measured['frames'] == 5, 'the multi-model PDB is a trajectory, not five models in one picture'
     assert measured['disabled'] == [False, False, False]
     assert (measured['minimum'], measured['maximum']) == (0, 4), 'the slider is the frame index, 0 to frameCount - 1'
@@ -126,17 +126,17 @@ def test_playing_forward_advances_the_renderers_own_playhead_and_stops_at_the_la
     wait_for_component(page, atoms=8)
 
     move_slider(page, 1)
-    assert page.locator('#run-view-viewer').evaluate(PLAYHEAD)['frame'] == 1
+    assert page.locator('#run-view-viewer-A').evaluate(PLAYHEAD)['frame'] == 1
 
-    page.locator('#run-view-forward').click()
+    page.locator('#run-view-forward-A').click()
     page.wait_for_timeout(200)
-    moving = page.locator('#run-view-viewer').evaluate(PLAYHEAD)
+    moving = page.locator('#run-view-viewer-A').evaluate(PLAYHEAD)
     assert moving['moving'] and moving['direction'] == 'forward', moving
     assert moving['frame'] > 1, 'the playhead moved'
     assert moving['forward'] == 'true' and moving['reverse'] == 'false', 'the running direction is the pressed one'
 
     page.wait_for_timeout(1500)
-    stopped = page.locator('#run-view-viewer').evaluate(PLAYHEAD)
+    stopped = page.locator('#run-view-viewer-A').evaluate(PLAYHEAD)
     assert stopped['frame'] == 4, f'the playhead stops on the last frame: {stopped}'
     assert not stopped['moving'], 'and stops rather than wrapping (D12)'
     assert stopped['forward'] == 'false', 'and the pressed state goes with it'
@@ -151,15 +151,15 @@ def test_playing_in_reverse_runs_the_other_way_and_stops_at_the_first_frame(dash
     wait_for_component(page, atoms=8)
 
     move_slider(page, 4)
-    page.locator('#run-view-reverse').click()
+    page.locator('#run-view-reverse-A').click()
     page.wait_for_timeout(200)
-    moving = page.locator('#run-view-viewer').evaluate(PLAYHEAD)
+    moving = page.locator('#run-view-viewer-A').evaluate(PLAYHEAD)
     assert moving['moving'] and moving['direction'] == 'backward', moving
     assert moving['frame'] < 4, 'the playhead moved backwards'
     assert moving['reverse'] == 'true' and moving['forward'] == 'false'
 
     page.wait_for_timeout(1500)
-    stopped = page.locator('#run-view-viewer').evaluate(PLAYHEAD)
+    stopped = page.locator('#run-view-viewer-A').evaluate(PLAYHEAD)
     assert stopped['frame'] == 0, f'the playhead stops on the first frame: {stopped}'
     assert not stopped['moving']
     assert errors == []
@@ -172,19 +172,19 @@ def test_the_slider_is_the_frame_shown_and_the_frame_playback_starts_from(dashbo
     open_panel(page, live_page, run=FRAMES_RUN)
     wait_for_component(page, atoms=8)
 
-    before = page.locator('#run-view-viewer').evaluate(PLAYHEAD)
+    before = page.locator('#run-view-viewer-A').evaluate(PLAYHEAD)
     move_slider(page, 3)
-    after = page.locator('#run-view-viewer').evaluate(PLAYHEAD)
+    after = page.locator('#run-view-viewer-A').evaluate(PLAYHEAD)
     assert after['frame'] == 3 and after['slider'] == 3
     assert after['readout'] == 'frame 3 of 4'
     assert before['readout'] != after['readout'], 'the readout follows the playhead'
     # The playhead is the trajectory's, so the drawn atoms are the frame's own rather than the previous one's.
-    structure = page.locator('#run-view-viewer').evaluate(MEASURE)
+    structure = page.locator('#run-view-viewer-A').evaluate(MEASURE)
     assert structure['atoms'] == 8
 
-    page.locator('#run-view-forward').click()
+    page.locator('#run-view-forward-A').click()
     page.wait_for_timeout(400)
-    played = page.locator('#run-view-viewer').evaluate(PLAYHEAD)
+    played = page.locator('#run-view-viewer-A').evaluate(PLAYHEAD)
     assert played['frame'] > 3, 'playback starts from the frame the slider left it on'
     assert errors == []
 
@@ -196,19 +196,19 @@ def test_the_strip_sets_the_frame_and_follows_the_playhead_it_never_drives(dashb
     open_panel(page, live_page, run=FRAMES_RUN)
     wait_for_component(page, atoms=8)
 
-    buttons = page.locator('#run-view-frames button')
+    buttons = page.locator('#run-view-frames-A button')
     expect(buttons).to_have_count(3)
     labels = buttons.all_inner_texts()
     assert labels == ['first', 'middle', 'last'], labels
 
     buttons.nth(2).click()
-    moved = page.locator('#run-view-viewer').evaluate(PLAYHEAD)
+    moved = page.locator('#run-view-viewer-A').evaluate(PLAYHEAD)
     assert moved['frame'] == 4 and not moved['moving'], 'a strip button sets the frame and stops there'
     expect(buttons.nth(2)).to_have_attribute('aria-pressed', 'true')
     expect(buttons.nth(0)).to_have_attribute('aria-pressed', 'false')
 
     buttons.nth(1).click()
-    back = page.locator('#run-view-viewer').evaluate(PLAYHEAD)
+    back = page.locator('#run-view-viewer-A').evaluate(PLAYHEAD)
     assert back['frame'] == 2 and not back['moving']
     expect(buttons.nth(1)).to_have_attribute('aria-pressed', 'true')
     expect(buttons.nth(2)).to_have_attribute('aria-pressed', 'false')
@@ -265,18 +265,18 @@ def test_playback_is_driven_by_animation_frames_and_nothing_else_moves_the_playh
       window.__realRaf = window.requestAnimationFrame.bind(window);
       window.requestAnimationFrame = () => { window.__asked += 1; return 0; };
     }""")
-    page.locator('#run-view-forward').click()
+    page.locator('#run-view-forward-A').click()
     page.wait_for_timeout(600)
     assert page.evaluate('window.__asked') > 0, 'the player asks the renderer for frames'
-    frozen = page.locator('#run-view-viewer').evaluate(PLAYHEAD)
+    frozen = page.locator('#run-view-viewer-A').evaluate(PLAYHEAD)
     assert frozen['frame'] == 0, f'with no animation frames served, nothing advances: {frozen}'
     assert frozen['slider'] == 0 and frozen['readout'] == 'frame 0 of 4'
 
     page.evaluate('() => { window.requestAnimationFrame = window.__realRaf; }')
-    page.locator('#run-view-forward').click()   # the running direction's own button pauses
-    page.locator('#run-view-forward').click()   # and pressing it again plays
+    page.locator('#run-view-forward-A').click()   # the running direction's own button pauses
+    page.locator('#run-view-forward-A').click()   # and pressing it again plays
     page.wait_for_timeout(400)
-    resumed = page.locator('#run-view-viewer').evaluate(PLAYHEAD)
+    resumed = page.locator('#run-view-viewer-A').evaluate(PLAYHEAD)
     assert resumed['frame'] > 0, 'and the row plays again once frames are being served'
     assert errors == []
 
@@ -293,16 +293,16 @@ def test_the_row_stops_playing_when_its_panel_is_no_longer_the_open_one(dashboar
     wait_for_component(page, atoms=8)
 
     move_slider(page, 0)
-    page.locator('#run-view-forward').click()
+    page.locator('#run-view-forward-A').click()
     page.wait_for_timeout(300)
-    assert page.locator('#run-view-viewer').evaluate(PLAYHEAD)['moving']
+    assert page.locator('#run-view-viewer-A').evaluate(PLAYHEAD)['moving']
 
     page.locator('#tab-runs').click()
     expect(page.locator('#runview')).to_be_hidden()
-    left = page.locator('#run-view-viewer').evaluate(PLAYHEAD)
+    left = page.locator('#run-view-viewer-A').evaluate(PLAYHEAD)
     assert not left['moving'], 'the row pauses when its panel stops being the open one'
     page.wait_for_timeout(700)
-    later = page.locator('#run-view-viewer').evaluate(PLAYHEAD)
+    later = page.locator('#run-view-viewer-A').evaluate(PLAYHEAD)
     assert not later['moving'], 'and it does not keep playing unobserved'
     assert later['frame'] == left['frame'], 'the frame it stopped on is the frame the reader left'
     assert errors == []

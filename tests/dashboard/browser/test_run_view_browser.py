@@ -262,7 +262,7 @@ def moleculetype():
 #: the panel sent. `atom.radius` is the value `applyBeadRadii` put on the structure, in angstroms.
 MEASURE = """
 () => {
-  const host = document.querySelector('#run-view-viewer');
+  const host = document.querySelector('#run-view-viewer-A');
   const component = host.runViewStage.compList[0];
   const structure = component.structure;
   const radii = [];
@@ -281,8 +281,8 @@ MEASURE = """
     atoms: structure.atomCount, radii: radii, bonds: store.count, pairs: pairs,
     frames: element ? element.trajectory.frameCount : 0,
     models: structure.frames ? structure.frames.length : 0,
-    readout: document.querySelector('#run-view-readout').textContent,
-    note: document.querySelector('#run-view-transport-note').textContent,
+    readout: document.querySelector('#run-view-readout-A').textContent,
+    note: document.querySelector('#run-view-transport-note-A').textContent,
   };
 }
 """
@@ -292,23 +292,27 @@ def open_panel(page, live_page, workspace='detergent-validation', run=None):
     query = f'?run={run}' if run else ''
     page.goto(f'{live_page.base_url}/{workspace}/run-view{query}')
     expect(page.locator('#runview')).to_be_visible()
+    # The three sub-panels below each canvas sit collapsed -- that is the layout's own claim, and a reader opens the
+    # one they want. A test that reads or clicks inside one opens it first, through the same `<details>` element.
+    for panel in ('holds-details', 'frames-details', 'figures-details'):
+        page.locator(f'#run-view-{panel}-A').evaluate('el => { el.open = true; }')
 
 
 def wait_for_component(page, atoms=None):
     page.wait_for_function(
-        "() => document.querySelector('#run-view-viewer')?.runViewStage?.compList?.[0]?.structure",
+        "() => document.querySelector('#run-view-viewer-A')?.runViewStage?.compList?.[0]?.structure",
         timeout=30000)
     if atoms is not None:
         # Optional chaining all the way: between `removeAllComponents()` and the load resolving, `compList[0]` is
         # undefined, and a predicate that throws is not a wait -- Playwright reports it instead of retrying.
         page.wait_for_function(
-            "() => document.querySelector('#run-view-viewer')?.runViewStage?.compList?.[0]?.structure?.atomCount"
+            "() => document.querySelector('#run-view-viewer-A')?.runViewStage?.compList?.[0]?.structure?.atomCount"
             f" === {atoms}",
             timeout=30000)
 
 
 def select_row(page, text):
-    row = page.locator('#run-view-holds tr').filter(has_text=text)
+    row = page.locator('#run-view-holds-A tr').filter(has_text=text)
     expect(row).to_have_count(1)
     row.click()
 
@@ -344,29 +348,47 @@ def test_the_chooser_asks_for_this_workspaces_run_types_and_lists_none_of_the_ot
     asked = []
     page.on('request', lambda request: asked.append(request.url))
     open_panel(page, live_page)
-    expect(page.locator('#run-view-list button')).to_have_count(4)
+    # The list belongs to each monitor's own combo and is drawn when a reader reaches for it, so the count is taken
+    # after focusing the input -- which is what a reader does before reading the list.
+    page.locator('#run-view-choose-A').click()
+    expect(page.locator('#run-view-list-A button')).to_have_count(4)
 
     jobs = [url.split('run_type=')[1].split('&')[0] for url in asked if '/api/jobs?' in url and 'run_type=' in url]
     assert sorted(set(jobs)) == ['aa_cg', 'aa_only', 'cg_composition', 'osmotic'], jobs
     assert not any('/api/jobs?' in url and 'run_type=' not in url for url in asked), \
         'the panel must ask the route for a run type, not page every run and narrow it here'
 
-    listed = page.locator('#run-view-list .id').all_inner_texts()
-    assert PDC_RUN not in listed, f'a complex run is offered by the wrong workspace: {listed}'
-    assert AA_RUN in listed and CG_RUN in listed
-    expect(page.locator('#run-view-count')).to_contain_text("in this workspace's scope")
+    offered = ' '.join(page.locator('#run-view-list-A button').all_inner_texts())
+    assert PDC_RUN not in offered, f'a complex run is offered by the wrong workspace: {offered}'
+    assert AA_RUN in offered and CG_RUN in offered
+    # The count is the host's, and the requests above are what say the scope is this workspace's own.
+    expect(page.locator('#run-view-note')).to_contain_text('completed run')
     assert errors == []
 
 
-def test_the_run_type_control_narrows_to_one_type_at_a_time(dashboard, live_page):
+def test_the_chooser_narrows_as_the_reader_types(dashboard, live_page):
+    """The combo's own promise: every keystroke filters, over the run's label, molecule, type, id and date.
+
+    This replaces the run-type select that used to narrow the list to one type at a time. That control is gone by the
+    reader's own request -- a text input that filters as they type is what they asked for -- so the narrowing is
+    asserted through the input instead, including the case where nothing matches and the panel says so.
+    """
     seed(dashboard)
     page, errors = live_page
     open_panel(page, live_page)
-    expect(page.locator('#run-view-list button')).to_have_count(4)
+    field = page.locator('#run-view-choose-A')
+    field.click()
+    expect(page.locator('#run-view-list-A button')).to_have_count(4)
 
-    page.locator('#run-view-type').select_option('aa_only')
-    expect(page.locator('#run-view-list button')).to_have_count(1)
-    expect(page.locator('#run-view-list .id')).to_have_text(AA_RUN)
+    field.fill(AA_RUN)
+    field.dispatch_event('input')
+    expect(page.locator('#run-view-list-A button')).to_have_count(1)
+    expect(page.locator('#run-view-list-A button')).to_contain_text(AA_RUN)
+
+    field.fill('nothing-matches-this-at-all')
+    field.dispatch_event('input')
+    expect(page.locator('#run-view-list-A button')).to_have_count(0)
+    expect(page.locator('#run-view-list-A .none')).to_contain_text('No completed run matches')
     assert errors == []
 
 
@@ -375,7 +397,9 @@ def test_the_protein_detergent_workspace_offers_only_complex_runs(dashboard, liv
     seed(dashboard)
     page, errors = live_page
     open_panel(page, live_page, workspace='protein-detergent')
-    expect(page.locator('#run-view-list .id')).to_have_text(PDC_RUN)
+    page.locator('#run-view-choose-A').click()
+    expect(page.locator('#run-view-list-A button')).to_have_count(1)
+    expect(page.locator('#run-view-list-A button')).to_contain_text(PDC_RUN)
     assert errors == []
 
 
@@ -396,14 +420,14 @@ def test_an_aa_runs_gro_is_drawn_with_the_guess_that_is_right_about_chemistry(da
     open_panel(page, live_page, run=AA_RUN)
     wait_for_component(page, atoms=5)
 
-    measured = page.locator('#run-view-viewer').evaluate(MEASURE)
+    measured = page.locator('#run-view-viewer-A').evaluate(MEASURE)
     assert measured['atoms'] == 5
     assert measured['bonds'] > 0, 'an all-atom .gro keeps the guess its chemistry is drawn by'
-    expect(page.locator('#run-view-readout')).to_contain_text('bonds the file states')
-    expect(page.locator('#run-view-readout')).to_contain_text('bonds the viewer resolved')
-    expect(page.locator('#run-view-readout')).to_contain_text("this viewer's distance guess")
-    expect(page.locator('#run-view-transport-note')).to_contain_text('.gro')
-    expect(page.locator('#run-view-what')).to_contain_text('stages/07_reference/lig.gro')
+    expect(page.locator('#run-view-readout-A')).to_contain_text('bonds the file states')
+    expect(page.locator('#run-view-readout-A')).to_contain_text('bonds the viewer resolved')
+    expect(page.locator('#run-view-readout-A')).to_contain_text("this viewer's distance guess")
+    expect(page.locator('#run-view-transport-note-A')).to_contain_text('.gro')
+    expect(page.locator('#run-view-what-A')).to_contain_text('stages/07_reference/lig.gro')
     assert errors == []
 
 
@@ -416,11 +440,11 @@ def test_an_aa_runs_molecule_is_the_one_case_the_viewers_own_guess_is_left_on(da
 
     select_row(page, 'lig1.pdb')
     wait_for_component(page, atoms=5)
-    measured = page.locator('#run-view-viewer').evaluate(MEASURE)
+    measured = page.locator('#run-view-viewer-A').evaluate(MEASURE)
     assert measured['atoms'] == 5
     assert measured['bonds'] > 0, 'the viewer\'s own distance guess reproduces a real molecule'
-    expect(page.locator('#run-view-readout')).to_contain_text('bonds the file states')
-    expect(page.locator('#run-view-readout')).to_contain_text('reproduces the chemistry')
+    expect(page.locator('#run-view-readout-A')).to_contain_text('bonds the file states')
+    expect(page.locator('#run-view-readout-A')).to_contain_text('reproduces the chemistry')
     assert errors == []
 
 
@@ -442,16 +466,16 @@ def test_a_cg_runs_mapped_model_is_drawn_with_the_models_own_bonds(dashboard, li
     open_panel(page, live_page, run=CG_RUN)
     wait_for_component(page, atoms=8)
 
-    measured = page.locator('#run-view-viewer').evaluate(MEASURE)
+    measured = page.locator('#run-view-viewer-A').evaluate(MEASURE)
     drawn = {tuple(pair) for pair in measured['pairs']}
     assert measured['atoms'] == 8
     assert measured['bonds'] == len(MODEL_BONDS), (
         f"the run's moleculetype states {len(MODEL_BONDS)} bonds and the viewer drew {measured['bonds']}")
     assert drawn == set(MODEL_BONDS), f"the drawn bonds are not the model's: {sorted(drawn ^ set(MODEL_BONDS))}"
-    expect(page.locator('#run-view-what')).to_contain_text('stages/2_mapping/mapped.gro')
-    expect(page.locator('#run-view-readout')).to_contain_text("bonds the run's own topology states")
-    expect(page.locator('#run-view-readout')).to_contain_text("the run's own moleculetype, written as CONECT")
-    expect(page.locator('#run-view-readout')).to_contain_text('stages/3_initial_CG/')
+    expect(page.locator('#run-view-what-A')).to_contain_text('stages/2_mapping/mapped.gro')
+    expect(page.locator('#run-view-readout-A')).to_contain_text("bonds the run's own topology states")
+    expect(page.locator('#run-view-readout-A')).to_contain_text("the run's own moleculetype, written as CONECT")
+    expect(page.locator('#run-view-readout-A')).to_contain_text('stages/3_initial_CG/')
     assert errors == []
 
 
@@ -471,10 +495,10 @@ def test_a_cg_run_that_states_no_moleculetype_is_drawn_bondless_and_says_so(dash
     open_panel(page, live_page, run=NO_TOPOLOGY_RUN)
     wait_for_component(page, atoms=8)
 
-    measured = page.locator('#run-view-viewer').evaluate(MEASURE)
+    measured = page.locator('#run-view-viewer-A').evaluate(MEASURE)
     assert measured['bonds'] == 0, 'a bond nothing declares must not be drawn'
-    expect(page.locator('#run-view-readout')).to_contain_text('states no moleculetype')
-    expect(page.locator('#run-view-readout')).to_contain_text('the picture claims no bonds')
+    expect(page.locator('#run-view-readout-A')).to_contain_text('states no moleculetype')
+    expect(page.locator('#run-view-readout-A')).to_contain_text('the picture claims no bonds')
     assert errors == []
 
 
@@ -487,14 +511,14 @@ def test_a_cg_file_that_carries_conect_is_drawn_from_it_and_never_guessed_at(das
 
     select_row(page, 'LIG1.pdb')
     wait_for_component(page, atoms=8)
-    measured = page.locator('#run-view-viewer').evaluate(MEASURE)
+    measured = page.locator('#run-view-viewer-A').evaluate(MEASURE)
     drawn = {tuple(pair) for pair in measured['pairs']}
     assert measured['bonds'] == len(MODEL_BONDS), (
         f'the file states {len(MODEL_BONDS)} bonds and the viewer drew {measured["bonds"]}: the CONECT records '
         f'were double-drawn with a distance guess ({sorted(drawn)})')
     assert drawn == set(MODEL_BONDS), f'the drawn bonds are not the file\'s own: {sorted(drawn ^ set(MODEL_BONDS))}'
-    expect(page.locator('#run-view-readout')).to_contain_text('carries CONECT')
-    expect(page.locator('#run-view-readout')).to_contain_text('the distance guess is off')
+    expect(page.locator('#run-view-readout-A')).to_contain_text('carries CONECT')
+    expect(page.locator('#run-view-readout-A')).to_contain_text('the distance guess is off')
     assert errors == []
 
 
@@ -518,7 +542,7 @@ def test_the_guard_is_what_keeps_the_guess_out_of_a_conect_file(dashboard, live_
     # the file a run writes -- what must hold either way is that the guard is the difference between the file's
     # seven records and more.
     packed = [tuple(value * NANOMETRE_TO_ANGSTROM * 0.5 for value in xyz) for xyz in MAPPED_NM]
-    measured = page.locator('#run-view-viewer').evaluate("""async (element, text) => {
+    measured = page.locator('#run-view-viewer-A').evaluate("""async (element, text) => {
       const host = document.createElement('div');
       host.style.width = '200px'; host.style.height = '200px';
       document.body.append(host);
@@ -556,14 +580,14 @@ def test_cg_beads_are_drawn_at_the_radius_their_own_size_class_has(dashboard, li
     select_row(page, 'LIG1.pdb')
     wait_for_component(page, atoms=8)
 
-    measured = page.locator('#run-view-viewer').evaluate(MEASURE)
+    measured = page.locator('#run-view-viewer-A').evaluate(MEASURE)
     drawn = [None if value is None else round(value / NANOMETRE_TO_ANGSTROM, 4) for value in measured['radii']]
     expected = [round(RADII_NM[SIZES[name]] * DRAWN_BEAD_SCALE, 4) for name in BEADS]
     assert drawn == expected, f'the beads are not drawn at their own size classes: {drawn} against {expected}'
     # The stand-in elements are nearly the same size as each other; the model's classes are not.
     assert len(set(drawn)) == 2, 'a size ranking from the element column, not the model'
-    expect(page.locator('#run-view-readout')).to_contain_text('model.json size classes')
-    expect(page.locator('#run-view-readout')).to_contain_text(f'drawn at {DRAWN_BEAD_SCALE}x')
+    expect(page.locator('#run-view-readout-A')).to_contain_text('model.json size classes')
+    expect(page.locator('#run-view-readout-A')).to_contain_text(f'drawn at {DRAWN_BEAD_SCALE}x')
     assert errors == []
 
 
@@ -577,7 +601,7 @@ FAMILY_COLOURS = {'unstated': '#cccccc', 'C': '#7048e8', 'N': '#e8590c', 'P': '#
 #: The colours the canvas resolved, and the legend under it read back from the page.
 MEASURE_FAMILY = """
 async () => {
-  const component = document.querySelector('#run-view-viewer').runViewStage.compList[0];
+  const component = document.querySelector('#run-view-viewer-A').runViewStage.compList[0];
   const structure = component.structure;
   const parameters = component.reprList[0].repr.getColorParams();
   const scheme = NGL.ColormakerRegistry.getScheme(parameters);
@@ -611,7 +635,7 @@ def test_a_cg_run_colours_its_beads_by_family_and_only_then_shows_the_legend(das
     select_row(page, 'md.gro')
     wait_for_component(page, atoms=8)
 
-    measured = page.locator('#run-view-viewer').evaluate(MEASURE_FAMILY)
+    measured = page.locator('#run-view-viewer-A').evaluate(MEASURE_FAMILY)
     assert measured['scheme'] == 'bfactor', measured['scheme']
     assert measured['colours'] == [FAMILY_COLOURS['P']] * 8, measured['colours']
     assert measured['hidden'] is False, 'a coarse picture with no legend under it'
@@ -623,7 +647,7 @@ def test_a_cg_run_colours_its_beads_by_family_and_only_then_shows_the_legend(das
     wait_for_component(page)
     select_row(page, 'lig.gro')
     wait_for_component(page, atoms=5)
-    atomistic = page.locator('#run-view-viewer').evaluate(MEASURE_FAMILY)
+    atomistic = page.locator('#run-view-viewer-A').evaluate(MEASURE_FAMILY)
     assert atomistic['hidden'] is True, 'an all-atom structure got a bead legend'
     assert errors == []
 
@@ -634,12 +658,12 @@ def test_figures_are_listed_and_opened_inline_through_the_artifact_route(dashboa
     open_panel(page, live_page, run=CG_RUN)
     wait_for_component(page, atoms=8)
 
-    link = page.locator('#run-view-figures a')
+    link = page.locator('#run-view-figures-A a')
     expect(link).to_have_count(1)
     href = link.get_attribute('href')
     assert href == f'/api/jobs/{CG_RUN}/artifacts/stages/5_assessment/score_matrix_LIG1.png?inline=1', href
     assert link.get_attribute('target') == '_blank'
-    expect(page.locator('#run-view-figures-note')).to_contain_text('zoomable')
+    expect(page.locator('#run-view-figures-note-A')).to_contain_text('zoomable')
     assert errors == []
 
 
@@ -648,8 +672,8 @@ def test_a_run_with_no_figure_says_so_instead_of_showing_an_empty_list(dashboard
     page, errors = live_page
     open_panel(page, live_page, run=AA_RUN)
     wait_for_component(page, atoms=5)
-    expect(page.locator('#run-view-figures a')).to_have_count(0)
-    expect(page.locator('#run-view-figures-note')).to_contain_text('published no figure')
+    expect(page.locator('#run-view-figures-A a')).to_have_count(0)
+    expect(page.locator('#run-view-figures-note-A')).to_contain_text('published no figure')
     assert errors == []
 
 
@@ -658,18 +682,18 @@ def test_a_complex_run_is_delegated_to_complexes_and_nothing_is_drawn_here(dashb
     seed(dashboard)
     page, errors = live_page
     open_panel(page, live_page, workspace='protein-detergent', run=PDC_RUN)
-    expect(page.locator('#run-view-list .id')).to_have_text(PDC_RUN)
+    assert PDC_RUN in page.locator('#run-view-choose-A').input_value()
 
-    expect(page.locator('#run-view-delegation')).to_be_visible()
-    link = page.locator('#run-view-delegation a')
+    expect(page.locator('#run-view-delegation-A')).to_be_visible()
+    link = page.locator('#run-view-delegation-A a')
     expect(link).to_have_count(1)
     assert link.get_attribute('href') == f'/protein-detergent/complexes?run={PDC_RUN}'
-    expect(page.locator('#run-view-delegation')).to_contain_text('reads ?run= at mount')
+    expect(page.locator('#run-view-delegation-A')).to_contain_text('reads ?run= at mount')
 
-    assert page.locator('#run-view-viewer').is_hidden(), 'no canvas is drawn for a complex run'
-    assert page.locator('#run-view-transport').is_hidden(), 'and no transport row either'
-    expect(page.locator('#run-view-transport-note')).to_contain_text('deliberately')
-    assert page.evaluate("() => document.querySelector('#run-view-viewer').runViewStage") is None
+    assert page.locator('#run-view-viewer-A').is_hidden(), 'no canvas is drawn for a complex run'
+    assert page.locator('#run-view-transport-A').is_hidden(), 'and no transport row either'
+    expect(page.locator('#run-view-transport-note-A')).to_contain_text('deliberately')
+    assert page.evaluate("() => document.querySelector('#run-view-viewer-A').runViewStage") is None
     assert errors == []
 
 
@@ -682,17 +706,17 @@ def test_the_published_frame_series_is_listed_first_and_is_the_file_the_row_play
     open_panel(page, live_page, run=FRAMES_RUN)
     wait_for_component(page, atoms=8)
 
-    first = page.locator('#run-view-holds tr').first
+    first = page.locator('#run-view-holds-A tr').first
     expect(first).to_contain_text('snapshots/CG-frames.pdb')
     assert first.get_attribute('aria-selected') == 'true'
-    measured = page.locator('#run-view-viewer').evaluate(MEASURE)
+    measured = page.locator('#run-view-viewer-A').evaluate(MEASURE)
     assert measured['frames'] == 5, 'the multi-model PDB must be a trajectory, not five models drawn at once'
     # The series carries the model's own bonds, as the producer writes them (`pdc_view.series_pdb`). This asserted
     # zero until the file was made to carry them: a published series with no CONECT is a picture of grey spheres
     # with no connectivity, which is the defect a reader reported from the panel.
     assert measured['bonds'] == len(MODEL_BONDS), \
         f"the series drew {measured['bonds']} bonds for a model that states {len(MODEL_BONDS)}"
-    expect(page.locator('#run-view-frames button')).to_have_count(3)
+    expect(page.locator('#run-view-frames-A button')).to_have_count(3)
     assert errors == []
 
 
@@ -707,7 +731,7 @@ def test_a_multi_model_pdb_without_a_trajectory_is_every_model_drawn_at_once(das
     open_panel(page, live_page, run=FRAMES_RUN)
     wait_for_component(page, atoms=8)
 
-    naive = page.locator('#run-view-viewer').evaluate("""async (element, text) => {
+    naive = page.locator('#run-view-viewer-A').evaluate("""async (element, text) => {
       const host = document.createElement('div');
       host.style.width = '200px'; host.style.height = '200px';
       document.body.append(host);
@@ -722,7 +746,7 @@ def test_a_multi_model_pdb_without_a_trajectory_is_every_model_drawn_at_once(das
     assert naive['models'] == 0, 'and no trajectory comes with it'
     assert naive['trajectories'] == 0, 'loadFile does not attach one'
 
-    drawn = page.locator('#run-view-viewer').evaluate(MEASURE)
+    drawn = page.locator('#run-view-viewer-A').evaluate(MEASURE)
     assert drawn['atoms'] == 8, 'the panel draws one frame'
     assert drawn['frames'] == 5, 'and holds the trajectory the row plays'
     assert errors == []
@@ -744,8 +768,11 @@ def test_a_runs_table_row_links_to_its_own_run_view(dashboard, live_page):
 
     link.click()
     expect(page.locator('#runview')).to_be_visible()
-    expect(page.locator('#run-view-list button[aria-pressed=true]')).to_contain_text(AA_RUN)
-    expect(page.locator('#run-view-identity')).to_contain_text(AA_RUN)
+    # Waited for rather than read once: the link lands on the run view and the host chooses the run it names, which
+    # takes the requests it takes. The claim is that the run is chosen by the time the page has settled.
+    page.wait_for_function(
+        f"() => (document.querySelector('#run-view-choose-A')?.value || '').includes('{AA_RUN}')", timeout=20000)
+    expect(page.locator('#run-view-identity-A')).to_contain_text(AA_RUN)
     assert errors == []
 
 
@@ -767,10 +794,10 @@ def test_the_newest_published_result_is_resolved_even_when_it_lies_past_the_firs
     open_panel(page, live_page, run=MANY_RUN)
     wait_for_component(page, atoms=8)
 
-    first = page.locator('#run-view-holds tr').first
+    first = page.locator('#run-view-holds-A tr').first
     expect(first).to_contain_text('snapshots/CG-frames.pdb')
     assert first.get_attribute('aria-selected') == 'true'
-    assert page.locator('#run-view-viewer').evaluate(MEASURE)['frames'] == 5, \
+    assert page.locator('#run-view-viewer-A').evaluate(MEASURE)['frames'] == 5, \
         'the newest record names the series, and the row plays it'
     pages = sorted({int(url.split('page=')[1].split('&')[0])
                     for url in asked if '/artifacts?' in url and 'page=' in url})
@@ -798,4 +825,43 @@ def test_the_rule_hands_an_all_atom_gro_to_the_guess_and_a_coarse_one_to_nothing
     }""")
     assert answer == {'all_atom_gro': 'all', 'coarse_gro': 'none', 'states_its_own': 'none',
                       'all_atom_pdb': 'all'}, answer
+    assert errors == []
+
+
+# ------------------------------------------------------------------------------------------- the layout itself
+
+
+def test_the_run_view_is_two_monitors_each_with_a_combo_and_three_panels_below(dashboard, live_page):
+    """The shape that was asked for, asserted as the page: two monitors, a combo and three panels on each.
+
+    Adopted from the draft that was judged and re-pointed at the panel it became. Two canvases side by side, a
+    "choose a run" combo above each, and "what this run holds" / "frames" / "figures" below each one, collapsed --
+    the collapse is the claim, and a reader opens the one they want. Only completed runs are ever offered, which the
+    host's own requests say rather than its intentions.
+    """
+    seed(dashboard)
+    page, errors = live_page
+    asked = []
+    page.on('request', lambda request: asked.append(request.url))
+    # Navigated here rather than through `open_panel`, because that helper opens the three panels a reader may want
+    # to read -- and "collapsed by default" is one of the things this test is about.
+    page.goto(f'{live_page.base_url}/detergent-validation/run-view')
+    expect(page.locator('#runview')).to_be_visible()
+    # Two monitors and monitor A's canvas. Monitor B holds whatever the host paired it with, and a run whose
+    # structures the fixture did not plant draws nothing -- which is a fact about the fixture, not about the layout.
+    page.wait_for_function(
+        "() => document.querySelectorAll('.monitor[data-side]').length === 2"
+        " && document.querySelector('#run-view-viewer-A canvas')", timeout=30000)
+
+    assert page.locator('#run-view-monitors .monitor').count() == 2
+    canvas = {side: page.locator(f'#run-view-viewer-{side}').bounding_box() for side in ('A', 'B')}
+    assert canvas['A']['x'] < canvas['B']['x'], 'the monitors are side by side, not stacked'
+    for side in ('A', 'B'):
+        assert page.locator(f'#run-view-choose-{side}').input_value(), f'monitor {side} holds no run'
+        for panel in ('holds', 'frames', 'figures'):
+            details = page.locator(f'#run-view-{panel}-details-{side}')
+            assert details.evaluate('el => el.open') is False, f'{panel}-{side} opened itself'
+            assert details.bounding_box()['y'] >= canvas[side]['y'], f'{panel}-{side} is not below the canvas'
+    assert asked and all('status=completed' in url for url in asked if '/api/jobs?' in url), \
+        'only completed runs are offered'
     assert errors == []

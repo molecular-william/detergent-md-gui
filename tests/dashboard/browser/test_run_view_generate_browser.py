@@ -130,7 +130,7 @@ def test_the_control_is_offered_where_a_trajectory_can_be_sampled(dashboard, liv
     open_panel(page, live_page, run=TRAJECTORY_RUN)
     wait_for_component(page, atoms=8)
 
-    control = page.locator('#run-view-generate')
+    control = page.locator('#run-view-generate-A')
     expect(control).to_be_visible()
     expect(control).to_be_enabled()
     title = control.get_attribute('title') or ''
@@ -141,7 +141,7 @@ def test_the_control_is_offered_where_a_trajectory_can_be_sampled(dashboard, liv
     queue_stub(page, sent)
     control.click()
     page.wait_for_function(
-        "() => document.querySelector('#run-view-generate-note').textContent.includes('Sampling')")
+        "() => document.querySelector('#run-view-generate-note-A').textContent.includes('Sampling')")
     assert len(sent) == 1, f'the control sent {len(sent)} requests'
     assert sent[0].method == 'POST', sent[0].method
     assert sent[0].url.endswith(f'/api/jobs/{TRAJECTORY_RUN}/snapshots'), sent[0].url
@@ -157,12 +157,12 @@ def test_the_control_is_disabled_with_its_reason_where_the_run_wrote_no_trajecto
     open_panel(page, live_page, run=CG_RUN)
     wait_for_component(page, atoms=8)
 
-    control = page.locator('#run-view-generate')
+    control = page.locator('#run-view-generate-A')
     expect(control).to_be_visible()
     expect(control).to_be_disabled()
     assert 'no trajectory' in (control.get_attribute('title') or '').lower()
-    expect(page.locator('#run-view-generate-note')).to_contain_text('nothing to sample')
-    expect(page.locator('#run-view-generate-interval')).to_be_disabled()
+    expect(page.locator('#run-view-generate-note-A')).to_contain_text('nothing to sample')
+    expect(page.locator('#run-view-generate-interval-A')).to_be_disabled()
     assert errors == []
 
 
@@ -180,12 +180,12 @@ def test_a_published_series_is_named_before_it_is_replaced(dashboard, live_page)
     open_panel(page, live_page, run=TRAJECTORY_RUN)
     wait_for_component(page, atoms=8)
 
-    expect(page.locator('#run-view-generate')).to_be_enabled()
-    expect(page.locator('#run-view-generate-note')).to_contain_text('12 frames at 5 ns per frame')
+    expect(page.locator('#run-view-generate-A')).to_be_enabled()
+    expect(page.locator('#run-view-generate-note-A')).to_contain_text('12 frames at 5 ns per frame')
 
     sent = []
     queue_stub(page, sent)
-    page.locator('#run-view-generate').click()
+    page.locator('#run-view-generate-A').click()
     dialog = page.locator('dialog.run-view-dialog')
     expect(dialog).to_be_visible()
     expect(dialog).to_contain_text('already plays 12 frames at 5 ns per frame')
@@ -200,8 +200,8 @@ def test_a_published_series_is_named_before_it_is_replaced(dashboard, live_page)
     assert sent == [], 'a cancel must not queue anything'
     assert dialog.count() == 0, 'the prompt is removed when it closes'
 
-    page.locator('#run-view-generate-interval').fill('2')
-    page.locator('#run-view-generate').click()
+    page.locator('#run-view-generate-interval-A').fill('2')
+    page.locator('#run-view-generate-A').click()
     # Matched on the method as well as the path: the panel's own fetch of the published frames carries
     # `analyses/snapshots/` in its URL, so a path-only bracket catches a GET the reader never asked for.
     with page.expect_request(
@@ -219,17 +219,19 @@ def test_the_cadence_field_is_sent_where_the_prompt_is_not_needed(dashboard, liv
     open_panel(page, live_page, run=TRAJECTORY_RUN)
     wait_for_component(page, atoms=8)
 
-    field = page.locator('#run-view-generate-interval')
+    field = page.locator('#run-view-generate-interval-A')
     expect(field).to_be_visible()
     expect(field).to_be_enabled()
     assert field.get_attribute('placeholder') == '40 frames', 'the blank default is stated where it is chosen'
     # The reader's own placement, asserted as boxes rather than as an intention: the field sits to the *right* of
-    # the button and is wide enough to hold a cadence with its spinner, which is what "a bit longer" bought.
+    # the button and is wide enough to hold a cadence with its spinner, which is what "a bit longer" bought. The
+    # group lives in the frames panel now -- the plan is where a series is made -- so the box it must not overflow
+    # is that panel's, and the page must still not scroll sideways at any width.
     boxes = page.evaluate('''() => {
       const box = (selector) => document.querySelector(selector).getBoundingClientRect();
-      const button = box('#run-view-generate'), field = box('#run-view-generate-interval');
+      const button = box('#run-view-generate-A'), field = box('#run-view-generate-interval-A');
       return {button_left: button.x, button_right: button.right, field_left: field.x, field_width: field.width,
-              row_right: box('#run-view-transport').right, page_overflow:
+              row_right: box('#run-view-frames-details-A').right, page_overflow:
                 document.documentElement.scrollWidth - document.documentElement.clientWidth};
     }''')
     assert boxes['field_left'] >= boxes['button_right'] - 1, \
@@ -240,9 +242,9 @@ def test_the_cadence_field_is_sent_where_the_prompt_is_not_needed(dashboard, liv
     sent = []
     queue_stub(page, sent)
     field.fill('5')
-    page.locator('#run-view-generate').click()
+    page.locator('#run-view-generate-A').click()
     page.wait_for_function(
-        "() => document.querySelector('#run-view-generate-note').textContent.includes('every 5 ns')")
+        "() => document.querySelector('#run-view-generate-note-A').textContent.includes('every 5 ns')")
     assert page.locator('dialog.run-view-dialog').count() == 0, 'nothing to replace, so nothing to ask'
     assert len(sent) == 1
     assert json.loads(sent[0].post_data) == {'interval_ns': 5.0}
@@ -262,7 +264,7 @@ def test_the_align_switch_reaches_the_request_and_a_fitted_series_is_reported(da
     open_panel(page, live_page, run=TRAJECTORY_RUN)
     wait_for_component(page, atoms=8)
 
-    switch = page.locator('#run-view-generate-align')
+    switch = page.locator('#run-view-generate-align-A')
     expect(switch).to_be_visible()
     expect(switch).not_to_be_checked(), 'a run whose series is the run\'s own starts switched off'
 
@@ -273,7 +275,7 @@ def test_the_align_switch_reaches_the_request_and_a_fitted_series_is_reported(da
     # (the queueing line), so waiting on text would return before the request was intercepted.
     with page.expect_request(
             lambda request: request.method == 'POST' and request.url.endswith('/snapshots')) as queued:
-        page.locator('#run-view-generate').click()
+        page.locator('#run-view-generate-A').click()
     assert json.loads(queued.value.post_data) == {'align': True}, queued.value.post_data
     assert sent, 'the stub beside the bracket answers the same request'
 
@@ -288,9 +290,9 @@ def test_the_align_switch_reaches_the_request_and_a_fitted_series_is_reported(da
                      run_id=ALIGNED_RUN)
     open_panel(page, live_page, run=ALIGNED_RUN)
     wait_for_component(page, atoms=8)
-    expect(page.locator('#run-view-generate-note')).to_contain_text('fitted on model 1')
-    expect(page.locator('#run-view-generate-note')).to_contain_text('RMSD across the fitted beads up to 0.23 nm')
-    expect(page.locator('#run-view-generate-align')).to_be_checked()
+    expect(page.locator('#run-view-generate-note-A')).to_contain_text('fitted on model 1')
+    expect(page.locator('#run-view-generate-note-A')).to_contain_text('RMSD across the fitted beads up to 0.23 nm')
+    expect(page.locator('#run-view-generate-align-A')).to_be_checked()
     assert errors == []
 
 
@@ -312,9 +314,9 @@ def test_the_fit_can_be_aimed_at_one_of_the_models_own_fragments(dashboard, live
     open_panel(page, live_page, run=TRAJECTORY_RUN)
     wait_for_component(page, atoms=8)
 
-    label = page.locator('label:has(#run-view-generate-align-on)')
+    label = page.locator('label:has(#run-view-generate-align-on-A)')
     expect(label).to_be_visible(), 'the run states fragments, so the target is offered'
-    target = page.locator('#run-view-generate-align-on')
+    target = page.locator('#run-view-generate-align-on-A')
     expect(target).to_have_value('')
     assert [option.strip() for option in target.locator('option').all_inner_texts()] == [
         'whole molecule', 'A (2 beads)', 'B (2 beads)'], target.locator('option').all_inner_texts()
@@ -322,10 +324,10 @@ def test_the_fit_can_be_aimed_at_one_of_the_models_own_fragments(dashboard, live
     sent = []
     queue_stub(page, sent)
     target.select_option('B')
-    expect(page.locator('#run-view-generate-align')).to_be_checked(), 'choosing a fragment is asking for the fit'
+    expect(page.locator('#run-view-generate-align-A')).to_be_checked(), 'choosing a fragment is asking for the fit'
     with page.expect_request(
             lambda request: request.method == 'POST' and request.url.endswith('/snapshots')) as queued:
-        page.locator('#run-view-generate').click()
+        page.locator('#run-view-generate-A').click()
     assert json.loads(queued.value.post_data) == {'align': True, 'align_on': 'B'}, queued.value.post_data
 
     # A series already fitted on a fragment says so, and the control agrees with what is playing.
@@ -343,8 +345,8 @@ def test_the_fit_can_be_aimed_at_one_of_the_models_own_fragments(dashboard, live
                      run_id=ALIGNED_RUN)
     open_panel(page, live_page, run=ALIGNED_RUN)
     wait_for_component(page, atoms=8)
-    expect(page.locator('#run-view-generate-note')).to_contain_text('fitted on fragment B (2 of 4 beads)')
-    expect(page.locator('#run-view-generate-align-on')).to_have_value('B')
+    expect(page.locator('#run-view-generate-note-A')).to_contain_text('fitted on fragment B (2 of 4 beads)')
+    expect(page.locator('#run-view-generate-align-on-A')).to_have_value('B')
     assert errors == []
 
 
@@ -358,13 +360,13 @@ def test_a_cadence_that_is_not_a_positive_number_is_refused_before_it_is_sent(da
 
     sent = []
     queue_stub(page, sent)
-    page.locator('#run-view-generate-interval').fill('-3')
-    page.locator('#run-view-generate').click()
+    page.locator('#run-view-generate-interval-A').fill('-3')
+    page.locator('#run-view-generate-A').click()
     page.wait_for_timeout(300)
 
-    expect(page.locator('#run-view-generate-note')).to_contain_text('positive number of nanoseconds')
+    expect(page.locator('#run-view-generate-note-A')).to_contain_text('positive number of nanoseconds')
     assert sent == [], 'a cadence that means nothing must not be sent'
-    expect(page.locator('#run-view-generate')).to_be_enabled()
+    expect(page.locator('#run-view-generate-A')).to_be_enabled()
     assert errors == []
 
 
@@ -379,14 +381,14 @@ def test_the_row_plays_the_series_once_the_queued_analysis_completes(dashboard, 
     sent = []
     queue_stub(page, sent)
     tasks_stub(page, 'completed')
-    page.locator('#run-view-generate').click()
+    page.locator('#run-view-generate-A').click()
     published_the_series(dashboard)
 
     # The poll asks every `GENERATE_POLL_MS`, so the wait is the panel's own cadence rather than a fixed sleep.
     page.wait_for_function(
-        "() => document.querySelector('#run-view-viewer')?.runViewStage?.compList?.[0]?.trajList?.length > 0",
+        "() => document.querySelector('#run-view-viewer-A')?.runViewStage?.compList?.[0]?.trajList?.length > 0",
         timeout=30000)
-    measured = page.locator('#run-view-viewer').evaluate(MEASURE)
+    measured = page.locator('#run-view-viewer-A').evaluate(MEASURE)
     assert measured['frames'] == 12, f'the row plays {measured["frames"]} frames of the published series'
     assert measured['models'] == 12, 'and the series the panel drew carries the models the record names'
     # A frame must be as *readable* as the run's own structure: the same beads, the family colour a CG file is
@@ -394,15 +396,15 @@ def test_the_row_plays_the_series_once_the_queued_analysis_completes(dashboard, 
     # the first series this pipeline published, which is why this assertion is here rather than implied.
     assert measured['bonds'] == len(MODEL_BONDS), \
         f'the series drew {measured["bonds"]} bonds for a model that states {len(MODEL_BONDS)}'
-    family = page.locator('#run-view-viewer').evaluate(MEASURE_FAMILY)
+    family = page.locator('#run-view-viewer-A').evaluate(MEASURE_FAMILY)
     assert family['scheme'] == 'bfactor', family['scheme']
     assert family['colours'] == [FAMILY_COLOURS['P']] * 8, \
         f'the beads are not drawn in their own family colour: {family["colours"]}'
     assert family['hidden'] is False, 'a coarse picture with no legend under it'
     # The control stays offered with a series published -- that is how the cadence is changed -- and what it reports
     # is the record's own numbers rather than this panel's arithmetic on them.
-    expect(page.locator('#run-view-generate')).to_be_enabled()
-    expect(page.locator('#run-view-generate-note')).to_contain_text('Playing 12 frames at 5 ns per frame')
+    expect(page.locator('#run-view-generate-A')).to_be_enabled()
+    expect(page.locator('#run-view-generate-note-A')).to_contain_text('Playing 12 frames at 5 ns per frame')
     assert len(sent) == 1
     assert errors == []
 
@@ -422,10 +424,10 @@ def test_a_failed_analysis_is_named_rather_than_left_spinning(dashboard, live_pa
                    status=200, content_type='application/json',
                    body=json_text([{'id': 'snap-fixture', 'kind': 'snapshots', 'status': 'failed',
                                     'error': 'no trajectory to sample'}])))
-    page.locator('#run-view-generate').click()
+    page.locator('#run-view-generate-A').click()
     page.wait_for_function(
-        "() => document.querySelector('#run-view-generate-note').textContent.includes('failed')", timeout=30000)
+        "() => document.querySelector('#run-view-generate-note-A').textContent.includes('failed')", timeout=30000)
 
-    expect(page.locator('#run-view-generate-note')).to_contain_text('no trajectory to sample')
-    expect(page.locator('#run-view-generate')).to_be_enabled()
+    expect(page.locator('#run-view-generate-note-A')).to_contain_text('no trajectory to sample')
+    expect(page.locator('#run-view-generate-A')).to_be_enabled()
     assert errors == []

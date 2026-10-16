@@ -141,8 +141,10 @@ def test_every_panel_is_the_same_width_and_has_no_dead_space_beside_it(dashboard
              ('detergent-validation', 'osmotic-pressure', '.osmotic-layout', (6, 6)),
              ('detergent-validation', 'bead-assignment', '.mapping-editor-layout', (7, 5)),
              ('detergent-validation', 'combinations', '.composition-workspace', (3, 9)),
-             ('detergent-validation', 'run-view', '.run-view-layout', (4, 8, 12)),
-             ('protein-detergent', 'run-view', '.run-view-layout', (4, 8, 12)),
+             # The Run view is not in this table any more: it has no 12-column layout of its own, it is two
+             # monitors of equal width side by side. That claim is asserted where the panel's own layout is
+             # (`test_run_view_browser.py`), and its children still span the measure at panel level, which the loop
+             # above checks for every panel in both workspaces.
              ('protein-detergent', 'complexes', '.pdc-workspace', (3, 9, 12)),
              ('detergent-validation', 'bond-interactions', '.bonded-columns', (6, 6)))
     for workspace, panel, layout, spans in cases:
