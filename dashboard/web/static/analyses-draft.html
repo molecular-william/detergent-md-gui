@@ -1,0 +1,361 @@
+<!doctype html>
+<!--
+  DRAFT -- the Analyses control for a completed run, for review only.
+
+  Nothing here is wired into the dashboard: this page is served as a static file and reads the same routes the real
+  control would. The Queue buttons are LIVE -- they POST to `/api/jobs/<jid>/<kind>` on the run you pick, which
+  queues a real analysis attempt against that run (BARTENDER is minutes of CPU). Confirm dialogs say so.
+
+  The kind list is hardcoded here because `analysis/kinds.py`'s table is not exposed over HTTP yet; the spec
+  (`docs/design/2026-10-16-analyses-control.md`) proposes `GET /api/analysis-kinds` for exactly that reason, and the
+  real control reuses the Run view's filtering combo rather than the `<select>` below.
+
+  This file and `tests/dashboard/browser/test_analyses_draft_browser.py` are deleted together when the control lands.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Draft · Analyses for a completed run</title>
+<style>
+  :root { --ink:#1c2940; --muted:#5a697d; --line:#dae2eb; --accent:#2455b0; --surface:#fff; --bg:#f3f6fa;
+          --warn:#a13d00; --ok:#2f7d3a; }
+  * { box-sizing:border-box }
+  body { margin:0; padding:24px; background:var(--bg); color:var(--ink);
+         font:15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif }
+  header.banner { max-width:1040px; margin:0 auto 18px; padding:12px 16px; border:1px solid #f0c98a;
+                  border-left:4px solid #d99100; border-radius:6px; background:#fff8e8 }
+  header.banner h1 { margin:0 0 6px; font-size:16px }
+  header.banner p { margin:4px 0; color:#5a4a22; font-size:13.5px }
+  main { max-width:1040px; margin:0 auto }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:18px }
+  h2 { font-size:15px; margin:0 0 10px }
+  .picker label { display:block; font-size:13px; color:var(--muted); margin-bottom:4px }
+  select { width:100%; max-width:640px; padding:7px 8px; font:inherit; color:inherit;
+           background:var(--surface); border:1px solid var(--line); border-radius:6px }
+  .facts { margin:12px 0 0; font-size:13.5px; color:var(--muted) }
+  .facts code { color:var(--ink) }
+  table { width:100%; border-collapse:collapse; font-size:13.5px }
+  th, td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); vertical-align:top }
+  th { font-weight:600; color:var(--muted); font-size:12.5px; text-transform:uppercase; letter-spacing:.04em }
+  td.state { white-space:nowrap }
+  td.reads { width:42% }
+  .inputs { list-style:none; margin:0; padding:0; font-size:12.5px }
+  .inputs li { display:flex; gap:6px; align-items:baseline }
+  .mark { font-weight:700 }
+  .mark.present { color:var(--ok) }
+  .mark.absent { color:var(--warn) }
+  .inputs code { overflow-wrap:anywhere }
+  .reason { color:var(--warn); font-size:12.5px; margin:6px 0 0 }
+  .hint { color:var(--muted); font-size:12.5px }
+  .row-actions { display:flex; gap:6px; align-items:center; white-space:nowrap }
+  button { font:inherit; padding:5px 12px; border:1px solid var(--accent); border-radius:6px;
+           background:var(--accent); color:#fff; cursor:pointer }
+  button.secondary { background:var(--surface); color:var(--ink); border-color:var(--line) }
+  button:disabled { background:#eef2f7; color:#8794a5; border-color:var(--line); cursor:not-allowed }
+  .attempt { display:flex; gap:10px; align-items:baseline; padding:8px 0; border-bottom:1px solid var(--line) }
+  .attempt:last-child { border-bottom:0 }
+  .attempt .status { font-weight:600 }
+  .attempt .status.failed { color:var(--warn) }
+  .attempt .status.completed { color:var(--ok) }
+  a { color:var(--accent) }
+  .empty { color:var(--muted); font-size:13.5px }
+  .notice { color:var(--warn); font-size:13px }
+  footer { max-width:1040px; margin:8px auto 40px; color:var(--muted); font-size:13px }
+  footer p { margin:6px 0 }
+</style>
+</head>
+<body>
+<header class="banner">
+  <h1>Draft · Analyses for a completed run</h1>
+  <p>Not wired into the dashboard. It reads the same routes the real control would, and its Queue buttons are live:
+     they queue a real analysis attempt against the run you pick — no re-simulation.</p>
+  <p>The kind list and each kind's declared inputs are copied from <code>analysis/kinds.py</code> here, because that
+     table is not exposed over HTTP yet. The real control reuses the Run view's filtering combo, not this select.</p>
+  <p>Delete this file and its test when the control lands in the run card.</p>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Run</h2>
+    <div class="picker">
+      <label for="run-pick">Completed runs</label>
+      <select id="run-pick"><option>Loading…</option></select>
+    </div>
+    <p class="facts" id="run-facts"></p>
+    <p class="notice" id="notice" hidden></p>
+  </section>
+
+  <section class="card">
+    <h2>Available here</h2>
+    <table>
+      <caption class="hint" style="text-align:left;padding:0 0 8px">
+        A kind is available when the run's own files hold every input the kind declares (rule 3 of the spec).
+      </caption>
+      <thead><tr><th scope="col">Analysis</th><th scope="col">Reads</th><th scope="col">Action</th></tr></thead>
+      <tbody id="kinds"></tbody>
+    </table>
+    <p class="hint">Kinds that take a payload keep their own controls: carbohydrate validation needs a molecule, a
+      mapping snapshot and a target dataset; the snapshots analysis takes a sampling cadence.</p>
+  </section>
+
+  <section class="card">
+    <h2>Attempts</h2>
+    <div id="attempts"></div>
+  </section>
+</main>
+
+<footer>
+  <p>What this control will not do: apply a fit. The harmonics would have to be written into
+     <code>stages/3_initial_CG/bonded_fit.json</code> (<code>torsions</code> / <code>manual_overrides</code>) and the
+     run re-queued — editing <code>4_CG_sim/LIG1.itp</code> after the fact changes nothing.</p>
+</footer>
+
+<script>
+'use strict';
+
+// Every kind this draft offers takes no payload (rule 5). Labels are `analysis/kinds.py`'s own, shortened where the
+// summary is long; the declared inputs are verbatim, each with the substring the artifact index is searched for.
+const KINDS = [
+  { name: 'dihedral-fit',
+    label: 'Dihedral terms · a criterion against the tool default',
+    note: 'For every proper dihedral the topology declares, the multiplicity and force constant an AIC/BIC-chosen '
+        + 'cosine fit reads from the same frames, beside the ones the tool wrote.',
+    reader: (jid) => `/api/jobs/${jid}/dihedral-fit`,
+    inputs: [
+      { declared: '2_mapping/mapped.gro', search: '2_mapping/mapped.gro' },
+      { declared: '2_mapping/mapped.xtc', search: '2_mapping/mapped.xtc' },
+      { declared: '2_mapping/model.json', search: '2_mapping/model.json' },
+      { declared: '3_initial_CG/*_ff_inter.itp', search: '_ff_inter.itp' },
+      { declared: '3_initial_CG/*initial*.itp', search: '_initial.itp' },
+    ] },
+  { name: 'bonded-cross-check',
+    label: 'Bonded terms · our fit against the estimate',
+    note: 'The fitted force constants beside the ones an independent equipartition estimate reads from the same '
+        + 'frames — and which side calls a term a constraint.',
+    reader: (jid) => `/api/jobs/${jid}/bonded-cross-check`,
+    inputs: [
+      { declared: '2_mapping/mapped.gro', search: '2_mapping/mapped.gro' },
+      { declared: '2_mapping/mapped.xtc', search: '2_mapping/mapped.xtc' },
+      { declared: '2_mapping/model.json', search: '2_mapping/model.json' },
+      { declared: '3_initial_CG/*_ff_inter.itp', search: '_ff_inter.itp' },
+      { declared: '3_initial_CG/*initial*.itp', search: '_initial.itp' },
+    ] },
+  { name: 'bartender-fit',
+    label: 'BARTENDER bonded fit',
+    note: 'A fitted term inside the reference ensemble\'s own spread reproduces the geometry the molecule has. '
+        + 'Agreement is a check against our own reference, not experimental evidence.',
+    reader: null,   // found through the artifact index: analyses/bartender-fit/**/bartender-fit.json
+    reportSearch: 'bartender-fit.json',
+    inputs: [
+      { declared: '1_AA-reference/prod/lig.gro', search: '1_AA-reference/prod/lig.gro' },
+      { declared: '1_AA-reference/prod/lig.xtc', search: '1_AA-reference/prod/lig.xtc' },
+      { declared: '2_mapping/model.json', search: '2_mapping/model.json' },
+      { declared: '2_mapping/mapping.ndx', search: '2_mapping/mapping.ndx' },
+      { declared: '3_initial_CG/*.itp', search: '3_initial_CG/', suffix: '.itp' },
+    ] },
+];
+
+// A live attempt is one of these; the Queue button is disabled while one exists (rule 4).
+const LIVE = new Set(['queued', 'running', 'cancelling']);
+const $ = (id) => document.getElementById(id);
+let runs = [], current = null, poll = null;
+
+async function api(path, options) {
+  const response = await fetch(path, options);
+  if (!response.ok) throw new Error(`${path} → ${response.status}`);
+  return response.json();
+}
+
+function notice(message) { const node = $('notice'); node.hidden = !message; node.textContent = message || ''; }
+
+async function loadRuns() {
+  const body = await api('/api/jobs?limit=100');
+  runs = (body.jobs || body.rows || []).filter((run) => run.status === 'completed');
+  const pick = $('run-pick');
+  pick.replaceChildren(...runs.map((run) => {
+    const option = document.createElement('option');
+    option.value = run.id; option.textContent = `${run.label || run.id} · ${run.id}`;
+    return option;
+  }));
+  if (!runs.length) { pick.replaceChildren(new Option('No completed runs', '')); return; }
+  const asked = new URLSearchParams(location.search).get('run');
+  pick.value = runs.some((run) => run.id === asked) ? asked : runs[0].id;
+  await choose();
+}
+
+// Presence is read from the run's own file index (rule 3), one cheap search per declared input.
+async function hasInput(jid, input) {
+  const body = await api(`/api/jobs/${jid}/artifacts?search=${encodeURIComponent(input.search)}&limit=100`);
+  const entries = body.artifacts || [];
+  return input.suffix ? entries.some((entry) => entry.path.endsWith(input.suffix)) : entries.length > 0;
+}
+
+async function publishedReport(jid, kind) {
+  if (kind.reader) {
+    const response = await fetch(kind.reader(jid));
+    if (!response.ok) return null;
+    const body = await response.json();
+    return body && (body.report || body.dihedral || body.terms) ? kind.reader(jid) : null;
+  }
+  const body = await api(`/api/jobs/${jid}/artifacts?search=${encodeURIComponent(kind.reportSearch)}&limit=100`);
+  const hit = (body.artifacts || [])[0];
+  return hit ? `/api/jobs/${jid}/artifacts/${hit.path}` : null;
+}
+
+function queueButton(kind, available, live, jid) {
+  const button = document.createElement('button');
+  button.textContent = 'Queue';
+  button.disabled = !available || Boolean(live);
+  button.title = !available ? 'This run does not hold every input this analysis declares'
+    : live ? 'An attempt is already queued or running'
+    : `Queue ${kind.name} against ${jid}`;
+  button.addEventListener('click', async () => {
+    const said = `Queue ${kind.name} against ${jid}?\n\n`
+      + 'This starts a real analysis attempt on the completed run. Nothing is simulated again.';
+    if (!window.confirm(said)) return;
+    try {
+      notice('');
+      await api(`/api/jobs/${jid}/${kind.name}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      await refresh();
+    } catch (error) { notice(`Queueing ${kind.name} failed: ${error.message}`); }
+  });
+  return button;
+}
+
+async function renderKinds() {
+  const jid = current.id;
+  const body = await api('/api/jobs?limit=100');
+  const run = (body.jobs || body.rows || []).find((item) => item.id === jid) || current;
+  current = run;
+  const attempts = run.analyses || [];
+  const rows = [];
+  for (const kind of KINDS) {
+    const checks = await Promise.all(kind.inputs.map((input) => hasInput(jid, input)
+      .then((present) => ({ input, present })).catch(() => ({ input, present: null }))));
+    const missing = checks.filter((check) => check.present !== true).map((check) => check.input.declared);
+    const available = missing.length === 0;
+    const live = attempts.find((task) => task.kind === kind.name && LIVE.has(task.status));
+    const report = await publishedReport(jid, kind).catch(() => null);
+
+    const row = document.createElement('tr');
+    const what = document.createElement('td');
+    what.innerHTML = `<strong>${kind.label}</strong><div class="hint">${kind.note}</div>`;
+    if (!available) {
+      const reason = document.createElement('p');
+      reason.className = 'reason';
+      reason.textContent = missing.length === 1
+        ? `cannot run: ${missing[0]} is not in this run`
+        : `cannot run: ${missing.join(', ')} are not in this run`;
+      what.append(reason);
+    }
+    const reads = document.createElement('td');
+    reads.className = 'reads';
+    const list = document.createElement('ul');
+    list.className = 'inputs';
+    for (const check of checks) {
+      const item = document.createElement('li');
+      const mark = document.createElement('span');
+      mark.className = `mark ${check.present === true ? 'present' : 'absent'}`;
+      mark.textContent = check.present === true ? '✓' : '✗';
+      mark.title = check.present === true ? 'in this run' : 'not in this run';
+      const code = document.createElement('code');
+      code.textContent = check.input.declared;
+      item.append(mark, code);
+      list.append(item);
+    }
+    reads.append(list);
+    const state = document.createElement('td');
+    state.className = 'state';
+    if (live) state.textContent = `${live.status}${duration(live)}`;
+    else if (attempts.some((task) => task.kind === kind.name && task.status === 'completed')) state.textContent = 'ran before';
+    else state.textContent = '—';
+    const action = document.createElement('td');
+    const actions = document.createElement('div');
+    actions.className = 'row-actions';
+    actions.append(queueButton(kind, available, live, jid));
+    if (report) {
+      const link = document.createElement('a');
+      link.href = report; link.target = '_blank'; link.rel = 'noopener'; link.textContent = 'Published report';
+      actions.append(link);
+    }
+    action.append(actions);
+
+    row.append(what, reads, state, action);
+    rows.push(row);
+  }
+  const table = $('kinds');
+  table.replaceChildren(...rows);
+  renderAttempts(attempts, jid);
+  const live = attempts.some((task) => LIVE.has(task.status));
+  if (poll) { clearTimeout(poll); poll = null; }
+  if (live) poll = setTimeout(() => refresh().catch(() => {}), 4000);
+}
+
+// An analysis row carries `status`, `outputs`, `started_at` and `ended_at` -- no `progress` and no `error`, which is
+// what the run card's own attempt line reads and never finds. The duration is the honest thing the payload does hold.
+function duration(task) {
+  if (!task.started_at || !task.ended_at) return '';
+  const seconds = Math.round((Date.parse(task.ended_at) - Date.parse(task.started_at)) / 1000);
+  return Number.isFinite(seconds) ? ` · ${seconds} s` : '';
+}
+
+function renderAttempts(attempts, jid) {
+  const host = $('attempts');
+  if (!attempts.length) {
+    host.innerHTML = '';
+    const empty = document.createElement('p');
+    empty.className = 'empty';
+    empty.textContent = 'No analysis has been queued against this run.';
+    host.append(empty);
+    return;
+  }
+  host.replaceChildren(...attempts.map((task) => {
+    const row = document.createElement('div');
+    row.className = 'attempt';
+    const name = document.createElement('span');
+    name.textContent = task.kind;
+    const status = document.createElement('span');
+    status.className = `status ${task.status}`;
+    status.textContent = `${task.status}${duration(task)}`;
+    row.append(name, status);
+    if (LIVE.has(task.status)) {
+      const cancel = document.createElement('button');
+      cancel.className = 'secondary'; cancel.textContent = 'Cancel';
+      cancel.disabled = task.status === 'cancelling';
+      cancel.addEventListener('click', async () => {
+        try { await api(`/api/jobs/${jid}/analyses/${task.id}/cancel`, { method: 'POST' }); await refresh(); }
+        catch (error) { notice(`Cancelling ${task.kind} failed: ${error.message}`); }
+      });
+      row.append(cancel);
+    }
+    return row;
+  }));
+}
+
+async function renderFacts() {
+  const stages = (current.stages || []).filter((stage) => stage.status === 'completed').length;
+  $('run-facts').innerHTML = `<code>${current.id}</code> · ${current.label || ''} · `
+    + `${current.molecule_id || current.detergent || ''} · ${stages} completed stages`
+    + (current.reference_run_id ? ` · AA reference <code>${current.reference_run_id}</code>` : '');
+}
+
+async function refresh() {
+  notice('');
+  try {
+    await renderFacts();
+    await renderKinds();
+  } catch (error) { notice(`Reading the run failed: ${error.message}`); }
+}
+
+async function choose() {
+  const jid = $('run-pick').value;
+  current = runs.find((run) => run.id === jid) || { id: jid };
+  await refresh();
+}
+
+$('run-pick').addEventListener('change', () => { choose().catch((error) => notice(error.message)); });
+loadRuns().catch((error) => notice(`Loading runs failed: ${error.message}`));
+</script>
+</body>
+</html>
