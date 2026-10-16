@@ -13,7 +13,10 @@
 //   2. a coarse-grained structure (a CG run type, or a `2_mapping`/`4_CG_sim`/`3_initial_CG` path) ->
 //      `inferBonds: 'none'` too, even when the distances look plausible;
 //   3. an all-atom file with no `CONECT` -> the viewer's own inference is left on, because that is the one case
-//      it is right about.
+//      it is right about. A `.gro` belongs to this branch whenever the run is all-atom: the format carries no bond
+//      records and this build's parser guesses from distances whatever the flag says, so the guess that is wrong
+//      for a bead is the guess that is right for chemistry -- and drawing it bondless, as an earlier version of
+//      this rule did for every `.gro`, left the atomistic half of a comparison with no bonds at all.
 //
 // A `.gro` carries no bond records, and this vendored build's GRO parser guesses bonds from distances whatever
 // `inferBonds` says -- measured: the eight mapped beads of a `.gro` came back with four bonds under either flag. So
@@ -60,23 +63,33 @@ export function loadParameters(text, {path, runType} = {}) {
     return {ext, inferBonds: 'none',
             reason: 'the file carries CONECT — drawn from its own records, the distance guess is off'};
   }
-  if (ext === 'gro') {
+  if (ext === 'gro' && isCoarseGrained(path, runType)) {
     // This vendored build's GRO parser guesses from distances whatever the flag, and a `.gro` carries no bond
     // records of its own, so the picture is bondless once the caller clears the store: the caption says so rather
     // than implying a connectivity, and names where the model's own bonds actually are.
     return {ext, inferBonds: 'none',
             reason: 'a .gro carries coordinates and no bond records, so this viewer draws no bond of its own'
-                    + (isCoarseGrained(path, runType)
-                        ? ", so a coarse-grained model is drawn as loose beads and its own [ bonds ] and "
-                          + '[ constraints ] are in the run\'s topology file under stages/3_initial_CG/'
-                        : '')};
+                    + ", so a coarse-grained model is drawn as loose beads and its own [ bonds ] and "
+                    + '[ constraints ] are in the run\'s topology file under stages/3_initial_CG/'};
   }
   if (isCoarseGrained(path, runType)) {
     return {ext, inferBonds: 'none',
             reason: 'coarse-grained — a bead is a radius stand-in, so the distance guess is off by construction'};
   }
   return {ext, inferBonds: 'all',
-          reason: "all-atom with no CONECT — the viewer's own distance guess reproduces the chemistry"};
+          reason: ext === 'gro'
+            ? 'all-atom, and a .gro carries no bond records of its own — the bonds drawn are this viewer\'s '
+              + 'distance guess over the coordinates'
+            : "all-atom with no CONECT — the viewer's own distance guess reproduces the chemistry"};
+}
+
+//: Empty a structure's bond store. `inferBonds: 'none'` is not enough on its own for every format: this build's
+//: `PdbParser` passes the flag through to `calculateBonds`, but its `GroParser` calls `calculateBonds(structure)`
+//: with no argument at all -- measured, the eight mapped beads of a `.gro` came back with four guessed bonds
+//: whatever the flag said. So the caller empties the store as well, and **only** where the file carries no
+//: `CONECT` of its own, so a file that states its bonds keeps every one.
+export function dropBonds(structure) {
+  if (structure && structure.bondStore) structure.bondStore.count = 0;
 }
 
 //: The order the panel lists a run's structure files in, lowest first: the file a run exists to publish before the

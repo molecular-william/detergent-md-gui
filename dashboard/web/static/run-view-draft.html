@@ -56,7 +56,10 @@ label{font-weight:600;font-size:13px}
 /* choose a run: an input with its own filtered listbox, so the list can carry a type and a date */
 .chooser{position:relative}
 .chooser .row{display:flex;align-items:center;gap:8px}
-.chooser input{flex:1;min-width:0}
+.chooser .grow{display:block;width:100%}
+/* The search bar is the width of the monitor, not the width of its own label: it is the control a reader uses most. */
+.chooser input{width:100%;min-width:0;font-size:15px;padding:8px 10px;box-sizing:border-box}
+.chooser .cap{display:block;margin-bottom:4px}
 .chooser .list{position:absolute;z-index:20;left:0;right:0;top:calc(100% + 4px);max-height:280px;overflow:auto;
   background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 22px #162c4822;display:none}
 .chooser[data-open=true] .list{display:block}
@@ -139,8 +142,8 @@ code{font:12px/1.5 ui-monospace,monospace;overflow-wrap:anywhere}
 // runs, how a run's structure files are ranked, and the one bead table. A draft that copied these would be a second
 // answer to questions this repository has already answered once.
 import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, applyBeadRadii, sizeClassOf } from './js/ngl-beads.js';
-import { conectCount, isCoarseGrained, isStructurePath, loadParameters, structureRank }
-  from './js/run-view-structure.js';
+import { conectCount, dropBonds, isCoarseGrained, isStructurePath, loadParameters, structureExtension,
+  structureRank } from './js/run-view-structure.js';
 
 //: The panel's own display scale for a coarse-grained bead: the drawn size, not the model's radius.
 const BEAD_SCALE = 0.3;
@@ -172,7 +175,7 @@ function chooser(host, side, onPick) {
   host.innerHTML = `
     <div class="chooser" data-open="false">
       <div class="row">
-        <label class="grow">Choose a run (completed only)
+        <label class="grow"><span class="hint cap">Choose a run (completed only)</span>
           <input type="text" class="filter" autocomplete="off" spellcheck="false"
                  placeholder="type a molecule, run type, id or date…">
         </label>
@@ -461,10 +464,23 @@ async function draw(monitor, path, token = monitor.token) {
     // ways the model never said.
     const text = await getText(structureURL(monitor.run.id, path));
     const coarse = isCoarseGrained(path, monitor.run.run_type);
-    const parameters = loadParameters(text, {path, runType: monitor.run.run_type});
+    // The run structure route answers with a PDB: over a coarse-grained `.gro` it writes the model's own
+    // moleculetype as `CONECT` records. So the loader is told what it is being handed rather than what the file is
+    // named -- telling it `.gro` sent a PDB body to this build's GRO parser, which read it and drew no bond of its
+    // own, which is how the beads lost the bonds their model states.
+    const served = coarse && structureExtension(path) === 'gro';
+    const parameters = served
+      ? {ext: 'pdb', inferBonds: 'none',
+         reason: conectCount(text)
+           ? "the run's own moleculetype, written as CONECT over this file's coordinates "
+             + "(stages/3_initial_CG/) — the model's bonds, and the distance guess is off"
+           : 'coarse-grained, and this run states no moleculetype under stages/3_initial_CG/, so the picture claims '
+             + 'no bonds rather than guessing them'}
+      : loadParameters(text, {path, runType: monitor.run.run_type});
     const component = await stage.loadFile(new Blob([text], {type: 'text/plain'}),
       {...parameters, defaultRepresentation: false});
     if (token !== monitor.token) { stage.removeComponent(component); return; }
+    if (parameters.inferBonds === 'none' && conectCount(text) === 0) dropBonds(component.structure);
     if (coarse) {
       applyBeadRadii(component.structure, {scale: BEAD_SCALE, sizeOf: atom => sizeClassOf(atom)});
       component.addRepresentation('ball+stick', {...BEAD_RADIUS_PARAMETERS, ...BEAD_FAMILY_PARAMETERS});
@@ -489,8 +505,15 @@ async function draw(monitor, path, token = monitor.token) {
       // The trap this draft first fell into: a multi-model PDB loaded without `asTrajectory` comes back as ONE
       // structure holding every model's atoms (200 models of 8 beads parsed as 1600 atoms) and no trajectory, and
       // `loadFile` never attaches one -- `addTrajectory()` does. `asTrajectory: true` is what splits the models.
+      // The series is a file like any other, so it is handed to the viewer by the same rule: a coarse-grained
+      // series states `CONECT` and gets the distance guess turned off, and an all-atom series that states none --
+      // MDAnalysis's writer does not always -- keeps the guess, which is the one case it is right about. Forcing
+      // `inferBonds: 'none'` here drew the atomistic half of a comparison as an unbonded point cloud.
+      const seriesParameters = loadParameters(frames, {path: monitor.series.path,
+                                                      runType: monitor.run.run_type});
       const series = await stage.loadFile(new Blob([frames], {type: 'text/plain'}),
-        {ext: 'pdb', defaultRepresentation: false, asTrajectory: true, inferBonds: 'none'});
+        {...seriesParameters, defaultRepresentation: false, asTrajectory: true});
+      if (seriesParameters.inferBonds === 'none' && conectCount(frames) === 0) dropBonds(series.structure);
       if (token !== monitor.token) { stage.removeComponent(series); return; }
       // One component draws one thing: the series replaces the single structure rather than covering it.
       stage.removeComponent(component);
@@ -544,21 +567,39 @@ function renderHolds(monitor) {
   const body = details.querySelector('.body');
   const run = monitor.run;
   summaryCount(details, monitor.structures.length);
+  // A list of what the run holds, and nothing to click: the monitor draws the run's own file by itself, and a
+  // button per row was one control too many -- a reader asking what a button does is the button failing.
   body.innerHTML = `
     <table>
-      <caption class="hint" style="text-align:left">Every structure file this run holds. <strong>Draw</strong> puts
-        that file on this monitor's canvas, in place of whatever is there now — the same canvas the run's frame
-        series plays on, so choosing a file is how you look at a step of the run rather than its whole trajectory.</caption>
-      <thead><tr><th>file</th><th>state</th><th></th></tr></thead>
+      <caption class="hint" style="text-align:left">Every structure file this run holds, in the order this panel
+        would draw them — the mapped model before the boxes it passed through, the reference before the simulation.
+        The file on the canvas now is marked; the frames panel below is where frames come from.</caption>
+      <thead><tr><th>file</th><th>state</th></tr></thead>
       <tbody>${monitor.structures.map(entry => `
         <tr><td><code>${entry.path}</code>${monitor.structure && monitor.structure.path === entry.path
             ? ' <span class="hint">· on the canvas</span>' : ''}</td>
-        <td class="hint">${entry.frames ? 'plays as a trajectory' : ''}</td>
-        <td><button class="secondary" data-path="${entry.path}" title="Draw this file on this monitor's canvas">draw</button></td></tr>`).join('')}
+        <td class="hint">${entry.frames ? 'plays as a trajectory' : ''}</td></tr>`).join('')}
       </tbody>
     </table>`;
-  body.querySelectorAll('button[data-path]').forEach(button =>
-    button.addEventListener('click', () => draw(monitor, button.dataset.path)));
+}
+
+function framesControls(monitor, published) {
+  // The same controls whether or not a series is published: generating one and replacing one are one act, and the
+  // note says which of the two this press is. The cadence is nanoseconds a frame, blank for the producer's own
+  // default spread; the fit is the whole molecule, which is the option asked for by name -- every bead superposes
+  // the frames, so what is left moving is the molecule's own internal motion rather than the run's drift.
+  return `
+    <div class="toolbar">
+      <label>ns a frame <input type="number" id="cad-${monitor.side}" min="0.01" step="0.01"
+        placeholder="default spread" style="width:12ch"></label>
+      <label><input type="checkbox" id="fit-${monitor.side}"${
+        published && monitor.series.record.aligned ? ' checked' : ''}> fit on the whole molecule</label>
+      <button id="gen-${monitor.side}">${published ? 'Regenerate trajectory' : 'Generate trajectory'}</button>
+    </div>
+    <p class="hint" id="gennote-${monitor.side}">${published
+      ? "Replacing the series this monitor plays: the newest attempt is what gets played, and the earlier one stays "
+        + "in this run's own analysis tree."
+      : "Publishes frames from this run's own trajectory; the newest attempt is what plays."}</p>`;
 }
 
 function renderFrames(monitor) {
@@ -567,15 +608,10 @@ function renderFrames(monitor) {
   const series = monitor.series || {state: 'never run'};
   if (series.state !== 'published') {
     summaryCount(details, null);
-    // The one thing to say about frames: a run has never had them sampled, or the sampling failed. The button is
-    // the same route the panel uses, so a draft cannot invent a second way to produce frames.
+    // The one thing to say about frames: a run has never had them sampled, or the sampling failed. The button is the
+    // same route the panel uses, so a draft cannot invent a second way to produce frames.
     body.innerHTML = `<p>The snapshots analysis is <strong>${series.state}</strong>${
-      series.error ? `: <code>${series.error}</code>` : ''}.</p>
-      <div class="toolbar"><label>ns per frame <input type="number" id="cad-${monitor.side}" min="0.01" step="0.01"
-        placeholder="default spread" style="width:11ch"></label>
-      <button id="gen-${monitor.side}">Generate trajectory</button></div>
-      <p class="hint" id="gennote-${monitor.side}">Publishes frames from this run's own trajectory; the newest
-        attempt is what plays.</p>`;
+      series.error ? `: <code>${series.error}</code>` : ''}.</p>` + framesControls(monitor, false);
   } else {
     const record = series.record;
     const fit = record.aligned;
@@ -595,8 +631,7 @@ function renderFrames(monitor) {
           <tr><th>fit</th><td>${fitText}</td></tr>
           <tr><th>file</th><td><code>${series.path}</code></td></tr>
         </tbody>
-      </table>
-      <p class="hint">Replacing it is the same control as generating it, with a prompt naming what is there.</p>`;
+      </table>` + framesControls(monitor, true);
   }
   const generate = body.querySelector(`#gen-${monitor.side}`);
   if (generate) generate.addEventListener('click', () => queueFrames(monitor));
@@ -605,20 +640,58 @@ function renderFrames(monitor) {
 async function queueFrames(monitor) {
   const note = monitor.element.querySelector(`#gennote-${monitor.side}`);
   const field = monitor.element.querySelector(`#cad-${monitor.side}`);
+  const fit = monitor.element.querySelector(`#fit-${monitor.side}`);
   const requested = field.value.trim() === '' ? null : Number(field.value);
   if (requested !== null && !(requested > 0)) {
     note.textContent = 'The cadence is a positive number of nanoseconds a frame, or blank for the default spread.';
     return;
   }
-  const body = requested === null ? {} : {interval_ns: requested};
-  note.textContent = 'Queueing the snapshots analysis…';
+  // An empty body is the default spread, and each setting is sent only when it was asked for -- the same payload the
+  // panel posts, because a draft that invents its own payload tests nothing.
+  const body = {};
+  if (requested !== null) body.interval_ns = requested;
+  if (fit && fit.checked) body.align = true;
+  const asked = [requested === null ? null : `a frame every ${requested} ns`,
+                 fit && fit.checked ? 'fitted on the whole molecule' : null].filter(Boolean).join(', ');
+  note.textContent = `Queueing the snapshots analysis${asked ? ' with ' + asked : ''}…`;
   try {
-    await fetch(`/api/jobs/${monitor.run.id}/snapshots`, {method: 'POST',
+    const response = await fetch(`/api/jobs/${monitor.run.id}/snapshots`, {method: 'POST',
       headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
-    note.textContent = 'Queued: the panel re-reads this run when it finishes.';
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    note.textContent = `Sampling ${asked || "the producer's default spread"} from this run's own trajectory…`;
+    watchFrames(monitor);
   } catch (error) {
     note.textContent = `The analysis was not queued: ${error.message}`;
   }
+}
+
+function watchFrames(monitor) {
+  // A queued analysis is not a finished one: the task list is read back and reported, so a failure is named rather
+  // than left spinning, and the series is re-read from the record rather than assumed to be the one just queued.
+  const note = monitor.element.querySelector(`#gennote-${monitor.side}`);
+  clearInterval(monitor.poll);
+  monitor.poll = setInterval(async () => {
+    let tasks = [];
+    try {
+      tasks = (await getJSON(`/api/jobs/${monitor.run.id}/analyses`)) || [];
+    } catch (error) {
+      return;   // a page that cannot read the list keeps waiting rather than reporting a failure it did not see
+    }
+    const mine = tasks.filter(task => task.kind === 'snapshots');
+    const newest = mine[mine.length - 1];
+    if (!newest) return;
+    if (newest.status === 'failed' || newest.status === 'cancelled') {
+      clearInterval(monitor.poll);
+      note.textContent = `The snapshots analysis ${newest.status}: ${newest.error || 'see its own log'}`;
+      return;
+    }
+    if (newest.status !== 'completed') return;
+    clearInterval(monitor.poll);
+    note.textContent = 'Sampling finished — the new series is being picked up.';
+    monitor.series = await readSeries(monitor.run.id);
+    renderFrames(monitor);
+    if (monitor.structure) draw(monitor, monitor.structure.path);
+  }, 1500);
 }
 
 async function renderFigures(monitor) {

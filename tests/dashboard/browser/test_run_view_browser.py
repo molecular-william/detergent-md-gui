@@ -771,3 +771,26 @@ def test_the_newest_published_result_is_resolved_even_when_it_lies_past_the_firs
                     for url in asked if '/artifacts?' in url and 'page=' in url})
     assert pages and max(pages) > 1, f'the reader never asked for a page past the first: {pages}'
     assert errors == []
+
+
+def test_the_rule_hands_an_all_atom_gro_to_the_guess_and_a_coarse_one_to_nothing(dashboard, live_page):
+    """The bond rule itself, asked rather than inferred from a picture: this is where "no bonds" lived.
+
+    Both the panel and the draft read this module, so its answer is the answer both of them draw by. An all-atom
+    `.gro` gets the viewer's distance guess -- the format carries no bond records, and the guess is right about
+    chemistry -- while a coarse-grained `.gro` gets nothing, because on a bead it is wrong by construction.
+    """
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/')
+    answer = page.evaluate("""async () => {
+      const m = await import('/static/js/run-view-structure.js');
+      return {
+        all_atom_gro: m.loadParameters('', {path: '07_reference/lig.gro', runType: 'aa_only'}).inferBonds,
+        coarse_gro: m.loadParameters('', {path: 'stages/2_mapping/mapped.gro', runType: 'aa_cg'}).inferBonds,
+        states_its_own: m.loadParameters('CONECT', {path: 'a.pdb', runType: 'aa_only'}).inferBonds,
+        all_atom_pdb: m.loadParameters('', {path: '07_reference/lig.pdb', runType: 'aa_only'}).inferBonds,
+      };
+    }""")
+    assert answer == {'all_atom_gro': 'all', 'coarse_gro': 'none', 'states_its_own': 'none',
+                      'all_atom_pdb': 'all'}, answer
+    assert errors == []

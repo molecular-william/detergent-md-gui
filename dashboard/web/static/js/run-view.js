@@ -17,7 +17,7 @@
 
 import { $, api, panelIds, post } from './shared.js';
 import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, applyBeadRadii, renderBeadLegend, sizeClassOf } from './ngl-beads.js';
-import { conectCount, isCoarseGrained, loadParameters, structureExtension, structureRank } from './run-view-structure.js';
+import { conectCount, isCoarseGrained, dropBonds, loadParameters, structureExtension, structureRank } from './run-view-structure.js';
 
 //: D13 -- nglview's own `Play(interval=100)`: ten frames a second. Printed on the row, and not a control: the row
 //: is two buttons and the slider, and a rate field would be a fourth element in it.
@@ -861,10 +861,6 @@ export function createRunView() {
 
   function countRecords(text) {
     return (String(text).match(/^(ATOM|HETATM)/gm) || []).length;
-  }
-
-  function dropBonds(structure) {
-    if (structure && structure.bondStore) structure.bondStore.count = 0;
   }
 
   function readout(cells) {

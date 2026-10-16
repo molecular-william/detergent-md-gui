@@ -14,6 +14,7 @@ from tests.dashboard.browser.test_run_view_generate_browser import (
     cg_files,
     plant_trajectory_run,
     published_series,
+    queue_stub,
 )
 
 DRAFT = '/static/run-view-draft.html'
@@ -179,4 +180,39 @@ def test_the_figure_list_shows_each_published_figure_once(dashboard, live_page):
     assert len(names) == len(set(names)), f'the same figure is listed twice: {names}'
     assert page.locator('#figures-A .body').inner_text().count('superseded') == 1, \
         'the set that was replaced is counted rather than dropped in silence'
+    assert errors == []
+
+
+def test_the_frames_panel_regenerates_at_the_cadence_and_the_fit_it_is_given(dashboard, live_page):
+    """The control the reader asked for: a cadence of their own, and a fit on the whole molecule.
+
+    The payload is asserted rather than the picture, because this is the part a draft can get wrong with nothing to
+    show for it: `interval_ns` is the frame rate, `align` is the fit on every bead, and an empty body would mean
+    the producer's own default spread.
+    """
+    import json as jsonlib
+
+    seed(dashboard)
+    plant_trajectory_run(dashboard, cg_files())
+    published_series(dashboard)
+    page, errors = live_page
+    open_draft(page, live_page)
+    choose_run(page, 'A', TRAJECTORY_RUN)
+    page.wait_for_function(
+        "() => /\\(12\\)/.test(document.querySelector('#frames-A summary').textContent)", timeout=20000)
+
+    page.locator('#frames-A').evaluate('el => { el.open = true; }')
+    assert page.locator('#gen-A').inner_text().strip() == 'Regenerate trajectory', \
+        'a published series is replaced, and the button says which act this is'
+    page.locator('#cad-A').fill('3')
+    page.locator('#fit-A').check()
+
+    sent = []
+    queue_stub(page, sent)
+    page.locator('#gen-A').click()
+    page.wait_for_function("() => document.querySelector('#gennote-A').textContent.includes('Sampling')")
+
+    assert len(sent) == 1, f'the control sent {len(sent)} requests'
+    assert sent[0].method == 'POST' and sent[0].url.endswith(f'/api/jobs/{TRAJECTORY_RUN}/snapshots')
+    assert jsonlib.loads(sent[0].post_data) == {'interval_ns': 3, 'align': True}, sent[0].post_data
     assert errors == []
