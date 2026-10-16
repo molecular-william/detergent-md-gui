@@ -609,9 +609,13 @@ export function createRunView() {
   async function loadFigures(job) {
     figures.replaceChildren();
     let entries = [];
+    // Declared out here, read in here: `body` is scoped to the `try`, and a line after it that reached for
+    // `body.superseded` threw a ReferenceError -- which aborted `loadRun` before it drew anything at all.
+    let superseded = 0;
     try {
       const body = await api(`/api/jobs/${encodeURIComponent(job.id)}/figures`);
       entries = body.artifacts || [];
+      superseded = Number(body.superseded) || 0;
     } catch (error) {
       figuresNote.textContent = `This run's figures could not be read: ${error.message}`;
       return;
@@ -621,7 +625,6 @@ export function createRunView() {
         + 'that drew it, and this one drew none.';
       return;
     }
-    const superseded = Number(body.superseded) || 0;
     figures.replaceChildren(...entries.map(entry => {
       const item = document.createElement('li');
       const link = document.createElement('a');
