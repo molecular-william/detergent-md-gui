@@ -131,6 +131,8 @@ tier after the verify line; one gate commit per coherent group, none by a child.
 
 * Fast tier green (`-m 'not browser and not slow'`) with the count measured in the same pass; `ruff` zero over the
   named paths.
+  **Measured at landing** (commit `b56cddb`, 22 files, 927 insertions): fast tier **1735 passed** (1718 before, +17
+  from the new tests), `ruff` exit 0 over 17 Python paths, browser tier **195 passed** (190 before, +5).
 * Browser tier green, including the new stage-name test.
 * `ruff`/pyright clean over the touched Python.
 * A scratch `prepare()` probe for the AA–CG run type into a scratch directory (never `workspace/`): `2_mapping/model.json`,
