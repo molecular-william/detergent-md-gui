@@ -459,16 +459,15 @@ async function draw(monitor, path, token = monitor.token) {
   monitor.player = null;
   monitor.models = 0;
   try {
-    // Read the file's text first: the panel's own rule answers what this file is and whether the viewer's distance
-    // guess runs on it, and a guess over a file that already states its bonds is how a picture ends up bonded in
-    // ways the model never said.
-    const text = await getText(structureURL(monitor.run.id, path));
+    // Which route the file comes from decides what the loader is told it is, and the panel's own rule answers what
+    // it holds and whether the viewer's distance guess runs on it. The run structure route answers with a
+    // PDB -- over a coarse-grained `.gro` it writes the model's own moleculetype as `CONECT` -- so it is used exactly
+    // where it adds something, which is that case. Every other file is read as itself, through the artifact route:
+    // handing a served PDB body to this build's GRO parser drew it as read, with no bond, and a number of atoms the
+    // file does not hold.
     const coarse = isCoarseGrained(path, monitor.run.run_type);
-    // The run structure route answers with a PDB: over a coarse-grained `.gro` it writes the model's own
-    // moleculetype as `CONECT` records. So the loader is told what it is being handed rather than what the file is
-    // named -- telling it `.gro` sent a PDB body to this build's GRO parser, which read it and drew no bond of its
-    // own, which is how the beads lost the bonds their model states.
     const served = coarse && structureExtension(path) === 'gro';
+    const text = await getText(served ? structureURL(monitor.run.id, path) : artifactURL(monitor.run.id, path));
     const parameters = served
       ? {ext: 'pdb', inferBonds: 'none',
          reason: conectCount(text)
@@ -545,9 +544,16 @@ async function draw(monitor, path, token = monitor.token) {
         `${monitor.run.label || monitor.run.molecule_id} · frame series: ${monitor.models} models of `
         + `${series.structure.atomCount} atoms, `
         + (monitor.cadence ? `${monitor.cadence} ns a frame` : 'cadence not recorded by the record');
+      // The readout describes what is on the canvas, which is now the series and not the file it replaced: the
+      // numbers were the series' while the sentence still explained the structure's bonds, and a readout that
+      // explains the wrong file is worse than no readout. The structure's own path stays, for the holds list.
+      Object.assign(monitor.structure, {atoms: series.structure.atomCount, bonds: series.structure.bondCount,
+                                        conect: conectCount(frames), parameters: seriesParameters});
       showReadout(monitor);
-      monitor.structure.bonds = series.structure.bondCount;
-      requestAnimationFrame(() => { monitor.structure.bonds = series.structure.bondCount; showReadout(monitor); });
+      requestAnimationFrame(() => {
+        monitor.structure.bonds = series.structure.bondCount;
+        showReadout(monitor);
+      });
       setFrame(monitor, 0, false);
     }
   } catch (error) {
