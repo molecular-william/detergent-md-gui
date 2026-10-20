@@ -73,7 +73,11 @@ them.
   CG Bead Assignment (one 3D diagram; the server's RDKit depiction stays for the export bundle). The bonded panel
   draws the selected candidate's own molecule, never the packaged reference; it deletes the selected mapping, and its
   fit box names the four job steps with an elapsed time. A fit job is polled by `?job_id=`, never by the mapping's
-  hash: the hash is a mapping's history, the id is the job the panel queued.
+  hash: the hash is a mapping's history, the id is the job the panel queued. A revision's terms name beads by their
+  **export** name (`B01` is the mapping's first bead, virtual sites included, `mappings/exports.py`), so anything
+  needing a position translates them first: the 3D scene did not, and drew no bonded term at all until it did. There a
+  dihedral is dashed at alpha 0.5 over the solid connectivity -- a torsion is a relationship along four atoms, not a
+  bond -- and an improper stays solid.
 - Carbohydrate validation is an immutable analysis on a completed source run. Checked-in targets are citation
   metadata until molecule-specific measurements arrive, and a `setup` analysis proves execution, never validity.
 

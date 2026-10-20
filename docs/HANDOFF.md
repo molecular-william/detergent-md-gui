@@ -65,6 +65,15 @@ route: it warns with the count that panel has already read, refuses while a fit 
 a saved mapping (a `composition:<id>` entry is not one), and after deleting re-reads the catalogue, selects the next
 mapping and says which -- or empties the panel when none is left.
 
+**The 3D diagram never drew a bonded term, `0a2e43a`.** Asked for dihedrals as dashed half-transparent lines, the
+answer was that it drew nothing to style: the scene draws the mapping's own bead names (`S1A`, `TAIL3`) and a revision
+names beads by export name (`B01`, `B11`; `mappings/exports.py` writes `B{i+1:02d}` over the mapping's bead list,
+virtual sites included), and nothing joined the two, so every term missed its bead. On the stored arm-B revision: 28
+table rows and 0 term traces before, 26 after `bonded.js` gained `revisionAliases`. Dihedrals are now dashed at alpha
+0.5 in green (red when selected) over the solid bonds, angles and constraints; impropers stay solid, being a restraint
+on one centre rather than a torsion. Two tags were added for it: one renders the plot module directly and asserts the
+style contract, one drives the panel and asserts a stored revision's `B01…B04` terms arrive on the scene.
+
 **A fit landed where the panel never looked, `6ba1d29`.** A fit from the CG Bond Interactions panel completed and
 stored a revision, and the panel said `no parameterization` with the job box stuck on `queued`. One cause: a
 candidate's content hash depended on how its numbers were spelled. The panel posts the mapping back through JavaScript,
