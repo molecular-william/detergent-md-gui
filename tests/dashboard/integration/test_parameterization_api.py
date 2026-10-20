@@ -441,3 +441,29 @@ def test_a_revision_that_does_not_exist_is_not_found(dashboard):
 
     assert response.status_code == 404
     assert 'Unknown parameterization revision' in response.json['error']
+
+
+def test_the_jobs_route_answers_a_job_by_its_own_id(dashboard):
+    """What the panel's poll asks while a fit runs: its job, by the id it was given when it queued it.
+
+    The content-hash question is a mapping's history; a running job's state is the job's own. A poll answered by the
+    mapping's hash is right only while the job's hash agrees with it, and when they disagreed the box kept the record
+    it queued and sat on `queued` with nothing saying why.
+    """
+    candidate = ddm_mapping()
+    other = ddm_mapping(name='DDM · another')
+    other['beads'][0]['label'] = 'v'
+    first = fit(candidate)
+    second = fit(other)
+
+    by_id = dashboard.client.get('/api/bonded-parameterizations/jobs',
+                                 query_string={'job_id': first['id']}).json['jobs']
+    assert [item['id'] for item in by_id] == [first['id']]
+    assert by_id[0]['status'] == 'completed'
+    assert dashboard.client.get('/api/bonded-parameterizations/jobs',
+                                query_string={'job_id': '0' * 16}).json['jobs'] == []
+    # And the hash-addressed question still answers the whole history, newest first.
+    history = dashboard.client.get('/api/bonded-parameterizations/jobs',
+                                   query_string={'content_hash': parameterization.content_identity(candidate)}).json['jobs']
+    assert [item['id'] for item in history] == [first['id']]
+    assert second['id'] != first['id']

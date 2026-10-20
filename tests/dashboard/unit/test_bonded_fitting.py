@@ -409,3 +409,14 @@ def test_a_reference_that_cannot_be_resolved_is_refused_before_a_job_is_queued(c
         fitting.resolve_reference('not-a-run-id')
     with pytest.raises((ValueError, FileNotFoundError, OSError)):
         fitting.resolve_reference('f' * 12, runs_root=Path('/nonexistent/runs'))
+
+
+def test_a_job_is_found_by_its_own_id_whatever_its_mapping_hash_says(candidate):
+    """The poll's key. `content_hash` is a mapping's history; `job_id` is the job the panel queued."""
+    recorder = Recorder()
+    first = run_job(candidate, recorder)
+    second = run_job(candidate, recorder)
+
+    assert [record['id'] for record in fitting.jobs(job_id=first['id'])] == [first['id']]
+    assert [record['id'] for record in fitting.jobs(job_id=second['id'])] == [second['id']]
+    assert fitting.jobs(job_id='0' * 16) == []

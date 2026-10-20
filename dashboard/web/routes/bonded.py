@@ -187,7 +187,8 @@ def parameterization_jobs():
     Which jobs are this mapping's is `fitting.jobs`'s question; the content hash this request carries is
     handed to it, and a hash no stored job carries answers the empty list, never every job.
     """
-    return jsonify(jobs=bonded_fitting.jobs(content_hash=request.args.get('content_hash')))
+    return jsonify(jobs=bonded_fitting.jobs(content_hash=request.args.get('content_hash'),
+                                            job_id=request.args.get('job_id')))
 
 
 @blueprint.post('/api/bonded-parameterizations/jobs/<job_id>/cancel')

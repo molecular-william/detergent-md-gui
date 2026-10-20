@@ -286,3 +286,35 @@ def test_the_source_identity_is_the_mappings_content_and_not_its_file():
     identities = parameterization.identities(candidate)
     assert identities['mapping_content_hash'] == mappings.content_identity(candidate)
     assert identities['mapping_hash'] == mappings.candidate_identity(candidate)
+
+
+def test_a_record_written_before_numbers_were_normalised_is_still_this_mappings():
+    """The identity bug the fit panel showed: one mapping, two digests, and a revision filed under the wrong one.
+
+    A candidate is read out of JSON by the browser and posted back, and JavaScript writes a stored `1.0` as `1`.
+    While the identity hashed the two spellings differently, a fit queued from the panel was keyed by the posted
+    digest while every other reader asked by the file's -- so the panel reported "no parameterization" for a mapping
+    it had just fitted. The identity now normalises the number, and a record already on disk under the old digest is
+    still found, which is what this pins.
+    """
+    candidate = mapping(rings=[{'name': 'R1', 'atoms': [1, 2, 3], 'scale': 1.0}])
+    saved = parameterization.save(candidate, revision())
+    path = parameterization.records_root() / f"{parameterization.content_identity(candidate)}.json"
+
+    # Rewrite the record the way it was written before the change: under the legacy digest, saying so itself.
+    legacy = mappings.legacy_content_identity(candidate)
+    assert legacy != parameterization.content_identity(candidate), 'the two digests must differ for this to test anything'
+    record = json.loads(path.read_text())
+    record['mapping_content_hash'] = legacy
+    for item in record.get('revisions') or []:
+        item['mapping_content_hash'] = legacy
+    path.unlink()
+    (parameterization.records_root() / f'{legacy}.json').write_text(json.dumps(record))
+
+    assert parameterization.current(mapping(rings=[{'name': 'R1', 'atoms': [1, 2, 3], 'scale': 1.0}]))['revision'] == 1
+    assert parameterization.current(candidate)['revision'] == saved['revision']
+
+    # The half that fixes the panel: the same mapping posted back the way a browser sends it -- an integer, not a
+    # float -- is the same mapping, so a fit queued from the panel is addressed by the digest the file produces.
+    as_posted = mapping(rings=[{'name': 'R1', 'atoms': [1, 2, 3], 'scale': 1}])
+    assert parameterization.content_identity(as_posted) == parameterization.content_identity(candidate)

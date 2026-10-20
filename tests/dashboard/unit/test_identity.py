@@ -83,3 +83,25 @@ def _compact_dumps(node):
         return False
     return any(keyword.arg == 'separators' and ast.literal_eval(keyword.value) == (',', ':')
                for keyword in dumps.keywords)
+
+
+def test_a_number_is_hashed_as_its_value_and_not_as_the_text_a_writer_chose():
+    """`1.0` and `1` are the same number, and a browser posts the second one whatever the file said.
+
+    The panel reads a mapping as JSON, hands it to JavaScript and posts it back; JS has no integer type, so a stored
+    ring scale of `1.0` returns as `1`. Hashing the spellings differently gave one mapping two content identities --
+    and a fit filed under the digest the file never produced.
+    """
+    floaty = {**BOUND_V3, 'rings': [{'name': 'R1', 'atoms': [1, 2, 3], 'scale': 1.0}]}
+    integral = {**BOUND_V3, 'rings': [{'name': 'R1', 'atoms': [1, 2, 3], 'scale': 1}]}
+
+    assert identity.candidate_identity(floaty) == identity.candidate_identity(integral)
+    assert identity.content_identity(floaty) == identity.content_identity(integral)
+    # The legacy digest is what a record on disk still carries, and it is the one that differs.
+    assert identity.legacy_candidate_identity(floaty) != identity.legacy_candidate_identity(integral)
+
+    # A number that is not integral is left alone, and a boolean is not a number here.
+    assert identity.candidate_identity({**BOUND_V3, 'rings': [{'scale': 1.15}]}) != \
+        identity.candidate_identity({**BOUND_V3, 'rings': [{'scale': 1}]})
+    assert identity.numbers_as_values({'a': True, 'b': 1.0, 'c': [2.5, 3.0]}) == \
+        {'a': True, 'b': 1, 'c': [2.5, 3]}

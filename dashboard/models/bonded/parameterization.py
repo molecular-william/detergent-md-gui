@@ -91,7 +91,17 @@ def _validate_id(value):
 
 
 def _path(mapping) -> Path:
-    return records_root() / f'{content_identity(mapping)}.json'
+    """This mapping's record, or the one written before numbers were normalised, or where a new one goes.
+
+    `identity.candidate_identity` now hashes `1` and `1.0` alike, so a mapping that was fitted before that change
+    is addressed by a digest its record does not carry. The legacy digest is tried second, and only when the first
+    names no file: a record already on disk stays findable, and a mapping fitted since is untouched by the fallback.
+    """
+    path = records_root() / f'{content_identity(mapping)}.json'
+    if path.is_file():
+        return path
+    legacy = records_root() / f'{mappings.legacy_content_identity(mapping)}.json'
+    return legacy if legacy.is_file() else path
 
 
 def identities(mapping) -> dict:
@@ -173,7 +183,11 @@ def document(mapping) -> dict:
     if not path.is_file():
         return empty_document(mapping)
     record = _read(path)
-    if record.get('mapping_content_hash') != content:
+    # A record written before numbers were normalised carries the legacy digest, and `_path` has already decided the
+    # file is this mapping's -- by its name, from this mapping. Accepting that digest here keeps such a record readable
+    # without letting a record address itself: either digest is one this mapping computes for itself.
+    acceptable = {content, mappings.legacy_content_identity(mapping)}
+    if record.get('mapping_content_hash') not in acceptable:
         raise ValueError('Parameterization record belongs to another mapping')
     return record
 

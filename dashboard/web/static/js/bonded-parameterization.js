@@ -12,7 +12,8 @@
  *
  *   GET    /api/bonded-parameterizations/engines                      -> {engines: [{value, label, needs_reference}]}
  *   GET    /api/bonded-parameterizations?content_hash=&mapping_hash=  -> {summary, revisions, jobs}
- *   GET    /api/bonded-parameterizations/jobs?content_hash=           -> {jobs}   (polled while live)
+ *   GET    /api/bonded-parameterizations/jobs?job_id=                 -> {jobs}   (polled while live)
+ *   GET    /api/bonded-parameterizations/jobs?content_hash=           -> {jobs}   (a mapping's whole job history)
  *   POST   /api/bonded-parameterizations                              -> the job record
  *   POST   /api/bonded-parameterizations/jobs/<id>/cancel             -> the job record
  *   PATCH  /api/bonded-parameterizations/<content_hash>               -> the record
@@ -424,7 +425,9 @@ export function setupParameterization({host, onTerms}) {
     if (!visible()) return;
     let answer;
     try {
-      answer = await api('/api/bonded-parameterizations/jobs?content_hash=' + encodeURIComponent(hash()));
+      // By the job's own id, not the mapping's hash: the hash used to be the question, and a job whose identity had
+      // moved answered nothing at all -- the box kept the record it queued and sat on `queued` with no explanation.
+      answer = await api('/api/bonded-parameterizations/jobs?job_id=' + encodeURIComponent(job.id));
     } catch (error) {
       // A poll that cannot read does not invent a failure: the box keeps the state it has and asks again.
       if (token === jobToken) schedule(token);

@@ -42,6 +42,7 @@ import uuid
 from pathlib import Path
 
 from ... import files, paths
+from .. import mappings
 from ..molecules import draft as draft_model
 from . import parameterization as parameterizations
 
@@ -106,7 +107,7 @@ def _update(job_id, **fields) -> dict:
         return record
 
 
-def jobs(mapping=None, *, content_hash=None, mapping_hash=None, limit=None) -> list:
+def jobs(mapping=None, *, content_hash=None, mapping_hash=None, job_id=None, limit=None) -> list:
     """Every fit job known, newest first, optionally only one mapping's.
 
     The panel's own list. It is deliberately not the run store: nothing here will ever be simulated,
@@ -119,6 +120,11 @@ def jobs(mapping=None, *, content_hash=None, mapping_hash=None, limit=None) -> l
     those asked about, so this is the one place that decides "which jobs are this mapping's". The
     newest are kept first and `limit` is applied *after* the filter, so a limit can never hide a
     model's own job behind another model's newer one.
+
+    `job_id` answers the panel's other question -- "what is *my* job doing" -- by the one key it already
+    holds. A poll that asks by the mapping's hash is right only while the job's own hash agrees with it,
+    and a disagreement (an identity that moved, two copies of one mapping) left the box showing the
+    record it queued forever, with no answer saying why.
     """
     root = jobs_root()
     records = []
@@ -135,6 +141,8 @@ def jobs(mapping=None, *, content_hash=None, mapping_hash=None, limit=None) -> l
         # A mapping speaks for compatibility alone: `changed` bead assignments are their own model,
         # while a rename is the same one (D5's own reading, and the reason a revision is keyed by it).
         content_hash = parameterizations.content_identity(mapping)
+    if job_id:
+        records = [record for record in records if record.get('id') == job_id]
     if content_hash or mapping_hash:
         records = [record for record in records
                    if (content_hash and record.get('mapping_content_hash') == content_hash)
@@ -156,7 +164,15 @@ def work_dir(mapping, reference_run_id=None) -> Path:
     """
     if reference_run_id is not None and not re.fullmatch(r'[a-f0-9]{12}', reference_run_id):
         raise ValueError('AA reference run ID must be twelve hexadecimal characters')
-    return parameterizations.work_root() / f'{parameterizations.content_identity(mapping)}-{reference_run_id or "no-reference"}'
+    # The same fallback the record store makes: a pair staged before numbers were normalised is reused rather than
+    # rebuilt, which is the difference between a re-fit of minutes and one of a mapped trajectory.
+    name = f'{parameterizations.content_identity(mapping)}-{reference_run_id or "no-reference"}'
+    root = parameterizations.work_root()
+    if not (root / name).is_dir():
+        legacy = root / f'{mappings.legacy_content_identity(mapping)}-{reference_run_id or "no-reference"}'
+        if legacy.is_dir():
+            return legacy
+    return root / name
 
 
 # --- resolving the reference, starting, cancelling and reading a job ---------------------------------

@@ -40,17 +40,60 @@ def binds_molecule(candidate):
     return version >= IDENTITY_VERSION
 
 
-def candidate_identity(candidate):
-    """Stable identity for a candidate's bead assignments and bonded connectivity."""
+def numbers_as_values(value):
+    """The same JSON with every integral float written as an integer, so `1.0` and `1` hash alike.
+
+    A candidate is read out of JSON by a browser and posted back, and JavaScript has no integer type: a stored
+    `1.0` returns as `1`. Hashing the two spellings differently gave one mapping two content identities -- the
+    store's, computed from the file, and the fit's, computed from the posted snapshot -- so a fit's revision was
+    filed under a hash no saved mapping addressed. The panel then read "no parameterization" for a mapping it had
+    just fitted, and its job poll, which asks by the mapping's own hash, found no job and stopped at `queued`.
+
+    This canonicalises the *value* rather than the one field that showed it up: `rings[].scale` is where it was
+    found, and any other integral number in a candidate would have done the same. `1.15` is left alone, and so is
+    `True`, which is not a number here however much Python's `bool` inherits from `int`.
+
+    Only `candidate_identity` normalises. `canonical_sha256` is also used for digests of file content, snapshots and
+    the reference index, where an integer and a float are different bytes on purpose.
+    """
+    if isinstance(value, dict):
+        return {key: numbers_as_values(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [numbers_as_values(item) for item in value]
+    if isinstance(value, float) and not isinstance(value, bool) and value.is_integer():
+        return int(value)
+    return value
+
+
+def _candidate_payload(candidate):
     payload = {key: candidate.get(key) for key in ('name', 'beads', 'rings', 'connections')}
     if binds_molecule(candidate):
         payload.update(identity_version=IDENTITY_VERSION, molecule_id=candidate.get('molecule_id'),
                        molecule_snapshot=candidate.get('molecule_snapshot'))
     if 'representation_mode' in candidate:
         payload['representation_mode'] = candidate.get('representation_mode')
-    return canonical_sha256(payload)
+    return payload
+
+
+def candidate_identity(candidate):
+    """Stable identity for a candidate's bead assignments and bonded connectivity."""
+    return canonical_sha256(numbers_as_values(_candidate_payload(candidate)))
 
 
 def content_identity(candidate):
     """The candidate identity without the user-facing name."""
     return candidate_identity({**candidate, 'name': ''})
+
+
+def legacy_candidate_identity(candidate):
+    """The identity as it was computed before numbers were normalised.
+
+    A record, state or review written before that change is keyed by this digest. Reads try it second so a document
+    already on disk is still found; nothing writes with it.
+    """
+    return canonical_sha256(_candidate_payload(candidate))
+
+
+def legacy_content_identity(candidate):
+    """`legacy_candidate_identity` without the user-facing name."""
+    return legacy_candidate_identity({**candidate, 'name': ''})

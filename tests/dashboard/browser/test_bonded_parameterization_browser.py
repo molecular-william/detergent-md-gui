@@ -336,6 +336,14 @@ def test_a_running_job_shows_its_step_and_cancels_only_after_a_confirmation(dash
     # The meter says the same thing to a screen reader, and the detail line says how long it has been running --
     # read off the job's own `started_at`, not estimated.
     expect(page.locator('.bonded-job-meter')).to_have_attribute('aria-valuetext', '1 of 4 · fit')
+    # And the poll asks about *this job*, by the id it was handed when it queued it -- not about the mapping, whose
+    # hash is a different question and answered nothing at all when the two disagreed.
+    for _ in range(30):
+        polls = [url for url in asks if '/api/bonded-parameterizations/jobs?' in url]
+        if polls:
+            break
+        page.wait_for_timeout(100)
+    assert polls and all(f'job_id={JOB_ID}' in url for url in polls), polls
     expect(page.locator('#bonded-job-detail')).to_contain_text('elapsed ')
 
     # A dismissed confirmation is a refusal: no request, and the job is still running.
