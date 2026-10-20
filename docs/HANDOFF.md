@@ -74,10 +74,13 @@ table rows and 0 term traces before, 26 after `bonded.js` gained `revisionAliase
 dihedrals green dashed at alpha 0.5, impropers slate dash-dot, virtual sites violet dotted with an open diamond drawn
 for the bead itself (a solid circle reads as an atom the model lacks) and a star from the site to each parent, since the
 term names the site alone and the parents live on the mapping's bead record. An angle is an amber **arc** between its
-two arms (16 segments, radius 35% of the shorter arm, no offset -- the arc leaves the bonds by construction), which is
-the notation the quantity already has. Only the two torsion kinds, whose geometry is collinear with a bond, are stepped
-off it: 1.8% of the molecule's diagonal (0.035 nm on the 1.95 nm arm-B molecule, one vector at every vertex), seeded per
-(kind, bead set) so the eight harmonics of one torsion coincide and a re-render moves nothing. Two tags were added for it: one renders the plot module directly and asserts the
+two arms (16 segments, radius 35% of the shorter arm, alpha 0.7), which is the notation the quantity has. A dihedral is
+now an arc too, and one trace: the displaced **spine** names its four atoms (1.8% of the molecule's diagonal, 0.035 nm
+on the 1.95 nm arm-B molecule, seeded per (kind, bead set) so the eight harmonics of one torsion coincide and a re-render
+moves nothing), a null separates it from the **arc**, and the arc is the torsion itself -- the two outer atoms projected
+onto the plane perpendicular to the central bond and swept between about its axis, **signed**, because the same four
+atoms can turn either way and the two signs are different torsions. Alpha 0.7 for both arcs, up from 0.5 for the
+dihedral and down from 1 for the angle. Two tags were added for it: one renders the plot module directly and asserts the
 style contract, one drives the panel and asserts a stored revision's `B01…B04` terms arrive on the scene.
 
 **A fit landed where the panel never looked, `6ba1d29`.** A fit from the CG Bond Interactions panel completed and
@@ -155,6 +158,11 @@ exist: nothing is running and port 5000 refuses connections (started again 2026-
 came with wall times of 62, 96 and 185 s for a tier that takes 37 on an idle box, i.e. another job was on the machine,
 and the same tests fail at 16 as at 24. So `-n 16` is what `AGENTS.md` prescribes for headroom, and it is a choice
 rather than a repair: the flakiness is load, not parallelism.
+
+**The tier's expectation timeout is 15 s, `9118eb3`.** Every flake it has shown has one shape: an `expect(...)` naming
+something a fetch fills in, expiring at Playwright's 5 s default while sixteen workers load the Plotly bundle and draw
+WebGL scenes. The session fixture sets 15 s for the whole tier; after it, two runs at `-n 16 --dist worksteal` were 46 s
+and 43 s green, against 45 s with two failures immediately before.
 
 **Not reproduced.** The browser flake this file has carried since 2026-10-16 ran green twelve times (six at `-n 6`,
 six at `-n 24 --dist worksteal`) after `e625716` rewrote its waits. One new intermittent was seen once and not
