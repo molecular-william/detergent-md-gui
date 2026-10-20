@@ -17,9 +17,12 @@ from playwright.sync_api import expect
 
 #: Two saved candidates, in the shape `/api/mappings?view=summary` answers with. The files are what the picker's
 #: option values carry, and therefore what the readiness answer is keyed by here.
+#: `can_reuse` is not decoration: the picker offers only a mapping a run can reuse, which is the verdict
+#: `models/molecules/draft.py` refuses on. A stub without it would list nothing and this file's own precondition --
+#: two mappings on offer -- would wait forever.
 CANDIDATES = [
-    {'name': 'DDM · ring mapping', 'file': 'ddm-ring.json', 'validation': {'issues': []}},
-    {'name': 'DDM · tail mapping', 'file': 'ddm-tail.json', 'validation': {'issues': []}},
+    {'name': 'DDM · ring mapping', 'file': 'ddm-ring.json', 'validation': {'issues': [], 'can_reuse': True}},
+    {'name': 'DDM · tail mapping', 'file': 'ddm-tail.json', 'validation': {'issues': [], 'can_reuse': True}},
 ]
 
 #: A model with a current revision, with every field the card is asked to state. `engine_label` is the label

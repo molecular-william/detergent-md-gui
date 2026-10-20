@@ -10,11 +10,11 @@
 #run-form .settings-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 10px}
 #run-form .settings-grid > label{display:flex;flex-direction:column;gap:2px}
 #run-form .setting-control{min-width:0}
-#run-form .setting-control input,#run-form .setting-control select{min-width:0;width:100%;max-width:6.5rem}
+#run-form .setting-control input,#run-form .setting-control select{min-width:0;width:100%;max-width:8.5rem}
 /* The run-configuration pairs share a row so the card uses its width instead of stacking one per line. */
 #run-form .run-config-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px}
-/* Run type, Method and Execution read as one choice: what to run, with what, and at which execution
-   profile. Three columns, because Method and Execution are the same kind of decision. */
+/* Run type, Method and Force field read as one choice: what to run, and with what. Three columns, so a
+   run type that hides Method (AA-only) leaves its two controls where the reader already looks for them. */
 #run-form .run-config-trio{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 10px}
 #run-form .use-default{padding:4px 7px;font-size:11px}
 #run-form .hint,#run-form dd{overflow-wrap:anywhere}

@@ -16,7 +16,7 @@ def test_aa_form_preserves_cg_choices_and_reference_settings(dashboard, live_pag
     page.route('**/api/defaults?*', lambda r: r.fulfill(json={'values':defaults,'sources':{'AA':'CHARMM AA protocol v1'},'profile':'draft-smoke'}))
     page.route('**/api/readiness?*', lambda r: r.fulfill(json={'ready':True,'checks':[],'blockers':[]}))
     page.route('**/api/references*', lambda r: r.fulfill(json={'references':[{'id':'111111111111','label':'Shared AA source','run_type':'aa_only','settings':inherited}]}))
-    page.add_init_script("localStorage.setItem('ddm.form', JSON.stringify({run_type:'aa_cg',profile:'draft-smoke',molecule_id:'DDM',cg_production_ps:'250',temperature_k:'305'}))")
+    page.add_init_script("localStorage.setItem('ddm.form', JSON.stringify({run_type:'aa_cg',molecule_id:'DDM',cg_production_ps:'250',temperature_k:'305'}))")
     url = f'{live_page.base_url}/'
     # Initial molecule loading refreshes the reference selector after defaults.
     # Wait for that request before selecting a reference to test inheritance.
@@ -35,7 +35,7 @@ def test_aa_form_preserves_cg_choices_and_reference_settings(dashboard, live_pag
     expect(page.locator('#start-run')).to_be_enabled()
     saved = json.loads(page.evaluate("localStorage.getItem('ddm.form')"))
     assert saved['cg_production_ps'] == '250'
-    assert saved['profile'] == 'draft-smoke'
+    assert 'profile' not in saved, 'the panel still persists a profile it no longer offers'
     def submit(route):
         submissions.append(route.request.post_data_json)
         route.fulfill(status=201, json={'id':'222222222222'})

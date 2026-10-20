@@ -181,7 +181,7 @@ def queue():
     # it, so a request that names none is stamped with the shape recorded by every AA-CG run, and the manifest keeps
     # saying which shape ran. A caller that names one explicitly still gets what it asked for -- an AA-CG run attaching
     # a short AA reference is a case the reference-compatibility check below has to be able to see and refuse.
-    profile = data.get('profile') or ('draft-smoke-reference' if run_type == 'aa_cg' else 'standard')
+    profile = data.get('profile') or protocol.profile_for_run_type(run_type)
     job = c.create_job(data.get('detergent') or data.get('molecule_id') or data.get('composition_id'), data.get('method'), data.get('label', ''), profile=profile, settings={k: data.get(k) for k in specs if data.get(k) not in (None, '')}, reference_run_id=data.get('reference_run_id') or None, mapping_candidate=data.get('mapping_candidate'), temporary_validation=str(data.get('temporary_validation','')).lower() in ('1','true','yes'), molecule_id=data.get('molecule_id'),run_type=data.get('run_type'), composition_id=data.get('composition_id'), protein=data.get('protein') or None, template=data.get('template') or None)
     return jsonify(view_of(c, job)), 201
 

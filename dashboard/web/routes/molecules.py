@@ -5,7 +5,7 @@ from flask import Blueprint, abort, jsonify, request
 
 from ...analysis.runs import references as aa_references
 from ...execution.adapters import aa, cg
-from ...execution.protocol import adapter_for
+from ...execution.protocol import adapter_for, profile_for_run_type
 from ...models import mappings
 from ...models.mappings import context as mapping_context
 from ...models.molecules import aa as aa_molecules
@@ -77,17 +77,21 @@ def _requested_profile(default='standard'):
 @blueprint.get('/api/defaults')
 def defaults_api():
     run_type=request.args.get('run_type')
-    if run_type=='aa_only':return jsonify(_with_force_fields(aa.stage_defaults(_requested_profile())))
+    # The fallback is the run type's own profile, not this route's opinion (`protocol.profile_for_run_type`): the
+    # panel fills every field from this answer and posts it back as explicit settings, so a default that differed from
+    # the profile the run is stamped with would queue a different simulation than the one the form showed.
+    if run_type=='aa_only':return jsonify(_with_force_fields(aa.stage_defaults(_requested_profile(profile_for_run_type(run_type)))))
     if run_type == 'cg_composition':
-        result = cg.stage_defaults(_requested_profile('draft-smoke'))
+        result = cg.stage_defaults(_requested_profile(profile_for_run_type(run_type)))
         result['values'].update({'cg_equil_ps': 10.0, 'cg_production_ps': 50.0})
         return jsonify(_with_force_fields(result))
     if run_type not in (None,'aa_cg'):abort(400,'Unknown run type')
-    result=cg.stage_defaults(_requested_profile())
+    profile = _requested_profile(profile_for_run_type(run_type or 'aa_cg'))
+    result=cg.stage_defaults(profile)
     if run_type=='aa_cg':
         # The AA half at this profile, which is what the run will use: aa_equil_ps is
         # derived from the two AA equilibration durations, so the form shows those.
-        result['values'].update(aa.stage_defaults(_requested_profile())['values']);result['values'].pop('aa_equil_ps',None)
+        result['values'].update(aa.stage_defaults(profile)['values']);result['values'].pop('aa_equil_ps',None)
         result['sources']['AA']=aa.VERSION
     return jsonify(_with_force_fields(result))
 

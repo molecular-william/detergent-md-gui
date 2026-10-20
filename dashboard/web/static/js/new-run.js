@@ -16,12 +16,9 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
   }
   const AA_FIELDS = ['aa_nvt_ps','aa_npt_ps','aa_production_ps','temperature_k','pressure_bar','output_interval_ps','box_nm','aa_seed','mdrun_ntomp','mdrun_ranks','mdrun_nb','mdrun_pme'];
   const CG_FIELDS = ['cg_equil_ps','cg_production_ps','sasa_probe_nm','cg_seed'];
-  //: The profile an AA–CG run is queued under. The panel does not offer the choice (D2): the run route stamps this
-  //: string for the run type and the manifest records it, and the panel asks for the *same* profile's durations and
-  //: readiness -- otherwise the form would show one profile's settings and the run would use another's, or a stale
-  //: `standard` value would hold the launch button disabled with a reviewed-model blocker that cannot apply.
-  const AA_CG_PROFILE = 'draft-smoke-reference';
-  const profileForRunType = run_type => run_type === 'aa_cg' ? AA_CG_PROFILE : form.elements.profile.value;
+  //: The profile is the run type's own (`protocol.profile_for_run_type`): the panel offers no choice, sends no key, and
+  //: asks `/api/defaults` and `/api/readiness` without one, so the durations it shows and the profile the run is
+  //: stamped with come from one answer rather than from a control the panel would have to keep in step.
   // Persist all controls, including disabled values inherited from a reference.
   function formValues() { return Object.fromEntries([...form.elements].filter(el=>el.name).map(el=>[el.name,el.value])); }
   function saveForm() { storage.set('form',formValues()); }
@@ -130,7 +127,6 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
   function syncRunType() {
     const runType=form.elements.run_type.value;
     const aaOnly=runType==='aa_only';
-    const aaCg=runType==='aa_cg';
     const compositionOnly=runType==='cg_composition';
     $('#cg-inputs').classList.toggle('hidden',aaOnly);
     $$('.cg-setting').forEach(label=>label.classList.toggle('hidden',aaOnly));
@@ -138,14 +134,6 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     setText($('#run-type-help'), aaOnly?'Standalone AA execution is selected. CG mapping and bonded controls are not needed.':compositionOnly?'Run a saved composition through CG simulation, assessment, and CG-only SASA.':'Choose the workflow before selecting CG-specific inputs.');
     $('#cg-inputs').querySelectorAll('input,select,button').forEach(control=>{control.disabled=aaOnly;});
     $$('.cg-setting').forEach(label=>label.querySelectorAll('input,select,button').forEach(control=>{control.disabled=aaOnly;}));
-    // The profile is the run type's own for an AA–CG run (D2): the panel does not offer the choice, and the route
-    // stamps the string the run and the manifest use. The control stays in the document for the AA-only panel,
-    // whose handling is unchanged, so this only adds the AA–CG case -- hidden by the attribute, which is what
-    // `dashboard.css` styles, and disabled so a value hidden by hand cannot travel by accident.
-    const profileLabel=form.elements.profile.closest('label');
-    const offeredProfile=!aaOnly && !aaCg;
-    profileLabel.hidden=!offeredProfile;
-    profileLabel.querySelectorAll('input,select,button').forEach(control=>{control.disabled=!offeredProfile;});
     applyReferenceSettings(aaOnly?null:referenceRecords.find(r=>r.id===form.elements.reference_run_id.value));
     $('#start-run').textContent=aaOnly?'Start AA run':compositionOnly?'Start CG composition run':'Start AA–CG run';
     $('#molecule-panel').classList.toggle('hidden', compositionOnly);
@@ -222,20 +210,19 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     const query = moleculeId ? `&molecule_id=${encodeURIComponent(moleculeId)}` : '';
     const result = await cachedApi(`/api/mappings?view=summary${query}`,{maxAge:10000});
     mappingsLoaded=true;
-    select.replaceChildren(new Option('Select a saved mapping', ''));
-    for (const candidate of result.candidates) {
-      const issues = candidate.validation?.issues || [];
-      const option = new Option(`${candidate.name} · ${candidate.file}${issues.length ? ' · needs repair' : ''}`, candidate.file);
-      option.disabled = !!candidate.error;
-      select.append(option);
+    // Only a mapping a run can reuse is offered. `validation.can_reuse` is the verdict `draft.load` refuses on
+    // (`models/mappings/verdict.RULES['can_reuse']`), so the picker cannot list a candidate the queue would reject,
+    // and the browser does not restate a rule the store owns. A candidate with no verdict -- one whose file does not
+    // parse -- has no `can_reuse` and is not offered either.
+    const usable = result.candidates.filter(candidate => candidate.validation?.can_reuse === true);
+    select.replaceChildren(new Option(usable.length ? 'Select a saved mapping'
+      : 'No saved mapping can be run for this molecule', ''));
+    for (const candidate of usable) {
+      select.append(new Option(`${candidate.name} · ${candidate.file}`, candidate.file));
     }
-    if (chosen && !result.candidates.some(c => c.file === chosen)) {
-      select.append(new Option(`Unavailable candidate · ${chosen} — choose another mapping`, chosen));
-    }
-    select.value = chosen;
-    if (chosen && form.elements.profile.value === 'standard') {
-      form.elements.profile.value = 'draft-smoke';
-    }
+    // A remembered choice that cannot be run is not a selection: it is left unselected rather than shown as an
+    // option the reader must read past, and readiness asks about no mapping until one is chosen.
+    select.value = usable.some(candidate => candidate.file === chosen) ? chosen : '';
     refreshReadiness();
 
   }
@@ -427,17 +414,15 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
   }
   async function loadStageDefaults() {
     const run_type=form.elements.run_type.value;
-    const profile=profileForRunType(run_type);
-    const result=await cachedApi('/api/defaults?' + new URLSearchParams({profile,run_type}));
-    // The answer is dropped unless both the run type and the profile it would be asked under are still the ones on
-    // the form: an AA–CG run's profile is the run type's own now, so a stale answer has to be judged against that
-    // and not against a control it no longer reads.
-    if(run_type!==form.elements.run_type.value || profile!==profileForRunType(form.elements.run_type.value))return;
+    const result=await cachedApi('/api/defaults?' + new URLSearchParams({run_type}));
+    // The answer is dropped if the run type on the form is no longer the one asked about: the route answers with the
+    // run type's own profile's durations, so the run type is the whole question.
+    if(run_type!==form.elements.run_type.value)return;
     stageDefaults = result;
     fillForceFields(result.force_fields);
     for (const [field, value] of Object.entries(stageDefaults.values)) {
       const input = form.elements[field];
-      if (input && !input.value) { input.value = value; input.dataset.defaultProfile = profile; }
+      if (input && !input.value) input.value = value;
     }
     setText($('#defaults-source'), 'Defaults from ' + Object.values(stageDefaults.sources).join(' · '));
     syncRunSummary();
@@ -454,7 +439,7 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
   for (const button of $$('.use-default')) button.addEventListener('click', async () => {
     try {
       defaultsLoading ||= loadStageDefaults(); await defaultsLoading; defaultsLoading = null;
-      const field = button.dataset.field; form.elements[field].value = stageDefaults.values[field]; form.elements[field].dataset.defaultProfile = stageDefaults.profile;
+      const field = button.dataset.field; form.elements[field].value = stageDefaults.values[field];
       syncRunSummary(); refreshReadiness();
       storage.set('form', formValues());
     } catch (error) { notice(error.message); }
@@ -486,7 +471,7 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     if(!compositionOnly && !selectedMolecule){const message='Select an available molecule directory before starting.';setText($('#readiness'),message);setText($('#launch-blocker'),message);setText($('#review-status'),'Action required');$('#review-status').dataset.ready='false';return;}
     try {
       const query={run_type,molecule_id:form.elements.molecule_id.value, detergent:form.elements.detergent.value};
-      if(run_type==='aa_cg')Object.assign(query,{method:form.elements.method.value,profile:profileForRunType(run_type),mapping_candidate:form.elements.mapping_candidate.value,reference_run_id:form.elements.reference_run_id.value});
+      if(run_type==='aa_cg')Object.assign(query,{method:form.elements.method.value,mapping_candidate:form.elements.mapping_candidate.value,reference_run_id:form.elements.reference_run_id.value});
       if(run_type==='cg_composition')Object.assign(query,{composition_id:form.elements.composition_id.value});
       const ready = await api('/api/readiness?' + new URLSearchParams(query),{signal:readinessController.signal});
       if (generation !== readinessGeneration) return;
@@ -520,16 +505,10 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
       panel.append(blockers); $('#start-run').disabled = !ready.ready;
     } catch (error) { if(generation!==readinessGeneration || error.name==='AbortError')return;setText($('#readiness'), error.message);setText($('#launch-blocker'),error.message); setText($('#review-status'),'Readiness unavailable'); $('#review-status').dataset.ready='false'; }
   }
-  for (const input of [form.elements.detergent, form.elements.method, form.elements.profile, form.elements.mapping_candidate, form.elements.composition_id]) input.addEventListener('change', refreshReadiness);
+  for (const input of [form.elements.detergent, form.elements.method, form.elements.mapping_candidate, form.elements.composition_id]) input.addEventListener('change', refreshReadiness);
   form.elements.reference_run_id.addEventListener('change', syncRunSummary);
   for (const input of [form.elements.temperature_k, form.elements.aa_production_ps, form.elements.cg_production_ps]) input.addEventListener('input', syncRunSummary);
-  form.elements.mapping_candidate.addEventListener('change', () => {
-    if (form.elements.mapping_candidate.value && form.elements.profile.value === 'standard') {
-      form.elements.profile.value = 'draft-smoke';
-      refreshReadiness();
-    }
-    storage.set('form', formValues());
-  });
+  form.elements.mapping_candidate.addEventListener('change', () => storage.set('form', formValues()));
   form.elements.reference_run_id.addEventListener('change', () => {
     const id=form.elements.reference_run_id.value;
     const reference=referenceRecords.find(r=>r.id===id);
@@ -541,19 +520,13 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     try { await api('/api/jobs/'+encodeURIComponent(id),{method:'DELETE'}); if(form.elements.clone_of.value===id)setCloneSource('', 'Clone source deleted. Your settings are kept for a new run.'); form.elements.reference_run_id.value=''; applyReferenceSettings(null); invalidateResource('/api/references');invalidateResource('/api/storage');await loadReferences(); notice('AA reference source deleted.'); }
     catch(error) { notice(error.message); }
   };
-  form.elements.profile.addEventListener('change',()=>{ for(const key of ['cg_equil_ps','cg_production_ps']) form.elements[key].value=''; loadStageDefaults().catch(error=>notice(error.message)); });
   form.addEventListener('submit', async event => {
     event.preventDefault(); $('#start-run').disabled = true;
     try {
       if(!await validateCloneSource())return;
       const data=formValues();
       const fields=data.run_type==='aa_only'?AA_FIELDS:[...AA_FIELDS,...CG_FIELDS];
-      if(data.run_type==='aa_only')for(const key of ['method','profile','mapping_candidate','reference_run_id',...CG_FIELDS])delete data[key];
-      // The AA–CG run type owns both its fitting (D1) and its profile (D2). The panel carries no bonded-intent or
-      // bonded-state control any more, and the profile key is dropped here rather than never sent because the one
-      // `profile` control on this form now serves the AA-only and composition panels: the route stamps the AA–CG
-      // run type's own string, so a key the panel cannot offer must not travel.
-      if(data.run_type==='aa_cg')delete data.profile;
+      if(data.run_type==='aa_only')for(const key of ['method','mapping_candidate','reference_run_id',...CG_FIELDS])delete data[key];
       delete data.aa_equil_ps;
       if(data.clone_of) {
         data.settings=Object.fromEntries(fields.filter(k=>data[k] !== '' && data[k] != null).map(k=>[k,data[k]]));
@@ -604,7 +577,7 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
   async function cloneRun(source) {
     selectTab('new');
     applyReferenceSettings(null);
-    for (const [key,value] of Object.entries({...source.settings,run_type:source.run_type || 'aa_cg',detergent:source.detergent,molecule_id:source.molecule_id || source.detergent,method:source.run_type==='aa_only'?form.elements.method.value:source.method,profile:source.run_type==='aa_only'?form.elements.profile.value:source.profile || 'standard',mapping_candidate:source.mapping_candidate || '',label:(source.label || source.id)+' copy',clone_of:source.id,reference_run_id:source.reference_run_id || ''})) {
+    for (const [key,value] of Object.entries({...source.settings,run_type:source.run_type || 'aa_cg',detergent:source.detergent,molecule_id:source.molecule_id || source.detergent,method:source.run_type==='aa_only'?form.elements.method.value:source.method,mapping_candidate:source.mapping_candidate || '',label:(source.label || source.id)+' copy',clone_of:source.id,reference_run_id:source.reference_run_id || ''})) {
       if (form.elements[key]) form.elements[key].value = value;
     }
     setCloneSource(source.id);syncRunType();

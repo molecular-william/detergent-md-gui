@@ -125,6 +125,15 @@ class DashboardTests(unittest.TestCase):
             for key in ('aa_nvt_ps', 'aa_npt_ps', 'aa_production_ps', 'cg_equil_ps', 'cg_production_ps'):
                 self.assertEqual(data['values'][key], settings[key], profile + ': ' + key)
 
+        # And a caller that names none -- which is every request the New run panel makes now -- gets the profile the
+        # queue will stamp, not this route's own `standard`. Measured before the fix: `standard` answered
+        # `cg_equil_ps` 5000 / `cg_production_ps` 100000 against the run's 10 / 10000, and the panel posts those
+        # numbers back as explicit settings, so the run would have integrated 100 ns of CG production.
+        data = self.client.get('/api/defaults?run_type=aa_cg').get_json()
+        settings = cg.normalize_settings(None, cg.AA_CG_PROFILE)
+        for key in ('aa_nvt_ps', 'aa_npt_ps', 'aa_production_ps', 'cg_equil_ps', 'cg_production_ps'):
+            self.assertEqual(data['values'][key], settings[key], 'no profile named: ' + key)
+
     def test_aa_only_defaults_shorten_with_the_smoke_profile(self):
         data = self.client.get('/api/defaults?run_type=aa_only&profile=draft-smoke').get_json()
         self.assertEqual(data['values']['aa_production_ps'], 50)

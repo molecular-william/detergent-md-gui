@@ -75,6 +75,27 @@ def run_type_of(metadata) -> str:
     return metadata.get('run_type') or 'aa_cg'
 
 
+def profile_for_run_type(run_type: str) -> str:
+    """The execution profile a run type runs under when its caller names none.
+
+    One answer, read by the queue route and by the defaults route, so the durations a panel shows are the durations
+    the run will use. They were decided in both places before: `/api/defaults` fell back to `standard` while the queue
+    stamped `draft-smoke-reference` for an `aa_cg` run, and the panel papered over the gap by naming the profile on
+    every request. A form filled from the first answer and posted back as explicit settings would then have queued a
+    100 ns CG production where the record said 10 ns (measured: `cg_equil_ps` 5000 / `cg_production_ps` 100000 against
+    10 / 10000).
+
+    The CG half's own constant is the literal, resolved through the adapter registry so this module adds none of its
+    own; every other type starts from `standard`, which is what `create_job` has always defaulted to.
+    """
+    if run_type not in RUN_TYPES:
+        raise ValueError(f'Unknown run type: {run_type}')
+    if run_type == 'aa_cg':
+        from .adapters import cg
+        return cg.AA_CG_PROFILE
+    return 'standard'
+
+
 def plan_pairs(metadata) -> list[list[str]]:
     """A run's stage plan as `(name, relative)` pairs, whatever shape its adapter declares its stages in.
 
