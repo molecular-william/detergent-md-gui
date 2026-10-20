@@ -22,7 +22,7 @@ header,main{max-width:1440px}
 .table-scroll{position:relative}
 .score-figure .figure-viewport{max-width:820px;max-height:58vh}
 .timeline-time{font-size:10px;color:var(--muted);font-weight:500;white-space:nowrap}
-.inherited-setting{opacity:.68}.inherited-setting input:disabled{background:#edf1f5;color:var(--muted);cursor:not-allowed}
+.inherited-setting{opacity:.68}.inherited-setting input:disabled,.inherited-setting select:disabled{background:#edf1f5;color:var(--muted);cursor:not-allowed}
 #delete-reference{margin-top:6px}
 /* Keep the advanced topology editor readable within the assignment column. */
 .bonded-editor { min-width: 0; margin: 1rem 0; }

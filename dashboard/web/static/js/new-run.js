@@ -180,6 +180,8 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     select.value = result.references.some(reference => reference.id === chosen) ? chosen : '';
     applyReferenceSettings(form.elements.run_type.value==='aa_only'?null:result.references.find(reference => reference.id === select.value));
     syncRunSummary();
+    // The options exist now, so a model that pins the source can take it: readiness may well have answered first.
+    if (enforceModelReferenceLock()) refreshReadiness();
     storage.set('form', formValues());
   }
   function applyReferenceSettings(reference) {
@@ -203,6 +205,76 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     setText($('#reference-help'), locked ? 'AA protocol, temperature and output interval are inherited and locked. CG runs share this source trajectory; execution does not establish convergence.' : 'A new AA simulation runs first as a separate job. Compatible completed AA-only references are shared without trajectory copies.');
     syncRunSummary();
   }
+  //: The run the mapping's own parameterization pinned the AA source to, and the mapping whose model did it.
+  let referencePin = null;
+  let pinnedMapping = null;
+
+  /** Hand the AA settings back to the reader, and forget the pin.
+   *
+   * The pin belongs to one mapping's model. Releasing it clears the source it chose -- unless the reader had picked
+   * that same run by hand -- so the next model's run has an AA half of its own rather than inheriting one nobody asked
+   * for, which would be the same silent substitution in the other direction.
+   */
+  function releaseReferencePin() {
+    const select = form.elements.reference_run_id;
+    if (!referencePin) return false;
+    if (select.value === referencePin) select.value = '';
+    referencePin = null;
+    pinnedMapping = null;
+    select.disabled = false;
+    select.dataset.locked = '';
+    select.closest('label')?.classList.remove('inherited-setting');
+    applyReferenceSettings(referenceRecords.find(record => record.id === select.value) || null);
+    return true;
+  }
+
+  /** Pin the AA source to the run this mapping's parameterization was fitted against, and say why.
+   *
+   * A parameterization is a fit to one ensemble: its current revision records `aa_reference.run_id`, and the terms are
+   * only as good as that run is. A picker that could point somewhere else would run the model outside the ensemble it
+   * was fitted to, silently, so the model chooses the source here. `applyReferenceSettings` then fills the AA settings
+   * from that run's own record and locks them -- those numbers are what the reference ran at, and a run that consumes a
+   * reference does not re-run its AA half at new ones.
+   *
+   * An unparameterized mapping keeps the ordinary picker: its run fits in stage 3, and its AA half is its own.
+   *
+   * A null answer is *not* an instruction to unlock. The panel clears its answer whenever it re-asks (`refreshReadiness`)
+   * and the pin would drop and return on every question, which is a loop rather than a state; the pin is released when
+   * the mapping on the picker changes, which is the only thing that can make it belong to a different model.
+   * Returns whether the source on the form changed, so the caller can re-ask readiness about it.
+   */
+  function enforceModelReferenceLock() {
+    const select = form.elements.reference_run_id;
+    const state = modelAnswer();
+    if (!state) return false;
+    if (!state.parameterized || !state.aa_reference?.run_id) return releaseReferencePin();
+    const wanted = state.aa_reference.run_id;
+    const before = select.value;
+    const option = Array.from(select.options).find(item => item.value === wanted);
+    if (!option) {
+      // The model names a run this list does not offer. Locking to something else would be a different model, so the
+      // panel says which run is missing rather than choosing for the reader.
+      releaseReferencePin();
+      setText($('#reference-help'), `This mapping was fitted against ${wanted}, which is not offered as an AA source here. The run needs that source to reuse the model.`);
+      return select.value !== before;
+    }
+    if (referencePin !== wanted) {
+      referencePin = wanted;
+      pinnedMapping = mappingChoice();
+      select.value = wanted;
+      applyReferenceSettings(referenceRecords.find(record => record.id === wanted) || null);
+    }
+    select.disabled = true;
+    select.dataset.locked = 'parameterization';
+    select.closest('label')?.classList.add('inherited-setting');
+    // The delete button belongs to a source the reader chose; deleting the run a current parameterization was fitted
+    // against would leave the model resting on a run that is gone.
+    $('#delete-reference').hidden = true;
+    setText($('#reference-help'), `Locked to ${option.textContent}: this mapping's bond interactions were fitted against that run, and the AA settings below are that run's own. A different source would run the model outside the ensemble it was fitted to; the model itself is chosen in CG Bond Interactions.`);
+    syncRunSummary();
+    return select.value !== before;
+  }
+
   async function loadRunMappings() {
     const select = form.elements.mapping_candidate;
     const chosen = select.value || (!mappingsLoaded && savedForm?.mapping_candidate) || '';
@@ -457,6 +529,8 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     // request fails.
     modelState = null;
     renderModelCard(null);
+    // The pin outlives a re-asked question but not a different mapping: it belongs to one model's fit.
+    if (referencePin && pinnedMapping !== mappingChoice()) releaseReferencePin();
     syncRunSummary();
     $('#start-run').disabled=true;
     if($('#'+panelIds()['new-run']).hidden || !mounted || mounting)return;
@@ -487,6 +561,10 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
       modelState = {mapping: run_type === 'aa_cg' ? (query.mapping_candidate || '') : '',
                     state: ready.parameterization || null};
       renderModelCard(modelState);
+      // The source the model was fitted against, applied here -- where the answer the panel is about to trust arrives,
+      // the same place the card is drawn from. A source it changed is re-asked about, because readiness was answered
+      // about the one on the form when the question went out.
+      if (enforceModelReferenceLock()) { refreshReadiness(); return; }
       // The review's own `Bonded fit` row reads the same state, so it is refreshed with the card rather than only at
       // the start of the next check.
       syncRunSummary();

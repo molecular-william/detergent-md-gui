@@ -64,7 +64,19 @@ PARAMETERIZED_TAIL = {**PARAMETERIZED, 'revision': 7, 'terms': 12, 'torsion_mode
                       'engine': 'bartender', 'engine_label': 'BARTENDER fit (-refit -owntraj)'}
 
 
-def stub(page, states, failing=()):
+#: The AA reference `PARAMETERIZED` was fitted against, in the shape `GET /api/references` answers with -- its own
+#: run record, settings included, because the settings the panel locks are that run's.
+REFERENCE = {'id': 'a54ac8f64710', 'label': 'DDM AA reference', 'created': '2026-10-05T04:29:56+00:00',
+             'run_type': 'aa_only', 'reference_eligible': True, 'scientifically_validated': False,
+             'frames': 20001, 'protocol_version': 3,
+             'settings': {'aa_nvt_ps': 100.0, 'aa_npt_ps': 1000.0, 'aa_production_ps': 200000.0, 'aa_seed': 20260928,
+                          'temperature_k': 303.15, 'pressure_bar': 1.0, 'box_nm': 4.0, 'box_shape': 'cubic',
+                          'output_interval_ps': 10.0, 'mdrun_ntomp': 8.0, 'mdrun_ranks': 1.0,
+                          'mdrun_nb': 'auto', 'mdrun_pme': 'auto',
+                          'force_field': 'charmm36-feb2026_cgenff-4.6'}}
+
+
+def stub(page, states, failing=(), references=(REFERENCE,)):
     """Serve the mapping list and answer readiness per mapping, recording every question asked.
 
     `page.route` also sees the document request, so both patterns are anchored on the endpoint's own path -- a stub
@@ -88,6 +100,7 @@ def stub(page, states, failing=()):
     page.route('**/api/readiness?*', readiness)
     page.route('**/api/mappings?view=summary*',
                lambda route: route.fulfill(json={'candidates': CANDIDATES}))
+    page.route('**/api/references?*', lambda route: route.fulfill(json={'references': list(references)}))
     return asked
 
 
@@ -278,4 +291,57 @@ def test_the_card_fits_a_narrow_window_without_sideways_scroll(dashboard, live_p
     box = card(page).bounding_box()
     assert box['x'] >= 0 and box['x'] + box['width'] <= 390, box
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    assert errors == []
+
+
+def test_a_parameterized_mapping_pins_the_aa_source_and_locks_the_aa_settings(dashboard, live_page):
+    """A fit belongs to one ensemble, so the model chooses its source: the run it was fitted against.
+
+    The revision records `aa_reference.run_id`, and the bonded terms are only as good as that run is. A picker that
+    could point elsewhere would run the model outside the ensemble it was fitted to, and nothing on the panel would say
+    so. The pin also locks the AA half's settings to that run's own record -- a run consuming a reference does not
+    re-run its AA half at new durations -- while the CG settings, which this run does choose, stay editable.
+    """
+    page, errors = live_page
+    stub(page, {'ddm-ring.json': PARAMETERIZED})
+    open_panel(page, live_page)
+
+    page.locator('[name=mapping_candidate]').select_option('ddm-ring.json')
+
+    source = page.locator('[name=reference_run_id]')
+    expect(source).to_have_value('a54ac8f64710')
+    expect(source).to_be_disabled()
+    expect(page.locator('#reference-help')).to_contain_text('fitted against')
+    expect(page.locator('#reference-help')).to_contain_text('Locked to DDM AA reference')
+    # The AA half's own numbers are the reference's, and they cannot be edited: they already happened.
+    production = page.locator('[name=aa_production_ps]')
+    expect(production).to_have_value('200000')
+    expect(production).to_be_disabled()
+    expect(page.locator('[name=aa_nvt_ps]')).to_have_value('100')
+    expect(page.locator('[name=temperature_k]')).to_have_value('303.15')
+    expect(page.locator('[name=aa_seed]')).to_be_disabled()
+    # The CG half is this run's own choice, so its durations stay editable.
+    expect(page.locator('[name=cg_production_ps]')).to_be_enabled()
+    # Deleting the run the model rests on is not offered from here.
+    expect(page.locator('#delete-reference')).to_be_hidden()
+    assert errors == []
+
+
+def test_an_unparameterized_mapping_leaves_the_source_free_and_the_settings_editable(dashboard, live_page):
+    """The other state: stage 3 fits, the AA half is this run's, and nothing is pinned to the previous model."""
+    page, errors = live_page
+    stub(page, {'ddm-ring.json': PARAMETERIZED, 'ddm-tail.json': UNPARAMETERIZED})
+    open_panel(page, live_page)
+
+    page.locator('[name=mapping_candidate]').select_option('ddm-ring.json')
+    expect(page.locator('[name=reference_run_id]')).to_be_disabled()
+
+    page.locator('[name=mapping_candidate]').select_option('ddm-tail.json')
+
+    source = page.locator('[name=reference_run_id]')
+    expect(source).to_be_enabled()
+    expect(source).to_have_value('')
+    expect(page.locator('#reference-help')).to_contain_text('A new AA simulation runs first')
+    expect(page.locator('[name=aa_production_ps]')).to_be_enabled()
+    expect(page.locator('[name=temperature_k]')).to_be_enabled()
     assert errors == []
