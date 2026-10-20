@@ -18,13 +18,14 @@ const MARKER_PIXELS_PER_NM = 72;
 //: half-transparent, impropers slate, virtual sites violet. **Offset** steps a term's line off the bonds by a fraction
 //: of the molecule's diagonal, for the kinds whose geometry is collinear with them: angles and both torsion kinds.
 //: A constraint is left on the bond it constrains, where its darker ink is enough -- it measures that exact distance.
-//: An angle is drawn as its own **arc** between the two arms, which is the notation the quantity already has and needs
-//: neither an offset nor a line hidden under a bond.
+//: An angle and a dihedral are drawn as their own **arcs** -- the notation the quantities already have, and each needs
+//: neither an offset nor a line hidden under a bond: an angle's between its two arms, a dihedral's between the two
+//: half-planes about the central bond.
 const TERM_STYLES = {
   bonds: {ink: '54,162,105', dash: 'solid', alpha: 1, offset: 0},
   constraints: {ink: '26,92,60', dash: 'solid', alpha: 1, offset: 0},
-  angles: {ink: '210,122,31', dash: 'solid', alpha: 1, offset: 0},
-  dihedrals: {ink: '54,162,105', dash: 'dash', alpha: 0.5, offset: 1},
+  angles: {ink: '210,122,31', dash: 'solid', alpha: 0.7, offset: 0},
+  dihedrals: {ink: '54,162,105', dash: 'dash', alpha: 0.7, offset: 1},
   impropers: {ink: '93,113,135', dash: 'dashdot', alpha: 1, offset: 1},
   virtual_sitesn: {ink: '108,75,178', dash: 'dot', alpha: 1, offset: 0},
 };
@@ -84,6 +85,52 @@ function angleArc(vertex, first, second) {
     const along = step / ANGLE_ARC_STEPS;
     const weight = [Math.sin((1 - along) * sweep) / sine, Math.sin(along * sweep) / sine];
     points.push(vertex.map((value, axis) => value + radius * (weight[0] * from[axis] + weight[1] * to[axis])));
+  }
+  return points;
+}
+
+/** The torsion as an arc about the central bond, from the first half-plane to the second.
+ *
+ * Looking down `j -> k`, a dihedral is the angle between the plane holding `i` and the plane holding `l`. So the two
+ * outer atoms are projected onto the plane perpendicular to the bond, and the sweep runs from one projection to the
+ * other about the bond's axis, centred on the bond. The angle is taken *signed* through the triple product: the same
+ * four atoms can turn either way, the two signs are different torsions, and an unsigned sweep would draw them alike.
+ *
+ * An outer atom lying on the axis projects to nothing and has no half-plane; so does a sweep of zero, which is the cis
+ * or trans case where there is no arc to draw and `sin` would divide the sweep by it.
+ */
+function dihedralArc(first, second, third, fourth) {
+  const axisPoint = second.map((value, index) => (value + third[index]) / 2);
+  const along = third.map((value, index) => value - second[index]);
+  const axisLength = Math.hypot(...along);
+  if (!axisLength) return [];
+  const axis = along.map(value => value / axisLength);
+  const project = point => {
+    const offset = point.map((value, index) => value - axisPoint[index]);
+    const within = offset.reduce((sum, value, index) => sum + value * axis[index], 0);
+    return offset.map((value, index) => value - within * axis[index]);
+  };
+  const arms = [project(first), project(fourth)];
+  const lengths = arms.map(arm => Math.hypot(...arm));
+  if (!lengths.every(length => length > 1e-9)) return [];
+  const [from, to] = arms.map((arm, index) => arm.map(value => value / lengths[index]));
+  const cross = [from[1] * to[2] - from[2] * to[1], from[2] * to[0] - from[0] * to[2],
+                 from[0] * to[1] - from[1] * to[0]];
+  const sine = cross.reduce((sum, value, index) => sum + value * axis[index], 0);
+  const cosine = Math.max(-1, Math.min(1, from.reduce((sum, value, index) => sum + value * to[index], 0)));
+  const sweep = Math.atan2(sine, cosine);
+  if (Math.abs(sweep) < 1e-3) return [];
+  const radius = ANGLE_ARC_FRACTION * Math.min(...lengths);
+  const points = [];
+  for (let step = 0; step <= ANGLE_ARC_STEPS; step += 1) {
+    const turn = (step / ANGLE_ARC_STEPS) * sweep;
+    const cosTurn = Math.cos(turn), sinTurn = Math.sin(turn);
+    const around = [axis[1] * from[2] - axis[2] * from[1], axis[2] * from[0] - axis[0] * from[2],
+                    axis[0] * from[1] - axis[1] * from[0]];
+    const alongAxis = axis.reduce((sum, value, index) => sum + value * from[index], 0);
+    const direction = from.map((value, index) =>
+      value * cosTurn + around[index] * sinTurn + axis[index] * alongAxis * (1 - cosTurn));
+    points.push(axisPoint.map((value, index) => value + radius * direction[index]));
   }
   return points;
 }
@@ -216,12 +263,18 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
       }
       // A term whose geometry lies along the bonds is stepped off them, by the same vector for every term naming the
       // same beads: eight harmonics of one dihedral are one line, not eight, and a re-render must not move it.
-      const points = style.offset
+      const spine = style.offset
         ? (([shiftX, shiftY, shiftZ]) => placed.map(([x, y, z]) => [x + shiftX, y + shiftY, z + shiftZ]))(
           termOffset([term.kind, ...(term.beads || [])].join('|'), (diagonal || 1) * TERM_OFFSET))
         : placed;
+      // A torsion carries both marks in one trace: the displaced spine says *which* four atoms, the arc says how far
+      // round the central bond they are. A null separates them, so Plotly draws two segments and not a jump.
+      let arc = [];
+      if (term.kind === 'dihedrals' && placed.length === 4) arc = dihedralArc(...placed);
+      const points = arc.length ? [...spine, null, ...arc] : spine;
       traces.push({type: 'scatter3d', mode: 'lines', name: label, showlegend: false,
-        x: points.map(point => point[0]), y: points.map(point => point[1]), z: points.map(point => point[2]),
+        x: points.map(point => (point ? point[0] : null)), y: points.map(point => (point ? point[1] : null)),
+        z: points.map(point => (point ? point[2] : null)),
         customdata: points.map(() => term.id), meta: 'term', line,
         hovertemplate: `${label}<extra></extra>`});
     }

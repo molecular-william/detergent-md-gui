@@ -947,19 +947,19 @@ def test_each_kind_of_term_is_drawn_as_its_own_thing(dashboard, live_page):
     byId = {entry['id']: entry for entry in first}
     expected = {'bonds:1': ('solid', 'rgba(54,162,105,1)'),
                 'constraints:1': ('solid', 'rgba(26,92,60,1)'),
-                'angles:1': ('solid', 'rgba(210,122,31,1)'),
-                'dihedrals:1': ('dash', 'rgba(54,162,105,0.5)'),
+                'angles:1': ('solid', 'rgba(210,122,31,0.7)'),
+                'dihedrals:1': ('dash', 'rgba(54,162,105,0.7)'),
                 'impropers:1': ('dashdot', 'rgba(93,113,135,1)'),
                 'virtual_sitesn:1': ('dot', 'rgba(108,75,178,1)')}
     for term, (dash, colour) in expected.items():
         assert term in byId, (term, list(byId))
         assert (byId[term]['dash'], byId[term]['color']) == (dash, colour), (term, byId[term])
 
-    def shift(entry):
-        """The one displacement a term's line carries, measured from the beads it names."""
-        vectors = entry['xyz'][:entry['points']]
+    def shift(entry, count=None):
+        """The one displacement a term's spine carries, measured from the beads it names."""
+        vectors = entry['xyz'][:(count or len(entry['beads']))]
         return [[xyz[axis] - positions[entry['beads'][index]][axis] for axis in range(3)]
-                for index, xyz in enumerate(vectors) if entry['beads'][index] in positions]
+                for index, xyz in enumerate(vectors)]
 
     def length(vector):
         return sum(value ** 2 for value in vector) ** 0.5
@@ -967,15 +967,33 @@ def test_each_kind_of_term_is_drawn_as_its_own_thing(dashboard, live_page):
     # A constraint is drawn on the bond distance it fixes; a bond is drawn where it is.
     for term in ('bonds:1', 'constraints:1'):
         assert all(length(vector) < 1e-9 for vector in shift(byId[term])), (term, shift(byId[term]))
-    # Torsions lie along those segments, so they are stepped off: one vector, at every vertex.
+    # Torsions lie along those segments, so their spine is stepped off: one vector, at every vertex.
     for term in ('dihedrals:1', 'impropers:1'):
-        vectors = shift(byId[term])
+        vectors = shift(byId[term], 4)
         assert len({tuple(round(value, 12) for value in vector) for vector in vectors}) == 1, (term, vectors)
         assert abs(length(vectors[0]) - 0.018 * drawn['diagonal']) < 1e-6, (term, length(vectors[0]))
         assert length(vectors[0]) > 0.005, (term, length(vectors[0]))
     # One torsion's harmonics coincide, and two torsions on different atoms do not.
-    assert shift(byId['dihedrals:1'])[0] == shift(byId['dihedrals:2'])[0], 'one torsion drew as two lines'
-    assert shift(byId['dihedrals:1'])[0] != shift(byId['dihedrals:3'])[0], 'two torsions got one displacement'
+    assert shift(byId['dihedrals:1'], 4)[0] == shift(byId['dihedrals:2'], 4)[0], 'one torsion drew as two lines'
+    assert shift(byId['dihedrals:1'], 4)[0] != shift(byId['dihedrals:3'], 4)[0], 'two torsions got one line'
+
+    # A dihedral is drawn the way a torsion is read: an arc about the central bond, from the plane holding the first
+    # atom to the plane holding the last. B02->B03 is the axis (+y), so the projections are -x and +z, and the sweep is
+    # +90 degrees: the arc starts at the vertex minus the radius along x and ends at it plus the radius along z.
+    torsion = byId['dihedrals:1']
+    assert torsion['points'] == 4 + 1 + 17, torsion['points']
+    assert torsion['xyz'][4] == [None, None, None], torsion['xyz'][4]
+    arc = torsion['xyz'][5:]
+    axis_point = [(positions['B02'][axis] + positions['B03'][axis]) / 2 for axis in range(3)]
+    radius = 0.35 * 0.4
+    for point in arc:
+        relative = [point[axis] - axis_point[axis] for axis in range(3)]
+        assert abs(relative[1]) < 1e-9, ('the arc left the plane perpendicular to the bond', point)
+        assert abs(length(relative) - radius) < 1e-9, (point, radius)
+    assert [round(value, 9) for value in arc[0]] == [round(axis_point[0] - radius, 9), axis_point[1], axis_point[2]]
+    assert [round(value, 9) for value in arc[-1]] == [axis_point[0], axis_point[1], round(axis_point[2] + radius, 9)]
+    middle = [value - origin for value, origin in zip(arc[8], axis_point)]
+    assert abs(middle[0] + radius * 2 ** -0.5) < 1e-9 and abs(middle[2] - radius * 2 ** -0.5) < 1e-9, middle
 
     # An angle is an arc between its two arms, at a fixed radius from the vertex: the notation the quantity has, and
     # nothing that hides under a bond. B02 is the vertex, its arms are 0.5 nm (to B01) and 0.4 nm (to B03).
@@ -1024,7 +1042,9 @@ def test_a_revisions_terms_reach_the_scene_through_the_export_names(dashboard, l
     drawn = plot.evaluate("""(el) => el.data.filter(trace => trace.meta === 'term')
       .map(trace => [trace.name.split(' · ')[0], (trace.x || []).length, trace.line.dash])""")
     kinds = {name: (points, dash) for name, points, dash in drawn}
-    assert kinds.get('dihedrals', (0, ''))[0] == 4, drawn
+    # Four points is the spine; a torsion whose outer atoms do not project onto a plane gets an arc as well, and one
+    # whose geometry is degenerate (an outer atom on the axis) legitimately does not -- the module test pins the arc.
+    assert kinds.get('dihedrals', (0, ''))[0] >= 4, drawn
     assert kinds['dihedrals'][1] == 'dash', drawn
     for kind in ('bonds', 'angles', 'constraints'):
         assert kinds[kind][0] >= 2, drawn
