@@ -19,17 +19,21 @@ Usage:
 already refer to a local `errors` list, and unpacking keeps them untouched.
 
 Waiting: most of these tests click a control and then assert on something a fetch fills in.
-Playwright's default expectation timeout is 5 s, which is not enough for that when `-n 2` has the
-machine busy -- the tier's one reproducible flake was `expect(locator).not_to_have_count(0)`
-sampling an empty table 14 times and giving up. Asserting "not empty" is not a wait; where a test
-waits for content to appear it calls `locator.first.wait_for(timeout=30000)` first and keeps its
-assertion after that.
+Playwright's default expectation timeout is 5 s, which was chosen for one worker on an idle machine:
+this tier runs sixteen, and each page loads the Plotly bundle and draws WebGL scenes. The whole tier
+therefore sets one expectation timeout of 15 s in the session fixture below, because a wait that
+expires while the machine is busy reports a broken panel that is not broken.
+
+Asserting "not empty" is still not a wait. Where a test waits for content to appear it calls
+`locator.first.wait_for(timeout=30000)` first and keeps its assertion after that; the two other
+timeouts a test sets itself -- a plot's first paint at 20 s, a reference picker at 30 s -- are there
+because those waits are longer than any expectation should be.
 """
 import threading
 from dataclasses import dataclass, field
 
 import pytest
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 from werkzeug.serving import make_server
 
 from tests.dashboard.support import QuietHandler
@@ -49,7 +53,11 @@ class LivePage:
 
 @pytest.fixture(scope='session')
 def browser():
-    """Chromium, launched once for the whole tier."""
+    """Chromium, launched once for the whole tier, with the tier's own expectation timeout."""
+    # 15 s, not Playwright's 5: this tier runs in parallel and its pages draw 3D scenes, so an expectation that names a
+    # fetched answer can lose a race with the machine rather than with the code. Measured on an idle box: the tier is
+    # green at 5 s; under load the same waits expire at 5 s while the panel is fine.
+    expect.set_options(timeout=15000)
     with sync_playwright() as playwright:
         launched = playwright.chromium.launch(channel='chrome', headless=True)
         try:
