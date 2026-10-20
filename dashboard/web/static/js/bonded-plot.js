@@ -18,6 +18,33 @@ const TERM_SELECTED_INK = '223,32,61';
 //: not a free torsion -- and a constraint is drawn like a bond because the topology writes it as one.
 const TORSION_KINDS = new Set(['dihedrals']);
 const TORSION_ALPHA = 0.5;
+//: How far a torsion's dashed line steps off the bonds it shares, as a fraction of the molecule's own diagonal.
+//: Enough that the dashes read as an annotation beside a bond rather than as a second bond on top of it, small
+//: enough that the line still visibly joins the four atoms it names.
+const TORSION_OFFSET = 0.025;
+
+/** A small displacement, pseudo-random but fixed for one bead set.
+ *
+ * Two things have to hold and randomness alone gives neither: a re-render must not move a line (the panel re-renders
+ * on every bead and row selection, and a jumping diagram is worse than an overlapping one), and `ff_inter`'s eight
+ * harmonics of one torsion must coincide -- they are one dihedral written eight times, so a fan of eight dashed lines
+ * would show a distinction the science does not have. Seeding on the bead set gives both, and gives different
+ * torsions different displacements.
+ */
+function torsionOffset(key, scale) {
+  let hash = 2166136261;
+  for (const character of key) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  const next = () => {
+    hash ^= hash << 13; hash ^= hash >>> 17; hash ^= hash << 5;
+    return ((hash >>> 0) % 2001) / 1000 - 1;
+  };
+  const shift = [next(), next(), next()];
+  const length = Math.sqrt(shift[0] ** 2 + shift[1] ** 2 + shift[2] ** 2) || 1;
+  return shift.map(value => (value / length) * scale);
+}
 
 function ink(rgb, alpha) {
   return `rgba(${rgb},${alpha})`;
@@ -52,6 +79,11 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
     }
     const token = ++generation;
     const positions = new Map(beads.map(bead => [bead.name, bead.position]));
+    //: The molecule's own size, which is the only span a displacement can be "slight" against.
+    const diagonal = ['0', '1', '2'].reduce((total, axis) => {
+      const values = beads.map(bead => bead.position[Number(axis)]);
+      return values.length ? Math.hypot(total, Math.max(...values) - Math.min(...values)) : total;
+    }, 0);
     const physical = beads.filter(bead => !bead.virtual_site);
     const typeGroups = new Map();
     for (const bead of physical) {
@@ -84,10 +116,16 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
     if (edgeX.length) traces.push({type: 'scatter3d', mode: 'lines', name: 'Mapping connectivity', showlegend: false,
       x: edgeX, y: edgeY, z: edgeZ, line: {color: '#a8b5c4', width: 4}, hoverinfo: 'skip', meta: 'edge'});
     for (const term of terms) {
-      const points = pointsFor(term.beads || [], positions, beadAliases);
-      if (points.length < 2) continue;
       const selectedTerm = term.id === selectedTermId;
       const torsion = TORSION_KINDS.has(term.kind);
+      const placed = pointsFor(term.beads || [], positions, beadAliases);
+      if (placed.length < 2) continue;
+      // A torsion is stepped off the connectivity it shares segments with, by the same amount for every term naming
+      // the same beads: eight harmonics of one dihedral are one line, not eight.
+      const points = torsion
+        ? (([shiftX, shiftY, shiftZ]) => placed.map(([x, y, z]) => [x + shiftX, y + shiftY, z + shiftZ]))(
+          torsionOffset((term.beads || []).join('|'), (diagonal || 1) * TORSION_OFFSET))
+        : placed;
       const rgb = selectedTerm ? TERM_SELECTED_INK : TERM_INK;
       traces.push({type: 'scatter3d', mode: 'lines', name: `${term.kind} · ${term.beads.join(' · ')}`, showlegend: false,
         x: points.map(point => point[0]), y: points.map(point => point[1]), z: points.map(point => point[2]),
