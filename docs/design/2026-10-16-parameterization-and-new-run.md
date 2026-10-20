@@ -153,6 +153,13 @@ because what a run consumes is a mapping **with** its parameterization.
 
 ## API
 
+**What remains after this slice.** The backend is built and tested; the panel is not. Next: the model card,
+job box, result and revision strip in CG Bond Interactions, and `02 · CG MODEL` on the New Run panel, both
+against the API below. Two review findings from the refactor are still open and are not this slice's:
+`models/bonded/states.py:156` needs one line saying why it reads two retired keys, and the fixtures in
+`test_temporary_validation_cleanup.py` still key on the removed field, so the retention grouping the cleanup
+rests on is untested.
+
 **Status: built and tested.** `dashboard/models/bonded/parameterization.py` (the revision store),
 `dashboard/models/bonded/fitting.py` (the job), `dashboard/execution/scripts/use_parameterization.{sh,py}` (stage 3
 of a consuming run), the two stage-3/stage-5 shapes and the `prepare`/`readiness` additions in

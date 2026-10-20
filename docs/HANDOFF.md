@@ -3,6 +3,56 @@
 State, measurements and open items for this repository. `AGENTS.md` holds the rules; this holds the record they were
 derived from. Read it before starting work on the DDM CG chain or the coordinator.
 
+## Landed 2026-10-16: the run type owns its fit, and a parameterization can be produced without a run
+
+**The AA-CG run type now fits its own bonded parameters, and the three controls that made that a per-run choice are
+gone.** `b56cddb` (22 files) removed `bonded_intent` and `bonded_state_id` from the run contract and the panel,
+un-gated the mapping staging from the duration profile, renamed stage 3 to `CG parameterization`, and added
+`kinds.default_for_run_types` / `published()` / `default_for()`. The decision rests on the run store rather than on
+reading the code: of 8 jobs, `draft-smoke` was never used and `standard` was used only by the 6 `aa_only` runs;
+`bonded_intent` was never `fit_only` or `reuse_state`; `bonded_state_id` was carried by none; and of 8 runs none wrote
+`BOND_STATE.itp` and none has a `bonded_fit.json` holding a torsion. Measured at landing: fast tier 1735 passed, ruff
+clean over 17 Python paths, browser tier 195 passed.
+
+**Two defects found after it landed, both by measurement rather than by the tiers.** `d6a87fd`: `cg.readiness()` fell
+back to `'standard'` when a caller named no profile, so an AA-CG run's mapping check never ran and the panel showed a
+blocker about a profile no AA-CG run has used; the fallback is now `AA_CG_PROFILE`, which is also `prepare()`'s
+default, and a test pins both. `740c3fa`: the tool probe failed for a cause that two of my own readings got wrong --
+`environment()` inherited the caller's `PYTHONPATH`/`PYTHONHOME`, so a runtime that sets them pointed the tool's
+interpreter at a foreign search path (`ImportError: cannot import name '_imaging' from 'PIL'`, from a python3.14
+site-packages while the tool's own packages came from the project's python3.12). Both variables are dropped now, and
+`probe_command()` hands a python console script to `sys.executable` rather than trusting a shebang that names an
+absolute interpreter a moved checkout no longer has.
+
+**A parameterization can now be produced without a run.** `44f8cc7`: `models/bonded/parameterization.py` (the revision
+store), `models/bonded/fitting.py` (the job -- mapped frames from a linked AA reference, one of three engines, the two
+checks, and provenance: engine, ensemble, `-constraints` threshold, temperature, frames, torsion model),
+`execution/scripts/use_parameterization.{sh,py}` (stage 3 of a consuming run takes the model's terms and says in its
+own artefact that it did not fit), and `prepare`/`readiness` record which of the two happened. Revisions are keyed by
+content identity, so a rename keeps them and a changed bead assignment does not. The same commit closes the gap two
+reviewers found independently: `queue_defaults` iterated `for_every_run()` and never asked `automatic_analyses`, so
+`dihedral-fit` and `bonded-cross-check` were declared for AA-CG runs and queued by nobody. Fast tier 1811 passed,
+ruff clean over 12 Python paths.
+
+**Reviews over `b56cddb`/`d6a87fd`.** Spec compliance: PASS WITH GAPS, one substantive gap (the un-queued analyses,
+now closed). Quality: the same gap, plus two minor findings still open -- `models/bonded/states.py:156` reads two
+retired keys with nothing saying why (records written before D1), and the fixtures in
+`test_temporary_validation_cleanup.py` key on the removed field, so the retention grouping is untested.
+
+**Standing decisions taken with the owner.** A parameterization belongs to the mapping and the bonded states are its
+revisions, so a run consumes a model rather than a state id. Producing one is a job of the CG Bond Interactions panel
+and makes no MD, so it is not a run. The engines are the reference-informed draft, Fast-Forward, and BARTENDER
+restricted to `-refit -owntraj` against our own mapped trajectory. A model with no parameterization is fitted by the
+run, which records that it did. The torsion model is a property of the mapping. `method: 'bartender'` remains a
+provenance label, not a pipeline: no stage invokes the tool.
+
+**Open.** The web half of that design (`docs/design/2026-10-16-parameterization-and-new-run.md`; draft at
+`docs/design/prototypes/parameterization-and-new-run.html`): the panel's model card, job box, result and revision
+strip, and `02 · CG MODEL` on the New Run panel, both coded against the `## API` section the backend commit wrote. The
+two minor review findings above. And `bartender-fit`'s declared AA-reference input (`1_AA-reference/prod/lig.{gro,xtc}`)
+still does not match this workspace's layout, where a run's reference trajectory lives in the paired AA run under
+`stages/07_reference/`.
+
 ## Landed 2026-10-15: the gate, the mutation signal, and 29 property tests
 
 **The gate the docs name exists in two places now, and the docs were right all along.** This file's "no CI" row
