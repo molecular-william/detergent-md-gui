@@ -9,19 +9,29 @@ const TYPE_COLORS = ['#2455b0', '#b24b8f', '#168477', '#d27a1f', '#6c4bb2', '#5d
 //: `applyBeadRadii` does not apply here, because Plotly has no structure to size -- this is how a nanometre of
 //: radius becomes a circle on screen, and the radii themselves are the model's.
 const MARKER_PIXELS_PER_NM = 72;
-//: Term ink, as the rgb triple of the same green the table's `ff_inter` chips use, and the red of a selected row.
-const TERM_INK = '54,162,105';
+//: One style per kind of bonded term, so a reader can tell at a glance which row a line belongs to.
+//:
+//: Every kind traces segments the connectivity already draws, so colour alone is not enough -- a solid line on a solid
+//: line is hidden by it, and the terms are drawn after the edges. Two things separate them. **Ink** says what the term
+//: is: bonds the mapping's green (`#36a269`), constraints a darker shade of the same green because a constraint is a
+//: distance the mapping fixes rather than a potential it fits, angles amber, dihedrals the same green dashed and
+//: half-transparent, impropers slate, virtual sites violet. **Offset** steps a term's line off the bonds by a fraction
+//: of the molecule's diagonal, for the kinds whose geometry is collinear with them: angles and both torsion kinds.
+//: A constraint is left on the bond it constrains, where its darker ink is enough -- it measures that exact distance.
+const TERM_STYLES = {
+  bonds: {ink: '54,162,105', dash: 'solid', alpha: 1, offset: 0},
+  constraints: {ink: '26,92,60', dash: 'solid', alpha: 1, offset: 0},
+  angles: {ink: '210,122,31', dash: 'solid', alpha: 1, offset: 1},
+  dihedrals: {ink: '54,162,105', dash: 'dash', alpha: 0.5, offset: 1},
+  impropers: {ink: '93,113,135', dash: 'dashdot', alpha: 1, offset: 1},
+  virtual_sitesn: {ink: '108,75,178', dash: 'dot', alpha: 1, offset: 0},
+};
+const TERM_STYLE_DEFAULT = {ink: '54,162,105', dash: 'solid', alpha: 1, offset: 0};
 const TERM_SELECTED_INK = '223,32,61';
-//: A dihedral is a *relationship along four atoms*, not a bond the mapping draws, so it goes over the connectivity
-//: as a dashed half-transparent line: the solid bonds stay legible underneath and the torsion reads as an annotation
-//: on them. Impropers stay solid -- an improper holds one centre's planarity or chirality, which is a restraint and
-//: not a free torsion -- and a constraint is drawn like a bond because the topology writes it as one.
-const TORSION_KINDS = new Set(['dihedrals']);
-const TORSION_ALPHA = 0.5;
-//: How far a torsion's dashed line steps off the bonds it shares, as a fraction of the molecule's own diagonal.
-//: Enough that the dashes read as an annotation beside a bond rather than as a second bond on top of it, small
-//: enough that the line still visibly joins the four atoms it names.
-const TORSION_OFFSET = 0.025;
+//: How far an offset term's line steps off the bonds it shares, as a fraction of the molecule's own diagonal.
+//: Enough that the line reads as an annotation beside a bond rather than as a second bond on top of it, small enough
+//: that it still visibly joins the atoms it names.
+const TERM_OFFSET = 0.018;
 
 /** A small displacement, pseudo-random but fixed for one bead set.
  *
@@ -29,9 +39,9 @@ const TORSION_OFFSET = 0.025;
  * on every bead and row selection, and a jumping diagram is worse than an overlapping one), and `ff_inter`'s eight
  * harmonics of one torsion must coincide -- they are one dihedral written eight times, so a fan of eight dashed lines
  * would show a distinction the science does not have. Seeding on the bead set gives both, and gives different
- * torsions different displacements.
+ * terms different displacements.
  */
-function torsionOffset(key, scale) {
+function termOffset(key, scale) {
   let hash = 2166136261;
   for (const character of key) {
     hash ^= character.charCodeAt(0);
@@ -107,6 +117,25 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
         meta: 'bead',
       };
     });
+    // A virtual site is a bead with no atoms of its own: drawn as an open diamond, because a marker that is a solid
+    // circle is read as an atom the model does not have.
+    const virtualSites = beads.filter(bead => bead.virtual_site);
+    if (virtualSites.length) {
+      traces.push({type: 'scatter3d', mode: 'markers+text', name: 'Virtual sites', legendgroup: 'virtual-sites',
+        x: virtualSites.map(bead => bead.position[0]), y: virtualSites.map(bead => bead.position[1]),
+        z: virtualSites.map(bead => bead.position[2]), text: virtualSites.map(bead => bead.name),
+        textposition: 'bottom right', textfont: {size: 9, color: '#6c4bb2'},
+        customdata: virtualSites.map(bead => [bead.name, (bead.virtual_site?.parents || []).join(' · ')]),
+        marker: {symbol: 'diamond-open', size: 12,
+                 color: virtualSites.map(bead => selectedBeads.includes(bead.name) ? '#df203d' : '#6c4bb2'),
+                 line: {width: 2, color: '#ffffff'}},
+        hovertemplate: '<b>%{text}</b><br>virtual site, built from %{customdata[1]}<br>x %{x:.3f} nm<br>y %{y:.3f} nm<br>z %{z:.3f} nm<extra></extra>',
+        meta: 'bead'});
+    }
+    // Which beads a virtual site is built from. The term names the site alone; the parents live on the mapping's own
+    // bead record, so a site's geometry is a star from it to each parent -- a polyline through them would draw
+    // segments between parents that no term declares.
+    const virtualParents = new Map(beads.map(bead => [bead.name, (bead.virtual_site?.parents) || []]));
     const edgeX = [], edgeY = [], edgeZ = [];
     for (const edge of edges) {
       const first = positions.get(edge[0]), second = positions.get(edge[1]);
@@ -115,24 +144,45 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
     }
     if (edgeX.length) traces.push({type: 'scatter3d', mode: 'lines', name: 'Mapping connectivity', showlegend: false,
       x: edgeX, y: edgeY, z: edgeZ, line: {color: '#a8b5c4', width: 4}, hoverinfo: 'skip', meta: 'edge'});
+    const resolve = name => beadAliases.get(name) || name;
     for (const term of terms) {
       const selectedTerm = term.id === selectedTermId;
-      const torsion = TORSION_KINDS.has(term.kind);
+      const style = TERM_STYLES[term.kind] || TERM_STYLE_DEFAULT;
+      const label = `${term.kind} · ${(term.beads || []).join(' · ')}`;
+      const line = {color: ink(selectedTerm ? TERM_SELECTED_INK : style.ink, style.alpha),
+                    width: selectedTerm ? 10 : 6, dash: style.dash};
+      if (term.kind === 'virtual_sitesn') {
+        // One name in the term, a parent list in the mapping: the geometry is a star from the site to each parent.
+        const site = resolve((term.beads || [])[0]);
+        const origin = positions.get(site);
+        const parents = virtualParents.get(site) || [];
+        if (!origin || !parents.length) continue;
+        const x = [], y = [], z = [], ids = [];
+        for (const parent of parents) {
+          const target = positions.get(parent);
+          if (!target) continue;
+          x.push(origin[0], target[0], null);
+          y.push(origin[1], target[1], null);
+          z.push(origin[2], target[2], null);
+          ids.push(term.id, term.id, term.id);
+        }
+        if (!x.length) continue;
+        traces.push({type: 'scatter3d', mode: 'lines', name: label, showlegend: false, x, y, z,
+          customdata: ids, meta: 'term', line, hovertemplate: `${label}<extra></extra>`});
+        continue;
+      }
       const placed = pointsFor(term.beads || [], positions, beadAliases);
       if (placed.length < 2) continue;
-      // A torsion is stepped off the connectivity it shares segments with, by the same amount for every term naming
-      // the same beads: eight harmonics of one dihedral are one line, not eight.
-      const points = torsion
+      // A term whose geometry lies along the bonds is stepped off them, by the same vector for every term naming the
+      // same beads: eight harmonics of one dihedral are one line, not eight, and a re-render must not move it.
+      const points = style.offset
         ? (([shiftX, shiftY, shiftZ]) => placed.map(([x, y, z]) => [x + shiftX, y + shiftY, z + shiftZ]))(
-          torsionOffset((term.beads || []).join('|'), (diagonal || 1) * TORSION_OFFSET))
+          termOffset([term.kind, ...(term.beads || [])].join('|'), (diagonal || 1) * TERM_OFFSET))
         : placed;
-      const rgb = selectedTerm ? TERM_SELECTED_INK : TERM_INK;
-      traces.push({type: 'scatter3d', mode: 'lines', name: `${term.kind} · ${term.beads.join(' · ')}`, showlegend: false,
+      traces.push({type: 'scatter3d', mode: 'lines', name: label, showlegend: false,
         x: points.map(point => point[0]), y: points.map(point => point[1]), z: points.map(point => point[2]),
-        customdata: points.map(() => term.id), meta: 'term',
-        line: {color: ink(rgb, torsion ? TORSION_ALPHA : 1), width: selectedTerm ? 10 : 6,
-               dash: torsion ? 'dash' : 'solid'},
-        hovertemplate: `${term.kind} · ${term.beads.join(' · ')}<extra></extra>`});
+        customdata: points.map(() => term.id), meta: 'term', line,
+        hovertemplate: `${label}<extra></extra>`});
     }
     const layout = {
       height: 620, margin: {l: 0, r: 0, t: 16, b: 0}, showlegend: true,

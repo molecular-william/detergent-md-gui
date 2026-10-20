@@ -886,15 +886,18 @@ def test_deleting_the_last_mapping_empties_the_panel_rather_than_leaving_a_model
     assert errors == [], errors
 
 
-def test_a_dihedral_is_dashed_half_transparent_and_stepped_off_the_bonds_it_shares(dashboard, live_page):
-    """A torsion is a relationship along four atoms, not a bond, and the diagram says so twice over.
+def test_each_kind_of_term_is_drawn_as_its_own_thing(dashboard, live_page):
+    """One style per kind, because every kind traces segments the connectivity already draws.
 
-    Solid at full strength a dihedral competed with the connectivity under it: the segments it shares with the bonds
-    were indistinguishable from them, so "which row is this line" had no answer on the scene. Dashed at alpha 0.5 it
-    reads as an annotation -- and offset slightly, because a dashed line drawn *on* a solid one still hides under it.
-    The offset is pseudo-random per bead set and fixed: a re-render must not move a line (the panel re-renders on
-    every bead and row selection), and `ff_inter`'s eight harmonics of one torsion are one dihedral written eight
-    times, so they must coincide rather than fan out.
+    A solid line drawn on a solid line is a line hidden by it, and terms are drawn after the edges. So the kinds are
+    told apart by ink and, where their geometry is collinear with a bond, by a slight offset: bonds the mapping's
+    green, constraints a darker shade of that green (a constraint is a distance the mapping fixes, and it is drawn on
+    the bond it fixes), angles amber, dihedrals the same green dashed and half-transparent, impropers slate dash-dot,
+    virtual sites violet with an open diamond marker, because a site is a bead with no atoms of its own.
+
+    The offset is pseudo-random per (kind, bead set) and fixed: a re-render must not move a line -- the panel
+    re-renders on every bead and row selection -- and `ff_inter`'s eight harmonics of one torsion are one dihedral
+    written eight times, so they must coincide rather than fan out.
 
     The plot module is rendered directly, with beads and terms this test invents: the style is the module's own
     contract and does not depend on a mapping having landed in a workspace, which is the part the panel's fixtures
@@ -910,15 +913,19 @@ def test_a_dihedral_is_dashed_half_transparent_and_stepped_off_the_bonds_it_shar
       const plot = mountBondedPlot(host, {});
       const beads = [{name: 'B01', position: [0, 0, 0], size: 'R'}, {name: 'B02', position: [0.5, 0, 0], size: 'R'},
                      {name: 'B03', position: [0.5, 0.4, 0], size: 'R'}, {name: 'B04', position: [0.5, 0.4, 0.4], size: 'R'},
-                     {name: 'B05', position: [0, 0.4, 0.4], size: 'R'}];
+                     {name: 'B05', position: [0, 0.4, 0.4], size: 'R'},
+                     {name: 'B06', position: [0.5, 0.2, 0.2], size: 'R',
+                      virtual_site: {function: 1, parents: ['B01', 'B02', 'B03']}}];
       const scene = {
         beads, edges: [['B01', 'B02'], ['B02', 'B03'], ['B03', 'B04']],
-        terms: [{id: 'bonds:1', kind: 'bonds', beads: ['B01', 'B02']},
+        terms: [{id: 'constraints:1', kind: 'constraints', beads: ['B01', 'B03']},
+                {id: 'bonds:1', kind: 'bonds', beads: ['B01', 'B02']},
                 {id: 'angles:1', kind: 'angles', beads: ['B01', 'B02', 'B03']},
                 {id: 'impropers:1', kind: 'impropers', beads: ['B01', 'B02', 'B03', 'B04']},
                 {id: 'dihedrals:1', kind: 'dihedrals', beads: ['B01', 'B02', 'B03', 'B04']},
                 {id: 'dihedrals:2', kind: 'dihedrals', beads: ['B01', 'B02', 'B03', 'B04']},
-                {id: 'dihedrals:3', kind: 'dihedrals', beads: ['B01', 'B02', 'B03', 'B05']}],
+                {id: 'dihedrals:3', kind: 'dihedrals', beads: ['B01', 'B02', 'B03', 'B05']},
+                {id: 'virtual_sitesn:1', kind: 'virtual_sitesn', beads: ['B06']}],
       };
       const read = () => host.data.filter(trace => trace.meta === 'term').map(trace => {
         const parts = trace.name.split(' · ');
@@ -930,39 +937,54 @@ def test_a_dihedral_is_dashed_half_transparent_and_stepped_off_the_bonds_it_shar
       const first = read();
       await plot.render(scene);
       const second = read();
+      const sites = host.data.filter(trace => trace.name === 'Virtual sites')
+        .map(trace => ({symbol: trace.marker.symbol, text: [...trace.text], size: trace.marker.size}));
       plot.destroy(); host.remove();
       const positions = Object.fromEntries(beads.map(bead => [bead.name, bead.position]));
-      const shiftOf = entry => entry.xyz.map((xyz, index) =>
-        xyz.map((value, axis) => value - positions[entry.beads[index]][axis]));
-      return {first, second, diagonal: Math.hypot(0.5, 0.4, 0.4)};
+      return {first, second, sites, positions, diagonal: Math.hypot(0.5, 0.4, 0.4)};
     }""")
-    first, second = drawn['first'], drawn['second']
-    style = {entry['kind']: entry for entry in first if entry['id'] in ('bonds:1', 'angles:1', 'impropers:1',
-                                                                        'dihedrals:1')}
-    assert set(style) == {'bonds', 'angles', 'impropers', 'dihedrals'}, style
-    assert style['dihedrals']['dash'] == 'dash', style['dihedrals']
-    assert style['dihedrals']['color'] == 'rgba(54,162,105,0.5)', style['dihedrals']
-    assert style['dihedrals']['points'] == 4, style['dihedrals']
-    for kind in ('bonds', 'angles', 'impropers'):
-        assert style[kind]['dash'] == 'solid', style[kind]
-        assert style[kind]['color'] == 'rgba(54,162,105,1)', style[kind]
+    first, second, positions = drawn['first'], drawn['second'], drawn['positions']
+    byId = {entry['id']: entry for entry in first}
+    expected = {'bonds:1': ('solid', 'rgba(54,162,105,1)'),
+                'constraints:1': ('solid', 'rgba(26,92,60,1)'),
+                'angles:1': ('solid', 'rgba(210,122,31,1)'),
+                'dihedrals:1': ('dash', 'rgba(54,162,105,0.5)'),
+                'impropers:1': ('dashdot', 'rgba(93,113,135,1)'),
+                'virtual_sitesn:1': ('dot', 'rgba(108,75,178,1)')}
+    for term, (dash, colour) in expected.items():
+        assert term in byId, (term, list(byId))
+        assert (byId[term]['dash'], byId[term]['color']) == (dash, colour), (term, byId[term])
 
-    # Four vertices, each the bead plus *one* displacement: the line keeps the torsion's shape, it is not redrawn.
-    shifts = [entry for entry in first if entry['kind'] == 'dihedrals']
-    assert len(shifts) == 3, shifts
-    # Measured from the beads themselves: one vector for all four vertices of a term.
-    vectors = page.evaluate("""([terms, positions]) => terms.map(term => term.xyz.map((xyz, index) =>
-      xyz.map((value, axis) => value - positions[term.beads[index]][axis])))""",
-                            [shifts, {'B01': [0, 0, 0], 'B02': [0.5, 0, 0], 'B03': [0.5, 0.4, 0], 'B04': [0.5, 0.4, 0.4],
-                                      'B05': [0, 0.4, 0.4]}])
-    for term in vectors:
-        for vector in term:
-            for axis in range(3):
-                assert abs(vector[axis] - term[0][axis]) < 1e-9, (vector, term[0])
-    length = sum(value ** 2 for value in vectors[0][0]) ** 0.5
-    assert abs(length - 0.025 * drawn['diagonal']) < 1e-6, (length, 0.025 * drawn['diagonal'])
-    assert vectors[0][0] == vectors[1][0], 'the two harmonics of one torsion drew as two different lines'
-    assert vectors[0][0] != vectors[2][0], 'two different torsions got the same displacement'
+    def shift(entry):
+        """The one displacement a term's line carries, measured from the beads it names."""
+        vectors = entry['xyz'][:entry['points']]
+        return [[xyz[axis] - positions[entry['beads'][index]][axis] for axis in range(3)]
+                for index, xyz in enumerate(vectors) if entry['beads'][index] in positions]
+
+    def length(vector):
+        return sum(value ** 2 for value in vector) ** 0.5
+
+    # A constraint is drawn on the bond distance it fixes; a bond is drawn where it is.
+    for term in ('bonds:1', 'constraints:1'):
+        assert all(length(vector) < 1e-9 for vector in shift(byId[term])), (term, shift(byId[term]))
+    # Angles and torsions lie along those segments, so they are stepped off: one vector, at every vertex.
+    for term in ('angles:1', 'dihedrals:1', 'impropers:1'):
+        vectors = shift(byId[term])
+        assert len({tuple(round(value, 12) for value in vector) for vector in vectors}) == 1, (term, vectors)
+        assert abs(length(vectors[0]) - 0.018 * drawn['diagonal']) < 1e-6, (term, length(vectors[0]))
+        assert length(vectors[0]) > 0.005, (term, length(vectors[0]))
+    # Two kinds on the same atoms do not land on each other, and one torsion's harmonics do.
+    assert shift(byId['angles:1'])[0] != shift(byId['dihedrals:1'])[0], 'an angle hid under its own torsion'
+    assert shift(byId['dihedrals:1'])[0] == shift(byId['dihedrals:2'])[0], 'one torsion drew as two lines'
+    assert shift(byId['dihedrals:1'])[0] != shift(byId['dihedrals:3'])[0], 'two torsions got one displacement'
+    # A virtual site's parents live on the bead, not in the term: its geometry is a star, not a polyline.
+    star = byId['virtual_sitesn:1']
+    assert star['points'] == 9, star['points']
+    assert star['xyz'][0] == positions['B06'] and star['xyz'][1] == positions['B01'], star['xyz'][:3]
+    assert star['xyz'][2] == [None, None, None], star['xyz'][:3]
+    # And the site itself is drawn: an open diamond, named, so a reader can see what the violet lines meet.
+    assert drawn['sites'] and drawn['sites'][0]['symbol'] == 'diamond-open', drawn['sites']
+    assert drawn['sites'][0]['text'] == ['B06'], drawn['sites']
 
     # Fixed across renders: the panel re-renders on every selection, and a line that moves is worse than one that hides.
     for before, after in zip(first, second):
