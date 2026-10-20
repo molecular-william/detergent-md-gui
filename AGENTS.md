@@ -77,10 +77,11 @@ them.
   **export** name (`B01` is the mapping's first bead, virtual sites included, `mappings/exports.py`), so anything
   needing a position translates them first: the 3D scene did not, and drew no bonded term at all until it did. The scene
   has one style per term kind (`bonded-plot.TERM_STYLES`): bonds the mapping's green, constraints a darker shade of it
-  and left on the bond they fix, angles amber, dihedrals green dashed at alpha 0.5, impropers slate dash-dot, virtual
-  sites violet dotted -- and the kinds whose geometry is collinear with a bond (angles and both torsion kinds) are
-  stepped off it by 1.8% of the molecule's diagonal, seeded per (kind, bead set) so a re-render moves nothing and
-  `ff_inter`'s eight harmonics of one torsion coincide. A virtual site is drawn twice: an open diamond as a bead (a
+  and left on the bond they fix, angles amber **arcs** between the two arms (radius 35% of the shorter arm, no offset --
+  the arc leaves the bonds by construction), dihedrals green dashed at alpha 0.5, impropers slate dash-dot, virtual
+  sites violet dotted -- and the two torsion kinds, whose geometry is collinear with a bond, are stepped off it by 1.8%
+  of the molecule's diagonal, seeded per (kind, bead set) so a re-render moves nothing and `ff_inter`'s eight harmonics
+  of one torsion coincide. A virtual site is drawn twice: an open diamond as a bead (a
   solid circle reads as an atom the model lacks) and a violet star from the site to each parent, because the term names
   the site alone and the parents live on the mapping's bead record.
 - Carbohydrate validation is an immutable analysis on a completed source run. Checked-in targets are citation
@@ -119,7 +120,7 @@ them.
 ## Verify
 ```
 dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast: 1,792, ~18 s with a private MPLCONFIGDIR
-dashboard/.venv/bin/python -m pytest -m browser -q -n 24 --dist worksteal   # browser: 223, ~37 s
+dashboard/.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser: 230, ~43 s
 dashboard/.venv/bin/python -m pytest -m slow -q -n 0                       # slow: 66, ~64 s serial
 dashboard/.venv/bin/ruff check dashboard tests                             # F, E9, I must exit 0
 scripts/gate_commit.sh <message-file> <paths...>                           # fast tier + ruff over named paths; commits only when clean
