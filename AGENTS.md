@@ -75,11 +75,14 @@ them.
   fit box names the four job steps with an elapsed time. A fit job is polled by `?job_id=`, never by the mapping's
   hash: the hash is a mapping's history, the id is the job the panel queued. A revision's terms name beads by their
   **export** name (`B01` is the mapping's first bead, virtual sites included, `mappings/exports.py`), so anything
-  needing a position translates them first: the 3D scene did not, and drew no bonded term at all until it did. There a
-  dihedral is dashed at alpha 0.5 over the solid connectivity and stepped off it by 2.5% of the molecule's diagonal --
-  a torsion is a relationship along four atoms, not a bond, and a dashed line on a solid one is still hidden -- with the
-  displacement fixed per bead set, not per render, so harmonics of one torsion coincide and nothing moves when the
-  panel re-renders. An improper stays solid.
+  needing a position translates them first: the 3D scene did not, and drew no bonded term at all until it did. The scene
+  has one style per term kind (`bonded-plot.TERM_STYLES`): bonds the mapping's green, constraints a darker shade of it
+  and left on the bond they fix, angles amber, dihedrals green dashed at alpha 0.5, impropers slate dash-dot, virtual
+  sites violet dotted -- and the kinds whose geometry is collinear with a bond (angles and both torsion kinds) are
+  stepped off it by 1.8% of the molecule's diagonal, seeded per (kind, bead set) so a re-render moves nothing and
+  `ff_inter`'s eight harmonics of one torsion coincide. A virtual site is drawn twice: an open diamond as a bead (a
+  solid circle reads as an atom the model lacks) and a violet star from the site to each parent, because the term names
+  the site alone and the parents live on the mapping's bead record.
 - Carbohydrate validation is an immutable analysis on a completed source run. Checked-in targets are citation
   metadata until molecule-specific measurements arrive, and a `setup` analysis proves execution, never validity.
 

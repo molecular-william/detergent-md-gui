@@ -69,12 +69,13 @@ mapping and says which -- or empties the panel when none is left.
 answer was that it drew nothing to style: the scene draws the mapping's own bead names (`S1A`, `TAIL3`) and a revision
 names beads by export name (`B01`, `B11`; `mappings/exports.py` writes `B{i+1:02d}` over the mapping's bead list,
 virtual sites included), and nothing joined the two, so every term missed its bead. On the stored arm-B revision: 28
-table rows and 0 term traces before, 26 after `bonded.js` gained `revisionAliases`. Dihedrals are now dashed at alpha
-0.5 in green (red when selected) over the solid bonds, angles and constraints, and stepped off them by 2.5% of the
-molecule's diagonal (0.049 nm on a 1.95 nm molecule, one vector at all four vertices) because a dashed line drawn on a
-solid one is still a line hidden by a line; the displacement is seeded on the bead set, so the eight harmonics of one
-torsion coincide and a re-render moves nothing. Impropers stay solid, being a restraint on one centre rather than a
-torsion. Two tags were added for it: one renders the plot module directly and asserts the
+table rows and 0 term traces before, 26 after `bonded.js` gained `revisionAliases`. Every kind now has its own style
+(`bonded-plot.TERM_STYLES`): bonds green solid, constraints a darker green and left on the bond they fix, angles amber,
+dihedrals green dashed at alpha 0.5, impropers slate dash-dot, virtual sites violet dotted with an open diamond drawn
+for the bead itself (a solid circle reads as an atom the model lacks) and a star from the site to each parent, since the
+term names the site alone and the parents live on the mapping's bead record. The kinds whose geometry is collinear with
+a bond are stepped off it by 1.8% of the molecule's diagonal (0.035 nm on the 1.95 nm arm-B molecule, one vector at every
+vertex), seeded per (kind, bead set) so the eight harmonics of one torsion coincide and a re-render moves nothing. Two tags were added for it: one renders the plot module directly and asserts the
 style contract, one drives the panel and asserts a stored revision's `B01…B04` terms arrive on the scene.
 
 **A fit landed where the panel never looked, `6ba1d29`.** A fit from the CG Bond Interactions panel completed and
