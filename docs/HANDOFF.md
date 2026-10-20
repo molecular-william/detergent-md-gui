@@ -35,6 +35,26 @@ the first. Both filter on `validation.can_reuse` now, and the Complexes queue bu
 usable. Five browser fixtures had to say `can_reuse` with them -- a stub without it is a mapping list with nothing in
 it, which is how this filter first showed up as four pdc files failing on a selected mapping they no longer got.
 
+**The dihedral check reads the Fourier series Fast-Forward writes, `361f675`.** The first real fit in this workspace
+(mapping `3dbdd5fb…`, AA reference `dbc366ae772b`, fast-forward) completed its revision with `dihedral-fit` recorded as
+an error: `funct 9 is not a proper dihedral, and this reader has nothing to say about it`. `ff_inter` writes `funct 9`
+-- one `phi C mult` triplet per line and eight lines for one quadruple, which is one dihedral as a Fourier series, not
+eight dihedrals. The reader keyed on `funct 1` and so refused a topology its own tool wrote.
+
+It now reads both and merges a quadruple's lines into one entry whose `terms` are its harmonics, with the largest-|C|
+harmonic as the entry's scalar fields (the rule `publish` already used on the fitted side). A series has no single
+phase to agree with, so the report gains `energy_rms_kj_mol`: the RMS between the two whole curves, with the constant
+a series carries removed first -- each term is `C (1 + cos)`, whose mean is `C`, so a series carries the sum of its
+coefficients as an offset the two sides need not share. On that fit, raw was 15.9 kJ/mol, the offset was 11.5 of it,
+and the shape difference is 4.39 against the criterion's own residual of 2.48. Also `declared` in the report:
+`{dihedrals: 1, multi_term: 1, harmonics: 8, functs: ['9']}`.
+
+What that fit measured, one row and so not a diagnosis: `B01 B02 B05 B06`, both sides dominant 1-fold (-4.43 vs 7.26
+kJ/mol), both curves bottoming out at -98 and -96 degrees -- the phase conventions are *not* mirrored there, so the
+4.39 is shape. The stored revision 1 keeps its recorded error: a check is recorded rather than gating, and a stored
+record is not rewritten after the fact. Re-fitting (the frames are staged; only the fit runs) produces the revision
+whose check passes.
+
 **One record in the workspace is an agent's, not the owner's.** `workspace/dashboard/mapping_drafts/` holds six
 candidates, and `mapping_candidate_3f6d922c2f4b416dadacca7bc6f2f4ca.json` -- named plainly `probe`, created
 2026-10-20 09:34 UTC, `schema_version` 2, `molecule_snapshot` null, provenance reduced to `paper_doi` and
