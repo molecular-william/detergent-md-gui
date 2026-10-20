@@ -24,8 +24,10 @@ CATALOG = {
     'defaults': {'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900, 'salt_molar': 0.15},
 }
 
+#: `can_reuse` is the verdict the picker filters on, so a stub without it offers no mapping at all.
 CANDIDATE = {'name': 'DDM draft from the automatic recogniser (Martini 3)',
-             'file': 'mapping_candidate_2bcc24c3e5f149fab1e4f11f5d80ae0e.json'}
+             'file': 'mapping_candidate_2bcc24c3e5f149fab1e4f11f5d80ae0e.json',
+             'validation': {'issues': [], 'can_reuse': True}}
 MAPPING_FILE = CANDIDATE['file']
 
 
@@ -100,3 +102,29 @@ def test_a_build_that_is_not_ready_says_why_instead_of_queueing(dashboard, live_
     expect(page.locator('#pdc-panel-status')).to_contain_text('Detergent template: not a file', timeout=30000)
     assert posted == {}, 'a build that cannot start is not queued'
     assert errors == []
+
+
+def test_the_mapping_picker_offers_only_a_mapping_a_build_can_reuse(dashboard, live_page):
+    """A mapping whose beads leave heavy atoms unassigned is not an option, and is not the default.
+
+    The filter is `validation.can_reuse` -- the verdict `models/molecules/draft.py` refuses a build on -- so the panel
+    cannot list a candidate the build would reject at preparation, and the browser does not restate the rule. Before
+    it, the first candidate in the list was selected by default, which is how an unusable one could become the mapping
+    a build was made from.
+    """
+    page, errors = live_page
+    unusable = {'name': 'DDM draft with unassigned atoms', 'file': 'mapping_candidate_unusable.json',
+                'validation': {'issues': [{'code': 'coverage', 'message': 'Missing heavy atoms: 24, 25',
+                                           'bead': None}],
+                               'can_reuse': False}}
+    page.route(re.compile(r'/api/pdc/catalog'), lambda route: route.fulfill(json=CATALOG))
+    page.route(re.compile(r'/api/mappings\?'),
+               lambda route: route.fulfill(json={'candidates': [unusable, CANDIDATE]}))
+    page.route(re.compile(r'/api/readiness\?'),
+               lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+    page.goto(f'{live_page.base_url}/protein-detergent/complexes')
+
+    expect(page.locator('#pdc-mapping')).to_have_value(MAPPING_FILE, timeout=30000)
+    options = page.evaluate("Array.from(document.querySelectorAll('#pdc-mapping option')).map(o => o.textContent)")
+    assert not [text for text in options if 'unassigned' in text], options
+    assert errors == [], errors

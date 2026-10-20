@@ -50,7 +50,9 @@ CATALOG = {'templates': [{'id': 'DDM:DDM', 'name': 'DDM skeleton', 'molecule': '
                         'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
                         'selection_threshold_fraction': 0.1, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20}}
 MAPPING_FILE = 'mapping_candidate_fixture.json'
-MAPPINGS = {'candidates': [{'name': 'DDM draft', 'file': MAPPING_FILE}]}
+#: `can_reuse` is the verdict the picker filters on, so a stub without it offers no mapping at all.
+MAPPINGS = {'candidates': [{'name': 'DDM draft', 'file': MAPPING_FILE,
+                            'validation': {'issues': [], 'can_reuse': True}}]}
 
 MOLECULES = 2
 #: The refusal the clearance gate writes, in its own words (`pdc_placement.place_detergents`).

@@ -26,7 +26,9 @@ CATALOG = {'templates': [{'id': 'DDM:DDM', 'name': 'DDM skeleton', 'molecule': '
                         'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
                         'selection_threshold_fraction': 0.1, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20,
                         'prepare_protein': False}}
-MAPPINGS = {'candidates': [{'name': 'DDM draft', 'file': 'mapping_candidate_fixture.json'}]}
+#: `can_reuse` is the verdict the picker filters on, so a stub without it offers no mapping at all.
+MAPPINGS = {'candidates': [{'name': 'DDM draft', 'file': 'mapping_candidate_fixture.json',
+                            'validation': {'issues': [], 'can_reuse': True}}]}
 
 #: The refusal the user actually met, in the placement gate's own words, and the sentence the preparation step
 #: answers when it cannot run at all.

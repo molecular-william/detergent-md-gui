@@ -358,3 +358,31 @@ def test_an_opm_download_joins_the_picker_and_states_the_half_thickness_it_found
     expect(page.locator('#new-protein')).to_have_value('molecules/1qj8/1qj8.pdb')
     expect(page.locator('[data-new-summary=protein]')).to_contain_text('1qj8')
     assert errors == [], errors
+
+
+def test_the_mapping_picker_offers_only_a_mapping_a_build_can_reuse(dashboard, live_page):
+    """A mapping whose beads leave heavy atoms unassigned is not an option, and is never the default.
+
+    The filter is `validation.can_reuse` -- the verdict `models/molecules/draft.py` refuses a build on -- so this
+    panel cannot list a candidate the build would reject at preparation. Before it, every candidate was listed and
+    `mappingFor` defaulted to the first one, which is how an unusable mapping could become the one a build was made
+    from without the reader choosing it.
+    """
+    page, errors = live_page
+    usable = {'name': 'DDM draft from the automatic recogniser (Martini 3)', 'file': 'mapping_usable.json',
+              'validation': {'issues': [], 'can_reuse': True}}
+    unusable = {'name': 'DDM draft with unassigned atoms', 'file': 'mapping_unusable.json',
+                'validation': {'issues': [{'code': 'coverage', 'message': 'Missing heavy atoms: 24, 25',
+                                           'bead': None}], 'can_reuse': False}}
+    serve_catalogue(page)
+    page.route(re.compile(r'/api/mappings\?'),
+               lambda route: route.fulfill(json={'candidates': [unusable, usable]}))
+    page.route(re.compile(r'/api/readiness\?'),
+               lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+    open_panel(page, live_page.base_url)
+
+    page.wait_for_function("() => document.querySelectorAll('#new-mapping option').length > 1", timeout=30000)
+    expect(page.locator('#new-mapping')).to_have_value('mapping_usable.json')
+    options = page.evaluate("Array.from(document.querySelectorAll('#new-mapping option')).map(o => o.textContent)")
+    assert not [text for text in options if 'unassigned' in text], options
+    assert errors == [], errors

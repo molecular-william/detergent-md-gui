@@ -53,9 +53,14 @@ export function createPdc() {
     if (queue) queue.disabled = true;
     try {
       const payload = await (await fetch(`/api/mappings?molecule_id=${encodeURIComponent(molecule)}`)).json();
-      const candidates = payload.candidates || [];
+      // Only a mapping a build can reuse is offered: `validation.can_reuse` is the verdict
+      // `models/molecules/draft.py` refuses a build on, so the panel cannot list a candidate the build would reject at
+      // preparation and the browser does not restate the rule. A candidate with no verdict -- one whose file does not
+      // parse -- is not offered either.
+      const candidates = (payload.candidates || []).filter(item => item.validation?.can_reuse === true);
       // The label is the candidate's own name; the value is the file the coordinator resolves a build against.
-      mapping.replaceChildren(...(candidates.length ? candidates : [{name: 'No saved mapping for this molecule'}])
+      mapping.replaceChildren(...(candidates.length ? candidates
+        : [{name: 'No saved mapping this molecule can be built from'}])
         .map(item => new Option(item.name, item.file || item.name)));
       if (queue) queue.disabled = !candidates.length;
     } catch (error) {

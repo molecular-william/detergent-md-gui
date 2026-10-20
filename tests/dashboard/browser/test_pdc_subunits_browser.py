@@ -34,7 +34,9 @@ CATALOG = {
                  'selection_threshold_fraction': 0.1, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20},
 }
 MAPPING_FILE = 'mapping_candidate_fixture.json'
-MAPPINGS = {'candidates': [{'name': 'DDM draft', 'file': MAPPING_FILE}]}
+#: `can_reuse` is the verdict the picker filters on, so a stub without it offers no mapping at all.
+MAPPINGS = {'candidates': [{'name': 'DDM draft', 'file': MAPPING_FILE,
+                            'validation': {'issues': [], 'can_reuse': True}}]}
 # The apolar area each selection is measured to have, from the plan for 1AT9.
 APOLAR = {'A': 38.0, 'A,B,C': 75.285}
 

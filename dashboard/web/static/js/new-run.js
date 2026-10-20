@@ -742,13 +742,15 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       select.replaceChildren(new Option('The mapping list could not be read', ''));
       return;
     }
-    select.replaceChildren(new Option(candidates.length ? 'No mapping: a build records centres-only' : 'No saved mapping for this detergent', ''),
-      ...candidates.map(candidate => {
-        const option = new Option(`${candidate.name} · ${candidate.file}`, candidate.file);
-        option.disabled = !!candidate.error;
-        return option;
-      }));
-    select.value = mappingFor(molecule, wanted, candidates);
+    // Only a mapping a build can reuse is offered, on the same verdict the CG half's picker reads
+    // (`validation.can_reuse`, what `models/molecules/draft.py` refuses on). A candidate whose beads leave heavy atoms
+    // unassigned would otherwise be selectable, chosen by default as the first entry, and refused only when the build
+    // tried to use it. An unreadable candidate has no verdict and is not offered either.
+    const usable = candidates.filter(candidate => candidate.validation?.can_reuse === true);
+    select.replaceChildren(new Option(usable.length ? 'No mapping: a build records centres-only'
+      : 'No saved mapping this detergent can be built from', ''),
+      ...usable.map(candidate => new Option(`${candidate.name} · ${candidate.file}`, candidate.file)));
+    select.value = mappingFor(molecule, wanted, usable);
   }
 
   // Which mapping the panel hands the form, and therefore the preview and the run: the detergent's own first saved
@@ -768,8 +770,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     if (chosen !== undefined) {
       return chosen !== MAPPING_NONE && candidates.some(candidate => candidate.file === chosen) ? chosen : '';
     }
-    const usable = candidates.find(candidate => !candidate.error);
-    return usable ? usable.file : '';
+    return candidates.length ? candidates[0].file : '';
   }
   function rememberMapping() {
     storage.set('pdc-mapping-choice',
