@@ -11,10 +11,12 @@ import hashlib
 import json
 import shutil
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 from ... import files
 from ...models import bonded, mappings
+from ...models.bonded import parameterization as parameterizations
 from ...models.molecules import aa as aa_molecules
 from ...models.molecules import draft as draft_model
 from .. import protocol, tools
@@ -73,10 +75,54 @@ STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS = stage_tables(
     STAGE_DEFS, _DEFAULT_NAMES.env()
 )
 
+#: What differs for a run that consumes its model's parameterization (D5 of
+#: `docs/design/2026-10-16-parameterization-and-new-run.md`): stage 3's driver and its two artefacts,
+#: and the assessment stage's inputs. Stage 3 is a different script rather than a branch inside one --
+#: the fit path's script is named for fitting and its outputs include the distributions `ff_inter`
+#: measures, and neither is true of a stage that writes the model's own terms and says so. Stage 5 is
+#: the consequence of that, named rather than left to fail at its own input check: an atomistic
+#: reference distribution is a fit's output, so a run that did not fit has none to be assessed against.
+#:
+#: Each entry names only the fields that differ: `dataclasses.replace` takes the rest from the
+#: declaration above, so stage 5's outputs and every stage not named here are stated once in this
+#: module rather than twice.
+PARAMETERIZED = {
+    'CG parameterization': {
+        'relative': '3_initial_CG/use_parameterization.sh',
+        'inputs': ('../2_mapping/mapped.xtc', '../2_mapping/mapped.gro', 'initial.mdp',
+                   'topol.top', '{initial_itp}', 'parameterization.json'),
+        'outputs': ('mapped.tpr', '{final_itp}', 'parameterization_used.json'),
+    },
+    'CG assessment (ff_assess)': {
+        'inputs': ('../4_CG_sim/prod/lig_CG.xtc', '../4_CG_sim/prod/lig_CG.tpr',
+                   '../4_CG_sim/prod/lig_CG.gro', '../3_initial_CG/{initial_itp}'),
+    },
+}
 
-def stage_contract(names: CGNames | None = None):
+
+def stage_definitions(parameterized=False) -> tuple:
+    """This run type's stages, with stage 3 and stage 5 shaped for what the run will do."""
+    if not parameterized:
+        return STAGE_DEFS
+    return tuple(replace(stage, **PARAMETERIZED[stage.name]) if stage.name in PARAMETERIZED else stage
+                 for stage in STAGE_DEFS)
+
+
+def consumes_parameterization(metadata) -> bool:
+    """Whether a run uses its model's parameterization instead of fitting in stage 3.
+
+    D5: the choice of fit-or-reuse is a property of the *model*, and the run records which happened.
+    `prepare` writes this into the run's manifest, so a reader -- including the stage contract two
+    frames up -- resolves the same run shape from the same recorded fact, and a run prepared before
+    this field existed reads as a run that fitted, which is what it did.
+    """
+    bonded = metadata.get('bonded') if isinstance(metadata, dict) else None
+    return bool(isinstance(bonded, dict) and bonded.get('consumes_parameterization'))
+
+
+def stage_contract(names: CGNames | None = None, *, parameterized: bool = False):
     """Return the executable stage contract for one molecule naming context."""
-    return stage_tables(STAGE_DEFS, (names or _DEFAULT_NAMES).env())
+    return stage_tables(stage_definitions(parameterized), (names or _DEFAULT_NAMES).env())
 
 
 SETTING_SPECS = {
@@ -194,20 +240,77 @@ def normalize_settings(settings=None, profile='standard'):
     return cg_settings | aa_settings
 
 
+def stage_mapping(directory: Path, data, *, names) -> None:
+    """Write `2_mapping/`: the export, the one mapper, and nothing that is a run's own.
+
+    One definition for the two callers that need it -- a run's `prepare` and the panel's fit job --
+    because a fit whose frames were mapped by a different exporter than the run's would be fitting a
+    trajectory the run cannot reproduce.
+    """
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    exports = mappings.export_files(data)
+    for filename in ('mapping.map', 'mapping.ndx', 'model.json', 'README.txt'):
+        (directory / filename).write_text(exports[filename])
+    shutil.copy2(SCRIPTS / 'sugar_mapping.py', directory / 'sugar_mapping.py')
+
+
+def stage_parameterization(directory: Path, data, *, names, molecule_root=None) -> None:
+    """Write `3_initial_CG/`: everything stage 3 reads, for either of its two shapes.
+
+    The seeded topology, the ring pass, the refinement and the cooperative topology `gmx grompp`
+    reads are the same files whether this stage goes on to fit or goes on to write the model's own
+    terms; only the driver and its outputs differ. Staged together for that reason, and shared with
+    the panel's fit job so a fit produced there is produced by the files a run would have used.
+    """
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(Path(bonded.__file__), directory / 'bonded.py')
+    shutil.copy2(SCRIPTS / 'refine_bonded.py', directory / 'refine_bonded.py')
+    # The ring-constraint pass is staged for every mapping, because the stage script calls it
+    # unconditionally: it reads `2_mapping/ring_targets.json` and returns when there is none, so a
+    # mapping without rings needs the script present and inert rather than absent.
+    shutil.copy2(SCRIPTS / 'prepare_ring_constraints.py', directory / 'prepare_ring_constraints.py')
+    (directory / names.initial_itp).write_text(
+        draft_model.initial_topology(data, molecule_root=molecule_root, residue_name=names.residue_name))
+    if data.get('rings'):
+        # Only the ring pass reads the sugar reference, so it is staged where a ring pass will run.
+        for suffix in ('.itp', '.source.json'):
+            shutil.copy2(ROOT / 'references' / ('martini_v3.0.0_sugars_v2' + suffix),
+                         directory / ('reference_sugars_v2' + suffix))
+    shutil.copy2(TUTORIAL_TEMPLATE / '3_initial_CG/martini_v3.0.0.itp', directory / 'martini_v3.0.0.itp')
+    shutil.copy2(TUTORIAL_TEMPLATE / '3_initial_CG/initial.mdp', directory / 'initial.mdp')
+    update_mdp(directory / 'initial.mdp', {'nsteps': 0})
+    (directory / 'topol.top').write_text(
+        f'#include "martini_v3.0.0.itp"\n#include "{names.initial_itp}"\n'
+        f'[ system ]\n{names.residue_name} draft\n[ molecules ]\n{names.residue_name} 1\n')
+
+
 def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM', profile=AA_CG_PROFILE, settings=None, mapping_candidate=None, shared_reference=None, reference_root=None, molecule_snapshot=None, molecule_root=None):
     """Prepare one AA-to-CG run's stage directory.
 
-    What this run type stages, it stages for every AA-to-CG run: the mapping export, the ring-constraint pass,
-    the refinement and the topology the fit writes. The two controls that made any of that a per-run choice are
-    gone (D1): a caller cannot hand this run a pre-fitted bonded state, and there is no "fit only" stop. The
-    profile is a duration preset recorded in the manifest and keyed on by nothing here; a caller that names none
-    is given this run type's own (`AA_CG_PROFILE`).
+    What this run type stages, it stages for every AA-to-CG run: the mapping export, the seeded
+    topology and the scripts stage 3 drives. The two controls that made any of that a per-run choice
+    are gone (D1): a caller cannot hand this run a pre-fitted bonded state, and there is no "fit
+    only" stop. The profile is a duration preset recorded in the manifest and keyed on by nothing
+    here.
+
+    **What stage 3 does is a property of the model, and this is where the two answers part.** A
+    mapping whose parameterization has a current revision is consumed: the terms are staged as
+    `parameterization.json`, stage 3 writes them and says in its own artefact that it did not fit,
+    and the manifest records that this run did not fit either (D5). A mapping with no current
+    revision is fitted here, exactly as every AA-to-CG run used to be, and the manifest records that
+    it was. Nothing on the run panel chooses which -- its absence is the point.
     """
     aa.validate_profile(profile)
     if molecule_snapshot is None or not shared_reference:
         raise ValueError('CG preparation requires a molecule snapshot and shared AA reference')
     names = CGNames.for_snapshot(molecule_snapshot)
-    stage_plan, _, _ = stage_contract(names)
+    # A caller that names no mapping has no model to read a parameterization from; the mapping is
+    # loaded below and that is where the absence is refused, in the order this function has always
+    # refused it (the reference first, then the mapping).
+    revision = parameterizations.current(mapping_candidate) if isinstance(mapping_candidate, dict) else None
+    stage_plan, _, _ = stage_contract(names, parameterized=revision is not None)
 
     aa_dir = run_dir / '1_AA-reference'
     aa_dir.mkdir()
@@ -222,41 +325,20 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
         path.parent.mkdir(exist_ok=True)
         shutil.copy2(SCRIPTS / path.name, path)
 
-    # Everything below is what an AA-to-CG run stages, and none of it is a per-run choice: the run type fits its
-    # own bonded parameters from the AA reference it consumes (D1). It used to sit inside
-    # `if profile in ('draft-smoke', 'draft-smoke-reference')`, which made "is a mapping staged at all" a
-    # property of a duration preset -- a `standard` AA-to-CG run staged no mapping, no topology and no fit.
-    # The pieces whose work can be empty are staged always and are inert when unused: a mapping with no rings
-    # has nothing to expand, and the refinement does nothing without a torsion model in the mapping.
+    # Everything below is what an AA-to-CG run stages, and none of it is a per-run choice: the run
+    # type takes its bonded terms from the model it was handed, fitting them itself only when the
+    # model carries none (D1/D5). It used to sit inside `if profile in ('draft-smoke', ...)`, which
+    # made "is a mapping staged at all" a property of a duration preset.
     data = draft_model.load(mapping_candidate, molecule_root=molecule_root)
-    exports = mappings.export_files(data)
-    for filename in ('mapping.map', 'mapping.ndx', 'model.json', 'README.txt'):
-        (run_dir / '2_mapping' / filename).write_text(exports[filename])
+    stage_mapping(run_dir / '2_mapping', data, names=names)
     (run_dir / '2_mapping/draft-source.json').write_text(json.dumps(data, indent=2))
     cg = run_dir / '3_initial_CG'
-    shutil.copy2(Path(bonded.__file__), cg/'bonded.py')
-    shutil.copy2(SCRIPTS/'refine_bonded.py', cg/'refine_bonded.py')
-    # The ring-constraint pass is staged for every mapping, because the stage script calls it unconditionally:
-    # it reads `2_mapping/ring_targets.json` and returns when there is none, so a mapping without rings needs
-    # the script present and inert rather than absent.
-    shutil.copy2(SCRIPTS/'prepare_ring_constraints.py', cg/'prepare_ring_constraints.py')
-    (cg / names.initial_itp).write_text(
-        draft_model.initial_topology(
-            data, molecule_root=molecule_root, residue_name=names.residue_name
-        )
-    )
-    # The one mapper, copied for every mapping rather than only the ringed ones: a mapping with no rings has
-    # nothing to expand and writes no ring targets, and the branch that called ff_map instead is gone with it.
-    shutil.copy2(SCRIPTS/'sugar_mapping.py', run_dir/'2_mapping/sugar_mapping.py')
-    if data.get('rings'):
-        # Only the ring pass reads the sugar reference, so it is staged where a ring pass will run.
-        for suffix in ('.itp', '.source.json'):
-            shutil.copy2(ROOT/'references'/('martini_v3.0.0_sugars_v2'+suffix), cg/('reference_sugars_v2'+suffix))
-
-    shutil.copy2(TUTORIAL_TEMPLATE / '3_initial_CG/martini_v3.0.0.itp', cg / 'martini_v3.0.0.itp')
-    shutil.copy2(TUTORIAL_TEMPLATE / '3_initial_CG/initial.mdp', cg / 'initial.mdp')
-    update_mdp(cg / 'initial.mdp', {'nsteps': 0})
-    (cg / 'topol.top').write_text(f'#include "martini_v3.0.0.itp"\n#include "{names.initial_itp}"\n[ system ]\n{names.residue_name} draft\n[ molecules ]\n{names.residue_name} 1\n')
+    stage_parameterization(cg, data, names=names, molecule_root=molecule_root)
+    if revision is not None:
+        # The model's own terms, and the driver that writes them instead of fitting. `bonded.py` is
+        # staged either way; the refinement is not, because nothing in this stage reads it.
+        (cg / 'parameterization.json').write_text(json.dumps(revision, indent=2, sort_keys=True) + '\n')
+        shutil.copy2(SCRIPTS / 'use_parameterization.py', cg / 'use_parameterization.py')
     sim = run_dir / '4_CG_sim'
     shutil.copytree(TUTORIAL_TEMPLATE / '4_CG_sim/inputs', sim / 'inputs')
     (sim / 'system_EMPTY.top').write_text(f'#include "inputs/martini_v3.0.0.itp"\n#include "inputs/martini_v3.0.0_solvents_v1.itp"\n#include "{names.final_itp}"\n[ system ]\n{names.residue_name} draft in pure water\n[ molecules ]\n{names.residue_name} 1\n')
@@ -297,6 +379,21 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
         metadata['mapping_sha256'] = hashlib.sha256(json.dumps(mapping_candidate, sort_keys=True).encode()).hexdigest()
     metadata.update(profile=profile, scientifically_validated=False, settings=settings, stage_plan=[[name, relative] for name, relative in stage_plan])
     metadata['cg_names'] = {'residue_name': names.residue_name, 'initial_itp': names.initial_itp, 'final_itp': names.final_itp}
+    # Which of the two stage-3 shapes this run has, recorded as one fact the stage contract and every
+    # later reader resolve the run's own plan from (D5). `fitted` is the run type's old behaviour and
+    # stays the answer for a mapping with no parameterization: the run fits in stage 3 and this says so.
+    metadata['bonded'] = {
+        'consumes_parameterization': revision is not None,
+        'fitted': revision is None,
+        'revision': (revision or {}).get('revision'),
+        'engine': (revision or {}).get('engine'),
+        'torsion_model': ((revision or {}).get('options') or {}).get('torsion_model'),
+        'terms': parameterizations.total_terms(revision) if revision else None,
+        'revision_sha256': parameterizations.revision_sha256(revision) if revision else None,
+        'aa_reference': (revision or {}).get('aa_reference'),
+        'source': ("the mapping's current parameterization"
+                   if revision else 'fitted by this run, in stage 3, from the AA reference it consumes'),
+    }
     if shared_reference:
         metadata.update(shared_reference=shared_reference, reference_reused=True, reference_run_id=shared_reference['source_run_id'])
     metadata['force_field'] = {'name': FORCE_FIELD.name, 'source': str(FORCE_FIELD.relative_to(ROOT)), 'staged_path': FORCE_FIELD.name,
@@ -308,6 +405,19 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     # names how a reader may read the run at all -- MDAnalysis 2.10 cannot read this GROMACS build's TPR.
     metadata['analysis_topology'] = 'GRO atom/residue order + explicit ITP interactions; MDAnalysis 2.10 does not support GROMACS 2026 TPR 138. Trajectories made whole with gmx trjconv.'
     metadata['limitations'] = ['Draft mapping and nonbonded bead types, not scientifically validated', f'AA production {settings["aa_production_ps"]} ps; CG production {settings["cg_production_ps"]} ps; pure water', 'Bonded parameters fit to the recorded AA reference; no convergence or thermodynamic validation']
+    if revision is not None:
+        # The consequence of consuming rather than fitting, said in the run's own words: the
+        # atomistic reference distributions stage 5 compares against are a fit's output, and this
+        # stage produced none. Stated here rather than discovered as a stage that failed.
+        metadata['limitations'].append(
+            "Stage 3 used the model's parameterization (revision "
+            f"{revision['revision']}) and fitted nothing, so it wrote no `*_distr.dat`: the assessment "
+            'stage has no atomistic reference distributions to score against.')
+        linked = (revision.get('aa_reference') or {}).get('run_id')
+        if linked and linked != shared_reference['source_run_id']:
+            metadata['limitations'].append(
+                f"The model's parameterization was fitted against AA reference {linked}, and this run "
+                f"consumes {shared_reference['source_run_id']}: the fit and the run do not share a reference.")
     metadata['tools'] = tool_metadata()
     files.atomic_json(manifest, metadata)
 
@@ -390,14 +500,15 @@ def _protocol_stage_contract(metadata):
     """Resolve a naming context from the metadata a caller holds."""
     snapshot = metadata.get('molecule_snapshot')
     names = CGNames.for_snapshot(snapshot) if snapshot else metadata.get('names')
-    return stage_contract(names)
+    return stage_contract(names, parameterized=consumes_parameterization(metadata))
 
 
 def _protocol_stages(metadata):
     """Resolve the named stage declarations for the metadata's molecule."""
     snapshot = metadata.get('molecule_snapshot')
     names = CGNames.for_snapshot(snapshot) if snapshot else CGNames.ddm_defaults()
-    return tuple(stage.resolve(names.env()) for stage in STAGE_DEFS)
+    return tuple(stage.resolve(names.env())
+                 for stage in stage_definitions(consumes_parameterization(metadata)))
 
 
 def _protocol_readiness(metadata):
@@ -428,8 +539,44 @@ def _protocol_readiness(metadata):
             ready.setdefault('blockers', []).extend(aa.readiness(molecule_root, molecule_id)['blockers'])
     except (OSError, ValueError) as exc:
         ready.setdefault('blockers', []).append(str(exc))
+    # D5's read-only bonded step, published as the run type's own answer rather than assembled on the
+    # panel: the model either carries a parameterization this run will use and not re-fit, or it
+    # carries none and the run fits it in stage 3 and records that it did. A top-level key and not a
+    # `checks` entry, because neither state is a prerequisite -- but a record this run *cannot read* is
+    # one, because `prepare` would refuse it and saying "the run will fit it" would be a promise the
+    # run cannot keep.
+    state = _parameterization_state(metadata)
+    ready['parameterization'] = state
+    if state.get('error'):
+        ready.setdefault('blockers', []).append('CG parameterization: ' + state['error'])
     ready['ready'] = ready.get('ready', False) and not ready.get('blockers')
     return ready
+
+
+def _parameterization_state(metadata) -> dict:
+    """What the run panel prints about the model's bonded terms, in the shape it prints them in.
+
+    Both sentences are the run type's: the panel renders them rather than composing them, so the
+    promise a run makes about fitting is stated in one place, next to the code that keeps it.
+    """
+    mapping = metadata.get('mapping_candidate')
+    if not isinstance(mapping, dict):
+        return {'parameterized': False, 'revision': None, 'engine': None, 'engine_label': None,
+                'terms': None, 'torsion_model': None, 'checks': [], 'aa_reference': None,
+                'revision_sha256': None, 'statement': 'No mapping is selected, so there is nothing to fit.'}
+    try:
+        state = parameterizations.summary(mapping)
+    except (OSError, ValueError) as exc:
+        return {'parameterized': False, 'revision': None, 'engine': None, 'engine_label': None,
+                'terms': None, 'torsion_model': None, 'checks': [], 'aa_reference': None,
+                'revision_sha256': None, 'error': str(exc),
+                'statement': f"This model's parameterization cannot be read: {exc}"}
+    revision = parameterizations.current(mapping)
+    state['statement'] = (f'this model is parameterized -- {parameterizations.describe(revision)}; the run '
+                          'uses it and does not re-fit' if revision is not None else
+                          'this model carries no parameterization -- the run will fit it in stage 3 and record '
+                          'that it did')
+    return state
 
 
 def _protocol_prepare(run_dir, metadata):

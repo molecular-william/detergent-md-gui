@@ -150,3 +150,114 @@ because what a run consumes is a mapping **with** its parameterization.
 3. **D1's structural change:** states become revisions of the mapping. Do you want the old flat "Bonded state" list
    kept as a way to compare two arbitrary revisions, or is a revision strip on one mapping enough?
 4. **Where the job is visible:** the panel only (my recommendation), or a line in Runs' activity as well?
+
+## API
+
+**Status: built and tested.** `dashboard/models/bonded/parameterization.py` (the revision store),
+`dashboard/models/bonded/fitting.py` (the job), `dashboard/execution/scripts/use_parameterization.{sh,py}` (stage 3
+of a consuming run), the two stage-3/stage-5 shapes and the `prepare`/`readiness` additions in
+`dashboard/execution/adapters/cg.py`, and `analysis.runs.bartender_fit.topology_from_fit`. The four tests that hold
+it: `tests/dashboard/unit/test_bonded_parameterization.py`, `test_bonded_fitting.py`,
+`test_cg_parameterization_consumption.py`, `tests/dashboard/integration/test_parameterization_flow.py`.
+
+The routes are **not** in this slice — `dashboard/web/**` is the panel, coded against this. What follows is every
+route it must add, the payload keys it sends, and the stored fields behind them.
+
+### Routes the panel adds
+
+| route | body the panel sends | answer | model call behind it |
+| --- | --- | --- | --- |
+| `POST /api/bonded-parameterizations` | `mapping` (the saved candidate snapshot, required), `engine` (required), `aa_reference` (12-hex AA-only run id; required except for `reference-informed`), `options` (optional, the four keys below), `molecule_root`, `timeout` | `201` and the job record | `fitting.start(mapping, engine=…, aa_reference=…, options=…, molecule_root=…, timeout=…)` |
+| `GET /api/bonded-parameterizations?content_hash=&mapping_hash=` | — | `{summary, revisions, jobs}` where `summary` is `view(record)` and `revisions` is the whole history; with no hash, `{records}` (every stored record) | `parameterization.one/view/records/matches`, `fitting.jobs` |
+| `GET /api/bonded-parameterizations/jobs?content_hash=` | — | `{jobs: [job record]}` newest first; the job box polls this while `status` is `queued` or `running` | `fitting.jobs(mapping=None, limit=…)` |
+| `POST /api/bonded-parameterizations/jobs/<job_id>/cancel` | — | the job record with `status: cancelled` | `fitting.cancel(job_id)` |
+| `PATCH /api/bonded-parameterizations/<content_hash>` | `current` (a revision number), `confirm: true` | the record, with that revision current | `parameterization.make_current` |
+| `GET /api/bonded-parameterizations/engines` | — | `{engines: [{value, label, needs_reference}]}`, from `ENGINES`/`ENGINE_LABELS` | `parameterization.ENGINES`, `ENGINE_LABELS` |
+| `GET /api/readiness` (existing) | — | gains the key `parameterization` (below) | `cg.PROTOCOL.readiness(metadata)` |
+
+`READY` and `FAILED` for a job: `failed` carries `error` and `log_tail`; a run-side reader that finds
+`manifest.bonded` (below) needs nothing from these routes.
+
+### The fit job's request keys
+
+`engine` is one of `fast-forward`, `bartender`, `reference-informed`. `options` is any subset of
+`constraints_threshold` (kJ/mol/nm², default 10000 — Fast_Forward's own default; above it a fitted pair becomes a
+constraint), `temperature_k` (default 300), `torsion_model` (`legacy` | `circular-harmonic`, default: read off
+`mapping.bonded_options`, D4a) and `torsion_scale` (0.1–3, only with `circular-harmonic`). `aa_reference` may carry a
+resolved reference from the caller (`reference=`) instead, which is what the route should do after resolving it the
+way every other AA-reference consumer does.
+
+### Stored fields
+
+**Record** — `workspace/parameterizations/records/<mapping content hash>.json`:
+`mapping_hash`, `mapping_content_hash`, `revision` (the current number), `current` (the current revision), `revisions`
+(oldest first), `updated_at`. Selected by **content** identity, so a renamed candidate keeps its revisions; the
+candidate identity is recorded on every revision as provenance. `workspace/parameterizations/work/<content
+hash>-<AA run id>/` holds the pair's mapped frames, engine output and checks; `.../jobs/<job_id>.json` and
+`<job_id>.log` hold the jobs.
+
+**Revision** — every field a run and a reader needs, all set by the store or the job:
+`revision`, `created_at`, `mapping_hash`, `mapping_content_hash`, `engine`, `engine_command` (the invocation, when a
+tool ran), `engine_default_source` (the `source` column's default for this engine), `engine_terms` (the engine's own
+rows, which is how a geometry fallback is told from a reference value), `options{constraints_threshold,
+temperature_k, torsion_model, torsion_scale}`, `temperature_source`, `ensemble{frames, trajectory, source}` —
+`frames: null` means *this engine read no ensemble*, never `0` — `aa_reference{run_id, reference_sha256,
+molecule_identity, temperature_k, production_ns} | null`, `topology` (the complete ITP), `terms{kind: count}`,
+`sources[{id, kind, beads, source}]` (`reference` | `ff_inter` | `bartender` | `geometry` | `mapping` | `manual`;
+computed by the store from the topology, the mapping and `engine_terms`, so it cannot disagree with the terms),
+`refinement` (`bonded.refine`'s report, or null), `diagnostics`, `checks{dihedral-fit, bonded-cross-check}` (each a
+published report, or `null`, or `{error}` — a check that could not run is a recorded fact and never a failed fit),
+`notes[]`, `scientifically_validated` (always `false`; a caller cannot set it).
+
+`parameterization.revision_sha256(revision)` is the digest of the stored fields minus `created_at`: it is what a run
+records to name the exact terms it consumed.
+
+**Job** — `id`, `status` (`queued` | `running` | `completed` | `failed` | `cancelled`), `mapping_name`, `molecule_id`,
+`mapping_hash`, `mapping_content_hash`, `engine`, `options`, `aa_reference`, `reference_run_id`, `reference_sha256`,
+`molecule_root`, `timeout`, `steps` (`('mapped frames', 'fit', 'checks', 'save')`), `step`, `completed_steps`,
+`progress{done, total, detail}`, `work`, `log`, `created_at`, `started_at`, `ended_at`, `error`, `revision` (the
+revision the job stored), `revision_sha256`, `cancelled_at`, `log_tail`, `scientifically_validated`.
+
+### What the run side records
+
+**`manifest.json` gains `bonded`** on every AA–CG run:
+`consumes_parameterization` (bool), `fitted` (bool — its negation, spelled out because both are read),
+`revision`, `engine`, `torsion_model`, `terms`, `revision_sha256`, `aa_reference`, `source` (one sentence). The stage
+contract is resolved **from this field**, so the coordinator, a resume and a test all see the same plan the run was
+prepared with; a run prepared before the field existed reads as a run that fitted, which is what it did.
+
+**`readiness()['parameterization']`** is D5's read-only provenance for the panel:
+`{parameterized, revision, engine, engine_label, terms, torsion_model, checks, aa_reference, revision_sha256,
+statement}` — `statement` is the sentence the panel shows, either *"this model is parameterized — fitted with
+Fast-Forward fit (ff_inter) against a54ac8f64710, revision 3, hash …, torsion model circular-harmonic; the run uses
+it and does not re-fit"* or *"this model carries no parameterization — the run will fit it in stage 3 and record that
+it did"*.
+
+### What a consuming run stages, and what it writes
+
+`3_initial_CG/parameterization.json` — the mapping's current revision, staged by `prepare`. The stage script becomes
+`3_initial_CG/use_parameterization.sh` (with `use_parameterization.py` beside it), its declared outputs become
+`('mapped.tpr', '{final_itp}', 'parameterization_used.json')`, and stage 5's declared inputs lose the two
+`*_distr.dat` patterns — an atomistic reference distribution is a fit's output and this stage produced none, which
+the run's own `limitations` says in words. The stage writes the model as `{final_itp}` and as
+`{stem}_ff_inter.itp`, the name the two checks and the analysis layer's declared sources (`3_initial_CG/*_ff_inter.itp`)
+are written against, and it writes `parameterization_used.json` — `{fitted: false, statement, revision, engine,
+torsion_model, torsion_scale, constraints_threshold, temperature_k, ensemble, aa_reference, topology,
+topology_sha256, revision_sha256, checks_published_with_the_revision, scientifically_validated}` — and deliberately
+**not** `bonded_fit.json`: a stage that skips its fit must not leave the artefact a fitting stage leaves.
+
+### Readings this slice had to choose
+
+1. **BARTENDER's ensemble.** D3 says `-refit -owntraj` "against our mapped trajectory". Built as
+   `analysis.runs.bartender_fit.run`, which hands BARTENDER *our AA reference's own trajectory read through our
+   mapping's `.ndx`* — the repository's existing invocation, which is never its own GFN sampling. The revision records
+   exactly that (`ensemble.source`, `ensemble.trajectory = 1_AA-reference/prod/lig.xtc`), so the number travels with
+   what it measured. A reading that passed `2_mapping/mapped.xtc` to BARTENDER instead would need a different
+   `bartender.inp` and could not be verified here without the tool.
+2. **`{stem}_ff_inter.itp` for a model that was not fitted by `ff_inter`.** The two checks and the analysis layer's
+   declared sources select that name (and only it, for a run), so a model under any other name leaves them reading the
+   coordinate seed beside it. The name means *the fit's interaction topology*; the revision's `engine` says which tool
+   fitted it, and `parameterization_used.json` says the run did not.
+3. **The record is selected by content identity.** A rename keeps its revisions; a changed bead assignment does not.
+   Same doctrine as `bonded.states.belongs_to`, and it matters here because a revision is what a run reads.
+

@@ -13,7 +13,6 @@ from pathlib import Path
 
 from dashboard import files, paths
 from dashboard.analysis import worker as analysis
-from dashboard.analysis.kinds import for_every_run
 
 #: The packages whose content decides an analysis result: the analysis code itself and the model code it reads.
 CODE_ROOTS = ('analysis', 'models')
@@ -89,7 +88,11 @@ class AnalysisCoordinator:
         kind by name still gets the resolver's own refusal, which names every path it looked for.
         """
         queued = []
-        for kind in for_every_run():
+        # `automatic_analyses` is the one place the two facets of the kind table are read together -- the kinds every
+        # run owes its reader, and the run type's own -- so the queueing path asks it rather than restating half of
+        # it. Restating it is how `dihedral-fit` and `bonded-cross-check` came to be declared for AA-to-CG runs and
+        # queued by nobody.
+        for kind in self.owner.automatic_analyses(jid):
             try:
                 task, _ = self.queue(jid, kind, {})
             except (CapacityFull, RunBusy, RunNotFound, OSError, ValueError):

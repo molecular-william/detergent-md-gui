@@ -179,3 +179,37 @@ def test_a_snapshots_payload_naming_a_cg_stage_is_no_longer_refused(dashboard, m
     assert status == 202
     assert task['kind'] == 'snapshots'
     assert task['payload'] == {'stage': '4_CG_sim'}
+
+
+def test_the_runs_own_defaults_are_queued_by_the_path_that_queues_them(dashboard, monkeypatch):
+    """D5's other half: the queueing path asks the resolver instead of restating half of it.
+
+    Two independent reviewers found this in the commit that declared the defaults: `automatic_analyses` answered
+    `['snapshots', 'bonded-cross-check', 'dihedral-fit']` for an AA-to-CG run, and `queue_defaults` -- the only
+    caller that creates attempts -- still iterated `for_every_run()`, so the two checks were declared and queued by
+    nobody. This pins the seam rather than the resolver (which its own test pins above): the queueing path goes
+    through the one function that reads both facets, and it attempts every kind that function names.
+
+    The kinds' own sources are deliberately not planted here. A kind whose sources this fixture cannot resolve is
+    skipped by the queue's own door, which is the behaviour `test_a_run_whose_sources_cannot_be_resolved_is_left_alone`
+    already holds; what went wrong was that the resolver was never consulted at all.
+    """
+    coordinator, _ = seed(dashboard)
+    asked, attempted = [], []
+
+    def resolver(jid):
+        asked.append(jid)
+        return ['snapshots', 'bonded-cross-check', 'dihedral-fit']
+
+    def queue(jid, kind, payload):
+        attempted.append(kind)
+        return {'id': f'task-{len(attempted)}', 'kind': kind, 'status': 'queued'}, 202
+
+    monkeypatch.setattr(coordinator, 'automatic_analyses', resolver)
+    monkeypatch.setattr(coordinator.analysis_coordinator, 'queue', queue)
+
+    coordinator.analysis_coordinator.queue_defaults(JID)
+
+    assert asked == [JID], 'the queueing path must ask the run what it owes its reader'
+    assert attempted == ['snapshots', 'bonded-cross-check', 'dihedral-fit'], \
+        'every kind the resolver names is attempted, in its order'

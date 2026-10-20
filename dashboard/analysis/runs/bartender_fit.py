@@ -46,6 +46,9 @@ IMPROPER_INCREMENT_DEG = 10
 
 SECTIONS = ('bonds', 'constraints', 'angles', 'dihedrals')
 
+#: How many atom indices each fitted section's rows open with.
+ARITY = {'bonds': 2, 'constraints': 2, 'angles': 3, 'dihedrals': 4}
+
 
 def _run(command, cwd, timeout=None, env=None):
     """Run a tool with no terminal to answer: BARTENDER under an analysis subprocess went into `Sl` and stayed there,
@@ -139,10 +142,57 @@ def model_topology(candidates: list[Path]) -> Path | None:
     was built from. Taking the first by name picked a seed once, and the fit then ran against a different parameter set
     -- visible only by comparing the input it produced with the one that works. The fitted interaction topology is the
     model, so it is preferred and named; whatever is chosen is reported.
+
+    A run that consumed its model's own parameterization writes the same two files under the same two names -- the
+    terms as the engine produced them, and the model the run simulates -- so this ranking finds the model there too.
     """
     ordered = sorted(candidates, key=lambda path: (0 if path.stem.endswith('_ff_inter') else
                                                    1 if path.stem.endswith('_initial') else 2, path.name))
     return ordered[0] if ordered else None
+
+
+def _renumber(row, renumber, arity):
+    fields = row.split()
+    return ' '.join([str(renumber[int(value)]) for value in fields[:arity]] + fields[arity:])
+
+
+def topology_from_fit(initial_text: str, fitted: dict, beads: list[dict]) -> str:
+    """The model's topology: BARTENDER's fitted sections merged back into the molecule it fitted.
+
+    `gmx_out.itp` is sections and no molecule -- no `[ moleculetype ]`, no atoms, no virtual sites --
+    and its indices count the *physical* beads, because a virtual site has no atoms to fit and the
+    fitter was handed `physical_topology`'s renumbered document. So the merge is a renumbering and not
+    a concatenation: every fitted row's indices go back to the molecule's own numbering, the virtual
+    sites and exclusions come from the seeded topology, and a section BARTENDER did not write keeps the
+    terms the mapping already carried. A fitted section the seed had no place for is appended.
+    """
+    physical = [index for index, bead in enumerate(beads, 1) if not bead.get('virtual_site')]
+    renumber = {position: index for position, index in enumerate(physical, 1)}
+    rows = {section: [_renumber(row, renumber, ARITY[section]) for row in fitted.get(section, [])]
+            for section in SECTIONS}
+    # Only a section BARTENDER actually wrote replaces the seed's. An empty one means the fit had
+    # nothing to say about it, and a `[ constraints ]` section silently emptied is the ring targets
+    # of the molecule removed by a fit that never measured them.
+    replaced = {section for section in SECTIONS if rows[section]}
+    out, section, emitted = [], None, set()
+    for line in initial_text.splitlines():
+        body = line.split(';', 1)[0].strip()
+        if body.startswith('['):
+            section = body.strip('[] \t').strip().lower()
+            out.append(line)
+            if section in replaced and section not in emitted:
+                out.extend(rows[section])
+                emitted.add(section)
+            continue
+        if section in replaced:
+            # The seeded rows of a section BARTENDER fitted are replaced rather than kept: two sets of
+            # terms for one pair is a topology GROMACS refuses, and the fitted ones are the answer.
+            continue
+        out.append(line)
+    for section in SECTIONS:
+        if rows[section] and section not in emitted:
+            out += ['', f'[ {section} ]', *rows[section]]
+    return '\n'.join(out).rstrip('\n') + '\n'
 
 
 def ring_lengths(terms: dict) -> dict:

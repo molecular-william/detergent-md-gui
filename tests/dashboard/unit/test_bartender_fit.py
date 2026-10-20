@@ -156,6 +156,65 @@ def test_the_fit_runs_through_the_tools_own_environment_file(tmp_path):
     assert 'exec ' in command[-1] and '-refit' in command[-1], 'the fit runs inside the sourced environment'
 
 
+def test_the_models_terms_are_merged_back_into_the_molecule_the_fit_was_run_on():
+    """`gmx_out.itp` is sections and no molecule, and its indices count the physical beads.
+
+    Measured by doing it by hand: BARTENDER is handed `physical_topology`'s renumbered document, so
+    its row `1 4` is the junction bond of a five-bead molecule whose fourth atom is TAIL. Concatenating
+    the two documents instead of merging them produces a molecule with two sets of terms for one pair
+    -- and a `[ constraints ]` section that is the seed's three plus the fitted two, which GROMACS
+    reads as a different molecule rather than as an error.
+    """
+    fitted_text = ('[bonds]\n  1 4   1   0.528   394.25\n'
+                   '[constraints]\n  1 2   1   0.310   262033.76\n  1 3   1   0.361   199999.0\n'
+                   '[angles]\n  2 1 3  1   52.42   2154.81\n'
+                   '[dihedrals]\n  2 4 1 3  1   -408.38  7.30   4\n')
+
+    merged = bartender_fit.topology_from_fit(TOPOLOGY, bartender_fit.fitted_terms(fitted_text), BEADS)
+    sections = _sections(merged)
+
+    assert '1 5 1 0.528 394.25' in sections['bonds'], 'TAIL is atom 5 in the molecule BARTENDER fitted'
+    assert len(sections['constraints']) == 2, 'the seeded ring lengths are replaced by the fitted ones'
+    assert '1 2 1 0.310 262033.76' in sections['constraints']
+    assert sections['angles'] == ['2 1 3 1 52.42 2154.81']
+    assert sections['dihedrals'] == ['2 5 1 3 1 -408.38 7.30 4'], 'and the dihedral is renumbered too'
+    assert sections['virtual_sitesn'] == ['4 1 1 2 3'], 'the virtual site is not BARTENDER\'s to fit'
+    assert '4 1 2 3' in sections['exclusions']
+    assert sections['atoms'][3].startswith('4 TC4'), 'the model keeps the moleculetype it was fitted on'
+
+
+def test_a_section_the_seed_had_no_place_for_is_appended_and_an_unwritten_one_is_kept():
+    """A fitted section the seeded topology did not carry has to be added; a section BARTENDER wrote
+    nothing for keeps the terms the mapping already had, because the fit had nothing to say about it."""
+    merged = bartender_fit.topology_from_fit(TOPOLOGY, bartender_fit.fitted_terms('[bonds]\n  1 4 1 0.5 400\n'), BEADS)
+    sections = _sections(merged)
+
+    assert sections['bonds'] == ['1 5 1 0.5 400']
+    assert len(sections['constraints']) == 3, 'BARTENDER wrote no constraints, so the ring targets stand'
+    assert sections['atoms'] and sections['virtual_sitesn']
+
+
+def _sections(text):
+    """A topology as `{section: [rows]}`, for the assertions above to read one section at a time."""
+    sections, current = {}, None
+    for line in text.splitlines():
+        body = line.split(';', 1)[0].strip()
+        if body.startswith('['):
+            current = body.strip('[] \t').strip().lower()
+            sections.setdefault(current, [])
+            continue
+        if current and body:
+            sections[current].append(body)
+    return sections
+
+
+def test_bartender_shell_command_runs_through_the_environment_file_with_the_fit_flags(tmp_path):
+    command = bartender_fit.shell_command(tmp_path / 'bartender', 2, tmp_path, trajectory='1_AA-reference/prod/lig.xtc')
+
+    assert '-refit' in command[-1] and '-owntraj' in command[-1]
+    assert '1_AA-reference/prod/lig.xtc' in command[-1], 'the trajectory it fits to is named, not assumed'
+
+
 def test_the_timeout_is_a_default_and_not_a_wall():
     """A model that writes its linkage dihedral as an improper has BARTENDER scanning it: measured, over 400 s where
     a proper dihedral took 40. A caller that knows its model may say how long it is willing to wait."""
