@@ -1,125 +1,109 @@
 # Project guidance for coding agents
 
-Rules and facts for working here. State, measurements and open items live in `docs/HANDOFF.md`; read that before touching the DDM CG chain or the coordinator.
-
-## Read first
-- Repo layout, dashboard, persistence, migration, testing: `docs/PROJECT_GUIDE.md`.
-- DDM calibration, score meaning, bonded state: `docs/DDM_CALIBRATION.md` first.
-- Roadmap: `README.md`.
-- Carbohydrate mapping/validation: `docs/research/2026-09-24-carbohydrate-validation-operations.md` + `docs/research/2026-09-24-martini3-carbohydrate-validation.md`. Read before touching recognizer, validation routes, analysis worker.
-- Micelle builder: PAUSED. Design in `docs/superpowers/specs/`, `docs/superpowers/plans/`. `micelle/` = partial implementation, NOT a validated model.
-- Protein-detergent complex (`pdc`): second workflow, not a profile of the single-molecule one, and **implemented**. Adapter `execution/adapters/pdc.py` owns the stages and generates its own scripts; `micelle/` still owns the placement science (`micelle/frame.py`, `packing.py`, `validation.py`). Spec `docs/superpowers/specs/2026-09-28-protein-detergent-complex-panel-design.md`, plans in `docs/superpowers/plans/`. Back-mapping: CG2AT2 vendored under `tools/cg2at/` (`tools/cg2at/cg2at`); `pdc_backmap.sh` runs its **align** method with the `martini_3-0_charmm36` fragment DB.
-- Osmotic-pressure series: `execution/adapters/osmotic.py` (+ `osmotic_box.py`, `osmotic_mdp.py`) and `dashboard/web/routes/osmotic.py`; panel `osmotic-pressure`. Plans `docs/superpowers/plans/2026-10-06-osmotic-concentration-series.md`, `2026-10-13-osmotic-series-panel.md`.
+Rules and facts for working here. State, measurements and open items are in `docs/HANDOFF.md`; repo layout,
+persistence, migration and testing in `docs/PROJECT_GUIDE.md`; procedures and gotchas in the `detergent-md-dashboard`
+skill. Read `HANDOFF.md` before touching the DDM CG chain or the coordinator.
 
 ## Goal
-Reproducible local workflow for membrane-protein detergent sims: validate input, orient protein, build Martini CG system, run staged GROMACS jobs, convert CG to atomistic, run atomistic stages, calculate analyses, expose status and results in a dashboard.
+One local Python service orchestrating resumable GROMACS/Martini jobs -- AA to CG, protein-detergent, osmotic series
+-- with a Flask dashboard over persisted manifests and logs. Reproducible; outputs immutable; analyses derived from
+them.
 
-## Repo facts
-- Maintained AA to CG path: `execution/adapters/aa.py`, then `execution/adapters/cg.py`, then Fast_Forward, then GROMACS. Any molecule with a compatible AA topology runs it. Packaged `molecules/DDM` = reference example + smoke candidate. `cg.py` = the generic CG adapter, the only CG stage pipeline. No `ddm` shim.
-- Maintained assets: `resources/`, `dashboard/`. Historical `memembed`, then `martinize`, then `insane`, then `cg2at`: NOT maintained. The `archive/MemProtMD/` tree earlier notes named is gone from the repository.
-- Force fields local: CG takes `resources/forcefields/martini_v3.itp`; AA copies `resources/templates/small_mols_fast_forward/1_AA_reference/charmm36-jul2022.ff`; 32 MDP templates under `resources/templates/` (the three pdc equilibration legs are `resources/templates/protein_detergent/{minimisation,nvt,npt}.mdp`). Detergent support + residue/topology coverage: verify per molecule.
-- Tools declared in `config/tools.json`, resolved by `dashboard/execution/tools.py`. Declared path verified executable before use; a declaration that cannot be honoured resolves to NOTHING, never a substitute. A name that is not declared at all (`martinize2`, `pdb2pqr`) falls back to the composed search path. Record resolved version + path in each run manifest. (In use: `/usr/local/gromacs/2026.3/bin/gmx`. The `~/Downloads/gromacs-2026.0` source tree earlier notes named is gone from this box -- measured 2026-10-15.)
-- Carbohydrate validation = immutable analysis attached to a completed source run. Representation modes `/api/mappings/representations`; target metadata `/api/mappings/validation-targets`; reports `/api/jobs/<run-id>/carbohydrate-validation`.
-- Checked-in carbohydrate targets = citation metadata only until molecule-specific measurements + uncertainties supplied. `setup` analyses + short trajectories = diagnostic execution checks; they do NOT authorize a model or establish validation.
-- Bead Assignment editor: ONE diagram now -- the 3D NGL overlay (heavy atoms; each bead a translucent sphere at the mean of its atoms). The 2D depiction went 2026-10-12 (`aa318e0`); the server's RDKit depiction STAYS because the mapping export bundle embeds its SVG. `POST /api/mappings/overlay3d` serves the files from `models/mappings/overlay3d.py`; it reads the assignment being edited, including an unsaved local draft.
-- Bonded panel atoms come from the SELECTED candidate's own molecule (`bonded.js` `resolveStructure`), not the packaged reference. Reading the reference for every candidate drew sucrose/trehalose/maltose on DDM's atoms (fixed `c6f018e`). Do not reintroduce.
-- Sucrose path provisional: recognizer handles one hexopyranose ring, preserves remaining graph as a draft. Generated Sucrose mappings = diagnostic inputs, not official Martini parameters.
-- Protein-detergent stages run **pdc's own scripts**, not the CG half's: every non-generated stage file is named `pdc_...` (`pdc_assessment.sh`, `pdc_assess.sh`, `pdc_extension.sh`, `pdc_backmap.sh`). Only `1_system/prepare_system.sh`, the three equilibration legs and `0_prepare/pdc_prepare.sh` are filled at prepare time (`pdc.GENERATED_STAGES`). The directory names `2_assessment`, `3_assessment`, `4_extension` are historic. The chain no longer equilibrates twice: `CG assessment MD` is production only (it reads `../4_npt/`), and `Energy minimisation`/`NVT`/`NPT` (`pdc.LEGS`, mdps under `resources/templates/protein_detergent/`) are the equilibration.
-- A protein build's belt is a **torus** when the protein states a membrane: the protein's slab circle is the tube's centre-line, the tube's radius is the detergent's measured length, heads sit on the outer surface and tails face the centre (`pdc_placement._belt_torus`, `SHAPE_TORUS`). A build with no stated membrane -- the empty micelle, a packaged protein, an import that states none -- keeps the fixed-radius **sphere**, where `radius_nm` *is* the radius (`SHAPE_SPHERE`); on a belt `radius_nm` is a **floor** under the measured centre-line.
-- Protein secondary structure: martinize2's bare `-dssp`, which vermouth answers with **mdtraj** (`execution/scripts/pdc_build.SS_SOURCE = 'mdtraj.compute_dssp'`), with MDAnalysis' own DSSP as the recorded fallback (`SS_FALLBACK_SOURCE`). The two routes disagree (42 of 230 residues on 1AT9) and the assignment's letters travel in the run report. `mdtraj` and `pdb2pqr` are declared in `requirements-dashboard-tests.txt`.
-- Bead rendering is one size table plus one family colouring, with the on-screen legend drawn from the same table (`web/static/js/ngl-beads.js`: `BEAD_RADII_NM`, `BEAD_FAMILY_ORDER`/`BEAD_FAMILY_COLOURS`/`BEAD_FAMILY_LABELS`, `renderBeadLegend`). A file carrying `CONECT` is **never** distance-guessed; a coarse-grained file is `inferBonds: 'none'` even without it (`run-view-structure.loadParameters`, `pdc.js`).
-- `GET /api/jobs/<id>/structure?path=<run-relative .gro>` writes the run's own `[ bonds ]`+`[ constraints ]` as CONECT (topology located by `analysis/runs/layout.cg_topology`, named by the manifest's `FINAL_ITP`); a `.pdb` is refused to the artifact route (`web/routes/runs.py:run_structure_api`).
-- `snapshots` runs for **every** run with a trajectory, queued by `analysis_coordinator.queue_defaults` from `coordinator.automatic_analyses(jid)` -- `kinds.for_every_run()` **plus** `kinds.default_for(run_type)`, so `aa_cg` owes `dihedral-fit` and `bonded-cross-check`. One resolution, asked by the one path that creates attempts: restating half of it is how those two came to be declared and queued by nobody; a run with no trajectory records `skipped` with a reason and stays `complete`. Frames resolve by the run's layout (`observability.generate` -> `layout.frame_source`), so an AA-only run reads its `07_reference/` pair and a CG run its `4_CG_sim/`.
-- AA-to-CG runs **always fit their own bonded parameters** (`cg.AA_CG_PROFILE`; stage 3 is `CG parameterization`). A run whose mapping carries no parameterization fits in-run and records that it did (`parameterization_used.json`); one whose mapping carries a current revision consumes it and says in its own artefact that it did not fit. Producing one is a job of the CG Bond Interactions panel and makes **no MD**: `POST /api/bonded-parameterizations` takes the mapping, an engine (`reference-informed`, `fast-forward`, `bartender` restricted to `-refit -owntraj` against our own mapped trajectory), a linked AA-only run id and the option keys; the result is a revision of the mapping keyed by **content** hash (`models/bonded/parameterization.py`, `fitting.py`), and `readiness()['parameterization']` is what New Run's `02 · CG MODEL` card reads.
-- Panels: `Run view` (`run-view`, in BOTH workspaces, scoped per workspace by `web/sections.SECTIONS[...]['run_types']`) -- **two side-by-side NGL monitors**, each with its own run picker, transport, reads and three collapsible sub-panels, paired in time (ns) rather than by frame index, and each drawing one component at a time; `CG Bond Interactions` (`bonded`), which produces a mapping's parameterization; the protein-detergent `New run` (`pdc.js`/`new-run.js`) with a live **system preview** (`GET /api/pdc/preview/placement`) and the `prepare_protein` toggle; the `Osmotic Series` panel (`osmotic.js`).
-
-## Engineering rules
-- Test against fixtures, NEVER the developer's workspace. A test that read a candidate out of `workspace/dashboard/mapping_drafts/` by filename passed only while that file existed and reported nothing about the code. Shared fixtures redirect every writable store: build the record you need.
-- Trace inputs, state transitions, outputs, failure handling before edits.
-- One local Python orchestration service; subprocess GROMACS jobs; persisted manifests + logs.
-- Keep force-field/tool versions + exact commands in run metadata. Never silently overwrite runs.
-- Validate uploaded structures, detergent definitions, resource limits, paths at trust boundaries.
-- Stages: resumable, idempotent, cancellable, safe for concurrent runs.
-- Simulation outputs immutable; derived analyses reference source trajectories.
-- GROMACS + Martini by default. Other platforms only with measured need.
-- Test command construction, stage transitions, failure recovery, analysis parsing without long simulations.
+## Where things are
+- AA to CG: `execution/adapters/aa.py` then `cg.py` (the only CG stage pipeline), then Fast_Forward, then GROMACS.
+  Any molecule with a compatible AA topology runs it; packaged `molecules/DDM` is the reference example, not a shim.
+- Protein-detergent: `execution/adapters/pdc.py` owns the stages and runs its own `pdc_*.sh` scripts; the placement
+  science stays in `micelle/` (paused, not a validated model). Back-mapping is vendored CG2AT2 (`tools/cg2at/`),
+  driven by `pdc_backmap.sh` with the `martini_3-0_charmm36` fragment DB.
+- Osmotic series: `execution/adapters/osmotic.py` (+ `osmotic_box.py`, `osmotic_mdp.py`), route
+  `web/routes/osmotic.py`, panel `osmotic-pressure`.
+- Force fields are local (`resources/forcefields/martini_v3.itp`; charmm36 in the AA template). Tools come from
+  `config/tools.json` through `execution/tools.py`: a declared path is verified or resolves to nothing, never to a
+  substitute; every manifest records the resolved version and path.
+- Maintained assets are `resources/` and `dashboard/` only. `memembed`, `martinize`, `insane` and `cg2at` are not
+  maintained, and no `archive/` tree exists.
 
 ## Workflow contract
-- AA-only runs use `STAGES` from `execution/adapters/aa.py`: solvation, neutralization, minimization, NVT equilibration, NPT equilibration, NPT production, reference publication.
-- CG runs consume an AA reference (own parent AA-only job, or a completed shared reference) and run `STAGES` from `execution/adapters/cg.py`: AA reference, trajectory mapping, CG parameterization (`ff_inter` when it fits, `use_parameterization.sh` when it consumes), CG simulation, CG assessment (`ff_assess`), SASA analysis. Only stages shelling out to a published tool name it; the mapping is our own script, named for what it does.
-- Protein-detergent (`pdc`) runs use `STAGES` from `execution/adapters/pdc.py`, in order: Protein preparation (optional PDB2PQR rebuild+protonation, `prepare_protein`, off by default), System preparation, Energy minimisation, NVT equilibration, NPT equilibration, CG assessment MD (production only), Micelle assessment, CG extension MD, Final assessment, Back-mapping (CG2AT2, a toggle). A leg the run asks none of records `skipped` = exit 4. `pdc.LEGS` maps each equilibration leg to its mdp; `pdc.stage_by_name` is how a caller names one rather than counting.
-- Every stage records start/end, command, environment, inputs, outputs, exit code, log path.
-- Stage with nothing to do records `skipped` = exit 4, reason in `skip.json` beside the script; run carries on. Nothing attempted, nothing owed.
-- Runs terminate `complete`, `failed`, `cancelled`, or `blocked`.
+- AA-only: solvation, neutralization, minimization, NVT, NPT equilibration, NPT production, reference publication.
+- CG: AA reference, trajectory mapping, CG parameterization (`ff_inter` when it fits, `use_parameterization.sh`
+  when it consumes), CG simulation, CG assessment (`ff_assess`), SASA.
+- pdc: Protein preparation (PDB2PQR rebuild, `prepare_protein`, off by default), System preparation, Energy
+  minimisation, NVT, NPT, CG assessment MD (production only; it reads `../4_npt/`), Micelle assessment, CG extension
+  MD, Final assessment, Back-mapping (a toggle). `pdc.LEGS` names each leg's mdp and `pdc.stage_by_name` names a
+  stage, so no caller counts them.
+- Every stage records start/end, command, environment, inputs, outputs, exit code and log path. A stage with nothing
+  to do records `skipped` (exit 4) with its reason in `skip.json` and the run carries on. Runs end `complete`,
+  `failed`, `cancelled` or `blocked`.
+- Only `1_system/prepare_system.sh` and the three equilibration legs are filled at prepare time
+  (`pdc.GENERATED_STAGES`); every other stage file is `pdc_...` and copied.
+
+## Facts that change what you build
+- **Every AA-CG run fits its own bonded parameters** (`cg.AA_CG_PROFILE`; stage 3 is `CG parameterization`) unless
+  its mapping carries a current revision, which it then consumes and says so in its own artefact. A parameterization
+  belongs to the mapping, revisions are keyed by content hash and one is current (`make current`). Producing one is
+  `POST /api/bonded-parameterizations` -- engines `reference-informed`, `fast-forward`, `bartender` restricted to
+  `-refit -owntraj` -- and makes no MD. Deleting a saved mapping deletes its parameterizations only when no other
+  saved mapping carries the same content hash.
+- `snapshots` runs for every run with a trajectory, and `queue_defaults` asks one resolver
+  (`coordinator.automatic_analyses`), so `aa_cg` also owes `dihedral-fit` and `bonded-cross-check`. Frames resolve
+  through the run's own layout (`07_reference/` for AA-only, `4_CG_sim/` for a CG consumer).
+- `GET /api/jobs/<id>/structure?path=<run-relative .gro>` writes the run's own bonds and constraints as CONECT and
+  refuses a `.pdb`. A file carrying `CONECT` is never distance-guessed; a coarse-grained file is `inferBonds: 'none'`.
+  Bead size and family colouring come from one table in `ngl-beads.js`, legend included.
+- A pdc belt is a **torus** when the protein states a membrane (`pdc_placement._belt_torus`; `radius_nm` is then a
+  floor under the measured centre-line) and a fixed-radius **sphere** when it does not. Secondary structure is
+  martinize2's `-dssp` answered by mdtraj (`pdc_build.SS_SOURCE`), with MDAnalysis DSSP as the recorded fallback.
+- The osmotic run type is one run owning N concentrations (`settings.molalities`, sugars only, own checkpoint per
+  concentration, `series_on_failure` `carry_on` or `stop`); `osmotic_molality` is not a setting any more.
+- Panels: `Run view` (both workspaces; two side-by-side monitors paired in time), `CG Bond Interactions`,
+  protein-detergent `New run` (live placement preview, `prepare_protein`), `Osmotic Series`, Mapping Validation, and
+  CG Bead Assignment (one 3D diagram; the server's RDKit depiction stays for the export bundle). The bonded panel
+  draws the selected candidate's own molecule, never the packaged reference.
+- Carbohydrate validation is an immutable analysis on a completed source run. Checked-in targets are citation
+  metadata until molecule-specific measurements arrive, and a `setup` analysis proves execution, never validity.
+
+## Engineering rules
+- Test against fixtures, never the developer's workspace; build the record through the route the UI uses.
+- Trace inputs, state transitions, outputs and failure handling before editing.
+- Keep force-field and tool versions and exact commands in run metadata; never silently overwrite a run.
+- Validate uploaded structures, detergent definitions, resource limits and paths at trust boundaries.
+- Stages are resumable, idempotent, cancellable and safe to run concurrently.
+- Simulation outputs are immutable; analyses reference their source trajectory.
+- GROMACS + Martini by default; anything else only with measured need.
+- Test command construction, stage transitions, failure recovery and analysis parsing without long simulations.
 
 ## Do not
-- Exercise a destructive control against the live workspace to see what it does. Point at a fixture, or inspect what the client would send. Two saved mapping candidates were destroyed by clicking Delete against real data.
-- Treat notebooks as production orchestration without extracting + testing behavior.
-- Assume every available detergent has Martini parameters.
-- Delete simulation data during cleanup unless the user explicitly asks.
-- Signal stored PIDs from a previous coordinator session; only the current worker owns its subprocess groups.
-- Promote a completed diagnostic analysis to scientific validation. Completion proves execution, not model validity.
+- Exercise a destructive control against the live workspace. Point it at a fixture, or inspect what the client sends.
+- Delete simulation data, or rebuild a file to stand in for a lost record.
+- Signal a PID from a previous coordinator session; only the current worker owns its subprocess groups.
+- Treat a notebook as production orchestration, or a completed diagnostic as scientific validation.
+- Assume a detergent has Martini parameters because it is available.
 
-## Carbohydrate validation hand-off
-Operations note holds the full Sucrose procedure, target IDs, report locations, paper-scale evidence requirements. Stable workflow:
-1. Restart dashboard after adding a molecule or changing route/catalogue code (process loads endpoints at start).
-2. **CG Bead Assignment**: generate + save a molecule-scoped candidate; keep its provenance + limitations.
-3. **Single Molecule Simulations**: launch the saved mapping with the `draft-smoke` profile; wait for AA source + CG consumer.
-4. Queue a validation attempt against the completed source run: `POST /api/jobs/<run-id>/carbohydrate-validation`, supported representation, cited target dataset, `Setup check` first. The dashboard controls that offered this were removed; analysis, queue route, report endpoints remain.
-5. Open figures via the run artifact route `/api/jobs/<run-id>/artifacts/<relative-path>?inline=1`. Use the path `/api/jobs/<run-id>/artifacts` returned; never build a URL from a filesystem path.
-Sucrose diagnostic records in the operations note = preserved examples, not a substitute for a fresh run after changing inputs or code.
-
-## Standing decisions, not to be re-litigated
-- CG production 20 fs; AA half 2 fs; `cg.mdp_integration` is the one place deciding it.
-- CG **equilibration** 5 fs (user's decision, 2026-10-05).
-- Published M3-Lipid set = project standard source, recorded per run; stays **untracked**.
-- GLYCAM06 dropped (user's decision).
-- Internal consistency = primary evidence; the reference's own numbers = context, not a pass mark.
-- A mapping-consistency panel reads the published artifact and never recomputes it.
-- Do not delete simulation data during cleanup.
-- A mapping states its own ring scale (1.15 default, or the recogniser's value); the guard is a range, not a constant.
-- Ring scale is **closed against**: not what breaks the DDM run; spend no further arm on it.
-- **Fitted linkage values are not a diagnosis.** Length shared with maltose, stiffness exceeded by two stable molecules, values reproducible by resampling a stable one. Spend no further arm on the link's parameters.
-- Phase 4 (sucrose + maltose experimental sources) deferred by the user, not abandoned.
-- `-improperIncrement 10` goes to every BARTENDER fit, so that term's values will not match anything fitted before `4fc2513` wherever a linkage dihedral is written as an improper. Accepted price of a fit that returns at all.
-- **The scheduled cron drivers are cancelled (2026-10-15).** Do not create a schedule and do not rebuild the drivers; what they were serving is in `docs/HANDOFF.md`, written off or left for manual action.
-- **Every AA-CG run fits its own bonded parameters; a CG run consuming a parameterized model does not fit.** `bonded_intent` and `bonded_state_id` left the run contract (`b56cddb`): the run type decides, so the panel asks nothing about it.
-- **A parameterization belongs to the mapping and the bonded states are its revisions** -- one current revision, chosen with `make current`, which is how a run picks one. Deleting a saved mapping deletes its parameterizations **unless another saved mapping still carries the same content hash** (`mapping_content_hash`): two drafts can share content, and a name is not an identity.
-- **An AA-CG run's default analyses are `dihedral-fit` and `bonded-cross-check`**, queued with the run through `automatic_analyses`. `bartender-fit`'s declared `1_AA-reference/prod/...` paths resolve through `reads_aa_reference` against the paired AA run (`stages/07_reference/`), so they are relative to the reference, not to the run being analysed.
-- **The mapping refinement panel is cancelled (2026-10-15).** The human review gate made the workflow more complicated than the decision it supported. The routes and the `refinement-score` analysis that already existed stay; no panel is built, and the roadmap section for it is withdrawn.
-
-## Environment gotchas that cost time
-- A running dashboard is two caches: Python routes/models frozen at process start; `static/` + templates re-read per request. Restart after a Python change; hard-reload after a JS change; a job queued before a fix runs old code. Exception: a *stage script* and a *template* are read at prepare time, so an edit reaches the next run with no restart (verified on arm C and the 5 fs equilibration).
-- GROMACS here = MPI-only build (`gmx_mpi`): `-ntmpi` invalid, `-ntomp` is the knob. In use: `/usr/local/gromacs/2026.3/bin/gmx`.
-- An analysis subprocess gets a *work* directory whose files sit at the execution root, not under `stages/`; `analysis/runs/layout.py` resolves both spellings. A reader spelling only `stages/...` sees a complete run as empty.
-- A mapping candidate's `molecule_snapshot` is a *file* record (`files`, `atom_order_sha256`), not a molecule record: no id for `CGNames` to resolve.
-- A hydroxyl oxygen has TWO neighbours once its hydrogen counts. Any check saying otherwise undercounts every sugar fragment; cost a wrong diagnosis twice.
-- Relative + absolute paths both matter: the fast tier runs from the repository root with `dashboard/.venv/bin/python`.
-- `/api/jobs` pages at 20 (limit capped 100), newest first, and takes `?run_type=` (validated against `protocol.RUN_TYPES`); the Run view and Osmotic panels read their scope that way rather than narrowing a page in the browser. Anything filtering the job list (panel, driver, script) must pass `?limit=`. Never print that endpoint to a terminal: the full record shape carries `analyses[].outputs`, so the whole list runs to megabytes.
-- **The osmotic run type is one run owning N concentrations**, listed in `settings.molalities` and gated to sugars; each concentration gets its own directory and its own checkpoint (resumed with `gmx mdrun -cpi`), and `series_on_failure` is `carry_on` or `stop`. The old one-concentration shape (`osmotic_molality`) is removed from the vocabulary, so it cannot be rebuilt by accident.
-- A pdc run that asks for `prepare_protein` refuses **by name** when `pdb2pqr` is not resolvable, but `pdc.readiness` reports it as a **check**, not a blocker: a run that does not ask for the step needs nothing there.
-- A run's `md.log` may be empty when it died violently; LINCS warnings + the segfault are in `logs/<stage>.log`; frame-by-frame evidence in the stage's `md.edr` (`gmx energy`). A long production's progress is in `stages/06_production/run.log`, and its step lines need `tr '\r' '\n'` before `grep` sees them.
-- The surfaces analysis publishes a self-contained ~7 MB HTML. Serve via `/api/jobs/<id>/artifacts/<run-relative-path>?inline=1` -- the route sets a sandboxed CSP on `.html` permitting inline scripts + eval, which the Plotly scene needs. Build the URL from the path the API returned, never from a filesystem path.
-- **Measure with the right instrument before believing a finding.** Three grep/AST checks in one session gave three false findings: `\|` is a literal pipe in ERE (alternation search matched nothing); an AST scan counting only `ast.Assert` reported `unittest`'s `self.assert*` tests as assertion-free; a "prose assertion" search matched `assert cond, "message"` -- the message, not the comparison. Also `ps -eo ... -p <pid>` lists EVERY process, because `-e` wins. And `find ... | head -3` hides a real hit: a present file read as absent that way.
-- **A tool probe measures the tool, not whoever started the dashboard.** `environment()` inherits the caller's `PYTHONPATH`/`PYTHONHOME` unless they are dropped; an agent runtime that sets them makes `ff_inter` import a foreign `PIL` (`ImportError: cannot import name '_imaging'`) and readiness reports the tool as not ready while `ff_inter --help` exits 0 from a plain shell. `probe_command()` drops both and hands a python console script to `sys.executable` rather than trusting a shebang that names an absolute interpreter a moved venv no longer has.
-- GitNexus needs a bigger buffer pool to index this repo: `GITNEXUS_LBUG_BUFFER_POOL_SIZE=4294967296 npx -y gitnexus@latest analyze --index-only`. Without it: `The LadybugDB buffer pool (256 MiB) was exhausted`. Index in `.gitnexus/` (gitignored).
+## Standing decisions
+- CG production 20 fs, CG equilibration 5 fs, AA half 2 fs. `cg.mdp_integration` stamps the AA half's `dt`; the CG
+  timestep is the templates' own (`4_CG_sim/inputs/md.mdp` 0.02, `eq.mdp` 0.005), read back per file.
+- This GROMACS is an MPI-only build: `-ntomp` is the knob, `-ntmpi` is invalid. In use:
+  `/usr/local/gromacs/2026.3/bin/gmx`.
+- Internal consistency is the primary evidence; the reference's own numbers are context, not a pass mark.
+- A mapping states its own ring scale and the guard is a range, not a constant. Ring scale is closed against as the
+  cause of the DDM failure, and fitted linkage values are not a diagnosis -- spend no further arm on either.
+- The published M3-Lipid set is the standard source, recorded per run, and stays untracked. GLYCAM06 is dropped.
+- The scheduled cron drivers and the mapping-refinement panel are cancelled; do not rebuild either.
+- `-improperIncrement 10` goes to every BARTENDER fit, so impropers fitted since are not comparable with earlier ones.
+- Phase 4 (sucrose and maltose experimental sources) is deferred, not abandoned.
 
 ## Verify
 ```
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q     # fast tier: 1,787, ~26 s
-dashboard/.venv/bin/python -m pytest -m browser -q -n 6                   # browser tier: 218, ~2 min
-dashboard/.venv/bin/python -m pytest -m slow -q -n 0                      # slow tier: 60+; the five files that moved onto it are 53
-dashboard/.venv/bin/ruff check dashboard tests                            # gate: F, E9, I must exit 0
-scripts/gate_commit.sh <message-file> <paths...>                          # fast tier + ruff on the named paths; stages only those; commits only when both are clean
-dashboard/.venv/bin/python scripts/mutation_check.py                      # 11 mutants over analysis/ + adapters: 10 caught, 1 survived (the control)
+dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast: 1,792, ~18 s with a private MPLCONFIGDIR
+dashboard/.venv/bin/python -m pytest -m browser -q -n 24 --dist worksteal   # browser: 223, ~37 s
+dashboard/.venv/bin/python -m pytest -m slow -q -n 0                       # slow: 66, ~64 s serial
+dashboard/.venv/bin/ruff check dashboard tests                             # F, E9, I must exit 0
+scripts/gate_commit.sh <message-file> <paths...>                           # fast tier + ruff over named paths; commits only when clean
+dashboard/.venv/bin/python scripts/mutation_check.py                       # 11 mutants: 10 caught, 1 survived (the control)
 ```
-Suite = 2,065 tests (1,787 fast + 218 browser + 60 slow), measured 2026-10-16 after the panel slice landed and
-the five subprocess-shaped files (the osmotic runner/series/protocol/stop tests and the cold+warm preview) moved
-onto the slow marker -- which took the fast tier from 35.8 s to ~26 s. The browser tier runs at `-n 6`; the fast
-tier at `-n 8` (pytest.ini's `addopts`). A flake is recorded rather than absorbed:
-`test_run_view_browser.py::test_a_cg_run_colours_its_beads_by_family_and_only_then_shows_the_legend` fails
-intermittently at `-n 6` and passes serially (21 passed in that file, `-n 0`).
-Repo-wide `ruff check .` exits 1 on the 19 pre-existing `micelle/` findings, unchanged.
+The suite is 2,081 tests (1,792 + 223 + 66). A shared matplotlib config directory makes four distance-diagnostic
+tests race, so export a private `MPLCONFIGDIR` before running the tier, gate included. Repo-wide `ruff check .` exits
+1 on 19 pre-existing `micelle/` findings; scope lint to the paths you touched.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

@@ -3,27 +3,79 @@
 State, measurements and open items for this repository. `AGENTS.md` holds the rules; this holds the record they were
 derived from. Read it before starting work on the DDM CG chain or the coordinator.
 
-## Landed 2026-10-16, later: the panel, the reviews, and what four reviewers found
+## Landed 2026-10-20: the in-flight lazy-Plotly slice, the waits that pinned files, and a fact-check
+
+**Two slices a killed session (14:07 today) left uncommitted are landed and green.** `67411ac` takes the 4.8 MB
+Plotly bundle out of every page load: `dashboard.html` publishes the route's URL in a `<meta name="plotly-src">`,
+`web/static/js/plotly-loader.js` fetches it on demand behind one shared promise (an element in the document is the
+record two module copies share; a failed load removes its element so a retry is not a wait on a dead script), and
+both drawing panels await it. As handed over it was broken -- `mapping-validation.js` used `drawGeneration` with no
+declaration, so the comparison panel threw a `ReferenceError` and 11 browser tests timed out. The slice also carries
+a defect found while proving the click wiring: Plotly's first plot re-initialises the div's event emitter, so a
+`plotly_click` listener added before `react` is dropped, and bead selection was dead in that window.
+
+`e625716` rewrites the Run view's browser waits around a per-*draw* discriminator (`mark_stage` + `fresh=True`). A
+per-file caption wait cannot tell a re-draw of the same file from the render already up, and `mapped.gro` and
+`LIG1.pdb` are both eight-bead files. A temporary probe showed both old predicates true before the click, the new
+wait timing out without one and satisfied in 0.32 s with one.
+
+**Measured on the tree after all three commits:** fast tier 1,792 passed in 17.75 s (1,787 in 19.2 s before the
+readiness slice); browser 223 passed in 37.07 s at `-n 24 --dist worksteal`; slow 66 passed in 64.4 s serial; 2,081
+collected; `ruff check dashboard tests` clean; the four affected browser files 49 passed serially.
+`scripts/gate_commit.sh` carried all three commits.
+
+**Then the readiness probe, `393c66f`.** `probe_tool` was `@lru_cache(maxsize=8)` on the path string, so its answer
+belonged to the process -- the one thing this file's own open item forbade, and worse than what it asked for: a tool
+repaired under a running dashboard kept its first verdict until a restart. The cache is now keyed on the file,
+`(str(path), st_mtime_ns, st_size)`, with a path that does not stat deliberately not remembered. `cg.readiness`
+probes `gmx`, `ff_inter` and `ff_assess` through a thread pool and keeps `pool.map`'s order, so the checks list is
+byte-identical while the wait is the slowest tool rather than their sum. The two readiness integration tests inject
+the probe in every module that bound the name, and exactly one test still asks the real environment end to end.
+Measured: `cg.readiness` 2.02 s cold and 0.01 s warm against ~5 s; three probes 4.8-5.1 s sequential against
+1.9-2.0 s concurrent; those two tests 5.27 s and 3.79 s against 0.02 s each; `-k readiness` 11.4 s against 6.76 s;
+the fast tier 1,792 in 17.75 s with five new tests; the live route 2.18 s on a freshly started process.
+`pdc.readiness` keeps its sequential probes (1.83 s cold, a smaller payoff) and inherits only the cache.
+
+**The fact-check that preceded them corrected five statements, three of which `AGENTS.md` now states correctly.**
+The suite is 2,081 = 1,792 + 223 + 66, not the 2,065 = 1,787 + 218 + 60 this file gave; the slow tier's count was
+never "60+", it is 66. `pdc.GENERATED_STAGES` holds four entries, and `0_prepare/pdc_prepare.sh` is copied like the
+other `pdc_*` scripts rather than filled at prepare time. `cg.mdp_integration` stamps `dt` on the atomistic half
+only; the CG timestep is the templates' own `dt` (`md.mdp` 0.02, `eq.mdp` 0.005), read back per file by `prepare`,
+and a unit test pins `'dt' not in mdp_integration(cg_dir, ...)`. The retired-key comment and the cleanup fixtures
+were closed by `89e3e2c`, not `4748261`. The coordinator paragraph further down named a pid and a log that no longer
+exist: nothing is running and port 5000 refuses connections (started again 2026-10-20 14:49 as pid 3945138).
+
+**Not reproduced.** The browser flake this file has carried since 2026-10-16 ran green twelve times (six at `-n 6`,
+six at `-n 24 --dist worksteal`) after `e625716` rewrote its waits. One new intermittent was seen once and not
+since: `test_the_across_molecules_card_refuses_to_call_different_edges_a_spread` failed 1 of 4 combined runs,
+reporting `pairs_match: true` for edges that differ; neither `acrossTable` nor the transferability route is touched
+by these slices.
+
+## Landed 2026-10-16 → 2026-10-20: the panel, the reviews, and what four reviewers found
 
 ### Open items, with what to do next
 
-1. **A browser-tier flake.** `tests/dashboard/browser/test_run_view_browser.py::test_a_cg_run_colours_its_beads_by_family_and_only_then_shows_the_legend`
-   fails intermittently at `-n 6` and passes at `-n 0` (21 passed in that file). Next: run that file with its two
-   neighbours at `-n 6` and find the shared state or the fixed wait -- do not silence it.
-2. **An unexplained fast-tier intermittency.** One run of `-m "not browser and not slow"` reported 4 failures; three
-   later runs reported 0, and the 5-failure run before it was a marker inserted inside an embedded helper script
-   (fixed). Next: run the tier with `--lf` after a failing run, or with `-p no:cacheprovider` and a fixed order, and
-   record which tests -- a count that moves without a named test is not a diagnosis.
-3. **The readiness probe's cost.** `test_readiness_*` are the tier's slowest single tests because they probe
-   `ff_inter`/`ff_assess`/`gmx` per call; the same probe is why a live readiness request sits at "Checking
-   requirements..." for ~10 s. Next: inject the probe in those tests and keep exactly one that asks the real
-   environment (the skill's rule), then either run the three probes concurrently or cache on the resolved path's
-   mtime and size -- never for the life of the process.
-4. **The fixed panel diff has not been re-reviewed.** The skill's loop is review, fix, review again; `4748261`
-   carries the fixes and no second review. Next: re-run the spec review over the panel files in that commit.
-5. **`pytest-socket` is not installed.** The suite makes no outbound HTTPS (measured), and nothing enforces it. Next:
+1. **The readiness probe's cost and its cache -- closed 2026-10-20 (`393c66f`).** `environment.probe_tool` was
+   `@lru_cache(maxsize=8)` on the path string, a cache for the life of the process, which is the one thing this item
+   forbade. It is now keyed on the executable's `(str(path), st_mtime_ns, st_size)` -- an unchanged tool answers from
+   the cache, a repaired one is measured again, an absent one is not remembered -- and `cg.readiness` probes its three
+   tools concurrently, so the checks keep their order while the wait is the slowest of them. The two readiness
+   integration tests inject the probe and exactly one still asks the real environment. Left undone, deliberately:
+   `pdc.readiness`'s three probes stay sequential (1.83 s cold) and only inherit the cache, and four other readiness
+   tests still spawn real probes (1.65-2.40 s each) when one of them is next touched.
+2. **`pytest-socket` is not installed.** The suite makes no outbound HTTPS (measured), and nothing enforces it. Next:
    add it with `--allow-hosts=127.0.0.1,localhost` so a future fetch fails in the test rather than in someone's CI.
-6. **The slow tier's whole count is unmeasured** (`60+`; the five files that moved onto it are 53 of it).
+3. **The fixed panel diff has not been re-reviewed.** The skill's loop is review, fix, review again; `4748261`
+   carries the four reviewers' fixes and no second review. Next: re-run the spec review over the panel files in that
+   commit.
+4. **The tier-level fast-tier intermittency.** One run once reported 4 failures; five runs on 2026-10-20 reported 0,
+   two of them without a private `MPLCONFIGDIR`. Next: capture a failing run with `-p no:cacheprovider` and a fixed
+   order -- a count that moves without a named test is not a diagnosis.
+5. **A new, once-seen card intermittency.** `test_the_across_molecules_card_refuses_to_call_different_edges_a_spread`
+   failed 1 of 4 combined browser runs on 2026-10-20, reporting `pairs_match: true` for `1B-1C`/`1A-1C`. If the route
+   answers that, it is a defect in the card's reading rather than a flake. Next: stub the card's route to replay the
+   payload and read `pairs_match` off it.
+6. **The slow tier** was "60+ unmeasured"; it is measured now -- 66 tests, 64.4 s serial, and 2,081 in the suite.
 
 **CG Bond Interactions now produces a parameterization, New Run shows which one a run will use, and deleting a
 mapping takes its bond interactions with it.** `89e3e2c` carried the six routes, the panel (model card, Fit, job box
@@ -305,7 +357,12 @@ queue was never queued, and that item is written off below.
 ## The coordinator
 `http://127.0.0.1:5000`, concurrency 2 (`config/dashboard.json`), restarted for each Python change. Measured from `workspace/dashboard/jobs.sqlite3` on 2026-10-15: **8 jobs, all completed** (6 `aa_only`, 2 `aa_cg`) and **5 saved mapping candidates** -- the sixth was the stray head-only candidate, deleted through `DELETE /api/mappings/drafts/<name>` on 2026-10-15 with a byte-exact copy of it kept at `~/.hermes/profiles/moldym/cache/scratch/mapping_candidate_d17dac35a91a40ada85301877e70a7d1.json` (sha256 `4fdb9c92…`, the file's own). (The figure this section carried earlier — 38 jobs, 13 completed — described a workspace that no longer exists.)
 
-**The process, measured 2026-10-15 16:40: pid 280798, started 2026-10-14 18:27, `PPID` 1 (the shell that launched it is gone), cwd the repository root, and it logs to `/home/wee/.hermes/profiles/moldym/cache/scratch/dashboard-1827.log`.** It is serving code whose every file predates it (the newest is `pdc_preparation.py` at 18:19, the process at 18:27), so no restart is owed. The path this section used to name, `…/scratch/coordinator-run.log`, is a stale file from an earlier process -- it stops at 2026-10-13 13:04 -- and a reader who tails it concludes the dashboard is dead.
+**That process is gone, measured 2026-10-20: pid 280798 no longer exists, `http://127.0.0.1:5000` refuses
+connections, and `…/scratch/dashboard-1827.log` therefore stops where the process did.** The paragraph this replaces
+described it as serving code whose every file predated it, so no restart was owed; that is history now. A reader
+opening this section should start the coordinator rather than assume one. The path this section used to name,
+`…/scratch/coordinator-run.log`, is a stale file from an earlier process -- it stops at 2026-10-13 13:04 -- and a
+reader who tails it concludes the dashboard is dead.
 
 **Most of that list no longer exists, and saying so is the point of this paragraph.** Measured on 2026-10-15 with `find workspace/dashboard/runs -name "*<id>*"` and a query against `jobs.sqlite3`: the runs that survive are the eight the store still holds -- the four E3 runs (`a2a457cf9413`, `22075892b606`, plus the two AA references `a54ac8f64710`, `0bfa1a39ef76`), the two earlier sucrose runs (`13ba0a087fad`, `03875cf39790`), the second AA reference (`38f54e67f13d`), and `dbc366ae772b` (the 200 ns DDM reference). Gone from both the store and the disk: `2321ee23a536`, `8a73fe6448f2` (the pdc run that completed end to end), every one of the six DDM arms (`860eb013a82c`, `e08dc53410f9`, `6404c3951674`, `207ff34ce8bc`, `5bb303eb9ff5`, `c48c50265874`), and `1322f9e0782e` -- the BARTENDER run whose fitted link is quoted throughout the arms section above. Their numbers remain evidence about what the old code did; their directories do not exist to re-read, and a lost record has no substitute, so do not go looking for them in a later session and do not rebuild a file at the same path to stand in for one.
 

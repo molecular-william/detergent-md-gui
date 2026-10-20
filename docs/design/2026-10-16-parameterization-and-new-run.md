@@ -190,12 +190,11 @@ the retention fixtures key on what the cleanup reads).
 
 ## API
 
-**What remains after this slice.** The backend is built and tested; the panel is not. Next: the model card,
-job box, result and revision strip in CG Bond Interactions, and `02 · CG MODEL` on the New Run panel, both
-against the API below. Two review findings from the refactor are still open and are not this slice's:
-`models/bonded/states.py:156` needs one line saying why it reads two retired keys, and the fixtures in
-`test_temporary_validation_cleanup.py` still key on the removed field, so the retention grouping the cleanup
-rests on is untested.
+**What remains after this slice.** Nothing: the panel landed in `89e3e2c` (model card, fit job and cancel, result
+card, `source` column, revision strip), and `02 · CG MODEL` on New Run shows which parameterization a run will use.
+`4748261` carries the four reviewers' fixes. The two review findings named here were closed in `89e3e2c`:
+`models/bonded/states.py:156` carries the line saying why it reads two retired keys, and the fixtures in
+`test_temporary_validation_cleanup.py` key on what the cleanup reads.
 
 **Status: built and tested.** `dashboard/models/bonded/parameterization.py` (the revision store),
 `dashboard/models/bonded/fitting.py` (the job), `dashboard/execution/scripts/use_parameterization.{sh,py}` (stage 3
