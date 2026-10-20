@@ -6,7 +6,6 @@ specific data lives here so that any-molecule workflows can reuse them.
 import os
 import subprocess
 import sys
-from functools import lru_cache
 from pathlib import Path
 
 from .. import paths
@@ -118,17 +117,66 @@ def failure_detail(proc):
     return f'exited {proc.returncode}: {error}' if error else f'exited {proc.returncode} with no output'
 
 
-@lru_cache(maxsize=8)
+#: How many executable identities one process remembers. A readiness answer is cheap to take again
+#: and expensive to hold wrongly; 32 is more tools than any workflow resolves, so a clear at the
+#: bound -- rather than evicting the oldest -- can only cost a re-probe.
+PROBE_CACHE_LIMIT = 32
+
+#: `(str(path), st_mtime_ns, st_size)` -> `(ready, detail)`.
+PROBE_ANSWERS = {}
+
+
+def clear_probe_cache():
+    """Forget every remembered probe answer.
+
+    Tests build executables and rewrite them; an operator who has just repaired a tool may want the
+    next readiness request to say nothing about the one they replaced.
+    """
+    PROBE_ANSWERS.clear()
+
+
+def probe_identity(executable):
+    """The identity of the file a probe would run: its path, its mtime and its size.
+
+    `None` when the path does not stat, which is the point: an absence is a fact about this moment,
+    and a tool installed a minute later must be measured rather than answered from it.
+    """
+    try:
+        status = os.stat(executable)
+    except OSError:
+        return None
+    return str(executable), status.st_mtime_ns, status.st_size
+
+
 def probe_tool(executable):
+    """`(ready, detail)` for an executable, measured now and remembered against the file measured.
+
+    Not `lru_cache` on the path string, which is what this was: that answer belonged to the
+    *process*, so a tool repaired, upgraded or swapped under a running dashboard kept the verdict
+    from its first probe until somebody restarted it -- and readiness is exactly the answer a user
+    goes to after changing something. Measured 2026-10-20: one cold probe of `gmx -h` is 0.9-1.3 s
+    and an unchanged executable answered from here is 0.00 s, so the identity key is what makes the
+    second affordable without the first being a lie.
+
+    A concurrent caller may measure the same unchanged file twice; both write the same answer.
+    """
+    identity = probe_identity(executable)
+    if identity is not None and identity in PROBE_ANSWERS:
+        return PROBE_ANSWERS[identity]
     try:
         proc = subprocess.run(
             probe_command(executable),
             env=environment(), capture_output=True, text=True, timeout=30,
         )
-        return proc.returncode == 0, ('Executable and imports checked' if proc.returncode == 0
-                                       else failure_detail(proc))
+        answer = (proc.returncode == 0, ('Executable and imports checked' if proc.returncode == 0
+                                         else failure_detail(proc)))
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return False, str(exc)
+        answer = (False, str(exc))
+    if identity is not None:
+        if len(PROBE_ANSWERS) >= PROBE_CACHE_LIMIT:
+            PROBE_ANSWERS.clear()
+        PROBE_ANSWERS[identity] = answer
+    return answer
 
 
 def update_mdp(path, changes):

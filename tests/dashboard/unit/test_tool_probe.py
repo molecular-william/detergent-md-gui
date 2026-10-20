@@ -26,13 +26,30 @@ import pytest
 
 from dashboard.execution import environment as environment_module
 
+#: A timestamp every case below sets explicitly, so a rewrite is a *different* file by mtime
+#: rather than by however fast the test happened to run.
+PROBED_AT = 1_700_000_000_000_000_000
+
 
 @pytest.fixture(autouse=True)
 def fresh_probe_answers():
-    """`probe_tool` is memoised for the process; each case here builds a new executable."""
-    environment_module.probe_tool.cache_clear()
+    """The answers are remembered against each executable's own identity; each case builds new ones."""
+    environment_module.clear_probe_cache()
     yield
-    environment_module.probe_tool.cache_clear()
+    environment_module.clear_probe_cache()
+
+
+def counting_probe_runs(monkeypatch):
+    """The subprocess calls the probe makes, so 'answered from the cache' is countable, not assumed."""
+    calls = []
+    real_run = environment_module.subprocess.run
+
+    def counted(*args, **kwargs):
+        calls.append(list(args[0]) if args else kwargs.get('args'))
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr(environment_module.subprocess, 'run', counted)
+    return calls
 
 
 def executable_file(directory, name, text):
@@ -166,5 +183,72 @@ def test_the_probe_runs_the_script_it_was_given(tmp_path):
     assert os.access(script, os.X_OK)
     ready, _ = environment_module.probe_tool(str(script))
     assert ready is True
-    assert environment_module.probe_tool(str(script))[0] is True  # memoised, same answer
+    assert environment_module.probe_tool(str(script))[0] is True  # the same file, so the same answer
     assert sys.executable  # the interpreter the probe substitutes is a real path
+
+
+def test_a_probe_answers_about_the_file_it_measured_not_about_the_process(tmp_path, monkeypatch):
+    """A tool repaired, upgraded or swapped under a running dashboard is measured again.
+
+    The probe used to be an `lru_cache` keyed on the path string, for the life of the process: the
+    first answer for `.../bin/ff_assess` stood until a restart, so readiness kept reporting a tool
+    that had been fixed an hour ago as broken -- and readiness is exactly the answer a user goes to
+    after changing something. The key is now the file's own identity (path, mtime, size), so an
+    unchanged executable is not measured twice and a changed one always is.
+    """
+    script = executable_file(tmp_path, 'ff_inter', '#!/bin/sh\nexit 0\n')
+    os.utime(script, ns=(PROBED_AT, PROBED_AT))
+    runs = counting_probe_runs(monkeypatch)
+
+    assert environment_module.probe_tool(str(script)) == (True, 'Executable and imports checked')
+    assert len(runs) == 1
+
+    # The same bytes, the same mtime, the same size: the remembered answer, and no second subprocess.
+    assert environment_module.probe_tool(str(script)) == (True, 'Executable and imports checked')
+    assert len(runs) == 1, 'an unchanged executable must not be measured twice'
+
+    # Repaired: different behaviour, a later mtime and a different size.
+    script.write_text("#!/bin/sh\necho 'ImportError: still broken' >&2\nexit 1\n")
+    os.utime(script, ns=(PROBED_AT + 10**9, PROBED_AT + 10**9))
+    ready, detail = environment_module.probe_tool(str(script))
+    assert ready is False
+    assert detail == 'exited 1: ImportError: still broken', detail
+    assert len(runs) == 2, 'a changed executable must be measured again'
+
+
+def test_the_mtime_alone_is_enough_to_reprobe(tmp_path, monkeypatch):
+    """A file rewritten to the same length with the same behaviour still moves its mtime.
+
+    A rebuild that happens to produce byte-identical output is not a change worth a subprocess, but
+    a *replaced* file -- same name, same size, different inode -- is; both arrive here as a new
+    mtime, and neither is answered from an answer about the file that used to be at that path.
+    """
+    script = executable_file(tmp_path, 'ff_assess', '#!/bin/sh\nexit 0\n')
+    os.utime(script, ns=(PROBED_AT, PROBED_AT))
+    runs = counting_probe_runs(monkeypatch)
+
+    assert environment_module.probe_tool(str(script))[0] is True
+    os.utime(script, ns=(PROBED_AT + 1, PROBED_AT + 1))  # same size, one nanosecond later
+    assert environment_module.probe_tool(str(script))[0] is True
+    assert len(runs) == 2, 'the cached answer belonged to the file whose mtime was measured'
+
+
+def test_a_tool_installed_after_a_failed_probe_is_seen_without_a_restart(tmp_path):
+    """A path that does not stat is not cached: an absence now is not an answer about the process."""
+    target = tmp_path / 'ff_assess'
+    ready, detail = environment_module.probe_tool(str(target))
+    assert ready is False
+    assert str(target) in detail
+
+    executable_file(tmp_path, 'ff_assess', '#!/bin/sh\nexit 0\n')
+    assert environment_module.probe_tool(str(target))[0] is True
+
+
+def test_the_probe_cache_is_bounded(tmp_path):
+    """A dashboard runs for weeks; the answers may not grow with every path anybody probes."""
+    limit = environment_module.PROBE_CACHE_LIMIT
+    for index in range(limit + 2):
+        executable_file(tmp_path, f'tool-{index}', '#!/bin/sh\nexit 0\n')
+        assert environment_module.probe_tool(str(tmp_path / f'tool-{index}'))[0] is True
+    assert len(environment_module.PROBE_ANSWERS) <= limit
+

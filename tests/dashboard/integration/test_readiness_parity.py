@@ -11,9 +11,16 @@ pin the two answers together so the merge can move to the adapter without changi
 
 The assertions compare `ready` and the *set* of blockers, not the whole payload: the route decorates its answer with
 the molecule it inspected, which is a view concern the protocol has no reason to know about.
+
+Nothing here is a question about this machine's tools, and each case asks two readiness paths, so the probe is
+injected: a real probe is a subprocess importing a whole scientific stack (~4.9 s cold for the three a CG readiness
+asks about). The real environment end to end is asked once, in
+`tests/dashboard/integration/test_readiness_aa_cg_profile.py::test_the_readiness_route_asks_about_the_profile_the_run_type_runs_under`.
 """
 import pytest
 
+from dashboard.execution import environment
+from dashboard.execution.adapters import aa, cg
 from dashboard.execution.protocol import adapter_for
 
 # Each case is a run type and the query the readiness panel sends. The first two send no molecule at all, because
@@ -33,6 +40,24 @@ No `profile` key on purpose: the route passes no profile when the query names no
 its own default (`cg.AA_CG_PROFILE` for an AA-to-CG run). Putting `'standard'` here would be the page's old
 fallback written into the comparison, which is exactly the drift this file exists to catch.
 """
+
+
+@pytest.fixture(autouse=True)
+def injected_probe(monkeypatch):
+    """One probe answer, at every name a readiness path in this file reads.
+
+    `cg` and `aa` bound the name at import, so each has its own attribute; `pdc.readiness` imports
+    it inside the function, so it reads the one on the environment module. All three are patched,
+    because a case here compares two paths over the same run types and a subprocess on only one of
+    them would be both slow and a difference the comparison would have to explain.
+    """
+
+    def answer(executable):
+        return True, 'injected: this file compares two answers about the same tools'
+
+    monkeypatch.setattr(cg, 'probe_tool', answer)
+    monkeypatch.setattr(aa, 'probe_tool', answer)
+    monkeypatch.setattr(environment, 'probe_tool', answer)
 
 
 def essentials(answer):

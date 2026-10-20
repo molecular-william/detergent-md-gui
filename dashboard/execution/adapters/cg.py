@@ -11,6 +11,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
@@ -440,6 +441,35 @@ def tool_metadata():
     return result
 
 
+#: The tools a CG readiness checks, in the order its checks are written: the order a stage calls
+#: them in, which is what the panel shows and what a reader compares between two machines.
+READINESS_TOOLS = ('gmx', 'ff_inter', 'ff_assess')
+
+
+def _probe_tools(names):
+    """`(executable, ready, detail)` for each name, in the order named, measured at the same time.
+
+    One probe is a subprocess that imports a whole scientific stack: measured 2026-10-20, the three
+    a CG readiness asks about took 4.8-5.1 s one after another and 1.9-2.0 s together, and readiness
+    is asked of a route while somebody watches a "checking requirements" line. The wait is therefore
+    the slowest tool rather than the sum of them. `pool.map` keeps the order, which is what keeps
+    the checks list -- and so the panel -- reading `gmx`, `ff_inter`, `ff_assess`.
+    """
+    resolved = [(name, tools.tool_path(name)) for name in names]
+
+    def ask(resolved_tool):
+        executable = resolved_tool[1]
+        # A tool that does not resolve is an answer, not a skipped check: the same sentence a
+        # sequential probe gave, so a caller cannot tell which route produced it.
+        return probe_tool(executable) if executable else (False, 'Executable not found')
+
+    with ThreadPoolExecutor(max_workers=max(len(resolved), 1),
+                            thread_name_prefix='readiness-probe') as pool:
+        answers = list(pool.map(ask, resolved))
+    return [(executable, ready, detail)
+            for (_, executable), (ready, detail) in zip(resolved, answers)]
+
+
 def readiness(molecule_id, method, profile='standard', mapping_candidate=None, molecule_root=None):
     """Check AA inputs, CG tools, and mapping for any molecule id."""
     aa.validate_profile(profile)
@@ -468,9 +498,7 @@ def readiness(molecule_id, method, profile='standard', mapping_candidate=None, m
                    'path': str(FORCE_FIELD.relative_to(ROOT)),
                    'ready': (FORCE_FIELD / 'forcefield.itp').is_file(),
                    'detail': 'Copied into each run with checksums'})
-    for tool in ('gmx','ff_inter','ff_assess'):
-        executable = tools.tool_path(tool)
-        ok, detail = probe_tool(executable) if executable else (False, 'Executable not found')
+    for tool, (executable, ok, detail) in zip(READINESS_TOOLS, _probe_tools(READINESS_TOOLS)):
         checks.append({'label': tool, 'path': executable or tool, 'ready': ok, 'detail': detail})
     if profile in ('draft-smoke','draft-smoke-reference'):
         try:
