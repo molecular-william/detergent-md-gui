@@ -210,7 +210,7 @@ route it must add, the payload keys it sends, and the stored fields behind them.
 
 | route | body the panel sends | answer | model call behind it |
 | --- | --- | --- | --- |
-| `POST /api/bonded-parameterizations` | `mapping` (the saved candidate snapshot, required), `engine` (required), `aa_reference` (12-hex AA-only run id; required except for `reference-informed`), `options` (optional, the four keys below), `molecule_root`, `timeout` | `201` and the job record | `fitting.start(mapping, engine=…, aa_reference=…, options=…, molecule_root=…, timeout=…)` |
+| `POST /api/bonded-parameterizations` | `mapping` (the saved candidate snapshot, required), `engine` (required), `aa_reference` (12-hex AA-only run id; required — every engine left fits to an ensemble), `options` (optional, the four keys below), `molecule_root`, `timeout` | `201` and the job record | `fitting.start(mapping, engine=…, aa_reference=…, options=…, molecule_root=…, timeout=…)` |
 | `GET /api/bonded-parameterizations?content_hash=&mapping_hash=` | — | `{summary, revisions, jobs}` where `summary` is `view(record)` and `revisions` is the whole history; with no hash, `{records}` (every stored record) | `parameterization.one/view/records/matches`, `fitting.jobs` |
 | `GET /api/bonded-parameterizations/jobs?content_hash=` | — | `{jobs: [job record]}` newest first; the job box polls this while `status` is `queued` or `running` | `fitting.jobs(mapping=None, limit=…)` |
 | `POST /api/bonded-parameterizations/jobs/<job_id>/cancel` | — | the job record with `status: cancelled` | `fitting.cancel(job_id)` |
@@ -223,7 +223,9 @@ route it must add, the payload keys it sends, and the stored fields behind them.
 
 ### The fit job's request keys
 
-`engine` is one of `fast-forward`, `bartender`, `reference-informed`. `options` is any subset of
+`engine` is one of `fast-forward`, `bartender`. (A third, `reference-informed`, read the mapping alone and produced a
+revision nobody had fitted; it and its panel button were removed 2026-10-20. `bonded.generation` and
+`POST /api/bonded-states/automatic` remain — they build bonded states, not parameterizations.) `options` is any subset of
 `constraints_threshold` (kJ/mol/nm², default 10000 — Fast_Forward's own default; above it a fitted pair becomes a
 constraint), `temperature_k` (default 300), `torsion_model` (`legacy` | `circular-harmonic`, default: read off
 `mapping.bonded_options`, D4a) and `torsion_scale` (0.1–3, only with `circular-harmonic`). `aa_reference` may carry a

@@ -211,8 +211,10 @@ retired keys with nothing saying why (records written before D1), and the fixtur
 
 **Standing decisions taken with the owner.** A parameterization belongs to the mapping and the bonded states are its
 revisions, so a run consumes a model rather than a state id. Producing one is a job of the CG Bond Interactions panel
-and makes no MD, so it is not a run. The engines are the reference-informed draft, Fast-Forward, and BARTENDER
-restricted to `-refit -owntraj` against our own mapped trajectory. A model with no parameterization is fitted by the
+and makes no MD, so it is not a run. The engines are Fast-Forward and BARTENDER restricted to `-refit -owntraj` against
+our own mapped trajectory; the reference-free `reference-informed` engine and its "Generate reference-informed draft"
+button were removed on the owner's instruction (2026-10-20, `388b4b1`) because a revision nobody had fitted is not what
+the panel is for. A model with no parameterization is fitted by the
 run, which records that it did. The torsion model is a property of the mapping. `method: 'bartender'` remains a
 provenance label, not a pipeline: no stage invokes the tool.
 
