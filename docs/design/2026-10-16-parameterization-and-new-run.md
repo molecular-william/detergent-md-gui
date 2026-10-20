@@ -212,7 +212,8 @@ route it must add, the payload keys it sends, and the stored fields behind them.
 | --- | --- | --- | --- |
 | `POST /api/bonded-parameterizations` | `mapping` (the saved candidate snapshot, required), `engine` (required), `aa_reference` (12-hex AA-only run id; required — every engine left fits to an ensemble), `options` (optional, the four keys below), `molecule_root`, `timeout` | `201` and the job record | `fitting.start(mapping, engine=…, aa_reference=…, options=…, molecule_root=…, timeout=…)` |
 | `GET /api/bonded-parameterizations?content_hash=&mapping_hash=` | — | `{summary, revisions, jobs}` where `summary` is `view(record)` and `revisions` is the whole history; with no hash, `{records}` (every stored record) | `parameterization.one/view/records/matches`, `fitting.jobs` |
-| `GET /api/bonded-parameterizations/jobs?content_hash=` | — | `{jobs: [job record]}` newest first; the job box polls this while `status` is `queued` or `running` | `fitting.jobs(mapping=None, limit=…)` |
+| `GET /api/bonded-parameterizations/jobs?content_hash=` | — | `{jobs: [job record]}` newest first — a mapping's whole history | `fitting.jobs(content_hash=…)` |
+| `GET /api/bonded-parameterizations/jobs?job_id=` | — | `{jobs: [that job] or []}`; the job box polls **this** while `status` is `queued` or `running`, because the id is the job it queued while the hash is a different question about a mapping | `fitting.jobs(job_id=…)` |
 | `POST /api/bonded-parameterizations/jobs/<job_id>/cancel` | — | the job record with `status: cancelled` | `fitting.cancel(job_id)` |
 | `PATCH /api/bonded-parameterizations/<content_hash>` | `current` (a revision number), `confirm: true` | the record, with that revision current | `parameterization.make_current` |
 | `GET /api/bonded-parameterizations/engines` | — | `{engines: [{value, label, needs_reference}]}`, from `ENGINES`/`ENGINE_LABELS` | `parameterization.ENGINES`, `ENGINE_LABELS` |
@@ -240,6 +241,14 @@ way every other AA-reference consumer does.
 candidate identity is recorded on every revision as provenance. `workspace/parameterizations/work/<content
 hash>-<AA run id>/` holds the pair's mapped frames, engine output and checks; `.../jobs/<job_id>.json` and
 `<job_id>.log` hold the jobs.
+
+The content hash is `identity.candidate_identity`'s digest, and that function now hashes a number as its **value**:
+`1` and `1.0` are the same number. It has to, because the panel reads the mapping as JSON, hands it to JavaScript and
+posts it back, and JS has no integer type — a stored `1.0` returns as `1`. While the two spellings hashed differently,
+one mapping had two identities (the file's and the posted snapshot's) and a fit was filed under a digest no saved
+mapping addressed: the panel read "no parameterization" for a mapping it had just fitted, and its job poll, which asked
+by the mapping's hash, found no job and sat on `queued`. Reads fall back to `identity.legacy_content_identity` for
+records written before the change; nothing writes with it.
 
 **Revision** — every field a run and a reader needs, all set by the store or the job:
 `revision`, `created_at`, `mapping_hash`, `mapping_content_hash`, `engine`, `engine_command` (the invocation, when a

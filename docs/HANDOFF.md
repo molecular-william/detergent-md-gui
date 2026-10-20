@@ -64,6 +64,19 @@ route: it warns with the count that panel has already read, refuses while a fit 
 a saved mapping (a `composition:<id>` entry is not one), and after deleting re-reads the catalogue, selects the next
 mapping and says which -- or empties the panel when none is left.
 
+**A fit landed where the panel never looked, `6ba1d29`.** A fit from the CG Bond Interactions panel completed and
+stored a revision, and the panel said `no parameterization` with the job box stuck on `queued`. One cause: a
+candidate's content hash depended on how its numbers were spelled. The panel posts the mapping back through JavaScript,
+which writes a file's `1.0` as `1`, so `rings[].scale` gave the file one digest (`b860d11b…`) and the posted snapshot
+another (`10c31894…`); `fitting.start` keys the job and revision by the posted one, and everything that reads asks by
+the file's. Measured then: the file's hash answered `parameterized: False` and `{"jobs": []}`, the posted one answered
+revision 1 with 26 terms. `identity.candidate_identity` now hashes a number's value (`numbers_as_values`; `1.15` and
+booleans untouched; `canonical_sha256` deliberately not normalised), reads fall back to `legacy_content_identity`, and
+`fitting.work_dir` reuses a pair staged under the legacy digest. Second cause, fixed at the same time: the box polls
+`?job_id=` rather than the mapping's hash, because the id is the job it queued and the hash is a different question
+about a mapping. The orphan this left behind -- `records/3dbdd5fb….json`, written before the 18:38 re-fit -- is still
+there and addresses no current mapping: it is fit history, not data, and deleting it is a cleanup, not a repair.
+
 **One record in the workspace is an agent's, not the owner's.** `workspace/dashboard/mapping_drafts/` holds six
 candidates, and `mapping_candidate_3f6d922c2f4b416dadacca7bc6f2f4ca.json` -- named plainly `probe`, created
 2026-10-20 09:34 UTC, `schema_version` 2, `molecule_snapshot` null, provenance reduced to `paper_doi` and

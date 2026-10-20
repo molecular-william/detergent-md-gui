@@ -41,9 +41,22 @@ them.
 - **Every AA-CG run fits its own bonded parameters** (`cg.AA_CG_PROFILE`; stage 3 is `CG parameterization`) unless
   its mapping carries a current revision, which it then consumes and says so in its own artefact. A parameterization
   belongs to the mapping, revisions are keyed by content hash and one is current (`make current`). Producing one is
-  `POST /api/bonded-parameterizations` -- engines `reference-informed`, `fast-forward`, `bartender` restricted to
-  `-refit -owntraj` -- and makes no MD. Deleting a saved mapping deletes its parameterizations only when no other
-  saved mapping carries the same content hash.
+  `POST /api/bonded-parameterizations` -- engines `fast-forward` and `bartender`, the latter restricted to
+  `-refit -owntraj`; every engine fits to an AA ensemble, so `aa_reference` is required -- and makes no MD. Deleting a
+  saved mapping deletes its parameterizations (and the fit jobs and staged frames built for it) unless another saved
+  mapping carries the same content hash; both panels that can delete a mapping do it through that one route, and say
+  what went with it.
+- **A candidate's identity must not depend on how its numbers were spelled.** `identity.candidate_identity` hashes
+  `1` and `1.0` alike (`numbers_as_values`): a mapping is read as JSON, posted back by a browser, and JS has no int,
+  so a file's `1.0` returns as `1`. Hashing the spellings differently gave one mapping two content identities -- the
+  file's and the posted snapshot's -- and a fit was filed under a digest no saved mapping addressed: the panel showed
+  "no parameterization" and its job box sat on `queued`. Reads fall back to `legacy_content_identity` for records
+  written before that; only `candidate_identity` normalises, never `canonical_sha256` (file/snapshot/reference digests
+  are byte digests on purpose).
+- **`ff_inter` writes `funct 9`, not `funct 1`**: one `phi C mult` triplet per line, eight lines for one quadruple, so
+  eight lines are one dihedral with eight harmonics. A reader that assumes `funct 1` refuses the topology; one that
+  treats each line as a dihedral measures the same torsion eight times. `dihedral_fit.read_declared_dihedrals` merges
+  them and compares the whole curve; `bonded_terms` keeps the lines.
 - `snapshots` runs for every run with a trajectory, and `queue_defaults` asks one resolver
   (`coordinator.automatic_analyses`), so `aa_cg` also owes `dihedral-fit` and `bonded-cross-check`. Frames resolve
   through the run's own layout (`07_reference/` for AA-only, `4_CG_sim/` for a CG consumer).
@@ -58,7 +71,9 @@ them.
 - Panels: `Run view` (both workspaces; two side-by-side monitors paired in time), `CG Bond Interactions`,
   protein-detergent `New run` (live placement preview, `prepare_protein`), `Osmotic Series`, Mapping Validation, and
   CG Bead Assignment (one 3D diagram; the server's RDKit depiction stays for the export bundle). The bonded panel
-  draws the selected candidate's own molecule, never the packaged reference.
+  draws the selected candidate's own molecule, never the packaged reference; it deletes the selected mapping, and its
+  fit box names the four job steps with an elapsed time. A fit job is polled by `?job_id=`, never by the mapping's
+  hash: the hash is a mapping's history, the id is the job the panel queued.
 - Carbohydrate validation is an immutable analysis on a completed source run. Checked-in targets are citation
   metadata until molecule-specific measurements arrive, and a `setup` analysis proves execution, never validity.
 
