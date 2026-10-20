@@ -73,9 +73,11 @@ table rows and 0 term traces before, 26 after `bonded.js` gained `revisionAliase
 (`bonded-plot.TERM_STYLES`): bonds green solid, constraints a darker green and left on the bond they fix, angles amber,
 dihedrals green dashed at alpha 0.5, impropers slate dash-dot, virtual sites violet dotted with an open diamond drawn
 for the bead itself (a solid circle reads as an atom the model lacks) and a star from the site to each parent, since the
-term names the site alone and the parents live on the mapping's bead record. The kinds whose geometry is collinear with
-a bond are stepped off it by 1.8% of the molecule's diagonal (0.035 nm on the 1.95 nm arm-B molecule, one vector at every
-vertex), seeded per (kind, bead set) so the eight harmonics of one torsion coincide and a re-render moves nothing. Two tags were added for it: one renders the plot module directly and asserts the
+term names the site alone and the parents live on the mapping's bead record. An angle is an amber **arc** between its
+two arms (16 segments, radius 35% of the shorter arm, no offset -- the arc leaves the bonds by construction), which is
+the notation the quantity already has. Only the two torsion kinds, whose geometry is collinear with a bond, are stepped
+off it: 1.8% of the molecule's diagonal (0.035 nm on the 1.95 nm arm-B molecule, one vector at every vertex), seeded per
+(kind, bead set) so the eight harmonics of one torsion coincide and a re-render moves nothing. Two tags were added for it: one renders the plot module directly and asserts the
 style contract, one drives the panel and asserts a stored revision's `B01…B04` terms arrive on the scene.
 
 **A fit landed where the panel never looked, `6ba1d29`.** A fit from the CG Bond Interactions panel completed and
@@ -147,6 +149,12 @@ only; the CG timestep is the templates' own `dt` (`md.mdp` 0.02, `eq.mdp` 0.005)
 and a unit test pins `'dt' not in mdp_integration(cg_dir, ...)`. The retired-key comment and the cleanup fixtures
 were closed by `89e3e2c`, not `4748261`. The coordinator paragraph further down named a pid and a log that no longer
 exist: nothing is running and port 5000 refuses connections (started again 2026-10-20 14:49 as pid 3945138).
+
+**Browser tier width, measured 2026-10-20 evening at 230 tests.** `-n 16 --dist worksteal` 47 s then 43 s, both green;
+`-n 24 --dist worksteal` 37 s then 38 s, both green. The failed runs that evening -- four tests, then one, then eleven --
+came with wall times of 62, 96 and 185 s for a tier that takes 37 on an idle box, i.e. another job was on the machine,
+and the same tests fail at 16 as at 24. So `-n 16` is what `AGENTS.md` prescribes for headroom, and it is a choice
+rather than a repair: the flakiness is load, not parallelism.
 
 **Not reproduced.** The browser flake this file has carried since 2026-10-16 ran green twelve times (six at `-n 6`,
 six at `-n 24 --dist worksteal`) after `e625716` rewrote its waits. One new intermittent was seen once and not
