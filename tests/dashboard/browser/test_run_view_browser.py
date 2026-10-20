@@ -283,6 +283,9 @@ MEASURE = """
     models: structure.frames ? structure.frames.length : 0,
     readout: document.querySelector('#run-view-readout-A').textContent,
     note: document.querySelector('#run-view-transport-note-A').textContent,
+    // The caption is the panel's own statement of which file this component is (`<run> · <path> · <kind>`), so an
+    // assertion on it says the structure just read belongs to that path rather than to whatever was drawn before.
+    caption: document.querySelector('#run-view-what-A').textContent,
   };
 }
 """
@@ -298,7 +301,71 @@ def open_panel(page, live_page, workspace='detergent-validation', run=None):
         page.locator(f'#run-view-{panel}-A').evaluate('el => { el.open = true; }')
 
 
-def wait_for_component(page, atoms=None):
+def mark_stage(page):
+    """Mark the component on the stage, so the *next* render can be told from the one already drawn.
+
+    Call it after `open_panel` has settled and *before* the row is clicked. `draw()`
+    (`dashboard/web/static/js/run-view-monitor.js:833`) clears the stage with `removeAllComponents()` and then builds
+    the next component with `loadFile`, so a mark put on the current component cannot survive a real redraw, and the
+    window between the clear and the load has no `compList[0]` at all. That is the per-*draw* discriminator.
+
+    A per-*file* one cannot do this job: a row naming the file already on the stage (`stages/07_reference/lig.gro`
+    under an AA run, drawn by `loadRun` on open) leaves the caption unchanged, so a wait on that path, or on an atom
+    count those two files share, is satisfied before the click and never pins anything.
+    """
+    marked = page.locator('#run-view-viewer-A').evaluate("""el => {
+      const stage = el.runViewStage;
+      const first = stage && stage.compList && stage.compList[0];
+      if (!stage || !first) return false;
+      first.__stale = true;
+      stage.__freshOwed = true;
+      return true;
+    }""")
+    assert marked, 'mark_stage needs a component on the stage to mark, or the wait after it cannot tell a redraw'
+
+
+def wait_for_component(page, atoms=None, drawn=None, fresh=False):
+    """Wait for the component the viewer loaded -- and, when named, for *that file's* render and a *new* component.
+
+    `atoms` alone is not a wait for a click on a second row. The panel's `draw()` clears the stage with
+    `removeAllComponents()` and only then awaits `loadFile`, so between those two a predicate over
+    `compList[0].structure` sees nothing at all, and before the clear it sees the structure that was already
+    drawn -- which is the same eight beads here (`stages/2_mapping/mapped.gro` and
+    `stages/3_initial_CG/LIG1.pdb` are both eight-bead files with seven bonds), so an atom count is satisfied
+    by the previous file and the click is never waited for.
+
+    `drawn` names the file the finished render has to be, read off the panel's own caption. `draw()` writes
+    `Loading <path>…` *before* it touches the stage and `<run> · <path> · <kind>` after `loadFile` resolves, so the
+    caption is compared as its own segments: a substring test over the whole line would also match a run id or a
+    kind that happens to contain the text. This is file-level proof, and by construction it cannot discriminate a
+    redraw of the file already drawn -- that is `fresh`'s job.
+
+    `fresh` requires the component `mark_stage` marked to be *gone*: a new component, built by `loadFile`, carries
+    no mark. It is what pins a click whose row names the file already on the stage, and it fails in the clear window
+    (`compList[0]` undefined) rather than reading the previous render. `fresh` without a mark is a test bug and is
+    reported as one instead of waiting thirty seconds for a predicate that can only pass early.
+    """
+    if fresh:
+        owed = page.locator('#run-view-viewer-A').evaluate("el => !!el.runViewStage?.__freshOwed")
+        assert owed, 'fresh=True must follow mark_stage(page); nothing was marked for it to displace'
+    if drawn is not None:
+        page.wait_for_function(
+            """path => {
+                 const caption = document.querySelector('#run-view-what-A');
+                 const segments = (caption ? caption.textContent : '').split(' · ');
+                 return segments.length >= 3 && segments[1] === path;
+               }""",
+            arg=drawn, timeout=30000)
+    if fresh:
+        page.wait_for_function(
+            """() => {
+                 const stage = document.querySelector('#run-view-viewer-A')?.runViewStage;
+                 const first = stage?.compList?.[0];
+                 if (!stage || !stage.__freshOwed || !first || first.__stale) return false;
+                 stage.__freshOwed = false;
+                 return true;
+               }""",
+            timeout=30000)
     page.wait_for_function(
         "() => document.querySelector('#run-view-viewer-A')?.runViewStage?.compList?.[0]?.structure",
         timeout=30000)
@@ -438,8 +505,9 @@ def test_an_aa_runs_molecule_is_the_one_case_the_viewers_own_guess_is_left_on(da
     open_panel(page, live_page, run=AA_RUN)
     wait_for_component(page, atoms=5)
 
+    mark_stage(page)
     select_row(page, 'lig1.pdb')
-    wait_for_component(page, atoms=5)
+    wait_for_component(page, atoms=5, drawn='stages/common/molecule/MMFF/lig1.pdb', fresh=True)
     measured = page.locator('#run-view-viewer-A').evaluate(MEASURE)
     assert measured['atoms'] == 5
     assert measured['bonds'] > 0, 'the viewer\'s own distance guess reproduces a real molecule'
@@ -503,15 +571,30 @@ def test_a_cg_run_that_states_no_moleculetype_is_drawn_bondless_and_says_so(dash
 
 
 def test_a_cg_file_that_carries_conect_is_drawn_from_it_and_never_guessed_at(dashboard, live_page):
-    """Trap 1, measured on the component: seven records in, seven bonds drawn -- not fourteen."""
+    """Trap 1, measured on the component: seven records in, seven bonds drawn -- not fourteen.
+
+    The wait is per-draw: the component drawn before the click is marked (`mark_stage`) and the wait requires a
+    component that is not, because an atom count cannot tell this row from the one before it -- both files are eight
+    beads with seven bonds. The path is named as well, so the caption has to have settled on
+    `stages/3_initial_CG/LIG1.pdb` before the component is read at all.
+    """
     seed(dashboard)
     page, errors = live_page
     open_panel(page, live_page, run=CG_RUN)
     wait_for_component(page, atoms=8)
 
+    mark_stage(page)
     select_row(page, 'LIG1.pdb')
-    wait_for_component(page, atoms=8)
+    wait_for_component(page, atoms=8, drawn='stages/3_initial_CG/LIG1.pdb', fresh=True)
     measured = page.locator('#run-view-viewer-A').evaluate(MEASURE)
+    # The same instant as the structure read, and named on the panel's own caption: `draw()` writes the bond
+    # provenance into this readout *after* `loadFile` resolves, so a measurement taken in the click's own window
+    # would not see it -- but only a file that carries CONECT records reaches that branch, so the readout is what
+    # says this is the CONECT file's structure rather than the mapped `.gro` that was drawn before the click.
+    assert measured['caption'].split(' · ')[1:2] == ['stages/3_initial_CG/LIG1.pdb'], (
+        f'the measurement was not taken on the file the click named: {measured["caption"]}')
+    assert 'carries CONECT' in measured['readout'], (
+        f'the measurement was not taken on the CONECT-carrying file: {measured["readout"]}')
     drawn = {tuple(pair) for pair in measured['pairs']}
     assert measured['bonds'] == len(MODEL_BONDS), (
         f'the file states {len(MODEL_BONDS)} bonds and the viewer drew {measured["bonds"]}: the CONECT records '
@@ -527,12 +610,15 @@ def test_the_guard_is_what_keeps_the_guess_out_of_a_conect_file(dashboard, live_
 
     Read through NGL directly rather than through the panel, because the panel must not offer a way to switch the
     guard off -- what this proves is that the parameter the guard sets is what stands between the two numbers.
+
+    No row is clicked here: the counterfactual below is loaded in a host of its own with `inferBonds: 'all'` stated
+    at the call, so nothing it measures comes from the panel's component. The click and the `atoms=8` wait that used
+    to sit here pinned nothing -- the panel's file is eight beads before and after -- and read as if they did; the
+    panel's own guard is proved by the test above.
     """
     seed(dashboard)
     page, errors = live_page
     open_panel(page, live_page, run=CG_RUN)
-    wait_for_component(page, atoms=8)
-    select_row(page, 'LIG1.pdb')
     wait_for_component(page, atoms=8)
 
     # The guess bites where beads sit closer than their stand-in elements' covalent radii sum, and the stand-ins are
@@ -577,8 +663,9 @@ def test_cg_beads_are_drawn_at_the_radius_their_own_size_class_has(dashboard, li
     page, errors = live_page
     open_panel(page, live_page, run=CG_RUN)
     wait_for_component(page, atoms=8)
+    mark_stage(page)
     select_row(page, 'LIG1.pdb')
-    wait_for_component(page, atoms=8)
+    wait_for_component(page, atoms=8, drawn='stages/3_initial_CG/LIG1.pdb', fresh=True)
 
     measured = page.locator('#run-view-viewer-A').evaluate(MEASURE)
     drawn = [None if value is None else round(value / NANOMETRE_TO_ANGSTROM, 4) for value in measured['radii']]
@@ -632,8 +719,9 @@ def test_a_cg_run_colours_its_beads_by_family_and_only_then_shows_the_legend(das
     page, errors = live_page
     open_panel(page, live_page, run=CG_RUN)
     wait_for_component(page, atoms=8)
+    mark_stage(page)
     select_row(page, 'md.gro')
-    wait_for_component(page, atoms=8)
+    wait_for_component(page, atoms=8, drawn='stages/4_CG_sim/md.gro', fresh=True)
 
     measured = page.locator('#run-view-viewer-A').evaluate(MEASURE_FAMILY)
     assert measured['scheme'] == 'bfactor', measured['scheme']
@@ -645,8 +733,12 @@ def test_a_cg_run_colours_its_beads_by_family_and_only_then_shows_the_legend(das
     # The all-atom sibling: no legend, because there is no family to decode.
     open_panel(page, live_page, run=AA_RUN)
     wait_for_component(page)
+    # `stages/07_reference/lig.gro` is the file `loadRun` already drew on open, so a caption or atom-count wait
+    # cannot tell this click from the render it replaces -- the per-draw mark is the only discriminator here, and
+    # the path is kept because the file the legend must *not* appear for is part of the claim.
+    mark_stage(page)
     select_row(page, 'lig.gro')
-    wait_for_component(page, atoms=5)
+    wait_for_component(page, atoms=5, drawn='stages/07_reference/lig.gro', fresh=True)
     atomistic = page.locator('#run-view-viewer-A').evaluate(MEASURE_FAMILY)
     assert atomistic['hidden'] is True, 'an all-atom structure got a bead legend'
     assert errors == []
