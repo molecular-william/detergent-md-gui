@@ -29,8 +29,9 @@ Reproducible local workflow for membrane-protein detergent sims: validate input,
 - Protein secondary structure: martinize2's bare `-dssp`, which vermouth answers with **mdtraj** (`execution/scripts/pdc_build.SS_SOURCE = 'mdtraj.compute_dssp'`), with MDAnalysis' own DSSP as the recorded fallback (`SS_FALLBACK_SOURCE`). The two routes disagree (42 of 230 residues on 1AT9) and the assignment's letters travel in the run report. `mdtraj` and `pdb2pqr` are declared in `requirements-dashboard-tests.txt`.
 - Bead rendering is one size table plus one family colouring, with the on-screen legend drawn from the same table (`web/static/js/ngl-beads.js`: `BEAD_RADII_NM`, `BEAD_FAMILY_ORDER`/`BEAD_FAMILY_COLOURS`/`BEAD_FAMILY_LABELS`, `renderBeadLegend`). A file carrying `CONECT` is **never** distance-guessed; a coarse-grained file is `inferBonds: 'none'` even without it (`run-view-structure.loadParameters`, `pdc.js`).
 - `GET /api/jobs/<id>/structure?path=<run-relative .gro>` writes the run's own `[ bonds ]`+`[ constraints ]` as CONECT (topology located by `analysis/runs/layout.cg_topology`, named by the manifest's `FINAL_ITP`); a `.pdb` is refused to the artifact route (`web/routes/runs.py:run_structure_api`).
-- `snapshots` runs for **every** run with a trajectory, queued by `analysis_coordinator.queue_defaults` from `kinds.for_every_run()`; a run with no trajectory records `skipped` with a reason and stays `complete`. Frames resolve by the run's layout (`observability.generate` -> `layout.frame_source`), so an AA-only run reads its `07_reference/` pair and a CG run its `4_CG_sim/`.
-- Panels: `Run view` (`run-view`, in BOTH workspaces, scoped per workspace by `web/sections.SECTIONS[...]['run_types']`); the protein-detergent `New run` (`pdc.js`/`new-run.js`) with a live **system preview** (`GET /api/pdc/preview/placement`) and the `prepare_protein` toggle; the `Osmotic Series` panel (`osmotic.js`).
+- `snapshots` runs for **every** run with a trajectory, queued by `analysis_coordinator.queue_defaults` from `coordinator.automatic_analyses(jid)` -- `kinds.for_every_run()` **plus** `kinds.default_for(run_type)`, so `aa_cg` owes `dihedral-fit` and `bonded-cross-check`. One resolution, asked by the one path that creates attempts: restating half of it is how those two came to be declared and queued by nobody; a run with no trajectory records `skipped` with a reason and stays `complete`. Frames resolve by the run's layout (`observability.generate` -> `layout.frame_source`), so an AA-only run reads its `07_reference/` pair and a CG run its `4_CG_sim/`.
+- AA-to-CG runs **always fit their own bonded parameters** (`cg.AA_CG_PROFILE`; stage 3 is `CG parameterization`). A run whose mapping carries no parameterization fits in-run and records that it did (`parameterization_used.json`); one whose mapping carries a current revision consumes it and says in its own artefact that it did not fit. Producing one is a job of the CG Bond Interactions panel and makes **no MD**: `POST /api/bonded-parameterizations` takes the mapping, an engine (`reference-informed`, `fast-forward`, `bartender` restricted to `-refit -owntraj` against our own mapped trajectory), a linked AA-only run id and the option keys; the result is a revision of the mapping keyed by **content** hash (`models/bonded/parameterization.py`, `fitting.py`), and `readiness()['parameterization']` is what New Run's `02 · CG MODEL` card reads.
+- Panels: `Run view` (`run-view`, in BOTH workspaces, scoped per workspace by `web/sections.SECTIONS[...]['run_types']`) -- **two side-by-side NGL monitors**, each with its own run picker, transport, reads and three collapsible sub-panels, paired in time (ns) rather than by frame index, and each drawing one component at a time; `CG Bond Interactions` (`bonded`), which produces a mapping's parameterization; the protein-detergent `New run` (`pdc.js`/`new-run.js`) with a live **system preview** (`GET /api/pdc/preview/placement`) and the `prepare_protein` toggle; the `Osmotic Series` panel (`osmotic.js`).
 
 ## Engineering rules
 - Test against fixtures, NEVER the developer's workspace. A test that read a candidate out of `workspace/dashboard/mapping_drafts/` by filename passed only while that file existed and reported nothing about the code. Shared fixtures redirect every writable store: build the record you need.
@@ -45,7 +46,7 @@ Reproducible local workflow for membrane-protein detergent sims: validate input,
 
 ## Workflow contract
 - AA-only runs use `STAGES` from `execution/adapters/aa.py`: solvation, neutralization, minimization, NVT equilibration, NPT equilibration, NPT production, reference publication.
-- CG runs consume an AA reference (own parent AA-only job, or a completed shared reference) and run `STAGES` from `execution/adapters/cg.py`: AA reference, trajectory mapping, CG topology (`ff_inter`), CG simulation, CG assessment (`ff_assess`), SASA analysis. Only stages shelling out to a published tool name it; the mapping is our own script, named for what it does.
+- CG runs consume an AA reference (own parent AA-only job, or a completed shared reference) and run `STAGES` from `execution/adapters/cg.py`: AA reference, trajectory mapping, CG parameterization (`ff_inter` when it fits, `use_parameterization.sh` when it consumes), CG simulation, CG assessment (`ff_assess`), SASA analysis. Only stages shelling out to a published tool name it; the mapping is our own script, named for what it does.
 - Protein-detergent (`pdc`) runs use `STAGES` from `execution/adapters/pdc.py`, in order: Protein preparation (optional PDB2PQR rebuild+protonation, `prepare_protein`, off by default), System preparation, Energy minimisation, NVT equilibration, NPT equilibration, CG assessment MD (production only), Micelle assessment, CG extension MD, Final assessment, Back-mapping (CG2AT2, a toggle). A leg the run asks none of records `skipped` = exit 4. `pdc.LEGS` maps each equilibration leg to its mdp; `pdc.stage_by_name` is how a caller names one rather than counting.
 - Every stage records start/end, command, environment, inputs, outputs, exit code, log path.
 - Stage with nothing to do records `skipped` = exit 4, reason in `skip.json` beside the script; run carries on. Nothing attempted, nothing owed.
@@ -82,6 +83,9 @@ Sucrose diagnostic records in the operations note = preserved examples, not a su
 - Phase 4 (sucrose + maltose experimental sources) deferred by the user, not abandoned.
 - `-improperIncrement 10` goes to every BARTENDER fit, so that term's values will not match anything fitted before `4fc2513` wherever a linkage dihedral is written as an improper. Accepted price of a fit that returns at all.
 - **The scheduled cron drivers are cancelled (2026-10-15).** Do not create a schedule and do not rebuild the drivers; what they were serving is in `docs/HANDOFF.md`, written off or left for manual action.
+- **Every AA-CG run fits its own bonded parameters; a CG run consuming a parameterized model does not fit.** `bonded_intent` and `bonded_state_id` left the run contract (`b56cddb`): the run type decides, so the panel asks nothing about it.
+- **A parameterization belongs to the mapping and the bonded states are its revisions** -- one current revision, chosen with `make current`, which is how a run picks one. Deleting a saved mapping deletes its parameterizations **unless another saved mapping still carries the same content hash** (`mapping_content_hash`): two drafts can share content, and a name is not an identity.
+- **An AA-CG run's default analyses are `dihedral-fit` and `bonded-cross-check`**, queued with the run through `automatic_analyses`. `bartender-fit`'s declared `1_AA-reference/prod/...` paths resolve through `reads_aa_reference` against the paired AA run (`stages/07_reference/`), so they are relative to the reference, not to the run being analysed.
 - **The mapping refinement panel is cancelled (2026-10-15).** The human review gate made the workflow more complicated than the decision it supported. The routes and the `refinement-score` analysis that already existed stay; no panel is built, and the roadmap section for it is withdrawn.
 
 ## Environment gotchas that cost time
@@ -97,21 +101,24 @@ Sucrose diagnostic records in the operations note = preserved examples, not a su
 - A run's `md.log` may be empty when it died violently; LINCS warnings + the segfault are in `logs/<stage>.log`; frame-by-frame evidence in the stage's `md.edr` (`gmx energy`). A long production's progress is in `stages/06_production/run.log`, and its step lines need `tr '\r' '\n'` before `grep` sees them.
 - The surfaces analysis publishes a self-contained ~7 MB HTML. Serve via `/api/jobs/<id>/artifacts/<run-relative-path>?inline=1` -- the route sets a sandboxed CSP on `.html` permitting inline scripts + eval, which the Plotly scene needs. Build the URL from the path the API returned, never from a filesystem path.
 - **Measure with the right instrument before believing a finding.** Three grep/AST checks in one session gave three false findings: `\|` is a literal pipe in ERE (alternation search matched nothing); an AST scan counting only `ast.Assert` reported `unittest`'s `self.assert*` tests as assertion-free; a "prose assertion" search matched `assert cond, "message"` -- the message, not the comparison. Also `ps -eo ... -p <pid>` lists EVERY process, because `-e` wins. And `find ... | head -3` hides a real hit: a present file read as absent that way.
+- **A tool probe measures the tool, not whoever started the dashboard.** `environment()` inherits the caller's `PYTHONPATH`/`PYTHONHOME` unless they are dropped; an agent runtime that sets them makes `ff_inter` import a foreign `PIL` (`ImportError: cannot import name '_imaging'`) and readiness reports the tool as not ready while `ff_inter --help` exits 0 from a plain shell. `probe_command()` drops both and hands a python console script to `sys.executable` rather than trusting a shebang that names an absolute interpreter a moved venv no longer has.
 - GitNexus needs a bigger buffer pool to index this repo: `GITNEXUS_LBUG_BUFFER_POOL_SIZE=4294967296 npx -y gitnexus@latest analyze --index-only`. Without it: `The LadybugDB buffer pool (256 MiB) was exhausted`. Index in `.gitnexus/` (gitignored).
 
 ## Verify
 ```
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q     # fast tier: 1,687, ~30 s
-dashboard/.venv/bin/python -m pytest -m browser -q -n 6                   # browser tier: 173, ~85 s
-dashboard/.venv/bin/python -m pytest -m slow -q -n 0                      # slow tier: 7, ~19 s
+dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q     # fast tier: 1,787, ~26 s
+dashboard/.venv/bin/python -m pytest -m browser -q -n 6                   # browser tier: 218, ~2 min
+dashboard/.venv/bin/python -m pytest -m slow -q -n 0                      # slow tier: 60+; the five files that moved onto it are 53
 dashboard/.venv/bin/ruff check dashboard tests                            # gate: F, E9, I must exit 0
 scripts/gate_commit.sh <message-file> <paths...>                          # fast tier + ruff on the named paths; stages only those; commits only when both are clean
 dashboard/.venv/bin/python scripts/mutation_check.py                      # 11 mutants over analysis/ + adapters: 10 caught, 1 survived (the control)
 ```
-Suite = 1,867 tests (1,687 fast + 173 browser + 7 slow), measured 2026-10-15 after the 29 tests added that day -- the
-property tests under `tests/dashboard/unit/test_properties_*.py` (they import `hypothesis`, declared in
-`requirements-dashboard-tests.txt`) and the run card's range-boundary test. The browser tier runs at `-n 6` on this
-box's 72 cores; the fast tier at `-n 8` (pytest.ini's `addopts`) in ~30 s.
+Suite = 2,065 tests (1,787 fast + 218 browser + 60 slow), measured 2026-10-16 after the panel slice landed and
+the five subprocess-shaped files (the osmotic runner/series/protocol/stop tests and the cold+warm preview) moved
+onto the slow marker -- which took the fast tier from 35.8 s to ~26 s. The browser tier runs at `-n 6`; the fast
+tier at `-n 8` (pytest.ini's `addopts`). A flake is recorded rather than absorbed:
+`test_run_view_browser.py::test_a_cg_run_colours_its_beads_by_family_and_only_then_shows_the_legend` fails
+intermittently at `-n 6` and passes serially (21 passed in that file, `-n 0`).
 Repo-wide `ruff check .` exits 1 on the 19 pre-existing `micelle/` findings, unchanged.
 
 <!-- gitnexus:start -->

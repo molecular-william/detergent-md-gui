@@ -73,6 +73,31 @@ cost: restore a run-level choice, which is what the old prototype had.
 trajectory, so the panel runs them as part of the job and shows their numbers beside the terms they question. The same
 two run as analyses of an AA–CG run, so the numbers are visible from either end. Reversal cost: keep them run-only.
 
+**D7 — The manual interaction editor and the state name do not survive D1; the read-only constraints and
+virtual-site parents do.** *Recorded deviation from `:108-110`, which says all four stay.* What stays: the 3D diagram,
+and the two kinds no engine fits — the table states a constraint's own length and a virtual site's parents, marks both
+read-only, and the `source` column names the mapping as theirs. What does not stay, and why:
+
+* **A revision has no name to edit.** `### Stored fields` is what a revision is, and a name is not among them. D1
+  replaced the flat, named bonded state with a numbered revision of the mapping; the approved prototype's strip is
+  numbered (`1 ✓ · 2 ✓ · 3 current`) and strikes the state picker out on purpose. A name field would be a second
+  identity beside `revision`, which is exactly what D1 removed.
+* **No route stores an edit.** The six routes above are this slice's whole contract, and none writes a revision's
+  terms: `parameterization.save` sits behind the fit job, and the record `PATCH` takes `current` only. The old editor
+  wrote `/api/bonded-states`, which is a *different store* — a state is not a revision — so a Save there would report
+  success and leave the strip and the table unchanged, which is the control that cannot act this repository's panels
+  are not allowed to have. It is a deviation, not a preference: the capability has no home in the API this slice
+  approved.
+
+Restoration cost: one route (`POST /api/bonded-parameterizations/<content_hash>/revisions` over
+`parameterization.save`, which already computes `sources`), the old editor and name field back beside it, and `name`
+added to the revision's stored fields. Reversal cost of this entry: one route and one field, which is why the deletion
+is written down here rather than designed around.
+
+*Sign-off: requested from the owner, not given here — this entry states the deviation and its reason so the owner can
+either accept it or take the restoration above. `dashboard/web/static/js/bonded.js` and the Interactions card point at
+this entry rather than restating the argument.*
+
 ## What the panel looks like
 
     CG BOND INTERACTIONS                                            [ … ]
@@ -107,7 +132,8 @@ two run as analyses of an AA–CG run, so the numbers are visible from either en
 What changed from today's panel: the AA-reference picker, the engine select with its options and cost, the job box,
 the result box with provenance and the checks' numbers, a `source` column in the interactions table, and the revision
 strip at the bottom. The 3D diagram, the manual interaction editor, the state name, and the read-only constraints and
-virtual-site parents all stay as they are.
+virtual-site parents all stay as they are — except the editor and the state name, which the panel was built without;
+D7 records that deviation, its reason and what would restore them.
 
 ## What the run panel looks like
 
@@ -150,6 +176,17 @@ because what a run consumes is a mapping **with** its parameterization.
 3. **D1's structural change:** states become revisions of the mapping. Do you want the old flat "Bonded state" list
    kept as a way to compare two arbitrary revisions, or is a revision strip on one mapping enough?
 4. **Where the job is visible:** the panel only (my recommendation), or a line in Runs' activity as well?
+
+## API
+
+**Built and reviewed.** The backend landed in `44f8cc7`; the six routes, the panel (model card, Fit, job box,
+result card, `source` column, revision strip) and the `02 · CG MODEL` card landed in `89e3e2c`. Four reviewers then ran
+spec-then-quality over each workstream, and their findings were fixed before this line was written: an unfiltered
+jobs answer for a mapping with no record, a duplicated job filter, three controls deleted against the spec, a
+`fit()` post-await race, a fabricated `source` fallback, a wrong-mapping link, and stale state painted under a new
+mapping's name. Deleting a saved mapping now takes its parameterizations with it unless another saved mapping
+carries the same content hash. The two refactor findings are closed (`states.py`'s retired-key read is commented,
+the retention fixtures key on what the cleanup reads).
 
 ## API
 

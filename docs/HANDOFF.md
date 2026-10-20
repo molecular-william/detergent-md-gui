@@ -3,6 +3,39 @@
 State, measurements and open items for this repository. `AGENTS.md` holds the rules; this holds the record they were
 derived from. Read it before starting work on the DDM CG chain or the coordinator.
 
+## Landed 2026-10-16, later: the panel, the reviews, and what four reviewers found
+
+**CG Bond Interactions now produces a parameterization, New Run shows which one a run will use, and deleting a
+mapping takes its bond interactions with it.** `89e3e2c` carried the six routes, the panel (model card, Fit, job box
+with cancel, result card, `source` column, revision strip) and the `02 · CG MODEL` card. The mapping-deletion change
+followed with the rule that matters: revisions are keyed by *content* hash while deletion is by *name*, so a delete
+removes them only when no remaining saved mapping carries the same content -- two drafts may legitimately share
+content, and a name is not an identity.
+
+**Four reviewers ran spec-then-quality, one per workstream, and two returned work.** All findings fixed: an
+unfiltered jobs answer for a mapping with no record (`bonded.py` built `mapping_content_hash: None` and then filtered
+nothing, answering `jobs: 3 of 3`); the "which jobs are this mapping's" truth implemented twice; three controls
+deleted against the spec; a `fit()` response able to paint the screen after a newer selection; a fabricated `source`
+fallback in the interactions table; a card link opening the panel on the wrong mapping; stale model state painted
+under a newly picked mapping's name. The `bartender-fit` workstream passed as delivered -- its reviewer reproduced
+the shared-reference measurement against the real run instead of trusting the comment.
+
+**Measured on the tree after the fixes:** fast tier 1,787 passed in 25.5 s; ruff clean over every changed path;
+browser tier 217 passed with one recorded flake,
+`test_run_view_browser.py::test_a_cg_run_colours_its_beads_by_family_and_only_then_shows_the_legend`, which passes
+serially (`-n 0`, 21 passed in that file). The flake predates this slice and is the next thing to chase.
+
+**Suite speed, same pass:** the five subprocess-shaped files moved onto the `slow` marker, taking the fast tier from
+35.8 s to ~26 s. `--durations` also named the readiness tests as the slowest single tests in the tier -- they probe
+`ff_inter`/`ff_assess`/`gmx` per call, the same probe that makes a live readiness request sit at "Checking
+requirements..." for ten seconds. Injecting the probe in those tests and keeping one real-probe test is the next
+measured win, and it is not done.
+
+**Not applicable, measured:** the suite makes no outbound HTTPS call, so no recording tool (VCR.py and the like)
+has anything to accelerate; the product's single HTTPS fetch, `pdc_import.py:161`, is already behind an injected
+`fetcher`, and every test supplies one. `pytest-socket` with `--allow-hosts=127.0.0.1,localhost` would turn that
+audit into a guarantee.
+
 ## Landed 2026-10-16: the run type owns its fit, and a parameterization can be produced without a run
 
 **The AA-CG run type now fits its own bonded parameters, and the three controls that made that a per-run choice are
