@@ -505,7 +505,9 @@ def _frames(job_id, loaded, reference, engine, record, call) -> bool:
     """
     from ...execution.adapters import cg
 
-    _step(job_id, 'mapped frames', 'staging the pair')
+    # The mapper prints nothing per frame, so this is the whole progress report for the longest step in a fit;
+    # the panel states it rather than leaving a reader to conclude the job has stalled.
+    _step(job_id, 'mapped frames', 'staging the pair; the mapper reports no per-frame progress')
     work = Path(record['work'])
     mapping_dir, stage_dir = work / '2_mapping', work / '3_initial_CG'
     mapping_dir.mkdir(parents=True, exist_ok=True)

@@ -71,6 +71,13 @@ nav{max-width:100%;overflow-x:auto;white-space:nowrap}nav button{flex:0 0 auto}
 .bonded-help p { margin: 6px 0 }
 .bonded-job-meter { height: 8px; margin: 12px 0 0; border-radius: 999px; background: #e6ecf4; overflow: hidden }
 .bonded-job-meter > span { display: block; width: 0; height: 100%; background: var(--accent); transition: width .3s ease }
+/* The job's four steps, named: a fit spends minutes inside one of them, and a bar alone cannot say which. */
+.bonded-job-steps { display: flex; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none }
+.bonded-job-steps li { flex: 1 1 0; min-width: 0; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px;
+  background: #f6f8fb; color: var(--muted); font-size: 12px; text-align: center; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis }
+.bonded-job-steps li[data-state=done] { background: #e6eff9; border-color: #cfe0f2; color: var(--ink) }
+.bonded-job-steps li[data-state=current] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600 }
 #bonded-job-log { max-height: 220px; margin: 10px 0 0 }
 #bonded-job-error { margin: 8px 0 0; color: var(--danger); font-weight: 600 }
 .bonded-provenance { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 7px 14px; margin: 14px 0 0 }

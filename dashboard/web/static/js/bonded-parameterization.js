@@ -137,6 +137,7 @@ export function setupParameterization({host, onTerms}) {
   const jobDetail = $('#bonded-job-detail', host);
   const jobStatus = $('#bonded-job-status', host);
   const jobBar = $('#bonded-job-bar', host);
+  const jobSteps = $('#bonded-job-steps', host);
   const jobError = $('#bonded-job-error', host);
   const jobLog = $('#bonded-job-log', host);
   const cancelButton = $('#bonded-job-cancel', host);
@@ -321,6 +322,46 @@ export function setupParameterization({host, onTerms}) {
 
   // --- the job box ------------------------------------------------------------------------------------------------
 
+  /** How long the job has run, from its own timestamps -- a measurement, not an estimate.
+   *
+   * Recomputed on every poll, which is a few seconds apart: live enough for a step that lasts minutes, and it needs
+   * no timer of its own. `took` once the record carries an end, `elapsed` while it does not.
+   */
+  function elapsedText(record) {
+    if (!record || !record.started_at) return '';
+    const start = Date.parse(record.started_at);
+    const end = record.ended_at ? Date.parse(record.ended_at) : Date.now();
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return '';
+    const seconds = Math.round((end - start) / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const rest = String(seconds % 60).padStart(2, '0');
+    return `${record.ended_at ? 'took' : 'elapsed'} ${minutes}:${rest}`;
+  }
+
+  /** The job's four steps by name, each saying whether it is behind the run, the one running, or still to come.
+   *
+   * The names come from the record's own `steps`, so this cannot list a step the job does not run; only the label's
+   * capitalisation is the panel's. A completed job marks every step done, and a cancelled or failed one keeps the
+   * steps it finished and the step it stopped in, which is what a reader diagnosing it needs to see.
+   */
+  function renderSteps() {
+    if (!jobSteps) return;
+    const names = job && job.steps && job.steps.length ? job.steps
+      : ['mapped frames', 'fit', 'checks', 'save'];
+    const done = new Set((job && job.completed_steps) || []);
+    const current = job ? job.step : null;
+    jobSteps.replaceChildren(...names.map(name => {
+      const item = document.createElement('li');
+      item.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+      const state = done.has(name) || (job && job.status === 'completed') ? 'done'
+        : name === current && job && LIVE.has(job.status) ? 'current' : 'pending';
+      item.dataset.state = state;
+      item.title = state === 'current' ? `Running: ${name}` : state === 'done' ? `Finished: ${name}` : `Not started: ${name}`;
+      if (state === 'current') item.setAttribute('aria-current', 'step');
+      return item;
+    }));
+  }
+
   function renderJob() {
     jobBox.hidden = !job;
     if (!job) return;
@@ -336,13 +377,18 @@ export function setupParameterization({host, onTerms}) {
       : `Queued · ${engineLabel(job.engine)}`);
     setText(jobDetail, [progress.detail || '', engineLabel(job.engine),
                         job.started_at ? `started ${clock(job.started_at)}` : '',
-                        job.ended_at ? `ended ${clock(job.ended_at)}` : ''].filter(Boolean).join(' · '));
+                        job.ended_at ? `ended ${clock(job.ended_at)}` : '',
+                        elapsedText(job)].filter(Boolean).join(' · '));
     const meter = jobBar.parentElement;
     if (meter) {
       meter.setAttribute('aria-valuenow', String(done));
       meter.setAttribute('aria-valuemax', String(total));
+      // A bar that is a quarter full says nothing on its own; the step it is inside is the answer to "is it moving".
+      meter.setAttribute('aria-valuetext', job.step && LIVE.has(job.status)
+        ? `${done} of ${total} · ${job.step}` : `${done} of ${total} steps`);
     }
     jobBar.style.width = `${Math.max(0, Math.min(100, Math.round((done / total) * 100)))}%`;
+    renderSteps();
     // A failed job is reported as the two things it recorded: what went wrong, and the tail of its own log.
     const failure = job.status === 'failed'
       ? `The fit failed: ${job.error || 'its record carries no error'}`

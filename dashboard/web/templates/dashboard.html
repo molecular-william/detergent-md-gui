@@ -667,6 +667,9 @@
       <span class="badge" id="bonded-job-status">queued</span>
     </div>
     <div class="bonded-job-meter" role="progressbar" aria-label="Fit progress" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0"><span id="bonded-job-bar"></span></div>
+    {# Built by the panel from the job record's own `steps`, so the four names here cannot drift from the job that runs
+       them; it is what makes a bar sitting at 25% read as "fit, in progress" rather than as a stalled job. #}
+    <ol class="bonded-job-steps" id="bonded-job-steps"></ol>
     <p class="hint" id="bonded-job-error" role="alert" hidden></p>
     <pre id="bonded-job-log" hidden></pre>
     <div class="toolbar"><button type="button" class="secondary" id="bonded-job-cancel">Cancel this fit</button></div>

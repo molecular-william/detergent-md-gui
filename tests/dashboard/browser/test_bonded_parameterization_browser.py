@@ -338,6 +338,18 @@ def test_a_running_job_shows_its_step_and_cancels_only_after_a_confirmation(dash
     expect(page.locator('#bonded-job-detail')).to_contain_text('distances, angles, dihedrals')
     expect(page.locator('#bonded-job-cancel')).to_be_visible()
 
+    # A bar at a quarter tells a reader nothing about whether the job is moving; the four steps do. The names are
+    # the record's own `steps`, and the one that is running is the only one marked `current`.
+    labels = page.evaluate("Array.from(document.querySelectorAll('#bonded-job-steps li')).map(li => li.textContent)")
+    assert labels == ['Mapped frames', 'Fit', 'Checks', 'Save'], labels
+    states = page.evaluate("Array.from(document.querySelectorAll('#bonded-job-steps li')).map(li => li.dataset.state)")
+    assert states == ['done', 'current', 'pending', 'pending'], states
+    expect(page.locator('#bonded-job-steps li[aria-current=step]')).to_have_text('Fit')
+    # The meter says the same thing to a screen reader, and the detail line says how long it has been running --
+    # read off the job's own `started_at`, not estimated.
+    expect(page.locator('.bonded-job-meter')).to_have_attribute('aria-valuetext', '1 of 4 · fit')
+    expect(page.locator('#bonded-job-detail')).to_contain_text('elapsed ')
+
     # A dismissed confirmation is a refusal: no request, and the job is still running.
     page.locator('#bonded-job-cancel').click()
     page.wait_for_timeout(300)
@@ -503,6 +515,9 @@ def test_the_default_cadence_polls_a_few_seconds_apart_and_stops_when_the_job_en
     assert len(polls) == settled, 'the box kept polling a finished job'
     expect(page.locator('#bonded-result')).to_be_visible()
     expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · current')
+    # A finished job has nothing running: all four steps read done, and none claims to be current.
+    expect(page.locator('#bonded-job-steps li[data-state=done]')).to_have_count(4)
+    expect(page.locator('#bonded-job-steps li[aria-current=step]')).to_have_count(0)
     assert errors == [], errors
 
 
