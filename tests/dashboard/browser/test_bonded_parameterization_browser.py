@@ -967,16 +967,27 @@ def test_each_kind_of_term_is_drawn_as_its_own_thing(dashboard, live_page):
     # A constraint is drawn on the bond distance it fixes; a bond is drawn where it is.
     for term in ('bonds:1', 'constraints:1'):
         assert all(length(vector) < 1e-9 for vector in shift(byId[term])), (term, shift(byId[term]))
-    # Angles and torsions lie along those segments, so they are stepped off: one vector, at every vertex.
-    for term in ('angles:1', 'dihedrals:1', 'impropers:1'):
+    # Torsions lie along those segments, so they are stepped off: one vector, at every vertex.
+    for term in ('dihedrals:1', 'impropers:1'):
         vectors = shift(byId[term])
         assert len({tuple(round(value, 12) for value in vector) for vector in vectors}) == 1, (term, vectors)
         assert abs(length(vectors[0]) - 0.018 * drawn['diagonal']) < 1e-6, (term, length(vectors[0]))
         assert length(vectors[0]) > 0.005, (term, length(vectors[0]))
-    # Two kinds on the same atoms do not land on each other, and one torsion's harmonics do.
-    assert shift(byId['angles:1'])[0] != shift(byId['dihedrals:1'])[0], 'an angle hid under its own torsion'
+    # One torsion's harmonics coincide, and two torsions on different atoms do not.
     assert shift(byId['dihedrals:1'])[0] == shift(byId['dihedrals:2'])[0], 'one torsion drew as two lines'
     assert shift(byId['dihedrals:1'])[0] != shift(byId['dihedrals:3'])[0], 'two torsions got one displacement'
+
+    # An angle is an arc between its two arms, at a fixed radius from the vertex: the notation the quantity has, and
+    # nothing that hides under a bond. B02 is the vertex, its arms are 0.5 nm (to B01) and 0.4 nm (to B03).
+    arc = byId['angles:1']['xyz']
+    vertex, radius = positions['B02'], 0.35 * 0.4
+    assert len(arc) == 17, len(arc)
+    for point in arc:
+        assert abs(length([point[axis] - vertex[axis] for axis in range(3)]) - radius) < 1e-9, (point, radius)
+    assert arc[0] == [round(vertex[0] - radius, 12), vertex[1], vertex[2]], arc[0]
+    assert abs(arc[-1][1] - (vertex[1] + radius)) < 1e-9 and abs(arc[-1][0] - vertex[0]) < 1e-9, arc[-1]
+    middle = arc[8]
+    assert abs(middle[0] - vertex[0]) > 1e-3 and abs(middle[1] - vertex[1]) > 1e-3, middle
     # A virtual site's parents live on the bead, not in the term: its geometry is a star, not a polyline.
     star = byId['virtual_sitesn:1']
     assert star['points'] == 9, star['points']

@@ -12,16 +12,18 @@ const MARKER_PIXELS_PER_NM = 72;
 //: One style per kind of bonded term, so a reader can tell at a glance which row a line belongs to.
 //:
 //: Every kind traces segments the connectivity already draws, so colour alone is not enough -- a solid line on a solid
-//: line is hidden by it, and the terms are drawn after the edges. Two things separate them. **Ink** says what the term
+//: line is hidden by it, and the terms are drawn after the edges. Three things separate them. **Ink** says what the term
 //: is: bonds the mapping's green (`#36a269`), constraints a darker shade of the same green because a constraint is a
 //: distance the mapping fixes rather than a potential it fits, angles amber, dihedrals the same green dashed and
 //: half-transparent, impropers slate, virtual sites violet. **Offset** steps a term's line off the bonds by a fraction
 //: of the molecule's diagonal, for the kinds whose geometry is collinear with them: angles and both torsion kinds.
 //: A constraint is left on the bond it constrains, where its darker ink is enough -- it measures that exact distance.
+//: An angle is drawn as its own **arc** between the two arms, which is the notation the quantity already has and needs
+//: neither an offset nor a line hidden under a bond.
 const TERM_STYLES = {
   bonds: {ink: '54,162,105', dash: 'solid', alpha: 1, offset: 0},
   constraints: {ink: '26,92,60', dash: 'solid', alpha: 1, offset: 0},
-  angles: {ink: '210,122,31', dash: 'solid', alpha: 1, offset: 1},
+  angles: {ink: '210,122,31', dash: 'solid', alpha: 1, offset: 0},
   dihedrals: {ink: '54,162,105', dash: 'dash', alpha: 0.5, offset: 1},
   impropers: {ink: '93,113,135', dash: 'dashdot', alpha: 1, offset: 1},
   virtual_sitesn: {ink: '108,75,178', dash: 'dot', alpha: 1, offset: 0},
@@ -32,6 +34,10 @@ const TERM_SELECTED_INK = '223,32,61';
 //: Enough that the line reads as an annotation beside a bond rather than as a second bond on top of it, small enough
 //: that it still visibly joins the atoms it names.
 const TERM_OFFSET = 0.018;
+//: An angle's arc: how many segments, and how far from the vertex, as a fraction of its shorter arm. The arm is the
+//: span the arc has to fit inside, so the mark stays on the angle however long the bonds are.
+const ANGLE_ARC_STEPS = 16;
+const ANGLE_ARC_FRACTION = 0.35;
 
 /** A small displacement, pseudo-random but fixed for one bead set.
  *
@@ -54,6 +60,32 @@ function termOffset(key, scale) {
   const shift = [next(), next(), next()];
   const length = Math.sqrt(shift[0] ** 2 + shift[1] ** 2 + shift[2] ** 2) || 1;
   return shift.map(value => (value / length) * scale);
+}
+
+/** Points along the arc between two arms, at a fixed radius from the vertex.
+ *
+ * The arc is what an angle looks like on paper: it starts on one arm, ends on the other, and says nothing about the
+ * bonds' own lengths. A triple that is straight or folded has no arc to draw (`sin` of an angle that is a straight line
+ * is zero, and the sweep would divide by it), so it is left to the table.
+ */
+function angleArc(vertex, first, second) {
+  const arms = [first, second].map(point => point.map((value, axis) => value - vertex[axis]));
+  const lengths = arms.map(arm => Math.hypot(...arm));
+  if (!lengths.every(length => length > 0)) return [];
+  const unit = arm => arm.map(value => value / Math.hypot(...arm));
+  const [from, to] = arms.map(unit);
+  const cosine = Math.max(-1, Math.min(1, from.reduce((sum, value, axis) => sum + value * to[axis], 0)));
+  const sweep = Math.acos(cosine);
+  if (sweep < 1e-3 || Math.PI - sweep < 1e-3) return [];
+  const radius = ANGLE_ARC_FRACTION * Math.min(...lengths);
+  const sine = Math.sin(sweep);
+  const points = [];
+  for (let step = 0; step <= ANGLE_ARC_STEPS; step += 1) {
+    const along = step / ANGLE_ARC_STEPS;
+    const weight = [Math.sin((1 - along) * sweep) / sine, Math.sin(along * sweep) / sine];
+    points.push(vertex.map((value, axis) => value + radius * (weight[0] * from[axis] + weight[1] * to[axis])));
+  }
+  return points;
 }
 
 function ink(rgb, alpha) {
@@ -173,6 +205,15 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
       }
       const placed = pointsFor(term.beads || [], positions, beadAliases);
       if (placed.length < 2) continue;
+      if (term.kind === 'angles') {
+        const arc = placed.length === 3 ? angleArc(placed[1], placed[0], placed[2]) : [];
+        if (!arc.length) continue;
+        traces.push({type: 'scatter3d', mode: 'lines', name: label, showlegend: false,
+          x: arc.map(point => point[0]), y: arc.map(point => point[1]), z: arc.map(point => point[2]),
+          customdata: arc.map(() => term.id), meta: 'term', line,
+          hovertemplate: `${label}<extra></extra>`});
+        continue;
+      }
       // A term whose geometry lies along the bonds is stepped off them, by the same vector for every term naming the
       // same beads: eight harmonics of one dihedral are one line, not eight, and a re-render must not move it.
       const points = style.offset
