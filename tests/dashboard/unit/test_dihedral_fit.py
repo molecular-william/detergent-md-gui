@@ -6,6 +6,7 @@ in that direction. A factor-of-57 error in the degrees/radians conversion surviv
 residual, and dies here.
 """
 import json
+import math
 
 import MDAnalysis as mda
 import numpy as np
@@ -236,6 +237,130 @@ def test_a_dihedral_of_another_function_type_and_a_short_line_are_both_refused(t
         dihedral_fit.read_declared_dihedrals(short)
 
 
+FUNCT9_TOPOLOGY = """[ dihedrals ]
+; Fast_Forward writes one harmonic per line, for the same four beads
+1 2 3 4 9 180.0 3.5 2
+1 2 3 4 9 90.0 0.4 4
+"""
+
+
+def test_a_fourier_series_dihedral_is_one_dihedral_with_its_harmonics(tmp_path):
+    """funct 9 as `ff_inter` writes it: one harmonic per line, all for the same four beads.
+
+    Eight lines are one dihedral, not eight. Read as eight, the report measures the same torsion eight times, lists it
+    eight times, and picks a "dominant" from single harmonics that were never separate terms.
+    """
+    path = tmp_path / 'funct9.itp'
+    path.write_text('[ dihedrals ]\n'
+                    '1 2 3 4 9 -93.484 -4.431 1\n'
+                    '1 2 3 4 9 -17.242 4.021 2\n'
+                    '1 2 3 4 9 64.043 -3.081 3\n')
+
+    terms = dihedral_fit.read_declared_dihedrals(path)
+
+    assert len(terms) == 1, terms
+    entry = terms[0]
+    assert entry['funct'] == '9' and entry['term_count'] == 3
+    assert [term['multiplicity'] for term in entry['terms']] == [1, 2, 3]
+    # The scalar fields are the harmonic with the largest force constant by magnitude -- -4.431 here, not 4.021.
+    assert entry['multiplicity'] == 1
+    assert entry['force_constant'] == pytest.approx(-4.431)
+    assert entry['phase_deg'] == pytest.approx(-93.484)
+
+
+def test_one_line_may_carry_several_terms_and_two_quadruples_stay_apart(tmp_path):
+    """GROMACS allows several `phi C mult` triplets on one funct 9 line; two quadruples are two dihedrals."""
+    path = tmp_path / 'two.itp'
+    path.write_text('[ dihedrals ]\n'
+                    '1 2 3 4 9 180.0 3.5 2 90.0 0.4 4\n'
+                    '2 3 4 5 9 0.0 1.0 1\n')
+
+    terms = dihedral_fit.read_declared_dihedrals(path)
+
+    assert [entry['atoms'] for entry in terms] == [(1, 2, 3, 4), (2, 3, 4, 5)]
+    assert terms[0]['term_count'] == 2 and terms[1]['term_count'] == 1
+    assert [term['multiplicity'] for term in terms[0]['terms']] == [2, 4]
+
+
+def test_a_one_term_fourier_dihedral_reads_as_the_periodic_one_it_is(tmp_path):
+    """funct 1 and a one-triplet funct 9 are the same function, so the numbers must not change with the spelling."""
+    periodic = tmp_path / 'periodic.itp'
+    periodic.write_text('[ dihedrals ]\n1 2 3 4 1 180.0 3.5 2\n')
+    fourier = tmp_path / 'fourier.itp'
+    fourier.write_text('[ dihedrals ]\n1 2 3 4 9 180.0 3.5 2\n')
+
+    one = dihedral_fit.read_declared_dihedrals(periodic)[0]
+    nine = dihedral_fit.read_declared_dihedrals(fourier)[0]
+
+    for field in ('phase_deg', 'force_constant', 'multiplicity', 'term_count'):
+        assert one[field] == nine[field], field
+    assert one['funct'] == '1' and nine['funct'] == '9'
+
+
+def test_a_quadruple_declared_with_two_functions_is_refused(tmp_path):
+    path = tmp_path / 'mixed.itp'
+    path.write_text('[ dihedrals ]\n1 2 3 4 1 180.0 3.5 2\n1 2 3 4 9 180.0 3.5 2\n')
+
+    with pytest.raises(ValueError, match='cannot be both'):
+        dihedral_fit.read_declared_dihedrals(path)
+
+
+def test_the_curve_difference_ignores_the_constant_a_series_carries():
+    """A series carries the sum of its coefficients as a constant, and the two sides need not share it.
+
+    Aligning on the minimum instead would count well depth as shape; the number this reports is disagreement about
+    shape alone, which is why a shift that no torsion feels must read as no difference.
+    """
+    terms = [{'phase_deg': 180.0, 'force_constant': 3.5, 'multiplicity': 2}]
+    same = [{'phase_deg': 180.0, 'force_constant_kj_mol': 3.5, 'multiplicity': 2}]
+    shifted = [{'phase_deg': 180.0, 'force_constant_kj_mol': 3.5, 'multiplicity': 2},
+               {'phase_deg': 0.0, 'force_constant_kj_mol': 12.0, 'multiplicity': 0}]
+    other = [{'phase_deg': 0.0, 'force_constant_kj_mol': 3.5, 'multiplicity': 2}]
+
+    assert dihedral_fit.curve_rms(terms, same) == pytest.approx(0.0, abs=1e-12)
+    assert dihedral_fit.curve_rms(terms, shifted) == pytest.approx(0.0, abs=1e-12)
+    assert dihedral_fit.curve_rms(terms, other) > 1.0
+
+
+def test_a_fourier_series_topology_is_compared_by_its_whole_curve(tmp_path):
+    """The end-to-end path for what `ff_inter` actually writes: a term with two harmonics, compared as a curve."""
+    work = _dihedral_run(tmp_path, FUNCT9_TOPOLOGY)
+
+    report = dihedral_fit.publish(work, {'temperature': 303.15})
+
+    assert report['declared'] == {'dihedrals': 1, 'multi_term': 1, 'harmonics': 2, 'functs': ['9']}
+    assert len(report['rows']) == 1 and not report['unmeasured']
+    row = report['rows'][0]
+    assert row['ours']['term_count'] == 2
+    assert row['multiplicities_agree'] is True
+    # A series has no single phase, so the shape comparison is the number this row leans on; it is a measurement and
+    # its size is not pinned here -- pinning it would pin the criterion's choice of harmonics, which is not this test's
+    # subject. That the number is zero when the two sides state the same series is the test below.
+    assert math.isfinite(row['energy_rms_kj_mol']) and row['energy_rms_kj_mol'] >= 0.0
+    assert any('funct 9' in line for line in report['limitations'])
+
+
+def test_a_topology_that_states_the_fits_own_series_has_no_curve_difference(tmp_path):
+    """The shape comparison measured against itself: the same series on both sides must differ by nothing.
+
+    This is what makes `energy_rms_kj_mol` a number a reader can trust before trusting its size on a real molecule:
+    the two curves are evaluated by the same function, and a fit written back into a topology has to reproduce it.
+    """
+    work = _dihedral_run(tmp_path)
+    first = dihedral_fit.publish(work)
+    chosen = first['rows'][0]['fit']['dihedrals']
+    lines = '\n'.join(f"1 2 3 4 9 {term['phase_deg']} {term['force_constant_kj_mol']} {term['multiplicity']}"
+                       for term in chosen)
+    (work / '3_initial_CG' / 'DDM_ff_inter.itp').write_text('[ dihedrals ]\n' + lines + '\n')
+
+    second = dihedral_fit.publish(work)
+
+    row = second['rows'][0]
+    assert row['ours']['term_count'] == len(chosen)
+    assert row['energy_rms_kj_mol'] == pytest.approx(0.0, abs=1e-9)
+    assert row['multiplicities_agree'] is True
+
+
 def _dihedral_run(tmp_path, topology=DIHEDRAL_TOPOLOGY, *, frames=2000, amplitude=6.0, seed=11):
     """A work directory whose four beads take torsions drawn from a known 2-fold potential.
 
@@ -278,7 +403,14 @@ def test_the_analysis_fits_a_declared_dihedral_and_compares_it_with_ours(tmp_pat
     assert len(report['rows']) == 1 and not report['unmeasured']
     row = report['rows'][0]
     assert row['beads'] == ['B01', 'B02', 'B03', 'B04']
-    assert row['ours'] == {'phase_deg': 180.0, 'force_constant_kj_mol': 3.5, 'multiplicity': 2}
+    assert row['ours']['phase_deg'] == 180.0
+    assert row['ours']['force_constant_kj_mol'] == 3.5
+    assert row['ours']['multiplicity'] == 2
+    # funct 1 is one term; the series fields exist for every topology so a reader has one shape to handle.
+    assert row['ours']['funct'] == '1' and row['ours']['term_count'] == 1
+    assert row['ours']['terms'] == [{'phase_deg': 180.0, 'force_constant': 3.5, 'multiplicity': 2, 'line': 3}]
+    assert row['energy_rms_kj_mol'] >= 0.0
+    assert report['declared'] == {'dihedrals': 1, 'multi_term': 0, 'harmonics': 1, 'functs': ['1']}
     assert row['fit']['terms'] >= 2                      # one harmonic has one minimum, not two
     assert row['fit']['dominant_multiplicity'] == 2
     assert row['fit']['residual_rms_kj_mol'] > 0.0

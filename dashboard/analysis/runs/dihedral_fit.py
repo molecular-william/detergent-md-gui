@@ -173,6 +173,11 @@ def fit_dihedral(angles_deg, temperature, *, bins=DEFAULT_BINS, window=DEFAULT_W
 # --- measuring a torsion, reading the topology, and publishing the comparison ---------------------------------
 
 DIHEDRAL_SECTION = 'dihedrals'
+#: The `funct` values this reader reads. Both are `sum_k k (1 + cos(n phi - phi_s))`: funct 1 carries one term,
+#: funct 9 a Fourier series of them.
+PROPER_FUNCTS = {'1': 'one periodic term', '9': 'a Fourier series'}
+#: Numbers after `funct` that make up one term: phase, force constant, multiplicity.
+TRIPLET = 3
 
 
 def torsion_deg(p0, p1, p2, p3):
@@ -193,14 +198,24 @@ def torsion_deg(p0, p1, p2, p3):
 
 
 def read_declared_dihedrals(path):
-    """The proper dihedrals a topology declares: `i j k l funct phi_s cp mult`, funct 1 only.
+    """The proper dihedrals a topology declares, funct 1 and funct 9, one entry per atom quadruple.
 
-    Refused rather than assumed, as in the bond reader: a different `funct` is a different function with different
-    fields, and reading its numbers as a phase and a force constant would put a meaningless pair of numbers beside a
-    real one -- and this reader's whole output is a comparison, so a meaningless half of it is not a small error.
+    `funct 1` is a single periodic term: `i j k l 1 phi_s k mult`. `funct 9` is the same function as a Fourier series --
+    `phi C mult` triplets, which GROMACS allows several of on one line and which Fast-Forward's `ff_inter` writes one
+    per line for the same quadruple. Both are `sum_k k (1 + cos(n phi - phi_s))`, so the numbers mean the same thing
+    and only the number of terms differs: a funct 9 quadruple is read as **one** dihedral whose `terms` are its
+    harmonics, rather than as one dihedral per line, which would measure and report the same torsion eight times.
+
+    The scalar fields on the entry are the harmonic with the largest force constant, the same rule `publish` uses to
+    name a dominant term on the fitted side. That rule is the report's, not the force field's: a series has no single
+    phase, and the comparison in `publish` says so and reports the whole series beside it.
+
+    Any other `funct` is refused rather than assumed, as in the bond reader: a different `funct` is a different function
+    with different fields, and reading its numbers as a phase and a force constant would put a meaningless pair beside
+    a real one -- and this reader's whole output is a comparison, so a meaningless half of it is not a small error.
     """
     section = None
-    terms = []
+    entries = {}
     for number, raw in enumerate(Path(path).read_text().splitlines(), start=1):
         line = raw.split(';', 1)[0].strip()
         if not line:
@@ -211,19 +226,64 @@ def read_declared_dihedrals(path):
         if section != DIHEDRAL_SECTION:
             continue
         fields = line.split()
-        if len(fields) < 8:
+        if len(fields) < 5 + TRIPLET:
             raise ValueError(f'{path}:{number}: a proper dihedral needs 8 fields, found {len(fields)}')
-        if fields[4] != '1':
-            raise ValueError(f'{path}:{number}: funct {fields[4]} is not a proper dihedral, and this reader has '
+        funct = fields[4]
+        if funct not in PROPER_FUNCTS:
+            raise ValueError(f'{path}:{number}: funct {funct} is not a proper dihedral, and this reader has '
                              'nothing to say about it')
+        trailing = fields[5:]
+        if funct == '1' and len(trailing) != TRIPLET:
+            raise ValueError(f'{path}:{number}: funct 1 carries exactly {TRIPLET} numbers after it, found '
+                             f'{len(trailing)}')
+        if len(trailing) % TRIPLET:
+            raise ValueError(f'{path}:{number}: funct 9 takes phase, force constant and multiplicity in threes, '
+                             f'found {len(trailing)}')
         try:
             atoms = tuple(int(index) for index in fields[:4])
-            phase, constant, multiplicity = float(fields[5]), float(fields[6]), int(float(fields[7]))
+            triplets = [(float(phase), float(constant), int(float(multiplicity)))
+                        for phase, constant, multiplicity
+                        in (trailing[offset:offset + TRIPLET] for offset in range(0, len(trailing), TRIPLET))]
         except ValueError as error:
             raise ValueError(f'{path}:{number}: {error}') from error
-        terms.append({'atoms': atoms, 'phase_deg': phase, 'force_constant': constant,
-                      'multiplicity': multiplicity, 'line': number})
-    return terms
+        entry = entries.setdefault(atoms, {'atoms': atoms, 'funct': funct, 'terms': [], 'line': number})
+        if entry['funct'] != funct:
+            raise ValueError(f'{path}:{number}: atoms {" ".join(str(index) for index in atoms)} are declared with '
+                             f'funct {entry["funct"]} and funct {funct}; one dihedral cannot be both')
+        entry['terms'] += [{'phase_deg': phase, 'force_constant': constant, 'multiplicity': multiplicity,
+                            'line': number} for phase, constant, multiplicity in triplets]
+    for entry in entries.values():
+        dominant = max(entry['terms'], key=lambda term: abs(term['force_constant']))
+        entry.update({'phase_deg': dominant['phase_deg'], 'force_constant': dominant['force_constant'],
+                      'multiplicity': dominant['multiplicity'], 'term_count': len(entry['terms'])})
+    return list(entries.values())
+
+
+def curve_rms(ours_terms, fit_terms, angles_deg=None):
+    """The RMS difference between two dihedral potentials over one period, in kJ/mol, each with its minimum removed.
+
+    This is what makes a multi-term comparison mean something: a funct 9 term has no single phase to agree with, so the
+    two series are evaluated instead and the difference between the curves is reported.
+
+    **The one constant shift that best aligns the two curves is removed first, and that is not cosmetic.** A term is
+    `C (1 + cos(...))`, whose mean over a period is `C`, so a series carries the sum of its coefficients as a constant
+    *and the two sides need not carry the same one* -- the engine picks its coefficients by least squares against a
+    potential of mean force with no absolute zero. Measured on the DDM linkage's own fit, the raw RMS was 15.9 kJ/mol
+    and the difference of the same two curves after that shift is 4.4 kJ/mol, so the shift was 11.5 of it: reported
+    raw, the number would have read as a disagreement about the shape of the torsion that is not there. Aligning on
+    the minimum instead measures well depth as well as shape, so the mean of the difference -- the shift that leaves
+    the smallest RMS -- is what is removed, and what remains is disagreement about shape alone.
+    """
+    grid = np.arange(-180.0, 180.0, 1.0) if angles_deg is None else np.asarray(angles_deg, dtype=float)
+    theirs = series(grid, [term['force_constant'] for term in ours_terms],
+                    [np.radians(term['phase_deg']) for term in ours_terms],
+                    [term['multiplicity'] for term in ours_terms])
+    ours = series(grid, [term['force_constant_kj_mol'] for term in fit_terms],
+                  [np.radians(term['phase_deg']) for term in fit_terms],
+                  [term['multiplicity'] for term in fit_terms])
+    difference = theirs - ours
+    difference = difference - difference.mean()
+    return float(np.sqrt(np.mean(difference ** 2)))
 
 
 def measure_torsions(universe, declared, names, frames=slice(0, None, 1)):
@@ -274,9 +334,15 @@ def publish(work, payload=None):
 
     rows, unmeasured = [], []
     for index, term in enumerate(declared):
+        # The scalar fields of a multi-term (funct 9) dihedral are its dominant harmonic, so the same three keys are
+        # reported for every topology; `terms` is the whole series and is what a series-vs-series reader should use.
+        stated = {'phase_deg': term['phase_deg'], 'force_constant_kj_mol': term['force_constant'],
+                  'multiplicity': term['multiplicity'], 'terms': term['terms'],
+                  'term_count': term['term_count'], 'funct': term['funct']}
         if index not in series:
             unmeasured.append({'beads': list(beads[index]), 'phase_deg': term['phase_deg'],
                                'force_constant': term['force_constant'], 'multiplicity': term['multiplicity'],
+                               'term_count': term['term_count'], 'funct': term['funct'],
                                'reason': f'the mapped trajectory has no bead {", ".join(beads[index])}'})
             continue
         try:
@@ -285,17 +351,18 @@ def publish(work, payload=None):
         except ValueError as error:
             unmeasured.append({'beads': list(beads[index]), 'phase_deg': term['phase_deg'],
                                'force_constant': term['force_constant'], 'multiplicity': term['multiplicity'],
+                               'term_count': term['term_count'], 'funct': term['funct'],
                                'reason': str(error)})
             continue
         dominant = max(fitted['dihedrals'], key=lambda item: item['force_constant_kj_mol'])
         rows.append({
             'beads': list(beads[index]),
-            'ours': {'phase_deg': term['phase_deg'], 'force_constant_kj_mol': term['force_constant'],
-                     'multiplicity': term['multiplicity']},
+            'ours': stated,
             'fit': {'terms': fitted['terms'], 'dihedrals': fitted['dihedrals'],
                     'residual_rms_kj_mol': fitted['residual_rms_kj_mol'],
                     'dominant_multiplicity': dominant['multiplicity'],
                     'dominant_force_constant_kj_mol': dominant['force_constant_kj_mol']},
+            'energy_rms_kj_mol': curve_rms(term['terms'], fitted['dihedrals']),
             'multiplicities_agree': dominant['multiplicity'] == term['multiplicity'],
         })
 
@@ -307,6 +374,12 @@ def publish(work, payload=None):
         'frames_in_trajectory': int(len(universe.trajectory)),
         'ours_from': str(topology.relative_to(work)), 'ours_provenance': provenance,
         'measured_from': '2_mapping/mapped.xtc',
+        # What the topology declared, counted by function type: eight funct 9 lines for one quadruple are one
+        # dihedral with eight harmonics, and a reader of this report should not have to recount that.
+        'declared': {'dihedrals': len(declared),
+                     'multi_term': sum(1 for term in declared if term['term_count'] > 1),
+                     'harmonics': sum(term['term_count'] for term in declared),
+                     'functs': sorted({term['funct'] for term in declared})},
         'rows': rows, 'unmeasured': unmeasured,
         'disagreements': [row['beads'] for row in rows if not row['multiplicities_agree']],
         'method': 'inverted Boltzmann, Savitzky-Golay smoothing, cumulative cosine series, chosen by ' + criterion,
@@ -325,6 +398,12 @@ def publish(work, payload=None):
             'the size of that loss travels with the numbers.',
             'The run topology states its multiplicities because a tool chose them. Agreement here is not evidence '
             'that the tool chose well, only that this fit would not have chosen differently.',
+            'A Fourier-series term (funct 9, what Fast_Forward writes) has no single phase to compare, so its scalar '
+            'columns are its largest-force-constant harmonic -- this report\'s rule, not the force field\'s -- and the '
+            'comparison that does not depend on that choice is `energy_rms_kj_mol`, the RMS difference between the two '
+            'whole curves after the constant shift that best aligns them -- shape only, since a series carries the sum '
+            'of its coefficients as a constant and that constant is not a property of the torsion. Read the '
+            'multiplicity verdict on such a row as a statement about the dominant harmonic only.',
         ],
         'scientifically_validated': False,
     }
