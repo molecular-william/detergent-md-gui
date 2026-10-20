@@ -36,7 +36,8 @@ usable. Five browser fixtures had to say `can_reuse` with them -- a stub without
 it, which is how this filter first showed up as four pdc files failing on a selected mapping they no longer got.
 
 **The dihedral check reads the Fourier series Fast-Forward writes, `361f675`.** The first real fit in this workspace
-(mapping `3dbdd5fb…`, AA reference `dbc366ae772b`, fast-forward) completed its revision with `dihedral-fit` recorded as
+(mapping `3dbdd5fb…` -- deleted by the owner at 18:37:49 on 2026-10-20, so the hash is history rather than something to
+look up; AA reference `dbc366ae772b`, fast-forward) completed its revision with `dihedral-fit` recorded as
 an error: `funct 9 is not a proper dihedral, and this reader has nothing to say about it`. `ff_inter` writes `funct 9`
 -- one `phi C mult` triplet per line and eight lines for one quadruple, which is one dihedral as a Fourier series, not
 eight dihedrals. The reader keyed on `funct 1` and so refused a topology its own tool wrote.
@@ -74,16 +75,19 @@ revision 1 with 26 terms. `identity.candidate_identity` now hashes a number's va
 booleans untouched; `canonical_sha256` deliberately not normalised), reads fall back to `legacy_content_identity`, and
 `fitting.work_dir` reuses a pair staged under the legacy digest. Second cause, fixed at the same time: the box polls
 `?job_id=` rather than the mapping's hash, because the id is the job it queued and the hash is a different question
-about a mapping. The orphan this left behind -- `records/3dbdd5fb….json`, written before the 18:38 re-fit -- is still
-there and addresses no current mapping: it is fit history, not data, and deleting it is a cleanup, not a repair.
+about a mapping. Nothing was left behind to clean up, and the note that said otherwise was wrong: `records/` holds
+one record, the 18:38 fit's. The 15:38 fit's record went at 18:37:49 with the mapping it belonged to -- the request log
+has `DELETE /api/mappings/drafts/mapping_candidate_2bcc24c3e5f149fab1e4f11f5d80ae0e.json` -> 200 -- and
+`parameterization.delete` takes the record, that mapping's fit jobs and its staged work directory together, which is the
+documented cascade working. The wrong note was written from a work-directory name seen *before* that deletion and never
+re-checked against `records/`: the name outlived the record by minutes, and the inference did not.
 
-**One record in the workspace is an agent's, not the owner's.** `workspace/dashboard/mapping_drafts/` holds six
-candidates, and `mapping_candidate_3f6d922c2f4b416dadacca7bc6f2f4ca.json` -- named plainly `probe`, created
-2026-10-20 09:34 UTC, `schema_version` 2, `molecule_snapshot` null, provenance reduced to `paper_doi` and
-`sugar_topology` -- was written by a session's API check rather than by the bead editor. It is filtered out of every
-molecule-scoped picker by its null snapshot, which is why it appears only where the mapping list is unscoped (CG Bond
-Interactions). It is left in place: removing it is the owner's call, through
-`DELETE /api/mappings/drafts/<file>` with a copy kept in scratch first.
+**A mapping written by an agent's API check, not by the bead editor.** `workspace/dashboard/mapping_drafts/` holds
+four candidates now. It once held `mapping_candidate_3f6d922c2f4b416dadacca7bc6f2f4ca.json` -- named plainly `probe`,
+created 2026-10-20 09:34 UTC, `schema_version` 2, `molecule_snapshot` null -- which a session wrote as a deletion probe
+rather than a mapping anyone meant to keep; it is gone. The fact it documented stays true for any record like it: a null
+`molecule_snapshot` keeps it out of every molecule-scoped picker, so it appears only where the mapping list is unscoped
+(CG Bond Interactions).
 
 Measured: fast tier 1,792 passed in 17.4 s; browser 223 passed in 37.6 s at `-n 24 --dist worksteal`; `ruff check
 dashboard tests` clean. The live page reads Run type · Method · Force field in the run-configuration row, two DDM
