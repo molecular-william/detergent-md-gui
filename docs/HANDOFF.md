@@ -65,6 +65,15 @@ route: it warns with the count that panel has already read, refuses while a fit 
 a saved mapping (a `composition:<id>` entry is not one), and after deleting re-reads the catalogue, selects the next
 mapping and says which -- or empties the panel when none is left.
 
+**New Run pins the AA source to the fit's run, `61618f0`.** A mapping carrying a parameterization chooses its own AA
+reference on New Run: the picker locks to `aa_reference.run_id`, the AA half's settings are filled from that run's own
+record and locked, deleting that source is hidden, and the CG settings stay editable. Measured live on arm-B:
+`dbc366ae772b` locked, `aa_production_ps` 200000, `aa_nvt_ps` 100, `temperature_k` **303.15** where the panel's own
+default is 300 -- the mismatch the pin removes -- two readiness calls for the interaction. The cost of getting it wrong
+is recorded in the code and here: an `enforce` that treated a null readiness answer as "unlock" dropped and retook the
+pin on every re-ask, eighteen requests in five seconds with the card never drawn; the pin is released on a *mapping*
+change only, and releases its chosen source with it.
+
 **The 3D diagram never drew a bonded term, `0a2e43a`.** Asked for dihedrals as dashed half-transparent lines, the
 answer was that it drew nothing to style: the scene draws the mapping's own bead names (`S1A`, `TAIL3`) and a revision
 names beads by export name (`B01`, `B11`; `mappings/exports.py` writes `B{i+1:02d}` over the mapping's bead list,

@@ -46,6 +46,12 @@ them.
   saved mapping deletes its parameterizations (and the fit jobs and staged frames built for it) unless another saved
   mapping carries the same content hash; both panels that can delete a mapping do it through that one route, and say
   what went with it.
+- **New Run pins the AA source to the run the parameterization was fitted against.** A mapping whose current revision
+  names `aa_reference.run_id` chooses the AA reference itself: the picker is disabled, the AA half's stage settings are
+  filled from that run's own record and locked, and deleting that source is not offered. A fit is only as good as its
+  ensemble, and a run consuming a reference does not re-run its AA half. A **null readiness answer is not an unlock** --
+  the panel clears its answer whenever it re-asks, and unlocking on that drops and retakes the pin in a loop; release
+  happens on a *mapping* change, and takes the inherited source with it.
 - **A candidate's identity must not depend on how its numbers were spelled.** `identity.candidate_identity` hashes
   `1` and `1.0` alike (`numbers_as_values`): a mapping is read as JSON, posted back by a browser, and JS has no int,
   so a file's `1.0` returns as `1`. Hashing the spellings differently gave one mapping two content identities -- the

@@ -61,7 +61,11 @@ without its ensemble is not a measurement. Reversal cost: per engine, a dropped 
 
 **D4 — The AA reference is linked, not implied.** A picker over completed AA-only runs (the same list the run panel
 uses), recorded with the model, and the default a later run inherits. A model whose reference is gone says so rather
-than silently fitting against nothing. Reversal cost: drop the field and the run's default.
+than silently fitting against nothing. Reversal cost: drop the field and the run's default. *Landed 2026-10-20:* the
+link is enforced, not merely recorded -- on New Run a mapping whose current revision names `aa_reference.run_id` pins the
+picker to that run and locks the AA half's stage settings to that run's own record, because a fit is only as good as the
+ensemble it was fitted to and a run consuming a reference does not re-run its AA half. The pin is released by a *mapping*
+change, not by readiness re-asking: a null answer while the question is in flight is not an answer that says unlock.
 
 **D5 — The run panel's bonded step becomes read-only provenance**, with two honest states: *"this model is
 parameterized — fitted with Fast-Forward against a54ac8f64710, revision 3, hash …, torsion model circular-harmonic"*
