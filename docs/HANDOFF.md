@@ -5,6 +5,26 @@ derived from. Read it before starting work on the DDM CG chain or the coordinato
 
 ## Landed 2026-10-16, later: the panel, the reviews, and what four reviewers found
 
+### Open items, with what to do next
+
+1. **A browser-tier flake.** `tests/dashboard/browser/test_run_view_browser.py::test_a_cg_run_colours_its_beads_by_family_and_only_then_shows_the_legend`
+   fails intermittently at `-n 6` and passes at `-n 0` (21 passed in that file). Next: run that file with its two
+   neighbours at `-n 6` and find the shared state or the fixed wait -- do not silence it.
+2. **An unexplained fast-tier intermittency.** One run of `-m "not browser and not slow"` reported 4 failures; three
+   later runs reported 0, and the 5-failure run before it was a marker inserted inside an embedded helper script
+   (fixed). Next: run the tier with `--lf` after a failing run, or with `-p no:cacheprovider` and a fixed order, and
+   record which tests -- a count that moves without a named test is not a diagnosis.
+3. **The readiness probe's cost.** `test_readiness_*` are the tier's slowest single tests because they probe
+   `ff_inter`/`ff_assess`/`gmx` per call; the same probe is why a live readiness request sits at "Checking
+   requirements..." for ~10 s. Next: inject the probe in those tests and keep exactly one that asks the real
+   environment (the skill's rule), then either run the three probes concurrently or cache on the resolved path's
+   mtime and size -- never for the life of the process.
+4. **The fixed panel diff has not been re-reviewed.** The skill's loop is review, fix, review again; `4748261`
+   carries the fixes and no second review. Next: re-run the spec review over the panel files in that commit.
+5. **`pytest-socket` is not installed.** The suite makes no outbound HTTPS (measured), and nothing enforces it. Next:
+   add it with `--allow-hosts=127.0.0.1,localhost` so a future fetch fails in the test rather than in someone's CI.
+6. **The slow tier's whole count is unmeasured** (`60+`; the five files that moved onto it are 53 of it).
+
 **CG Bond Interactions now produces a parameterization, New Run shows which one a run will use, and deleting a
 mapping takes its bond interactions with it.** `89e3e2c` carried the six routes, the panel (model card, Fit, job box
 with cancel, result card, `source` column, revision strip) and the `02 · CG MODEL` card. The mapping-deletion change
@@ -71,6 +91,7 @@ ruff clean over 12 Python paths.
 now closed). Quality: the same gap, plus two minor findings still open -- `models/bonded/states.py:156` reads two
 retired keys with nothing saying why (records written before D1), and the fixtures in
 `test_temporary_validation_cleanup.py` key on the removed field, so the retention grouping is untested.
+(Both closed in `4748261`: the retired-key read carries its comment, and the fixtures key on what the cleanup reads.)
 
 **Standing decisions taken with the owner.** A parameterization belongs to the mapping and the bonded states are its
 revisions, so a run consumes a model rather than a state id. Producing one is a job of the CG Bond Interactions panel
@@ -79,12 +100,9 @@ restricted to `-refit -owntraj` against our own mapped trajectory. A model with 
 run, which records that it did. The torsion model is a property of the mapping. `method: 'bartender'` remains a
 provenance label, not a pipeline: no stage invokes the tool.
 
-**Open.** The web half of that design (`docs/design/2026-10-16-parameterization-and-new-run.md`; draft at
-`docs/design/prototypes/parameterization-and-new-run.html`): the panel's model card, job box, result and revision
-strip, and `02 · CG MODEL` on the New Run panel, both coded against the `## API` section the backend commit wrote. The
-two minor review findings above. And `bartender-fit`'s declared AA-reference input (`1_AA-reference/prod/lig.{gro,xtc}`)
-still does not match this workspace's layout, where a run's reference trajectory lives in the paired AA run under
-`stages/07_reference/`.
+**Closed since.** The web half landed (`89e3e2c`, its review findings fixed in `4748261`), and
+`bartender-fit`'s declared `1_AA-reference/prod/...` paths resolve through `reads_aa_reference` against the
+paired AA run's `stages/07_reference/` -- a test now pins that substitution, which nothing covered before.
 
 ## Landed 2026-10-15: the gate, the mutation signal, and 29 property tests
 
