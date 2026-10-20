@@ -620,30 +620,94 @@
     </section>
   </div>
 </section>
-<section id="bonded" class="panel" role="tabpanel" aria-labelledby="tab-bonded"{% if panel != 'bond-interactions' %} hidden{% endif %}>
-  <div class="section-heading"><div><h2>CG Bond Interactions</h2><p>Edit bonded terms for a selected mapping and save immutable state revisions.</p></div></div>
-  <div class="card bonded-workspace">
-    <div class="notice bonded-help"><strong>Workflow</strong><p>Choose a mapping and one of its saved states, or start from the mapping draft. Generate a reference-informed draft, select two physical beads in the 3D diagram, then create and edit an interaction in the table. <strong>Save as new state</strong> preserves the selected state unchanged. Generated parameters are hypotheses and short validation is an execution check, not scientific approval.</p><p>Functions select the GROMACS potential form; bond lengths are derived from bead geometry and read-only. Other parameters use the units shown in each row. Constraints and virtual-site parents remain read-only.</p></div>
-    <div class="form-grid"><label>Mapping<select class="bonded-mapping-select"></select></label><label>Bonded state<select class="bonded-state-select"><option value="">Mapping only · fit parameters</option></select></label></div>
-    <p class="bonded-state-summary hint">Choose a mapping to load its bonded states.</p>
+<section id="bonded" class="panel bonded-workspace" role="tabpanel" aria-labelledby="tab-bonded"{% if panel != 'bond-interactions' %} hidden{% endif %}>
+  <div class="section-heading"><div><h2>CG Bond Interactions</h2><p>Produce a CG model's parameterization — the bonded terms fitted to this mapping — from one of its AA references. A fit makes no MD, so nothing from this panel appears in Runs; a run consumes the revision this panel makes current and never re-fits it.</p></div></div>
+
+  {# The model card. Every reading here comes off `/api/bonded-parameterizations` and
+     `/api/bonded-parameterizations/engines`; the panel states nothing about a model it did not read. #}
+  <section class="card bonded-model" aria-labelledby="bonded-model-title">
+    <div class="section-heading">
+      <div><span class="eyebrow">Model</span><h3 id="bonded-model-title">What is being parameterized</h3>
+        <p class="hint" id="bonded-model-summary">Choose a mapping to read its revisions.</p></div>
+      <span class="badge" id="bonded-model-badge">no parameterization</span>
+    </div>
+    <p class="hint" id="bonded-mapping-facts"></p>
+    <div class="form-grid bonded-model-fields">
+      <label>Mapping<select id="bonded-mapping-select" class="bonded-mapping-select" aria-describedby="bonded-mapping-facts"></select></label>
+      <label>AA reference<select id="bonded-aa-reference" aria-describedby="bonded-aa-facts"></select></label>
+      <label>Fit with<select id="bonded-engine" aria-describedby="bonded-engine-note"></select></label>
+      <label>Constraint threshold <span class="hint">kJ mol⁻¹ nm⁻²</span><input id="bonded-constraints-threshold" type="number" min="1" step="any" value="10000" aria-describedby="bonded-constraints-note"><span class="hint" id="bonded-constraints-note"></span></label>
+      <label>Fit temperature <span class="hint">K · default 300</span><input id="bonded-temperature" type="number" min="1" max="1000" step="1" value="300"></label>
+      <label>Torsion model<select id="bonded-torsion-model" class="bonded-torsion-model">
+        <option value="legacy">Legacy — periodic fit, as recorded</option>
+        <option value="circular-harmonic">Circular-harmonic — each torsion fitted to the AA distribution</option>
+      </select></label>
+      <label>Torsion stiffness scale<input id="bonded-torsion-scale" class="bonded-torsion-scale" type="number" min="0.1" max="3" step="0.1" value="1" disabled></label>
+    </div>
+    <p class="hint" id="bonded-aa-facts"></p>
+    <p class="hint" id="bonded-engine-note"></p>
     <fieldset class="bonded-torsion">
       <legend>Torsion refinement · a property of this mapping</legend>
-      <p class="hint">Stage 3 of every AA–CG run refines the mapping's declared torsions from the AA reference. This is how those terms are written into the CG topology: either the legacy periodic fit, or a circular-harmonic fit of each torsion to the AA distribution at the stiffness below. <strong>Save to mapping</strong> writes it into the mapping file — the file a run is queued from and whose hash a run records — so a run already queued keeps the model its own snapshot carried. Nothing on the New run panel can change this.</p>
-      <div class="form-grid">
-        <label>Torsion model<select class="bonded-torsion-model">
-          <option value="legacy">Legacy — periodic fit, as recorded</option>
-          <option value="circular-harmonic">Circular-harmonic — each torsion fitted to the AA distribution</option>
-        </select></label>
-        <label>Torsion stiffness scale<input class="bonded-torsion-scale" type="number" min="0.1" max="3" step="0.1" value="1" disabled></label>
-      </div>
-      <div class="toolbar"><button type="button" class="secondary bonded-save-torsion" disabled>Save to mapping</button></div>
-      <p class="bonded-torsion-status hint" role="status">Choose a mapping to read its torsion model.</p>
+      <p class="hint">The torsion model and its stiffness scale are how those terms are written into the CG topology: either the legacy periodic fit, or a circular-harmonic fit of each torsion to the AA distribution at the stiffness chosen above. <strong>Save to mapping</strong> writes the pair into the mapping file — the file a run is queued from and whose hash a run records — so a run already queued keeps the model its own snapshot carried. Nothing on the New run panel can change this.</p>
+      <div class="toolbar"><button type="button" class="secondary bonded-save-torsion" id="bonded-save-torsion" disabled>Save to mapping</button></div>
+      <p class="bonded-torsion-status hint" id="bonded-torsion-status" role="status">Choose a mapping to read its torsion model.</p>
     </fieldset>
-    <div class="bonded-toolbar toolbar"><button class="bonded-automatic">Generate automatic bonded state</button><button class="secondary bonded-create-interaction" disabled>Create interaction</button><button class="secondary bonded-short-run" disabled>Run short CG validation</button><button class="secondary bonded-save-new" disabled>Save as new state</button><button class="danger secondary bonded-delete" disabled>Delete state</button></div>
-    <div class="bonded-editor-panel"><label>State name<input class="bonded-state-name" maxlength="160"></label><div class="bonded-parameter-editor"></div></div>
-    <div class="bonded-columns"><div><h3>Interactions</h3><p class="hint">Select a row to highlight it in the diagram. Kind identifies the GROMACS topology section; function selects its potential form.</p><div class="bonded-interaction-table"><p class="hint">No bonded terms loaded.</p></div></div><div><h3>Molecular connectivity</h3><p class="hint bonded-selection-status">Select up to two physical beads to create an interaction.</p><div class="bonded-diagram" role="img" aria-label="Interactive three-dimensional CG bead connectivity diagram"><div class="bonded-plot"></div></div></div></div>
-    <p class="bonded-panel-message hint" role="status"></p>
+    <div class="toolbar">
+      <button type="button" id="bonded-fit">Fit this model</button>
+      <button type="button" class="secondary" id="bonded-fit-reference">Generate reference-informed draft</button>
+    </div>
+    <p class="hint" id="bonded-fit-status" role="status"></p>
+    <div class="notice bonded-help"><strong>What a fit is</strong><p>Fast-Forward and BARTENDER build the mapped trajectory from the AA reference first — minutes of CPU and no MD — then fit bonds, angles and dihedrals to it. The reference-informed draft reads the mapping alone and names every term it had to take from geometry. Generated parameters are hypotheses, and a fit is not scientific approval: the checks below re-derive two of them and report the numbers.</p></div>
+  </section>
+
+  {# The job box: status, the log tail, and the one control that can stop it. #}
+  <section class="card bonded-job" id="bonded-job" aria-labelledby="bonded-job-title" hidden>
+    <div class="section-heading">
+      <div><span class="eyebrow">Job</span><h3 id="bonded-job-title">No fit queued</h3>
+        <p class="hint" id="bonded-job-detail"></p></div>
+      <span class="badge" id="bonded-job-status">queued</span>
+    </div>
+    <div class="bonded-job-meter" role="progressbar" aria-label="Fit progress" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0"><span id="bonded-job-bar"></span></div>
+    <p class="hint" id="bonded-job-error" role="alert" hidden></p>
+    <pre id="bonded-job-log" hidden></pre>
+    <div class="toolbar"><button type="button" class="secondary" id="bonded-job-cancel">Cancel this fit</button></div>
+  </section>
+
+  {# The result card: the current revision's provenance and the two checks' own numbers. #}
+  <section class="card bonded-result" id="bonded-result" aria-labelledby="bonded-result-title" hidden>
+    <div class="section-heading">
+      <div><span class="eyebrow">Result</span><h3 id="bonded-result-title">No revision yet</h3>
+        <p class="hint" id="bonded-result-summary"></p></div>
+      <span class="badge" id="bonded-result-badge">saved</span>
+    </div>
+    <dl class="review-grid bonded-provenance" id="bonded-result-provenance"></dl>
+    <div class="notice" id="bonded-result-checks"></div>
+  </section>
+
+  <div class="bonded-columns">
+    <section class="card">
+      <h3>Interactions</h3>
+      <p class="hint">The terms of the revision shown above, read from its own topology. <b>Source</b> says where each came from: the engine that fitted it, the mapping (a ring constraint or a virtual site), a hand edit, or geometry where the automatic draft had no reference. Select a row to highlight it in the diagram.</p>
+      <div class="bonded-interaction-table"><p class="hint">No bonded terms loaded.</p></div>
+    </section>
+    <section class="card">
+      <h3>Molecular connectivity</h3>
+      <p class="hint bonded-selection-status">Select a bead to read its name.</p>
+      <div class="bonded-diagram" role="img" aria-label="Interactive three-dimensional CG bead connectivity diagram"><div class="bonded-plot"></div></div>
+    </section>
   </div>
+
+  {# The revision strip, in place of the flat bonded-state select: a mapping's revisions are its
+     parameterization's history, and one of them is current. #}
+  <section class="card bonded-revisions" aria-labelledby="bonded-revisions-title">
+    <div class="section-heading">
+      <div><span class="eyebrow">Revisions</span><h3 id="bonded-revisions-title">Revisions of this mapping</h3>
+        <p class="hint">A run consumes the current revision and records which. Making an earlier one current rewrites nothing — the numbers stay, and every revision keeps its own engine, ensemble and checks.</p></div>
+    </div>
+    <ol class="bonded-revision-strip" id="bonded-revisions"></ol>
+  </section>
+
+  <p class="bonded-panel-message hint" role="status"></p>
 </section>
 {# The osmotic series set-up door. The validation workspace's seventh panel: it collects the settings
    `execution/adapters/osmotic.py` reads -- the solute, the concentrations, the duration, the temperature and what

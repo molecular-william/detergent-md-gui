@@ -60,9 +60,13 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_
     # Two catalogue questions exist: the editor's molecule-scoped one and the global
     # one another panel asks for. The round trip must refetch neither.
     assert sorted(catalogues) == ['/api/mappings?view=summary', '/api/mappings?view=summary&molecule_id=DDM'], catalogues
-    # The Bonded workspace asks its own question once, keyed by the mapping it drew; the New run panel's unkeyed
-    # copy of that list is gone with its control, so exactly one such read happens on this round trip.
-    assert len([u for u in urls if u.startswith('/api/bonded-states?view=summary')]) == 1, urls
+    # The Bonded workspace asks its own question about the model, keyed by the mapping it drew. The flat
+    # bonded-state list it used to read here is gone: a mapping's bonded states became its parameterization's
+    # revisions (D1), and the panel reads them off `/api/bonded-parameterizations` by content hash.
+    assert not [u for u in urls if u.startswith('/api/bonded-states')], urls
+    records = [u for u in urls if u.startswith('/api/bonded-parameterizations?')]
+    assert records, urls
+    assert all('content_hash=' in url for url in records), records
     assert urls.count('/api/mappings/'+saved['file']+'?') == 1
     assert not errors
     # A fresh direct link to Bonded does not construct the mapping editor.

@@ -21,6 +21,10 @@ import pytest
 from dashboard.execution import tools
 from dashboard.execution.adapters import pdc_view
 
+# On the slow tier: a cold and a warm preview each pay a real coarse-graining run, which is what the marker renders.
+pytestmark = pytest.mark.slow
+
+
 
 def peptide(residues=6) -> str:
     """A compact six-residue peptide, in the columns martinize2 reads: N, CA, C, O and CB per residue.

@@ -104,12 +104,16 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     setText($('#run-type-summary'), aaOnly?'AA-only run':'AA–CG run');
     setText($('#run-aa-summary'), aaOnly?'New AA reference':textFor(form.elements.reference_run_id,'New AA reference'));
     setText($('#run-mapping-summary'), aaOnly?'Not needed for AA-only':textFor(form.elements.mapping_candidate,'Select a mapping'));
-    // Fitting is the run type's now (D1), not a per-run intent: an AA–CG run always fits its own bonded parameters
-    // from the AA reference, a composition carries its own bonded state, and an AA-only run never fits. There is no
-    // per-run state or workflow left to report, so this row says which of the three applies rather than quoting a
-    // control that no longer exists.
+    // Fitting is the run type's now (D1), not a per-run intent: an AA–CG run consumes its model's parameterization
+    // when the mapping has one and fits in stage 3 when it does not (D5), a composition carries its own bonded
+    // state, and an AA-only run never fits. There is no per-run state or workflow left to report, so this row says
+    // which of those applies -- and for an AA–CG run it says what the `02 · CG MODEL` card above it describes,
+    // rather than the flat "fitted by the run" the row used to claim for every run.
+    const model = form.elements.run_type.value==='aa_cg' && form.elements.mapping_candidate.value ? modelState : null;
     setText($('#run-bonded-summary'), aaOnly?'Not needed'
       :compositionOnly?'From the composition'
+      :model?.parameterized?'Used as-is · this run does not re-fit'
+      :model?'Stage 3 fits it during the run'
       :'Fitted from the AA reference by the run');
     const temp=form.elements.temperature_k.value || '—';
     const aa=form.elements.aa_production_ps.value || '—';
@@ -147,6 +151,7 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     form.elements.composition_id.disabled = !compositionOnly;
     form.elements.composition_id.required = compositionOnly;
     showMolecule(moleculeRecords.find(record=>record.id===form.elements.molecule_id.value));
+    renderModelCard(modelState);
     if(mounted)loadStageDefaults().catch(error=>setText($('#defaults-source'),error.message));
     syncRunSummary();
     storage.set('form',formValues());
@@ -228,6 +233,108 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     refreshReadiness();
 
   }
+  // The `02 · CG MODEL` card ------------------------------------------------------------------------------------
+  //
+  // D5 of `docs/design/2026-10-16-parameterization-and-new-run.md`: a run consumes a *model* -- a mapping with its
+  // parameterization -- and never re-fits a parameterized one. So the panel states, before the run is started, which
+  // parameterization it will use; and when the model carries none it says the run fits in stage 3 and records that
+  // it did, rather than leaving a reader to guess from a stage name.
+  //
+  // Three rules shape it:
+  //
+  // * **The run type's words, not the panel's.** `readiness()['parameterization']` carries `statement`, the sentence
+  //   `adapters/cg.py` keeps beside the code that keeps the promise; the card renders it for the unparameterized
+  //   state rather than composing a parallel claim that could drift from the pipeline.
+  // * **It never touches `#start-run`.** An absent parameterization is a state, not a blocker -- the run fits it --
+  //   so the only thing allowed to disable Start is `ready.ready`.
+  // * **It is built here, in a container the markup already has.** `dashboard.html` belongs to the panel's own
+  //   layout, and the card lives inside `#cg-inputs`, under the mapping picker it describes. Its classes are the
+  //   house ones (`.card`, `.eyebrow`, `.review-grid`, `.hint`, `.button.secondary`), so it needs no stylesheet.
+  //
+  // The link is addressed the way this app addresses a panel: the sub-tab row already carries the panel's own route
+  // (`sections.py` writes the href), so the card reads it from there instead of restating a URL, and names the
+  // mapping with the query key the rest of the app uses for one (`mapping_candidate`).
+  let modelState = null;
+  const mappingChoice = () => form.elements.mapping_candidate?.value || '';
+  function bondedPanelHref(mapping) {
+    const tab = document.querySelector(`nav.subtabs [data-tab="${panelIds()['bond-interactions']}"]`);
+    const href = tab?.getAttribute('href');
+    if (!href) return '';
+    return mapping ? `${href}?${new URLSearchParams({mapping_candidate: mapping})}` : href;
+  }
+  function ensureModelCard() {
+    let card = form.querySelector('.cg-model');
+    if (card) return card;
+    const anchor = form.elements.mapping_candidate?.closest('label');
+    if (!anchor) return null;
+    card = document.createElement('section');
+    card.className = 'card cg-model';
+    card.setAttribute('aria-label', '02 · CG Model');
+    // Fixed markup and every value written by `textContent` below: nothing here interpolates a name, a path or a
+    // sentence the server sent, so a mapping called `<b>` stays a mapping called `<b>`.
+    card.innerHTML = '<span class="eyebrow">02 · CG MODEL</span>'
+      + '<h3 data-cg-model="name">Select a mapping</h3>'
+      + '<dl class="review-grid" data-cg-model="terms">'
+      + '<dt>Parameterization</dt><dd data-cg-model="parameterization">—</dd>'
+      + '<dt>Fitted with</dt><dd data-cg-model="engine">—</dd>'
+      + '<dt>Torsion model</dt><dd data-cg-model="torsion">—</dd>'
+      + '<dt>AA reference</dt><dd data-cg-model="reference">—</dd>'
+      + '</dl>'
+      + '<p class="hint" data-cg-model="statement"></p>'
+      + '<div class="toolbar"><a class="button secondary" data-cg-model="open"></a></div>';
+    anchor.insertAdjacentElement('afterend', card);
+    return card;
+  }
+  function modelField(card, name, text) {
+    const node = card.querySelector(`[data-cg-model="${name}"]`);
+    if (node && text !== undefined) node.textContent = text;
+    return node;
+  }
+  // The AA reference as the revision records it: the run id a reader can look up, and the ensemble it was measured
+  // on. `null` is a fact about the engine (a reference-informed draft reads no AA frames), not a missing field.
+  function describeReference(reference) {
+    if (!reference) return 'none — this parameterization read no AA reference';
+    const parts = [reference.run_id || 'unnamed reference'];
+    if (reference.temperature_k != null) parts.push(`${reference.temperature_k} K`);
+    if (reference.production_ns != null) parts.push(`${reference.production_ns} ns`);
+    return parts.join(' · ');
+  }
+  function renderModelCard(state) {
+    const card = ensureModelCard();
+    if (!card) return;
+    // Only the AA–CG branch has a model to describe, and only once a mapping is chosen: an empty picker has no
+    // parameterization to state, and a composition carries its own bonded terms rather than a mapping's.
+    const shown = form.elements.run_type.value === 'aa_cg' && !!mappingChoice() && !!state;
+    card.hidden = !shown;
+    if (!shown) return;
+    modelField(card, 'name', form.elements.mapping_candidate.selectedOptions?.[0]?.textContent?.trim() || mappingChoice());
+    const terms = card.querySelector('[data-cg-model="terms"]');
+    if (terms) terms.hidden = !state.parameterized;
+    if (state.parameterized) {
+      modelField(card, 'parameterization', `revision ${state.revision} · ${state.terms} bonded terms`);
+      modelField(card, 'engine', state.engine_label || state.engine || 'unknown engine');
+      modelField(card, 'torsion', state.torsion_model || 'not recorded');
+      modelField(card, 'reference', describeReference(state.aa_reference));
+    } else {
+      // No provenance is claimed where there is none: the rows belong to the parameterized state.
+    }
+    // Both honest states end in the run type's own sentence -- it is the sentence `adapters/cg.py` keeps beside the
+    // code that keeps the promise, and a second wording here would be a claim the panel does not own.
+    modelField(card, 'statement', state.statement || '');
+    const open = card.querySelector('[data-cg-model="open"]');
+    if (open) {
+      open.textContent = state.parameterized ? 'Open in CG Bond Interactions'
+                                             : 'Parameterize first in CG Bond Interactions…';
+      const href = bondedPanelHref(mappingChoice());
+      if (href) open.setAttribute('href', href); else open.removeAttribute('href');
+      // Optional, not required: an unparameterized model still starts a run, so the door says so rather than
+      // reading as the only way forward.
+      open.title = state.parameterized
+        ? 'Open this mapping in CG Bond Interactions, where its revisions are fitted and kept.'
+        : 'Optional: this run fits the model in stage 3. This opens the mapping where it can be fitted first.';
+    }
+  }
+
   let stageDefaults;
   // The force fields come from the registry, so the panel offers what the server can actually run rather than a
   // copy of the list held here. Choosing one moves the temperature to the value that entry's parameterisation
@@ -303,6 +410,15 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
       const ready = await api('/api/readiness?' + new URLSearchParams(query),{signal:readinessController.signal});
       if (generation !== readinessGeneration) return;
       if(ready.molecule) showMolecule(ready.molecule);
+      // The card states what the run will consume before it starts, from the run type's own answer. It is read here
+      // -- where the answer the panel is about to trust arrives -- so the card and the Start button cannot disagree
+      // about which model this run is, and it is *not* read from `ready.ready`: a model with no parameterization is
+      // still runnable, and the card must not be able to hold the button disabled.
+      modelState = ready.parameterization || null;
+      renderModelCard(modelState);
+      // The review's own `Bonded fit` row reads the same state, so it is refreshed with the card rather than only at
+      // the start of the next check.
+      syncRunSummary();
       const panel = $('#readiness'); panel.replaceChildren();
       setText($('#review-status'), ready.ready ? 'Inputs ready' : (ready.blockers?.length ? 'Action required' : 'Not ready'));
       $('#review-status').dataset.ready=String(!!ready.ready);

@@ -25,6 +25,10 @@ import pytest
 
 from dashboard.execution.adapters import osmotic
 
+# On the slow tier: the series runner drives one subprocess per condition, which is what the marker renders.
+pytestmark = pytest.mark.slow
+
+
 MAPPING = {'beads': [{'name': 'S1A', 'type': 'SP1r', 'atoms': [1, 2, 3]},
                      {'name': 'S1B', 'type': 'SP4r', 'atoms': [4, 5, 6]},
                      {'name': 'S1C', 'type': 'SP1r', 'atoms': [7, 8, 9]},

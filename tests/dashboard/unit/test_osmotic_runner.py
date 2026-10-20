@@ -21,7 +21,12 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from dashboard.execution.adapters import osmotic
+
+# On the slow tier: the osmotic runner drives one subprocess per condition, which is what the marker renders.
+pytestmark = pytest.mark.slow
 
 SCRIPTS = Path(osmotic.__file__).resolve().parents[1] / 'scripts'
 MAPPING = {'beads': [{'name': 'S1A', 'type': 'SP1r', 'atoms': [1, 2, 3]},
@@ -41,6 +46,7 @@ case "$sub" in
     python - "$PWD" <<'PY'
 import sys
 from pathlib import Path
+
 work = Path(sys.argv[1])
 lines = (work / 'system.gro').read_text().splitlines()
 count = int(lines[1])

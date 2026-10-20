@@ -26,8 +26,13 @@ CASES = (
     ('cg_composition', 'run_type=cg_composition'),
 )
 
-METADATA = {'molecule_id': 'DDM', 'method': 'fast_forward', 'profile': 'standard',
-            'mapping_candidate': None, 'composition_id': None}
+METADATA = {'molecule_id': 'DDM', 'method': 'fast_forward', 'mapping_candidate': None, 'composition_id': None}
+"""The metadata the route builds for a query that names no profile.
+
+No `profile` key on purpose: the route passes no profile when the query names none, and each run type answers with
+its own default (`cg.AA_CG_PROFILE` for an AA-to-CG run). Putting `'standard'` here would be the page's old
+fallback written into the comparison, which is exactly the drift this file exists to catch.
+"""
 
 
 def essentials(answer):

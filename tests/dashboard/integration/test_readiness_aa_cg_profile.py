@@ -33,3 +33,30 @@ def test_the_readiness_fallback_is_the_builders_own_default():
     assert inspect.signature(cg.prepare).parameters['profile'].default == cg.AA_CG_PROFILE
     source = inspect.getsource(cg._protocol_readiness)
     assert "metadata.get('profile') or AA_CG_PROFILE" in source
+
+
+def test_the_readiness_route_asks_about_the_profile_the_run_type_runs_under(dashboard):
+    """The adapter's fallback only reaches an answer the route does not overwrite.
+
+    `/api/readiness` used to build its metadata with `request.args.get('profile', 'standard')`, so an AA-CG request
+    that named no profile -- which is every request the panel makes, since D2 removed the choice -- was judged
+    under `standard`. That put `A reviewed CG model is required for standard parameterization` in front of a run
+    type that has never run under that profile, and skipped the mapping check the same string gates.
+    """
+    with dashboard.client as client:
+        answer = client.get('/api/readiness?run_type=aa_cg').get_json()
+
+    assert answer['profile'] == cg.AA_CG_PROFILE
+    assert not [blocker for blocker in answer['blockers'] if 'standard parameterization' in blocker]
+    assert any(check['label'] == 'CG mapping' for check in answer['checks'])
+
+
+def test_a_typo_in_the_profile_is_still_reported_rather_than_silently_standard(dashboard):
+    """The route's own default went away; its refusal of a name no run type has did not."""
+    with dashboard.client as client:
+        assert client.get('/api/readiness?run_type=aa_cg&profile=standrd').status_code == 400
+        named = client.get('/api/readiness?run_type=aa_cg&profile=standard').get_json()
+
+    assert named['profile'] == 'standard'
+    assert any('standard parameterization' in blocker for blocker in named['blockers']), \
+        'a caller that names standard still gets the standard answer'

@@ -51,14 +51,27 @@ def detergents_api():
     return jsonify(detergents=detergent_registry.select(aa_molecules.catalogue(c.ROOT/'molecules'), c.ROOT))
 
 
-def _requested_profile(default='standard'):
-    """The profile a defaults request asks for. A typo is reported, not silently standard."""
-    profile = request.args.get('profile') or default
+def _profile_argument():
+    """The profile the request names, validated; `None` when it names none.
+
+    A typo is reported, not silently standard. `None` is a real answer for a caller that wants the run type to
+    choose: the readiness list is asked about the profile that run type actually runs under, and the adapter owns
+    that string (`cg.AA_CG_PROFILE`), so a route-level `standard` here would put a blocker in front of a run type
+    that has never run under it.
+    """
+    profile = request.args.get('profile')
+    if not profile:
+        return None
     try:
         aa.validate_profile(profile)
     except ValueError as exc:
         abort(400, str(exc))
     return profile
+
+
+def _requested_profile(default='standard'):
+    """The profile a defaults request asks for, with this route's own fallback when it names none."""
+    return _profile_argument() or default
 
 
 @blueprint.get('/api/defaults')
@@ -133,7 +146,9 @@ def readiness_api():
         # protocol requires *some* molecule because a run cannot be checked without one.
         'molecule_id': request.args.get('molecule_id') or request.args.get('detergent') or 'DDM',
         'method': request.args.get('method', 'fast_forward'),
-        'profile': request.args.get('profile', 'standard'),
+        # No route-level default: the run type's own adapter names the profile it runs under, and a `standard`
+        # here is what put the standard-parameterization blocker in front of every AA-to-CG run.
+        'profile': _profile_argument(),
         'mapping_candidate': candidate,
         'molecule_root': c.ROOT / 'molecules',
         'runs_root': c.RUNS,

@@ -151,6 +151,8 @@ def revise(state_id, patch, expected_revision=None, in_place=False):
 
 
 def references(state_id, jobs):
+    # `bonded_state_id` and `bonded_state_snapshot` are retired keys, read only for records written before D1: a
+    # job queued since then carries neither, and this is what still resolves an old record to its state.
     state = get(state_id)
     source_run = state.get('current',{}).get('source',{}).get('run_id')
     return [j for j in jobs if j.get('bonded_state_id')==state_id or j.get('bonded_state_snapshot',{}).get('state_id')==state_id or (source_run and j.get('id')==source_run)]

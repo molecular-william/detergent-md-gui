@@ -16,9 +16,19 @@ from dashboard.web.sections import SECTIONS, TAB_IDS
 
 
 def panel_sections_in_template():
-    """The `id` of every panel section the template renders."""
+    """The `id` of every panel section the template renders.
+
+    Matched on `panel` being one of the section's classes rather than on the attribute equalling `class="panel"`:
+    a workspace-specific class beside it (`class="panel bonded-workspace"`) is still a panel, and the stricter
+    pattern reported a panel missing that the page renders -- a false red on a change that only added a class.
+    """
     html = (Path(__file__).resolve().parents[3] / 'dashboard/web/templates/dashboard.html').read_text()
-    return set(re.findall(r'<section id="([a-z-]+)" class="panel"', html))
+    found = set()
+    for match in re.finditer(r'<section id="([a-z-]+)"([^>]*)>', html):
+        classes = re.search(r'class="([^"]*)"', match.group(2))
+        if classes and 'panel' in classes.group(1).split():
+            found.add(match.group(1))
+    return found
 
 
 @pytest.mark.parametrize('name', sorted(SECTIONS))

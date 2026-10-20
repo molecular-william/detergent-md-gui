@@ -50,3 +50,46 @@ nav{max-width:100%;overflow-x:auto;white-space:nowrap}nav button{flex:0 0 auto}
 .bead-legend-list{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0;padding:0;list-style:none}
 .bead-legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
 .bead-legend-swatch{width:12px;height:12px;border-radius:3px;border:1px solid #00000026;display:inline-block}
+
+/* Producing a parameterization: the model card, the job box, the result card and the revision strip.
+ *
+ * The panel is the `.panel` grid now, so each of those is a card on the measure rather than a block inside one
+ * big card -- the layout the parameterization draft was approved with. Three things here are load-bearing:
+ * the provenance list states its own columns (it must not depend on `new-run.css` being loaded), the strip wraps
+ * rather than scrolling sideways (a mapping collects revisions for as long as it is used), and the meter has a
+ * minimum height so a queued job's 0% is still visible as an empty bar rather than as nothing at all.
+ */
+.bonded-model .section-heading, .bonded-job .section-heading, .bonded-result .section-heading { align-items: flex-start }
+.bonded-model-fields { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 18px; margin-top: 6px }
+.bonded-model-fields > label { margin: 0 }
+.bonded-model .badge, .bonded-result .badge, .bonded-job .badge { white-space: nowrap }
+.bonded-torsion { margin: 14px 0 0; padding: 10px 14px 12px; border: 1px solid var(--line); border-radius: 8px }
+.bonded-torsion legend { padding: 0 6px; font-size: 13px; font-weight: 700 }
+.bonded-torsion p { margin: 4px 0 }
+.bonded-torsion .toolbar { margin: 8px 0 0 }
+.bonded-help { margin: 14px 0 0 }
+.bonded-help p { margin: 6px 0 }
+.bonded-job-meter { height: 8px; margin: 12px 0 0; border-radius: 999px; background: #e6ecf4; overflow: hidden }
+.bonded-job-meter > span { display: block; width: 0; height: 100%; background: var(--accent); transition: width .3s ease }
+#bonded-job-log { max-height: 220px; margin: 10px 0 0 }
+#bonded-job-error { margin: 8px 0 0; color: var(--danger); font-weight: 600 }
+.bonded-provenance { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 7px 14px; margin: 14px 0 0 }
+.bonded-provenance dt { color: var(--muted); font-size: 12px }
+.bonded-provenance dd { margin: 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere }
+.bonded-checks-list { margin: 8px 0 0; padding-left: 20px; font-size: 13px }
+.bonded-checks-list li { margin: 4px 0 }
+.bonded-revision-strip { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 0; padding: 0; list-style: none }
+.bonded-revision-strip > .hint { margin: 0 }
+.bonded-revision { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 12px;
+  border: 1px solid var(--line); border-radius: 999px; background: #f8fafd; font-size: 12px }
+.bonded-revision[data-current=true] { border-color: var(--accent); background: #edf3ff }
+.bonded-revision-number { font-weight: 750 }
+.bonded-revision-engine, .bonded-revision-date { color: var(--muted); font-variant-numeric: tabular-nums }
+.bonded-revision button { padding: 3px 10px; font-size: 12px }
+.bonded-revision button:disabled { opacity: .8; cursor: default }
+.bonded-columns > .card { margin: 0 }
+.bonded-interaction-table .bonded-source { color: var(--muted); font-variant-numeric: tabular-nums }
+@media (max-width: 700px) {
+  .bonded-provenance { grid-template-columns: minmax(0, 1fr) }
+  .bonded-revision { border-radius: 10px }
+}

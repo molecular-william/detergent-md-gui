@@ -79,6 +79,13 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
     # The atomistic solute and its trajectory (what the fit is checked against), the mapping that
     # defines the beads, and the generated topology whose terms the fit is compared with. Optional by
     # design: nothing queues it.
+    #
+    # The two `1_AA-reference/prod/` names are the role the atomistic pair is staged under in the analysis work
+    # directory, not files a consumer run holds: a CG run's own `stages/1_AA-reference/` carries only its stage
+    # script, and the trajectory it was fitted against sits in the paired AA run at `stages/07_reference/lig.gro`
+    # and `.xtc`. `worker.source_entries` supplies them from the manifest's `shared_reference` for any kind with
+    # `reads_aa_reference` -- measured on run `22075892b606`, whose reference is `a54ac8f64710` -- and that
+    # substitution is the only source of these two, so the producer can read the name it is handed.
     Kind(
         'bartender-fit',
         (

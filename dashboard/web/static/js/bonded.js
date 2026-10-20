@@ -1,5 +1,20 @@
-import { $, $$, setText, api, post, cachedApi, invalidateResource } from './shared.js';
+/**
+ * CG Bond Interactions: the mapping being described, its picture, and the terms of its current revision.
+ *
+ * The panel has two halves. This module owns the mapping selector, the bead geometry and the interactions
+ * table; `bonded-parameterization.js` owns the model card, the fit job, the result and the revision strip, and
+ * hands its terms here through `onTerms`. The split is the design's own: what is *read* about a model
+ * (`/api/bonded-parameterizations`) is a different question from how its beads are drawn.
+ *
+ * The table is read-only on purpose. A revision is what a fit stored, and this slice has no route that writes a
+ * hand-edited one; a parameter input here would be a control that cannot act, which is the failure this
+ * repository's panels are not allowed to have. The `source` column is what a reader needs instead — it says
+ * which engine fitted each term, or that the mapping (a ring constraint, a virtual site), a hand edit recorded
+ * elsewhere, or a geometry fallback produced it.
+ */
+import { $, setText, cachedApi } from './shared.js';
 import { mountBondedPlot } from './bonded-plot.js';
+import { setupParameterization } from './bonded-parameterization.js';
 
 const FUNCTION_OPTIONS = {
   bonds: {1: {description: 'Harmonic', labels: ['length (nm)', 'force (kJ mol^-1 nm^-2)']}},
@@ -15,7 +30,6 @@ const FUNCTION_OPTIONS = {
   },
 };
 
-const ordinaryKinds = new Set(Object.keys(FUNCTION_OPTIONS));
 const formatNumber = value => Number.isFinite(Number(value)) ? Number(value).toString() : '';
 
 function optionsFor(kind) {
@@ -33,43 +47,58 @@ function normalizeTerm(term, fallbackId) {
   const selected = options.find(option => option.value === functionValue) || options[0];
   return {...term, id: term.id || fallbackId, kind, beads: [...(term.beads || [])],
     function: functionValue, parameters: [...(term.parameters || [])],
-    editable: term.editable ?? ordinaryKinds.has(kind), function_options: options,
+    editable: term.editable ?? false, function_options: options, source: term.source || 'unrecorded',
     parameter_labels: term.parameter_labels?.length ? [...term.parameter_labels] : [...(selected?.labels || [])]};
+}
+
+/** `Function 10 — Restricted bending`, or the section's own answer where it has no potential. */
+function functionSentence(term) {
+  const spec = FUNCTION_OPTIONS[term.kind]?.[term.function];
+  if (spec) return `${term.function} — ${spec.description}`;
+  if (term.kind === 'constraints') return '1 — rigid constraint, no potential';
+  if (term.kind === 'virtual_sitesn') return `${term.function} — virtual site`;
+  return term.function || '—';
+}
+
+/** The parameters in their own units, taken from the function's label list where it has one. */
+function parameterSentence(term) {
+  if (term.kind === 'virtual_sitesn') {
+    return (term.parents || []).length ? `parents ${term.parents.join(' · ')}` : 'no parents recorded';
+  }
+  const labels = term.parameter_labels || [];
+  if (!term.parameters.length) return '—';
+  const parts = term.parameters.map((value, index) => {
+    if (term.kind === 'constraints' && index === 0) return `${value} nm`;
+    return labels[index] ? `${value} ${labels[index].replace(/^.*\((.*)\)$/, '$1')}` : String(value);
+  });
+  return parts.join(' · ');
 }
 
 export function setupBondedWorkspace(mappingData, {loadMapping}) {
   const host = $('.bonded-workspace');
   if (!host || !mappingData) return;
-  const mappingSelect = $('.bonded-mapping-select', host);
-  const stateSelect = $('.bonded-state-select', host);
+  const mappingSelect = $('#bonded-mapping-select', host);
   const message = $('.bonded-panel-message', host);
-  const nameInput = $('.bonded-state-name', host);
-  const saveNew = $('.bonded-save-new', host);
-  const automatic = $('.bonded-automatic', host);
-  const createInteraction = $('.bonded-create-interaction', host);
-  const shortRun = $('.bonded-short-run', host);
-  const deleteState = $('.bonded-delete', host);
   const tableHost = $('.bonded-interaction-table', host);
   const selectionStatus = $('.bonded-selection-status', host);
-  const torsionModel = $('.bonded-torsion-model', host);
-  const torsionScale = $('.bonded-torsion-scale', host);
-  const torsionSave = $('.bonded-save-torsion', host);
-  const torsionStatus = $('.bonded-torsion-status', host);
   const plot = mountBondedPlot($('.bonded-plot', host), {
     onBeadSelection: selected => { selectedBeads = selected; renderState(); },
     onTermSelection: id => { selectedTermId = id; renderState(); },
     onPlotError: notice,
   });
-  let states = [];
-  let selectedState = null;
   let selectedMapping = null;
   let structure = null;
   let terms = [];
   let selectedBeads = [];
   let selectedTermId = '';
-  let dirty = false;
   let generation = 0;
-  let draftCounter = 0;
+
+  const parameterization = setupParameterization({host, onTerms: revisionTerms => {
+    // `null` is the mapping's own draft: a model with no revision still shows the connectivity its mapping
+    // declares, and every row of it says where it came from rather than being presented as a fitted term.
+    terms = revisionTerms ?? mappingTerms(selectedMapping || {});
+    renderState();
+  }});
 
   function notice(text) { setText(message, text); }
 
@@ -129,6 +158,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
     }), edges};
   }
 
+  /** The mapping's own connectivity, for a model that has no revision: a start, not a fitted result. */
   function mappingTerms(mapping) {
     const geometry = beadGeometry(mapping);
     const positions = new Map(geometry.beads.map(bead => [bead.name, bead.position]));
@@ -139,189 +169,50 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
     };
     return (mapping?.connections || geometry.edges).map((pair, index) => normalizeTerm({
       id: `mapping:${index}`, kind: 'bonds', beads: pair, function: '1',
-      parameters: [formatNumber(distance(pair[0], pair[1])), '5000'], editable: true,
+      parameters: [formatNumber(distance(pair[0], pair[1])), '5000'], editable: false, source: 'mapping',
     }, `mapping:${index}`));
-  }
-
-  function updateControls() {
-    createInteraction.disabled = selectedBeads.length !== 2 || !selectedMapping;
-    saveNew.disabled = !selectedMapping || !terms.length || !dirty;
-    deleteState.disabled = !selectedState;
-    shortRun.disabled = !selectedState;
-    setText(selectionStatus, selectedBeads.length ? `Selected beads: ${selectedBeads.join(' · ')}${selectedBeads.length === 2 ? ' · ready to create an interaction' : ''}` : 'Select up to two physical beads to create an interaction.');
   }
 
   function renderTable() {
     tableHost.replaceChildren();
-    if (!terms.length) { tableHost.textContent = 'No bonded terms loaded.'; return; }
+    if (!terms.length) {
+      tableHost.textContent = 'No bonded terms loaded.';
+      return;
+    }
     const table = document.createElement('table');
-    table.innerHTML = '<caption>Functions choose the potential form; bond lengths are derived from bead geometry and remain read-only.</caption><thead><tr><th>Kind</th><th>Beads</th><th>Function</th><th>Parameters</th></tr></thead>';
+    table.innerHTML = '<caption>Kind names the GROMACS topology section; function is its potential form; source is where the term came from.</caption>'
+      + '<thead><tr><th>Kind</th><th>Beads</th><th>Function</th><th>Parameters</th><th>Source</th></tr></thead>';
     const body = document.createElement('tbody');
     for (const term of terms) {
-      const row = document.createElement('tr'); row.dataset.id = term.id; row.tabIndex = 0; row.setAttribute('aria-selected', String(term.id === selectedTermId));
-      const kind = document.createElement('td'); kind.textContent = term.kind; row.append(kind);
-      const beads = document.createElement('td'); beads.textContent = term.beads.join(' · '); row.append(beads);
-      const functionCell = document.createElement('td');
-      if (term.editable && term.function_options.length > 1) {
-        const select = document.createElement('select'); select.setAttribute('aria-label', `${term.kind} ${term.beads.join(' ')} function`);
-        for (const option of term.function_options) {
-          const label = option.description ? `${option.label} — ${option.description}` : option.label;
-          select.append(new Option(label, option.value));
-        }
-        select.value = term.function;
-        select.onchange = () => {
-          const selected = term.function_options.find(option => option.value === select.value) || optionsFor(term.kind).find(option => option.value === select.value);
-          const old = [...term.parameters]; term.function = select.value; term.parameter_labels = [...(selected?.labels || [])];
-          term.parameters = term.parameter_labels.map((_, index) => old[index] ?? ''); dirty = true; renderState();
-        };
-        functionCell.append(select);
-      } else {
-        const option = term.function_options[0];
-        functionCell.textContent = option ? `${option.label}${option.description ? ` — ${option.description}` : ''}` : (term.function || '—');
+      const row = document.createElement('tr');
+      row.dataset.id = term.id;
+      row.tabIndex = 0;
+      row.setAttribute('aria-selected', String(term.id === selectedTermId));
+      for (const [text, className] of [[term.kind, ''], [term.beads.join(' · '), ''],
+                                       [functionSentence(term), ''], [parameterSentence(term), ''],
+                                       [term.source || 'unrecorded', 'bonded-source']]) {
+        const cell = document.createElement('td');
+        cell.textContent = text;
+        if (className) cell.className = className;
+        row.append(cell);
       }
-      row.append(functionCell);
-      const parameters = document.createElement('td');
-      if (term.editable) {
-        const grid = document.createElement('div'); grid.className = 'bonded-parameter-row';
-        for (const [index, value] of term.parameters.entries()) {
-          const labelText = term.parameter_labels[index] || `Parameter ${index + 1}`;
-          const label = document.createElement('label'); label.textContent = labelText;
-          if (term.kind === 'bonds' && index === 0) {
-            const output = document.createElement('output'); output.className = 'bonded-readonly-parameter';
-            output.textContent = value; output.setAttribute('aria-label', `${term.kind} ${term.beads.join(' ')} ${labelText}`);
-            label.append(output);
-          } else {
-            const input = document.createElement('input'); input.type = 'number'; input.step = 'any'; input.value = value;
-            input.setAttribute('aria-label', `${term.kind} ${term.beads.join(' ')} ${labelText}`);
-            input.oninput = () => { term.parameters[index] = input.value; dirty = true; updateControls(); };
-            label.append(input);
-          }
-          grid.append(label);
-        }
-        parameters.append(grid);
-      } else parameters.textContent = term.parameters?.join(' ') || 'Read-only';
-      row.append(parameters);
       row.onclick = () => { selectedTermId = term.id; renderState(); };
-      row.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectedTermId = term.id; renderState(); } };
+      row.onkeydown = event => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectedTermId = term.id; renderState(); }
+      };
       body.append(row);
     }
-    table.append(body); tableHost.append(table);
+    table.append(body);
+    tableHost.append(table);
   }
 
   function renderState() {
     renderTable();
     const geometry = beadGeometry(selectedMapping || {});
     plot.render({beads: geometry.beads, edges: geometry.edges, terms, selectedBeads, selectedTermId});
-    if (selectedState) nameInput.value = selectedState.name || selectedState.current?.name || nameInput.value;
-    updateControls();
-  }
-
-  // The mapping's torsion model ------------------------------------------------------------------------------------
-  //
-  // `bonded.refine`, run in stage 3, reads `bonded_options` out of the mapping's own `model.json` -- the mapping the
-  // run staged from the candidate it recorded when it was queued -- and rewrites that topology's dihedrals from it.
-  // So this is not a run setting and does not belong on the New run panel: it changes the terms of the topology, and
-  // it is a property of the mapping that every run of it shares (D4a, D7). The two keys below are the only ones
-  // `models/bonded.validate` accepts, and it refuses a scale without a circular-harmonic model -- so the scale is
-  // offered only with that model and travels only with it, and the server stays the authority on both values.
-  const TORSION_MODELS = new Set(['legacy', 'circular-harmonic']);
-  //: What this mapping says now: `legacy` is the model's own default when the mapping states nothing.
-  function storedTorsion() {
-    const options = (selectedMapping && selectedMapping.bonded_options) || {};
-    const model = options.torsion_model === 'circular-harmonic' ? 'circular-harmonic' : 'legacy';
-    return {torsion_model: model,
-            torsion_scale: model === 'circular-harmonic' ? Number(options.torsion_scale ?? 1) : null};
-  }
-  //: What the panel would write.
-  function chosenTorsion() {
-    const model = TORSION_MODELS.has(torsionModel.value) ? torsionModel.value : 'legacy';
-    return {torsion_model: model,
-            torsion_scale: model === 'circular-harmonic' ? Number(torsionScale.value) : null};
-  }
-  function torsionSentence(options) {
-    return options.torsion_model === 'circular-harmonic'
-      ? `stage 3 fits every torsion to the AA distribution at stiffness ${options.torsion_scale}`
-      : 'stage 3 keeps the periodic torsions the fit recorded';
-  }
-  // What the controls say about the mapping: the scale only means something to the circular-harmonic model, and the
-  // save button only does something when the mapping would change.
-  function updateTorsion() {
-    if (!torsionModel) return;
-    const stored = storedTorsion(), chosen = chosenTorsion();
-    torsionModel.disabled = !selectedMapping;
-    torsionScale.disabled = !selectedMapping || chosen.torsion_model !== 'circular-harmonic';
-    const changed = chosen.torsion_model !== stored.torsion_model
-      || (chosen.torsion_scale ?? null) !== (stored.torsion_scale ?? null);
-    torsionSave.disabled = !selectedMapping || !changed;
-    setText(torsionStatus, !selectedMapping
-      ? 'Choose a mapping to read its torsion model.'
-      : changed
-        ? `Unsaved: ${torsionSentence(chosen)}. Save it to the mapping to use it.`
-        : `This mapping: ${torsionSentence(stored)}.`);
-  }
-  // The reading, and the one place the controls are filled from the mapping rather than from themselves.
-  function renderTorsion() {
-    if (!torsionModel) return;
-    const stored = storedTorsion();
-    torsionModel.value = stored.torsion_model;
-    torsionScale.value = stored.torsion_scale ?? 1;
-    updateTorsion();
-  }
-  // Saving is an in-place rewrite of the saved candidate, the same write the mapping editor's own in-place save
-  // makes: the file keeps its identity (so a run's recorded `mapping_candidate` still names this mapping) and its
-  // content changes, which is what makes the switch reach the runs that follow it.
-  async function saveTorsion() {
-    if (!selectedMapping) return;
-    const chosen = chosenTorsion();
-    // The scale key is left out rather than sent as null: the model's validator reads a present `torsion_scale`
-    // under either model, and refuses one it cannot use.
-    const options = chosen.torsion_scale === null ? {torsion_model: chosen.torsion_model} : chosen;
-    torsionSave.disabled = true;
-    try {
-      const saved = await post('/api/mappings/drafts', {...selectedMapping, bonded_options: options, in_place: true});
-      selectedMapping = saved;
-      invalidateResource('/api/mappings');
-      renderTorsion();
-      notice(`Torsion model saved to ${saved.file}: runs queued from it refine this way.`);
-    } catch (error) { notice(error.message); updateTorsion(); }
-  }
-
-  async function loadStates(mapping, token) {
-    // The candidate identity first: it names the saved file these states were fitted from, so
-    // distinct candidates stay distinct even when their chemistry is identical. Only if that finds
-    // nothing does it ask by chemistry -- a renamed candidate changes that hash and nothing else, and
-    // this is what keeps its fitted work listed.
-    const ask = async (params) => (params.mapping_hash || params.content_hash)
-      ? await cachedApi('/api/bonded-states?' + new URLSearchParams({view: 'summary', ...params}), {maxAge: 10000})
-      : {states: []};
-    let response = await ask({mapping_hash: mapping?.mapping_hash});
-    if (token !== generation) return;
-    if (!(response.states || []).length && mapping?.mapping_content_hash) {
-      response = await ask({content_hash: mapping.mapping_content_hash});
-      if (token !== generation) return;
-    }
-    if (token !== generation) return;
-    states = response.states || [];
-    const selected = stateSelect.value;
-    stateSelect.replaceChildren(new Option('Mapping draft · unsaved', ''));
-    for (const state of states) stateSelect.append(new Option(`${state.name} · r${state.revision} · ${state.current?.status || 'unknown'}`, state.state_id));
-    stateSelect.value = states.some(state => state.state_id === selected) ? selected : '';
-  }
-
-  async function draw(summary, mapping, token) {
-    selectedState = null; selectedTermId = ''; selectedBeads = []; dirty = false;
-    if (summary) {
-      selectedState = await cachedApi('/api/bonded-states/' + encodeURIComponent(summary.state_id), {maxAge: 10000});
-      if (token !== generation) return;
-      const response = await cachedApi('/api/bonded-states/' + encodeURIComponent(summary.state_id) + '/interactions', {maxAge: 10000});
-      if (token !== generation) return;
-      terms = (response.interactions || []).map((term, index) => normalizeTerm(term, `${term.kind}:${index + 1}`));
-      nameInput.value = selectedState.name || selectedState.current?.name || '';
-    } else {
-      terms = mappingTerms(mapping); nameInput.value = `${mapping.name || 'Mapping'} bonded draft`;
-    }
-    setText($('.bonded-state-summary', host), selectedState ? `Revision ${selectedState.revision} · ${selectedState.current.origin} · ${selectedState.current.status}` : 'Mapping draft · unsaved');
-    renderState();
+    setText(selectionStatus, selectedBeads.length
+      ? `Selected beads: ${selectedBeads.join(' · ')}`
+      : 'Select a bead to read its name.');
   }
 
   async function refreshMapping() {
@@ -333,98 +224,25 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       // Before anything is drawn from it: every geometry below is measured against this molecule's atoms.
       structure = await resolveStructure(mapping);
       if (token !== generation) return;
-      // The mapping's own torsion model, read with the mapping rather than with a state: it belongs to the mapping,
-      // and a run of it is queued from whatever this file says at that moment.
-      renderTorsion();
-      await loadStates(mapping, token);
-      if (token !== generation) return;
-      await draw(states.find(state => state.state_id === stateSelect.value), mapping, token);
-    } catch (error) { if (token === generation) { notice(error.message); terms = []; renderState(); } }
+      // The model card, the job box, the result and the strip are read from the mapping's own
+      // parameterization record; the terms come back through `onTerms` once that record has been read.
+      await parameterization.load(mapping);
+    } catch (error) {
+      if (token === generation) { notice(error.message); terms = []; renderState(); }
+    }
   }
 
-  async function generateAutomatic() {
-    if (!selectedMapping) return notice('Choose a mapping first.');
-    automatic.disabled = true;
-    try {
-      const result = await post('/api/bonded-states/automatic', {mapping: selectedMapping});
-      terms = (result.interactions || []).map((term, index) => normalizeTerm(term, `${term.kind}:${index + 1}`));
-      selectedState = null; selectedTermId = ''; selectedBeads = []; dirty = true;
-      setText($('.bonded-state-summary', host), 'Automatic draft · unsaved'); renderState();
-      notice(result.diagnostics?.length ? result.diagnostics.join(' ') : 'Automatic bonded draft generated.');
-    } catch (error) { notice(error.message); }
-    finally { automatic.disabled = false; updateControls(); }
-  }
-
-  function createNewInteraction() {
-    if (selectedBeads.length !== 2) return notice('Select exactly two physical beads first.');
-    const pair = [...selectedBeads];
-    if (terms.some(term => term.kind === 'bonds' && new Set(term.beads).size === 2 && term.beads.every(name => pair.includes(name)))) return notice('That bead pair already has a bond.');
-    const geometry = beadGeometry(selectedMapping); const positions = new Map(geometry.beads.map(bead => [bead.name, bead.position]));
-    const first = positions.get(pair[0]), second = positions.get(pair[1]);
-    const distance = first && second ? Math.sqrt(first.reduce((sum, value, index) => sum + (value - second[index]) ** 2, 0)) : 0.3;
-    const term = normalizeTerm({id: `draft:${++draftCounter}`, kind: 'bonds', beads: pair, function: '1', parameters: [formatNumber(distance), '5000'], editable: true}, `draft:${draftCounter}`);
-    terms.push(term); selectedTermId = term.id; dirty = true; renderState(); notice(`Created a draft bond between ${pair.join(' and ')}.`);
-  }
-
-  async function saveDraft() {
-    if (!selectedMapping || !terms.length) return;
-    const interactions = terms.filter(term => ordinaryKinds.has(term.kind)).map(term => ({kind: term.kind, beads: term.beads, function: term.function, parameters: term.parameters}));
-    const name = nameInput.value.trim() || `${selectedMapping.name || 'Mapping'} bonded state`;
-    try {
-      let response;
-      const hasDraftTerms = terms.some(term => String(term.id).startsWith('draft:') || String(term.id).startsWith('mapping:'));
-      if (!selectedState || hasDraftTerms) {
-        response = await post('/api/bonded-states', {mapping: selectedMapping, name, kind: 'manual-edit', status: 'complete', interactions,
-          source: {origin: 'manual-editor', parent_state_id: selectedState?.state_id || null, parent_revision: selectedState?.revision || null}});
-      } else {
-        const edits = terms.filter(term => term.editable && ordinaryKinds.has(term.kind)).map(term => ({id: term.id, function: term.function, parameters: term.parameters}));
-        response = await api('/api/bonded-states/' + encodeURIComponent(selectedState.state_id), {method: 'PATCH', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({patch: {name, interaction_edits: edits}, expected_revision: selectedState.revision, in_place: false})});
-      }
-      invalidateResource('/api/bonded-states'); await refreshMapping(); stateSelect.value = response.state_id; stateSelect.dispatchEvent(new Event('change')); notice('New bonded state saved; source state unchanged.');
-    } catch (error) { notice(error.message); }
-  }
-
-  mappingSelect.onchange = () => refreshMapping();
-  stateSelect.onchange = () => { const token = ++generation; draw(states.find(state => state.state_id === stateSelect.value), selectedMapping, token).catch(error => { if (token === generation) notice(error.message); }); };
-  torsionModel.onchange = () => updateTorsion();
-  torsionScale.oninput = () => updateTorsion();
-  torsionSave.onclick = () => saveTorsion();
-  automatic.onclick = () => generateAutomatic();
-  createInteraction.onclick = () => createNewInteraction();
-  saveNew.onclick = () => saveDraft();
-  shortRun.onclick = async () => {
-    if (!selectedState || !selectedMapping) return;
-    try {
-      // The run no longer names a bonded state: an AA–CG run fits its own bonded parameters from the AA reference
-      // (D1), so a saved state's parameters cannot be handed to it. What this button still does is what it says --
-      // a short CG execution check of this mapping -- under an explicit `draft-smoke` profile, which the route
-      // honours for a caller that names one.
-      const response = await post('/', {detergent: 'DDM', method: 'fast_forward', profile: 'draft-smoke', label: `Short bonded validation · ${selectedMapping.name}`,
-        mapping_candidate: selectedMapping.file, temporary_validation: true,
-        aa_equil_ps: 10, aa_production_ps: 50, cg_equil_ps: 10, cg_production_ps: 100, temperature_k: 300, output_interval_ps: 1,
-        cg_seed: Math.floor(Math.random() * 2147483646) + 1});
-      notice(`Short validation queued: ${response.id}. Inspect it in Runs.`);
-    } catch (error) { notice(error.message); }
-  };
-  deleteState.onclick = async () => {
-    if (!selectedState || !confirm('Delete this bonded state? Referenced runs will block deletion.')) return;
-    try {
-      await api('/api/bonded-states/' + encodeURIComponent(selectedState.state_id), {method: 'DELETE', body: JSON.stringify({confirm: true}), headers: {'Content-Type': 'application/json'}});
-      invalidateResource('/api/bonded-states'); await refreshMapping(); notice('Bonded state deleted.');
-    } catch (error) { notice(error.message); }
-  };
+  mappingSelect.onchange = () => { refreshMapping(); };
 
   async function mount() {
     const chosen = mappingSelect.value;
     mappingSelect.replaceChildren(...mappingData.candidates.filter(candidate => !candidate.error).map(candidate => new Option(candidate.name, candidate.file)));
     if (mappingData.candidates.some(candidate => candidate.file === chosen)) mappingSelect.value = chosen;
     if (!mappingSelect.value && mappingSelect.options.length) mappingSelect.selectedIndex = 0;
-    // Before the first fetch: with no mapping read yet the switch has nothing to describe, so it says so and stays
-    // inert rather than offering a value it cannot save.
-    renderTorsion();
+    await parameterization.mount();
     await refreshMapping();
   }
+
   async function select(file) {
     // The catalog path, driven by whoever is handing a model over instead of by a click:
     // selecting the option is what a user picking it from the list does.

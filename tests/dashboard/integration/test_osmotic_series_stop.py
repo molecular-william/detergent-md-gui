@@ -15,9 +15,15 @@ create only its first condition.
 import dataclasses
 import subprocess
 
+import pytest
+
 from dashboard import files
 from dashboard.execution import protocol, workflow
 from dashboard.execution.adapters import osmotic
+
+# On the slow tier: a series stop spans runner subprocesses, which is what the marker renders.
+pytestmark = pytest.mark.slow
+
 
 SERIES = 'series0stop01'
 FAILED = 'fa11ed000001'

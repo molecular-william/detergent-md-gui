@@ -21,32 +21,49 @@ class Recorder:
         self.removed_files.append(True)
 
 
-def test_cleanup_protects_latest_five_and_applies_age_cutoffs(tmp_path):
+def _job(index, candidate, ended, status='completed'):
+    """One temporary-validation record, keyed on the field the cleanup groups by.
+
+    `mapping_candidate` is the mapping's file name, which is what a job record carries since D1; the grouping
+    `temporary.cleanup` does -- five protected per group, not five overall -- rests on it and on nothing else.
+    """
+    return {'id': f'{candidate[0]}{index:011d}', 'temporary_validation': True,
+            'mapping_candidate': candidate, 'status': status, 'ended_at': ended.isoformat()}
+
+
+def test_cleanup_protects_latest_five_per_mapping_candidate_and_applies_age_cutoffs(tmp_path):
     now = datetime.now(timezone.utc)
+    old = now - timedelta(days=8)
     jobs = []
-    for i in range(6):
-        jobs.append({'id': f'{i:012x}', 'temporary_validation': True, 'bonded_state_id': 's',
-                     'status': 'completed', 'ended_at': (now - timedelta(days=8) + timedelta(minutes=i)).isoformat()})
+    for candidate in ('a-mapping.json', 'b-mapping.json'):
+        jobs.extend(_job(index, candidate, old + timedelta(minutes=index)) for index in range(6))
+    # A third mapping with fewer than five terminal jobs: every one of them is inside the protected count,
+    # whatever its age.
+    jobs.extend(_job(index, 'c-mapping.json', old + timedelta(minutes=index)) for index in range(4))
     store = Recorder()
+
     result = temporary.cleanup(jobs, tmp_path, store, now=now)
-    assert store.deleted == ['000000000000'], 'the oldest of six goes; the latest five are protected'
-    assert any(x['status'] == 'deleted' for x in result)
-    recent = {'id': 'recent000001', 'temporary_validation': True, 'bonded_state_id': 's',
-              'status': 'completed', 'ended_at': (now - timedelta(days=1)).isoformat()}
+
+    assert store.deleted == ['a00000000000', 'b00000000000'], \
+        'one group, one deletion: the latest five of each mapping are protected, and the short group keeps all four'
+    assert sorted(entry['id'] for entry in result) == store.deleted
+    assert [entry['status'] for entry in result] == ['deleted', 'deleted']
+
+    recent = _job(0, 'a-mapping.json', now - timedelta(days=1))
     assert temporary.cleanup([recent], tmp_path, store, now=now) == []
-    assert store.deleted == ['000000000000'], 'a run inside its retention window is left alone'
+    assert store.deleted == ['a00000000000', 'b00000000000'], 'a run inside its retention window is left alone'
 
 
 def test_a_deleted_run_loses_its_files_through_the_same_seam(tmp_path):
     now = datetime.now(timezone.utc)
-    jobs = []
-    for i in range(6):
-        jobs.append({'id': f'{i:012x}', 'temporary_validation': True, 'bonded_state_id': 's',
-                     'status': 'completed', 'ended_at': (now - timedelta(days=8) + timedelta(minutes=i)).isoformat()})
-    doomed = tmp_path / '000000000000'
+    old = now - timedelta(days=8)
+    jobs = [_job(index, 'a-mapping.json', old + timedelta(minutes=index)) for index in range(6)]
+    doomed = tmp_path / jobs[0]['id']
     doomed.mkdir()
     (doomed / 'manifest.json').write_text('{}')
     store = Recorder()
+
     temporary.cleanup(jobs, tmp_path, store, now=now)
+
     assert store.removed_files == [True], 'the files are removed by the callback the store runs'
     assert not Path(doomed).exists()
