@@ -3,6 +3,35 @@
 State, measurements and open items for this repository. `AGENTS.md` holds the rules; this holds the record they were
 derived from. Read it before starting work on the DDM CG chain or the coordinator.
 
+## Landed 2026-10-20, later: the panel stops choosing a profile, and offers only a mapping a run can reuse
+
+**The `Execution` combobox is gone, and one route fallback had to move with it.** The control was visible only for
+`cg_composition`, where `composition.normalize_settings` drops the profile argument by name, so the choice changed
+nothing the run did; `aa_only` and `aa_cg` already hid it. It is removed from `dashboard.html` and every reference in
+`new-run.js` is gone -- the panel sends no `profile` key at all. What replaced the panel's copy of the answer is
+`protocol.profile_for_run_type` (`aa_cg` -> `cg.AA_CG_PROFILE`, every other type `standard`), read by the queue route
+and by `/api/defaults`. **The order mattered:** with the control gone and the route untouched,
+`/api/defaults?run_type=aa_cg` answered `cg_equil_ps` 5000 / `cg_production_ps` 100000 from its `standard` fallback,
+and the form posts its fields back as explicit settings, so the run would have integrated 100 ns of CG production
+while its own record said 10 ns. Measured after the fix: 10 / 10000, which is what the queue stamps. A regression
+test in `test_dashboard.py` asks `/api/defaults?run_type=aa_cg` with no profile and compares it against
+`cg.normalize_settings(None, cg.AA_CG_PROFILE)`.
+
+**The CG mapping picker offers only what a run can reuse.** `new-run.js` filters `/api/mappings?view=summary` on
+`validation.can_reuse` -- the same verdict `models/molecules/draft.py:38` refuses a run with -- so the browser does not
+restate the rule and cannot list a candidate the queue would reject. On this workspace that is 6 saved candidates to
+3, of which 2 are DDM's: the three dropped ones carry "Missing heavy atoms: 24, 25, ... 35". The `· needs repair`
+suffix and the synthetic `Unavailable candidate · ...` option were removed with the filter; a remembered choice that
+cannot run is left unselected rather than shown.
+
+**Stage settings inputs are wider:** `new-run.css`'s `max-width` 6.5rem -> 8.5rem. Measured on the live panel: 104 px
+-> 136 px at a 1600 px viewport, 115 px at 1265 (where the grid cell, not the cap, is the constraint), 136 px at
+390 px with no horizontal overflow.
+
+Measured: fast tier 1,792 passed in 17.4 s; browser 223 passed in 37.6 s at `-n 24 --dist worksteal`; `ruff check
+dashboard tests` clean. The live page reads Run type · Method · Force field in the run-configuration row, two DDM
+mappings in the picker, and 10000 ps CG production in the review row.
+
 ## Landed 2026-10-20: the in-flight lazy-Plotly slice, the waits that pinned files, and a fact-check
 
 **Two slices a killed session (14:07 today) left uncommitted are landed and green.** `67411ac` takes the 4.8 MB
