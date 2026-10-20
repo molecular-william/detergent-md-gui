@@ -653,10 +653,9 @@
     </fieldset>
     <div class="toolbar">
       <button type="button" id="bonded-fit">Fit this model</button>
-      <button type="button" class="secondary" id="bonded-fit-reference">Generate reference-informed draft</button>
     </div>
     <p class="hint" id="bonded-fit-status" role="status"></p>
-    <div class="notice bonded-help"><strong>What a fit is</strong><p>Fast-Forward and BARTENDER build the mapped trajectory from the AA reference first — minutes of CPU and no MD — then fit bonds, angles and dihedrals to it. The reference-informed draft reads the mapping alone and names every term it had to take from geometry. Generated parameters are hypotheses, and a fit is not scientific approval: the checks below re-derive two of them and report the numbers.</p></div>
+    <div class="notice bonded-help"><strong>What a fit is</strong><p>Fast-Forward and BARTENDER build the mapped trajectory from the AA reference first — minutes of CPU and no MD — then fit bonds, angles and dihedrals to it. Generated parameters are hypotheses, and a fit is not scientific approval: the checks below re-derive two of them and report the numbers.</p></div>
   </section>
 
   {# The job box: status, the log tail, and the one control that can stop it. #}

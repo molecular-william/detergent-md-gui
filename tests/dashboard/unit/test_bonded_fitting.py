@@ -195,23 +195,16 @@ def test_a_second_engine_against_the_same_reference_reuses_the_same_frames(candi
     assert (stage / 'DDM.itp').read_text() == (stage / 'DDM_ff_inter.itp').read_text()
 
 
-def test_the_frames_step_is_the_reference_directory_and_nothing_is_built_for_an_engine_that_needs_none(candidate):
-    """The reference-informed draft reads no frames at all, and its ensemble says so with a null count
-    rather than a zero -- those are different claims."""
-    recorder = Recorder()
-    record = fitting.start(candidate, engine='reference-informed', molecule_root=MOLECULES,
-                           background=False, runner=recorder)
-    revision = parameterization.current(candidate)
+def test_the_engine_that_read_no_frames_is_gone_from_the_job_as_well_as_the_panel(candidate):
+    """The button and the model's engine list go together: a job may not be started for the removed engine.
 
-    assert record['status'] == 'completed'
-    assert recorder.mappers == [] and recorder.fitters == []
-    assert revision['ensemble']['frames'] is None
-    assert revision['ensemble']['source'].startswith('no AA frames')
-    assert revision['engine_default_source'] == 'reference'
-    assert revision['diagnostics']['fallbacks'] is not None
-    assert revision['checks']['dihedral-fit']['error'].startswith('this engine read no AA frames')
-    assert 'never fitted to an ensemble' in ' '.join(revision['notes'])
-    assert revision['sources'], 'the automatic draft still says where each of its terms came from'
+    It read the mapping alone, so it was the one engine a test could run without an ensemble -- and the one revision
+    nobody had fitted. A caller still naming it gets the same refusal an unknown engine gets, rather than a job.
+    """
+    with pytest.raises(ValueError, match='Unknown fitting engine'):
+        fitting.start(candidate, engine='reference-informed', molecule_root=MOLECULES,
+                      background=False, runner=Recorder())
+    assert fitting.jobs(candidate) == [], 'a refused engine leaves no job behind'
 
 
 def test_the_two_checks_are_published_with_the_revision_and_question_the_terms(candidate):
@@ -350,8 +343,7 @@ def test_a_finished_job_is_not_cancellable(candidate):
 def test_the_jobs_are_listed_for_the_mapping_that_owns_them(candidate):
     recorder = Recorder()
     first = run_job(candidate, recorder)
-    second = fitting.start(candidate, engine='reference-informed', molecule_root=MOLECULES,
-                           background=False, runner=recorder)
+    second = run_job(candidate, recorder)
 
     listed = [record['id'] for record in fitting.jobs(candidate)]
     assert set(listed) == {first['id'], second['id']}
@@ -378,8 +370,7 @@ def test_the_jobs_are_listed_by_the_hashes_a_hash_addressed_caller_holds(candida
     first = run_job(candidate, recorder)
     other = ddm_mapping(name='DDM · another')
     other['beads'][0]['label'] = 'v'
-    second = fitting.start(other, engine='reference-informed', molecule_root=MOLECULES,
-                           background=False, runner=recorder)
+    second = run_job(other, recorder)
     content = mappings.content_identity(candidate)
 
     assert [record['id'] for record in fitting.jobs(content_hash=content)] == [first['id']]

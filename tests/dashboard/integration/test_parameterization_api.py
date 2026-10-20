@@ -132,9 +132,10 @@ def test_the_engines_route_publishes_the_engines_a_fit_accepts(dashboard):
     assert [item['value'] for item in engines] == list(parameterization.ENGINES)
     assert [item['label'] for item in engines] == [parameterization.ENGINE_LABELS[name]
                                                    for name in parameterization.ENGINES]
-    # `needs_reference` is what the panel's picker reads to know whether an AA reference is required.
-    assert {item['value']: item['needs_reference'] for item in engines} == {
-        'fast-forward': True, 'bartender': True, 'reference-informed': False}
+    # `needs_reference` is what the panel's picker reads to know whether an AA reference is required, and every engine
+    # left fits to an ensemble -- the reference-free one and its button were removed.
+    assert [item['value'] for item in engines] == ['fast-forward', 'bartender']
+    assert all(item['needs_reference'] for item in engines)
 
 
 # --- POST /api/bonded-parameterizations --------------------------------------------------------------
@@ -165,13 +166,18 @@ def test_a_fit_is_queued_with_the_payload_the_panel_sends(dashboard, started):
     assert not call.get('aa_reference'), 'the route resolves the id it is given'
 
 
-def test_a_fit_can_be_queued_without_a_reference_by_the_engine_that_reads_none(dashboard, started):
+def test_the_engine_that_read_no_reference_is_no_longer_an_engine(dashboard, started):
+    """Every engine left needs an ensemble, so a reference-free request is refused at the door, not queued.
+
+    The engine existed until 2026-10-20; a caller still sending it -- a script, a stale tab -- gets the same answer an
+    unknown engine gets, and no job is created for one nothing can run.
+    """
     response = dashboard.client.post('/api/bonded-parameterizations',
                                      json={'mapping': ddm_mapping(), 'engine': 'reference-informed'})
 
-    assert response.status_code == 201
-    assert started[0]['reference'] is None
-    assert started[0]['engine'] == 'reference-informed'
+    assert response.status_code == 400
+    assert 'Unknown fitting engine' in response.json['error']
+    assert started == [], 'a job is not queued for an engine the job would refuse'
 
 
 def test_an_engine_this_build_does_not_have_is_refused(dashboard, started):
@@ -214,9 +220,10 @@ def test_a_malformed_reference_id_is_a_bad_request(dashboard, started):
 
 def test_an_option_a_revision_cannot_record_is_refused_by_the_job_that_would_record_it(dashboard):
     """No stubbed job here: the refusal is `fitting.start`'s own, reached through the real route."""
+    run_id, _ = reference_run(dashboard.paths.workspace)
     response = dashboard.client.post('/api/bonded-parameterizations',
-                                     json={'mapping': ddm_mapping(), 'engine': 'reference-informed',
-                                           'options': {'torsion_scale': 9.0}})
+                                     json={'mapping': ddm_mapping(), 'engine': 'fast-forward',
+                                           'aa_reference': run_id, 'options': {'torsion_scale': 9.0}})
 
     assert response.status_code == 400
     assert 'Torsion stiffness scale' in response.json['error']
@@ -225,7 +232,7 @@ def test_an_option_a_revision_cannot_record_is_refused_by_the_job_that_would_rec
 
 def test_a_body_without_a_mapping_is_a_bad_request(dashboard, started):
     response = dashboard.client.post('/api/bonded-parameterizations',
-                                     json={'engine': 'reference-informed'})
+                                     json={'engine': 'fast-forward'})
 
     assert response.status_code == 400
     assert 'mapping snapshot' in response.json['error']

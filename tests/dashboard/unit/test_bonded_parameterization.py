@@ -266,15 +266,16 @@ def test_the_records_are_listed_newest_first_and_a_broken_one_is_skipped():
 
 
 def test_the_engines_are_published_once_for_the_panel_to_render():
-    """The panel's select reads this rather than keeping a second copy of the vocabulary: a fourth
-    engine is one edit, and the picker's AA reference cannot be required for a draft that reads none."""
+    """The panel's select reads this rather than keeping a second copy of the vocabulary: another
+    engine is one edit here, and the picker's AA reference follows from `needs_reference`."""
     published = parameterization.published()
 
     assert [engine['value'] for engine in published] == list(parameterization.ENGINES)
     assert [engine['label'] for engine in published] == [parameterization.ENGINE_LABELS[name]
                                                          for name in parameterization.ENGINES]
-    assert {engine['value']: engine['needs_reference'] for engine in published} == {
-        'fast-forward': True, 'bartender': True, 'reference-informed': False}
+    # Every engine left fits to an ensemble; the reference-free one was removed with its button.
+    assert {engine['value'] for engine in published} == {'fast-forward', 'bartender'}
+    assert all(engine['needs_reference'] for engine in published)
     assert all(isinstance(engine[key], (str, bool)) for engine in published
                for key in ('value', 'label', 'needs_reference'))
 

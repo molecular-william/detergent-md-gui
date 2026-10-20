@@ -34,16 +34,15 @@ from . import parse_interactions
 #: The engines a parameterization can be produced by (D3). Each names the ensemble it saw on its
 #: result, and each has one label published for the panel; the labels live here rather than in the
 #: web layer so a new engine is one edit and the route cannot invent a fourth.
-ENGINES = ('fast-forward', 'bartender', 'reference-informed')
+ENGINES = ('fast-forward', 'bartender')
 
 ENGINE_LABELS = {
     'fast-forward': 'Fast-Forward fit (ff_inter)',
     'bartender': 'BARTENDER fit (-refit -owntraj)',
-    'reference-informed': 'Reference-informed automatic draft',
 }
 
 #: What each engine's terms are called in the `source` column of the interactions table.
-ENGINE_SOURCES = {'fast-forward': 'ff_inter', 'bartender': 'bartender', 'reference-informed': 'reference'}
+ENGINE_SOURCES = {'fast-forward': 'ff_inter', 'bartender': 'bartender'}
 
 #: The provenance of a term that came from the mapping rather than from an engine, and of one the
 #: automatic draft could not find a reference for. Both are named so a hand-edited row is visible.
@@ -379,8 +378,10 @@ def validate(payload) -> dict:
     ensemble = payload.get('ensemble')
     if not isinstance(ensemble, dict) or 'frames' not in ensemble:
         raise ValueError('A revision records the ensemble its engine saw')
-    # `None` and `0` are different claims and both are legal: an engine that read no AA frames never
-    # looked at a trajectory, where `0 frames` would say it looked at an empty one.
+    # `None` and `0` are different claims and both are legal: a revision whose engine read no AA frames
+    # never looked at a trajectory, where `0 frames` would say it looked at an empty one. No engine reads
+    # none now -- the reference-free one was removed -- but records written by it are still read, and a
+    # stored revision is not rewritten to suit the vocabulary that followed it.
     frames = ensemble.get('frames')
     if frames is not None and (isinstance(frames, bool) or not isinstance(frames, int) or frames < 0):
         raise ValueError('The frame count must be a non-negative integer, or null for an engine that read none')
@@ -548,8 +549,10 @@ def published() -> list:
     home, so a fourth engine is one edit here and the panel cannot invent one or render a name the job
     would refuse. `needs_reference` is what decides whether the panel's AA-reference picker is required.
     """
-    return [{'value': name, 'label': ENGINE_LABELS[name], 'needs_reference': name != 'reference-informed'}
-            for name in ENGINES]
+    # Every engine left fits to an ensemble, so `needs_reference` is true for each of them. The key stays because
+    # it is the panel's contract (`/engines` is what makes the AA-reference picker required), and a caller that reads
+    # it should not have to know how many engines there are.
+    return [{'value': name, 'label': ENGINE_LABELS[name], 'needs_reference': True} for name in ENGINES]
 
 
 def revision_sha256(revision) -> str:

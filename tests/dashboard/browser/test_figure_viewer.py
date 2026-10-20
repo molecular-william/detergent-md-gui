@@ -65,10 +65,10 @@ def test_run_figure_tabs_zoom_and_mapping_display(dashboard, live_page):
     expect(editor.locator('button', has_text='Export JSON')).to_have_count(0)
     expect(editor.locator('button', has_text='Download diagram')).to_have_count(0)
     page.locator('#tab-bonded').click()
-    # The panel produces a parameterization now: the automatic draft is the reference-informed engine's own button,
-    # and the old per-state "Fit bonded parameters" entry point must never come back.
-    expect(page.get_by_role('button', name='Generate reference-informed draft')).to_be_visible()
+    # The panel produces a parameterization now, and the old per-state "Fit bonded parameters" entry point must
+    # never come back -- nor the reference-free draft button that used to sit beside the fit.
     expect(page.get_by_role('button', name='Fit this model')).to_be_visible()
+    expect(page.get_by_role('button', name='Generate reference-informed draft')).to_have_count(0)
     expect(page.get_by_role('button', name='Fit bonded parameters')).to_have_count(0)
     page.get_by_role('tab',name='Bead Assignment',exact=True).click()
     page.set_viewport_size({'width':390,'height':844})

@@ -130,7 +130,6 @@ export function setupParameterization({host, onTerms}) {
   const torsionStatus = $('#bonded-torsion-status', host);
   const torsionSave = $('#bonded-save-torsion', host);
   const fitButton = $('#bonded-fit', host);
-  const draftButton = $('#bonded-fit-reference', host);
   const fitStatus = $('#bonded-fit-status', host);
   const jobBox = $('#bonded-job', host);
   const jobTitle = $('#bonded-job-title', host);
@@ -269,12 +268,14 @@ export function setupParameterization({host, onTerms}) {
 
   function renderEngineNote() {
     const chosen = engines.find(engine => engine.value === engineSelect.value);
+    // Every published engine reads an ensemble, so the note is one sentence; `needs_reference` is still read from the
+    // route rather than assumed, because that is what decides whether the picker below is required.
     setText(engineNote, !engines.length
       ? (enginesError ? `The fitting engines could not be read: ${enginesError}` : 'Reading the fitting engines…')
       : !chosen ? 'Choose an engine.'
       : chosen.needs_reference
         ? 'This engine fits to an ensemble: it builds the mapped AA trajectory first — minutes of CPU, no MD — so it needs an AA reference.'
-        : 'This engine reads the mapping alone: no AA reference and no frames, and every term it had to take from geometry is named.');
+        : 'This engine reads the mapping alone: no AA reference and no frames.');
   }
 
   function renderReferences() {
@@ -311,7 +312,6 @@ export function setupParameterization({host, onTerms}) {
     const chosen = engines.find(engine => engine.value === engineSelect.value);
     const needsReference = !!(chosen && chosen.needs_reference);
     fitButton.disabled = busy || !mapping || !chosen || (needsReference && !aaSelect.value);
-    draftButton.disabled = busy || !mapping || !engines.length;
     if (busy) return;
     setText(fitStatus, !mapping ? 'Choose a mapping first — a fit belongs to one saved candidate.'
       : !engines.length ? (enginesError ? `The fitting engines could not be read: ${enginesError}` : 'Reading the fitting engines…')
@@ -775,7 +775,6 @@ export function setupParameterization({host, onTerms}) {
   torsionModel.onchange = () => updateTorsion();
   torsionScale.oninput = () => updateTorsion();
   fitButton.onclick = () => fit(engineSelect.value);
-  draftButton.onclick = () => fit('reference-informed');
   cancelButton.onclick = () => cancel();
   torsionSave.onclick = () => saveTorsion();
 

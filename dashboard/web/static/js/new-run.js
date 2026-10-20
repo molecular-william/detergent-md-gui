@@ -294,7 +294,8 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     return node;
   }
   // The AA reference as the revision records it: the run id a reader can look up, and the ensemble it was measured
-  // on. `null` is a fact about the engine (a reference-informed draft reads no AA frames), not a missing field.
+  // on. `null` is a fact about how a revision was produced (one stored before the reference-free engine was removed
+  // read no AA frames at all), not a missing field.
   function describeReference(reference) {
     if (!reference) return 'none — this parameterization read no AA reference';
     const parts = [reference.run_id || 'unnamed reference'];

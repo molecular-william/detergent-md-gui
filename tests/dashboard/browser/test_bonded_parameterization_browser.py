@@ -26,6 +26,7 @@ import time
 from playwright.sync_api import expect
 
 from dashboard.models import mappings
+from dashboard.models.bonded import parameterization
 from dashboard.models.mappings import context as mapping_context
 
 AA_RUN = 'aa00aa000001'
@@ -36,8 +37,7 @@ CANDIDATE_HASH = 'b' * 64
 REVISION_HASH = 'e' * 64
 
 ENGINES = ({'value': 'fast-forward', 'label': 'Fast-Forward fit (ff_inter)', 'needs_reference': True},
-           {'value': 'bartender', 'label': 'BARTENDER fit (-refit -owntraj)', 'needs_reference': True},
-           {'value': 'reference-informed', 'label': 'Reference-informed automatic draft', 'needs_reference': False})
+           {'value': 'bartender', 'label': 'BARTENDER fit (-refit -owntraj)', 'needs_reference': True})
 
 REFERENCES = (
     {'id': AA_RUN, 'label': 'Maltose AA reference', 'created': '2026-10-01T10:00:00+00:00',
@@ -230,10 +230,10 @@ def test_the_model_card_offers_the_engines_their_references_and_the_four_options
     stub(page, record)
     open_panel(page, live_page, saved['file'])
 
-    expect(page.locator('#bonded-engine option')).to_have_count(3)
+    expect(page.locator('#bonded-engine option')).to_have_count(2)
     expect(page.locator('#bonded-engine option').nth(0)).to_contain_text('Fast-Forward fit (ff_inter)')
     expect(page.locator('#bonded-engine option').nth(0)).to_contain_text('needs an AA reference')
-    expect(page.locator('#bonded-engine option').nth(2)).to_contain_text('reads the mapping alone')
+    expect(page.locator('#bonded-engine option').nth(1)).to_contain_text('needs an AA reference')
     assert page.locator('#bonded-engine').input_value() == 'fast-forward'
     expect(page.locator('#bonded-engine-note')).to_contain_text('needs an AA reference')
 
@@ -258,10 +258,6 @@ def test_the_model_card_offers_the_engines_their_references_and_the_four_options
     page.locator('#bonded-torsion-model').select_option('legacy')
     expect(scale).to_be_disabled()
 
-    # An engine that reads the mapping alone says so, and the reference stops being required for it.
-    page.locator('#bonded-engine').select_option('reference-informed')
-    expect(page.locator('#bonded-engine-note')).to_contain_text('reads the mapping alone')
-
     # The record was asked for by both identities the panel holds, and the empty state says which it is.
     reads = [url for url in asked if '/api/bonded-parameterizations?' in url]
     assert reads, asked
@@ -277,8 +273,8 @@ def test_the_model_card_offers_the_engines_their_references_and_the_four_options
 def test_the_fit_button_posts_the_models_snapshot_and_the_options_the_panel_shows(dashboard, live_page):
     """D2's request, exactly: the saved candidate, the engine, the reference, and the four values on screen.
 
-    Both buttons post to the same route and differ only in `engine` — the reference-informed draft is the one
-    engine that reads no ensemble, so it is the one request that carries no `aa_reference` at all.
+    One button, one route: the engine comes from the select, and every engine left fits to an ensemble, so the request
+    always carries an `aa_reference` — the reference-free engine and its second button were removed.
     """
     saved, content, candidate = save(dashboard)
     page, errors = live_page
@@ -304,14 +300,6 @@ def test_the_fit_button_posts_the_models_snapshot_and_the_options_the_panel_show
     assert payload['mapping']['file'] == saved['file']
     assert payload['mapping']['beads'], 'the request carried no beads, so it is not the candidate snapshot'
     assert payload['mapping']['mapping_content_hash'] == content
-
-    page.locator('#bonded-fit-reference').click()
-    expect(page.locator('#bonded-fit')).to_be_enabled()
-    page.wait_for_timeout(300)
-    assert len(posts) == 2, posts
-    draft = json.loads(posts[1][2])
-    assert draft['engine'] == 'reference-informed'
-    assert 'aa_reference' not in draft, draft
     assert errors == [], errors
 
 
@@ -583,11 +571,24 @@ def test_a_fit_answer_that_arrives_after_the_reader_moved_on_does_not_paint_the_
       };
     })()""")
     open_panel(page, live_page, first['file'])
-    # The engine that reads the mapping alone: no AA reference to race with the reference list's own late answer,
-    # so this test measures `fit()`'s post-await check and nothing else.
-    page.locator('#bonded-engine').select_option('reference-informed')
+    # Both engines left fit to an ensemble, so the reference has to be chosen before the button is usable; the wait
+    # pins that choice to the reference list having landed, not to this test's timing.
+    # The value is re-applied until it sticks: the panel re-renders the picker whenever the reference list lands, and
+    # with two references it deliberately answers none rather than guessing -- so a single click can be undone.
+    page.wait_for_function(
+        f"""() => {{
+          const select = document.querySelector('#bonded-aa-reference');
+          if (!Array.from(select.options).some(option => option.value)) return false;
+          if (select.value !== '{AA_RUN}') {{
+            select.value = '{AA_RUN}';
+            select.dispatchEvent(new Event('change', {{bubbles: true}}));
+          }}
+          // Both halves matter: a value the picker still holds with a button the panel has not re-enabled from it
+          // is a click that would do nothing.
+          return select.value === '{AA_RUN}' && !document.querySelector('#bonded-fit').disabled;
+        }}""", timeout=30000)
     page.locator('#bonded-fit').click()
-    expect(page.locator('#bonded-fit-status')).to_contain_text('Queueing a Reference-informed')
+    expect(page.locator('#bonded-fit-status')).to_contain_text('Queueing a Fast-Forward')
     expect(page.locator('#bonded-fit')).to_be_disabled()
 
     # The reader moves on while the queue answer is still outstanding.
@@ -598,9 +599,15 @@ def test_a_fit_answer_that_arrives_after_the_reader_moved_on_does_not_paint_the_
     # The answer landed here, and it is about the model that is no longer on screen.
     expect(page.locator('#bonded-job')).to_be_hidden()
     expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · current')
-    # Not left disabled by a `busy` flag that only the dropped answer would have cleared.
-    expect(page.locator('#bonded-fit')).to_be_enabled()
-    expect(page.locator('#bonded-fit-status')).to_have_text('')
+    # Not left disabled by a `busy` flag that only the dropped answer would have cleared. The button is disabled here
+    # for a reason the panel states -- the model now on screen has no AA reference chosen, and every engine left fits
+    # to one -- so the evidence that `busy` was released is the hint replacing the queuing line, not the button.
+    expect(page.locator('#bonded-fit-status')).to_have_text('Choose an AA reference: this engine fits to its ensemble.')
+    page.wait_for_function(
+        "() => { const select = document.querySelector('#bonded-aa-reference');"
+        " if (!Array.from(select.options).some(option => option.value)) return false;"
+        f" select.value = '{AA_RUN}'; select.dispatchEvent(new Event('change', {{bubbles: true}}));"
+        " return !document.querySelector('#bonded-fit').disabled; }", timeout=30000)
     assert errors == [], errors
 
 
@@ -714,44 +721,27 @@ def test_the_revision_strip_shows_each_revision_and_makes_one_current_after_a_co
 
 
 def test_the_panel_renders_a_revision_the_store_itself_made(dashboard, live_page):
-    """One real fit through the real routes, and the record read back by the panel -- no stub anywhere.
+    """A revision written by the store, read back through the real routes and drawn by the panel -- no stub anywhere.
 
-    The tests above assert the panel against the design's `## API` table; this one asserts that the table and the
-    store agree, which is the failure a stub cannot see. The reference-informed engine is the only one that runs
-    without an AA reference: it reads the mapping alone, so it is instant and makes no MD.
+    The tests above assert the panel against the design's `## API` table; this one asserts that the table and the store
+    agree, which is the failure a stub cannot see. The revision is written with `parameterization.save` -- the call a
+    fit ends with -- so what the panel reads is a stored record and not a fixture shaped like one; this used to run the
+    reference-free engine instead, which made no MD and no frames and so was the only engine a test could run.
     """
-    saved, content, _ = save(dashboard)
-    detail = dashboard.client.get(f'/api/mappings/{saved["file"]}').get_json()
-    queued = dashboard.client.post('/api/bonded-parameterizations', json={
-        'mapping': detail, 'engine': 'reference-informed',
-        'options': {'constraints_threshold': 12500, 'temperature_k': 310, 'torsion_model': 'legacy'}})
-    assert queued.status_code == 201, queued.get_json()
-    job_id = queued.get_json()['id']
-    deadline = time.monotonic() + 120
-    status = 'queued'
-    while time.monotonic() < deadline:
-        jobs = dashboard.client.get(f'/api/bonded-parameterizations/jobs?content_hash={content}').get_json()['jobs']
-        status = [item for item in jobs if item['id'] == job_id][0]['status']
-        if status in ('completed', 'failed', 'cancelled'):
-            break
-        time.sleep(0.25)
-    assert status == 'completed', status
+    saved, content, candidate = save(dashboard)
+    stored = parameterization.save(saved, revision(1))
+    assert stored['revision'] == 1
 
     page, errors = live_page
     open_panel(page, live_page, saved['file'])
     expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · current')
     provenance = page.locator('#bonded-result-provenance').inner_text()
-    assert 'Reference-informed automatic draft' in provenance, provenance
-    assert 'read no AA frames' in provenance, provenance
-    assert '12500 kJ mol' in provenance, provenance
-    assert '310 K' in provenance, provenance
-    # Neither check can run without an ensemble, and each says so with its own reason rather than as a failure.
-    checks = page.locator('#bonded-result-checks').inner_text()
-    assert checks.count('could not run: this engine read no AA frames') == 2, checks
+    assert 'Fast-Forward' in provenance, provenance
     expect(page.locator('#bonded-revisions .bonded-revision')).to_have_count(1)
-    # Every term's source is one the store computed -- the ring constraints are the mapping's.
+    # Every term's source is what the store computed from the revision rather than anything the fixture said: a
+    # Fast-Forward revision's terms are the engine's, and the store is what stamps that name onto them.
     sources = set(page.locator('.bonded-interaction-table tbody tr td:last-child').all_inner_texts())
-    assert sources and sources <= {'mapping', 'reference', 'geometry', 'manual'}, sources
+    assert sources == {'ff_inter'}, sources
     assert errors == [], errors
 
 

@@ -39,9 +39,9 @@ LIG1 1
 def save_revision(mapping):
     """One real revision in the store, so the table is read from what a run would stage rather than from a stub."""
     return parameterization.save(mapping, {
-        'engine': 'reference-informed', 'topology': TOPOLOGY,
+        'engine': 'fast-forward', 'topology': TOPOLOGY,
         'options': {'constraints_threshold': 10000, 'temperature_k': 300, 'torsion_model': 'legacy'},
-        'ensemble': {'frames': None}, 'checks': {}, 'aa_reference': None, 'diagnostics': []})
+        'ensemble': {'frames': 20001}, 'checks': {}, 'aa_reference': None, 'diagnostics': []})
 
 
 def test_the_revision_strip_replaces_the_flat_bonded_state_list(dashboard, live_page):
@@ -60,9 +60,10 @@ def test_the_revision_strip_replaces_the_flat_bonded_state_list(dashboard, live_
     page.wait_for_selector('.bonded-plot .plotly', timeout=30000)
 
     expect(page.locator('.bonded-state-select')).to_have_count(0)
-    # The two ways a parameterization is produced, and the one place its revisions are read.
+    # One way a parameterization is produced, and the one place its revisions are read: the reference-free draft
+    # and its button were removed, so a second entry point must not come back.
     expect(page.get_by_role('button', name='Fit this model')).to_have_count(1)
-    expect(page.get_by_role('button', name='Generate reference-informed draft')).to_have_count(1)
+    expect(page.get_by_role('button', name='Generate reference-informed draft')).to_have_count(0)
     expect(page.locator('#bonded-revisions')).to_be_visible()
 
     # This mapping has no revision, so the rows are its own draft and every one of them says so.

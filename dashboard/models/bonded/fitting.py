@@ -18,14 +18,16 @@ has none" means -- minutes of CPU, no MD, and paid once per pair rather than onc
 
 Three engines, each saying which ensemble it saw (D3):
 
-  reference-informed  `bonded.generation.generate` on the mapping alone: bead-type families with
-                      geometry as the fallback, no AA frames, instant, and every fallback named.
   fast-forward        `ff_inter` on the mapped AA trajectory, through the same stage script a run
                       runs, with the `-constraints` threshold recorded because it decides whether a
                       fitted pair becomes a constraint or a spring.
   bartender           `-refit -owntraj` through `analysis.runs.bartender_fit`, never its own GFN
                       sampling; its bare term sections are merged back into a topology by
                       `bartender_fit.model_topology`.
+
+Both read an ensemble, so both need a reference: the reference-free engine that read the mapping alone was removed
+(2026-10-20) with its panel button, since a revision nobody fitted is not what this panel is for. `bonded.generation`
+stays -- `detergent_cg` and `POST /api/bonded-states/automatic` build bonded states with it.
 """
 from __future__ import annotations
 
@@ -40,7 +42,6 @@ import uuid
 from pathlib import Path
 
 from ... import files, paths
-from .. import mappings
 from ..molecules import draft as draft_model
 from . import parameterization as parameterizations
 
@@ -214,8 +215,8 @@ def start(mapping, *, engine, aa_reference=None, options=None, reference=None, m
     loaded = draft_model.load(mapping, molecule_root=molecule_root)
     resolved = reference if reference is not None else (
         resolve_reference(aa_reference, runs_root=runs_root) if aa_reference else None)
-    if resolved is None and engine != 'reference-informed':
-        raise ValueError('This engine fits to an ensemble; link an AA reference or choose another engine')
+    if resolved is None:
+        raise ValueError('This engine fits to an ensemble; link an AA reference')
     run_id = (resolved or {}).get('run_id')
     job_id = uuid.uuid4().hex[:16]
     record = {
@@ -515,9 +516,6 @@ def _frames(job_id, loaded, reference, engine, record, call) -> bool:
     names = _names_for(loaded, record.get('molecule_root'))
     cg.stage_mapping(mapping_dir, loaded, names=names)
     cg.stage_parameterization(stage_dir, loaded, names=names, molecule_root=record.get('molecule_root'))
-    if engine == 'reference-informed':
-        _finished(job_id, 'mapped frames', 'this engine reads no AA frames')
-        return False
     directory = (reference or {}).get('directory')
     if directory is None:
         raise ValueError('This engine fits to an ensemble; no AA reference directory was resolved')
@@ -544,50 +542,11 @@ def _frames(job_id, loaded, reference, engine, record, call) -> bool:
 
 def _fit(engine, loaded, reference, record, options, call, timeout) -> dict:
     names = _names_for(loaded, record.get('molecule_root'))
-    if engine == 'reference-informed':
-        return _reference_informed(loaded, record)
     if engine == 'fast-forward':
         return _fast_forward(loaded, names, record, options, call, timeout)
     if engine == 'bartender':
         return _bartender(loaded, names, record, call, timeout)
     raise ValueError(f'Unknown fitting engine: {engine!r}')
-
-
-def _reference_informed(loaded, record) -> dict:
-    """The automatic draft: bead-type families with geometry as the fallback, and no AA frames at all.
-
-    Its ensemble is recorded with a null frame count and not zero, because those are different
-    claims: this engine never looked at a trajectory, and `0 frames` would read as one it looked at
-    and found empty. It is the same engine `POST /api/bonded-states/automatic` runs, reached through
-    the one implementation rather than a second copy of it.
-    """
-    from . import generation
-
-    work = Path(record['work'])
-    result = generation.generate(loaded, _structure_for(loaded, record), paths.current().project_root)
-    stage = work / '3_initial_CG'
-    stage.mkdir(parents=True, exist_ok=True)
-    (stage / f'{_names_for(loaded, record.get("molecule_root")).residue_name}_reference_informed.itp'
-     ).write_text(result['topology'])
-    fallbacks = [term['beads'] for term in result['interactions']
-                 if (term.get('provenance') or {}).get('fallback')]
-    return {
-        'topology': result['topology'],
-        'terms': result['interactions'],
-        'ensemble': {'frames': None, 'trajectory': None,
-                     'source': 'no AA frames: bead-type families with geometry as the fallback, instant, '
-                               'and every fallback named in the diagnostics'},
-        'extra': {
-            'engine_default_source': 'reference',
-            'temperature_source': None,
-            'diagnostics': {'fallbacks': len(fallbacks), 'beads': [list(pair) for pair in fallbacks][:200],
-                            'messages': result['diagnostics'][:200],
-                            'references': result['provenance'].get('references'),
-                            'index_sha256': result['provenance'].get('reference_index_sha256')},
-            'notes': ['This revision was never fitted to an ensemble: it is the reference-informed '
-                      'automatic draft, so its diagnostics name every term that fell back to geometry.'],
-        },
-    }
 
 
 def _fast_forward(loaded, names, record, options, call, timeout) -> dict:
@@ -699,10 +658,6 @@ def _checks(engine, record, options) -> dict:
     from ...analysis.runs import bonded_estimate, dihedral_fit
 
     work = Path(record['work'])
-    if engine == 'reference-informed':
-        reason = ('this engine read no AA frames, so there is no ensemble to re-derive the terms from; '
-                  'its diagnostics name every geometry fallback instead')
-        return {name: {'error': reason} for name in parameterizations.CHECKS}
     if not (work / '2_mapping' / 'mapped.xtc').is_file():
         reason = 'the mapped trajectory is absent, so neither check has frames to read'
         return {name: {'error': reason} for name in parameterizations.CHECKS}
@@ -773,13 +728,3 @@ def _names_for(loaded, molecule_root=None):
             # the caller's own load has already refused anything else about this mapping.
             pass
     return CGNames.ddm_defaults()
-
-
-def _structure_for(loaded, record):
-    """The AA graph a mapping is bound to, for the reference-informed engine's geometry fallbacks."""
-    from ..mappings.context import as_structure, build_context
-
-    if loaded.get('schema_version') != 3:
-        return mappings.molecule()
-    root = Path(record['molecule_root']) if record.get('molecule_root') else paths.current().project_root / 'molecules'
-    return as_structure(build_context(root, loaded.get('molecule_id') or ''))
