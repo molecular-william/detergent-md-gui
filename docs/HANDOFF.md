@@ -55,6 +55,15 @@ kJ/mol), both curves bottoming out at -98 and -96 degrees -- the phase conventio
 record is not rewritten after the fact. Re-fitting (the frames are staged; only the fit runs) produces the revision
 whose check passes.
 
+**A parameterized mapping can be deleted where it is edited, and the panel was told the wrong rule, `0b7de02`.** The
+editor's confirm said a mapping's bonded states were *not* deleted; `mappings.delete_draft` deletes them unless another
+saved mapping carries the same content hash, and removes the fit jobs and staged frames too. It now states that, and the
+notice afterwards reports what the route's answer says went -- the revision count, or who still holds the content. The
+CG Bond Interactions panel gained "Delete this mapping" beside the fit, on the same `DELETE /api/mappings/drafts/<name>`
+route: it warns with the count that panel has already read, refuses while a fit of that mapping runs, is offered only for
+a saved mapping (a `composition:<id>` entry is not one), and after deleting re-reads the catalogue, selects the next
+mapping and says which -- or empties the panel when none is left.
+
 **One record in the workspace is an agent's, not the owner's.** `workspace/dashboard/mapping_drafts/` holds six
 candidates, and `mapping_candidate_3f6d922c2f4b416dadacca7bc6f2f4ca.json` -- named plainly `probe`, created
 2026-10-20 09:34 UTC, `schema_version` 2, `molecule_snapshot` null, provenance reduced to `paper_doi` and
