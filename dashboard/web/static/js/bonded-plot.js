@@ -2,6 +2,7 @@
 // The bead radii come from `ngl-beads.js`, the one table of what each size class means
 // (`models/sugars/recognition.RADII_NM`); this module only turns one into a marker size.
 import { beadRadiusNm } from './ngl-beads.js';
+import { ensurePlotly } from './plotly-loader.js';
 
 const TYPE_COLORS = ['#2455b0', '#b24b8f', '#168477', '#d27a1f', '#6c4bb2', '#5d7187', '#c03b3b', '#4d8c45'];
 //: Marker pixels per nanometre of bead radius, on this plot's own axes. Not a bead-radii scale: the shared
@@ -12,6 +13,9 @@ const MARKER_PIXELS_PER_NM = 72;
 export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotError}) {
   let selectedBeads = [];
   let clickHandler = null;
+  //: Which render is the current one. Plotly arrives asynchronously, and the reader re-renders this module on
+  //: every bead selection, so a resolve that lands after a newer render must not paint the older scene.
+  let generation = 0;
 
   function pointsFor(names, positions) {
     return names.map(name => positions.get(name)).filter(Boolean);
@@ -19,10 +23,13 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
 
   function render({beads = [], edges = [], terms = [], selectedBeads: selected = [], selectedTermId = ''} = {}) {
     selectedBeads = [...selected];
-    if (!window.Plotly || !host) {
-      onPlotError?.('The local Plotly bundle could not be loaded. The interaction table remains available.');
-      return;
+    if (!host) {
+      // A missing host is a missing host: the bundle is not even asked for on this path, so blaming it
+      // would send a reader after the wrong thing.
+      onPlotError?.('The 3D diagram has no host element in this panel. The interaction table remains available.');
+      return Promise.resolve();
     }
+    const token = ++generation;
     const positions = new Map(beads.map(bead => [bead.name, bead.position]));
     const physical = beads.filter(bead => !bead.virtual_site);
     const typeGroups = new Map();
@@ -75,27 +82,48 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
         aspectmode: 'data', camera: {projection: {type: 'orthographic'}},
       }, paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff',
     };
-    clickHandler = event => {
-      const point = event?.points?.[0];
-      if (!point) return;
-      if (point.data?.meta === 'bead') {
-        const name = Array.isArray(point.customdata) ? point.customdata[0] : point.customdata;
-        const next = selectedBeads.includes(name)
-          ? selectedBeads.filter(item => item !== name)
-          : [...selectedBeads.slice(-1), name];
-        selectedBeads = next;
-        onBeadSelection?.(next);
-      } else if (point.data?.meta === 'term') {
-        onTermSelection?.(point.customdata);
-      }
-    };
-    host.removeAllListeners?.('plotly_click');
-    host.on?.('plotly_click', clickHandler);
-    window.Plotly.react(host, traces, layout, {responsive: true, displaylogo: false, modeBarButtonsToRemove: ['lasso3d', 'select3d']})
-      .catch(error => onPlotError?.(`The 3D diagram could not be rendered: ${error.message}`));
+    return ensurePlotly().then(() => {
+      if (token !== generation) return;
+      clickHandler = event => {
+        const point = event?.points?.[0];
+        if (!point) return;
+        if (point.data?.meta === 'bead') {
+          const name = Array.isArray(point.customdata) ? point.customdata[0] : point.customdata;
+          const next = selectedBeads.includes(name)
+            ? selectedBeads.filter(item => item !== name)
+            : [...selectedBeads.slice(-1), name];
+          selectedBeads = next;
+          onBeadSelection?.(next);
+        } else if (point.data?.meta === 'term') {
+          onTermSelection?.(point.customdata);
+        }
+      };
+      host.removeAllListeners?.('plotly_click');
+      return window.Plotly.react(host, traces, layout, {responsive: true, displaylogo: false, modeBarButtonsToRemove: ['lasso3d', 'select3d']})
+        .then(() => {
+          // Plotly's own first plot replaces the div's event emitter, so a listener added before it is
+          // dropped; the click handler is attached once the scene exists.
+          if (token !== generation) return;
+          host.on?.('plotly_click', clickHandler);
+          // Recorded, because this is the first moment a click on the scene is heard at all: anything emitted
+          // before it is dropped by the div, not missed by the handler.
+          host.dataset.clickReady = 'true';
+        })
+        .catch(error => {
+          // The same guard as the continuations above: a rejection from a render the reader has already
+          // replaced must not overwrite the newer chart's own message.
+          if (token !== generation) return;
+          onPlotError?.(`The 3D diagram could not be rendered: ${error.message}`);
+        });
+    }, error => {
+      if (token !== generation) return;
+      onPlotError?.(`The local Plotly bundle could not be loaded (${error.message}). The interaction table remains available.`);
+    });
   }
 
   function destroy() {
+    // A bundle still in flight must not draw into a host this module no longer owns.
+    generation += 1;
     host?.removeAllListeners?.('plotly_click');
     if (window.Plotly && host) window.Plotly.purge(host);
   }

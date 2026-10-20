@@ -6,6 +6,7 @@
 // reference entry's values are printed as context with no verdict attached, and the two cards with nothing
 // behind them say why instead of showing a substitute number.
 import { $, api } from './shared.js';
+import { ensurePlotly } from './plotly-loader.js';
 
 const number = (value) => {
   const parsed = Number(value);
@@ -25,6 +26,11 @@ const pairLabel = (pair) => {
 };
 const cell = (value) => String(value ?? '').replace(/[&<>]/g, character => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[character]));
+
+// Which draw is the current one. The bundle arrives asynchronously and the reader can switch runs while it does, so a
+// resolve that lands after a newer comparison must not paint the older bars over it. Module scope, because the token
+// has to outlive the draw that took it: it is the newer draw that invalidates the older.
+let drawGeneration = 0;
 
 function pairRows(comparison) {
   const rows = comparison?.pairs?.rows || [];
@@ -61,29 +67,48 @@ function termRows(comparison) {
   }).join('');
 }
 
-function drawDisplacement(host, shape) {
+async function drawDisplacement(host, shape) {
   // Per bead, in picometres: the comparison publishes nanometres, and at 4 pm an axis in nanometres reads as
   // zero. The beads the rigid-body fit used are filled, so a reader can see which numbers the fit rests on.
+  const token = ++drawGeneration;
   if (!host) return;
   const beads = (shape && shape.per_bead) || [];
-  if (!beads.length || typeof window.Plotly === 'undefined') {
+  // This message describes a comparison with no per-bead numbers in it, and nothing else: a Plotly bundle
+  // that has not been fetched yet is not a missing measurement, so it is fetched in front of the draw
+  // rather than reported here as one.
+  if (!beads.length) {
     host.textContent = 'The per-bead displacement is not in this comparison.';
     return;
   }
+  try {
+    await ensurePlotly();
+  } catch (error) {
+    if (token !== drawGeneration) return;
+    host.textContent = `The per-bead displacement could not be drawn: ${error.message}.`;
+    return;
+  }
+  if (token !== drawGeneration) return;
   const labels = beads.map(entry => `(${entry.bead?.[0]},${entry.bead?.[1]})`);
   const values = beads.map(entry => Number(entry.displacement_nm) * 1000);
   const fitted = new Set((shape.fit_beads || []).map(bead => `(${bead[0]},${bead[1]})`));
-  window.Plotly.react(host, [{
-    type: 'bar', x: labels, y: values,
-    marker: { color: labels.map(label => (fitted.has(label) ? '#2455b0' : '#b9c6d8')) },
-    text: values.map(value => value.toFixed(1)), textposition: 'outside', cliponaxis: false,
-    hovertemplate: '%{x}: %{y:.2f} pm<extra></extra>',
-  }], {
-    margin: { l: 56, r: 12, t: 8, b: 44 }, height: 260, bargap: 0.35,
-    yaxis: { title: { text: 'displacement (pm)', font: { size: 11 } }, rangemode: 'tozero' },
-    xaxis: { title: { text: 'bead', font: { size: 11 } }, tickangle: 0 },
-    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-  }, { displayModeBar: false, responsive: true });
+  try {
+    await window.Plotly.react(host, [{
+      type: 'bar', x: labels, y: values,
+      marker: { color: labels.map(label => (fitted.has(label) ? '#2455b0' : '#b9c6d8')) },
+      text: values.map(value => value.toFixed(1)), textposition: 'outside', cliponaxis: false,
+      hovertemplate: '%{x}: %{y:.2f} pm<extra></extra>',
+    }], {
+      margin: { l: 56, r: 12, t: 8, b: 44 }, height: 260, bargap: 0.35,
+      yaxis: { title: { text: 'displacement (pm)', font: { size: 11 } }, rangemode: 'tozero' },
+      xaxis: { title: { text: 'bead', font: { size: 11 } }, tickangle: 0 },
+      paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+    }, { displayModeBar: false, responsive: true });
+  } catch (error) {
+    // The draw answers for its own failure, in the host it was given: `render` does not wait on this chart, so a
+    // rejection here would be a rejection nobody is holding.
+    if (token !== drawGeneration) return;
+    host.textContent = `The per-bead displacement could not be drawn: ${error.message}.`;
+  }
 }
 
 function acrossTable(body) {
@@ -307,6 +332,9 @@ export function createMappingValidation({ request = api } = {}) {
         + 'The fitted beads are filled; the others are carried for completeness. The solvent-accessible '
         + 'envelopes below come from the separate surfaces analysis on this run.'
       : 'The run’s shape analysis has not been published.';
+    // Not awaited: the chart fetches a 4.8 MB bundle and answers for its own failure, and every card below this
+    // line is text the panel already has. Waiting here made the reader's first sight of the comparison wait on a
+    // download, for a picture that carries no number the tables do not.
     drawDisplacement($('#validation-shape-plot'), shape);
     const surfaces = body.surfaces || {};
     const note = $('#validation-surface-note');
