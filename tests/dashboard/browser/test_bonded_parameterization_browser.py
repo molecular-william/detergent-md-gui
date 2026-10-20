@@ -884,3 +884,79 @@ def test_deleting_the_last_mapping_empties_the_panel_rather_than_leaving_a_model
         'its bond interactions are kept, held by mapping_candidate_copy.json')
     expect(page.locator('.bonded-panel-message')).to_contain_text('No saved mapping is left')
     assert errors == [], errors
+
+
+def test_a_dihedral_is_drawn_dashed_and_half_transparent_over_the_bonds(dashboard, live_page):
+    """A torsion is a relationship along four atoms, not a bond, and the diagram has to say so.
+
+    Drawn solid at full strength a dihedral competed with the connectivity it sits on: the segments it shares with the
+    bonds underneath were indistinguishable from them, so "which row is this line" had no answer on the scene. Dashed
+    at alpha 0.5 it reads as an annotation over the bonds, which stay solid. The kinds stay separate on purpose -- an
+    improper stays solid, because it restrains one centre rather than turning about a bond.
+
+    The plot module is rendered directly, with beads and terms this test invents: the style is the module's own
+    contract and does not depend on a mapping having landed in a workspace, which is the part the panel's fixtures
+    are for.
+    """
+    page, errors = live_page
+    page.goto(live_page.base_url)
+    drawn = page.evaluate("""async () => {
+      const {mountBondedPlot} = await import('/static/js/bonded-plot.js');
+      const host = document.createElement('div');
+      host.style.width = '600px'; host.style.height = '400px';
+      document.body.append(host);
+      const plot = mountBondedPlot(host, {});
+      await plot.render({
+        beads: [{name: 'B01', position: [0, 0, 0], size: 'R'}, {name: 'B02', position: [0.5, 0, 0], size: 'R'},
+                {name: 'B03', position: [0.5, 0.4, 0], size: 'R'}, {name: 'B04', position: [0.5, 0.4, 0.4], size: 'R'}],
+        edges: [['B01', 'B02'], ['B02', 'B03'], ['B03', 'B04']],
+        terms: [{id: 'bonds:1', kind: 'bonds', beads: ['B01', 'B02']},
+                {id: 'angles:1', kind: 'angles', beads: ['B01', 'B02', 'B03']},
+                {id: 'impropers:1', kind: 'impropers', beads: ['B01', 'B02', 'B03', 'B04']},
+                {id: 'dihedrals:1', kind: 'dihedrals', beads: ['B01', 'B02', 'B03', 'B04']}],
+        beadAliases: new Map([['B01', 'B01'], ['B02', 'B02'], ['B03', 'B03'], ['B04', 'B04']]),
+      });
+      const seen = Object.fromEntries(host.data.filter(trace => trace.meta === 'term').map(trace => [
+        trace.name.split(' · ')[0],
+        {kind: trace.name.split(' · ')[0], dash: trace.line.dash, color: trace.line.color, width: trace.line.width,
+         points: (trace.x || []).length}]));
+      plot.destroy(); host.remove();
+      return seen;
+    }""")
+    assert set(drawn) == {'bonds', 'angles', 'impropers', 'dihedrals'}, drawn
+    assert drawn['dihedrals']['dash'] == 'dash', drawn['dihedrals']
+    assert drawn['dihedrals']['color'] == 'rgba(54,162,105,0.5)', drawn['dihedrals']
+    assert drawn['dihedrals']['points'] == 4, drawn['dihedrals']
+    for kind in ('bonds', 'angles', 'impropers'):
+        assert drawn[kind]['dash'] == 'solid', drawn[kind]
+        assert drawn[kind]['color'] == 'rgba(54,162,105,1)', drawn[kind]
+    assert errors == [], errors
+
+
+def test_a_revisions_terms_reach_the_scene_through_the_export_names(dashboard, live_page):
+    """`B01` is the first bead of the mapping, and the scene draws the mapping's own names -- joined here or nowhere.
+
+    A fitted revision names beads the way the `.itp` it wrote does (`mappings/exports.py`: `B{i+1:02d}` over the
+    mapping's bead list, virtual sites included). The scene draws `bead.name`. Nothing translated between the two, so
+    every term missed its bead and the diagram drew the connectivity with no bonded term on it at all -- which is why
+    a question about how the dihedral lines look could not have had a visible answer. This asserts the translation
+    with the fixture revision, whose terms are written in that vocabulary.
+    """
+    saved, _, _ = save(dashboard)
+    parameterization.save(saved, revision(1))
+
+    page, errors = live_page
+    open_panel(page, live_page, saved['file'])
+    plot = page.locator('.bonded-plot')
+    # The bundle is several megabytes and the scene is WebGL: 5 s is enough alone and not enough with two
+    # dozen workers loading it at once, which is what a bare `to_be_visible` answers here.
+    expect(plot.locator('.plotly')).to_be_visible(timeout=20000)
+    drawn = plot.evaluate("""(el) => el.data.filter(trace => trace.meta === 'term')
+      .map(trace => [trace.name.split(' · ')[0], (trace.x || []).length, trace.line.dash])""")
+    kinds = {name: (points, dash) for name, points, dash in drawn}
+    assert kinds.get('dihedrals', (0, ''))[0] == 4, drawn
+    assert kinds['dihedrals'][1] == 'dash', drawn
+    for kind in ('bonds', 'angles', 'constraints'):
+        assert kinds[kind][0] >= 2, drawn
+        assert kinds[kind][1] == 'solid', drawn
+    assert errors == [], errors

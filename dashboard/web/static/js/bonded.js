@@ -248,6 +248,16 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
     }), edges};
   }
 
+  /** A revision's bead names, as the scene's: `B01` is the first bead of the mapping, virtual sites included.
+   *
+   * The names are the exported topology's, not the mapping's (`mappings/exports.py` writes `B{i+1:02d}` over the
+   * mapping's bead list), so the two vocabularies have to be joined somewhere. Here, once, rather than in the plot:
+   * the table goes on showing what the revision says, which is what a reader compares against the `.itp`.
+   */
+  function revisionAliases(mapping) {
+    return new Map((mapping?.beads || []).map((bead, index) => [`B${String(index + 1).padStart(2, '0')}`, bead.name]));
+  }
+
   /** The mapping's own connectivity, for a model that has no revision: a start, not a fitted result. */
   function mappingTerms(mapping) {
     const geometry = beadGeometry(mapping);
@@ -308,7 +318,8 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
   function renderState() {
     renderTable();
     const geometry = beadGeometry(selectedMapping || {});
-    plot.render({beads: geometry.beads, edges: geometry.edges, terms, selectedBeads, selectedTermId});
+    plot.render({beads: geometry.beads, edges: geometry.edges, terms, selectedBeads, selectedTermId,
+                 beadAliases: revisionAliases(selectedMapping)});
     setText(selectionStatus, selectedBeads.length
       ? `Selected beads: ${selectedBeads.join(' · ')}`
       : 'Select a bead to read its name.');

@@ -210,7 +210,9 @@ def test_the_diagram_draws_the_candidates_own_molecule_and_not_the_packaged_one(
     page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
     page.locator('.bonded-mapping-select').select_option(saved['file'])
     plot = page.locator('.bonded-plot')
-    expect(plot.locator('.plotly')).to_be_visible()
+    # The bundle is several megabytes and the scene is WebGL: 5 s is enough alone and not enough with two
+    # dozen workers loading it at once, which is what a bare `to_be_visible` answers here.
+    expect(plot.locator('.plotly')).to_be_visible(timeout=20000)
 
     drawn = plot.evaluate("""(el) => {
       const beads = el.data.filter(trace => trace.meta === 'bead');

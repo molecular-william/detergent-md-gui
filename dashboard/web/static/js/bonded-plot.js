@@ -9,6 +9,19 @@ const TYPE_COLORS = ['#2455b0', '#b24b8f', '#168477', '#d27a1f', '#6c4bb2', '#5d
 //: `applyBeadRadii` does not apply here, because Plotly has no structure to size -- this is how a nanometre of
 //: radius becomes a circle on screen, and the radii themselves are the model's.
 const MARKER_PIXELS_PER_NM = 72;
+//: Term ink, as the rgb triple of the same green the table's `ff_inter` chips use, and the red of a selected row.
+const TERM_INK = '54,162,105';
+const TERM_SELECTED_INK = '223,32,61';
+//: A dihedral is a *relationship along four atoms*, not a bond the mapping draws, so it goes over the connectivity
+//: as a dashed half-transparent line: the solid bonds stay legible underneath and the torsion reads as an annotation
+//: on them. Impropers stay solid -- an improper holds one centre's planarity or chirality, which is a restraint and
+//: not a free torsion -- and a constraint is drawn like a bond because the topology writes it as one.
+const TORSION_KINDS = new Set(['dihedrals']);
+const TORSION_ALPHA = 0.5;
+
+function ink(rgb, alpha) {
+  return `rgba(${rgb},${alpha})`;
+}
 
 export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotError}) {
   let selectedBeads = [];
@@ -17,11 +30,19 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
   //: every bead selection, so a resolve that lands after a newer render must not paint the older scene.
   let generation = 0;
 
-  function pointsFor(names, positions) {
-    return names.map(name => positions.get(name)).filter(Boolean);
+  /** Positions for a list of names, resolving a revision's export names (`B01`) to the mapping's own bead names.
+   *
+   * A fitted revision names beads the way the topology it wrote does: `B01` is the first bead of the mapping,
+   * virtual sites included (`mappings/exports.py`), not a name the mapping uses. The scene draws the mapping's names,
+   * so a term that arrives as `B01 · B11` has to be translated before it has a position -- without it every term
+   * misses, and the diagram draws the connectivity with no bonded term on it at all.
+   */
+  function pointsFor(names, positions, aliases) {
+    return names.map(name => positions.get(aliases.get(name) || name)).filter(Boolean);
   }
 
-  function render({beads = [], edges = [], terms = [], selectedBeads: selected = [], selectedTermId = ''} = {}) {
+  function render({beads = [], edges = [], terms = [], selectedBeads: selected = [], selectedTermId = '',
+                   beadAliases = new Map()} = {}) {
     selectedBeads = [...selected];
     if (!host) {
       // A missing host is a missing host: the bundle is not even asked for on this path, so blaming it
@@ -63,13 +84,16 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
     if (edgeX.length) traces.push({type: 'scatter3d', mode: 'lines', name: 'Mapping connectivity', showlegend: false,
       x: edgeX, y: edgeY, z: edgeZ, line: {color: '#a8b5c4', width: 4}, hoverinfo: 'skip', meta: 'edge'});
     for (const term of terms) {
-      const points = pointsFor(term.beads || [], positions);
+      const points = pointsFor(term.beads || [], positions, beadAliases);
       if (points.length < 2) continue;
       const selectedTerm = term.id === selectedTermId;
+      const torsion = TORSION_KINDS.has(term.kind);
+      const rgb = selectedTerm ? TERM_SELECTED_INK : TERM_INK;
       traces.push({type: 'scatter3d', mode: 'lines', name: `${term.kind} · ${term.beads.join(' · ')}`, showlegend: false,
         x: points.map(point => point[0]), y: points.map(point => point[1]), z: points.map(point => point[2]),
         customdata: points.map(() => term.id), meta: 'term',
-        line: {color: selectedTerm ? '#df203d' : '#36a269', width: selectedTerm ? 10 : 6},
+        line: {color: ink(rgb, torsion ? TORSION_ALPHA : 1), width: selectedTerm ? 10 : 6,
+               dash: torsion ? 'dash' : 'solid'},
         hovertemplate: `${term.kind} · ${term.beads.join(' · ')}<extra></extra>`});
     }
     const layout = {
