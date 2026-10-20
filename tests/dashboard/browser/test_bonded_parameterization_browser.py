@@ -793,3 +793,86 @@ def test_every_id_on_the_page_is_unique(dashboard, live_page):
     }""")
     assert duplicates == [], f'ids rendered more than once: {duplicates}'
     assert errors == [], errors
+
+
+# ------------------------------------------------------------------- deleting the mapping from here
+
+
+def test_the_panel_deletes_the_selected_mapping_and_says_what_went_with_it(dashboard, live_page):
+    """The one destructive control on this panel: the editor's own route, and the rule stated before it acts.
+
+    The sentence matters as much as the request. What this replaced -- in the editor, where the button first lived --
+    said a mapping's bonded states were *not* deleted, while `mappings.delete_draft` removes them unless another
+    saved mapping carries the same content hash. A reader's only warning before an irreversible click has to be the
+    behaviour, so this asserts the wording against the answer the route gives.
+    """
+    first, first_content, _ = save(dashboard, 'First model')
+    second, second_content, _ = save(dashboard, 'Second model', molecule='Sucrose')
+    page, errors = live_page
+    stub(page, answer([revision(1)], current=1))
+    dialogs, deletes = [], []
+
+    def remove(route):
+        deletes.append((route.request.method, route.request.url.split('/api')[1]))
+        # The catalogue this panel re-reads after the deletion: one model left, and not the one deleted.
+        page.route(re.compile(r'/api/mappings\?view=summary'),
+                   lambda later: later.fulfill(json={'candidates': [second]}))
+        route.fulfill(json={'deleted': first['file'], 'parameterization': {
+            'content_hash': first_content, 'deleted': True, 'revisions': [1], 'jobs': ['0123456789abcdef'],
+            'work': [], 'retained_by': [], 'reason': None}})
+
+    def accept(dialog):
+        dialogs.append(dialog.message)
+        dialog.accept()
+
+    page.route(re.compile(r'/api/mappings/drafts/'), remove)
+    page.on('dialog', accept)
+    open_panel(page, live_page, first['file'])
+    expect(page.locator('#bonded-delete-mapping')).to_be_enabled()
+    expect(page.locator('#bonded-revisions .bonded-revision')).to_have_count(1)
+
+    page.locator('#bonded-delete-mapping').click()
+    expect(page.locator('#bonded-mapping-select')).to_have_value(second['file'])
+
+    assert deletes == [('DELETE', f"/mappings/drafts/{first['file']}")], deletes
+    assert len(dialogs) == 1, dialogs
+    warning = dialogs[0]
+    assert 'Its single bond interaction revision is deleted with it' in warning, warning
+    assert 'unless another saved mapping has the same content hash' in warning, warning
+    assert 'fit jobs and staged frames' in warning, warning
+    assert 'not deleted' not in warning, warning
+    # The notice is refined once the next model is on screen, so the wait is on that final line rather than on a read
+    # taken while the reload is still outstanding.
+    expect(page.locator('.bonded-panel-message')).to_contain_text(
+        'Mapping deleted: its 1 bond interaction revision went with it. Showing Second model.')
+    assert errors == [], errors
+
+
+def test_deleting_the_last_mapping_empties_the_panel_rather_than_leaving_a_model_on_screen(dashboard, live_page):
+    """No mapping left: the select is empty, the delete button is off, and the card says there is no parameterization."""
+    saved, content, _ = save(dashboard)
+    page, errors = live_page
+    stub(page, answer([revision(1)], current=1))
+    page.route(re.compile(r'/api/mappings/drafts/'),
+               lambda route: (page.route(re.compile(r'/api/mappings\?view=summary'),
+                                         lambda later: later.fulfill(json={'candidates': []})),
+                              route.fulfill(json={'deleted': saved['file'], 'parameterization': {
+                                  'content_hash': content, 'deleted': False, 'revisions': [],
+                                  'jobs': [], 'work': [], 'retained_by': ['mapping_candidate_copy.json'],
+                                  'reason': 'another saved mapping still carries this content'}}))[-1])
+    page.on('dialog', lambda dialog: dialog.accept())
+    open_panel(page, live_page, saved['file'])
+    expect(page.locator('#bonded-result')).to_be_visible()
+
+    page.locator('#bonded-delete-mapping').click()
+
+    expect(page.locator('#bonded-mapping-select option')).to_have_count(0)
+    expect(page.locator('#bonded-delete-mapping')).to_be_disabled()
+    expect(page.locator('#bonded-result')).to_be_hidden()
+    # With no mapping at all the card's badge says so, which is a different reading from `no parameterization`.
+    expect(page.locator('#bonded-model-badge')).to_have_text('no mapping')
+    # The answer said another mapping keeps this content, and the panel repeats that rather than claiming a deletion.
+    expect(page.locator('.bonded-panel-message')).to_contain_text(
+        'its bond interactions are kept, held by mapping_candidate_copy.json')
+    expect(page.locator('.bonded-panel-message')).to_contain_text('No saved mapping is left')
+    assert errors == [], errors

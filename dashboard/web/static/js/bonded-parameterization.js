@@ -808,5 +808,11 @@ export function setupParameterization({host, onTerms}) {
     await readEngines();
   }
 
-  return {mount, load};
+  /** How many revisions this mapping holds: what a caller must say before deleting the mapping takes them. */
+  function revisionCount() { return revisions.length; }
+
+  /** Whether a fit of this mapping is in flight: deleting the mapping under it would leave the job writing to it. */
+  function isBusy() { return busy || (job !== null && LIVE.has(job.status)); }
+
+  return {mount, load, revisionCount, isBusy};
 }

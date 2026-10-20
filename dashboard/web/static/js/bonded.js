@@ -14,7 +14,7 @@
  * elsewhere, or a geometry fallback produced it. Two kinds are not a draft at all and are marked as the reading they
  * are: a constraint's length and a virtual site's parents come from the mapping.
  */
-import { $, setText, cachedApi } from './shared.js';
+import { $, setText, cachedApi, api, invalidateResource } from './shared.js';
 import { mountBondedPlot } from './bonded-plot.js';
 import { setupParameterization } from './bonded-parameterization.js';
 
@@ -80,6 +80,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
   const host = $('.bonded-workspace');
   if (!host || !mappingData) return;
   const mappingSelect = $('#bonded-mapping-select', host);
+  const deleteButton = $('#bonded-delete-mapping', host);
   const message = $('.bonded-panel-message', host);
   const tableHost = $('.bonded-interaction-table', host);
   const selectionStatus = $('.bonded-selection-status', host);
@@ -103,6 +104,93 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
   }});
 
   function notice(text) { setText(message, text); }
+
+  /** Whether the selected catalogue entry is a saved mapping this panel may delete.
+   *
+   * The catalogue also lists CG compositions, addressed as `composition:<id>` rather than by a draft file name, and
+   * the drafts route answers 404 for one: offering the button for those would be a control that cannot act.
+   */
+  function deletable() {
+    const value = mappingSelect.value || '';
+    if (!value || value.startsWith('composition:')) return false;
+    return (mappingData.candidates || []).some(candidate => candidate.file === value && !candidate.error);
+  }
+
+  function updateDelete() {
+    if (!deleteButton) return;
+    const value = mappingSelect.value || '';
+    const allowed = deletable();
+    deleteButton.disabled = !allowed;
+    deleteButton.title = allowed ? `Delete the saved mapping ${value}`
+      : value.startsWith('composition:') ? 'A CG composition is not a mapping this panel deletes.'
+      : 'Choose a saved mapping first.';
+  }
+
+  /** Delete the selected mapping through the one route that owns it, and say what went with it.
+   *
+   * The warning states the rule the route implements rather than the older claim that bond interactions survive: the
+   * store removes them unless another saved mapping still carries this content hash, and it removes the fit jobs and
+   * staged frames built for it as well. A run that already recorded the terms keeps its own copy, which is what makes
+   * this safe to offer from here at all.
+   */
+  async function deleteMapping() {
+    const file = mappingSelect.value || '';
+    if (!deletable()) return notice('No saved mapping is selected to delete.');
+    if (parameterization.isBusy()) {
+      return notice('A fit of this mapping is running: cancel it before deleting the mapping.');
+    }
+    const count = parameterization.revisionCount();
+    const holds = count === 0 ? 'It has no bond interactions'
+      : count === 1 ? 'Its single bond interaction revision is deleted with it'
+      : `Its ${count} bond interaction revisions are deleted with it`;
+    const agreed = window.confirm(
+      `Delete ${file}?\n\n${holds}, unless another saved mapping has the same content hash. `
+      + 'The fit jobs and staged frames built for it go too. Runs that already recorded those terms keep them.');
+    if (!agreed) return;
+    let answer;
+    try {
+      answer = await api('/api/mappings/drafts/' + encodeURIComponent(file), {method: 'DELETE'});
+    } catch (error) {
+      return notice(`The mapping was not deleted: ${error.message}`);
+    }
+    const report = (answer && answer.parameterization) || {};
+    const removed = (report.revisions || []).length;
+    const kept = Array.isArray(report.retained_by) ? report.retained_by : [];
+    const fate = kept.length ? `its bond interactions are kept, held by ${kept.join(', ')}`
+      : removed ? `its ${removed === 1 ? '1 bond interaction revision' : `${removed} bond interaction revisions`} went with it`
+      : 'it held no bond interactions';
+    invalidateResource('/api/mappings');
+    invalidateResource('/api/bonded-states');
+    // This panel's own list is what the deletion changed, so it is re-read rather than patched in place.
+    let fresh = {candidates: mappingData.candidates};
+    try {
+      fresh = await api('/api/mappings?view=summary');
+    } catch (error) {
+      notice(`Mapping deleted: ${fate}. The catalogue could not be re-read: ${error.message}`);
+    }
+    mappingData.candidates = fresh.candidates || [];
+    const options = mappingData.candidates.filter(candidate => !candidate.error);
+    mappingSelect.replaceChildren(...options.map(candidate => new Option(candidate.name, candidate.file)));
+    // The deletion is done at this point, so what happened is stated before the panel tries to show what is left:
+    // a reload that fails must not leave the reader with no word about the mapping that has just gone.
+    notice(`Mapping deleted: ${fate}.`);
+    updateDelete();
+    try {
+      if (!options.length) {
+        mappingSelect.value = '';
+        selectedMapping = null;
+        terms = [];
+        renderState();
+        await parameterization.load(null);
+        return notice(`Mapping deleted: ${fate}. No saved mapping is left.`);
+      }
+      mappingSelect.value = options[0].file;
+      await refreshMapping();
+      notice(`Mapping deleted: ${fate}. Showing ${options[0].name}.`);
+    } catch (error) {
+      notice(`Mapping deleted: ${fate}. The next mapping could not be shown: ${error.message}`);
+    }
+  }
 
   async function resolveStructure(mapping) {
     // A candidate names the molecule it maps, and the panel must draw *that* molecule. Reading one structure for
@@ -243,13 +331,15 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
     }
   }
 
-  mappingSelect.onchange = () => { refreshMapping(); };
+  mappingSelect.onchange = () => { updateDelete(); refreshMapping(); };
+  if (deleteButton) deleteButton.onclick = () => deleteMapping();
 
   async function mount() {
     const chosen = mappingSelect.value;
     mappingSelect.replaceChildren(...mappingData.candidates.filter(candidate => !candidate.error).map(candidate => new Option(candidate.name, candidate.file)));
     if (mappingData.candidates.some(candidate => candidate.file === chosen)) mappingSelect.value = chosen;
     if (!mappingSelect.value && mappingSelect.options.length) mappingSelect.selectedIndex = 0;
+    updateDelete();
     await parameterization.mount();
     await refreshMapping();
   }
@@ -259,6 +349,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
     // selecting the option is what a user picking it from the list does.
     if (![...mappingSelect.options].some(option => option.value === file)) return false;
     mappingSelect.value = file;
+    updateDelete();
     await refreshMapping();
     return true;
   }

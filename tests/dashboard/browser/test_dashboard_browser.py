@@ -1,5 +1,6 @@
 """Browser acceptance test. Requires installed Playwright + Chromium."""
 import json
+import re
 
 from playwright.sync_api import expect
 
@@ -125,6 +126,55 @@ def test_delete_mapping_removes_the_saved_candidate(dashboard, live_page):
     expect(option).to_have_count(0)
     expect(select.locator('option')).to_have_count(1)
     assert errors == []
+
+
+def test_deleting_a_mapping_states_the_rule_it_actually_implements(live_page):
+    """The one sentence a reader gets before an irreversible click has to be the behaviour, not its opposite.
+
+    `mappings.delete_draft` removes a mapping's bond interactions unless another saved mapping still carries the same
+    content hash, and removes the fit jobs and staged frames built for it. The confirm used to say the bonded states
+    were *not* deleted, so a reader was warned about the wrong thing. The confirm is dismissed here rather than
+    accepted: that reads the text without deleting anything, and pins the other half of the contract -- a dismissed
+    confirm sends no request.
+    """
+    page, errors = live_page
+    messages, deletes = [], []
+
+    def decline(dialog):
+        messages.append(dialog.message)
+        dialog.dismiss()
+
+    page.on('dialog', decline)
+    page.route(re.compile(r'/api/mappings/drafts/'),
+               lambda route: (deletes.append(route.request.method + ' ' + route.request.url.split('/api')[1]),
+                              route.fulfill(json={'deleted': 'x', 'parameterization': {}}))[-1])
+    page.goto(f'{live_page.base_url}/detergent-validation/bead-assignment')
+    page.get_by_role('tab', name='Bead Assignment', exact=True).click()
+    page.route('**/api/mappings/automatic/preview',
+               lambda route: route.fulfill(status=200, content_type='application/json',
+                                           body=json.dumps({'available': True,
+                                                            'candidate': mappings.automatic_candidate(
+                                                                mappings.molecule(), 'DDM')})))
+    expect(page.locator('#mapping-editor-status')).to_contain_text('loaded')
+    page.locator('#generate-automatic').click()
+    page.locator('#mapping-bead-rows tr').first.wait_for(timeout=15000)
+    page.locator('#save-mapping-editor').click()
+    select = page.locator('#mapping-candidate-filter')
+    expect(select.locator('option')).to_have_count(2)
+    select.select_option(select.input_value())
+    expect(page.locator('#delete-mapping')).to_be_enabled()
+
+    page.locator('#delete-mapping').click()
+
+    assert len(messages) == 1, messages
+    warning = messages[0]
+    assert 'bond interactions are deleted with it' in warning, warning
+    assert 'unless another saved mapping has the same content hash' in warning, warning
+    assert 'fit jobs and staged frames' in warning, warning
+    assert 'not deleted' not in warning, warning
+    assert deletes == [], deletes
+    expect(select.locator('option')).to_have_count(2)
+    assert errors == [], errors
 
 
 def test_the_candidate_warning_line_stays_hidden_when_nothing_needs_correcting(live_page):

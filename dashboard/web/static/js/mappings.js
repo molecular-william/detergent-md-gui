@@ -278,12 +278,25 @@ export function createMappings() {
     $('#delete-mapping').onclick = async () => {
       const file = moleculeEditor?.candidate?.file;
       if (!file) return editorMessage('This is a local draft; there is no saved mapping to delete.');
-      if (!window.confirm(`Delete ${file}? Its bonded states are not deleted and will no longer match a mapping.`)) return;
+      // The rule the route implements, stated before it acts: a mapping's bond interactions go with it unless another
+      // saved mapping still carries the same content hash, and the fit jobs and staged frames built for it go as well.
+      // The wording this replaced said the bonded states were *not* deleted, which was the opposite of what
+      // `mappings.delete_draft` does -- and it is the one sentence a reader has before an irreversible click.
+      if (!window.confirm(`Delete ${file}?\n\nIts bond interactions are deleted with it, unless another saved mapping `
+                          + 'has the same content hash. The fit jobs and staged frames built for it go too. Runs that '
+                          + 'already recorded those terms keep them.')) return;
       try {
-        await api('/api/mappings/drafts/' + encodeURIComponent(file), {method: 'DELETE'});
+        const answer = await api('/api/mappings/drafts/' + encodeURIComponent(file), {method: 'DELETE'});
         invalidateResource('/api/mappings'); invalidateResource('/api/bonded-states');
         await loadMoleculeEditor(moleculeSelect.value);
-        notice('Mapping deleted.');
+        // What went with it is the route's report, not a guess: a shared copy keeps the revisions and the answer names it.
+        const report = (answer && answer.parameterization) || {};
+        const removed = (report.revisions || []).length;
+        const kept = Array.isArray(report.retained_by) ? report.retained_by : [];
+        notice(kept.length ? `Mapping deleted; its bond interactions are kept, held by ${kept.join(', ')}.`
+          : removed ? `Mapping deleted, and its ${removed === 1 ? '1 bond interaction revision'
+                                                            : `${removed} bond interaction revisions`} with it.`
+          : 'Mapping deleted.');
       } catch (error) { editorMessage(error.message); }
     };
     $('#save-mapping-inplace').onclick = async () => {
