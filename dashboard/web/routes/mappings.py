@@ -156,8 +156,14 @@ def mapping_review():
 
 @blueprint.delete('/api/mappings/drafts/<name>')
 def mapping_delete_draft(name):
+    """Delete a saved mapping; its bond interactions go with it unless another mapping still holds them.
+
+    Both halves of the answer come from the store, and `parameterization` is the store's report of what
+    it removed -- or, for shared content, which saved mappings kept it and why. `deleted` is still the
+    name alone, because that is what the panel's own delete reads.
+    """
     try:
-        return jsonify(deleted=mappings.delete_draft(name))
+        return jsonify(**mappings.delete_draft(name))
     except KeyError:
         abort(404, 'Unknown draft candidate')
     except ValueError:

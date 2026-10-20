@@ -156,14 +156,89 @@ def list_reviews():
 
 
 def delete_draft(name):
-    """Remove one saved draft, or raise KeyError when there is no such file.
+    """Remove one saved draft, and the bond interactions only it carried.
 
     The name goes through the validator the rest of the store uses and the path through
     the repository's containment check, so a name that escapes the drafts root is refused
     here rather than by a route-level pattern.
+
+    The owner's rule is that deleting a mapping deletes its bond interactions, and the store's own
+    doctrine makes that a question rather than a cascade: a parameterization is keyed by the mapping's
+    *content* identity, which a copy saved under another name shares. So the identity is read off the
+    draft before the file goes -- afterwards the draft can no longer say which model it was -- and the
+    parameterization is forgotten only if nothing else still holds that content (`_forget_parameterization`).
     """
     path = _repository().path(name)
     if not path.is_file():
         raise KeyError(name)
+    content = _draft_content_identity(path)
     path.unlink()
-    return name
+    return {'deleted': name, 'parameterization': _forget_parameterization(content)}
+
+
+def _draft_content_identity(path):
+    """The content identity the store stamps on a candidate it reads, for a draft that is about to go.
+
+    `_read_candidate` computes exactly this (`content_identity`, the name blanked), but it is repeated
+    here rather than called: reading through `get` also runs the graph validation against the packaged
+    molecule, so a draft of another molecule would answer an error about a file this store is deleting
+    either way. An unreadable draft answers None -- nothing addresses its bond interactions, so nothing
+    is removed and the report says so.
+    """
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    try:
+        return content_identity(data)
+    except (TypeError, ValueError):
+        return None
+
+
+def _content_holders(content):
+    """Every mapping still on disk -- packaged or drafted -- whose content identity is this one.
+
+    `list_candidates` is deliberately not used: it validates each candidate against the packaged
+    molecule's structure, so a draft of another molecule comes back as an error line with no hash and
+    would look like a non-holder. The identity is a pure function of the file's own fields, which is
+    all this decision needs and all it may ask.
+    """
+    holders = []
+    for name, path in candidate_paths().items():
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        try:
+            if content_identity(data) == content:
+                holders.append(name)
+        except (TypeError, ValueError):
+            continue
+    return sorted(holders)
+
+
+def _forget_parameterization(content):
+    """Delete the parameterization of `content` unless another saved mapping still carries it.
+
+    The guard is the whole decision. Two saved drafts can hold identical content -- a copy under
+    another name -- and therefore one content hash and one set of revisions; deleting either one must
+    not destroy the other's bond interactions. So the record is removed only when no remaining mapping
+    carries that content, and when one does the answer names the holders and says why it was kept.
+    """
+    if content is None:
+        return {'content_hash': None, 'deleted': False, 'retained_by': [], 'revisions': [],
+                'jobs': [], 'work': [],
+                'reason': 'the draft could not be read, so no content identity addresses its bond interactions'}
+    holders = _content_holders(content)
+    if holders:
+        return {'content_hash': content, 'deleted': False, 'retained_by': holders, 'revisions': [],
+                'jobs': [], 'work': [],
+                'reason': 'another saved mapping still carries this content'}
+    # Imported here and not at module scope: `bonded.parameterization` imports this package, and this
+    # module is imported while the package is still initialising.
+    from ..bonded import parameterization
+    return {**parameterization.delete(content), 'retained_by': [], 'reason': None}

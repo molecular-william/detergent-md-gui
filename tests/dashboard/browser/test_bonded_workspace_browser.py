@@ -2,23 +2,53 @@
 
 The parameterization itself -- the model card, the fit job, the result, the `source` column and the revision
 strip -- is proved in `test_bonded_parameterization_browser.py`, where every route it drives is stubbed. What is
-left here is the rest of the panel: that the mapping selector reaches the model it names, that the flat
-bonded-state workflow is gone (D1), and that the torsion switch still writes the mapping's own options.
+left here is the rest of the panel: that the mapping selector reaches the model it names, that a mapping's
+revisions replace the flat bonded-state list (D1), that the terms no engine fits -- a ring constraint, a virtual
+site and its parents -- are shown and stay read-only (`:108-110`), and that the torsion switch still writes the
+mapping's own options.
 """
+import re
+
 from playwright.sync_api import expect
 
 from dashboard.models import mappings
+from dashboard.models.bonded import parameterization
 from dashboard.models.bonded import states as bonded_states
 
+#: A revision's topology with the two kinds the panel must never offer an editor for: a constraint, whose length is
+#: the mapping's, and a `virtual_sitesn`, whose parents are bead names rather than atoms.
+TOPOLOGY = """[ moleculetype ]
+LIG1 1
 
-def test_the_flat_bonded_state_workflow_is_gone_and_the_table_reads_a_revisions_terms(dashboard, live_page):
-    """D1, as the page: no state select, no state buttons, and a table nothing in it can edit.
+[ atoms ]
+1 SP1r 1 LIG1 B01 1 0 54
+2 SP1r 1 LIG1 B02 2 0 54
+3 SP1r 1 LIG1 B03 3 0 54
+
+[ constraints ]
+2 3 1 0.315
+
+[ virtual_sitesn ]
+1 2 2 3
+
+[ bonds ]
+1 2 1 0.32 5000
+"""
+
+
+def save_revision(mapping):
+    """One real revision in the store, so the table is read from what a run would stage rather than from a stub."""
+    return parameterization.save(mapping, {
+        'engine': 'reference-informed', 'topology': TOPOLOGY,
+        'options': {'constraints_threshold': 10000, 'temperature_k': 300, 'torsion_model': 'legacy'},
+        'ensemble': {'frames': None}, 'checks': {}, 'aa_reference': None, 'diagnostics': []})
+
+
+def test_the_revision_strip_replaces_the_flat_bonded_state_list(dashboard, live_page):
+    """D1, as the page: no state select, and a table that reads a revision rather than a state.
 
     The states still exist in the store, and one is created here on purpose -- what this asserts is that a
     mapping's parameterization is what the panel shows, so a state record that is not a revision appears nowhere.
-    Saving, deleting and creating a state were the old panel's three ways of writing one; a model's revisions are
-    written by a fit now, and this slice has no route that writes a hand-edited revision, so keeping those
-    controls would have left three buttons that cannot act.
     """
     saved = mappings.save_draft(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
     bonded_states.create(saved, 'A state that is not a revision', topology='[ moleculetype ]\n[ atoms ]',
@@ -30,21 +60,60 @@ def test_the_flat_bonded_state_workflow_is_gone_and_the_table_reads_a_revisions_
     page.wait_for_selector('.bonded-plot .plotly', timeout=30000)
 
     expect(page.locator('.bonded-state-select')).to_have_count(0)
-    for name in ('Save as new state', 'Delete state', 'Create interaction', 'Run short CG validation',
-                 'Generate automatic bonded state'):
-        expect(page.get_by_role('button', name=name)).to_have_count(0)
     # The two ways a parameterization is produced, and the one place its revisions are read.
     expect(page.get_by_role('button', name='Fit this model')).to_have_count(1)
     expect(page.get_by_role('button', name='Generate reference-informed draft')).to_have_count(1)
     expect(page.locator('#bonded-revisions')).to_be_visible()
 
-    # The table is a reading, not an editor: a revision is what a fit stored, and nothing here can rewrite it.
+    # This mapping has no revision, so the rows are its own draft and every one of them says so.
     page.wait_for_selector('.bonded-interaction-table tbody tr', timeout=30000)
     expect(page.locator('.bonded-interaction-table thead th').last).to_have_text('Source')
-    expect(page.locator('.bonded-interaction-table input, .bonded-interaction-table select')).to_have_count(0)
-    # This mapping has no revision, so the rows are its own draft and every one of them says so.
     sources = page.locator('.bonded-interaction-table tbody tr td:last-child').all_inner_texts()
     assert sources and set(sources) == {'mapping'}, sources
+    assert errors == []
+
+
+def test_constraints_and_virtual_site_parents_are_shown_and_stay_read_only(dashboard, live_page):
+    """Spec `:108-110`: the read-only constraints and virtual-site parents stay as they were.
+
+    These are the two kinds no engine fits -- a constraint's length is the mapping's own ring target and a virtual
+    site's parents are the mapping's beads -- so the table states both, marks the cell read-only, and offers no
+    control over either. The source column is compared against the store's own `term_sources` rather than restated
+    here, so a row's source cannot drift from the term it belongs to.
+    """
+    saved = mappings.save_draft(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
+    mapping = mappings.get(saved['file'])
+    save_revision(mapping)
+    stored = parameterization.get(mapping, 1)
+    expected = {(row['kind'], ' · '.join(row['beads'])): row['source'] for row in stored['sources']}
+
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
+    page.locator('.bonded-mapping-select').select_option(saved['file'])
+    page.wait_for_selector('.bonded-interaction-table tbody tr', timeout=30000)
+
+    rows = page.locator('.bonded-interaction-table tbody tr')
+    expect(rows).to_have_count(len(expected))
+    read = {}
+    for index in range(rows.count()):
+        cells = rows.nth(index).locator('td')
+        read[(cells.nth(0).inner_text(), cells.nth(1).inner_text())] = cells.nth(4).inner_text()
+    assert read == expected, read
+
+    # The constraint: its own length, in nanometres, and a rigid constraint rather than a potential.
+    constraint = rows.nth(0).locator('td')
+    expect(constraint.nth(0)).to_have_text('constraints')
+    expect(constraint.nth(2)).to_have_text('1 — rigid constraint, no potential')
+    expect(constraint.nth(3)).to_have_text('0.315 nm')
+    expect(constraint.nth(3)).to_have_class(re.compile('bonded-readonly-parameter'))
+    # The virtual site: its parents, by bead name.
+    site = rows.nth(1).locator('td')
+    expect(site.nth(0)).to_have_text('virtual_sitesn')
+    expect(site.nth(2)).to_contain_text('virtual site')
+    expect(site.nth(3)).to_have_text('parents B02 · B03')
+    expect(site.nth(3)).to_have_class(re.compile('bonded-readonly-parameter'))
+    # And nothing in the table is a control: neither kind is a draft anyone can edit.
+    expect(page.locator('.bonded-interaction-table input, .bonded-interaction-table select')).to_have_count(0)
     assert errors == []
 
 

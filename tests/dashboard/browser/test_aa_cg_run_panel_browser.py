@@ -55,11 +55,13 @@ def test_the_aa_cg_panel_fits_for_itself_and_offers_no_bonded_choice(dashboard, 
     expect(page.locator('#run-mapping')).to_be_visible()
     expect(page.locator('#reference-run')).to_be_visible()
 
-    # And the panel says in words what the run type does by itself -- the fit is the run's, the stage is named, and
-    # the one switch that remains belongs to the mapping rather than to the run.
+    # And the panel says in words what the run does with the model's parameterization -- the stage is named, the
+    # revision is the one CG Bond Interactions makes current, and the one switch that remains belongs to the mapping
+    # rather than to the run. The two branches are the model card's own two sentences.
     facts = page.locator('.cg-run-facts')
     expect(facts).to_be_visible()
-    expect(facts).to_contain_text('fits its own bonded parameters from the AA reference')
+    expect(facts).to_contain_text('does not re-fit it')
+    expect(facts).to_contain_text('fits it during the run')
     expect(facts).to_contain_text('CG parameterization')
     expect(facts).to_contain_text('CG Bond Interactions')
     assert errors == [], errors

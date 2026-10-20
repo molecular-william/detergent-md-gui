@@ -109,11 +109,17 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     // state, and an AA-only run never fits. There is no per-run state or workflow left to report, so this row says
     // which of those applies -- and for an AA–CG run it says what the `02 · CG MODEL` card above it describes,
     // rather than the flat "fitted by the run" the row used to claim for every run.
-    const model = form.elements.run_type.value==='aa_cg' && form.elements.mapping_candidate.value ? modelState : null;
+    //
+    // The answer is read through `modelAnswer`, not held here: a mapping change makes the previous answer no answer
+    // at all, and this row is refreshed on the picker's own `change` -- before the new readiness request is sent --
+    // so reading a state without checking whose it is would print the previous mapping's model here.
+    const choosingModel = form.elements.run_type.value==='aa_cg' && !!form.elements.mapping_candidate.value;
+    const model = choosingModel ? modelAnswer() : null;
     setText($('#run-bonded-summary'), aaOnly?'Not needed'
       :compositionOnly?'From the composition'
       :model?.parameterized?'Used as-is · this run does not re-fit'
       :model?'Stage 3 fits it during the run'
+      :choosingModel?'Not read yet — readiness has not answered for this mapping'
       :'Fitted from the AA reference by the run');
     const temp=form.elements.temperature_k.value || '—';
     const aa=form.elements.aa_production_ps.value || '—';
@@ -255,7 +261,14 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
   // (`sections.py` writes the href), so the card reads it from there instead of restating a URL, and names the
   // mapping with the query key the rest of the app uses for one (`mapping_candidate`).
   let modelState = null;
+  // The answer, and the mapping it answers about. The two travel together because the card's heading and the
+  // card's numbers have to come from one response: a mapping change makes the previous answer meaningless, and a
+  // state kept without its mapping is what paints the old revision under the new name.
   const mappingChoice = () => form.elements.mapping_candidate?.value || '';
+  /** The answer, if it is still about the mapping on the picker; `null` otherwise. */
+  function modelAnswer() {
+    return modelState && modelState.mapping === mappingChoice() ? modelState.state : null;
+  }
   function bondedPanelHref(mapping) {
     const tab = document.querySelector(`nav.subtabs [data-tab="${panelIds()['bond-interactions']}"]`);
     const href = tab?.getAttribute('href');
@@ -283,6 +296,9 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
       + '<p class="hint" data-cg-model="statement"></p>'
       + '<div class="toolbar"><a class="button secondary" data-cg-model="open"></a></div>';
     anchor.insertAdjacentElement('afterend', card);
+    // The door is the card's own control; its click is answered by `followBondedLink` below, which is what makes
+    // the panel open on the mapping this card describes.
+    card.querySelector('[data-cg-model="open"]').onclick = followBondedLink;
     return card;
   }
   function modelField(card, name, text) {
@@ -299,14 +315,16 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     if (reference.production_ns != null) parts.push(`${reference.production_ns} ns`);
     return parts.join(' · ');
   }
-  function renderModelCard(state) {
+  function renderModelCard(answer) {
     const card = ensureModelCard();
     if (!card) return;
     // Only the AA–CG branch has a model to describe, and only once a mapping is chosen: an empty picker has no
-    // parameterization to state, and a composition carries its own bonded terms rather than a mapping's.
+    // parameterization to state, and a composition carries its own bonded terms rather than a mapping's. The answer
+    // must also be *this* mapping's -- an answer about the mapping that was on the picker a moment ago is not.
+    const state = answer && answer.mapping === mappingChoice() ? answer.state : null;
     const shown = form.elements.run_type.value === 'aa_cg' && !!mappingChoice() && !!state;
     card.hidden = !shown;
-    if (!shown) return;
+    if (!shown) { clearModelCard(card); return; }
     modelField(card, 'name', form.elements.mapping_candidate.selectedOptions?.[0]?.textContent?.trim() || mappingChoice());
     const terms = card.querySelector('[data-cg-model="terms"]');
     if (terms) terms.hidden = !state.parameterized;
@@ -317,6 +335,10 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
       modelField(card, 'reference', describeReference(state.aa_reference));
     } else {
       // No provenance is claimed where there is none: the rows belong to the parameterized state.
+      modelField(card, 'parameterization', '—');
+      modelField(card, 'engine', '—');
+      modelField(card, 'torsion', '—');
+      modelField(card, 'reference', '—');
     }
     // Both honest states end in the run type's own sentence -- it is the sentence `adapters/cg.py` keeps beside the
     // code that keeps the promise, and a second wording here would be a claim the panel does not own.
@@ -333,6 +355,57 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
         ? 'Open this mapping in CG Bond Interactions, where its revisions are fitted and kept.'
         : 'Optional: this run fits the model in stage 3. This opens the mapping where it can be fitted first.';
     }
+  }
+  // Hiding the card is not enough. Its rows are what a hidden element still holds, and the next render is a fetch
+  // away; so the previous mapping's revision, engine and torsion model are removed with the answer they came from
+  // rather than left for a reader -- or a test -- to find under the new mapping's name.
+  function clearModelCard(card) {
+    modelField(card, 'name', 'Select a mapping');
+    for (const name of ['parameterization', 'engine', 'torsion', 'reference']) modelField(card, name, '—');
+    modelField(card, 'statement', '');
+    const terms = card.querySelector('[data-cg-model="terms"]');
+    if (terms) terms.hidden = true;
+    const open = card.querySelector('[data-cg-model="open"]');
+    if (open) { open.removeAttribute('href'); open.removeAttribute('title'); open.textContent = ''; }
+  }
+
+  // The door into CG Bond Interactions, and the half of it an address cannot carry on its own ---------------------
+  //
+  // The two panels are one document (`tabs.js` switches them in place), and the bonded panel's picker is filled by
+  // `mappings.js` after the switch -- so the query key on the href names the mapping but nothing has read it. The
+  // card's owner finishes the job: it selects the option and fires `change`, which is exactly what a reader
+  // picking it from that list does, so the panel opens on the mapping the card describes rather than on whichever
+  // candidate happens to be first. A cold load of the same address -- a copied link, a new tab -- reads the key at
+  // start-up, so both doors land in the same place.
+  async function preselectBondedMapping(file) {
+    if (!file) return false;
+    // The list is a fetch away and the panel mounts on the tab switch; waiting for the option is what keeps this
+    // from selecting before there is anything to select.
+    for (let attempt = 0; attempt < 120; ++attempt) {
+      const picker = document.querySelector('#bonded-mapping-select');
+      if (picker && [...picker.options].some(option => option.value === file)) {
+        if (picker.value !== file) {
+          picker.value = file;
+          picker.dispatchEvent(new Event('change', {bubbles: true}));
+        }
+        return true;
+      }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    return false;
+  }
+  function followBondedLink(event) {
+    const file = mappingChoice();
+    if (!file) return;
+    // A modifier-click is the browser's to answer: the address it opens carries the same key, and the reader above
+    // picks it up on that page.
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    selectTab(panelIds()['bond-interactions']);
+    // The address follows the panel the reader is now on, and names the mapping they followed.
+    const href = bondedPanelHref(file);
+    if (href) history.replaceState(null, '', href);
+    preselectBondedMapping(file);
   }
 
   let stageDefaults;
@@ -391,6 +464,14 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
   function refreshReadiness() {
     ++readinessGeneration;
     clearTimeout(readinessTimer);readinessController?.abort();
+    // Everything on screen is about the inputs as they were when the question was asked, and the question is about
+    // to be asked again. Until it answers there is no answer: clearing it here -- and re-rendering from nothing --
+    // is what keeps the previous mapping's revision, engine and torsion model from being painted beside the new
+    // mapping's name (and read by `#run-bonded-summary`) while the new answer is in flight, or forever when the
+    // request fails.
+    modelState = null;
+    renderModelCard(null);
+    syncRunSummary();
     $('#start-run').disabled=true;
     if($('#'+panelIds()['new-run']).hidden || !mounted || mounting)return;
     readinessTimer=setTimeout(()=>checkReadiness(readinessGeneration),150);
@@ -414,7 +495,11 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
       // -- where the answer the panel is about to trust arrives -- so the card and the Start button cannot disagree
       // about which model this run is, and it is *not* read from `ready.ready`: a model with no parameterization is
       // still runnable, and the card must not be able to hold the button disabled.
-      modelState = ready.parameterization || null;
+      //
+      // The answer is kept with the mapping the question named rather than with whatever is on the picker now, so a
+      // card can never be rendered from an answer about another mapping.
+      modelState = {mapping: run_type === 'aa_cg' ? (query.mapping_candidate || '') : '',
+                    state: ready.parameterization || null};
       renderModelCard(modelState);
       // The review's own `Bonded fit` row reads the same state, so it is refreshed with the card rather than only at
       // the start of the next check.
@@ -502,6 +587,18 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
   document.addEventListener('dashboard:tab',event=>{
     if(event.detail.id!==panelIds()['new-run']){++readinessGeneration;clearTimeout(readinessTimer);readinessController?.abort();}
   });
+
+  // A cold load of the door's own address. `/detergent-validation/bond-interactions?mapping_candidate=...` is what a
+  // copied link, a bookmark or a new tab opens, and nothing in the bonded panel reads it; this module wrote the
+  // link, so it is this module that applies the key to the panel the browser opened. The path is compared with the
+  // sub-tab's own href -- the same source `bondedPanelHref` reads -- so the two cannot name different panels.
+  (() => {
+    const tab = document.querySelector(`nav.subtabs [data-tab="${panelIds()['bond-interactions']}"]`);
+    const href = tab?.getAttribute('href') || '';
+    const wanted = href && location.pathname === href
+      ? new URLSearchParams(location.search).get('mapping_candidate') : '';
+    if (wanted) preselectBondedMapping(wanted);
+  })();
 
 
   async function cloneRun(source) {

@@ -373,7 +373,7 @@
     <p class="hint cg-setting">Candidate screening checks mapping, fitting and comparison using uncalibrated bead types. It does not validate a scientific model.</p>
     <div class="cg-only" id="cg-inputs">
     <label>CG mapping<select name="mapping_candidate" id="run-mapping"><option value="">Select a saved mapping</option></select></label>
-    <p class="hint cg-run-facts">Every AA–CG run fits its own bonded parameters from the AA reference: stage 3, <strong>CG parameterization</strong>, locks the mapping's rings, fits the bonds, angles and torsions and then simulates the molecule it fitted. Fitting is not a choice on this panel — the one switch, the torsion model, is a property of the mapping and is set in <strong>CG Bond Interactions</strong>.</p>
+    <p class="hint cg-run-facts">An AA–CG run consumes this model's parameterization: when the mapping has one, stage 3, <strong>CG parameterization</strong>, uses the revision current in <strong>CG Bond Interactions</strong> and the run does not re-fit it; when it has none, stage 3 fits it during the run and records that it did. The one switch, the torsion model, is a property of the mapping and is set in CG Bond Interactions.</p>
     <label id="composition-run-selector">CG composition<select name="composition_id"><option value="">Select a saved composition</option></select></label>
     <p class="hint">Choose a saved candidate for screening. Each run keeps its own mapping snapshot. Structural approval does not establish scientific validation.</p>
     <label>AA reference source<select name="reference_run_id" id="reference-run"><option value="">Run a new AA reference</option></select><button type="button" class="danger secondary" id="delete-reference" hidden>Delete selected AA reference</button></label>
@@ -687,7 +687,7 @@
   <div class="bonded-columns">
     <section class="card">
       <h3>Interactions</h3>
-      <p class="hint">The terms of the revision shown above, read from its own topology. <b>Source</b> says where each came from: the engine that fitted it, the mapping (a ring constraint or a virtual site), a hand edit, or geometry where the automatic draft had no reference. Select a row to highlight it in the diagram.</p>
+      <p class="hint">The terms of the revision shown above, read from its own topology. <b>Source</b> says where each came from: the engine that fitted it, the mapping (a ring constraint or a virtual site), a hand edit, or geometry where the automatic draft had no reference. A constraint's length and a virtual site's parents are the mapping's own and are shown read-only — no route in this slice writes a revision's terms, so nothing here is an input. Select a row to highlight it in the diagram.</p>
       <div class="bonded-interaction-table"><p class="hint">No bonded terms loaded.</p></div>
     </section>
     <section class="card">

@@ -6,11 +6,13 @@
  * hands its terms here through `onTerms`. The split is the design's own: what is *read* about a model
  * (`/api/bonded-parameterizations`) is a different question from how its beads are drawn.
  *
- * The table is read-only on purpose. A revision is what a fit stored, and this slice has no route that writes a
- * hand-edited one; a parameter input here would be a control that cannot act, which is the failure this
- * repository's panels are not allowed to have. The `source` column is what a reader needs instead — it says
+ * The table is read-only, and that is a recorded decision rather than an oversight: no route in this slice writes a
+ * revision's terms, so a parameter input here would be a control that cannot act — the failure this repository's
+ * panels are not allowed to have. `docs/design/2026-10-16-parameterization-and-new-run.md` D7 records it, with the
+ * route that would restore the old manual editor. The `source` column is what a reader needs instead — it says
  * which engine fitted each term, or that the mapping (a ring constraint, a virtual site), a hand edit recorded
- * elsewhere, or a geometry fallback produced it.
+ * elsewhere, or a geometry fallback produced it. Two kinds are not a draft at all and are marked as the reading they
+ * are: a constraint's length and a virtual site's parents come from the mapping.
  */
 import { $, setText, cachedApi } from './shared.js';
 import { mountBondedPlot } from './bonded-plot.js';
@@ -180,7 +182,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       return;
     }
     const table = document.createElement('table');
-    table.innerHTML = '<caption>Kind names the GROMACS topology section; function is its potential form; source is where the term came from.</caption>'
+    table.innerHTML = '<caption>Kind names the GROMACS topology section; function is its potential form; source is where the term came from. Constraints and virtual-site parents are readings, not a draft.</caption>'
       + '<thead><tr><th>Kind</th><th>Beads</th><th>Function</th><th>Parameters</th><th>Source</th></tr></thead>';
     const body = document.createElement('tbody');
     for (const term of terms) {
@@ -188,12 +190,21 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       row.dataset.id = term.id;
       row.tabIndex = 0;
       row.setAttribute('aria-selected', String(term.id === selectedTermId));
+      // A constraint's length is the mapping's ring target and a virtual site's parents are the mapping's own
+      // beads: both are stated read-only, the way this panel stated them before it gained a `source` column.
+      const reading = term.kind === 'constraints' || term.kind === 'virtual_sitesn';
       for (const [text, className] of [[term.kind, ''], [term.beads.join(' · '), ''],
-                                       [functionSentence(term), ''], [parameterSentence(term), ''],
+                                       [functionSentence(term), ''],
+                                       [parameterSentence(term), reading ? 'bonded-readonly-parameter' : ''],
                                        [term.source || 'unrecorded', 'bonded-source']]) {
         const cell = document.createElement('td');
         cell.textContent = text;
         if (className) cell.className = className;
+        if (className === 'bonded-readonly-parameter') {
+          cell.title = term.kind === 'constraints'
+            ? 'read-only: this constraint’s length is the mapping’s own ring target'
+            : 'read-only: these parents are the mapping’s own beads';
+        }
         row.append(cell);
       }
       row.onclick = () => { selectedTermId = term.id; renderState(); };

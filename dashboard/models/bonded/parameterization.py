@@ -24,6 +24,7 @@ import itertools
 import json
 import math
 import re
+import shutil
 from pathlib import Path
 
 from ... import files, paths
@@ -216,6 +217,86 @@ def records() -> list:
             continue
     found.sort(key=lambda record: record.get('updated_at') or '', reverse=True)
     return found
+
+
+# --- deletion: a mapping's parameterization goes when the mapping does ---------------------------------
+
+
+def delete(content_hash) -> dict:
+    """Remove a mapping's parameterization: its record, every revision in it, and what was built for it.
+
+    A revision is a field of the record rather than a file of its own, so removing the record removes
+    the whole history at once. What sits beside it under the same storage root is removed with it:
+    the fit jobs that produced it (`fitting.jobs_root`, which is this root's `jobs/`) and the
+    (mapping, AA reference) working directories those jobs built (`work_root`). Both are keyed by the
+    same content identity this record is keyed by, which is why this module is the one that can
+    delete them and `fitting.py` does not need to know a mapping was deleted.
+
+    Idempotent by design: a content identity with no record removed nothing, and that is an answer
+    rather than an error. The caller (`mappings.store.delete_draft`) asks after every save, and most
+    mappings were never fitted. What was removed is returned rather than assumed, because a caller
+    that reported a guess would be reporting a guess.
+    """
+    content = _validate_id(content_hash)
+    removed = {'content_hash': content, 'deleted': False, 'revisions': [], 'jobs': [], 'work': []}
+    path = records_root() / f'{content}.json'
+    if path.is_file():
+        try:
+            revisions = [item.get('revision') for item in (_read(path).get('revisions') or [])
+                         if isinstance(item, dict)]
+        except ValueError:
+            # A record nothing can read is still this mapping's record: remove it, and report no
+            # revision numbers rather than refusing to delete what the caller already decided on.
+            revisions = []
+        path.unlink()
+        removed.update(deleted=True, revisions=revisions)
+    removed['jobs'] = _delete_jobs(content)
+    removed['work'] = _delete_work(content)
+    removed['deleted'] = removed['deleted'] or bool(removed['jobs'] or removed['work'])
+    return removed
+
+
+def _delete_jobs(content) -> list:
+    """The fit jobs of this mapping, removed with it; each job's id is returned.
+
+    A job carries the same two identities a revision does, and `fitting.jobs` decides which jobs are a
+    model's by content (compatibility) or candidate (provenance). Content is the one this deletion can
+    honour: it is the identity the record was keyed by, so it is the identity the jobs are matched by.
+    """
+    root = storage_root() / 'jobs'
+    if not root.is_dir():
+        return []
+    removed = []
+    for path in sorted(root.glob('*.json')):
+        try:
+            record = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(record, dict) or record.get('mapping_content_hash') != content:
+            continue
+        if isinstance(record.get('id'), str):
+            removed.append(record['id'])
+        path.unlink(missing_ok=True)
+        path.with_suffix('.log').unlink(missing_ok=True)
+    return removed
+
+
+def _delete_work(content) -> list:
+    """The pair directories this mapping's fits worked in, removed with it; their names are returned.
+
+    `fitting.work_dir` names them `<content hash>-<AA run id or no-reference>`. The content prefix is
+    the half this module owns, and it is unambiguous: a digest is hexadecimal and cannot contain the
+    separator, so no other mapping's directory can match it.
+    """
+    root = work_root()
+    if not root.is_dir():
+        return []
+    removed = []
+    for path in sorted(root.glob(f'{content}-*')):
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+            removed.append(path.name)
+    return removed
 
 
 def matches(record, *, candidate_hash=None, content_hash=None) -> bool:

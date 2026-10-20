@@ -543,6 +543,52 @@ def test_the_result_card_names_the_revisions_provenance_and_the_two_checks_numbe
     assert errors == [], errors
 
 
+def test_a_fit_answer_that_arrives_after_the_reader_moved_on_does_not_paint_the_screen(dashboard, live_page):
+    """`fit()`'s own post-await race: an answer for a model the reader has left is dropped, not painted.
+
+    The queue request is delayed inside the page and the mapping is switched while it is outstanding. Without a
+    token re-checked after the await, the late answer opens the job box for the previous model's fit -- and that box
+    then polls *this* model's content hash for a job that is not its own. The `busy` flag belongs to the answer that
+    was dropped too: the panel the reader is looking at has to be usable afterwards.
+    """
+    first, first_content, _ = save(dashboard, 'First model')
+    second, second_content, _ = save(dashboard, 'Second model', molecule='Sucrose')
+    assert first_content != second_content, 'the two fixtures are the same content, so this test compares nothing'
+    page, errors = live_page
+    stub(page, answer([revision(1)]))
+    page.add_init_script("""(() => {
+      const original = window.fetch;
+      window.fetch = async (url, options) => {
+        const answer = await original(url, options);
+        if (String(url).endsWith('/api/bonded-parameterizations')
+            && String((options && options.method) || 'GET').toUpperCase() === 'POST') {
+          await new Promise(resolve => setTimeout(resolve, 900));
+        }
+        return answer;
+      };
+    })()""")
+    open_panel(page, live_page, first['file'])
+    # The engine that reads the mapping alone: no AA reference to race with the reference list's own late answer,
+    # so this test measures `fit()`'s post-await check and nothing else.
+    page.locator('#bonded-engine').select_option('reference-informed')
+    page.locator('#bonded-fit').click()
+    expect(page.locator('#bonded-fit-status')).to_contain_text('Queueing a Reference-informed')
+    expect(page.locator('#bonded-fit')).to_be_disabled()
+
+    # The reader moves on while the queue answer is still outstanding.
+    page.locator('#bonded-mapping-select').select_option(second['file'])
+    expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · current')
+    page.wait_for_timeout(1500)
+
+    # The answer landed here, and it is about the model that is no longer on screen.
+    expect(page.locator('#bonded-job')).to_be_hidden()
+    expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · current')
+    # Not left disabled by a `busy` flag that only the dropped answer would have cleared.
+    expect(page.locator('#bonded-fit')).to_be_enabled()
+    expect(page.locator('#bonded-fit-status')).to_have_text('')
+    assert errors == [], errors
+
+
 def test_the_interactions_table_carries_a_source_column(dashboard, live_page):
     """The column the design adds: every term says which engine produced it, or that the mapping did.
 
@@ -569,6 +615,29 @@ def test_the_interactions_table_carries_a_source_column(dashboard, live_page):
     # The parameters are in the units the section states, not a JSON dump.
     assert cells(page, 0).nth(3).inner_text() == '0.315 nm'
     assert cells(page, 2).nth(2).inner_text() == '10 — Restricted bending'
+    assert errors == [], errors
+
+
+def test_a_term_with_no_recorded_source_says_so_rather_than_borrowing_the_engines(dashboard, live_page):
+    """An unknown source is stated as unknown: the column reads the store's list and invents nothing.
+
+    `sources` is computed from the topology when a revision is saved, so a row missing from it is a revision written
+    before the column existed. Filling that gap with the engine's default would report `ff_inter` for a term no
+    record attributes to `ff_inter` -- a claim the store never made, in the one column whose purpose is to tell a
+    hand edit from a fit.
+    """
+    saved, _, _ = save(dashboard)
+    page, errors = live_page
+    without_bond = [row for row in SOURCES if row['id'] != 'bonds:1']
+    stub(page, answer([revision(1, sources=without_bond)]))
+    open_panel(page, live_page, saved['file'])
+
+    expect(page.locator('.bonded-interaction-table tbody tr')).to_have_count(4)
+    assert cells(page, 1).nth(0).inner_text() == 'bonds'
+    assert cells(page, 1).last.inner_text() == 'unrecorded', cells(page, 1).last.inner_text()
+    # The rows the store did answer for keep their own source: this is a gap, not a second answer for everything.
+    assert cells(page, 0).last.inner_text() == 'mapping'
+    assert cells(page, 3).last.inner_text() == 'geometry'
     assert errors == [], errors
 
 

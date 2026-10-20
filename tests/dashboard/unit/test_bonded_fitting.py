@@ -366,6 +366,29 @@ def test_the_jobs_are_listed_for_the_mapping_that_owns_them(candidate):
         fitting.job('0' * 16)
 
 
+def test_the_jobs_are_listed_by_the_hashes_a_hash_addressed_caller_holds(candidate):
+    """A route holds hashes, not a mapping, so `jobs` owns the filter -- and the limit follows it.
+
+    `content_hash` answers compatibility (a rename keeps its jobs) and `mapping_hash` answers provenance
+    (the candidate a job was queued for, which is all a caller can know before the job saves a record).
+    `second` is the newer job and belongs to another model: a limit applied before the filter would
+    answer nothing here, hiding this model's own job behind another model's newer one.
+    """
+    recorder = Recorder()
+    first = run_job(candidate, recorder)
+    other = ddm_mapping(name='DDM · another')
+    other['beads'][0]['label'] = 'v'
+    second = fitting.start(other, engine='reference-informed', molecule_root=MOLECULES,
+                           background=False, runner=recorder)
+    content = mappings.content_identity(candidate)
+
+    assert [record['id'] for record in fitting.jobs(content_hash=content)] == [first['id']]
+    assert [record['id'] for record in fitting.jobs(
+        mapping_hash=mappings.candidate_identity(candidate))] == [first['id']]
+    assert [record['id'] for record in fitting.jobs(content_hash=content, limit=1)] == [first['id']]
+    assert [record['id'] for record in fitting.jobs()] == [second['id'], first['id']]
+
+
 def test_a_job_names_its_engine_and_refuses_one_it_does_not_have(candidate):
     with pytest.raises(ValueError, match='Unknown fitting engine'):
         fitting.start(candidate, engine='gromacs', reference=REFERENCE, molecule_root=MOLECULES,

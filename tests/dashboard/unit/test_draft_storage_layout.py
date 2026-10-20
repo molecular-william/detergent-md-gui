@@ -43,7 +43,10 @@ def test_a_symbolic_link_is_not_deleted_through_the_store(drafts):
 def test_delete_draft_removes_a_draft_inside_the_root(drafts):
     draft = drafts / 'mapping_candidate_x.json'
     draft.write_text('{}')
-    assert candidate_store.delete_draft('mapping_candidate_x.json') == 'mapping_candidate_x.json'
+    result = candidate_store.delete_draft('mapping_candidate_x.json')
+    assert result['deleted'] == 'mapping_candidate_x.json'
+    # An empty draft carries no bond interactions, so nothing was there to remove.
+    assert result['parameterization']['deleted'] is False
     assert not draft.exists()
     with pytest.raises(KeyError):
         candidate_store.delete_draft('mapping_candidate_x.json')

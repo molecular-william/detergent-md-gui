@@ -3,7 +3,7 @@
 Two stores answer here. `bonded_states` is the flat list of hand-edited term sets; `parameterization` is the
 revision store, whose revisions are what a run stages and simulates from, and `fitting` is the job that
 produces one without simulating anything. The parameterization routes are the contract in
-`docs/design/2026-10-16-parameterization-and-new-run.md`: the panel sends the four payload keys it names, and
+`docs/design/2026-10-16-parameterization-and-new-run.md`: the panel sends the payload keys it names, and
 each route is a thin shell over one model call.
 """
 from pathlib import Path
@@ -116,19 +116,6 @@ def bonded_state_delete(state_id):
 # ensemble is -- those are `parameterization`'s and `fitting`'s rules, and a second copy here would be a second
 # place to drift.
 
-def _jobs_of(content_hash=None, limit=None):
-    """The fit jobs, newest first, narrowed to one mapping's when a content hash is given.
-
-    `fitting.jobs(mapping=None, limit=...)` filters by a *mapping it holds*; a route holds only hashes, and a
-    job is queued before any record exists (the record is written when the job saves), so this filters the
-    stored jobs by the content identity they carry rather than by whether the panel's mapping can be loaded.
-    """
-    found = bonded_fitting.jobs(limit=limit)
-    if content_hash:
-        found = [record for record in found if record.get('mapping_content_hash') == content_hash]
-    return found
-
-
 def _parameterization_record(content_hash=None, mapping_hash=None):
     """The stored record a hash addresses: by content identity first, then by any revision's provenance.
 
@@ -150,25 +137,13 @@ def _parameterization_record(content_hash=None, mapping_hash=None):
             'revision': 0, 'current': None, 'revisions': []}
 
 
-def _parameterization_mapping(content_hash, snapshot=None):
+def _parameterization_mapping(content_hash):
     """The saved candidate whose revisions these are, so an earlier one can be made current again.
 
-    `make_current(mapping, revision)` takes a mapping, and a `PATCH` names only a content hash. The panel may
-    send the snapshot it already holds (the same `mapping` key every bonded route takes); without it the
-    mapping store is asked which of its candidates carries this content identity -- which is what makes the
-    re-point work for a candidate that has since been renamed.
+    `make_current(mapping, revision)` takes a mapping, and a `PATCH` names only a content hash: the mapping
+    store is asked which of its candidates carries this content identity, which is what makes the re-point
+    work for a candidate that has since been renamed.
     """
-    if snapshot is not None:
-        if not isinstance(snapshot, dict):
-            abort(400, 'mapping must be an object')
-        identity = None
-        try:
-            identity = parameterization.content_identity(snapshot)
-        except (TypeError, ValueError) as exc:
-            abort(400, str(exc))
-        if identity != content_hash:
-            abort(400, 'That mapping is not the record this content hash names')
-        return snapshot
     for candidate in mappings.list_candidates(summary=True):
         if candidate.get('error') or candidate.get('mapping_content_hash') != content_hash:
             continue
@@ -207,11 +182,12 @@ def parameterization_engines():
 
 @blueprint.get('/api/bonded-parameterizations/jobs')
 def parameterization_jobs():
-    """The job box's list: newest first, optionally one mapping's, which it polls while a fit runs."""
-    limit = request.args.get('limit', type=int)
-    if limit is not None and limit < 1:
-        abort(400, 'limit must be positive')
-    return jsonify(jobs=_jobs_of(request.args.get('content_hash'), limit))
+    """The job box's list: newest first, optionally one mapping's, which it polls while a fit runs.
+
+    Which jobs are this mapping's is `fitting.jobs`'s question; the content hash this request carries is
+    handed to it, and a hash no stored job carries answers the empty list, never every job.
+    """
+    return jsonify(jobs=bonded_fitting.jobs(content_hash=request.args.get('content_hash')))
 
 
 @blueprint.post('/api/bonded-parameterizations/jobs/<job_id>/cancel')
@@ -237,9 +213,15 @@ def parameterization_list():
     if not content_hash and not mapping_hash:
         return jsonify(records=parameterization.records())
     record = _parameterization_record(content_hash, mapping_hash)
+    # The jobs are the model's this request named, not whatever the record happens to carry: the store's
+    # empty document has no content identity when only a candidate hash was asked about, and an absent
+    # hash is no filter at all. `fitting.jobs` owns the matching (content = compatibility, candidate =
+    # provenance) and applies its limit after it.
     return jsonify(summary=parameterization.view(record),
                    revisions=list(record.get('revisions') or []),
-                   jobs=_jobs_of(record.get('mapping_content_hash')))
+                   jobs=bonded_fitting.jobs(
+                       content_hash=content_hash or record.get('mapping_content_hash'),
+                       mapping_hash=mapping_hash or record.get('mapping_hash')))
 
 
 @blueprint.post('/api/bonded-parameterizations')
@@ -297,7 +279,7 @@ def parameterization_current(content_hash):
     revision = payload.get('current')
     if isinstance(revision, bool) or not isinstance(revision, int):
         abort(400, 'A revision number is required')
-    mapping = _parameterization_mapping(content_hash, payload.get('mapping'))
+    mapping = _parameterization_mapping(content_hash)
     try:
         parameterization.make_current(mapping, revision)
     except (KeyError, ValueError) as exc:

@@ -22,7 +22,9 @@
  * 1. **A superseded answer never reaches the screen.** Every job the panel watches gets a generation token
  *    (`jobToken`), the token is re-checked after every await, and a mapping switch bumps it -- the same
  *    arrangement `run-view-monitor.js` uses for a superseded load. A poll that belongs to a job the reader has
- *    replaced is dropped, not painted.
+ *    replaced is dropped, not painted. The two answers this module awaits itself -- queueing a fit, cancelling one
+ *    -- are checked against `generation` for the same reason: their bodies belong to the model the reader has since
+ *    left, and painting them here would put one model's job on another model's card.
  * 2. **Polling stops.** It stops when the job reaches a terminal status (`completed`, `failed`, `cancelled`),
  *    and it stops while the panel is off screen -- `visible()` reads the section's own `hidden` attribute and
  *    the page's, exactly as `runs.js` does before each fetch, and a `visibilitychange` / `dashboard:tab`
@@ -97,18 +99,18 @@ export function parseTopology(topology) {
  * A revision's terms, each carrying the `source` the store computed for it.
  *
  * The store's `sources` list is keyed by the same ids `parseTopology` produces, because both sides number a
- * section's terms in the order the topology states them; a term with no row keeps `unrecorded` rather than a
- * guess, which is what makes a record written before the column existed visible as one.
+ * section's terms in the order the topology states them. A term with no row says `unrecorded` and nothing else: the
+ * engine's name is a claim the record did not make, and inventing one here would hide exactly the case the column
+ * exists for (a revision written before the column existed).
  */
 function termsOf(revision, mapping) {
   if (!revision || !revision.topology) return [];
   const declared = new Map();
   for (const row of revision.sources || []) if (row && row.id) declared.set(row.id, row.source);
-  const engine = revision.engine_default_source || revision.engine;
   return parseTopology(revision.topology).map(row => ({
     ...row,
     editable: false,
-    source: declared.get(row.id) || (row.kind === 'virtual_sitesn' ? 'mapping' : (engine || 'unrecorded')),
+    source: declared.get(row.id) || 'unrecorded',
   }));
 }
 
@@ -401,15 +403,20 @@ export function setupParameterization({host, onTerms}) {
     if (!job) return;
     if (!confirm(`Cancel fit ${job.id}? A tool it is running is stopped, and no revision is stored.`)) return;
     cancelButton.disabled = true;
+    const token = generation;
     try {
       const stopped = await post('/api/bonded-parameterizations/jobs/' + encodeURIComponent(job.id) + '/cancel', {});
       jobToken += 1;
       stopPolling();
+      // The same rule as a fit answer: a cancellation that lands after the reader switched models must not paint
+      // the previous model's job onto this one's box.
+      if (token !== generation) return;
       if (stopped && stopped.id === job.id) job = stopped;
       renderJob();
       // The record is the answer, not the route's echo of it: re-read what the job actually stored.
-      await readRecord(generation);
+      await readRecord(token);
     } catch (error) {
+      if (token !== generation) return;
       setText(jobDetail, `The fit was not cancelled: ${error.message}`);
       cancelButton.disabled = false;
     }
@@ -548,15 +555,17 @@ export function setupParameterization({host, onTerms}) {
     if (!mapping || revision === currentNumber()) return;
     if (!confirm(`Make revision ${revision} current for this mapping? A run queued after this consumes it;`
                  + ' runs already queued keep the revision they recorded.')) return;
+    const token = generation;
     try {
       await api('/api/bonded-parameterizations/' + encodeURIComponent(hash()), {
         method: 'PATCH', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({current: revision, confirm: true}),
       });
-      await readRecord(generation);
-      setText(fitStatus, `Revision ${revision} is current.`);
+      // `readRecord` drops a superseded answer; the sentence after it must be dropped with it.
+      await readRecord(token);
+      if (token === generation) setText(fitStatus, `Revision ${revision} is current.`);
     } catch (error) {
-      setText(fitStatus, `Revision ${revision} was not made current: ${error.message}`);
+      if (token === generation) setText(fitStatus, `Revision ${revision} was not made current: ${error.message}`);
     }
   }
 
@@ -693,14 +702,20 @@ export function setupParameterization({host, onTerms}) {
     busy = true;
     updateFit();
     setText(fitStatus, `Queueing a ${chosen.label || chosen.value} fit of ${mapping.name || mapping.file}…`);
+    const token = generation;
     try {
       const started = await post('/api/bonded-parameterizations', body);
       busy = false;
+      // A queue answer that arrives after the reader moved on is about a model that is no longer on screen: dropping
+      // it keeps this model's card, job box and poll its own. `updateFit` still restates the *current* panel's hint,
+      // because `busy` was set here and only this answer clears it.
+      if (token !== generation) { updateFit(); return; }
       setText(fitStatus, '');
       watch(started);
       updateFit();
     } catch (error) {
       busy = false;
+      if (token !== generation) { updateFit(); return; }
       // `updateFit` first: it restates the panel's own hint, so an error written before it would be erased.
       updateFit();
       setText(fitStatus, `The fit was not queued: ${error.message}`);

@@ -105,11 +105,19 @@ def _update(job_id, **fields) -> dict:
         return record
 
 
-def jobs(mapping=None, *, limit=None) -> list:
+def jobs(mapping=None, *, content_hash=None, mapping_hash=None, limit=None) -> list:
     """Every fit job known, newest first, optionally only one mapping's.
 
     The panel's own list. It is deliberately not the run store: nothing here will ever be simulated,
     so a line in Runs would be a run-shaped claim about minutes of CPU that produced a document.
+
+    A caller may hold hashes instead of a mapping, and the two hashes answer the two questions the
+    revision store's `matches` asks: `content_hash` is compatibility (a rename keeps its jobs),
+    `mapping_hash` is provenance (the candidate a job was queued for -- all a caller can know before
+    the job has saved a record). A job belongs to the model when either hash it carries is one of
+    those asked about, so this is the one place that decides "which jobs are this mapping's". The
+    newest are kept first and `limit` is applied *after* the filter, so a limit can never hide a
+    model's own job behind another model's newer one.
     """
     root = jobs_root()
     records = []
@@ -123,8 +131,13 @@ def jobs(mapping=None, *, limit=None) -> list:
                 continue
             records.append(record)
     if mapping is not None:
-        content = parameterizations.content_identity(mapping)
-        records = [record for record in records if record.get('mapping_content_hash') == content]
+        # A mapping speaks for compatibility alone: `changed` bead assignments are their own model,
+        # while a rename is the same one (D5's own reading, and the reason a revision is keyed by it).
+        content_hash = parameterizations.content_identity(mapping)
+    if content_hash or mapping_hash:
+        records = [record for record in records
+                   if (content_hash and record.get('mapping_content_hash') == content_hash)
+                   or (mapping_hash and record.get('mapping_hash') == mapping_hash)]
     records.sort(key=lambda record: record.get('created_at') or '', reverse=True)
     return records[:limit] if limit else records
 

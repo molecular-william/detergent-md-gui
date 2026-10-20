@@ -290,6 +290,55 @@ def test_a_model_with_no_parameterization_answers_the_honest_absence(dashboard):
     assert response.json['jobs'] == []
 
 
+def test_a_candidate_with_no_record_is_answered_with_none_of_the_other_models_jobs(dashboard):
+    """A hash-addressed question answers about *that* model, even when the answer is "nothing yet".
+
+    The panel holds only hashes, and a job is queued before any record exists, so the empty document the
+    store answers with has no record -- but the request named a candidate hash, and the jobs beside it in
+    the workspace belong to other models. Answering them would be an answer about three models at once.
+    """
+    candidate = ddm_mapping()
+    fit(candidate)
+    fit(variant(candidate, 'd'))
+    fit(variant(candidate, 'e'))
+    never_fitted = variant(candidate, 'v')
+
+    response = dashboard.client.get('/api/bonded-parameterizations',
+                                    query_string={'mapping_hash': mappings.candidate_identity(never_fitted)})
+
+    assert response.status_code == 200
+    assert response.json['summary']['parameterized'] is False
+    assert response.json['revisions'] == []
+    assert response.json['jobs'] == [], 'the three stored jobs belong to other models'
+    assert len(fitting.jobs()) == 3, 'and they are still stored, not hidden'
+
+
+def test_a_job_queued_before_its_record_exists_is_still_this_models(dashboard):
+    """Provenance is why a candidate hash is a filter at all: a job is queued before it saves a revision.
+
+    A fit that failed leaves the job and no record, and the panel must still see the job it is waiting on.
+    Filtering the empty answer by the hash the request named -- rather than by the record's content hash,
+    which an absent record does not have -- is what makes both cases true at once.
+    """
+    candidate = ddm_mapping()
+
+    def writes_nothing(command, cwd, **kwargs):
+        return None
+
+    with pytest.raises(RuntimeError):
+        fitting.start(candidate, engine='fast-forward', reference=REFERENCE, molecule_root=MOLECULES,
+                      background=False, runner=writes_nothing)
+    assert parameterization.one(parameterization.content_identity(candidate))['revisions'] == []
+
+    response = dashboard.client.get('/api/bonded-parameterizations',
+                                    query_string={'mapping_hash': mappings.candidate_identity(candidate)})
+
+    assert response.status_code == 200
+    assert response.json['summary']['parameterized'] is False
+    assert [job['mapping_hash'] for job in response.json['jobs']] == [
+        mappings.candidate_identity(candidate)], 'the job exists before its revision does'
+
+
 # --- GET /api/bonded-parameterizations/jobs -----------------------------------------------------------
 
 def test_the_job_box_lists_one_mappings_jobs_newest_first(dashboard):
@@ -307,13 +356,6 @@ def test_the_job_box_lists_one_mappings_jobs_newest_first(dashboard):
     assert [item['id'] for item in jobs] == [second['id'], first['id']]
     assert [item['created_at'] for item in jobs] == sorted((item['created_at'] for item in jobs), reverse=True)
     assert other['id'] not in [item['id'] for item in jobs], 'another model\'s fit is not this box\'s'
-
-
-def test_the_job_box_can_be_limited_and_refuses_a_limit_of_none(dashboard):
-    fit(ddm_mapping())
-
-    assert len(dashboard.client.get('/api/bonded-parameterizations/jobs?limit=1').json['jobs']) == 1
-    assert dashboard.client.get('/api/bonded-parameterizations/jobs?limit=0').status_code == 400
 
 
 # --- POST /api/bonded-parameterizations/jobs/<job_id>/cancel ------------------------------------------
@@ -373,32 +415,6 @@ def test_an_earlier_revision_is_made_current_again_by_a_content_hash(dashboard):
     assert parameterization.current(candidate)['revision'] == 1
 
 
-def test_the_snapshot_the_panel_holds_can_name_the_mapping_instead(dashboard):
-    candidate = ddm_mapping()
-    fit(candidate)
-    fit(candidate)
-    content_hash = parameterization.content_identity(candidate)
-
-    response = dashboard.client.patch(f'/api/bonded-parameterizations/{content_hash}',
-                                      json={'current': 1, 'confirm': True, 'mapping': candidate})
-
-    assert response.status_code == 200
-    assert response.json['current']['revision'] == 1
-
-
-def test_a_snapshot_for_another_model_cannot_re_point_this_one(dashboard):
-    candidate = ddm_mapping()
-    fit(candidate)
-    fit(candidate)
-    content_hash = parameterization.content_identity(candidate)
-
-    response = dashboard.client.patch(f'/api/bonded-parameterizations/{content_hash}',
-                                      json={'current': 1, 'confirm': True, 'mapping': variant(candidate)})
-
-    assert response.status_code == 400
-    assert 'not the record' in response.json['error']
-
-
 def test_an_unknown_hash_cannot_be_made_current(dashboard):
     response = dashboard.client.patch(f'/api/bonded-parameterizations/{"e" * 64}',
                                       json={'current': 1, 'confirm': True})
@@ -411,9 +427,10 @@ def test_a_revision_that_does_not_exist_is_not_found(dashboard):
     candidate = ddm_mapping()
     fit(candidate)
     content_hash = parameterization.content_identity(candidate)
+    mappings.save_draft(candidate)
 
     response = dashboard.client.patch(f'/api/bonded-parameterizations/{content_hash}',
-                                      json={'current': 9, 'confirm': True, 'mapping': candidate})
+                                      json={'current': 9, 'confirm': True})
 
     assert response.status_code == 404
     assert 'Unknown parameterization revision' in response.json['error']

@@ -61,11 +61,14 @@ PARAMETERIZED_TAIL = {**PARAMETERIZED, 'revision': 7, 'terms': 12, 'torsion_mode
                       'engine': 'bartender', 'engine_label': 'BARTENDER fit (-refit -owntraj)'}
 
 
-def stub(page, states):
+def stub(page, states, failing=()):
     """Serve the mapping list and answer readiness per mapping, recording every question asked.
 
     `page.route` also sees the document request, so both patterns are anchored on the endpoint's own path -- a stub
     on the page URL would swallow the page and leave every locator waiting on its own JSON.
+
+    `failing` names mappings whose readiness the server cannot answer: the panel's own error branch, and the state
+    in which the card has no answer for the mapping on the picker.
     """
     asked = []
 
@@ -73,6 +76,9 @@ def stub(page, states):
         query = parse_qs(urlsplit(route.request.url).query)
         mapping = (query.get('mapping_candidate') or [''])[0]
         asked.append(mapping)
+        if mapping in failing:
+            route.fulfill(status=500, json={'error': 'readiness could not be computed for this mapping'})
+            return
         route.fulfill(json={'ready': True, 'checks': [], 'blockers': [],
                             'parameterization': states.get(mapping, UNPARAMETERIZED)})
 
@@ -163,10 +169,71 @@ def test_changing_the_mapping_asks_readiness_again_and_the_card_follows_the_answ
     expect(card(page).locator('[data-cg-model=open]')).to_have_attribute(
         'href', '/detergent-validation/bond-interactions?mapping_candidate=ddm-tail.json')
 
-    # Both mappings were asked about, the second after the first: a card that re-rendered from a cached answer
-    # would show the new name beside the old revision.
+    # Both mappings were asked about, the second after the first: the card follows the answer to the question the
+    # picker is asking. What this ordering does not prove is that the card was *empty* while the second answer was
+    # in flight -- that is its own test below, where the second answer never arrives.
     assert 'ddm-ring.json' in asked and 'ddm-tail.json' in asked, asked
     assert asked.index('ddm-ring.json') < asked.index('ddm-tail.json'), asked
+    assert errors == []
+
+
+def test_no_answer_for_the_new_mapping_leaves_no_previous_revision_beside_its_name(dashboard, live_page):
+    """A change of picker empties the card before the question is asked, and an error leaves it empty.
+
+    The failure this guards is the one a card keyed by nothing would make: the new mapping's name over the old
+    mapping's revision, engine and torsion model, printed for as long as the readiness answer takes -- or forever,
+    when it never arrives. `#run-bonded-summary` reads the same answer, so it must not claim the old model either.
+    """
+    page, errors = live_page
+    stub(page, {'ddm-ring.json': PARAMETERIZED}, failing={'ddm-tail.json'})
+    open_panel(page, live_page)
+
+    page.locator('[name=mapping_candidate]').select_option('ddm-ring.json')
+    expect(card(page).locator('[data-cg-model=parameterization]')).to_have_text('revision 3 · 34 bonded terms')
+    expect(page.locator('#run-bonded-summary')).to_have_text('Used as-is · this run does not re-fit')
+
+    # The second mapping's readiness fails. There is no answer for it, so there is nothing to print beside its name.
+    page.locator('[name=mapping_candidate]').select_option('ddm-tail.json')
+    expect(card(page)).to_be_hidden()
+    # Hidden is not enough: the rows are read out of the DOM by anything that asks, so nothing of revision 3 may
+    # survive the change of mapping.
+    assert 'revision 3' not in (card(page).text_content() or '')
+    assert 'DDM · ring mapping' not in (card(page).text_content() or '')
+    expect(page.locator('#run-bonded-summary')).not_to_have_text('Used as-is · this run does not re-fit')
+
+    # A run-type toggle re-renders from what the panel holds: with no answer for this mapping, that is nothing.
+    page.locator('#run-type').select_option('aa_only')
+    page.locator('#run-type').select_option('aa_cg')
+    expect(card(page)).to_be_hidden()
+    assert 'revision 3' not in (card(page).text_content() or '')
+    expect(page.locator('#run-bonded-summary')).not_to_have_text('Used as-is · this run does not re-fit')
+    assert errors == []
+
+
+def test_the_link_opens_cg_bond_interactions_on_the_mapping_the_card_names(dashboard, live_page):
+    """The door preselects the mapping it describes -- the second candidate, not the first in the panel's list.
+
+    The two panels are one document (`tabs.js` switches them in place), so the address alone is not the door: the
+    picker belongs to the panel and is filled by `mappings.js` after the switch. Following the link must leave the
+    picker on the mapping the card names, and a cold load of the same address must land there too.
+    """
+    page, errors = live_page
+    stub(page, {'ddm-ring.json': PARAMETERIZED, 'ddm-tail.json': PARAMETERIZED_TAIL})
+    open_panel(page, live_page)
+
+    page.locator('[name=mapping_candidate]').select_option('ddm-tail.json')
+    door = card(page).locator('[data-cg-model=open]')
+    expect(door).to_have_attribute(
+        'href', '/detergent-validation/bond-interactions?mapping_candidate=ddm-tail.json')
+
+    door.click()
+    expect(page.locator('#bonded')).to_be_visible()
+    expect(page.locator('.bonded-mapping-select')).to_have_value('ddm-tail.json')
+    assert page.url.endswith('/detergent-validation/bond-interactions?mapping_candidate=ddm-tail.json'), page.url
+
+    # A copied address or a link opened in a new tab is the same door.
+    page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions?mapping_candidate=ddm-tail.json')
+    expect(page.locator('.bonded-mapping-select')).to_have_value('ddm-tail.json', timeout=30000)
     assert errors == []
 
 
