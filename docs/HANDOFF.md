@@ -28,6 +28,21 @@ cannot run is left unselected rather than shown.
 -> 136 px at a 1600 px viewport, 115 px at 1265 (where the grid cell, not the cap, is the constraint), 136 px at
 390 px with no horizontal overflow.
 
+**The protein-detergent workflow got the same filter, `4fe57dc`.** It has two mapping pickers and neither asked
+whether a build could use what it listed: the Complexes panel (`pdc.js`, `#pdc-mapping`) listed every candidate for
+the template's molecule, and the New run panel (`new-run.js`, `#new-mapping`) listed them all and then defaulted to
+the first. Both filter on `validation.can_reuse` now, and the Complexes queue button is disabled when nothing is
+usable. Five browser fixtures had to say `can_reuse` with them -- a stub without it is a mapping list with nothing in
+it, which is how this filter first showed up as four pdc files failing on a selected mapping they no longer got.
+
+**One record in the workspace is an agent's, not the owner's.** `workspace/dashboard/mapping_drafts/` holds six
+candidates, and `mapping_candidate_3f6d922c2f4b416dadacca7bc6f2f4ca.json` -- named plainly `probe`, created
+2026-10-20 09:34 UTC, `schema_version` 2, `molecule_snapshot` null, provenance reduced to `paper_doi` and
+`sugar_topology` -- was written by a session's API check rather than by the bead editor. It is filtered out of every
+molecule-scoped picker by its null snapshot, which is why it appears only where the mapping list is unscoped (CG Bond
+Interactions). It is left in place: removing it is the owner's call, through
+`DELETE /api/mappings/drafts/<file>` with a copy kept in scratch first.
+
 Measured: fast tier 1,792 passed in 17.4 s; browser 223 passed in 37.6 s at `-n 24 --dist worksteal`; `ruff check
 dashboard tests` clean. The live page reads Run type · Method · Force field in the run-configuration row, two DDM
 mappings in the picker, and 10000 ps CG production in the review row.
