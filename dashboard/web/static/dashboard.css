@@ -35,7 +35,7 @@ header,main{max-width:1440px}
 .analysis-plots .score-figure .figure-viewport{max-width:460px;max-height:460px}
 .analysis-plots .score-figure .figure-media{max-height:420px}
 .figure-caption strong{display:block}.figure-caption small{display:block;color:var(--muted);font-weight:400;margin-top:4px}
-.bonded-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}.bonded-diagram{min-height:300px;border:1px solid var(--line);border-radius:8px;background:#f6f8fc;padding:16px;color:var(--muted)}.bonded-interaction-table{max-height:420px;overflow:auto}.bonded-interaction-table tr[aria-selected=true]{background:#e8f0ff}.bonded-state-summary{min-height:20px}
+.bonded-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}.bonded-diagram{min-height:300px;border:1px solid var(--line);border-radius:8px;background:#f6f8fc;padding:16px;color:var(--muted)}.bonded-interaction-table{max-height:420px;overflow:auto}.bonded-interaction-table tr[aria-selected=true]{background:#e8f0ff}
 @media(max-width:850px){.bonded-columns{grid-template-columns:1fr}}
 .bonded-help{margin:14px 0}.bonded-help p{margin:6px 0}
 nav{max-width:100%;overflow-x:auto;white-space:nowrap}nav button{flex:0 0 auto}

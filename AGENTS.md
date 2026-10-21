@@ -51,9 +51,10 @@ them.
   publishes a `state_id`. Producing one is
   `POST /api/bonded-parameterizations` -- engines `fast-forward` and `bartender`, the latter restricted to
   `-refit -owntraj`; every engine fits to an AA ensemble, so `aa_reference` is required -- and makes no MD. Deleting a
-  saved mapping deletes its parameterizations (and the fit jobs and staged frames built for it) unless another saved
-  mapping carries the same content hash, and that one route (`DELETE /api/mappings/drafts/<name>`, the editor's) says
-  what went with it. The record carries the claim list (`owners`): a save claims the mapping, a draft delete releases
+  saved mapping deletes its parameterizations (and the fit jobs and staged frames built for it), and that one route
+  (`DELETE /api/mappings/drafts/<name>`, the editor's) says what went with it. No second saved mapping can carry the same
+  content -- `save_draft` refuses one -- so the `retained_by` branch is reachable only for records written before that
+  rule, and the claim list below is what a delete actually consults. The record carries the claim list (`owners`): a save claims the mapping, a draft delete releases
   its claim, and the revisions go with the last claim -- `parameterization.release` is that decision, and a record
   written before claims existed answers `why` so the store falls back to asking the drafts on disk. **The CG Bond Interactions panel deletes a parameterization, not a mapping**:
   `DELETE /api/bonded-parameterizations/<content_hash>` takes the revisions, the fits that produced them, the work they
