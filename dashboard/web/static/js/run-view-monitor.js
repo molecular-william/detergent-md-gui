@@ -217,11 +217,12 @@ function chooser(root, side, runs, onPick) {
   function pick(job) {
     if (!job) return;
     selected = job;
-    if (onPick) onPick(job);
     input.value = `${job.label || job.molecule_id || job.id} · ${job.run_type} · ${job.id}`;
     query = '';
     box.dataset.open = 'false';
-    onPick(job);
+    // Once. This used to call onPick here *and* above the field updates, so every pick opened the run twice: two
+    // artifact walks, two `/figures` reads and two NGL loads for one choice.
+    if (onPick) onPick(job);
   }
 
   input.addEventListener('focus', () => { query = ''; active = 0; render(); });

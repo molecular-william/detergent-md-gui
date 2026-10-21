@@ -433,6 +433,30 @@ def test_the_chooser_asks_for_this_workspaces_run_types_and_lists_none_of_the_ot
     assert errors == []
 
 
+def test_picking_a_run_opens_it_once(dashboard, live_page):
+    """One choice, one load. `pick()` called its callback twice, so every pick walked the artifacts, read `/figures`
+    and built an NGL scene twice -- visible as duplicate requests, invisible as anything else."""
+    seed(dashboard)
+    page, errors = live_page
+    asked = []
+    page.on('request', lambda request: asked.append(request.url))
+    open_panel(page, live_page)
+
+    page.locator('#run-view-choose-A').click()
+    expect(page.locator('#run-view-list-A button')).to_have_count(4)
+    page.locator(f'#run-view-list-A button[data-id="{CG_RUN}"]').click()
+    # The input carries the chosen run's id, which is also the wait: the loads below follow the pick.
+    # The input is what says the pick landed: it is empty until a run is chosen.
+    expect(page.locator('#run-view-choose-A')).not_to_have_value('')
+    assert CG_RUN in page.locator('#run-view-choose-A').input_value()
+
+    mine = [url for url in asked if f'/api/jobs/{CG_RUN}' in url and '/analyses' not in url]
+    duplicated = sorted({url for url in mine if mine.count(url) > 1})
+    assert duplicated == [], f'the pick loaded the same thing twice: {duplicated}'
+    assert mine, 'the pick loaded nothing at all'
+    assert errors == [], errors
+
+
 def test_the_chooser_narrows_as_the_reader_types(dashboard, live_page):
     """The combo's own promise: every keystroke filters, over the run's label, molecule, type, id and date.
 
