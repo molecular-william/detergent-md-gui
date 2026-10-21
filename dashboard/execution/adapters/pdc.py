@@ -5,6 +5,7 @@ stages arrive with the phases that implement them, and every one of them belongs
 route layer.
 """
 import json
+import math
 import re
 import shutil
 import sys
@@ -61,6 +62,8 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             # coarse-grained beads have no position.
             'protein_chains': None, 'backmap': True, 'prepare_protein': False}
 _PROTEIN_LIMIT = 50
+# Values a spec allows as a fraction but that the builders use as counts or seeds.
+_INTEGRAL = ('seed', 'snapshot_cap', 'minimisation_steps')
 
 # One shape across every run type: (label, lo, hi). Numbers only; a choice would need the registry, so it is
 # validated in validate_payload where the templates are actually known.
@@ -596,12 +599,69 @@ _STAGE_SOURCES = {stage.relative: Path(stage.relative).name for stage in STAGES
                   if stage.relative not in GENERATED_STAGES}
 
 
+# The specs are keyed by the panel's spelling; the builders work in short names. One map from the name a value is
+# *stored* under to the spec that governs it, so a bound is stated once and checked whether the caller used either.
+_SPEC_BY_NUMBER = {(_ALIASES.get(key) or key): spec for key, spec in SETTING_SPECS.items()}
+
+
 def settings_from(payload: dict) -> dict:
-    """A build's numbers: the adapter's defaults, then whatever the caller supplied under either spelling."""
+    """A build's numbers: the adapter's defaults, then whatever the caller supplied under either spelling.
+
+    `ignore_unknown` because a payload is not only settings: a build is handed the whole record, and `label` or
+    `protein` are not values this function has an opinion about.
+    """
+    return _numbers(payload or {}, ignore_unknown=True)
+
+
+def _numbers(supplied: dict, *, ignore_unknown: bool) -> dict:
+    """One reader for both spellings, enforcing the bounds `SETTING_SPECS` publishes.
+
+    The bounds used to be decoration: `normalize_settings` copied any advertised key and dropped any other, so a
+    negative duration became `nsteps = -...` three stages into a build and a typo became a default with no word. The
+    other four adapters raise for both; this is the same rule, in one place, for the two entry points here.
+    """
+    if not isinstance(supplied, dict):
+        raise ValueError('PDC settings must be an object')
     numbers = dict(DEFAULTS)
-    for key, value in (payload or {}).items():
-        if key in SETTING_SPECS or key in _ALIASES or key in numbers:
-            numbers[_ALIASES.get(key) or key] = value
+    for key, value in supplied.items():
+        canonical = _ALIASES.get(key) or key
+        if canonical in CHOICE_SPECS:
+            label, options = CHOICE_SPECS[canonical]
+            if options and value not in options:
+                words = ', '.join(str(option) for option in options)
+                raise ValueError(f'{canonical} must be one of {words}')
+            numbers[canonical] = value
+            continue
+        if canonical not in numbers and canonical not in _SPEC_BY_NUMBER:
+            if ignore_unknown:
+                continue
+            raise ValueError('Unknown PDC setting: ' + key)
+        if canonical not in _SPEC_BY_NUMBER:
+            numbers[canonical] = value
+            continue
+        if isinstance(value, bool):
+            raise ValueError('PDC settings must be numeric')
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f'{canonical} must be numeric') from exc
+        label, low, high = _SPEC_BY_NUMBER[canonical]
+        if not math.isfinite(number) or not low <= number <= high:
+            raise ValueError(f'{canonical} must be between {low} and {high}')
+        if canonical in _INTEGRAL and number != int(number):
+            raise ValueError(f'{canonical} must be an integer')
+        numbers[canonical] = int(number) if canonical in _INTEGRAL else number
+    for integral in _INTEGRAL:
+        # `seed` has a spec and no default: a run that names none lets the builder choose, so an absent key stays absent.
+        if integral not in numbers:
+            continue
+        value = numbers[integral]
+        if isinstance(value, float) and int(value) != value:
+            raise ValueError(f'{integral} must be an integer')
+        numbers[integral] = int(value)
+    # No "interval exceeds the duration" rule here, unlike the AA half's output interval: a snapshot interval longer
+    # than a stage simply means that stage publishes no frame, and a short assessment is a legitimate request -- the
+    # frames it contributes are zero, which is not an error.
     return numbers
 
 
@@ -869,8 +929,10 @@ def stage_defaults():
 
 
 def normalize_settings(settings=None, profile='standard'):
-    """The panel's payload in the builders' spelling. The profile has no pdc meaning yet and is not recorded."""
-    return settings_from(settings or {})
+    """The panel's payload in the builders' spelling, validated. The profile has no pdc meaning yet."""
+    # `ignore_unknown=False`: a settings payload is settings. A typo reaching this point used to vanish into the
+    # defaults, which is how a run came to be built with a number nobody chose.
+    return _numbers(settings or {}, ignore_unknown=False)
 
 
 def readiness(protein=None, template=None, project_root=None, **kwargs):
