@@ -10,12 +10,12 @@ They build their own molecule tree; nothing here reads the developer's `molecule
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
 from dashboard.execution import protocol
 from dashboard.execution.adapters import pdc
+from tests.dashboard.pdc_fixtures import molecule_tree
 
 TEMPLATE = {
     'name': 'DDM',
@@ -26,14 +26,6 @@ TEMPLATE = {
 }
 
 
-def molecule_tree(tmp_path: Path, template: dict | None = None) -> Path:
-    molecule = tmp_path / 'molecules' / 'DDM'
-    (molecule / 'results' / 'MMFF').mkdir(parents=True)
-    (molecule / 'results' / 'MMFF' / 'lig1.pdb').write_text('HETATM    1  C1  DDM A   1       0.000   0.000   0.000\n')
-    (molecule / 'results' / 'MMFF' / 'lig1.itp').write_text('[ moleculetype ]\nDDM             1\n')
-    (molecule / 'micelle_template.json').write_text(json.dumps(TEMPLATE if template is None else template))
-    (molecule / 'protein.pdb').write_text('ATOM      1  CA  ALA A   1       0.000   0.000   0.000\n')
-    return tmp_path
 
 
 def test_the_run_type_is_registered():

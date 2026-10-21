@@ -30,6 +30,7 @@ from dashboard.execution import tools
 from dashboard.execution.adapters import pdc, pdc_preparation
 from dashboard.execution.scripts import pdc_build, pdc_prepare
 from micelle.frame import stated_half_thickness_nm
+from tests.dashboard.pdc_fixtures import molecule_tree, prepared_run
 from tests.dashboard.support import PROJECT_ROOT
 
 STAGE = 'Protein preparation'
@@ -55,27 +56,14 @@ TOOL_LOG = ('INFO:PDB2PQR v3.7.1: biomolecular structure conversion software.\n'
             'INFO:Adding hydrogens to biomolecule.\n')
 
 
-def molecule_tree(tmp_path: Path) -> Path:
-    molecule = tmp_path / 'molecules' / 'DDM'
-    (molecule / 'results' / 'MMFF').mkdir(parents=True)
-    (molecule / 'results' / 'MMFF' / 'lig1.pdb').write_text(
-        'HETATM    1  C1  DDM A   1       0.000   0.000   0.000\n')
-    (molecule / 'results' / 'MMFF' / 'lig1.itp').write_text('[ moleculetype ]\nDDM             1\n')
-    (molecule / 'micelle_template.json').write_text(json.dumps(TEMPLATE))
-    (molecule / 'protein.pdb').write_text(PROTEIN_TEXT)
-    return tmp_path
-
-
 def prepared(tmp_path: Path, **settings):
-    """A run, prepared with the fixture tree: the adapter's own `prepare`, not a hand-written settings file."""
-    root = molecule_tree(tmp_path)
-    run = tmp_path / 'run'
-    run.mkdir()
-    numbers = {'seed': 20261014, 'aggregation_number': 4}
-    numbers.update(settings)
-    pdc.prepare(run, protein='molecules/DDM/protein.pdb', template='molecules/DDM/micelle_template.json',
-                settings=numbers, project_root=root)
-    return run
+    """A run, prepared with the fixture tree: the adapter's own `prepare`, not a hand-written settings file.
+
+    The seed and aggregation number are this file's own, and stay explicit: they differ from the block's default, which
+    is the drift the shared fixture exists to make visible rather than inherit.
+    """
+    return prepared_run(tmp_path, settings={'seed': 20261014, 'aggregation_number': 4} | settings,
+                        protein_text=PROTEIN_TEXT)
 
 
 def stage_directory(run: Path, name: str = STAGE) -> Path:

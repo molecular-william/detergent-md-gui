@@ -40,26 +40,31 @@ ITP_LINE = '[ moleculetype ]\nDDM             1\n'
 PROTEIN_LINE = 'ATOM      1  CA  ALA A   1       0.000   0.000   0.000\n'
 
 
-def molecule_tree(tmp_path: Path, template: dict | None = None) -> Path:
-    """A molecule directory shaped like the ones the catalogue lists, under the test's own root."""
+def molecule_tree(tmp_path: Path, template: dict | None = None, protein_text: str | None = None) -> Path:
+    """A molecule directory shaped like the ones the catalogue lists, under the test's own root.
+
+    `protein_text` because some files build a protein that states chains or remarks: the construction is shared, the
+    structure a file is about is its own.
+    """
     molecule = tmp_path / 'molecules' / 'DDM'
     (molecule / 'results' / 'MMFF').mkdir(parents=True, exist_ok=True)
     (molecule / 'results' / 'MMFF' / 'lig1.pdb').write_text(PDB_LINE)
     (molecule / 'results' / 'MMFF' / 'lig1.itp').write_text(ITP_LINE)
     (molecule / 'micelle_template.json').write_text(json.dumps(TEMPLATE if template is None else template))
-    (molecule / 'protein.pdb').write_text(PROTEIN_LINE)
+    (molecule / 'protein.pdb').write_text(PROTEIN_LINE if protein_text is None else protein_text)
     return tmp_path
 
 
 def prepared_run(tmp_path: Path, *, settings: dict | None = None, suffix=None,
                  protein: str = PROTEIN, template: str = TEMPLATE_PATH, template_body: dict | None = None,
-                 project_root: Path | None = None, directory: str = 'run') -> Path:
+                 protein_text: str | None = None, project_root: Path | None = None,
+                 directory: str = 'run') -> Path:
     """A prepared pdc run under `tmp_path`, optionally resolved to one stage directory.
 
     `suffix` is the stage path a file wants back (`ASSESSMENT`, `EXTENSION`); without it the run directory itself is
     returned, which is what a file asserting on the manifest needs.
     """
-    root = molecule_tree(tmp_path, template_body) if project_root is None else project_root
+    root = molecule_tree(tmp_path, template_body, protein_text) if project_root is None else project_root
     numbers = {**DEFAULT_SETTINGS, **(settings or {})}
     run = tmp_path / directory
     run.mkdir(parents=True, exist_ok=True)
