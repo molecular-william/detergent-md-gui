@@ -152,3 +152,57 @@ def test_runs_views_checkpoints_and_inline_console(dashboard, live_page):
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     page.screenshot(path='/tmp/detergent-runs-mobile.png', full_page=True)
     assert not errors, errors
+
+
+def test_a_running_stage_reports_the_leg_it_is_in_and_how_far_through(dashboard, live_page):
+    """A three-leg script stage has no single GROMACS ETA; the bar counts its legs and the step within the current one.
+
+    `cg_simulation.sh` runs minimisation, equilibration and production in a row, so for two thirds of its life the
+    ETA speaks about a leg that is not the stage. The bar is computed from the stage's own log -- legs announced by
+    `gmx mdrun -deffnm`, each leg's length from the mdp `grompp` built it from -- and this test drives that whole
+    path: a record, a manifest, a stage log and its mdps, then the card the browser draws from them.
+    """
+    runs = dashboard.coordinator.RUNS
+    job_id = '00000000000d'
+    dashboard.coordinator.database().replace([{
+        'id': job_id, 'label': 'Running the CG simulation', 'detergent': 'DDM', 'method': 'fast_forward',
+        'status': 'running', 'stage': 'CG simulation', 'created': '2026-10-20T12:00:00+00:00',
+        'started_at': '2026-10-20T12:00:00+00:00', 'layout_version': 2, 'run_type': 'aa_cg'}])
+    directory = runs / job_id
+    stage = directory / 'stages' / '4_CG_sim'
+    (stage / 'inputs').mkdir(parents=True)
+    (directory / 'logs').mkdir(parents=True)
+    for name, steps in (('minimization', 500), ('eq', 10000), ('md', 400)):
+        (stage / 'inputs' / f'{name}.mdp').write_text(f'nsteps = {steps}\n')
+    log = ('+ gmx grompp -f inputs/minimization.mdp -p system.top -c solvated.gro -o min.tpr\n'
+           '+ gmx mdrun -deffnm min -ntomp 8\nstarting mdrun \'DDM\'\nstep 0\nstep 500, done\n'
+           '+ gmx grompp -f inputs/eq.mdp -p system.top -c min.gro -o eq.tpr\n'
+           '+ gmx mdrun -deffnm eq -ntomp 8\nstarting mdrun \'DDM\'\nstep 0\nstep 10000, done\n'
+           '+ gmx grompp -f inputs/md.mdp -p system.top -c eq.gro -o md.tpr\n'
+           '+ gmx mdrun -deffnm md -ntomp 8\nstarting mdrun \'DDM\'\nstep 0\n'
+           'step 100\rstep 200, remaining wall clock time: 5 s\r')
+    (directory / 'logs' / '4_CG_sim.log').write_text(log)
+    files.atomic_json(directory / 'manifest.json', {
+        'stage_plan': [['AA reference', '1_AA-reference/aa_reference.sh'],
+                       ['trajectory mapping', '2_mapping/map_trajectory.sh'],
+                       ['CG parameterization', '3_initial_CG/use_parameterization.sh'],
+                       ['CG simulation', '4_CG_sim/cg_simulation.sh'],
+                       ['CG assessment (ff_assess)', '5_assessment/assess.sh']],
+        'stages': [{'name': 'AA reference', 'status': 'reused'},
+                   {'name': 'trajectory mapping', 'status': 'completed'},
+                   {'name': 'CG parameterization', 'status': 'completed'},
+                   {'name': 'CG simulation', 'status': 'running',
+                    'log': str(directory / 'logs' / '4_CG_sim.log')}]})
+
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
+
+    bar = page.locator(f'.job[data-id="{job_id}"] .job-progress')
+    expect(bar).to_be_visible()
+    # Two legs done and half of the third: 83% of the stage, said in the bar and in its text.
+    expect(bar).to_have_attribute('aria-valuenow', '83')
+    expect(bar).to_have_attribute('aria-valuetext', 'CG simulation · md 200/400 · 83%')
+    expect(page.locator(f'.job[data-id="{job_id}"] .job-progress-text')).to_contain_text('leg 3 of 3')
+    assert '83%' in bar.locator('.job-progress-fill').get_attribute('style'), \
+        bar.locator('.job-progress-fill').get_attribute('style')
+    assert errors == [], errors

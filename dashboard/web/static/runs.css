@@ -41,6 +41,15 @@
 .run-status .badge { display:inline-block; }
 .run-status .job-stage { font-size:11px; }
 .run-status .job-eta { font-size:10px; }
+/* The running stage's own fraction: legs done plus the step within the current leg. Indeterminate -- a stage with
+   legs but no readable length yet -- animates instead of sitting at zero, because 0% and "not started" would look
+   the same and neither is what the log says. */
+.job-progress { display:block; height:4px; margin:6px 0 2px; border-radius:2px; background:#e4e9ef; overflow:hidden; }
+.job-progress[hidden] { display:none; }
+.job-progress-fill { display:block; height:100%; width:0; background:#36a269; transition:width .4s ease; }
+.job-progress[data-indeterminate="true"] .job-progress-fill { width:100%; background:linear-gradient(90deg,#cfe3d8 0%,#36a269 50%,#cfe3d8 100%); background-size:200% 100%; animation:job-progress-sweep 1.4s linear infinite; }
+@keyframes job-progress-sweep { from { background-position:0 0; } to { background-position:-200% 0; } }
+.job-progress-text { font-size:10px; display:block; }
 .run-table .run-actions .toolbar { gap:5px; margin:0; }
 .run-table .run-actions button { font-size:11px; padding:5px 8px!important; }
 .run-table .resume-control { display:flex; align-items:end; gap:6px; margin-top:10px; max-width:235px; }

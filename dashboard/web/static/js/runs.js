@@ -141,6 +141,31 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
       if ((job.resume_stages || []).includes(previousStage)) resumeSelect.value = previousStage; else if (job.resume_stages?.length) resumeSelect.value = job.resume_stages.at(-1);
       setText($('.job-validation',card),'Scientific validation: not established. ' + (job.metadata_warnings || []).join(' '));
       if($('.job-records',card).open)refreshRecords(card,job);
+      // How far the running stage has got. GROMACS' ETA answers "when will this leg end"; a three-leg script stage
+      // (min, eq, md) has two thirds of its life before the ETA says anything, and a tool stage never says anything --
+      // so the bar counts what the stage's own log states: legs done, and the step within the current one.
+      const progress = job.progress || null;
+      const progressBar = $('.job-progress', card), progressText = $('.job-progress-text', card);
+      if (progress && progress.legs) {
+        progressBar.hidden = false;
+        const percent = progress.percent;
+        const where = `${progress.stage} · ${progress.leg}${progress.steps ? ` ${progress.step ?? 0}/${progress.steps}` : ''}`;
+        if (percent == null) {
+          progressBar.removeAttribute('aria-valuenow');
+          progressBar.dataset.indeterminate = 'true';
+          $('.job-progress-fill', progressBar).style.width = '100%';
+          progressBar.setAttribute('aria-valuetext', `${where} · running`);
+          setText(progressText, `${where} · leg ${progress.leg_index} of ${progress.legs}`);
+        } else {
+          progressBar.removeAttribute('data-indeterminate');
+          progressBar.setAttribute('aria-valuenow', String(percent));
+          progressBar.setAttribute('aria-valuetext', `${where} · ${percent}%`);
+          $('.job-progress-fill', progressBar).style.width = `${percent}%`;
+          setText(progressText, `${where} · leg ${progress.leg_index} of ${progress.legs} · ${percent}%`);
+        }
+      } else {
+        progressBar.hidden = true; setText(progressText, '');
+      }
       const stageKey = JSON.stringify([job.stages || [],job.status,job.stage,job.workflow_stages]);
       if (card.dataset.stages !== stageKey) {
         const stageMap = new Map((job.stages || []).map(stage => [stage.name, stage]));

@@ -20,6 +20,7 @@ from pathlib import Path
 from ..execution import workflow
 from ..execution.adapters import cg
 from ..execution.coordination.manifest import stage_log_path as resolve_stage_log
+from . import progress as stage_progress
 
 VISIBLE_FIELDS = frozenset((
     'id','label','detergent','molecule_name','molecule_id','method','profile',
@@ -123,14 +124,19 @@ def stage_view(job, manifest):
     return stages, workflow_stages
 
 
-def eta(job, stages, *, run_dir, console_log=None) -> dict:
-    """GROMACS ETA parsed from the most recent log of the running stage."""
+def running_stage(job, stages):
+    """(the stage this run is in, the directory its script ran in) or (None, None)."""
     if job.get('status') != 'running':
-        return {}
+        return None, None
     current = next((s for s in reversed(stages) if s.get('status') == 'running'), None)
     if not current:
-        return {}
+        return None, None
     stage_dir = next((Path(rel).parent for name, rel in workflow.stage_definitions(job)[0] if name == current['name']), None)
+    return current, stage_dir
+
+
+def stage_log_file(job, current, stage_dir, *, run_dir, console_log=None):
+    """The path of the running stage's log, or None when no candidate file holds it."""
     attempt = None
     if job.get('resume_in_place') and job.get('resume_count'):
         try:
@@ -153,10 +159,44 @@ def eta(job, stages, *, run_dir, console_log=None) -> dict:
         candidates.append(Path(console_log))
     for candidate in candidates:
         if candidate.is_file():
-            found = parse_gromacs_eta(tail(candidate))
-            if found:
-                return found
-    return {}
+            return candidate
+    return None
+
+
+def stage_log(job, current, stage_dir, *, run_dir, console_log=None) -> str:
+    """The end of the running stage's log, or '' when no candidate file holds it."""
+    path = stage_log_file(job, current, stage_dir, run_dir=run_dir, console_log=console_log)
+    return tail(path) if path is not None else ''
+
+
+def eta(job, stages, *, run_dir, console_log=None) -> dict:
+    """GROMACS ETA parsed from the most recent log of the running stage."""
+    current, stage_dir = running_stage(job, stages)
+    if current is None:
+        return {}
+    return parse_gromacs_eta(stage_log(job, current, stage_dir, run_dir=run_dir, console_log=console_log))
+
+
+def progress(job, stages, *, run_dir, console_log=None) -> dict:
+    """How far the running stage has got: its legs and the step within the current one.
+
+    `eta` answers "when will this leg finish"; this answers "how much of the stage is done", which is the question a
+    three-leg script (`cg_simulation.sh`: min, eq, md) leaves unanswered for two thirds of its life.
+    """
+    current, stage_dir = running_stage(job, stages)
+    if current is None:
+        return {}
+    # `stage_dir` is the workflow's own relative path (`4_CG_sim`); the mdps the log names are relative to it, so the
+    # reading needs the directory, not the relative name.
+    # Stage scripts and the mdps their logs name live under `stages/`; `stage_dir` is the workflow's own relative name.
+    directory = None
+    if stage_dir is not None:
+        directory = Path(stage_dir) if Path(stage_dir).is_absolute() else Path(run_dir) / 'stages' / stage_dir
+    path = stage_log_file(job, current, stage_dir, run_dir=run_dir, console_log=console_log)
+    if path is None:
+        return {}
+    # The file, not a tail: leg markers stand at the start of legs, which on a long production is megabytes from the end.
+    return stage_progress.progress_from_file(current.get('name') or '', directory, path)
 
 
 def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, console_log=None, summary=False) -> dict:
@@ -197,6 +237,7 @@ def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, co
     result['elapsed_seconds'] = seconds
     result['metadata_warnings'].extend(warnings)
     result.update(eta(job, stages, run_dir=run_dir, console_log=console_log))
+    result['progress'] = progress(job, stages, run_dir=run_dir, console_log=console_log)
     for task in result['analyses']:
         # `directory` is written by the worker for every attempt, but a record that lacks it must cost the runs list
         # a progress line rather than a 500: this view's one promise is to report instead of raising.
