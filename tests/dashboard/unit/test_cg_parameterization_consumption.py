@@ -368,6 +368,8 @@ def test_a_model_with_no_recorded_baseline_is_refused_before_it_simulates(tmp_pa
     with pytest.raises(ValueError) as engine_error:
         prepared(tmp_path / 'bartender', monkeypatch, mapping_candidate=bartender)
     assert 'fitted by bartender' in str(engine_error.value)
+    assert 'measures no reference histograms' in str(engine_error.value)
+    assert "BARTENDER's own analysis is not built yet" in str(engine_error.value)
     assert 'Fit with fast-forward' in str(engine_error.value)
 
 

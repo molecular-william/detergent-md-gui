@@ -73,6 +73,18 @@ and the run promises to use it and not re-fit; or *"this model carries no parame
 stage 3 and record that it did"*. The choice of fit-or-reuse is a property of the model, not of the run. Reversal
 cost: restore a run-level choice, which is what the old prototype had.
 
+**D6a — The two engines' analyses stay separate (postponed 2026-10-20).** Fast-Forward revisions are assessed by
+`ff_assess` against reference histograms `refine_bonded` measures while fitting; BARTENDER revisions get BARTENDER's own
+graphs. Measured before deciding (`2026-10-20`, arm-B fit): with `-noplot` dropped, BARTENDER writes one figure per
+fitted parameter -- `Bond_Hooke_1-2.png`, `Angle_Hooke_1-2-4.png`, `CosAngle_*`, `Ryckaert-Belleman_*`/`Simple_periodic_*`
+-- 29 files in 51 s; it exports no text histograms, bins at 0.001 nm / 1° / 10° and analyses bonded terms only, while
+`ff_assess` also scores every bead pair's distance distribution. Re-binning BARTENDER's internals into the assessor's
+histograms would therefore be a fiction, which is why the two remain separate and unification is postponed. Until
+BARTENDER's analysis exists, a bartender-parameterized mapping cannot be scored and `cg.prepare` refuses a run of it by
+name. Measured, for whoever builds it: `ff_assess -f mapped.xtc -s mapped.gro -i <model>.itp -d . -dists .` reproduces
+`refine_bonded`'s 13 interaction histograms **byte for byte** in 7.8 s -- note `-dists` writes them and `-plot-data`
+does not -- so an independent measurement route is cheap but also redundant for Fast-Forward.
+
 **D6 — The checks belong to producing a parameterization.** `dihedral-fit` and `bonded-cross-check` need no CG
 trajectory, so the panel runs them as part of the job and shows their numbers beside the terms they question. The same
 two run as analyses of an AA–CG run, so the numbers are visible from either end. Reversal cost: keep them run-only.

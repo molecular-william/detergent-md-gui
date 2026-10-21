@@ -125,6 +125,12 @@ them.
 - Assume a detergent has Martini parameters because it is available.
 
 ## Standing decisions
+- **The two fitting engines keep separate analyses (2026-10-20, the user's decision).** Fast-Forward's models are
+  assessed by `ff_assess` against the reference histograms `refine_bonded` measures; BARTENDER's models get their own
+  graphs, because its analysis is its own (per-parameter `Bond_Hooke`/`Angle_Hooke`/`Cosine`/`Ryckaert-Belleman` figures,
+  0.001 nm / 1° / 10° bins, bonded terms only) and re-binning it into `ff_assess`'s histograms would be a fiction.
+  Unifying the two is postponed, not planned. Consequence to keep: a bartender-parameterized mapping cannot be scored,
+  so `cg.prepare` refuses it by name; do not "fix" that by routing bartender models through the Fast-Forward baseline.
 - CG production 20 fs, CG equilibration 5 fs, AA half 2 fs. `cg.mdp_integration` stamps the AA half's `dt`; the CG
   timestep is the templates' own (`4_CG_sim/inputs/md.mdp` 0.02, `eq.mdp` 0.005), read back per file.
 - This GROMACS is an MPI-only build: `-ntomp` is the knob, `-ntmpi` is invalid. In use:

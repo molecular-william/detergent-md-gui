@@ -303,9 +303,10 @@ def stage_distributions(directory, mapping_candidate=None):
         engine = (parameterizations.current(mapping_candidate) or {}).get('engine')
         if engine == 'bartender':
             raise ValueError(
-                "This mapping's current parameterization was fitted by bartender, which does not measure the AA "
-                "reference's interaction distributions; the CG assessment scores against those files, so a run of "
-                'this model could not be assessed. Fit with fast-forward, which records them.')
+                "This mapping's current parameterization was fitted by bartender, which measures no reference "
+                'histograms; the CG assessment scores against them, so a run of this model could not be assessed. '
+                "BARTENDER's own analysis is not built yet -- see docs/design/2026-10-16-parameterization-and-new-run"
+                '.md, where unifying the two analysis routes is postponed. Fit with fast-forward to run it today.')
         raise ValueError(
             "This mapping's current parameterization records no AA reference distributions, so the CG assessment "
             'could not score a run of it. Re-fit the model (Fit this model), which measures and records them.')

@@ -65,6 +65,16 @@ route: it warns with the count that panel has already read, refuses while a fit 
 a saved mapping (a `composition:<id>` entry is not one), and after deleting re-reads the catalogue, selects the next
 mapping and says which -- or empties the panel when none is left.
 
+**The two engines keep separate analyses (the user's decision, 2026-10-20).** Fast-Forward's models are scored by
+`ff_assess` against `refine_bonded`'s histograms; BARTENDER's models get BARTENDER's own graphs. Unifying them is
+postponed. Measured while deciding: with `-noplot` removed, BARTENDER writes one figure per fitted parameter (29 files,
+51 s, `Bond_Hooke_1-2.png` … `Simple_periodic_1-2-4-5.png`), exports **no** text histograms, bins at 0.001 nm / 1° / 10°
+and analyses bonded terms only -- whereas `ff_assess` also scores every bead pair's distance distribution, so re-binning
+BARTENDER's internals into the assessor's bins would invent a comparison. Kept for whoever builds the bartender route:
+`ff_assess -f mapped.xtc -s mapped.gro -i <model>.itp -d . -dists .` reproduces `refine_bonded`'s 13 histograms byte for
+byte in 7.8 s (`-dists` writes them; `-plot-data` does not). Until then a bartender-parameterized mapping is refused at
+prepare, and the refusal now says the analysis is unbuilt rather than only naming the fix.
+
 **The baseline was misplaced, not missing, `68847f2`.** The fit that produced revision 1 of the arm-B mapping had
 already measured its reference's interaction histograms -- 13 files (4 bonds, 8 angles, 1 dihedral, the ITP's own
 counts) in `parameterizations/work/10c31894...-dbc366ae772b/3_initial_CG` -- alongside 55 distance files. The
