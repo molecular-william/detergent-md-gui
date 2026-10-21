@@ -14,7 +14,8 @@ def test_two_applications_isolate_jobs_models_and_workers(tmp_path):
     first.WORKERS['123456abcdef'] = first.Worker()
     with apps[0].app_context():
         mapping = mappings.save_draft(physical_mapping())
-        mappings.save_draft({**physical_mapping(), 'name': 'Only first workspace'})
+        mappings.save_draft({**physical_mapping(), 'name': 'Only first workspace',
+                             'beads': [{**physical_mapping()['beads'][0], 'label': 'a'}, *physical_mapping()['beads'][1:]]})
     clients = [app.test_client() for app in apps]
     assert len(clients[0].get('/api/jobs').json['jobs']) == 1
     assert clients[1].get('/api/jobs').json['jobs'] == []

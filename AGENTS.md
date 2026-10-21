@@ -38,6 +38,11 @@ them.
   (`pdc.GENERATED_STAGES`); every other stage file is `pdc_...` and copied.
 
 ## Facts that change what you build
+- **One content identity is one saved mapping.** `save_draft` refuses a second draft whose beads, rings and
+  connections hash the same (`DuplicateMapping`, naming the file that holds it), the route answers 409 with `existing`,
+  the editor disables Save-as-new from the validation result's `duplicate_file` and names the file in
+  `#automatic-message`. A rename is an in-place save, so it is not a duplicate. `.hint` carries `overflow-wrap:anywhere`
+  because that message sits in the dashboard shell and an unbreakable file name widened every page's document.
 - **Every AA-CG run fits its own bonded parameters** (`cg.AA_CG_PROFILE`; stage 3 is `CG parameterization`) unless
   its mapping carries a current revision, which it then consumes and says so in its own artefact. A parameterization
   belongs to the mapping, revisions are keyed by content hash and one is current (`make current`). **There is no

@@ -240,6 +240,9 @@ class MappingTests(unittest.TestCase):
             original=mappings.save_draft(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
             source=Path(temp)/original['file'];before=source.read_bytes()
             draft = json.loads(before); draft['file'] = source.name; draft['status'] = 'approved'
+            # One bead's label moves, so this is a *different* assignment: a save that repeats one verbatim is refused
+            # as a duplicate (`test_a_second_save_of_the_same_assignment_is_refused_naming_the_first`).
+            draft['beads'][0]['label'] = 'd' if draft['beads'][0].get('label') != 'd' else 'a'
             saved = mappings.save_draft(draft)
             self.assertNotEqual(saved['file'], source.name)
             self.assertEqual(saved['status'], 'candidate-unvalidated')

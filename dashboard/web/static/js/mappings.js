@@ -139,7 +139,7 @@ export function createMappings() {
     if (!result.issues?.length) { const li = document.createElement('li'); li.textContent = 'Structural checks passed. Bead chemistry and physical behaviour still need review.'; issues.append(li); }
     const save = $('#save-mapping-editor');
     if (save) save.disabled = !result.can_save || !!result.duplicate_file;
-    setText($('#automatic-message'), result.duplicate_file ? 'This mapping already exists. Change the assignments before saving a new draft.' : '');
+    setText($('#automatic-message'), result.duplicate_file ? `This mapping already exists as ${result.duplicate_file}. Change the assignments before saving a new draft.` : '');
   }
 
   async function validateEditor() {
@@ -282,12 +282,11 @@ export function createMappings() {
       // saved mapping still carries the same content hash, and the fit jobs and staged frames built for it go as well.
       // The wording this replaced said the bonded states were *not* deleted, which was the opposite of what
       // `mappings.delete_draft` does -- and it is the one sentence a reader has before an irreversible click.
-      if (!window.confirm(`Delete ${file}?\n\nIts bond interactions are deleted with it, unless another saved mapping `
-                          + 'has the same content hash. The fit jobs and staged frames built for it go too. Runs that '
-                          + 'already recorded those terms keep them.')) return;
+      if (!window.confirm(`Delete ${file}?\n\nIts bond interactions are deleted with it, along with the fit jobs and `
+                          + 'staged frames built for it. Runs that already recorded those terms keep them.')) return;
       try {
         const answer = await api('/api/mappings/drafts/' + encodeURIComponent(file), {method: 'DELETE'});
-        invalidateResource('/api/mappings'); invalidateResource('/api/bonded-states');
+        invalidateResource('/api/mappings');
         await loadMoleculeEditor(moleculeSelect.value);
         // What went with it is the route's report, not a guess: a shared copy keeps the revisions and the answer names it.
         const report = (answer && answer.parameterization) || {};
@@ -343,7 +342,16 @@ export function createMappings() {
         renderEditor();
         editorMessage(`Saved ${saved.name} as a new candidate.`);
         invalidateResource('/api/mappings');
-      } catch (error) { editorMessage(error.message); }
+      } catch (error) {
+        editorMessage(error.message);
+        // One content identity is one model: the store refused a second copy and named the mapping that holds it, so
+        // open that one rather than leaving the reader with a sentence and no way to reach what it names.
+        const select = $('#mapping-candidate-filter');
+        if (error.status === 409 && error.existing && [...select.options].some(option => option.value === error.existing)) {
+          select.value = error.existing;
+          select.dispatchEvent(new Event('change'));
+        }
+      }
     };
     $('#generate-automatic').onclick = async () => {
       if (!moleculeEditor) return;

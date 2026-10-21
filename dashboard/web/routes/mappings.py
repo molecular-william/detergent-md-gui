@@ -135,9 +135,18 @@ def mapping_ring_site_preview():
 
 @blueprint.post('/api/mappings/drafts')
 def mapping_save():
+    """Save a candidate. A second save of the same assignment answers 409, naming the mapping that already holds it.
+
+    The name travels beside the sentence because the editor shows the sentence and can offer the existing mapping as the
+    thing to open: one content identity is one model, and two names for it would make every reader that addresses a
+    parameterization by content disagree with every reader that addresses a mapping by name.
+    """
     payload = json_object()
     context = payload_context(payload)
-    return jsonify(mappings.save_draft(payload, context=context, in_place=bool(payload.get('in_place')))), 201
+    try:
+        return jsonify(mappings.save_draft(payload, context=context, in_place=bool(payload.get('in_place')))), 201
+    except mappings.DuplicateMapping as exc:
+        return jsonify(error=str(exc), existing=exc.existing), 409
 
 
 @blueprint.post('/api/mappings/review')

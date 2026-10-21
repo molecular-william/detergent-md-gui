@@ -37,13 +37,17 @@ def client(dashboard):
     return dashboard.client
 
 
-def save(client, name='DDM'):
-    """A saved draft through the route the panel posts to, so the store minted its own file name."""
+def payload(client, name='DDM'):
+    """The assignment as the editor posts it, before the store has minted a file name."""
     context = client.get('/api/mappings/context?molecule_id=DDM').json['context']
     preview = client.post('/api/mappings/automatic/preview', json={
         'molecule_id': 'DDM', 'molecule_snapshot': context['snapshot']}).json['candidate']
-    preview['name'] = name
-    saved = client.post('/api/mappings/drafts', json=preview)
+    return {**preview, 'name': name}
+
+
+def save(client, name='DDM'):
+    """A saved draft through the route the panel posts to, so the store minted its own file name."""
+    saved = client.post('/api/mappings/drafts', json=payload(client, name))
     assert saved.status_code == 201
     return saved.json
 
@@ -75,30 +79,25 @@ def test_the_delete_route_removes_the_parameterization_and_the_read_side_answers
     assert after['jobs'] == []
 
 
-def test_a_draft_whose_content_another_saved_draft_still_carries_keeps_its_bond_interactions(client):
-    """The shared-content guard, seen from the routes: the copy is told which draft kept them."""
+def test_a_second_save_of_the_same_assignment_is_refused_naming_the_first(client):
+    """One content identity is one model, so the copy is refused rather than given a second name.
+
+    The guard this replaces kept two drafts' revisions alive when either was deleted. There is no second draft to keep
+    them for now: the delete that remains is the one that takes the revisions when the mapping goes, which the next test
+    pins. What this pins is that the refusal names the mapping to open instead of answering a bare 409.
+    """
     first = save(client, 'DDM')
-    second = save(client, 'DDM copy')
-    assert first['file'] != second['file']
-    assert first['mapping_content_hash'] == second['mapping_content_hash']
-    content = first['mapping_content_hash']
+
+    duplicate = client.post('/api/mappings/drafts', json=payload(client, 'DDM copy'))
+
+    assert duplicate.status_code == 409
+    assert duplicate.json['existing'] == first['file']
+    assert duplicate.json['error'] == f"An identical mapping already exists: {first['file']}"
+    listed = client.get('/api/mappings?view=summary').json['candidates']
+    assert [item['file'] for item in listed] == [first['file']], 'the refusal wrote nothing'
+
     parameterization.save(first, revision())
-
-    response = client.delete('/api/mappings/drafts/' + first['file'])
-
-    assert response.status_code == 200
-    kept = response.json['parameterization']
-    assert kept['deleted'] is False
-    assert kept['retained_by'] == [second['file']]
-    assert 'another saved mapping' in kept['reason']
-    surviving = parameterization_of(client, content)
-    assert surviving['summary']['parameterized'] is True
-    assert [item['revision'] for item in surviving['revisions']] == [1]
-
-    # With the last holder gone the read side is empty, which is the rule's other half.
-    last = client.delete('/api/mappings/drafts/' + second['file'])
-    assert last.json['parameterization']['deleted'] is True
-    assert parameterization_of(client, content)['summary']['parameterized'] is False
+    assert parameterization_of(client, first['mapping_content_hash'])['summary']['parameterized'] is True
 
 
 def test_a_mapping_hash_does_not_answer_for_a_deleted_draft_either(client):

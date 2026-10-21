@@ -128,6 +128,39 @@ def test_delete_mapping_removes_the_saved_candidate(dashboard, live_page):
     assert errors == []
 
 
+def test_a_saved_mapping_offers_no_second_copy_of_itself(live_page):
+    """The prompt, as the page: once the assignment is saved, "Save as new" is gone and the message names the file.
+
+    Two things refuse a second copy. The editor disables the button from the validation result's `duplicate_file` (and
+    says which file holds it), and the store refuses the save outright with 409 -- the second is what protects a caller
+    that is not this button, and it is pinned at the API in `test_mapping_deletion.py`.
+    """
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/bead-assignment')
+    page.get_by_role('tab', name='Bead Assignment', exact=True).click()
+    page.route('**/api/mappings/automatic/preview',
+               lambda route: route.fulfill(status=200, content_type='application/json',
+                                           body=json.dumps({'available': True,
+                                                            'candidate': mappings.automatic_candidate(
+                                                                mappings.molecule(), 'DDM')})))
+    select = page.locator('#mapping-candidate-filter')
+    expect(page.locator('#mapping-editor-status')).to_contain_text('loaded')
+    page.locator('#generate-automatic').click()
+    page.locator('#mapping-bead-rows tr').first.wait_for(timeout=15000)
+    page.locator('#save-mapping-editor').click()
+
+    select = page.locator('#mapping-candidate-filter')
+    expect(select.locator('option')).to_have_count(2)
+    first = select.input_value()
+
+    # What the reader sees after saving: the copy button is withdrawn, and the sentence names the file that exists.
+    expect(page.locator('#save-mapping-editor')).to_be_disabled()
+    expect(page.locator('#automatic-message')).to_contain_text('already exists')
+    expect(page.locator('#automatic-message')).to_contain_text(first)
+    expect(select.locator('option')).to_have_count(2), 'no second candidate appeared'
+    assert errors == []
+
+
 def test_deleting_a_mapping_states_the_rule_it_actually_implements(live_page):
     """The one sentence a reader gets before an irreversible click has to be the behaviour, not its opposite.
 
@@ -169,7 +202,9 @@ def test_deleting_a_mapping_states_the_rule_it_actually_implements(live_page):
     assert len(messages) == 1, messages
     warning = messages[0]
     assert 'bond interactions are deleted with it' in warning, warning
-    assert 'unless another saved mapping has the same content hash' in warning, warning
+    # The shared-content clause went with the second copy it described: a save whose content is already a saved
+    # mapping's is refused (409), so no two drafts hold one content hash and there is nothing to promise here.
+    assert 'same content hash' not in warning, warning
     assert 'fit jobs and staged frames' in warning, warning
     assert 'not deleted' not in warning, warning
     assert deletes == [], deletes

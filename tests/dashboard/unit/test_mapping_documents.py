@@ -14,9 +14,9 @@ def test_partial_draft_can_save_but_cannot_export(tmp_path, monkeypatch):
     assert result["can_save"] and not result["can_export"]
     monkeypatch.setattr(mapping_store, "storage_root", lambda: tmp_path / "drafts")
     first = mappings.save_draft(draft, context=context)
-    second = mappings.save_draft(first, context=context)
-    assert first["file"] != second["file"]
-    assert first["mapping_hash"] == second["mapping_hash"]
+    # A partial draft is still one assignment: saving it again is the same duplicate a complete one is.
+    with pytest.raises(mappings.DuplicateMapping, match=first["file"]):
+        mappings.save_draft(first, context=context)
     with pytest.raises(ValueError, match="incomplete"):
         mappings.require_usable(first, context, operation="export")
 

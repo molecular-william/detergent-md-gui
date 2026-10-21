@@ -17,6 +17,19 @@ from .identity import candidate_identity, content_identity
 from .schema import check_schema
 
 
+class DuplicateMapping(ValueError):
+    """A save whose content identity is already a saved mapping's.
+
+    Not a validation failure: the document is well formed, and the thing it collides with has a name the caller needs in
+    order to open it instead of saving a second copy. So the message says *which* mapping, and the route answers 409 with
+    that name beside the sentence.
+    """
+
+    def __init__(self, existing):
+        self.existing = existing
+        super().__init__(f'An identical mapping already exists: {existing}')
+
+
 def storage_root():
     return paths.current().mapping_drafts
 
@@ -90,6 +103,9 @@ def save_draft(data, *, context=None, in_place=False):
                  source_structure=(context.get('path') if context else 'results/MMFF/lig1.pdb'), created_at=datetime.now(timezone.utc).isoformat(),
                  parent=data.get('file') if data.get('file') in candidate_paths() else None,
                  validation=validation)
+    duplicate = _identical_mapping(draft, exclude=data.get('file') if in_place else None)
+    if duplicate:
+        raise DuplicateMapping(duplicate)
     storage_root().mkdir(parents=True, exist_ok=True)
     if in_place:
         # Overwrite the named candidate rather than minting a new one. The file keeps its identity and
@@ -104,6 +120,24 @@ def save_draft(data, *, context=None, in_place=False):
     _repository().write(filename, draft, replace=False)
     path = storage_root() / filename
     return get(path.name, context=context)
+
+
+def _identical_mapping(draft, exclude=None):
+    """The saved mapping whose content this draft already is, or None.
+
+    One identity per assignment: two saved mappings with the same beads, rings and connections are one model saved twice,
+    and the catalogue, the parameterization address and the run's `composition_id` all treat that content as one thing.
+    A second copy therefore makes the store answer two names for one model, which is what this refuses -- naming the
+    mapping to open instead.
+
+    `exclude` is the file being overwritten by an in-place save. Its own content is not a duplicate of itself, and a
+    rename that changes only the name has to stay possible: the content, not the file, is what this compares.
+    """
+    content = content_identity(draft)
+    for name in _content_holders(content):
+        if name != exclude:
+            return name
+    return None
 
 
 def generate_variants(data, limit=8):

@@ -22,6 +22,7 @@ from .schema import (
                        new_draft,
 )
 from .store import (
+                       DuplicateMapping,
                        candidate_paths,
                        delete_draft,
                        generate_variants,
@@ -41,7 +42,7 @@ __all__ = [
     'derive_representation', 'validate_representation', 'representation_modes',
     'validate', 'require_usable', 'ring_site_preview',
     'storage_root', 'reviews_root', 'candidate_paths', 'get', 'list_candidates',
-    'save_draft', 'delete_draft', 'list_reviews', 'generate_variants', 'record_review',
+    'save_draft', 'DuplicateMapping', 'delete_draft', 'list_reviews', 'generate_variants', 'record_review',
     'export_files',
     'ROOT', 'SOURCE', 'molecule', 'bead_types',
 ]

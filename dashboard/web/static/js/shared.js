@@ -13,7 +13,7 @@ async function api(path, options = {}) {
   if (response.status === 304) return null;
   const type = response.headers.get('content-type') || '';
   const data = type.includes('json') ? await response.json() : {error: `Request failed (${response.status})`};
-  if (!response.ok) { const error=new Error(data.error || `Request failed (${response.status})`); error.status=response.status; throw error; }
+  if (!response.ok) { const error=new Error(data.error || `Request failed (${response.status})`); error.status=response.status; if (data.existing !== undefined) error.existing=data.existing; throw error; }
   return data;
 }
 function downloadBlob(blob, name) {
