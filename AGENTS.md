@@ -44,8 +44,10 @@ them.
   `POST /api/bonded-parameterizations` -- engines `fast-forward` and `bartender`, the latter restricted to
   `-refit -owntraj`; every engine fits to an AA ensemble, so `aa_reference` is required -- and makes no MD. Deleting a
   saved mapping deletes its parameterizations (and the fit jobs and staged frames built for it) unless another saved
-  mapping carries the same content hash; both panels that can delete a mapping do it through that one route, and say
-  what went with it.
+  mapping carries the same content hash, and that one route (`DELETE /api/mappings/drafts/<name>`, the editor's) says
+  what went with it. **The CG Bond Interactions panel deletes a parameterization, not a mapping**:
+  `DELETE /api/bonded-parameterizations/<content_hash>` takes the revisions, the fits that produced them, the work they
+  built and the histograms they recorded, and leaves the saved mapping where a run is queued from untouched.
 - **New Run pins the AA source to the run the parameterization was fitted against.** A mapping whose current revision
   names `aa_reference.run_id` chooses the AA reference itself: the picker is disabled, the AA half's stage settings are
   filled from that run's own record and locked, and deleting that source is not offered. A fit is only as good as its

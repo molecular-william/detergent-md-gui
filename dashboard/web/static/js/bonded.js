@@ -80,7 +80,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
   const host = $('.bonded-workspace');
   if (!host || !mappingData) return;
   const mappingSelect = $('#bonded-mapping-select', host);
-  const deleteButton = $('#bonded-delete-mapping', host);
+  const deleteButton = $('#bonded-delete-parameterization', host);
   const message = $('.bonded-panel-message', host);
   const tableHost = $('.bonded-interaction-table', host);
   const selectionStatus = $('.bonded-selection-status', host);
@@ -105,10 +105,10 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
 
   function notice(text) { setText(message, text); }
 
-  /** Whether the selected catalogue entry is a saved mapping this panel may delete.
+  /** Whether the selected catalogue entry is a saved mapping whose parameterization this panel may delete.
    *
-   * The catalogue also lists CG compositions, addressed as `composition:<id>` rather than by a draft file name, and
-   * the drafts route answers 404 for one: offering the button for those would be a control that cannot act.
+   * The catalogue also lists CG compositions, addressed as `composition:<id>` rather than by a draft file name: they
+   * carry no parameterization, and offering the button for one would be a control that cannot act.
    */
   function deletable() {
     const value = mappingSelect.value || '';
@@ -119,76 +119,69 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
   function updateDelete() {
     if (!deleteButton) return;
     const value = mappingSelect.value || '';
-    const allowed = deletable();
+    const held = parameterization.revisionCount();
+    const allowed = deletable() && held > 0;
     deleteButton.disabled = !allowed;
-    deleteButton.title = allowed ? `Delete the saved mapping ${value}`
-      : value.startsWith('composition:') ? 'A CG composition is not a mapping this panel deletes.'
-      : 'Choose a saved mapping first.';
+    deleteButton.title = !deletable() ? (value.startsWith('composition:')
+      ? 'A CG composition carries no parameterization to delete.'
+      : 'Choose a saved mapping first.')
+      : held ? `Delete the parameterization of ${value}: ${held === 1 ? 'its single revision' : `its ${held} revisions`}`
+      : 'This model has no parameterization to delete.';
   }
 
-  /** Delete the selected mapping through the one route that owns it, and say what went with it.
+  /** Delete the selected model's parameterization, and say what went with it.
    *
-   * The warning states the rule the route implements rather than the older claim that bond interactions survive: the
-   * store removes them unless another saved mapping still carries this content hash, and it removes the fit jobs and
-   * staged frames built for it as well. A run that already recorded the terms keeps its own copy, which is what makes
-   * this safe to offer from here at all.
+   * The saved mapping is not this control's to delete: the panel reads models and the editor owns the catalogue, so
+   * what goes is what this panel is about -- the revisions, the fits that produced them, the frames those fits built
+   * and the reference histograms recorded with them. The warning says exactly that, because the reader's only
+   * protection before an irreversible click is the truth about what the click removes. Runs that already recorded a
+   * revision keep their own copy, which is what makes it safe to offer here at all.
    */
-  async function deleteMapping() {
+  async function deleteParameterization() {
     const file = mappingSelect.value || '';
-    if (!deletable()) return notice('No saved mapping is selected to delete.');
-    if (parameterization.isBusy()) {
-      return notice('A fit of this mapping is running: cancel it before deleting the mapping.');
-    }
+    if (!deletable()) return notice('No saved mapping is selected.');
     const count = parameterization.revisionCount();
-    const holds = count === 0 ? 'It has no bond interactions'
-      : count === 1 ? 'Its single bond interaction revision is deleted with it'
-      : `Its ${count} bond interaction revisions are deleted with it`;
+    if (!count) return notice('This model has no parameterization to delete.');
+    if (parameterization.isBusy()) {
+      return notice('A fit of this model is running: cancel it before deleting the parameterization.');
+    }
+    const hash = parameterization.contentHash();
+    if (!hash) return notice('This model has no parameterization to delete.');
+    // The revision *number*, not the revision: the route compares it against the record it is about to remove.
+    const current = parameterization.currentRevisionNumber();
+    const holds = count === 1 ? 'Its single bond interaction revision goes with it'
+      : `Its ${count} bond interaction revisions go with it`;
     const agreed = window.confirm(
-      `Delete ${file}?\n\n${holds}, unless another saved mapping has the same content hash. `
-      + 'The fit jobs and staged frames built for it go too. Runs that already recorded those terms keep them.');
+      `Delete the parameterization of ${file}?\n\n${holds}, along with the fit jobs and staged frames built for `
+      + 'them, and the reference histograms they recorded. The saved mapping itself is not touched.\n\n'
+      + 'Runs that already recorded these terms keep their own copy.');
     if (!agreed) return;
     let answer;
     try {
-      answer = await api('/api/mappings/drafts/' + encodeURIComponent(file), {method: 'DELETE'});
+      answer = await api('/api/bonded-parameterizations/' + encodeURIComponent(hash), {
+        method: 'DELETE', headers: {'Content-Type': 'application/json'},
+        // The revision the panel was showing: a record that moved on since answers 409 instead of losing newer work.
+        body: JSON.stringify({confirm: true, revision: current}),
+      });
     } catch (error) {
-      return notice(`The mapping was not deleted: ${error.message}`);
+      return notice(`The parameterization was not deleted: ${error.message}`);
     }
-    const report = (answer && answer.parameterization) || {};
-    const removed = (report.revisions || []).length;
-    const kept = Array.isArray(report.retained_by) ? report.retained_by : [];
-    const fate = kept.length ? `its bond interactions are kept, held by ${kept.join(', ')}`
-      : removed ? `its ${removed === 1 ? '1 bond interaction revision' : `${removed} bond interaction revisions`} went with it`
-      : 'it held no bond interactions';
-    invalidateResource('/api/mappings');
-    invalidateResource('/api/bonded-states');
-    // This panel's own list is what the deletion changed, so it is re-read rather than patched in place.
-    let fresh = {candidates: mappingData.candidates};
-    try {
-      fresh = await api('/api/mappings?view=summary');
-    } catch (error) {
-      notice(`Mapping deleted: ${fate}. The catalogue could not be re-read: ${error.message}`);
-    }
-    mappingData.candidates = fresh.candidates || [];
-    const options = mappingData.candidates.filter(candidate => !candidate.error);
-    mappingSelect.replaceChildren(...options.map(candidate => new Option(candidate.name, candidate.file)));
-    // The deletion is done at this point, so what happened is stated before the panel tries to show what is left:
-    // a reload that fails must not leave the reader with no word about the mapping that has just gone.
-    notice(`Mapping deleted: ${fate}.`);
+    const removed = (answer && answer.revisions) || [];
+    const jobs = (answer && answer.jobs) || [];
+    const fate = removed.length
+      ? `${removed.length === 1 ? 'its single bond interaction revision' : `its ${removed.length} bond interaction revisions`} went`
+      : 'it held no revisions';
+    const built = jobs.length ? ` and ${jobs.length === 1 ? 'the fit that built it' : `the ${jobs.length} fits that built them`}` : '';
+    // The catalogue is untouched, so neither it nor the selection is re-read: only this model's own record changed.
+    invalidateResource('/api/bonded-parameterizations');
+    // Stated before the reload, so a panel that fails to re-read still tells the reader what happened.
+    notice(`Parameterization deleted: ${fate}${built}. The saved mapping ${file} is untouched.`);
     updateDelete();
     try {
-      if (!options.length) {
-        mappingSelect.value = '';
-        selectedMapping = null;
-        terms = [];
-        renderState();
-        await parameterization.load(null);
-        return notice(`Mapping deleted: ${fate}. No saved mapping is left.`);
-      }
-      mappingSelect.value = options[0].file;
-      await refreshMapping();
-      notice(`Mapping deleted: ${fate}. Showing ${options[0].name}.`);
+      await parameterization.load(selectedMapping);
     } catch (error) {
-      notice(`Mapping deleted: ${fate}. The next mapping could not be shown: ${error.message}`);
+      notice(`Parameterization deleted: ${fate}${built}. The saved mapping ${file} is untouched. `
+        + `The panel could not be re-read: ${error.message}`);
     }
   }
 
@@ -335,15 +328,17 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       structure = await resolveStructure(mapping);
       if (token !== generation) return;
       // The model card, the job box, the result and the strip are read from the mapping's own
-      // parameterization record; the terms come back through `onTerms` once that record has been read.
+      // parameterization record; the terms come back through `onTerms` once that record has been read. The delete
+      // button's state follows that record -- a model with no revisions has nothing for it to remove.
       await parameterization.load(mapping);
+      updateDelete();
     } catch (error) {
       if (token === generation) { notice(error.message); terms = []; renderState(); }
     }
   }
 
   mappingSelect.onchange = () => { updateDelete(); refreshMapping(); };
-  if (deleteButton) deleteButton.onclick = () => deleteMapping();
+  if (deleteButton) deleteButton.onclick = () => deleteParameterization();
 
   async function mount() {
     const chosen = mappingSelect.value;

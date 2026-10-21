@@ -653,10 +653,11 @@
     </fieldset>
     <div class="toolbar">
       <button type="button" id="bonded-fit">Fit this model</button>
-      {# Deleting the mapping from here is the same route the editor's own button calls; it deletes the mapping's bond
-         interactions with it unless another saved mapping carries the same content, and it says so before it acts. #}
-      <button type="button" class="secondary danger" id="bonded-delete-mapping" disabled
-              title="Choose a saved mapping first.">Delete this mapping</button>
+      {# This control removes the selected model's *parameterization* -- its revisions, the fits that produced them, the
+         frames those fits built and the reference histograms recorded with them. The saved mapping itself is not
+         touched: deleting a mapping is the editor's own button, and this panel only edits models. #}
+      <button type="button" class="secondary danger" id="bonded-delete-parameterization" disabled
+              title="Choose a saved mapping first.">Delete this parameterization</button>
     </div>
     <p class="hint" id="bonded-fit-status" role="status"></p>
     <div class="notice bonded-help"><strong>What a fit is</strong><p>Fast-Forward and BARTENDER build the mapped trajectory from the AA reference first — minutes of CPU and no MD — then fit bonds, angles and dihedrals to it. Generated parameters are hypotheses, and a fit is not scientific approval: the checks below re-derive two of them and report the numbers.</p></div>

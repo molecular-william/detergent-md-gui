@@ -817,5 +817,8 @@ export function setupParameterization({host, onTerms}) {
   /** Whether a fit of this mapping is in flight: deleting the mapping under it would leave the job writing to it. */
   function isBusy() { return busy || (job !== null && LIVE.has(job.status)); }
 
-  return {mount, load, revisionCount, isBusy};
+  /** The model's content identity: what a parameterization is addressed by, and a rename does not change. */
+  function contentHash() { return hash() || (summary && summary.mapping_content_hash) || ''; }
+
+  return {mount, load, revisionCount, isBusy, contentHash, currentRevisionNumber: currentNumber};
 }

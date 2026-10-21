@@ -267,6 +267,36 @@ def parameterization_start():
     return jsonify(job), 201
 
 
+@blueprint.delete('/api/bonded-parameterizations/<content_hash>')
+def parameterization_delete(content_hash):
+    """Remove a model's parameterization, and nothing else.
+
+    The *mapping* is not this route's to remove: it is the user's model, the file a run is queued from, and this panel
+    edits models rather than deleting them -- the editor's own Delete still does that, through
+    `DELETE /api/mappings/drafts/<name>`. What goes here is what this panel is about: the revisions, the fit jobs that
+    produced them, the frames and working directories those jobs built, and the reference histograms recorded with the
+    revisions.
+
+    `confirm: true` is required because revisions are history: the terms are recoverable only by fitting again. A
+    caller that names `revision` says which one it believed was current, and a record that has moved on since answers
+    409 rather than deleting a newer model's work -- the same optimistic check `save` keeps.
+    """
+    payload = json_object(optional=True)
+    if payload.get('confirm') is not True:
+        abort(400, 'Deleting a parameterization requires confirmation')
+    try:
+        record = parameterization.one(content_hash)
+    except ValueError as exc:
+        abort(400, _message(exc))
+    expected = payload.get('revision')
+    if expected is not None:
+        if isinstance(expected, bool) or not isinstance(expected, int):
+            abort(400, 'A revision number is required when one is named')
+        if (record.get('current') or {}).get('revision') != expected:
+            abort(409, 'This parameterization changed; reload it before deleting')
+    return jsonify(parameterization.delete(content_hash))
+
+
 @blueprint.patch('/api/bonded-parameterizations/<content_hash>')
 def parameterization_current(content_hash):
     """Point a model at an earlier revision, without rewriting the history that came after it.

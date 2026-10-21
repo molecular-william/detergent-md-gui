@@ -467,3 +467,67 @@ def test_the_jobs_route_answers_a_job_by_its_own_id(dashboard):
                                    query_string={'content_hash': parameterization.content_identity(candidate)}).json['jobs']
     assert [item['id'] for item in history] == [first['id']]
     assert second['id'] != first['id']
+
+
+# --- DELETE /api/bonded-parameterizations/<content_hash> ----------------------------------------------
+
+
+def test_deleting_a_parameterization_removes_the_model_and_leaves_the_mapping_alone(dashboard):
+    """The panel's destructive control removes a *parameterization*, not the user's model.
+
+    The mapping is the file a run is queued from, and the editor owns the catalogue; this panel edits models. So the
+    revision, the fit job that produced it and the work those fits built go, and the saved candidate is still there
+    afterwards -- which is the difference between this route and `DELETE /api/mappings/drafts/<name>`.
+    """
+    candidate = ddm_mapping()
+    job = fit(candidate)
+    content_hash = parameterization.content_identity(candidate)
+    workspace = Path(dashboard.paths.workspace)
+    drafts = Path(dashboard.paths.mapping_drafts)
+    (drafts).mkdir(parents=True, exist_ok=True)
+    saved = drafts / 'mapping_candidate_ddm.json'
+    saved.write_text(json.dumps(candidate))
+    work = Path(job['work'])
+    assert work.is_dir() and (workspace / 'parameterizations' / 'records' / f'{content_hash}.json').is_file()
+
+    response = dashboard.client.delete(f'/api/bonded-parameterizations/{content_hash}',
+                                       json={'confirm': True, 'revision': 1})
+
+    assert response.status_code == 200, response.data
+    report = response.json
+    assert report['deleted'] is True and report['revisions'] == [1] and report['jobs'] == [job['id']]
+    assert not (workspace / 'parameterizations' / 'records' / f'{content_hash}.json').exists()
+    assert not work.exists()
+    # The model the user made is untouched, and so is the catalogue that lists it.
+    assert saved.is_file() and json.loads(saved.read_text())['beads'] == candidate['beads']
+
+
+def test_deleting_a_parameterization_needs_confirmation_and_a_revision_that_still_matches(dashboard):
+    """Two refusals, both about irreversibility: no confirmation, and a record that moved on since the panel read it."""
+    candidate = ddm_mapping()
+    fit(candidate)
+    content_hash = parameterization.content_identity(candidate)
+
+    without = dashboard.client.delete(f'/api/bonded-parameterizations/{content_hash}', json={})
+    assert without.status_code == 400 and 'requires confirmation' in without.json['error']
+
+    stale = dashboard.client.delete(f'/api/bonded-parameterizations/{content_hash}',
+                                    json={'confirm': True, 'revision': 9})
+    assert stale.status_code == 409 and 'reload it before deleting' in stale.json['error']
+
+    # A second fit makes revision 2 current, so a panel still holding revision 1 is stale by this rule.
+    fit(candidate)
+    current = parameterization.summary(candidate)['revision']
+    assert current == 2
+    held = dashboard.client.delete(f'/api/bonded-parameterizations/{content_hash}',
+                                   json={'confirm': True, 'revision': 1})
+    assert held.status_code == 409
+    assert parameterization.one(content_hash)['revision'] == 2, 'nothing was deleted by a refused call'
+
+
+def test_deleting_a_parameterization_that_does_not_exist_is_not_an_error(dashboard):
+    """Idempotent, like the store's own delete: a caller asking about absence is answered, not faulted."""
+    response = dashboard.client.delete(f'/api/bonded-parameterizations/{"e" * 64}', json={'confirm': True})
+
+    assert response.status_code == 200
+    assert response.json['deleted'] is False and response.json['revisions'] == []

@@ -60,10 +60,13 @@ whose check passes.
 editor's confirm said a mapping's bonded states were *not* deleted; `mappings.delete_draft` deletes them unless another
 saved mapping carries the same content hash, and removes the fit jobs and staged frames too. It now states that, and the
 notice afterwards reports what the route's answer says went -- the revision count, or who still holds the content. The
-CG Bond Interactions panel gained "Delete this mapping" beside the fit, on the same `DELETE /api/mappings/drafts/<name>`
-route: it warns with the count that panel has already read, refuses while a fit of that mapping runs, is offered only for
-a saved mapping (a `composition:<id>` entry is not one), and after deleting re-reads the catalogue, selects the next
-mapping and says which -- or empties the panel when none is left.
+CG Bond Interactions panel gained a delete control beside the fit. It was first wired to the editor's own route, so it
+deleted the *mapping*; on 2026-10-21 the user made it what the panel is about -- **Delete this parameterization**
+(`DELETE /api/bonded-parameterizations/<content_hash>`), which takes the revisions, the fits that produced them, their
+work and the recorded histograms, and leaves the saved mapping alone. It warns with the count the panel has read,
+refuses while a fit of that model runs, is enabled only when the model holds a revision (and only for a saved mapping --
+a `composition:<id>` entry is not one), and after deleting re-reads that model's record and says the mapping is
+untouched.
 
 **Live state, 2026-10-21: the DDM model's revision 1 holds 13 histograms, not 68.** It was fitted at 11:04:49 HKT,
 inside the twelve minutes between `68847f2` (10:59:54, which copied the bonded family) and `48e62a2` (11:12:13, which
