@@ -14,6 +14,8 @@ import re
 
 from playwright.sync_api import expect
 
+from . import panels
+
 # The labels the plan says go: each is a control `pdc.validate_payload` does not read.
 DROPPED = ('Run type', 'Method', 'AA reference source', 'Bonded parameters')
 # And the ids of the controls that carried them, which must not be in this page's document at all.
@@ -34,10 +36,7 @@ CATALOG = {
 
 
 def open_panel(page, base_url):
-    page.goto(f'{base_url}/protein-detergent/new-run')
-    page.get_by_role('tab', name='New run', exact=True).click()
-    # The detergent list is the panel's first fetch, and every other claim here needs it to have landed.
-    page.wait_for_function("() => document.querySelectorAll('#new-detergent option').length > 1", timeout=30000)
+    return panels.open_pdc_new_run(page, base_url)
 
 
 def serve_catalogue(page, proteins=None):

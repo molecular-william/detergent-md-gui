@@ -14,6 +14,8 @@ import re
 
 from playwright.sync_api import expect
 
+from . import panels
+
 PROTEIN = {'id': 'workspace/dashboard/proteins/4iar.pdb', 'name': '4iar',
            'path': 'workspace/dashboard/proteins/4iar.pdb', 'source': 'imported',
            'half_thickness_nm': 1.68, 'chains': ['A']}
@@ -79,12 +81,7 @@ def serve(page, body, requests=None):
 
 
 def open_panel(page, base_url, *, protein=PROTEIN['id']):
-    page.goto(f'{base_url}/protein-detergent/new-run')
-    page.get_by_role('tab', name='New run', exact=True).click()
-    page.wait_for_function("() => document.querySelectorAll('#new-protein option').length > 1", timeout=30000)
-    if protein:
-        page.locator('#new-protein').select_option(protein)
-        page.wait_for_function("() => document.querySelectorAll('[name=protein_chains]').length > 0", timeout=30000)
+    return panels.open_pdc_new_run(page, base_url, protein=protein, chains=True)
 
 
 def test_the_panel_offers_the_step_with_its_off_state_and_the_workflow_says_so(dashboard, live_page):

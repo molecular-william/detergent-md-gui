@@ -21,6 +21,8 @@ from urllib.parse import unquote
 
 from playwright.sync_api import expect
 
+from . import panels
+
 TRIMER = {'id': 'molecules/1at9/1at9.pdb', 'name': '1at9', 'path': 'molecules/1at9/1at9.pdb',
           'source': 'imported', 'half_thickness_nm': 1.5, 'chains': ['A', 'B', 'C']}
 CATALOG = {
@@ -77,12 +79,7 @@ def serve(page, asked=None):
 
 
 def open_panel(page, base_url, *, protein=TRIMER['id']):
-    page.goto(f'{base_url}/protein-detergent/new-run')
-    page.get_by_role('tab', name='New run', exact=True).click()
-    page.wait_for_function("() => document.querySelectorAll('#new-detergent option').length > 1", timeout=30000)
-    page.wait_for_function("() => document.querySelectorAll('#new-protein option').length > 1", timeout=30000)
-    if protein:
-        page.locator('#new-protein').select_option(protein)
+    return panels.open_pdc_new_run(page, base_url, protein=protein)
 
 
 def ticks(page):

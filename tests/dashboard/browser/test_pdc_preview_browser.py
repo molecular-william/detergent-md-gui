@@ -30,6 +30,8 @@ from playwright.sync_api import expect
 from dashboard.execution.adapters import pdc_view
 from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_PLACEMENT, ddm_moleculetype
 
+from . import panels
+
 #: Martini 3's classes in nanometres, from `models/sugars/recognition.py`'s `RADII_NM`, written out so the preview's
 #: measurement and the model's table cannot drift.
 RADII_NM = {'R': 0.264, 'S': 0.230, 'T': 0.191}
@@ -157,12 +159,7 @@ def serve_raw(page, body):
 
 
 def open_panel(page, base_url, *, protein=PROTEIN['id']):
-    page.goto(f'{base_url}/protein-detergent/new-run')
-    page.get_by_role('tab', name='New run', exact=True).click()
-    page.wait_for_function("() => document.querySelectorAll('#new-detergent option').length > 1", timeout=30000)
-    if protein:
-        page.wait_for_function("() => document.querySelectorAll('#new-protein option').length > 1", timeout=30000)
-        page.locator('#new-protein').select_option(protein)
+    return panels.open_pdc_new_run(page, base_url, protein=protein)
 
 
 def derive(page):

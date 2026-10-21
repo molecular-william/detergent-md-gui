@@ -51,3 +51,24 @@ def serve_files(page, *pairs):
     """
     for pattern, payload in pairs:
         serve_json(page, pattern, payload)
+
+
+def open_pdc_new_run(page, base_url, *, protein=None, chains=False):
+    """The protein-detergent *New run* panel, mounted with the lists its own claims need.
+
+    Seven files opened this panel with the same four lines and one real difference -- whether they go on to choose a
+    protein, and whether they then need that choice's chains. The detergent list is the panel's first fetch; the protein
+    list is the catalogue's answer to the workspace, awaited only when a case chooses from it, because a run with no
+    protein is a case these tests cover.
+    """
+    def ready(page):
+        page.wait_for_function("() => document.querySelectorAll('#new-detergent option').length > 1", timeout=30000)
+        if protein is None:
+            return
+        page.wait_for_function("() => document.querySelectorAll('#new-protein option').length > 1", timeout=30000)
+        page.locator('#new-protein').select_option(protein)
+        if chains:
+            page.wait_for_function("() => document.querySelectorAll('[name=protein_chains]').length > 0",
+                                   timeout=30000)
+
+    return open_panel(page, base_url, '/protein-detergent/new-run', tab='New run', ready=ready)

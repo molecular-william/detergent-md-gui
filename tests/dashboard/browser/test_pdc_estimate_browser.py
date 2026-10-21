@@ -14,6 +14,8 @@ from urllib.parse import unquote, urlsplit
 
 from playwright.sync_api import expect
 
+from . import panels
+
 # The catalogue and the mapping list the panel reads: one protein and one saved mapping, so both questions the
 # route needs can be asked.
 PROTEIN = {'id': 'molecules/1qj8/1qj8.pdb', 'name': '1qj8', 'path': 'molecules/1qj8/1qj8.pdb',
@@ -72,14 +74,7 @@ def serve(page, body, catalog=None):
 
 
 def open_panel(page, base_url, *, protein=PROTEIN['id']):
-    page.goto(f'{base_url}/protein-detergent/new-run')
-    page.get_by_role('tab', name='New run', exact=True).click()
-    # The detergent list is the panel's first fetch, and every claim here needs it to have landed.
-    page.wait_for_function("() => document.querySelectorAll('#new-detergent option').length > 1", timeout=30000)
-    if protein:
-        # The protein list is the catalogue's answer; it is awaited so a case can choose from it.
-        page.wait_for_function("() => document.querySelectorAll('#new-protein option').length > 1", timeout=30000)
-        page.locator('#new-protein').select_option(protein)
+    return panels.open_pdc_new_run(page, base_url, protein=protein)
 
 
 def move_count(page, value):
