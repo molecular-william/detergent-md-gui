@@ -115,6 +115,41 @@ def cg_topology(root, name=None):
                      + ', '.join(path.name for path in found))
 
 
+def rank_model(paths):
+    """The CG model among a run's ITPs, best first: the fitted interaction topology, the draft, then the rest.
+
+    A fitted stage directory holds several -- the reference the mapping was fitted against, a coordinate seed, and the
+    model the simulation was built from -- and taking the first by name has already picked a seed, silently fitting
+    against a different parameter set. One ranking, because three modules used to spell it out and only one of them
+    also handled the names this does not know.
+    """
+    return sorted(paths, key=lambda path: (0 if path.stem.endswith('_ff_inter') else
+                                           1 if path.stem.endswith('_initial') else 2, path.name))
+
+
+def model_topology(work, name=None):
+    """The topology an analysis reads out of a job's working directory, with where it came from.
+
+    `name` is the file the run recorded (`cg_names`), which is the answer when there is one. Without it, the ranking
+    above decides and the provenance says which step produced the file; a directory holding neither a fit nor a draft
+    falls back to the one-topology rule, which refuses ambiguity by naming what it found rather than guessing.
+    """
+    work = Path(work)
+    if name is not None:
+        return cg_topology(work, name), 'the topology this run recorded'
+    found = [path for directory in _spellings(work, CG_TOPOLOGY_DIR)
+             for path in sorted(directory.glob(CG_TOPOLOGY_PATTERN))
+             if not path.name.startswith(CG_TOPOLOGY_EXCLUDED)]
+    ranked = rank_model(found)
+    if ranked:
+        best = ranked[0]
+        provenance = ('the Fast_Forward fit' if best.stem.endswith('_ff_inter')
+                      else 'the draft geometry, because no fit has been run for this job')
+        return best, provenance
+    # The sentence the two readers already answered with, kept: it says what is missing from the run, not from a glob.
+    raise ValueError('no topology to compare: neither a fit nor a draft is in this run')
+
+
 def _any_present(root, role):
     return any(_present(root, relative) for relative in candidates(role))
 

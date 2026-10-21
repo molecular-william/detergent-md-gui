@@ -19,6 +19,8 @@ from pathlib import Path
 import MDAnalysis as mda
 import numpy as np
 
+from . import layout
+
 R_GAS = 8.314462618  # J / mol / K
 DEFAULT_CONSTRAINT_THRESHOLD = 10000.0
 DEFAULT_TEMPERATURE = 303.15
@@ -166,14 +168,7 @@ def cross_check(work, payload=None):
     names = list(universe.atoms.names)
     residue = str(universe.residues[0].resname)
 
-    fit = sorted((work / '3_initial_CG').glob('*_ff_inter.itp'))
-    drafted = sorted((work / '3_initial_CG').glob('*initial*.itp'))
-    if fit:
-        topology, provenance = fit[0], 'the Fast_Forward fit'
-    elif drafted:
-        topology, provenance = drafted[0], 'the draft geometry, because no fit has been run for this job'
-    else:
-        raise ValueError('no topology to compare: neither a fit nor a draft is in this run')
+    topology, provenance = layout.model_topology(work)
     terms = read_topology_terms(topology)
 
     # The topology's indices are positions in the coordinate file it is applied to, so the bead names come from the

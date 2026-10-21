@@ -31,6 +31,8 @@ from pathlib import Path
 import MDAnalysis as mda
 import numpy as np
 
+from . import layout
+
 REPORT = 'bartender-fit.json'
 #: A fit reads a trajectory; it does not simulate. Minutes, not hours, and a task that never returns is worse than one
 #: that fails.
@@ -146,8 +148,7 @@ def model_topology(candidates: list[Path]) -> Path | None:
     A run that consumed its model's own parameterization writes the same two files under the same two names -- the
     terms as the engine produced them, and the model the run simulates -- so this ranking finds the model there too.
     """
-    ordered = sorted(candidates, key=lambda path: (0 if path.stem.endswith('_ff_inter') else
-                                                   1 if path.stem.endswith('_initial') else 2, path.name))
+    ordered = layout.rank_model(candidates)
     return ordered[0] if ordered else None
 
 

@@ -23,6 +23,8 @@ from pathlib import Path
 import MDAnalysis as mda
 import numpy as np
 
+from . import layout
+
 R_GAS = 8.314462618  # J / mol / K
 DEFAULT_BINS = 60
 DEFAULT_WINDOW = 9
@@ -319,14 +321,7 @@ def publish(work, payload=None):
     universe = mda.Universe(str(work / '2_mapping/mapped.gro'), str(work / '2_mapping/mapped.xtc'))
     names = list(universe.atoms.names)
 
-    fit = sorted((work / '3_initial_CG').glob('*_ff_inter.itp'))
-    drafted = sorted((work / '3_initial_CG').glob('*initial*.itp'))
-    if fit:
-        topology, provenance = fit[0], 'the Fast_Forward fit'
-    elif drafted:
-        topology, provenance = drafted[0], 'the draft geometry, because no fit has been run for this job'
-    else:
-        raise ValueError('no topology to compare: neither a fit nor a draft is in this run')
+    topology, provenance = layout.model_topology(work)
     declared = read_declared_dihedrals(topology)
 
     frames = slice(int(payload.get('start', 0)), payload.get('stop'), int(payload.get('stride', 1)))
