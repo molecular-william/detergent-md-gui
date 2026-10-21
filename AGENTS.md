@@ -111,6 +111,10 @@ them.
 
 ## Engineering rules
 - Test against fixtures, never the developer's workspace; build the record through the route the UI uses.
+- Shared test fixtures hold the *construction*, never the meaning: `tests/dashboard/pdc_fixtures.py` (molecule tree,
+  prepared pdc run, template bodies, gro/PDB writers) and `tests/dashboard/browser/panels.py` (`open_panel`,
+  `serve_json`). A file keeps its arguments -- settings, stage, mount signal -- because thirteen copies had already
+  drifted on seed and aggregation number, and two on a `gro` column layout.
 - Trace inputs, state transitions, outputs and failure handling before editing.
 - Keep force-field and tool versions and exact commands in run metadata; never silently overwrite a run.
 - Validate uploaded structures, detergent definitions, resource limits and paths at trust boundaries.
@@ -148,14 +152,14 @@ them.
 
 ## Verify
 ```
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast: 1,792, ~18 s with a private MPLCONFIGDIR
-dashboard/.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser: 230, ~43 s
+dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast: 1,837, ~19 s with a private MPLCONFIGDIR
+dashboard/.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser: 235, ~45 s
 dashboard/.venv/bin/python -m pytest -m slow -q -n 0                       # slow: 66, ~64 s serial
 dashboard/.venv/bin/ruff check dashboard tests                             # F, E9, I must exit 0
 scripts/gate_commit.sh <message-file> <paths...>                           # fast tier + ruff over named paths; commits only when clean
 dashboard/.venv/bin/python scripts/mutation_check.py                       # 11 mutants: 10 caught, 1 survived (the control)
 ```
-The suite is 2,081 tests (1,792 + 223 + 66). A shared matplotlib config directory makes four distance-diagnostic
+The suite is 2,138 tests (1,837 + 235 + 66). A shared matplotlib config directory makes four distance-diagnostic
 tests race, so export a private `MPLCONFIGDIR` before running the tier, gate included. Repo-wide `ruff check .` exits
 1 on 19 pre-existing `micelle/` findings; scope lint to the paths you touched.
 
