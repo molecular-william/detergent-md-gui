@@ -65,6 +65,17 @@ route: it warns with the count that panel has already read, refuses while a fit 
 a saved mapping (a `composition:<id>` entry is not one), and after deleting re-reads the catalogue, selects the next
 mapping and says which -- or empties the panel when none is left.
 
+**The baseline was misplaced, not missing, `68847f2`.** The fit that produced revision 1 of the arm-B mapping had
+already measured its reference's interaction histograms -- 13 files (4 bonds, 8 angles, 1 dihedral, the ITP's own
+counts) in `parameterizations/work/10c31894...-dbc366ae772b/3_initial_CG` -- alongside 55 distance files. The
+consuming path copied only the topology, so stage 5 looked in `3_initial_CG` (its `-d`) and found nothing. What landed:
+`save(..., work=)` copies and hashes them beside the revision, `distributions()` reads them back,
+`cg.prepare` stages them into `3_initial_CG` (verifying each digest, writing `distributions.json`, naming them in
+`bonded.reference_distributions`), `use_parameterization.py` re-checks and records them, `delete()` takes them with the
+mapping. A revision with none is refused **at prepare** rather than after a simulation, with bartender named separately
+because re-fitting with bartender would change nothing. The existing revision 1 predates this and records none -- the
+remedy is a re-fit (30 s), which appends revision 2; runs that already recorded the old digest keep it.
+
 **A run of this type died in assessment, and its progress bar counted nothing, `194ee69`.** Run `255eb0750d60`
 (DDM, AA–CG, 100 ns, consumed `dbc366ae772b`) failed in stage 5 after 131 s: `report_interactions.out` says
 `Overall Score : nan ± nan` with empty `bonds`/`angles`/`dihedrals` sections, and `validate_run.py` refuses nonfinite
@@ -73,9 +84,7 @@ to the default value": it scores a CG trajectory against **pre-computed referenc
 *consumed* a parameterization never produces them -- the in-run fitting path leaves `*_distr.dat` in `3_initial_CG/`
 (which is why runs `22075892b606` and `a2a457cf9413` completed with the same `-d ../3_initial_CG` line), and
 `use_parameterization.sh` does not. Nothing in this workspace holds them for `dbc366ae772b` either: AA-only runs have no
-assessment stage. **The fix is to produce the AA reference's interaction distributions for the consuming path** (the
-same tool on `$AA_REFERENCE_DIR`'s trajectory, written where stage 5's `-d` points), which is its own slice: it costs
-one pass over the 200 ns reference.
+assessment stage. **The fix is a copy, not a re-measurement, and it landed in `68847f2`** -- see the entry below.
 
 Progress: the run card had an ETA from GROMACS' log and no fraction, because a three-leg script stage (min, eq, md)
 gives GROMACS' "remaining wall clock time" for one leg and `assess.sh` prints no step at all. `web/progress.py` now

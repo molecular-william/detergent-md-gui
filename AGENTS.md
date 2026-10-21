@@ -65,9 +65,11 @@ them.
   (`assess.sh`) prints no step at all. It streams the log -- leg markers stand at the start of legs -- and reports
   `percent: null` (indeterminate) rather than 0 when a leg has not printed yet.
 - **`ff_assess` scores against pre-computed reference distributions (`<group>_<type>_distr.dat` in its `-d` directory)
-  and does not make them.** The in-run fitting path leaves them in `3_initial_CG/`; a run that *consumes* a
-  parameterization does not, so its assessment reports `Overall Score: nan` and `validate_run.py` refuses it -- the
-  failure of run `255eb0750d60`.
+  and does not make them.** `refine_bonded` writes them while fitting, so `parameterization.save` copies and hashes them
+  beside the revision (`records/<content>.revisions/<n>/`), `cg.prepare` stages them into `3_initial_CG` for a
+  consuming run, and a revision that records none is refused at prepare, naming bartender when that engine is why. A
+  run that reached stage 5 without them scored `nan` on every interaction -- the failure of run `255eb0750d60`; a
+  revision fitted before this records none, so it needs a re-fit.
 - **`ff_inter` writes `funct 9`, not `funct 1`**: one `phi C mult` triplet per line, eight lines for one quadruple, so
   eight lines are one dihedral with eight harmonics. A reader that assumes `funct 1` refuses the topology; one that
   treats each line as a dihedral measures the same torsion eight times. `dihedral_fit.read_declared_dihedrals` merges
