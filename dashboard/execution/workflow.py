@@ -408,16 +408,22 @@ class Cancelled(RuntimeError):
     pass
 
 
+SKIPPED_EXIT_CODE = 4
+
+
 class Skipped(RuntimeError):
     """A stage that had nothing to do.
 
     The contract's fourth outcome. A stage exits `SKIPPED_EXIT_CODE` and writes `skip.json` beside its script with the
     reason; the run records `skipped` and carries on, because nothing was attempted and nothing is owed. A protein-free
     complex run reaches the back-map, which aligns a protein and therefore has none to align.
+
+    The code travels on the exception. `attempt` records a terminal `exit_code` from `returncode` when an exception
+    carries one, and a skipped stage used to record none -- so the record disagreed with the contract that says
+    `skipped = exit 4`, and a reader could not tell this skip from a stage that never ran.
     """
 
-
-SKIPPED_EXIT_CODE = 4
+    returncode = SKIPPED_EXIT_CODE
 
 
 def skip_reason(stage_dir, name):

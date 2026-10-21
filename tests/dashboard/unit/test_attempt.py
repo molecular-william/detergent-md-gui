@@ -91,4 +91,7 @@ def test_a_skipped_stage_is_recorded_and_the_loop_can_go_on():
 
     assert record['status'] == 'skipped', 'recorded, so a reader of the manifest sees what happened'
     assert 'no protein' in record['error'], 'with the stage\'s own reason, not an exit code'
+    # The contract says `skipped = exit 4`; the record used to carry no code at all, so a skip could not be told
+    # from a stage that never ran. The exception carries it now, and `attempt` records what it carries.
+    assert record['exit_code'] == 4, 'the fourth outcome is an exit code, not only a word'
     assert calls[-1]['status'] == 'skipped' and 'completed' not in [call.get('status') for call in calls]
