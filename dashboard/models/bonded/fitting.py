@@ -486,7 +486,8 @@ def execute(job_id, *, mapping, loaded=None, reference=None, runner=None, timeou
         'checks': checks,
         'notes': extra.get('notes') or [],
     }
-    revision = parameterizations.save(mapping, payload, expected_revision=record.get('expected_revision'))
+    revision = parameterizations.save(mapping, payload, expected_revision=record.get('expected_revision'),
+                                      work=record.get('work'))
     _finished(job_id, 'save', f'revision {revision["revision"]}')
     return _update(job_id, status='completed', ended_at=files.now_iso(), error=None,
                    revision=revision['revision'],

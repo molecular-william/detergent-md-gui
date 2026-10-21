@@ -141,7 +141,8 @@ def test_deleting_a_parameterization_that_is_not_there_is_not_an_error():
     """Idempotent: a hash with no record answers what it removed, which is nothing."""
     content = 'd' * 64
     empty = parameterization.delete(content)
-    assert empty == {'content_hash': content, 'deleted': False, 'revisions': [], 'jobs': [], 'work': []}
+    assert empty == {'content_hash': content, 'deleted': False, 'revisions': [], 'jobs': [], 'work': [],
+                     'distributions': None}
 
     candidate = mapping()
     parameterization.save(candidate, revision())

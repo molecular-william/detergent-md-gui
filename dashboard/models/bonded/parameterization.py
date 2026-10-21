@@ -20,6 +20,7 @@ and BARTENDER takes forty seconds against one trajectory and four hundred agains
 """
 from __future__ import annotations
 
+import hashlib
 import itertools
 import json
 import math
@@ -64,6 +65,11 @@ DEFAULT_TEMPERATURE = 300.0
 
 _OPTION_KEYS = ('constraints_threshold', 'temperature_k', 'torsion_model', 'torsion_scale')
 
+#: The AA reference's own interaction histograms: what `ff_assess` scores a CG run *against*. `refine_bonded` measures
+#: them in order to fit, and leaves them in its working directory; `ff_assess` reads them from its `-d` directory and
+#: never computes them, which is why a run that consumes a parameterization needs them copied into the run.
+DISTRIBUTION = re.compile(r'.+_(?:bonds|angles|dihedrals)_distr\.dat$')
+
 
 def storage_root() -> Path:
     """Where parameterization records live: one directory beside the mapping drafts.
@@ -102,6 +108,37 @@ def _path(mapping) -> Path:
         return path
     legacy = records_root() / f'{mappings.legacy_content_identity(mapping)}.json'
     return legacy if legacy.is_file() else path
+
+
+def revisions_root(content_hash) -> Path:
+    """Where a mapping's recorded reference distributions live: one directory per revision, beside its record."""
+    return records_root() / f'{_validate_id(content_hash)}.revisions'
+
+
+def _record_distributions(content, revision, work):
+    """Copy this fit's reference histograms beside the revision, hashed, and say which files they are.
+
+    A working directory is scratch -- `delete` removes it with the mapping -- and a re-fit overwrites it, so leaving the
+    baseline there would make a run's score depend on a folder that can change underneath it. Copying them with the
+    revision makes "the baseline this model was fitted to" a fact the record states, and a run that consumes the
+    revision carries its own copy.
+    """
+    if work is None:
+        return None
+    source = Path(work) / '3_initial_CG'
+    if not source.is_dir():
+        return None
+    found = sorted(path for path in source.iterdir() if path.is_file() and DISTRIBUTION.match(path.name))
+    if not found:
+        return None
+    target = revisions_root(content) / str(revision)
+    target.mkdir(parents=True, exist_ok=True)
+    listing = []
+    for path in found:
+        data = path.read_bytes()
+        (target / path.name).write_bytes(data)
+        listing.append({'name': path.name, 'sha256': hashlib.sha256(data).hexdigest()})
+    return {'directory': str(target.relative_to(storage_root())), 'files': listing}
 
 
 def identities(mapping) -> dict:
@@ -251,7 +288,8 @@ def delete(content_hash) -> dict:
     that reported a guess would be reporting a guess.
     """
     content = _validate_id(content_hash)
-    removed = {'content_hash': content, 'deleted': False, 'revisions': [], 'jobs': [], 'work': []}
+    removed = {'content_hash': content, 'deleted': False, 'revisions': [], 'jobs': [], 'work': [],
+               'distributions': None}
     path = records_root() / f'{content}.json'
     if path.is_file():
         try:
@@ -263,6 +301,10 @@ def delete(content_hash) -> dict:
             revisions = []
         path.unlink()
         removed.update(deleted=True, revisions=revisions)
+    revisions = revisions_root(content)
+    if revisions.is_dir():
+        shutil.rmtree(revisions)
+        removed['distributions'] = revisions.name
     removed['jobs'] = _delete_jobs(content)
     removed['work'] = _delete_work(content)
     removed['deleted'] = removed['deleted'] or bool(removed['jobs'] or removed['work'])
@@ -416,12 +458,16 @@ def validate(payload) -> dict:
     return dict(payload, checks=checks, sources=None, scientifically_validated=False)
 
 
-def save(mapping, payload, *, expected_revision=None) -> dict:
+def save(mapping, payload, *, expected_revision=None, work=None) -> dict:
     """Append a revision and make it current, refusing a stale writer.
 
     `expected_revision` is the optimistic check the panel needs and the reason revisions are numbered
     rather than replaced: two fits started from the same strip must not silently make the later one
     the only one.
+
+    `work` is the directory the fit ran in. When it holds the AA reference's interaction histograms
+    (`refine_bonded` writes them while fitting), they are copied beside the revision and hashed into it,
+    so the baseline a later run's assessment scores against belongs to the model rather than to scratch.
     """
     record = document(mapping)
     if expected_revision is not None and int(expected_revision) != record['revision']:
@@ -434,12 +480,31 @@ def save(mapping, payload, *, expected_revision=None) -> dict:
     checked['sources'] = term_sources(checked, mapping)
     revision = record['revision'] + 1
     item = {'revision': revision, 'created_at': files.now_iso(), **checked}
+    distributions = _record_distributions(checked['mapping_content_hash'], revision, work)
+    if distributions:
+        item['distributions'] = distributions
     record['revisions'].append(item)
     record['revision'] = revision
     record['current'] = item
     record['updated_at'] = files.now_iso()
     files.atomic_json(_path(mapping), record)
     return item
+
+
+def distributions(mapping, revision=None) -> dict | None:
+    """The revision's recorded reference histograms as an absolute directory and a hashed file list, or None.
+
+    None is an answer and not an error: a revision fitted before these were recorded, or by an engine that measured
+    none, carries no baseline -- and a run that needs one has to say so rather than score against nothing.
+    """
+    item = get(mapping, revision)
+    recorded = item.get('distributions')
+    if not isinstance(recorded, dict) or not recorded.get('files'):
+        return None
+    directory = Path(recorded.get('directory') or '')
+    if not directory.is_absolute():
+        directory = storage_root() / directory
+    return {'directory': directory, 'files': recorded['files'], 'revision': item['revision']}
 
 
 def make_current(mapping, revision) -> dict:

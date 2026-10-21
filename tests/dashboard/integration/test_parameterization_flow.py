@@ -71,6 +71,10 @@ def runner(command, cwd, *, env=None, timeout=None, job_id=None, log=None):
         (cwd / env['FINAL_ITP']).write_text(TOPOLOGY)
         (cwd / 'DDM_ff_inter.itp').write_text(TOPOLOGY)
         (cwd / 'bonded_fit.json').write_text(json.dumps({'temperature_k': 300.0}))
+        # `refine_bonded` measures the AA reference's own interaction histograms while fitting, and leaves them beside
+        # the topology; `save` records them with the revision and a consuming run stages them for the assessment.
+        for name in ('B01_B11_bonds_distr.dat', 'B01_B02_B05_angles_distr.dat'):
+            (cwd / name).write_text('0.005 0.0\n0.015 1.0\n')
     return None
 
 

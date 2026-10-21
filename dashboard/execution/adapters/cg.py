@@ -287,6 +287,40 @@ def stage_parameterization(directory: Path, data, *, names, molecule_root=None) 
         f'[ system ]\n{names.residue_name} draft\n[ molecules ]\n{names.residue_name} 1\n')
 
 
+def stage_distributions(directory, mapping_candidate=None):
+    """Copy the revision's reference histograms into stage 3, where stage 5's `-d` reads them.
+
+    `ff_assess` does not measure the reference: it reads `<group>_<type>_distr.dat` files from its `-d` directory and
+    scores the CG trajectory against them. A run that *fits* in-run leaves them in `3_initial_CG` as a by-product of
+    fitting; a run that *consumes* a parameterization copies only the topology, so without this its assessment finds
+    nothing for every interaction, averages no numbers, and reports `Overall Score : nan` -- a run that simulated for
+    an hour and cannot be scored. Refusing here, before any simulation, is the cheap place to say so.
+
+    Returns the files staged (name and digest), which the run's staged revision and manifest record.
+    """
+    recorded = parameterizations.distributions(mapping_candidate)
+    if not recorded:
+        engine = (parameterizations.current(mapping_candidate) or {}).get('engine')
+        if engine == 'bartender':
+            raise ValueError(
+                "This mapping's current parameterization was fitted by bartender, which does not measure the AA "
+                "reference's interaction distributions; the CG assessment scores against those files, so a run of "
+                'this model could not be assessed. Fit with fast-forward, which records them.')
+        raise ValueError(
+            "This mapping's current parameterization records no AA reference distributions, so the CG assessment "
+            'could not score a run of it. Re-fit the model (Fit this model), which measures and records them.')
+    listing = []
+    for entry in recorded['files']:
+        data = (recorded['directory'] / entry['name']).read_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != entry['sha256']:
+            raise ValueError(f'The recorded reference distribution {entry["name"]} does not match its digest; '
+                             'the parameterization store has been changed under it')
+        (directory / entry['name']).write_bytes(data)
+        listing.append({'name': entry['name'], 'sha256': digest})
+    return listing
+
+
 def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM', profile=AA_CG_PROFILE, settings=None, mapping_candidate=None, shared_reference=None, reference_root=None, molecule_snapshot=None, molecule_root=None):
     """Prepare one AA-to-CG run's stage directory.
 
@@ -335,9 +369,23 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     (run_dir / '2_mapping/draft-source.json').write_text(json.dumps(data, indent=2))
     cg = run_dir / '3_initial_CG'
     stage_parameterization(cg, data, names=names, molecule_root=molecule_root)
+    recorded = None
     if revision is not None:
         # The model's own terms, and the driver that writes them instead of fitting. `bonded.py` is
         # staged either way; the refinement is not, because nothing in this stage reads it.
+        # The revision's reference histograms are staged with it: `ff_assess` scores a CG trajectory against
+        # pre-computed `<group>_<type>_distr.dat` files in its `-d` directory and never makes them, and a run that
+        # consumes a model copies no such files from anywhere else -- which is how a run reaches stage 5 with nothing
+        # to score and reports `Overall Score : nan`. The staged copy is the run's own, so the baseline survives the
+        # parameterization being deleted.
+        recorded = stage_distributions(cg, mapping_candidate)
+        if recorded:
+            # The run's own inventory of what it copied, beside -- not inside -- the revision: the staged revision stays
+            # byte-for-byte the store's, so the digest the run records is the digest the store computes.
+            (cg / 'distributions.json').write_text(
+                json.dumps({'directory': '.', 'files': recorded, 'source':
+                            f"revision {(revision or {}).get('revision')} of this mapping's parameterization"},
+                           indent=2, sort_keys=True) + '\n')
         (cg / 'parameterization.json').write_text(json.dumps(revision, indent=2, sort_keys=True) + '\n')
         shutil.copy2(SCRIPTS / 'use_parameterization.py', cg / 'use_parameterization.py')
     sim = run_dir / '4_CG_sim'
@@ -392,6 +440,9 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
         'terms': parameterizations.total_terms(revision) if revision else None,
         'revision_sha256': parameterizations.revision_sha256(revision) if revision else None,
         'aa_reference': (revision or {}).get('aa_reference'),
+        # The baseline stage 5 scores against, copied into stage 3 from the revision: named here so a reader can see
+        # which histograms a run's numbers were measured against without opening the store.
+        'reference_distributions': [entry['name'] for entry in (recorded or [])],
         'source': ("the mapping's current parameterization"
                    if revision else 'fitted by this run, in stage 3, from the AA reference it consumes'),
     }

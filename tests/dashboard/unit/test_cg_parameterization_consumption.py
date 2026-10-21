@@ -16,6 +16,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from dashboard.execution.adapters import cg
 from dashboard.execution.adapters.cg_names import CGNames
 from dashboard.models import mappings
@@ -57,6 +59,26 @@ def another_mapping():
     return candidate
 
 
+def parameterizations_digest(path):
+    """The digest a recorded histogram is named by. Spelled out here so a drifted rule fails these tests."""
+    import hashlib
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def fitted(candidate, revision=None, files=('B01_B11_bonds_distr.dat', 'B01_B02_B05_angles_distr.dat')):
+    """Save a revision the way a real fit does: with the AA reference's histograms in its working directory.
+
+    `refine_bonded` measures them while fitting, and `parameterization.save` copies and hashes them beside the revision.
+    They are the baseline `ff_assess` scores a CG run against, so a run that consumes this revision stages them.
+    """
+    work = parameterization.work_root() / f'{parameterization.content_identity(candidate)}-{REFERENCE["source_run_id"]}'
+    stage = work / '3_initial_CG'
+    stage.mkdir(parents=True, exist_ok=True)
+    for name in files:
+        (stage / name).write_text('0.005 0.0\n0.015 1.0\n')
+    return parameterization.save(candidate, revision or REVISION, work=work)
+
+
 def prepared(tmp_path, monkeypatch, **arguments):
     """One real `prepare()` into a scratch run directory, with the outside world's two seams stubbed."""
     from dashboard.analysis.runs import references as aa_references
@@ -78,7 +100,7 @@ def test_a_model_with_a_parameterization_is_consumed_and_the_run_says_it_did_not
     """D5's first honest state. Stage 3 is a different script, and the stage it replaces is not there
     for a reader to mistake for what ran."""
     candidate = ddm_mapping()
-    parameterization.save(candidate, REVISION)
+    fitted(candidate)
     run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
 
     assert (run / '3_initial_CG/use_parameterization.sh').is_file()
@@ -100,7 +122,7 @@ def test_the_run_resolves_the_same_stage_plan_from_what_it_recorded(tmp_path, mo
     from dashboard.execution import protocol  # the coordinator's own reader
 
     candidate = ddm_mapping()
-    parameterization.save(candidate, REVISION)
+    fitted(candidate)
     consuming = prepared(tmp_path / 'consuming', monkeypatch, mapping_candidate=candidate)
     # A *different model* is what makes a run fit: the key is the mapping's content identity, so a
     # second prepared run of the same beads would consume the revision the first one left.
@@ -121,7 +143,7 @@ def test_the_assessment_stage_is_the_shape_of_the_fit_that_did_not_happen(tmp_pa
     """An atomistic reference distribution is a fit's output, so a run that did not fit has none and
     its assessment stage is declared without them -- and the run's own limitations say so."""
     candidate = ddm_mapping()
-    parameterization.save(candidate, REVISION)
+    fitted(candidate)
     run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
 
     _, inputs, _ = cg.stage_contract(CGNames.ddm_defaults(), parameterized=True)
@@ -153,15 +175,15 @@ def test_a_fit_against_another_reference_is_named_in_the_runs_own_limitations(tm
     """D4: the model's reference is the run's default, and a run that consumes a different one says so
     rather than presenting a fit of one ensemble beside a simulation of another."""
     candidate = ddm_mapping()
-    parameterization.save(candidate, REVISION)
+    fitted(candidate)
     run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
     limitations = ' '.join(manifest(run)['limitations'])
     assert 'do not share a reference' in limitations, 'the revision was fitted against a54ac8f64710'
 
     other = ddm_mapping()
     other['beads'] = copy.deepcopy(other['beads'])
-    parameterization.save(other, {**REVISION, 'aa_reference': {**REVISION['aa_reference'],
-                                                               'run_id': REFERENCE['source_run_id']}})
+    fitted(other, {**REVISION, 'aa_reference': {**REVISION['aa_reference'],
+                                                'run_id': REFERENCE['source_run_id']}})
     renamed = prepared(tmp_path / 'same', monkeypatch, mapping_candidate=other)
     assert 'do not share a reference' not in ' '.join(manifest(renamed)['limitations'])
 
@@ -171,15 +193,15 @@ def test_the_run_type_publishes_which_of_the_two_things_will_happen(tmp_path, mo
     fitting is stated next to the code that keeps it."""
     plain = cg._parameterization_state({'mapping_candidate': ddm_mapping()})
     candidate = ddm_mapping()
-    parameterization.save(candidate, REVISION)
-    fitted = cg._parameterization_state({'mapping_candidate': candidate})
+    fitted(candidate)
+    state = cg._parameterization_state({'mapping_candidate': candidate})
 
     assert plain['parameterized'] is False and plain['terms'] is None
     assert plain['statement'] == ('this model carries no parameterization -- the run will fit it in '
                                   'stage 3 and record that it did')
-    assert fitted['parameterized'] is True and fitted['revision'] == 1
-    assert fitted['engine_label'] == 'Fast-Forward fit (ff_inter)'
-    assert 'a54ac8f64710' in fitted['statement'] and 'does not re-fit' in fitted['statement']
+    assert state['parameterized'] is True and state['revision'] == 1
+    assert state['engine_label'] == 'Fast-Forward fit (ff_inter)'
+    assert 'a54ac8f64710' in state['statement'] and 'does not re-fit' in state['statement']
     assert 'No mapping is selected' in cg._parameterization_state({})['statement']
 
 
@@ -200,7 +222,7 @@ def test_a_record_the_run_cannot_read_is_a_blocker_and_not_a_promise_to_fit(tmp_
     """`prepare` refuses a corrupt record, so readiness must not answer "the run will fit it in
     stage 3": that is a promise the run cannot keep. The error is named instead."""
     candidate = ddm_mapping()
-    parameterization.save(candidate, REVISION)
+    fitted(candidate)
     path = parameterization.records_root() / f'{parameterization.content_identity(candidate)}.json'
     path.write_text('{not json')
     state = cg._parameterization_state({'mapping_candidate': candidate})
@@ -262,3 +284,110 @@ def test_the_consuming_script_still_locks_the_rings_and_builds_the_same_tpr():
     assert 'python prepare_ring_constraints.py' in executable
     assert any(line.startswith('gmx grompp') and '-c ../2_mapping/mapped.gro' in line for line in executable)
     assert not [line for line in executable if 'ff_inter' in line], 'nothing here fits anything'
+
+
+def test_the_fits_reference_histograms_are_recorded_with_the_revision(tmp_path):
+    """The baseline belongs to the model, not to a working directory: `save` copies it beside the revision, hashed.
+
+    A working directory is scratch -- deleting the mapping deletes it, and a re-fit overwrites it -- so a baseline left
+    there would let a run's score depend on a folder that can change underneath it.
+    """
+    candidate = ddm_mapping()
+    item = fitted(candidate)
+
+    recorded = parameterization.distributions(candidate)
+    assert item['distributions']['files'] and recorded['revision'] == 1
+    assert [entry['name'] for entry in recorded['files']] == ['B01_B02_B05_angles_distr.dat',
+                                                              'B01_B11_bonds_distr.dat']
+    for entry in recorded['files']:
+        path = recorded['directory'] / entry['name']
+        assert path.is_file()
+        assert parameterizations_digest(path) == entry['sha256']
+    # A revision fitted without a working directory records none, and says so by answering None rather than [].
+    plain = ddm_mapping()
+    plain['rings'][0]['scale'] = 1.2
+    parameterization.save(plain, {**REVISION, 'engine': 'bartender'})
+    assert parameterization.distributions(plain) is None
+
+
+def test_deleting_the_mapping_takes_the_recorded_histograms_and_reports_them(tmp_path):
+    candidate = ddm_mapping()
+    fitted(candidate)
+    content = parameterization.content_identity(candidate)
+    assert parameterization.revisions_root(content).is_dir()
+
+    removed = parameterization.delete(content)
+
+    assert removed['distributions'] == f'{content}.revisions'
+    assert not parameterization.revisions_root(content).exists()
+
+
+def test_the_consuming_run_stages_the_baseline_into_the_stage_the_assessment_reads(tmp_path, monkeypatch):
+    """`ff_assess` reads `<group>_<type>_distr.dat` from its `-d` directory and never computes them.
+
+    Stage 5 passes `-d ../3_initial_CG`, so that is where a consuming run's copy has to land -- and the run records
+    which files it staged, so a reader can see what its numbers were measured against.
+    """
+    candidate = ddm_mapping()
+    fitted(candidate)
+    run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
+
+    staged = run / '3_initial_CG'
+    inventory = json.loads((staged / 'distributions.json').read_text())
+    assert [entry['name'] for entry in inventory['files']] == ['B01_B02_B05_angles_distr.dat',
+                                                               'B01_B11_bonds_distr.dat']
+    for entry in inventory['files']:
+        assert (staged / entry['name']).is_file()
+        assert parameterizations_digest(staged / entry['name']) == entry['sha256']
+    assert manifest(run)['bonded']['reference_distributions'] == ['B01_B02_B05_angles_distr.dat',
+                                                                 'B01_B11_bonds_distr.dat']
+
+
+def test_a_model_with_no_recorded_baseline_is_refused_before_it_simulates(tmp_path, monkeypatch):
+    """The cheap place to fail. A run with no baseline simulates for an hour and then reports `Overall Score : nan`,
+    because stage 5 averages zero comparable interactions -- so `prepare` names the missing evidence instead."""
+    candidate = ddm_mapping()
+    parameterization.save(candidate, REVISION)
+
+    with pytest.raises(ValueError) as error:
+        prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
+
+    message = str(error.value)
+    assert 'records no AA reference distributions' in message
+    assert 'could not score a run of it' in message and 'Re-fit' in message
+
+    # An engine that measures none gets its own sentence: re-fitting with the same one would change nothing.
+    bartender = ddm_mapping()
+    bartender['rings'][0]['scale'] = 1.2
+    parameterization.save(bartender, {**REVISION, 'engine': 'bartender'})
+    with pytest.raises(ValueError) as engine_error:
+        prepared(tmp_path / 'bartender', monkeypatch, mapping_candidate=bartender)
+    assert 'fitted by bartender' in str(engine_error.value)
+    assert 'Fit with fast-forward' in str(engine_error.value)
+
+
+def test_the_consuming_stage_records_the_baseline_and_refuses_a_changed_one(tmp_path):
+    """The stage verifies what prepare staged, and names the file when it disagrees.
+
+    Defence in depth, and the place a reader looks for what the run's numbers will be measured against: the record the
+    stage writes is `parameterization_used.json`, so the baseline is named there beside the terms.
+    """
+    script = PROJECT_ROOT / 'dashboard/execution/scripts/use_parameterization.py'
+    stage = tmp_path / '3_initial_CG'
+    stage.mkdir()
+    (stage / 'parameterization.json').write_text(json.dumps({**REVISION, 'revision': 1}))
+    (stage / 'B01_B11_bonds_distr.dat').write_text('0.005 0.0\n')
+    record = {'directory': '.', 'files': [{'name': 'B01_B11_bonds_distr.dat',
+                                           'sha256': parameterizations_digest(stage / 'B01_B11_bonds_distr.dat')}]}
+    (stage / 'distributions.json').write_text(json.dumps(record))
+
+    subprocess.run([sys.executable, str(script)], cwd=stage, check=True,
+                   env={'PATH': '/usr/bin', 'FINAL_ITP': 'DDM.itp'})
+    written = json.loads((stage / 'parameterization_used.json').read_text())
+    assert written['reference_distributions'] == record['files']
+
+    (stage / 'B01_B11_bonds_distr.dat').write_text('0.005 9.9\n')
+    result = subprocess.run([sys.executable, str(script)], cwd=stage, env={'PATH': '/usr/bin', 'FINAL_ITP': 'DDM.itp'},
+                            capture_output=True, text=True)
+    assert result.returncode != 0 and 'does not match the digest' in result.stderr
+

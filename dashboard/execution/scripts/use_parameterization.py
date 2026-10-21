@@ -36,6 +36,25 @@ options = revision.get('options') or {}
 reference = revision.get('aa_reference') or {}
 ensemble = revision.get('ensemble') or {}
 
+# The AA reference's interaction histograms, copied in by the run's prepare. `ff_assess` scores a CG trajectory against
+# these files from its `-d` directory and never computes them, so a run without them simulates for an hour and then
+# reports `Overall Score : nan`. They are checked here, where the run's own stage can still say what is wrong, rather
+# than three stages later in a tool's stdout.
+inventory = Path('distributions.json')
+recorded = []
+if inventory.is_file():
+    for entry in (json.loads(inventory.read_text()).get('files') or []):
+        path = Path(entry['name'])
+        if not path.is_file():
+            raise FileNotFoundError(
+                f'the reference distribution {entry["name"]} is not staged beside this stage; '
+                'the run could not be scored against the AA reference it consumed')
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if digest != entry['sha256']:
+            raise ValueError(f'the reference distribution {entry["name"]} does not match the digest it was staged '
+                             'with; the run could not be scored against the AA reference it consumed')
+        recorded.append({'name': entry['name'], 'sha256': digest})
+
 final = Path(os.environ.get('FINAL_ITP', 'DDM.itp'))
 final.write_text(topology)
 Path(f'{final.stem}_ff_inter.itp').write_text(topology)
@@ -58,6 +77,9 @@ record = {
         {key: value for key, value in revision.items() if key != 'created_at'},
         sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest(),
     'checks_published_with_the_revision': sorted((revision.get('checks') or {}).keys()),
+    # What stage 5 will score this run against, named by the stage that consumed the model: the baseline is part of
+    # the model and travels with it, so a run's own record can say which histograms its numbers came from.
+    'reference_distributions': recorded,
     'scientifically_validated': False,
 }
 Path('parameterization_used.json').write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')
