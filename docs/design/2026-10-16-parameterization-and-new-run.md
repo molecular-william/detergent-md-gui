@@ -80,8 +80,9 @@ fitted parameter -- `Bond_Hooke_1-2.png`, `Angle_Hooke_1-2-4.png`, `CosAngle_*`,
 -- 29 files in 51 s; it exports no text histograms, bins at 0.001 nm / 1° / 10° and analyses bonded terms only, while
 `ff_assess` also scores every bead pair's distance distribution. Re-binning BARTENDER's internals into the assessor's
 histograms would therefore be a fiction, which is why the two remain separate and unification is postponed. Until
-BARTENDER's analysis exists, a bartender-parameterized mapping cannot be scored and `cg.prepare` refuses a run of it by
-name. Measured, for whoever builds it: `ff_assess -f mapped.xtc -s mapped.gro -i <model>.itp -d . -dists .` reproduces
+BARTENDER's analysis exists, a bartender-parameterized mapping cannot be scored -- but it *runs*: `prepare` writes an
+empty inventory carrying the reason, and stage 5 exits 4 with it so the run records `skipped` and completes. Refusing
+the run would discard an ensemble that is still evidence; a stage that had nothing to do says so instead. Measured, for whoever builds it: `ff_assess -f mapped.xtc -s mapped.gro -i <model>.itp -d . -dists .` reproduces
 `refine_bonded`'s 13 interaction histograms **byte for byte** in 7.8 s -- note `-dists` writes them and `-plot-data`
 does not -- so an independent measurement route is cheap but also redundant for Fast-Forward.
 

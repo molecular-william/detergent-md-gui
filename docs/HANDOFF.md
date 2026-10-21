@@ -72,8 +72,8 @@ postponed. Measured while deciding: with `-noplot` removed, BARTENDER writes one
 and analyses bonded terms only -- whereas `ff_assess` also scores every bead pair's distance distribution, so re-binning
 BARTENDER's internals into the assessor's bins would invent a comparison. Kept for whoever builds the bartender route:
 `ff_assess -f mapped.xtc -s mapped.gro -i <model>.itp -d . -dists .` reproduces `refine_bonded`'s 13 histograms byte for
-byte in 7.8 s (`-dists` writes them; `-plot-data` does not). Until then a bartender-parameterized mapping is refused at
-prepare, and the refusal now says the analysis is unbuilt rather than only naming the fix.
+byte in 7.8 s (`-dists` writes them; `-plot-data` does not). Until then a bartender-parameterized mapping cannot be scored -- and, at the user's
+request, it runs: the empty inventory carries the reason and the assessment records `skipped` with it.
 
 **The baseline was misplaced, not missing, `68847f2`.** The fit that produced revision 1 of the arm-B mapping had
 already measured its reference's interaction histograms -- 13 files (4 bonds, 8 angles, 1 dihedral, the ITP's own
@@ -82,8 +82,9 @@ consuming path copied only the topology, so stage 5 looked in `3_initial_CG` (it
 `save(..., work=)` copies and hashes them beside the revision, `distributions()` reads them back,
 `cg.prepare` stages them into `3_initial_CG` (verifying each digest, writing `distributions.json`, naming them in
 `bonded.reference_distributions`), `use_parameterization.py` re-checks and records them, `delete()` takes them with the
-mapping. A revision with none is refused **at prepare** rather than after a simulation, with bartender named separately
-because re-fitting with bartender would change nothing. The existing revision 1 predates this and records none -- the
+mapping. A revision with none still runs (`74c996a`): `prepare` writes an empty inventory carrying the reason -- bartender's
+own analysis is unbuilt, D6a -- and stage 5 exits 4 with it, so the run completes with the assessment `skipped` and the
+step's tooltip says why. The existing revision 1 predates this and records none -- the
 remedy is a re-fit (30 s), which appends revision 2; runs that already recorded the old digest keep it. One
 correction to the copy (`48e62a2`): it takes *every* `*distr.dat`, the tool's own glob, so the 55 distance histograms
 travel with the 13 interaction ones -- 68 files, 2.0 MB. A copy of the bonded family alone leaves the distance half of

@@ -69,9 +69,9 @@ them.
   beside the revision (`records/<content>.revisions/<n>/`, every `*distr.dat` -- the tool's own glob, so the distance
   histograms travel too; without them `ff_assess` skips each pair and scores it **0.00**, which reads perfect),
   `cg.prepare` stages them into `3_initial_CG` for a
-  consuming run, and a revision that records none is refused at prepare, naming bartender when that engine is why. A
-  run that reached stage 5 without them scored `nan` on every interaction -- the failure of run `255eb0750d60`; a
-  revision fitted before this records none, so it needs a re-fit.
+  consuming run; a revision that records none still runs -- `prepare` writes an empty inventory with the reason and
+  stage 5 exits 4 with it (`skipped`), because a score it cannot take is not a reason to discard the simulation. A run
+  that reached stage 5 without them scored `nan` on every interaction -- the failure of run `255eb0750d60`.
 - **`ff_inter` writes `funct 9`, not `funct 1`**: one `phi C mult` triplet per line, eight lines for one quadruple, so
   eight lines are one dihedral with eight harmonics. A reader that assumes `funct 1` refuses the topology; one that
   treats each line as a dihedral measures the same torsion eight times. `dihedral_fit.read_declared_dihedrals` merges
@@ -129,8 +129,9 @@ them.
   assessed by `ff_assess` against the reference histograms `refine_bonded` measures; BARTENDER's models get their own
   graphs, because its analysis is its own (per-parameter `Bond_Hooke`/`Angle_Hooke`/`Cosine`/`Ryckaert-Belleman` figures,
   0.001 nm / 1° / 10° bins, bonded terms only) and re-binning it into `ff_assess`'s histograms would be a fiction.
-  Unifying the two is postponed, not planned. Consequence to keep: a bartender-parameterized mapping cannot be scored,
-  so `cg.prepare` refuses it by name; do not "fix" that by routing bartender models through the Fast-Forward baseline.
+  Unifying the two is postponed, not planned. Consequence: a bartender-parameterized mapping **runs**; `prepare` writes
+  an empty inventory carrying the model's own sentence and stage 5 records `skipped` with it, so the run completes
+  without a score and says why. Do not "fix" that by routing bartender models through the Fast-Forward baseline.
 - CG production 20 fs, CG equilibration 5 fs, AA half 2 fs. `cg.mdp_integration` stamps the AA half's `dt`; the CG
   timestep is the templates' own (`4_CG_sim/inputs/md.mdp` 0.02, `eq.mdp` 0.005), read back per file.
 - This GROMACS is an MPI-only build: `-ntomp` is the knob, `-ntmpi` is invalid. In use:
