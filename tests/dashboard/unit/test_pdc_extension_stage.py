@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 from dashboard.execution.adapters import pdc
+from tests.dashboard.pdc_fixtures import prepared_run
 
 TEMPLATE = {
     'name': 'DDM',
@@ -21,25 +22,8 @@ TEMPLATE = {
 EXTENSION = Path(pdc.stage_by_name('CG extension MD').relative).parent
 
 
-def molecule_tree(tmp_path: Path) -> Path:
-    molecule = tmp_path / 'molecules' / 'DDM'
-    (molecule / 'results' / 'MMFF').mkdir(parents=True)
-    (molecule / 'results' / 'MMFF' / 'lig1.pdb').write_text('HETATM    1  C1  DDM A   1       0.000   0.000   0.000\n')
-    (molecule / 'results' / 'MMFF' / 'lig1.itp').write_text('[ moleculetype ]\nDDM             1\n')
-    (molecule / 'micelle_template.json').write_text(json.dumps(TEMPLATE))
-    (molecule / 'protein.pdb').write_text('ATOM      1  CA  ALA A   1       0.000   0.000   0.000\n')
-    return tmp_path
-
-
 def prepared(tmp_path: Path, **settings):
-    root = molecule_tree(tmp_path)
-    numbers = {'seed': 20260930, 'aggregation_number': 8, 'assessment_ns': 100, 'extension_ns': 900}
-    numbers.update(settings)
-    run = tmp_path / 'run'
-    run.mkdir()
-    pdc.prepare(run, protein='molecules/DDM/protein.pdb', template='molecules/DDM/micelle_template.json',
-                settings=numbers, project_root=root)
-    return run / EXTENSION
+    return prepared_run(tmp_path, settings={'assessment_ns': 100, 'extension_ns': 900} | settings, suffix=EXTENSION)
 
 
 def mdp_numbers(path: Path) -> dict:
