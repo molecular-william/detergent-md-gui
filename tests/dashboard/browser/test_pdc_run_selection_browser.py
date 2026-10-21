@@ -11,6 +11,8 @@ import re
 
 from playwright.sync_api import expect
 
+from . import panels
+
 PDB = ('REMARK 950 TEST\n'
        'HETATM    1 B01  PRO A   1       0.000   0.000   0.000  1.00  0.00           C\n'
        'HETATM    2 DD0  DET A   1       1.000   0.000   0.000  1.00  0.00           C\n'
@@ -33,7 +35,8 @@ JOBS = {'jobs': [
 
 def serve(page, jobs=None):
     """Answer the list and the two endpoints behind it, so the panel is armed by something real."""
-    page.route(re.compile(r'/api/jobs'), lambda route: route.fulfill(json=JOBS if jobs is None else jobs))
+    # The three structure routes are Playwright globs and stay globs; only the JSON answer goes through the fixture.
+    panels.serve_json(page, re.compile(r'/api/jobs'), JOBS if jobs is None else jobs)
     page.route('**/api/pdc/*/snapshots', lambda route: route.fulfill(json=INDEX))
     page.route('**/api/pdc/*/snapshots/**', lambda route: route.fulfill(body=PDB, content_type='text/plain'))
     page.route('**/api/pdc/*/system.pdb', lambda route: route.fulfill(body=PDB, content_type='text/plain'))

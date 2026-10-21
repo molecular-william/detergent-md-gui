@@ -15,8 +15,6 @@ and its tests keep calling `open_panel(page, live_page.base_url)` unchanged.
 """
 from __future__ import annotations
 
-import re
-
 
 def open_panel(page, base_url, path, *, tab=None, ready=None):
     """Navigate to `path`, optionally click a tab, then wait for the panel's own mount signal.
@@ -33,18 +31,19 @@ def open_panel(page, base_url, path, *, tab=None, ready=None):
 
 
 def serve_json(page, pattern, payload=None):
-    """Answer requests matching `pattern` -- a regex string, or a compiled pattern -- with JSON.
+    """Answer requests matching `pattern` with JSON.
 
-    `payload` is the body, or a callable taking the request when the answer depends on it -- a readiness probe asking
-    about a run this test has not built, for instance.
+    `pattern` is whatever `page.route` takes -- a glob string (`'**/api/pdc/*/snapshots'`) or a compiled regex -- and it
+    is passed through **unconverted**. Rewriting a glob into a regex is not a refactor: it changed which route answered
+    in one file here, and the panel's tests caught it by going red in three places at once.
+
+    `payload` is the body, or a callable taking the request when the answer depends on it.
     """
-    expression = pattern if hasattr(pattern, 'search') else re.compile(pattern)
-    page.route(expression, lambda route: route.fulfill(
-        json=payload(route.request) if callable(payload) else payload))
+    page.route(pattern, lambda route: route.fulfill(json=payload(route.request) if callable(payload) else payload))
 
 
 def serve_files(page, *pairs):
-    """Answer several GETs at once: `serve_files(page, (r'/api/a', body), (r'/api/b', other))`.
+    """Answer several GETs at once: `serve_files(page, (pattern, body), (pattern, other))`.
 
     A panel on mount asks for the catalogue, then the mappings, then readiness; stating them in one call says "these are
     the answers this panel receives" in one place instead of three consecutive `page.route` lines per file.

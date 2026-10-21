@@ -36,9 +36,9 @@ MAPPING_FILE = CANDIDATE['file']
 def serve(page, readiness=None):
     """The endpoints the panel reads, with the queue POST left alone so the real route answers it."""
     panels.serve_files(page,
-                       (r'/api/pdc/catalog', CATALOG),
-                       (r'/api/mappings\?', {'candidates': [CANDIDATE]}),
-                       (r'/api/readiness\?', readiness or {'ready': True, 'checks': [], 'blockers': []}))
+                       (re.compile(r'/api/pdc/catalog'), CATALOG),
+                       (re.compile(r'/api/mappings\?'), {'candidates': [CANDIDATE]}),
+                       (re.compile(r'/api/readiness\?'), readiness or {'ready': True, 'checks': [], 'blockers': []}))
 
 
 def capture_posts(page, posted):
