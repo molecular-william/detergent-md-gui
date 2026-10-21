@@ -209,6 +209,81 @@ def _empty(identities_) -> dict:
     return {**identities_, 'revision': 0, 'current': None, 'revisions': []}
 
 
+def owner_entry(mapping) -> dict:
+    """How a record names one of its mappings: the identity that separates two drafts, and a name to show."""
+    return {'mapping_hash': mappings.candidate_identity(mapping),
+            'name': mapping.get('name') or mapping.get('file')}
+
+
+def owners(record) -> list:
+    """The saved mappings this record's content belongs to, oldest claim first."""
+    listed = record.get('owners') if isinstance(record, dict) else None
+    return [item for item in listed or [] if isinstance(item, dict) and item.get('mapping_hash')]
+
+
+def owned_by(record, mapping) -> bool:
+    """Whether this mapping has claimed the record. A record nobody has claimed reads as everyone's."""
+    listed = owners(record)
+    return not listed or any(item['mapping_hash'] == owner_entry(mapping)['mapping_hash'] for item in listed)
+
+
+def claim(mapping) -> dict:
+    """Mark this mapping as one of the record's. Idempotent, and it does not touch the revisions.
+
+    Content identity is what addresses a parameterization, so two drafts that differ only in name are the same *model*
+    and one draft renamed is the same model too -- the store cannot tell those apart, and `claim` does not try to. What
+    it records is which saved mappings the content belongs to, which is what makes deletion a question with an answer
+    ("does any other mapping still carry this content?") instead of an assumption.
+    """
+    path = _path(mapping)
+    record = _read(path) if path.is_file() else {'mapping_hash': None, 'mapping_content_hash': content_identity(mapping),
+                                                'revision': 0, 'current': None, 'revisions': []}
+    entry = owner_entry(mapping)
+    listed = owners(record)
+    if any(item['mapping_hash'] == entry['mapping_hash'] for item in listed):
+        return record
+    # A legacy record named a mapping only through its revisions; the claim is the record's own list from here on.
+    record['owners'] = listed + [entry]
+    record['updated_at'] = files.now_iso()
+    files.atomic_json(path, record)
+    return record
+
+
+def release(content_hash, *, mapping=None, name=None) -> dict:
+    """Drop one claim on a record. The revisions stay while another claim does; the last one going removes them.
+
+    This is what deleting a saved draft asks for, and it takes either a mapping or the draft's name: `mappings.store`
+    removes the file before it asks, so by then only the name is left, and the record's own claim list is what remembers
+    the rest. A record that names no mapping is a legacy one and answers `why`, so the caller can fall back to asking the
+    drafts on disk instead of guessing.
+    """
+    content = _validate_id(content_hash)
+    path = records_root() / f'{content}.json'
+    if not path.is_file():
+        return {'content_hash': content, 'deleted': False, 'released': False}
+    record = _read(path)
+    listed = owners(record)
+    if not listed:
+        return {'content_hash': content, 'deleted': False, 'released': False, 'why': 'the record names no mapping'}
+    if mapping is not None:
+        target, label = owner_entry(mapping)['mapping_hash'], None
+    elif name is not None:
+        target, label = None, name
+    else:
+        raise ValueError('A release needs the mapping, or the saved name it went by')
+    remaining = [item for item in listed
+                 if not ((target is not None and item['mapping_hash'] == target) or (label is not None and item.get('name') == label))]
+    if len(remaining) == len(listed):
+        return {'content_hash': content, 'deleted': False, 'released': False, 'why': 'this mapping had not claimed it'}
+    if not remaining:
+        return delete(content)
+    record['owners'] = remaining
+    record['updated_at'] = files.now_iso()
+    files.atomic_json(path, record)
+    return {'content_hash': content, 'deleted': False, 'released': True,
+            'owners': [item.get('name') for item in remaining]}
+
+
 def empty_document(mapping) -> dict:
     """The document a mapping with no record answers with: no revisions, and nothing current."""
     return _empty(identities(mapping))
@@ -232,7 +307,9 @@ def document(mapping) -> dict:
     acceptable = {content, mappings.legacy_content_identity(mapping)}
     if record.get('mapping_content_hash') not in acceptable:
         raise ValueError('Parameterization record belongs to another mapping')
-    return record
+    # The claims travel with the document: the panel says which saved mappings this content's revisions belong to, and
+    # a reader that holds no mapping cannot otherwise tell a record nobody claimed from one claimed elsewhere.
+    return {**record, 'owners': owners(record)}
 
 
 def _read(path) -> dict:
@@ -483,6 +560,10 @@ def save(mapping, payload, *, expected_revision=None, work=None) -> dict:
     # carries the same two on every revision item, and they are what a hash-addressed reader answers
     # `matches` from without holding the mapping.
     checked.update(identities(mapping))
+    entry = owner_entry(mapping)
+    claimed = owners(record)
+    if not any(item['mapping_hash'] == entry['mapping_hash'] for item in claimed):
+        record['owners'] = claimed + [entry]
     checked['sources'] = term_sources(checked, mapping)
     revision = record['revision'] + 1
     item = {'revision': revision, 'created_at': files.now_iso(), **checked}

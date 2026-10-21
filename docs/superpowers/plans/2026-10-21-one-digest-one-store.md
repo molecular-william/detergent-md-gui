@@ -54,10 +54,13 @@ The fork, and its cost -- a decision, not work:
      own (a clone with no revisions), sharing only on an explicit "use this mapping's parameterization".
      Renames keep working; the invariant "one parameterization per mapping" holds by construction of the address.
 
-Recommendation: B, because it keeps the two properties the current design was built for -- a renamed candidate keeps its
+**Decided: B.** Implementation note from doing it: B's "the second mapping gets its own empty record" is not reachable
+while the address is the content hash and a copy is indistinguishable from a rename at the record's level. What B *can*
+state is the ownership itself. -- a renamed candidate keeps its
 revisions, and content-addressed revision data stays where it is -- while making ownership singular.
 
-- [ ] re-express ownership (mapping identity in the record, not only the content hash)
-- [ ] a mapping whose content matches another's does not inherit its revisions
-- [ ] delete-mapping cascade covers its own revisions, fits and work directories
+- [x] ownership on the record: `owners` claim list, `claim`, `release`, delete-by-claim  (this commit)
+- [ ] **blocked by design**: a copy and a rename are the same thing at the record's level while the address is the
+      content hash; separating them needs the editor's save path to say which it is (see the note above)
+- [x] delete-mapping cascade releases the claim, and the last claim takes revisions, fits and work  (this commit)
 - [ ] runs consuming a parameterization record which mapping it belonged to

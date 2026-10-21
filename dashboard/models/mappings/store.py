@@ -173,7 +173,7 @@ def delete_draft(name):
         raise KeyError(name)
     content = _draft_content_identity(path)
     path.unlink()
-    return {'deleted': name, 'parameterization': _forget_parameterization(content)}
+    return {'deleted': name, 'parameterization': _forget_parameterization(content, name)}
 
 
 def _draft_content_identity(path):
@@ -221,7 +221,7 @@ def _content_holders(content):
     return sorted(holders)
 
 
-def _forget_parameterization(content):
+def _forget_parameterization(content, name=None):
     """Delete the parameterization of `content` unless another saved mapping still carries it.
 
     The guard is the whole decision. Two saved drafts can hold identical content -- a copy under
@@ -233,12 +233,17 @@ def _forget_parameterization(content):
         return {'content_hash': None, 'deleted': False, 'retained_by': [], 'revisions': [],
                 'jobs': [], 'work': [],
                 'reason': 'the draft could not be read, so no content identity addresses its bond interactions'}
+    # Imported here and not at module scope: `bonded.parameterization` imports this package, and this
+    # module is imported while the package is still initialising.
+    from ..bonded import parameterization
+    # The record's own claim list is the authority: this draft drops its claim, and the revisions go when the last one
+    # does. A record written before claims existed has none to drop, and for that case the drafts on disk are asked.
+    outcome = parameterization.release(content, name=name)
+    if outcome.get('deleted') or outcome.get('released'):
+        return {**outcome, 'retained_by': outcome.get('owners', []), 'reason': None}
     holders = _content_holders(content)
     if holders:
         return {'content_hash': content, 'deleted': False, 'retained_by': holders, 'revisions': [],
                 'jobs': [], 'work': [],
                 'reason': 'another saved mapping still carries this content'}
-    # Imported here and not at module scope: `bonded.parameterization` imports this package, and this
-    # module is imported while the package is still initialising.
-    from ..bonded import parameterization
     return {**parameterization.delete(content), 'retained_by': [], 'reason': None}

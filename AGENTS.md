@@ -48,7 +48,9 @@ them.
   `-refit -owntraj`; every engine fits to an AA ensemble, so `aa_reference` is required -- and makes no MD. Deleting a
   saved mapping deletes its parameterizations (and the fit jobs and staged frames built for it) unless another saved
   mapping carries the same content hash, and that one route (`DELETE /api/mappings/drafts/<name>`, the editor's) says
-  what went with it. **The CG Bond Interactions panel deletes a parameterization, not a mapping**:
+  what went with it. The record carries the claim list (`owners`): a save claims the mapping, a draft delete releases
+  its claim, and the revisions go with the last claim -- `parameterization.release` is that decision, and a record
+  written before claims existed answers `why` so the store falls back to asking the drafts on disk. **The CG Bond Interactions panel deletes a parameterization, not a mapping**:
   `DELETE /api/bonded-parameterizations/<content_hash>` takes the revisions, the fits that produced them, the work they
   built and the histograms they recorded, and leaves the saved mapping where a run is queued from untouched.
 - **New Run pins the AA source to the run the parameterization was fitted against.** A mapping whose current revision
