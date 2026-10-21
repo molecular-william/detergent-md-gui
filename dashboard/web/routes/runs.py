@@ -219,7 +219,10 @@ def retry(jid):
     job = c.lookup(jid)
     if job['status'] != 'failed':
         abort(409, 'Only failed runs can be retried')
-    new = c.create_job(job['detergent'], job['method'], job.get('label', ''), retry_of=jid, profile=job.get('profile', 'standard'), settings=job.get('settings'), reference_run_id=job.get('reference_run_id'), mapping_snapshot=job.get('mapping_snapshot'), molecule_id=job.get('molecule_id'), molecule_snapshot=job.get('molecule_snapshot'),run_type=job.get('run_type'))
+    # A retry rebuilds the same run, so it carries the fields that run was built from: a composition run without its
+    # `composition_id` is refused by admission, and a complex run without `protein`/`template` is built from whatever
+    # the defaults name -- a different system that happens to share a run type.
+    new = c.create_job(job['detergent'], job['method'], job.get('label', ''), retry_of=jid, profile=job.get('profile', 'standard'), settings=job.get('settings'), reference_run_id=job.get('reference_run_id'), mapping_snapshot=job.get('mapping_snapshot'), molecule_id=job.get('molecule_id'), molecule_snapshot=job.get('molecule_snapshot'),run_type=job.get('run_type'), composition_id=job.get('composition_id'), protein=job.get('protein') or None, template=job.get('template') or None)
     return jsonify(view_of(c, new)), 201
 
 
@@ -285,7 +288,10 @@ def clone_job(jid):
     c = coordinator()
     source = c.lookup(jid); data = json_object(optional=True)
     effective_type=data.get('run_type',source.get('run_type'))
-    admission.validate_run_type(dict(data,run_type=effective_type))
+    # What the source states and the payload does not is still part of the run being cloned: validation and the new
+    # record both read the same merged view, so a composition clone cannot lose the composition it is a clone of.
+    carried={key:source.get(key) for key in ('composition_id','protein','template') if source.get(key)}
+    admission.validate_run_type({**carried, **data, 'run_type':effective_type})
     if 'molecule_id' in data:
         try: aa_molecules.validate_id(data['molecule_id'])
         except ValueError as exc: abort(400, str(exc))
@@ -293,7 +299,10 @@ def clone_job(jid):
                      retry_of=jid, profile=data.get('profile', source.get('profile','standard')),
                      settings=data.get('settings', source.get('settings')), reference_run_id=(data.get('reference_run_id',source.get('reference_run_id')) or None) if effective_type!='aa_only' else None,
                      mapping_candidate=data.get('mapping_candidate'), mapping_snapshot=source.get('mapping_snapshot') if data.get('run_type',source.get('run_type'))!='aa_only' and data.get('mapping_candidate', source.get('mapping_candidate')) == source.get('mapping_candidate') else None, molecule_id=data.get('molecule_id', source.get('molecule_id')),
-                     run_type=effective_type)
+                     run_type=effective_type,
+                     composition_id=data.get('composition_id', source.get('composition_id')),
+                     protein=(data.get('protein', source.get('protein')) or None),
+                     template=(data.get('template', source.get('template')) or None))
     return jsonify(view_of(c, new)), 201
 
 
