@@ -12,7 +12,8 @@ source it was built for; schemas 1 and 2 keep the payload they were first hashed
 because those drafts are already on disk with that hash and the hash is data.
 """
 import hashlib
-import json
+
+from ... import files
 
 #: The first schema whose payload binds a candidate to its molecule source.
 IDENTITY_VERSION = 3
@@ -22,8 +23,12 @@ LEGACY_IDENTITY_VERSION = 2
 
 
 def canonical_json(payload):
-    """The one serialization identities are computed from: sorted keys, no spaces."""
-    return json.dumps(payload, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    """The one serialization identities are computed from -- `files.canonical_json`.
+
+    This module used to restate the separators, beside a `files.json_sha256` that used different ones, so one document
+    had two digests and only this one was ever compared. Delegating means there is nothing to keep in step.
+    """
+    return files.canonical_json(payload)
 
 
 def canonical_sha256(payload):

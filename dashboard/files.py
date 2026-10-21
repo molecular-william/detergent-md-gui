@@ -44,14 +44,23 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
-def json_sha256(value):
-    """Deterministic SHA256 of a JSON-serializable value.
+def canonical_json(value):
+    """The one serialization every digest in this tree is computed from: sorted keys, compact, no NaN.
 
-    Uses sorted keys and default separators, matching the legacy per-module
-    helper used by bonded_states, model_registry and compositions. Compact
-    serialization used by mapping identity is deliberately not shared here.
+    It lives in the lowest module that touches JSON because two serializers hashing the same document gave one value two
+    digests -- a composition's `snapshot_hash` and a mapping's content identity -- and only the second was ever compared.
+    `models/mappings/identity.canonical_json` delegates here rather than restating the separators.
     """
-    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+    return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+
+
+def json_sha256(value):
+    """Deterministic SHA256 of a JSON-serializable value, from `canonical_json`.
+
+    Records written before 2026-10-21 were hashed with default separators; `dashboard/cli/migrate_digests.py` rewrites
+    them, proving each rewrite against the old serializer before it writes.
+    """
+    return hashlib.sha256(canonical_json(value).encode()).hexdigest()
 
 
 def stamp(paths):
