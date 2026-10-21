@@ -33,12 +33,12 @@ def open_panel(page, base_url, path, *, tab=None, ready=None):
 
 
 def serve_json(page, pattern, payload=None):
-    """Answer requests matching `pattern` (a regex string) with JSON.
+    """Answer requests matching `pattern` -- a regex string, or a compiled pattern -- with JSON.
 
     `payload` is the body, or a callable taking the request when the answer depends on it -- a readiness probe asking
     about a run this test has not built, for instance.
     """
-    expression = re.compile(pattern)
+    expression = pattern if hasattr(pattern, 'search') else re.compile(pattern)
     page.route(expression, lambda route: route.fulfill(
         json=payload(route.request) if callable(payload) else payload))
 
@@ -72,3 +72,4 @@ def open_pdc_new_run(page, base_url, *, protein=None, chains=False):
                                    timeout=30000)
 
     return open_panel(page, base_url, '/protein-detergent/new-run', tab='New run', ready=ready)
+

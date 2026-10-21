@@ -15,6 +15,8 @@ import re
 
 from playwright.sync_api import expect
 
+from . import panels
+
 CATALOG = {
     'templates': [{'id': 'DDM:DDM', 'name': 'DDM skeleton', 'molecule': 'DDM', 'residue': 'DDM',
                    'template': 'molecules/DDM/micelle_template.json', 'registered_type': 'registered-template',
@@ -33,10 +35,10 @@ MAPPING_FILE = CANDIDATE['file']
 
 def serve(page, readiness=None):
     """The endpoints the panel reads, with the queue POST left alone so the real route answers it."""
-    page.route(re.compile(r'/api/pdc/catalog'), lambda route: route.fulfill(json=CATALOG))
-    page.route(re.compile(r'/api/mappings\?'), lambda route: route.fulfill(json={'candidates': [CANDIDATE]}))
-    page.route(re.compile(r'/api/readiness\?'),
-               lambda route: route.fulfill(json=readiness or {'ready': True, 'checks': [], 'blockers': []}))
+    panels.serve_files(page,
+                       (r'/api/pdc/catalog', CATALOG),
+                       (r'/api/mappings\?', {'candidates': [CANDIDATE]}),
+                       (r'/api/readiness\?', readiness or {'ready': True, 'checks': [], 'blockers': []}))
 
 
 def capture_posts(page, posted):
