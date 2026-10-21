@@ -144,7 +144,10 @@ def jobs_api():
     of an empty page that reads as "none of those exist".
     """
     c = coordinator()
-    summary = request.args.get('view') == 'summary'
+    # The list answers with the summary unless a caller asks for the whole record. Measured before this: 100 runs were
+    # 434 kB, of which the panels that read the list used `id`, `status`, `run_type`, `molecule_id` and the stage names --
+    # 24 kB. A caller that needs `settings`, outputs or a stage's detail says `view=full` and pays for it.
+    summary = request.args.get('view') != 'full'
     page, limit = pagination()
     run_type = request.args.get('run_type', '').strip()
     if run_type and run_type not in protocol.RUN_TYPES:

@@ -24,6 +24,29 @@ def test_the_job_collection_answers_one_shape(dashboard):
         assert payload['total'] == 3 and len(payload['jobs']) == 3, query
 
 
+def test_the_job_collection_answers_the_summary_unless_the_whole_record_is_asked_for(dashboard):
+    """Measured before this: 100 runs were 434 kB, and the panels reading the list used 24 kB of it.
+
+    The list is what three panels fetch to fill a `<select>`; the run view fetches one record through
+    `/api/jobs/<id>` when it needs the rest. So the default is the projection and `view=full` is the opt-in.
+    """
+    job = seed(dashboard, 1)[0]
+    job.update({'run_type': 'aa_only', 'settings': {'aa_production_ps': 5000},
+                'analyses': [{'id': 'a1', 'kind': 'sasa', 'status': 'completed', 'outputs': ['big', 'list']}]})
+    dashboard.coordinator.database().replace([job])
+
+    summary = dashboard.client.get('/api/jobs').get_json()['jobs'][0]
+    full = dashboard.client.get('/api/jobs?view=full').get_json()['jobs'][0]
+
+    assert {'id', 'status', 'label', 'run_type', 'revision'} <= set(summary)
+    # `detail_revision` is the summary's own addition: it is what the client sends back to ask whether the detail it
+    # holds is still current, so it need not exist in a full record.
+    assert set(summary) - {'detail_revision'} <= set(full), \
+        'the summary is a projection of the same record, not a different one'
+    assert 'settings' not in summary and 'settings' in full
+    assert 'outputs' not in summary['analyses'][0] and 'outputs' in full['analyses'][0]
+
+
 def test_the_job_collection_keeps_its_order_and_the_revision_field(dashboard):
     seed(dashboard)
     client = dashboard.client
