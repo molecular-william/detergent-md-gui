@@ -65,6 +65,12 @@ route: it warns with the count that panel has already read, refuses while a fit 
 a saved mapping (a `composition:<id>` entry is not one), and after deleting re-reads the catalogue, selects the next
 mapping and says which -- or empties the panel when none is left.
 
+**Live state, 2026-10-21: the DDM model's revision 1 holds 13 histograms, not 68.** It was fitted at 11:04:49 HKT,
+inside the twelve minutes between `68847f2` (10:59:54, which copied the bonded family) and `48e62a2` (11:12:13, which
+copies the tool's own `*distr.dat` glob). So its baseline covers every bond, angle and dihedral and **no** bead-pair
+distance: a run of it today scores the interactions against real histograms and prints **0.00** for every distance,
+which is the skipped-pair default and reads as a perfect match. One more *Fit this model* records all 68 in revision 2.
+
 **The two engines keep separate analyses (the user's decision, 2026-10-20).** Fast-Forward's models are scored by
 `ff_assess` against `refine_bonded`'s histograms; BARTENDER's models get BARTENDER's own graphs. Unifying them is
 postponed. Measured while deciding: with `-noplot` removed, BARTENDER writes one figure per fitted parameter (29 files,
