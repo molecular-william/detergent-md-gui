@@ -17,11 +17,12 @@ So: `files.json_sha256` becomes the compact serializer, `identity.canonical_json
 `snapshot_hash`/`composition_snapshot_sha256` is rewritten by a migration that **proves each rewrite** — it recomputes
 the *old* digest first and only writes when that equals the stored value.
 
-- [ ] `files.canonical_json` is the one serializer; `json_sha256` uses it
-- [ ] `identity.canonical_json` delegates; a pinned literal proves mapping identities do not move
-- [ ] `dashboard/cli/migrate_digests.py`: dry run by default, `--apply`, JSON report, idempotent
-- [ ] tests: registry record, composition record, run copy, unreconstructible record, second run is a no-op
-- [ ] run it on this workspace; record the counts
+- [x] `files.canonical_json` is the one serializer; `json_sha256` uses it  (657489a)
+- [x] `identity.canonical_json` delegates; a pinned literal proves mapping identities do not move  (657489a)
+- [x] `dashboard/cli/migrate_digests.py`: dry run by default, `--apply`, JSON report, idempotent  (657489a)
+- [x] tests: registry record, composition record, run copy, unreconstructible record, second run is a no-op  (657489a)
+- [x] run it on this workspace: **0 records** carried an old digest (no compositions, no fragment body digests,
+      no composition-bearing manifests or job rows), so nothing was rewritten here
 
 ## T2 — delete the bonded-state store and its routes
 
@@ -30,16 +31,31 @@ the *old* digest first and only writes when that equals the stored value.
 `/automatic`, `/<id>`, `/<id>/interactions`, `PATCH`, `DELETE`, `import-legacy`) have no client: the panel talks to
 `/api/bonded-parameterizations`, and a run reads a parameterization. The live store here is empty.
 
-- [ ] routes deleted (`routes/bonded.py`, `routes/maintenance.py`), tests repointed or deleted
-- [ ] `paths.bonded_states` and `cli/reset_workspace.py` entries gone
-- [ ] `states.py` deleted; importers use `models/bonded` directly
-- [ ] AGENTS.md sentence corrected ("bonded states are its revisions" describes a concept, not a store)
+- [x] routes deleted (`routes/bonded.py`, `routes/maintenance.py`), tests repointed or deleted  (1667ff5)
+- [x] `paths.bonded_states` and `cli/reset_workspace.py` entries gone  (1667ff5)
+- [x] `states.py` deleted; `compositions.bonded_state()` and the co`state_id` field with it  (1667ff5)
+- [x] AGENTS.md and PROJECT_GUIDE.md say there is no flat store  (1667ff5, corrected in place)
 
 ## T3 — a parameterization belongs to one mapping
 
 Today the store is `parameterizations/records/<mapping content hash>.json`, and two saved mappings with identical
-content share one record. Under the decision a parameterization belongs to *a* mapping: ownership is by mapping
-identity, not by content, and deleting the mapping must take its parameterizations with it.
+content share one record. Under the decision a parameterization belongs to *a* mapping: ownership has to be singular.
+
+Recon (done): reads are already dual-keyed -- `_parameterization_record(content_hash, mapping_hash)` and
+`parameterization.matches(record, candidate_hash=, content_hash=)` -- so the panel and the routes can address by mapping
+identity without a new payload. What is content-keyed is the *write* path: `_path(mapping)` and `delete(content_hash)`,
+and the run side (`readiness()['parameterization']`, `use_parameterization.sh`) resolves by content hash.
+
+The fork, and its cost -- a decision, not work:
+
+  A. address by the saved draft's file (owner).  Two drafts with identical content get separate records. A rename has
+     to move the directory, or the revisions are orphaned; `save_draft` renames by writing a new file.
+  B. keep content addressing, store `owner`, and give a second mapping with the same content an *empty* record of its
+     own (a clone with no revisions), sharing only on an explicit "use this mapping's parameterization".
+     Renames keep working; the invariant "one parameterization per mapping" holds by construction of the address.
+
+Recommendation: B, because it keeps the two properties the current design was built for -- a renamed candidate keeps its
+revisions, and content-addressed revision data stays where it is -- while making ownership singular.
 
 - [ ] re-express ownership (mapping identity in the record, not only the content hash)
 - [ ] a mapping whose content matches another's does not inherit its revisions
