@@ -65,7 +65,8 @@ def parameterizations_digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def fitted(candidate, revision=None, files=('B01_B11_bonds_distr.dat', 'B01_B02_B05_angles_distr.dat')):
+def fitted(candidate, revision=None,
+           files=('B01_B11_bonds_distr.dat', 'B01_B02_B05_angles_distr.dat', '1_B01_1_B02_distances_distr.dat')):
     """Save a revision the way a real fit does: with the AA reference's histograms in its working directory.
 
     `refine_bonded` measures them while fitting, and `parameterization.save` copies and hashes them beside the revision.
@@ -297,8 +298,10 @@ def test_the_fits_reference_histograms_are_recorded_with_the_revision(tmp_path):
 
     recorded = parameterization.distributions(candidate)
     assert item['distributions']['files'] and recorded['revision'] == 1
-    assert [entry['name'] for entry in recorded['files']] == ['B01_B02_B05_angles_distr.dat',
-                                                              'B01_B11_bonds_distr.dat']
+    assert [entry['name'] for entry in recorded['files']] == ['1_B01_1_B02_distances_distr.dat',
+                                                              'B01_B02_B05_angles_distr.dat',
+                                                              'B01_B11_bonds_distr.dat'], \
+        'the distance histograms too: `ff_assess` skips a pair with no baseline and scores it 0.00, which reads perfect'
     for entry in recorded['files']:
         path = recorded['directory'] / entry['name']
         assert path.is_file()
@@ -334,12 +337,14 @@ def test_the_consuming_run_stages_the_baseline_into_the_stage_the_assessment_rea
 
     staged = run / '3_initial_CG'
     inventory = json.loads((staged / 'distributions.json').read_text())
-    assert [entry['name'] for entry in inventory['files']] == ['B01_B02_B05_angles_distr.dat',
+    assert [entry['name'] for entry in inventory['files']] == ['1_B01_1_B02_distances_distr.dat',
+                                                               'B01_B02_B05_angles_distr.dat',
                                                                'B01_B11_bonds_distr.dat']
     for entry in inventory['files']:
         assert (staged / entry['name']).is_file()
         assert parameterizations_digest(staged / entry['name']) == entry['sha256']
-    assert manifest(run)['bonded']['reference_distributions'] == ['B01_B02_B05_angles_distr.dat',
+    assert manifest(run)['bonded']['reference_distributions'] == ['1_B01_1_B02_distances_distr.dat',
+                                                                 'B01_B02_B05_angles_distr.dat',
                                                                  'B01_B11_bonds_distr.dat']
 
 

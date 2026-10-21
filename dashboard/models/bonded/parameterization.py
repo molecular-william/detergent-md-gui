@@ -65,10 +65,16 @@ DEFAULT_TEMPERATURE = 300.0
 
 _OPTION_KEYS = ('constraints_threshold', 'temperature_k', 'torsion_model', 'torsion_scale')
 
-#: The AA reference's own interaction histograms: what `ff_assess` scores a CG run *against*. `refine_bonded` measures
-#: them in order to fit, and leaves them in its working directory; `ff_assess` reads them from its `-d` directory and
-#: never computes them, which is why a run that consumes a parameterization needs them copied into the run.
-DISTRIBUTION = re.compile(r'.+_(?:bonds|angles|dihedrals)_distr\.dat$')
+#: The AA reference's own histograms: what `ff_assess` scores a CG run *against*. It reads them from its `-d` directory
+#: and never computes them, so a run that consumes a parameterization needs them copied into the run.
+#:
+#: The pattern is the tool's own file map, which is `glob(f'{reference}/*distr.dat')` -- every histogram in the
+#: directory, and not only the bonded ones. The assessment scores two families: one histogram per bond/angle/dihedral,
+#: and one per bead pair over its whole distance range (`<resid>_<a>_<resid>_<b>_distances_distr.dat`). A copy that took
+#: only the first family leaves the second half of the score with no baseline, and that half does not fail: `ff_assess`
+#: `continue`s past a pair whose reference file is missing, so an unbaselined distance matrix reads 0.00 -- "identical" --
+#: which is the most flattering possible wrong answer.
+DISTRIBUTION = re.compile(r'.+_distr\.dat$')
 
 
 def storage_root() -> Path:
