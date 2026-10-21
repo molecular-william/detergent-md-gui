@@ -5,7 +5,6 @@ from playwright.sync_api import expect
 
 from dashboard.execution.adapters import cg
 from dashboard.models import mappings
-from dashboard.models.bonded import states as bonded_states
 from dashboard.models.mappings import context as mapping_context
 from tests.dashboard.support import physical_mapping
 
@@ -15,7 +14,6 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_
     candidate = physical_mapping()
     candidate.update(molecule_id='DDM', molecule_snapshot=context['snapshot'])
     saved = mappings.save_draft(candidate)
-    bonded_states.create(saved, 'Test state')
     monkeypatch.setattr(cg, 'readiness', lambda *a, **k: {'ready': False, 'checks': [], 'blockers': ['Test only']})
     owner = dashboard.coordinator
     owner.database().insert({'id':'123456abcdef','status':'completed','detergent':'DDM'})
@@ -26,7 +24,7 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_
     page.on('request', lambda r: urls.append(urlsplit(r.url).path+'?'+urlsplit(r.url).query))
     page.goto(f'{live_page.base_url}/detergent-validation/runs')
     expect(page.locator('.job')).to_have_count(1)
-    assert not any(u.startswith(('/api/mappings','/api/bonded-states','/api/molecules')) for u in urls)
+    assert not any(u.startswith(('/api/mappings','/api/molecules')) for u in urls)
     page.evaluate("window.tabEvents=[]; document.addEventListener('dashboard:tab', event => tabEvents.push(event.detail.id))")
     page.locator('.job-analysis summary').click()
     expect(page.locator('.figure-tabs [role=tab]')).to_have_count(1)
@@ -35,11 +33,10 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_
     assert not any('/artifacts?' in u for u in urls)
     page.locator('#tab-new').click()
     expect(page.locator('#run-mapping option')).to_have_count(2)
-    # The panel used to offer a bonded-state select here, filled from `/api/bonded-states?view=summary`. Fitting is
-    # the AA-CG run type's own now (D1), so the control is gone and the panel asks for no bonded-state list at all:
-    # the only bonded question left on this page is the Bonded workspace's own, and that carries a mapping hash.
+    # The panel used to offer a bonded-state select here, filled from a flat store that no longer exists. Fitting is
+    # the AA-CG run type's own (D1), so the control is gone and the page asks nothing bonded-shaped at all: the only
+    # bonded question left in the dashboard is the CG Bond Interactions panel's, and it carries a mapping's content hash.
     expect(page.locator('#run-bonded-state')).to_have_count(0)
-    assert not [u for u in urls if u.startswith('/api/bonded-states')], urls
     expect(page.locator('#review-status')).not_to_have_text('Checking readiness…')
     # The catalogue is fetched once, scoped to the molecule the editor is bound to.
     assert [u for u in urls if u.startswith('/api/mappings?view=summary')] == ['/api/mappings?view=summary&molecule_id=DDM']

@@ -13,7 +13,6 @@ from playwright.sync_api import expect
 
 from dashboard.models import mappings
 from dashboard.models.bonded import parameterization
-from dashboard.models.bonded import states as bonded_states
 
 #: A revision's topology with the two kinds the panel must never offer an editor for: a constraint, whose length is
 #: the mapping's, and a `virtual_sitesn`, whose parents are bead names rather than atoms.
@@ -47,12 +46,10 @@ def save_revision(mapping):
 def test_the_revision_strip_replaces_the_flat_bonded_state_list(dashboard, live_page):
     """D1, as the page: no state select, and a table that reads a revision rather than a state.
 
-    The states still exist in the store, and one is created here on purpose -- what this asserts is that a
-    mapping's parameterization is what the panel shows, so a state record that is not a revision appears nowhere.
+    The flat bonded-state store is gone from the codebase, not merely unshown, so there is nothing here to seed: what
+    this pins is that a mapping's parameterization is what the panel reads, and that no state-shaped control survives it.
     """
     saved = mappings.save_draft(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
-    bonded_states.create(saved, 'A state that is not a revision', topology='[ moleculetype ]\n[ atoms ]',
-                         status='complete')
 
     page, errors = live_page
     page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')

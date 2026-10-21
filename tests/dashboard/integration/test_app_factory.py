@@ -2,7 +2,6 @@
 from dashboard import files
 from dashboard.app import create_app
 from dashboard.models import mappings
-from dashboard.models.bonded import states as bonded_states
 from dashboard.paths import Paths
 from tests.dashboard.support import physical_mapping
 
@@ -15,20 +14,20 @@ def test_two_applications_isolate_jobs_models_and_workers(tmp_path):
     first.WORKERS['123456abcdef'] = first.Worker()
     with apps[0].app_context():
         mapping = mappings.save_draft(physical_mapping())
-        state = bonded_states.create(mapping, 'Only first workspace')
+        mappings.save_draft({**physical_mapping(), 'name': 'Only first workspace'})
     clients = [app.test_client() for app in apps]
     assert len(clients[0].get('/api/jobs').json['jobs']) == 1
     assert clients[1].get('/api/jobs').json['jobs'] == []
     assert second.WORKERS == {} and second.ANALYSIS_WORKERS == {}
-    assert len(clients[0].get('/api/bonded-states').json['states']) == 1
-    assert clients[1].get('/api/bonded-states').json['states'] == []
+    assert len(clients[0].get('/api/mappings').json['candidates']) == 2
+    assert clients[1].get('/api/mappings').json['candidates'] == []
     assert clients[0].get('/api/mappings/'+mapping['file']).status_code == 200
     assert clients[1].get('/api/mappings/'+mapping['file']).status_code == 404
     result = clients[0].post('/api/model-fragments', json={'name': 'First only'})
     assert result.status_code == 201
     assert clients[1].get('/api/model-fragments').json == {'fragments': []}
     with apps[0].app_context():
-        assert bonded_states.get(state['state_id'])['name'] == 'Only first workspace'
+        assert sorted(m['name'] for m in mappings.list_candidates()) == ['Only first workspace', mapping.get('name')]
 
 
 def test_relocated_console_reads_stage_log_without_rewriting_manifest(tmp_path):

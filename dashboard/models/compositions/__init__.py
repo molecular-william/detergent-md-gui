@@ -91,7 +91,7 @@ def create_composition(payload, project_root=None):
                   'created_at': files.now_iso(), 'identity': identity,
                   'snapshot_hash': files.json_sha256(snapshot),
                   'status': 'candidate-unvalidated', 'scientifically_validated': False,
-                  'state_id': f'composition:{cid}', 'artifact_root': str(root),
+                  'artifact_root': str(root),
                   'snapshot': snapshot}
         _repository().write(cid, record, replace=False)
         return record
@@ -102,31 +102,9 @@ def create_composition(payload, project_root=None):
         raise
 
 
-def bonded_state(state_id):
-    """The bonded state a namespaced composition id names, in the store's record shape.
-
-    A composition records exactly one immutable bonded state beside its artifacts, so the
-    store's revision machinery does not apply: this answers with that state as `current` and
-    with the field names the store's own records use. The id is already validated by the
-    caller that dispatched here.
-    """
-    cid = state_id.split(':', 1)[1]
-    record = get(cid)
-    root = Path(record['artifact_root'])
-    body = json.loads((root / 'bonded-state.json').read_text())
-    mapping = {**body.get('mapping', {}), 'identity': record['identity']}
-    name = record.get('name', cid)
-    return {'state_id': state_id, 'name': name, 'mapping': mapping,
-            'mapping_hash': record['identity'], 'revision': 1, 'revisions': [],
-            'current': {'topology': body.get('topology', ''), 'status': body.get('status', 'complete'),
-                        'origin': body.get('origin', 'composition-generated'),
-                        'name': name, 'revision': 1}}
-
-
 def composition_detail(cid, project_root=None):
     record = get(cid)
-    return {**record, **record.get('snapshot', {}), 'composition_id': cid,
-            'state_id': record.get('state_id', f'composition:{cid}')}
+    return {**record, **record.get('snapshot', {}), 'composition_id': cid}
 
 
 def validate(payload):

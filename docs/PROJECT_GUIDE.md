@@ -57,7 +57,7 @@ Fast_Forward also needs lmfit, cgsmiles, matplotlib, MDAnalysis, numba, pbr, pys
 Readiness checks tool executables and imports before launch. Every run captures resolved tool paths, versions, commands, environment, and input/script hashes. No package installation happens inside simulation jobs.
 
 ## Paths, state, canonical inputs
-dashboard/paths.py owns application path configuration. A workspace contains jobs.sqlite3, runs/, uploads/, mapping_drafts/, bonded_states/, model_registry/, compositions/, proteins/ and preview/. `proteins/` holds structures a pdc run imported (each with a sidecar recording its stated half-thickness and chains); `preview/` is the New Run panel's martinize2 cache, which no run reads. SQLite is the only live job store; old JSON job snapshots are not read.
+dashboard/paths.py owns application path configuration. A workspace contains jobs.sqlite3, runs/, uploads/, mapping_drafts/, parameterizations/, model_registry/, compositions/, proteins/ and preview/. `proteins/` holds structures a pdc run imported (each with a sidecar recording its stated half-thickness and chains); `preview/` is the New Run panel's martinize2 cache, which no run reads. SQLite is the only live job store; old JSON job snapshots are not read.
 
 The checkout selects workspace/dashboard/ in config/dashboard-paths.json. DASHBOARD_WORKSPACE=/absolute/path overrides that selection for an isolated instance. With neither setting, the legacy dashboard/ workspace is supported. Paths resolve at application construction; changing configuration requires a restart after all workers stop.
 
@@ -225,7 +225,7 @@ POST /api/jobs/<id>/carbohydrate-validation creates an immutable validation anal
 ### Models, analyses, and browser behavior
 Each tab loads its data when activated, including keyboard and direct-link navigation. Shared catalogue requests are deduplicated and cached for ten seconds; saving or deleting models invalidates the relevant cache. Mapping editors retain unsaved edits across tab changes. New run debounces readiness checks and ignores cancelled or superseded responses. Runs pauses polling while another tab is open and refreshes on return.
 
-The full APIs remain available. view=summary on /api/jobs, /api/mappings, and /api/bonded-states returns compact catalogue and polling records; individual record endpoints retain full detail. /api/mappings/context supplies the source molecule and bead types. Mapping validation caches use candidate and source content, so changed scientific inputs invalidate previous results.
+The full APIs remain available. view=summary on /api/jobs, /api/mappings and /api/bonded-parameterizations returns compact catalogue and polling records; individual record endpoints retain full detail. /api/mappings/context supplies the source molecule and bead types. Mapping validation caches use candidate and source content, so changed scientific inputs invalidate previous results.
 
 Derived analyses use isolated subprocesses, publish immutable outputs, and record actual source hashes, calculation settings, tool versions, and errors.
 Unchanged requests reuse completed analysis products.
@@ -305,7 +305,7 @@ Two more tools enter through `requirements-dashboard-tests.txt` (`mdtraj`, `pdb2
 ```bash
 dashboard/.venv/bin/python -m pytest \
   tests/dashboard/unit/test_bonded.py \
-  tests/dashboard/unit/test_bonded_states.py \
+  tests/dashboard/unit/test_bonded_parameterization.py \
   tests/dashboard/integration/test_mapping_exports.py \
   tests/dashboard/integration/test_mapping_workspace_api.py \
   -q

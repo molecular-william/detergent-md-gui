@@ -36,8 +36,6 @@ class Paths:
     @property
     def mapping_drafts(self): return self.workspace/'mapping_drafts'
     @property
-    def bonded_states(self): return self.workspace/'bonded_states'
-    @property
     def model_registry(self): return self.workspace/'model_registry'
     @property
     def compositions(self): return self.workspace/'compositions'

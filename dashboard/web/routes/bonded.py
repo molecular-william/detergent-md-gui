@@ -1,120 +1,25 @@
-"""CG bonded endpoints: bonded states, and the parameterizations a model carries.
+"""CG bonded endpoints: the parameterization a bead mapping carries.
 
-Two stores answer here. `bonded_states` is the flat list of hand-edited term sets; `parameterization` is the
-revision store, whose revisions are what a run stages and simulates from, and `fitting` is the job that
-produces one without simulating anything. The parameterization routes are the contract in
-`docs/design/2026-10-16-parameterization-and-new-run.md`: the panel sends the payload keys it names, and
-each route is a thin shell over one model call.
+One store answers here. `parameterization` is the revision store, whose revisions are what a run stages and
+simulates from, and `fitting` is the job that produces one without simulating anything. The flat `bonded_states`
+store and its seven routes went on 2026-10-21: a parameterization belongs to a mapping, and a hand-edited term set
+that belonged to nothing was a second way to say the same thing with no run behind it.
+
+The routes are the contract in `docs/design/2026-10-16-parameterization-and-new-run.md`: the panel sends the
+payload keys it names, and each route is a thin shell over one model call.
 """
+
 from pathlib import Path
 
 from flask import Blueprint, abort, jsonify, request
 
 from ...models import mappings
 from ...models.bonded import fitting as bonded_fitting
-from ...models.bonded import generation as bonded_generation
 from ...models.bonded import parameterization
-from ...models.bonded import states as bonded_states
-from .common import coordinator, json_object, payload_context
+from .common import coordinator, json_object
 
 blueprint = Blueprint('bonded', __name__)
 
-
-@blueprint.get('/api/bonded-states')
-def bonded_state_list():
-    mapping_hash = request.args.get('mapping_hash')
-    content_hash = request.args.get('content_hash')
-    states = bonded_states.all_states()
-    if mapping_hash or content_hash:
-        states = [s for s in states if bonded_states.matches(s, candidate_hash=mapping_hash, content_hash=content_hash)]
-    if request.args.get('view') == 'summary':
-        states = [{k:s.get(k) for k in ('state_id','name','revision','mapping_hash')} |
-                  {'current': {k:s.get('current',{}).get(k) for k in ('status','origin')}} for s in states]
-    return jsonify(states=states)
-
-
-@blueprint.post('/api/bonded-states')
-def bonded_state_create():
-    payload = json_object(); mapping = payload.get('mapping')
-    if not isinstance(mapping,dict): abort(400,'A mapping snapshot is required')
-    try:
-        context = payload_context(mapping)
-        mappings.validate(mapping, context=context)
-        topology = payload.get('topology')
-        source = payload.get('source')
-        status = payload.get('status', 'incomplete')
-        if 'interactions' in payload:
-            if not isinstance(payload['interactions'], list):
-                abort(400, 'interactions must be a list')
-            structure = context or mappings.molecule()
-            topology = bonded_generation.topology_from_terms(
-                mapping, structure, payload['interactions'], title='Manual bonded draft')
-            source = {**(source or {}), 'origin': 'manual-editor'}
-            status = 'complete'
-        record = bonded_states.create(mapping, payload.get('name',''), payload.get('kind','mapping-only'), source, topology, status)
-    except (ValueError, OSError) as exc: abort(400,str(exc))
-    return jsonify(record), 201
-
-
-@blueprint.post('/api/bonded-states/automatic')
-def bonded_state_automatic():
-    payload = json_object(); mapping = payload.get('mapping')
-    if not isinstance(mapping, dict): abort(400, 'A mapping snapshot is required')
-    try:
-        context = payload_context(mapping)
-        validation = mappings.validate(mapping, context=context)
-        blockers = {'missing', 'duplicate', 'unknown', 'hydrogen', 'empty', 'name',
-                    'virtual_ring', 'connections', 'disconnected'}
-        if any(issue['code'] in blockers for issue in validation['issues']):
-            raise ValueError('Mapping is incomplete or structurally invalid: ' +
-                             '; '.join(issue['message'] for issue in validation['issues']))
-        result = bonded_generation.generate(mapping, context or mappings.molecule(), coordinator().ROOT)
-    except (ValueError, OSError) as exc: abort(400, str(exc))
-    return jsonify(result)
-
-
-@blueprint.get('/api/bonded-states/<state_id>')
-def bonded_state_get(state_id):
-    try: return jsonify(bonded_states.get(state_id, request.args.get('revision', type=int)))
-    except (ValueError, KeyError, OSError) as exc: abort(404,str(exc))
-
-
-@blueprint.get('/api/bonded-states/<state_id>/interactions')
-def bonded_state_interactions(state_id):
-    """Return parsed bonded terms for the selected state."""
-    try:
-        state = bonded_states.get(state_id)
-    except (ValueError, KeyError, OSError) as exc:
-        abort(404, str(exc))
-    current = state.get('current', {})
-    terms = bonded_states.parse_interactions(current.get('topology'))
-    return jsonify(state_id=state_id, revision=state.get('revision'),
-                   status=current.get('status'), interactions=terms)
-
-
-@blueprint.patch('/api/bonded-states/<state_id>')
-def bonded_state_patch(state_id):
-    data = json_object(); patch = data.get('patch')
-    if not isinstance(patch,dict): abort(400,'State patch must be an object')
-    try: return jsonify(bonded_states.revise(state_id,patch,data.get('expected_revision'),bool(data.get('in_place'))))
-    except (ValueError, KeyError, OSError) as exc: abort(409,str(exc))
-
-
-@blueprint.delete('/api/bonded-states/<state_id>')
-def bonded_state_delete(state_id):
-    c = coordinator()
-    if not json_object(optional=True).get('confirm'):
-        abort(400,'Deletion requires confirmation')
-    try: return jsonify(deleted=bonded_states.delete(state_id,c.database().all()))
-    except (ValueError, KeyError, OSError) as exc: abort(409,str(exc))
-
-
-# --- parameterizations: the revision store and the fit job that writes to it --------------------------
-#
-# The contract is the design record's `### Routes the panel adds` table. Each route is one model call plus the
-# status code it answers with; nothing here decides what a revision is, which engine may run, or what an
-# ensemble is -- those are `parameterization`'s and `fitting`'s rules, and a second copy here would be a second
-# place to drift.
 
 def _parameterization_record(content_hash=None, mapping_hash=None):
     """The stored record a hash addresses: by content identity first, then by any revision's provenance.

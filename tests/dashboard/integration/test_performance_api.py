@@ -4,7 +4,6 @@ from unittest.mock import patch
 
 from dashboard import files
 from dashboard.models import mappings
-from dashboard.models.bonded import states as bonded_states
 from tests.dashboard.support import physical_mapping
 
 
@@ -27,36 +26,6 @@ def test_mapping_summary_and_cache_follow_content_changes(dashboard):
     assert changed['validation'] != row['validation']
     assert 'beads' in client.get('/api/mappings/'+saved['file']).json
     assert 'bead_types' in client.get('/api/mappings/context').json
-
-
-def test_bonded_summary_omits_topology_and_history(dashboard):
-    state = bonded_states.create(physical_mapping(), 'state', topology='large topology')
-    client = dashboard.client
-    row = client.get('/api/bonded-states?view=summary').json['states'][0]
-    assert row['state_id'] == state['state_id']
-    assert 'revisions' not in row and 'topology' not in row['current']
-    assert client.get('/api/bonded-states/'+state['state_id']).json['current']['topology'] == 'large topology'
-
-
-def test_bonded_patch_modes_and_stale_revision_conflict(dashboard):
-    mapping = physical_mapping()
-    state = bonded_states.create(mapping, 'state', topology='[ moleculetype ]\n[ atoms ]', status='complete')
-    client = dashboard.client
-    copy = client.patch('/api/bonded-states/'+state['state_id'], json={
-        'patch': {'name': 'copy'}, 'expected_revision': 1,
-    })
-    assert copy.status_code == 200
-    assert copy.json['state_id'] != state['state_id']
-    revised = client.patch('/api/bonded-states/'+state['state_id'], json={
-        'patch': {'name': 'revision 2'}, 'expected_revision': 1, 'in_place': True,
-    })
-    assert revised.status_code == 200
-    assert revised.json['state_id'] == state['state_id']
-    assert revised.json['revision'] == 2
-    stale = client.patch('/api/bonded-states/'+state['state_id'], json={
-        'patch': {'name': 'stale'}, 'expected_revision': 1, 'in_place': True,
-    })
-    assert stale.status_code == 409
 
 
 def test_compact_runs_preserve_checkpoints_and_full_detail(dashboard):

@@ -44,8 +44,4 @@ def migration_delete_obsolete():
     except (OSError, ValueError) as exc: abort(409, str(exc))
 
 
-@blueprint.post('/api/bonded-states/import-legacy')
-def import_legacy_bonded_states():
-    c = coordinator()
-    with c.JOBS_LOCK:
-        return jsonify(imported=c.import_legacy_bonded_states())
+

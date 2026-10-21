@@ -12,9 +12,9 @@ from .. import files
 
 TARGETS = (
     'runs', 'jobs.sqlite3', 'jobs.sqlite3-wal', 'jobs.sqlite3-shm',
-    'mapping_drafts', 'bonded_states', 'model_registry', 'compositions',
+    'mapping_drafts', 'parameterizations', 'model_registry', 'compositions',
 )
-RUNTIME_DIRECTORIES = ('runs', 'mapping_drafts', 'bonded_states', 'model_registry', 'compositions')
+RUNTIME_DIRECTORIES = ('runs', 'mapping_drafts', 'parameterizations', 'model_registry', 'compositions')
 
 
 def _assert_unlocked(path: Path) -> None:

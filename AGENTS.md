@@ -40,7 +40,10 @@ them.
 ## Facts that change what you build
 - **Every AA-CG run fits its own bonded parameters** (`cg.AA_CG_PROFILE`; stage 3 is `CG parameterization`) unless
   its mapping carries a current revision, which it then consumes and says so in its own artefact. A parameterization
-  belongs to the mapping, revisions are keyed by content hash and one is current (`make current`). Producing one is
+  belongs to the mapping, revisions are keyed by content hash and one is current (`make current`). **There is no
+  flat bonded-state store**: `models/bonded/states.py`, its seven `/api/bonded-states` routes and the legacy importer
+  went on 2026-10-21 (the importer called a coordinator method that never existed), and a composition no longer
+  publishes a `state_id`. Producing one is
   `POST /api/bonded-parameterizations` -- engines `fast-forward` and `bartender`, the latter restricted to
   `-refit -owntraj`; every engine fits to an AA ensemble, so `aa_reference` is required -- and makes no MD. Deleting a
   saved mapping deletes its parameterizations (and the fit jobs and staged frames built for it) unless another saved
