@@ -15,8 +15,20 @@ except ImportError:
 
 
 def identity(snapshot):
+    """The identity of a molecule *selection*, from its per-file digests and its chemistry.
+
+    Two spellings are read because two exist: `reference_sha256` is what `molecules/aa.py` writes into a selection, and
+    `sha256` is the older name for the same map. What is *not* accepted is the scalar of the same name that a reference
+    block carries (`bonded/fitting.py`): that is a digest of one published `reference.json`, and feeding it here was an
+    `AttributeError` on `.items()`. The eager default that used to sit here was worse -- `snapshot.get('reference_sha256',
+    snapshot['sha256'])` raised `KeyError('sha256')` for a snapshot that had the one key it was looking for.
+    """
     metadata=snapshot['metadata']
-    return hashlib.sha256(json.dumps({'files':{k:v for k,v in snapshot.get('reference_sha256', snapshot['sha256']).items() if k!='metadata.json'},
+    digests=(snapshot.get('reference_files_sha256') or snapshot.get('reference_sha256')
+             or snapshot.get('sha256') or {})
+    if not isinstance(digests, dict):
+        raise ValueError('A molecule selection states per-file digests; this is a single digest')
+    return hashlib.sha256(json.dumps({'files':{k:v for k,v in digests.items() if k!='metadata.json'},
         'chemistry':{k:metadata[k] for k in ('force_field','water_model','molecule_type','net_charge')}},sort_keys=True).encode()).hexdigest()
 
 
