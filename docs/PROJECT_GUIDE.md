@@ -61,6 +61,11 @@ dashboard/paths.py owns application path configuration. A workspace contains job
 
 The checkout selects workspace/dashboard/ in config/dashboard-paths.json. DASHBOARD_WORKSPACE=/absolute/path overrides that selection for an isolated instance. With neither setting, the legacy dashboard/ workspace is supported. Paths resolve at application construction; changing configuration requires a restart after all workers stop.
 
+One serializer defines every digest this tree writes or compares: `files.canonical_json` (sorted keys, compact
+separators), with `json_sha256` and `mappings.identity` both built on it. Stored copies of the other form are
+migrated by `dashboard/cli/migrate_digests.py`, which rewrites a record only when re-serializing its own body
+reproduces the stored digest and leaves the rest as it found them.
+
 molecules/, references/, and resources/ remain canonical input sources. Reference indexing copies metadata and hashes; it does not make another canonical copy of the original reference files. Each run takes immutable snapshots of the inputs and executable helpers it actually used.
 
 Scientific reports live under reports/dashboard/; acceptance evidence lives under reports/validation/. Historical prototypes are under docs/design/prototypes/. Root-level runs/ retains unrelated standalone benchmark output. The archived development tree `archive/dashboard-development-20260917/` earlier notes named is gone from this checkout (it was gitignored).
@@ -186,6 +191,8 @@ Choose a saved mapping. The panel reads its parameterization — the revisions o
 **Fit this model** produces a revision; it makes no MD, so nothing from this panel appears in Runs. Fast-Forward (`ff_inter`) and BARTENDER (`-refit -owntraj`, never its own sampling) build the mapped AA trajectory from the linked AA-only reference first — minutes of CPU, paid once per (mapping, reference) pair — then fit bonds, angles and dihedrals to it. The job box names the four steps (`mapped frames`, `fit`, `checks`, `save`), shows the engine's log tail and an elapsed time, and can be cancelled. The two engines and their options are read from `GET /api/bonded-parameterizations/engines`; every one of them needs an AA reference. The checks — `dihedral-fit` and `bonded-cross-check` — re-derive terms from the same frames and are recorded with the revision; a check that cannot run is recorded with its reason rather than failing the fit. A Fast-Forward revision also records the AA reference's own interaction histograms (`<group>_<type>_distr.dat`) that `refine_bonded` measures while fitting: the CG assessment scores against those files and never computes them, so a run that consumes the revision stages them into its `3_initial_CG` — the directory `ff_assess` reads as `-d` — verifying each digest. A revision that records none cannot be scored, but the run still happens: `prepare` writes the empty inventory with the reason, and the assessment stage records `skipped` with it, so the run completes without a score and the stage says why. Bartender measures none, and its own analysis is unbuilt. Generated parameters are hypotheses, and a fit is not scientific approval.
 
 Revisions accumulate on the mapping; `make current` chooses the one a run consumes, and a run that consumes a revision records that it did not fit. **Save to mapping** writes the torsion model and stiffness scale into the mapping file itself. **Delete this parameterization** removes what this panel is about — the revisions, the fit jobs that produced them, the frames those jobs built and the reference histograms recorded with them — through `DELETE /api/bonded-parameterizations/<content_hash>`, which needs `confirm: true` and refuses with `409` when the revision named is no longer current. The saved mapping itself is not touched: deleting a mapping is the editor's button, and this panel edits models.
+The record lists the saved mappings that claimed it (`owners`); a save makes the claim, deleting a draft releases
+it, and the revisions go with the last claim.
 
 ### Run controls and persistence
 Delete is available only for completed, failed, or cancelled runs. The server checks that no current worker owns the run, removes its run directory and console log, then atomically removes its job record. If file cleanup fails, the record remains available for retry. Deletion is irreversible and confirmed in the browser.
@@ -194,7 +201,7 @@ Cancellation sets "Cancelling…" until the worker confirms process termination.
 
 Resume continues the existing run ID after lease, dependency, and resource checks. The selected and downstream stage directories must exist and must not be symlinks; their current launchers, inputs, and outputs are executed as found. Retry and Clone create new run IDs after readiness checks; original logs and simulation outputs stay intact. In-place resume records its prior manifest and job metadata in `resume_history/` without replacing current stage directories. Job updates use SQLite transactions; immutable model and review records use atomic JSON replacement. Stage failures and cancellations are recorded in manifests.
 
-JSON and log endpoints are under /api/jobs, /api/readiness, /api/mappings, /api/compositions, /api/cg-models, /api/osmotic and /api/pdc. Mapping edits are stored in the configured workspace's mapping_drafts/ directory; original candidates stay under the canonical molecule source.
+JSON and log endpoints are under /api/jobs, /api/readiness, /api/mappings, /api/bonded-parameterizations, /api/compositions, /api/cg-models, /api/osmotic and /api/pdc. Mapping edits are stored in the configured workspace's mapping_drafts/ directory; original candidates stay under the canonical molecule source.
 
 ### Mapping exports and diagrams
 
@@ -230,7 +237,10 @@ The full APIs remain available. view=summary on /api/jobs, /api/mappings and /ap
 Derived analyses use isolated subprocesses, publish immutable outputs, and record actual source hashes, calculation settings, tool versions, and errors.
 Unchanged requests reuse completed analysis products.
 
-DDM remains the executable CG example. Standard production retains the reviewed scientific-model gate. Candidate screening requires a saved mapping; deleted historical mapping files are not restored as defaults. Mapping exports, sugar virtual sites, fitting conventions, scoring interpretation, and known bonded UI gaps are documented in DDM calibration and Fast-Forward alignment.
+DDM remains the executable CG example. Standard production retains the reviewed scientific-model gate. Candidate screening requires a saved mapping; deleted historical mapping files are not restored as defaults. A save
+whose beads, rings and connections hash to an already saved mapping's content is refused with 409 -- one content
+identity is one model -- and the editor names the mapping that holds it instead of minting a second file; an
+in-place save (a rename, or an edit to the same file) is the only way to keep a mapping's identity. Mapping exports, sugar virtual sites, fitting conventions, scoring interpretation, and known bonded UI gaps are documented in DDM calibration and Fast-Forward alignment.
 
 ### Resource policy, backup, and rollback
 config/dashboard.json controls concurrency, disk headroom, storage reservations, per-run and total limits, and retention review. Usage is monitored, not enforced by a filesystem quota, so it may overshoot between checks. Storage reports never delete automatically. Explicit deletion requires terminal status, no worker lease, and no retained AA-reference consumer. Model cleanup requires a reviewed, hash-verified migration inventory. Preserve unique reports and scientific evidence.

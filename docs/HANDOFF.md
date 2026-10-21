@@ -3,6 +3,41 @@
 State, measurements and open items for this repository. `AGENTS.md` holds the rules; this holds the record they were
 derived from. Read it before starting work on the DDM CG chain or the coordinator.
 
+## Landed 2026-10-21: one serializer, one store, one name per model
+
+**One JSON serializer, and a migration that proves every rewrite, `657489a`.** `files.json_sha256` hashed with the
+default separators while `mappings.identity` hashed compact, so one document had two digests and a stored hash meant
+whichever module wrote it. The compact one survived because it is the one *compared* -- a parameterization is found by
+`mapping_content_hash` at four sites -- so `files.canonical_json` is now the only serializer and `identity` delegates to
+it. Mapping identities did not move (`b54dbab6…`, pinned by a test). `dashboard/cli/migrate_digests.py` keeps the old
+serializer as an oracle and rewrites a record only when re-serializing its own body reproduces the stored digest; anything
+it cannot prove it reports and leaves alone, and a second run is a no-op. **Measured on this workspace: 0 records carried
+an old digest**, so nothing was rewritten here.
+
+**The flat bonded-state store is gone, `1667ff5`.** `models/bonded/states.py`, its seven `/api/bonded-states` routes,
+`paths.bonded_states`, the reset-list entry, `compositions.bonded_state()` and the `state_id` a composition wrote all
+went. The `import-legacy` route was worse than dead: it called `coordinator.import_legacy_bonded_states`, which never
+existed, so the one route meant to rescue an old workspace would have answered with a stack trace. Three test files went
+with their subject; the layout guard now lists the module as retired, and a route test pins the seven paths answering 404
+(a `POST` on a two-segment path answers 405 because the GET-only page route `/<section>/<panel>` shadows it -- true of
+`/api/not-a-route` too, so it is the router).
+
+**A parameterization records the mappings that claimed it, `2ad8aa5`.** `owners` on the record, `claim` on save,
+`release` on a draft delete; the revisions go with the last claim. The draft store releases by name (the file is gone by
+then) and falls back to asking the drafts on disk only for a record written before claims existed.
+`cli/migrate_parameterization_owners.py` claimed the one record this workspace had (`10c318949ba5`, `DDM_CG_20261021`).
+
+**One content identity is one saved mapping, `c8620be`.** `save_draft` refuses a second draft with the same beads, rings
+and connections (`DuplicateMapping`, naming the file that holds it); the route answers 409 with `existing`; the editor
+already withdrew Save-as-new from `duplicate_file`, and now also names the file and selects the existing mapping. A
+rename is an in-place save, so it is not a duplicate. Writing that sentence exposed a layout bug worth more than the
+copy: `.hint` had no `overflow-wrap` and the message sits in the dashboard shell, so a 40-character file name made the
+whole document wider than the viewport -- `figure_viewer`'s `scrollWidth <= innerWidth` assertion caught it, and `.hint`
+now wraps anywhere.
+
+What this leaves: the "a second mapping with identical content gets its own empty record" half of the ownership design is
+moot rather than blocked -- a second copy cannot be saved, so there is nothing to give a record to.
+
 ## Landed 2026-10-20, later: the panel stops choosing a profile, and offers only a mapping a run can reuse
 
 **The `Execution` combobox is gone, and one route fallback had to move with it.** The control was visible only for
@@ -57,8 +92,9 @@ record is not rewritten after the fact. Re-fitting (the frames are staged; only 
 whose check passes.
 
 **A parameterized mapping can be deleted where it is edited, and the panel was told the wrong rule, `0b7de02`.** The
-editor's confirm said a mapping's bonded states were *not* deleted; `mappings.delete_draft` deletes them unless another
-saved mapping carries the same content hash, and removes the fit jobs and staged frames too. It now states that, and the
+editor's confirm said a mapping's bonded states were *not* deleted; `mappings.delete_draft` deletes them -- it kept them
+for another saved mapping carrying the same content hash until `c8620be` made that second copy unsaveable -- and removes
+the fit jobs and staged frames too. It now states that, and the
 notice afterwards reports what the route's answer says went -- the revision count, or who still holds the content. The
 CG Bond Interactions panel gained a delete control beside the fit. It was first wired to the editor's own route, so it
 deleted the *mapping*; on 2026-10-21 the user made it what the panel is about -- **Delete this parameterization**

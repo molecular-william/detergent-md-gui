@@ -1,5 +1,12 @@
 # Producing a CG parameterization, and consuming one
 
+> **Superseded in part, 2026-10-21.** The flat bonded-state store this document treats as the thing a panel saves to
+> (`/api/bonded-states`, its `automatic` child, `models/bonded/states.py`) was deleted, and a parameterization is now
+> owned by the saved mapping that claimed it -- with a second saved copy of the same content refused outright. The
+> decisions below about *parameterizations* still hold; where this document describes the state store as live, read it as
+> history. The current rules are in `AGENTS.md` and `docs/PROJECT_GUIDE.md`.
+
+
 **Status: design for judgement.** Base draft: `docs/design/prototypes/parameterization-and-new-run.html`. This
 supersedes the bonded half of `docs/design/prototypes/new-run-prototype.html`, whose step 04 already said *"Use CG Bond
 Interactions to fit without simulating"* — the implementation went the other way (a run-level choice), and the

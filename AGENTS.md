@@ -163,14 +163,14 @@ them.
 
 ## Verify
 ```
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast: 1,837, ~19 s with a private MPLCONFIGDIR
-dashboard/.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser: 235, ~45 s
+dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast: 1,828, ~19 s with a private MPLCONFIGDIR
+dashboard/.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser: 236, ~45 s
 dashboard/.venv/bin/python -m pytest -m slow -q -n 0                       # slow: 66, ~64 s serial
 dashboard/.venv/bin/ruff check dashboard tests                             # F, E9, I must exit 0
 scripts/gate_commit.sh <message-file> <paths...>                           # fast tier + ruff over named paths; commits only when clean
 dashboard/.venv/bin/python scripts/mutation_check.py                       # 11 mutants: 10 caught, 1 survived (the control)
 ```
-The suite is 2,138 tests (1,837 + 235 + 66). A shared matplotlib config directory makes four distance-diagnostic
+The suite is 2,130 tests (1,828 + 236 + 66). A shared matplotlib config directory makes four distance-diagnostic
 tests race, so export a private `MPLCONFIGDIR` before running the tier, gate included. Recorded flakes, not absorbed -- and they cluster in one file, which is the clue:
 `test_bonded_parameterization_browser.py` has had three distinct tests fail inside a parallel tier and pass at `-n 0`
 (a revision count of 1, and twice the guard `the two fixtures are the same content`). All three are *fixture identity*

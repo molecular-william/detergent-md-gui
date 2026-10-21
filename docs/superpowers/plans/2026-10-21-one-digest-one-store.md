@@ -60,7 +60,8 @@ state is the ownership itself. -- a renamed candidate keeps its
 revisions, and content-addressed revision data stays where it is -- while making ownership singular.
 
 - [x] ownership on the record: `owners` claim list, `claim`, `release`, delete-by-claim  (this commit)
-- [ ] **blocked by design**: a copy and a rename are the same thing at the record's level while the address is the
-      content hash; separating them needs the editor's save path to say which it is (see the note above)
+- [x] **closed by the owner's rule instead**: a second saved copy of one content is refused outright (`c8620be`),
+      so there is no second mapping to inherit or to give an empty record to; a rename is an in-place save and keeps its
+      revisions
 - [x] delete-mapping cascade releases the claim, and the last claim takes revisions, fits and work  (this commit)
 - [ ] runs consuming a parameterization record which mapping it belonged to
