@@ -24,6 +24,8 @@ from pathlib import Path
 from dashboard.execution.adapters import pdc_view
 from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_PLACEMENT, ddm_moleculetype
 
+from . import panels
+
 MOLECULES = 6
 SPACING_NM = 3.0
 
@@ -98,8 +100,7 @@ def open_panel(page, live_page):
     page.route('**/api/pdc/*/snapshots', lambda route: route.fulfill(json=INDEX))
     page.route('**/api/pdc/*/snapshots/**',
                lambda route: route.fulfill(body=placement_pdb(), content_type='text/plain'))
-    page.goto(f'{live_page.base_url}/protein-detergent/complexes')
-    page.get_by_role('tab', name='Complexes', exact=True).click()
+    panels.open_panel(page, live_page.base_url, '/protein-detergent/complexes', tab='Complexes')
     page.evaluate("window.pdcSetRun('pdcbeads')")
     button = page.locator('#pdc-snapshots button').first
     button.wait_for(timeout=30000)

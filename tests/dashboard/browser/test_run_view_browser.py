@@ -21,6 +21,8 @@ The third and fourth traps belong with the transport row and are proved in `test
 """
 from playwright.sync_api import expect
 
+from . import panels
+
 AA_RUN = 'aa00aa000001'
 CG_RUN = 'cc00cc000002'
 FRAMES_RUN = 'ff00ff000003'
@@ -293,12 +295,15 @@ MEASURE = """
 
 def open_panel(page, live_page, workspace='detergent-validation', run=None):
     query = f'?run={run}' if run else ''
-    page.goto(f'{live_page.base_url}/{workspace}/run-view{query}')
-    expect(page.locator('#runview')).to_be_visible()
-    # The three sub-panels below each canvas sit collapsed -- that is the layout's own claim, and a reader opens the
-    # one they want. A test that reads or clicks inside one opens it first, through the same `<details>` element.
-    for panel in ('holds-details', 'frames-details', 'figures-details'):
-        page.locator(f'#run-view-{panel}-A').evaluate('el => { el.open = true; }')
+
+    def ready(page):
+        expect(page.locator('#runview')).to_be_visible()
+        # The three sub-panels below each canvas sit collapsed -- that is the layout's own claim, and a reader opens the
+        # one they want. A test that reads or clicks inside one opens it first, through the same `<details>` element.
+        for panel in ('holds-details', 'frames-details', 'figures-details'):
+            page.locator(f'#run-view-{panel}-A').evaluate('el => { el.open = true; }')
+
+    return panels.open_panel(page, live_page.base_url, f'/{workspace}/run-view{query}', ready=ready)
 
 
 def mark_stage(page):

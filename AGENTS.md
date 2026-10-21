@@ -160,7 +160,10 @@ scripts/gate_commit.sh <message-file> <paths...>                           # fas
 dashboard/.venv/bin/python scripts/mutation_check.py                       # 11 mutants: 10 caught, 1 survived (the control)
 ```
 The suite is 2,138 tests (1,837 + 235 + 66). A shared matplotlib config directory makes four distance-diagnostic
-tests race, so export a private `MPLCONFIGDIR` before running the tier, gate included. Repo-wide `ruff check .` exits
+tests race, so export a private `MPLCONFIGDIR` before running the tier, gate included. Recorded flakes, not absorbed:
+`test_bonded_parameterization_browser.py::test_the_panel_deletes_the_parameterization_and_leaves_the_mapping` failed
+once inside a three-file run at `-n 8` (revision count 1 versus the one the test asserted) and passed at `-n 16` and
+serially — treat a red there as load first, and re-run serially before believing it. Repo-wide `ruff check .` exits
 1 on 19 pre-existing `micelle/` findings; scope lint to the paths you touched.
 
 <!-- gitnexus:start -->

@@ -29,6 +29,8 @@ from dashboard.models import mappings
 from dashboard.models.bonded import parameterization
 from dashboard.models.mappings import context as mapping_context
 
+from . import panels
+
 AA_RUN = 'aa00aa000001'
 OTHER_AA_RUN = 'aa00aa000002'
 JOB_ID = 'ff00ff00ff00ff00'
@@ -196,16 +198,19 @@ def stub(page, record, *, jobs=None, engines=ENGINES, references=REFERENCES, pos
 
 
 def open_panel(page, live_page, file):
-    page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
-    # The catalogue offers several candidates in some tests, and which one comes first is the catalogue's order
-    # rather than this file's subject: select the one the test means, the way a reader would.
-    page.wait_for_function("() => document.querySelectorAll('#bonded-mapping-select option').length > 0",
-                           timeout=30000)
-    if page.locator('#bonded-mapping-select').input_value() != file:
-        page.locator('#bonded-mapping-select').select_option(file)
-    expect(page.locator('#bonded-mapping-select')).to_have_value(file)
-    # The engines are read once at mount and the model card cannot say anything about a fit before that lands.
-    page.wait_for_function("() => document.querySelectorAll('#bonded-engine option').length > 0", timeout=30000)
+    """The CG Bond Interactions panel, on the mapping the test means.
+
+    The catalogue offers several candidates and which one comes first is the catalogue's order rather than this file's
+    subject, so the mapping is chosen the way a reader would choose it.
+    """
+    def ready(page):
+        page.wait_for_function("() => document.querySelectorAll('#bonded-mapping-select option').length > 0",
+                               timeout=30000)
+        if page.locator('#bonded-mapping-select').input_value() != file:
+            page.locator('#bonded-mapping-select').select_option(file)
+        expect(page.locator('#bonded-mapping-select')).to_have_value(file)
+
+    return panels.open_panel(page, live_page.base_url, '/detergent-validation/bond-interactions', ready=ready)
 
 
 def cells(page, index):
