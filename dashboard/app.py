@@ -6,7 +6,8 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     __package__ = 'dashboard'
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
+from werkzeug.exceptions import HTTPException
 
 from . import paths as path_config
 from .constants import HOST, PORT
@@ -31,10 +32,18 @@ def create_app(paths=None, config=None):
 
     common.register_error_handlers(app)
 
+    @app.errorhandler(HTTPException)
     def request_error(error):
+        """Every failure under `/api` answers JSON, whatever its code.
+
+        The four codes below were registered one by one, so `405`, `422`, `500` and `503` -- all of which routes raise
+        with `abort` -- answered Werkzeug's HTML into a client that parses JSON, and `405` is not hypothetical:
+        `POST /api/storage` is a wrong method on a real path. A page outside `/api` keeps Werkzeug's own answer, because
+        there the reader is a browser looking at a page, not a client reading a body.
+        """
+        if not request.path.startswith('/api/'):
+            return error
         return jsonify(error=error.description), error.code
-    for code in (400, 404, 409, 413):
-        app.register_error_handler(code, request_error)
     return app
 
 
