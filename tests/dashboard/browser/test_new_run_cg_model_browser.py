@@ -15,6 +15,8 @@ from urllib.parse import parse_qs, urlsplit
 
 from playwright.sync_api import expect
 
+from . import panels
+
 #: Two saved candidates, in the shape `/api/mappings?view=summary` answers with. The files are what the picker's
 #: option values carry, and therefore what the readiness answer is keyed by here.
 #: `can_reuse` is not decoration: the picker offers only a mapping a run can reuse, which is the verdict
@@ -106,13 +108,15 @@ def stub(page, states, failing=(), references=(REFERENCE,)):
 
 def open_panel(page, live_page):
     """The New Run panel of the validation workspace, mounted and its mapping list filled."""
-    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
-    # Two mappings on offer is this file's precondition, and the molecule has to be a real one before readiness is
-    # asked at all (`checkReadiness` returns early with no molecule record).
-    page.wait_for_function(
-        "() => document.querySelectorAll('[name=mapping_candidate] option').length > 2", timeout=30000)
-    page.wait_for_function(
-        "() => document.querySelector('[name=molecule_id]').value === 'DDM'", timeout=30000)
+    def ready(page):
+        # Two mappings on offer is this file's precondition, and the molecule has to be a real one before readiness is
+        # asked at all (`checkReadiness` returns early with no molecule record).
+        page.wait_for_function(
+            "() => document.querySelectorAll('[name=mapping_candidate] option').length > 2", timeout=30000)
+        page.wait_for_function(
+            "() => document.querySelector('[name=molecule_id]').value === 'DDM'", timeout=30000)
+
+    return panels.open_panel(page, live_page.base_url, '/detergent-validation/new-run', ready=ready)
 
 
 def card(page):
