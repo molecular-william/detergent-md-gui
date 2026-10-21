@@ -74,7 +74,11 @@ consuming path copied only the topology, so stage 5 looked in `3_initial_CG` (it
 `bonded.reference_distributions`), `use_parameterization.py` re-checks and records them, `delete()` takes them with the
 mapping. A revision with none is refused **at prepare** rather than after a simulation, with bartender named separately
 because re-fitting with bartender would change nothing. The existing revision 1 predates this and records none -- the
-remedy is a re-fit (30 s), which appends revision 2; runs that already recorded the old digest keep it.
+remedy is a re-fit (30 s), which appends revision 2; runs that already recorded the old digest keep it. One
+correction to the copy (`48e62a2`): it takes *every* `*distr.dat`, the tool's own glob, so the 55 distance histograms
+travel with the 13 interaction ones -- 68 files, 2.0 MB. A copy of the bonded family alone leaves the distance half of
+the score unbaselined, and `fast_forward/score.py` skips such a pair rather than failing it, so its matrix cell reads
+**0.00** (identical) for a comparison that never happened: the 0.00 matrix in `255eb0750d60`'s log.
 
 **A run of this type died in assessment, and its progress bar counted nothing, `194ee69`.** Run `255eb0750d60`
 (DDM, AA–CG, 100 ns, consumed `dbc366ae772b`) failed in stage 5 after 131 s: `report_interactions.out` says

@@ -66,7 +66,9 @@ them.
   `percent: null` (indeterminate) rather than 0 when a leg has not printed yet.
 - **`ff_assess` scores against pre-computed reference distributions (`<group>_<type>_distr.dat` in its `-d` directory)
   and does not make them.** `refine_bonded` writes them while fitting, so `parameterization.save` copies and hashes them
-  beside the revision (`records/<content>.revisions/<n>/`), `cg.prepare` stages them into `3_initial_CG` for a
+  beside the revision (`records/<content>.revisions/<n>/`, every `*distr.dat` -- the tool's own glob, so the distance
+  histograms travel too; without them `ff_assess` skips each pair and scores it **0.00**, which reads perfect),
+  `cg.prepare` stages them into `3_initial_CG` for a
   consuming run, and a revision that records none is refused at prepare, naming bartender when that engine is why. A
   run that reached stage 5 without them scored `nan` on every interaction -- the failure of run `255eb0750d60`; a
   revision fitted before this records none, so it needs a re-fit.
