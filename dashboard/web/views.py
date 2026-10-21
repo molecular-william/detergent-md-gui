@@ -245,6 +245,11 @@ def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, co
             try: task['progress'] = json.loads((run_dir / task['directory'] / 'progress.json').read_text())['phase']
             except (OSError, ValueError): pass
     if summary:
-        result['stages'] = [{k: v for k, v in stage.items() if k in STAGE_SUMMARY_FIELDS} for stage in stages]
+        # A skipped stage's reason travels with the summary: it is the stage's own sentence about work it did not do,
+        # and a run that completes without a score is exactly where a reader needs it. A failed stage's error is already
+        # at run level, so the whitelist stays the whitelist.
+        result['stages'] = [{k: v for k, v in stage.items() if k in STAGE_SUMMARY_FIELDS}
+                            | ({'error': stage['error']} if stage.get('status') == 'skipped' and stage.get('error') else {})
+                            for stage in stages]
         result['detail_revision'] = hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()
     return result

@@ -288,28 +288,30 @@ def stage_parameterization(directory: Path, data, *, names, molecule_root=None) 
 
 
 def stage_distributions(directory, mapping_candidate=None):
-    """Copy the revision's reference histograms into stage 3, where stage 5's `-d` reads them.
+    """Stage the model's reference histograms into stage 3, where stage 5's `-d` reads them; or say there are none.
 
     `ff_assess` does not measure the reference: it reads `<group>_<type>_distr.dat` files from its `-d` directory and
     scores the CG trajectory against them. A run that *fits* in-run leaves them in `3_initial_CG` as a by-product of
     fitting; a run that *consumes* a parameterization copies only the topology, so without this its assessment finds
-    nothing for every interaction, averages no numbers, and reports `Overall Score : nan` -- a run that simulated for
-    an hour and cannot be scored. Refusing here, before any simulation, is the cheap place to say so.
+    nothing -- and finds it quietly, averaging no interactions into `nan` and scoring every unbaselined distance 0.00.
 
-    Returns the files staged (name and digest), which the run's staged revision and manifest record.
+    A revision that records none is **not** a reason to refuse the run. It is a reason to say, in the stage that has
+    nothing to do, that it had nothing to do: the simulation is still worth running (D6a keeps BARTENDER's analysis
+    separate, and it is unbuilt), and the run records `skipped` with this reason rather than a number it did not measure.
+
+    Returns `(files, reason)`: the staged files with their digests, and why there are none when there are none. A
+    recorded file whose digest no longer matches is still an error -- that is a store changed under the model, not a
+    model without evidence.
     """
     recorded = parameterizations.distributions(mapping_candidate)
     if not recorded:
         engine = (parameterizations.current(mapping_candidate) or {}).get('engine')
         if engine == 'bartender':
-            raise ValueError(
-                "This mapping's current parameterization was fitted by bartender, which measures no reference "
-                'histograms; the CG assessment scores against them, so a run of this model could not be assessed. '
-                "BARTENDER's own analysis is not built yet -- see docs/design/2026-10-16-parameterization-and-new-run"
-                '.md, where unifying the two analysis routes is postponed. Fit with fast-forward to run it today.')
-        raise ValueError(
-            "This mapping's current parameterization records no AA reference distributions, so the CG assessment "
-            'could not score a run of it. Re-fit the model (Fit this model), which measures and records them.')
+            return [], ("BARTENDER measured no reference histograms when this model was fitted, and its own analysis "
+                        "is not built yet (D6a of docs/design/2026-10-16-parameterization-and-new-run.md), so the CG "
+                        'assessment has nothing to score this run against.')
+        return [], ('This model records no AA reference histograms -- it predates them being recorded -- so the CG '
+                    'assessment has nothing to score this run against. A re-fit (Fit this model) records them.')
     listing = []
     for entry in recorded['files']:
         data = (recorded['directory'] / entry['name']).read_bytes()
@@ -319,7 +321,7 @@ def stage_distributions(directory, mapping_candidate=None):
                              'the parameterization store has been changed under it')
         (directory / entry['name']).write_bytes(data)
         listing.append({'name': entry['name'], 'sha256': digest})
-    return listing
+    return listing, None
 
 
 def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM', profile=AA_CG_PROFILE, settings=None, mapping_candidate=None, shared_reference=None, reference_root=None, molecule_snapshot=None, molecule_root=None):
@@ -370,7 +372,7 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     (run_dir / '2_mapping/draft-source.json').write_text(json.dumps(data, indent=2))
     cg = run_dir / '3_initial_CG'
     stage_parameterization(cg, data, names=names, molecule_root=molecule_root)
-    recorded = None
+    recorded, unscored = None, None
     if revision is not None:
         # The model's own terms, and the driver that writes them instead of fitting. `bonded.py` is
         # staged either way; the refinement is not, because nothing in this stage reads it.
@@ -379,14 +381,14 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
         # consumes a model copies no such files from anywhere else -- which is how a run reaches stage 5 with nothing
         # to score and reports `Overall Score : nan`. The staged copy is the run's own, so the baseline survives the
         # parameterization being deleted.
-        recorded = stage_distributions(cg, mapping_candidate)
-        if recorded:
-            # The run's own inventory of what it copied, beside -- not inside -- the revision: the staged revision stays
-            # byte-for-byte the store's, so the digest the run records is the digest the store computes.
-            (cg / 'distributions.json').write_text(
-                json.dumps({'directory': '.', 'files': recorded, 'source':
-                            f"revision {(revision or {}).get('revision')} of this mapping's parameterization"},
-                           indent=2, sort_keys=True) + '\n')
+        recorded, unscored = stage_distributions(cg, mapping_candidate)
+        # The run's own inventory of what it copied, beside -- not inside -- the revision: the staged revision stays
+        # byte-for-byte the store's, so the digest the run records is the digest the store computes. An empty inventory
+        # carries the reason, and stage 5 records `skipped` with it instead of scoring against nothing.
+        (cg / 'distributions.json').write_text(
+            json.dumps({'directory': '.', 'files': recorded, 'reason': unscored, 'source':
+                        f"revision {(revision or {}).get('revision')} of this mapping's parameterization"},
+                       indent=2, sort_keys=True) + '\n')
         (cg / 'parameterization.json').write_text(json.dumps(revision, indent=2, sort_keys=True) + '\n')
         shutil.copy2(SCRIPTS / 'use_parameterization.py', cg / 'use_parameterization.py')
     sim = run_dir / '4_CG_sim'
@@ -444,6 +446,12 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
         # The baseline stage 5 scores against, copied into stage 3 from the revision: named here so a reader can see
         # which histograms a run's numbers were measured against without opening the store.
         'reference_distributions': [entry['name'] for entry in (recorded or [])],
+        # Whether this run's assessment can score anything. Recorded so a reader knows before the simulation ends
+        # that stage 5 will be `skipped`, and why -- D6a's deferred BARTENDER analysis is the reason it happens.
+        # A run that fits leaves its own histograms in stage 3 (`refine_bonded` measures them while fitting), so it is
+        # scored however little the mapping recorded; a consuming run is scored only if the model brought a baseline.
+        'assessment': ({'scored': bool(recorded), 'reason': unscored} if revision is not None
+                       else {'scored': True, 'reason': None}),
         'source': ("the mapping's current parameterization"
                    if revision else 'fitted by this run, in stage 3, from the AA reference it consumes'),
     }

@@ -206,3 +206,38 @@ def test_a_running_stage_reports_the_leg_it_is_in_and_how_far_through(dashboard,
     assert '83%' in bar.locator('.job-progress-fill').get_attribute('style'), \
         bar.locator('.job-progress-fill').get_attribute('style')
     assert errors == [], errors
+
+
+def test_a_skipped_stage_shows_why_it_had_nothing_to_do(dashboard, live_page):
+    """A run can complete without a score, and the stage that skipped is where the reason belongs.
+
+    `ff_assess` scores against the AA reference's histograms; a BARTENDER model records none and its own analysis is
+    unbuilt (D6a), so the assessment exits 4 with its reason in `skip.json`, the run carries on, and the step carries
+    that sentence. A bare dash would leave the reader inventing a cause.
+    """
+    runs = dashboard.coordinator.RUNS
+    job_id = '00000000000e'
+    reason = ('BARTENDER measured no reference histograms when this model was fitted, and its own analysis is not'
+              ' built yet')
+    dashboard.coordinator.database().replace([{
+        'id': job_id, 'label': 'A bartender model, simulated', 'detergent': 'DDM', 'method': 'bartender',
+        'status': 'completed', 'stage': 'complete', 'created': '2026-10-21T02:00:00+00:00',
+        'started_at': '2026-10-21T02:00:00+00:00', 'layout_version': 2, 'run_type': 'aa_cg'}])
+    directory = runs / job_id
+    (directory / 'logs').mkdir(parents=True)
+    plan = ['AA reference', 'trajectory mapping', 'CG parameterization', 'CG simulation',
+            'CG assessment (ff_assess)']
+    # A manifest's `stage_plan` holds names -- the pairs are the job record's own spelling of the same plan.
+    files.atomic_json(directory / 'manifest.json', {
+        'stage_plan': plan,
+        'stages': [{'name': name, 'status': 'completed'} for name in plan[:4]] +
+                  [{'name': plan[4], 'status': 'skipped', 'error': reason}]})
+
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
+
+    step = page.locator(f'.job[data-id="{job_id}"] .timeline-step').nth(4)
+    expect(step.locator('.timeline-dot')).to_have_text('–')
+    assert reason in step.get_attribute('aria-label'), step.get_attribute('aria-label')
+    assert reason in step.get_attribute('title')
+    assert errors == [], errors

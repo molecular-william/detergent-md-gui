@@ -16,8 +16,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 from dashboard.execution.adapters import cg
 from dashboard.execution.adapters.cg_names import CGNames
 from dashboard.models import mappings
@@ -346,31 +344,77 @@ def test_the_consuming_run_stages_the_baseline_into_the_stage_the_assessment_rea
     assert manifest(run)['bonded']['reference_distributions'] == ['1_B01_1_B02_distances_distr.dat',
                                                                  'B01_B02_B05_angles_distr.dat',
                                                                  'B01_B11_bonds_distr.dat']
+    assert manifest(run)['bonded']['assessment'] == {'scored': True, 'reason': None}
 
 
-def test_a_model_with_no_recorded_baseline_is_refused_before_it_simulates(tmp_path, monkeypatch):
-    """The cheap place to fail. A run with no baseline simulates for an hour and then reports `Overall Score : nan`,
-    because stage 5 averages zero comparable interactions -- so `prepare` names the missing evidence instead."""
+def test_a_bartender_model_runs_and_its_assessment_records_that_it_had_nothing_to_score(tmp_path, monkeypatch):
+    """D6a: BARTENDER's analysis is its own and is unbuilt, which postpones scoring -- not the run.
+
+    Refusing the run would throw away a simulation that still has evidence in it. So prepare stages what the model
+    brought (nothing), writes the reason into the inventory, and stage 5 records `skipped` with those words: a stage that
+    had nothing to do, said so, and was not confused with one that scored nothing.
+    """
+    candidate = ddm_mapping()
+    bartender = {**REVISION, 'engine': 'bartender'}
+    parameterization.save(candidate, bartender)
+    run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
+
+    inventory = json.loads((run / '3_initial_CG/distributions.json').read_text())
+    assert inventory['files'] == []
+    assert 'BARTENDER measured no reference histograms' in inventory['reason']
+    assert 'D6a' in inventory['reason'] and 'nothing to score' in inventory['reason']
+    record = manifest(run)['bonded']
+    assert record['consumes_parameterization'] is True and record['engine'] == 'bartender'
+    assert record['reference_distributions'] == []
+    assert record['assessment'] == {'scored': False, 'reason': inventory['reason']}
+    # The consuming stage still records what it consumed, and that it consumed no baseline.
+    assert not (run / '3_initial_CG/DDM_ff_inter.itp').exists(), 'nothing is fitted or staged by prepare itself'
+
+
+def test_a_revision_that_predates_recorded_baselines_also_runs_and_says_so(tmp_path, monkeypatch):
+    """The other way to have no baseline: a fast-forward revision from before they were recorded. Same answer -- the
+    run happens, the assessment records why it could not score, and the reason names the remedy."""
     candidate = ddm_mapping()
     parameterization.save(candidate, REVISION)
+    run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
 
-    with pytest.raises(ValueError) as error:
-        prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
+    inventory = json.loads((run / '3_initial_CG/distributions.json').read_text())
+    assert inventory['files'] == []
+    assert 'predates them being recorded' in inventory['reason']
+    assert 're-fit' in inventory['reason']
+    assert manifest(run)['bonded']['assessment']['scored'] is False
 
-    message = str(error.value)
-    assert 'records no AA reference distributions' in message
-    assert 'could not score a run of it' in message and 'Re-fit' in message
 
-    # An engine that measures none gets its own sentence: re-fitting with the same one would change nothing.
-    bartender = ddm_mapping()
-    bartender['rings'][0]['scale'] = 1.2
-    parameterization.save(bartender, {**REVISION, 'engine': 'bartender'})
-    with pytest.raises(ValueError) as engine_error:
-        prepared(tmp_path / 'bartender', monkeypatch, mapping_candidate=bartender)
-    assert 'fitted by bartender' in str(engine_error.value)
-    assert 'measures no reference histograms' in str(engine_error.value)
-    assert "BARTENDER's own analysis is not built yet" in str(engine_error.value)
-    assert 'Fit with fast-forward' in str(engine_error.value)
+def test_the_assessment_stage_skips_and_says_why_when_the_inventory_is_empty(tmp_path):
+    """The stage's own half of the contract: exit 4 with `skip.json` beside it, so the run records `skipped`."""
+    stage = tmp_path / '5_assessment'
+    stage.mkdir()
+    (stage / 'assess.sh').write_text((PROJECT_ROOT / 'dashboard/execution/scripts/assess.sh').read_text())
+    (stage / 'distributions.json').write_text(json.dumps(
+        {'directory': '.', 'files': [], 'reason': 'BARTENDER measured no reference histograms'}))
+
+    # The stage runs under the interpreter the executor hands it, so the guard is tested with one on PATH.
+    done = subprocess.run(['bash', 'assess.sh'], cwd=stage, capture_output=True, text=True,
+                          env={'PATH': f'{Path(sys.executable).parent}:/usr/bin:/bin'})
+
+    assert done.returncode == 4, done.stdout + done.stderr
+    assert json.loads((stage / 'skip.json').read_text()) == {
+        'reason': 'BARTENDER measured no reference histograms'}
+    assert not (stage / 'report_interactions.out').exists(), 'it did not score anything'
+
+
+def test_the_assessment_stage_does_not_skip_a_run_that_brought_no_inventory(tmp_path):
+    """A run that fits has no inventory and does not need one: its own fit left the histograms in stage 3. So a missing
+    inventory is not an empty one, and the stage goes on to the tool rather than claiming it had nothing to do."""
+    stage = tmp_path / '5_assessment'
+    stage.mkdir()
+    (stage / 'assess.sh').write_text((PROJECT_ROOT / 'dashboard/execution/scripts/assess.sh').read_text())
+
+    done = subprocess.run(['bash', 'assess.sh'], cwd=stage, capture_output=True, text=True,
+                          env={'PATH': f'{Path(sys.executable).parent}:/usr/bin:/bin'})
+
+    assert done.returncode != 4, 'a stage with no inventory is not a stage with nothing to do'
+    assert not (stage / 'skip.json').exists()
 
 
 def test_the_consuming_stage_records_the_baseline_and_refuses_a_changed_one(tmp_path):

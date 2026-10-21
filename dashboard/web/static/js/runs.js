@@ -178,7 +178,11 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
           step.dataset.status = state; step.tabIndex = 0;
           if (['running', 'cancelling'].includes(state)) step.setAttribute('aria-current', 'step');
           const elapsed = record ? stageDurationSeconds(record.started_at, record.ended_at) : null;
-          const description = `${name}: ${state}${elapsed !== null ? ' · ' + duration(elapsed) : ''}`;
+          // A skipped stage's reason is the stage's own words (`skip.json`), carried on the record's error field. Without
+          // it the step reads as an unexplained dash -- and "the assessment had nothing to score" is exactly the thing
+          // a reader needs to hear when a run completes without a score.
+          const why = state === 'skipped' && record?.error ? ` · ${record.error}` : '';
+          const description = `${name}: ${state}${elapsed !== null ? ' · ' + duration(elapsed) : ''}${why}`;
           step.title = description; step.setAttribute('aria-label', description);
           const dot = document.createElement('span'); dot.className = 'timeline-dot'; dot.setAttribute('aria-hidden', 'true');
           dot.textContent = {completed:'✓', reused:'↗', skipped:'–', failed:'×', cancelled:'■', running:'●', cancelling:'●'}[state] || '';
