@@ -59,6 +59,15 @@ them.
   "no parameterization" and its job box sat on `queued`. Reads fall back to `legacy_content_identity` for records
   written before that; only `candidate_identity` normalises, never `canonical_sha256` (file/snapshot/reference digests
   are byte digests on purpose).
+- **A run's progress is counted from the stage log's structure, and its ETA from GROMACS' own text.** They answer
+  different questions: `web/progress.py` counts mdrun legs (`gmx mdrun -deffnm`) and the step within the current one,
+  because a three-leg script stage (`cg_simulation.sh`: min, eq, md) has no single GROMACS estimate and a tool stage
+  (`assess.sh`) prints no step at all. It streams the log -- leg markers stand at the start of legs -- and reports
+  `percent: null` (indeterminate) rather than 0 when a leg has not printed yet.
+- **`ff_assess` scores against pre-computed reference distributions (`<group>_<type>_distr.dat` in its `-d` directory)
+  and does not make them.** The in-run fitting path leaves them in `3_initial_CG/`; a run that *consumes* a
+  parameterization does not, so its assessment reports `Overall Score: nan` and `validate_run.py` refuses it -- the
+  failure of run `255eb0750d60`.
 - **`ff_inter` writes `funct 9`, not `funct 1`**: one `phi C mult` triplet per line, eight lines for one quadruple, so
   eight lines are one dihedral with eight harmonics. A reader that assumes `funct 1` refuses the topology; one that
   treats each line as a dihedral measures the same torsion eight times. `dihedral_fit.read_declared_dihedrals` merges

@@ -65,6 +65,26 @@ route: it warns with the count that panel has already read, refuses while a fit 
 a saved mapping (a `composition:<id>` entry is not one), and after deleting re-reads the catalogue, selects the next
 mapping and says which -- or empties the panel when none is left.
 
+**A run of this type died in assessment, and its progress bar counted nothing, `194ee69`.** Run `255eb0750d60`
+(DDM, AA–CG, 100 ns, consumed `dbc366ae772b`) failed in stage 5 after 131 s: `report_interactions.out` says
+`Overall Score : nan ± nan` with empty `bonds`/`angles`/`dihedrals` sections, and `validate_run.py` refuses nonfinite
+scores. `ff_assess` printed `B01_B11_bonds_distr.dat file not found!` for every interaction, plus "your prefix is set
+to the default value": it scores a CG trajectory against **pre-computed reference distributions**, and a run that
+*consumed* a parameterization never produces them -- the in-run fitting path leaves `*_distr.dat` in `3_initial_CG/`
+(which is why runs `22075892b606` and `a2a457cf9413` completed with the same `-d ../3_initial_CG` line), and
+`use_parameterization.sh` does not. Nothing in this workspace holds them for `dbc366ae772b` either: AA-only runs have no
+assessment stage. **The fix is to produce the AA reference's interaction distributions for the consuming path** (the
+same tool on `$AA_REFERENCE_DIR`'s trajectory, written where stage 5's `-d` points), which is its own slice: it costs
+one pass over the 200 ns reference.
+
+Progress: the run card had an ETA from GROMACS' log and no fraction, because a three-leg script stage (min, eq, md)
+gives GROMACS' "remaining wall clock time" for one leg and `assess.sh` prints no step at all. `web/progress.py` now
+counts the stage's own structure -- legs announced by `gmx mdrun -deffnm`, each leg's length from the mdp `grompp`
+built it from, the step within the current leg from GROMACS' counter -- so two of three legs is 67% and half of the third
+is 83%. It streams the file rather than reading a tail (leg markers stand at the start of legs), `run_view` carries
+`progress` beside the ETA from one resolution of the stage and its log, and the card draws the bar with its leg, step
+and percent. Measured on this failed run's own log: `leg md, 500000/500000, 100%`.
+
 **New Run pins the AA source to the fit's run, `61618f0`.** A mapping carrying a parameterization chooses its own AA
 reference on New Run: the picker locks to `aa_reference.run_id`, the AA half's settings are filled from that run's own
 record and locked, deleting that source is hidden, and the CG settings stay editable. Measured live on arm-B:
