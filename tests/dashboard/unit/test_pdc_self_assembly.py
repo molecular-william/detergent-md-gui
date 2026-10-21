@@ -20,6 +20,7 @@ import pytest
 from dashboard.execution.adapters import pdc, pdc_box, pdc_placement
 from micelle.packing import pack_micelle
 from micelle.registry import load_template
+from tests.dashboard.pdc_fixtures import candidate_file, write_cg_pdb
 
 MARGIN_NM = 2.0
 INITIAL_Z_NM = 6.0
@@ -114,41 +115,6 @@ TEMPLATE = {
                                                    {'name': 'HEAD', 'type': 'SN6', 'role': 'head'}],
 }
 PROTEIN_ITP = '[ moleculetype ]\nPROT 1\n\n[ atoms ]\n1 C1 1 PROT B01 1 0 72\n'
-
-
-def gro_line(residue_id, residue, name, serial, xyz) -> str:
-    return (f'{residue_id:5d}{residue[:5]:<5}{name[:5]:>5}{serial:5d}'
-            f'{xyz[0]:8.3f}{xyz[1]:8.3f}{xyz[2]:8.3f}')
-
-
-def write_gro(path: Path, atoms, box=(8.0, 8.0, 8.0)) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = ['system', str(len(atoms))]
-    lines += [gro_line(residue_id, residue, name, index, xyz)
-              for index, (residue_id, residue, name, xyz) in enumerate(atoms, 1)]
-    lines.append(''.join(f'{value:10.5f}' for value in box))
-    path.write_text('\n'.join(lines) + '\n')
-    return path
-
-
-def write_cg_pdb(path: Path, atoms) -> Path:
-    """The CG structure as martinize2 writes it (`-x`): `ATOM` records in Angstroms, read back by the stage."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [f'ATOM  {index:5d} {name:^4s} {residue:>3s} A{residue_id:4d}    '
-             f'{xyz[0] * 10.0:8.3f}{xyz[1] * 10.0:8.3f}{xyz[2] * 10.0:8.3f}  1.00  0.00'
-             for index, (residue_id, residue, name, xyz) in enumerate(atoms, 1)]
-    path.write_text('\n'.join(lines) + '\nEND\n')
-    return path
-
-
-def candidate_file(tmp_path: Path) -> Path:
-    path = tmp_path / 'ddm_mapping.json'
-    path.write_text(json.dumps({
-        'schema_version': 3, 'molecule_id': 'DDM', 'name': 'two beads over the real DDM', 'martini_version': 3,
-        'beads': [{'name': 'TAIL1', 'type': 'C1', 'atoms': [1, 2, 3, 4]},
-                  {'name': 'HEAD', 'type': 'SN6', 'atoms': [5, 6, 7, 8]}],
-        'connections': [['TAIL1', 'HEAD']]}))
-    return path
 
 
 def _prepared_run(tmp_path: Path, *, placement_mode=None, aggregation_number=8):

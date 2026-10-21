@@ -33,6 +33,7 @@ import pytest
 
 from dashboard.execution.adapters import pdc
 from dashboard.execution.scripts import pdc_build
+from tests.dashboard.pdc_fixtures import prepared_run, stage_dir
 
 TEMPLATE = {
     'name': 'DDM', 'residue': 'DDM', 'coordinates': 'results/MMFF/lig1.pdb',
@@ -71,23 +72,11 @@ def pdb_text(atoms) -> str:
     return '\n'.join(records) + '\nEND\n'
 
 
-def molecule_tree(tmp_path: Path, protein: str) -> Path:
-    molecule = tmp_path / 'molecules' / 'DDM'
-    (molecule / 'results' / 'MMFF').mkdir(parents=True)
-    (molecule / 'results' / 'MMFF' / 'lig1.pdb').write_text('HETATM    1  C1  DDM A   1       0.000   0.000   0.000\n')
-    (molecule / 'results' / 'MMFF' / 'lig1.itp').write_text('[ moleculetype ]\nDDM             1\n')
-    (molecule / 'micelle_template.json').write_text(json.dumps(TEMPLATE))
-    (molecule / 'protein.pdb').write_text(protein)
-    return tmp_path
-
-
 def prepared(tmp_path: Path, protein: str | None = None):
-    root = molecule_tree(tmp_path, protein if protein is not None else peptide())
-    run = tmp_path / 'run'
-    run.mkdir()
-    pdc.prepare(run, protein='molecules/DDM/protein.pdb', template='molecules/DDM/micelle_template.json',
-                settings={'seed': 20261014, 'aggregation_number': 4}, project_root=root)
-    return run, run / Path(pdc.stage_by_name('System preparation').relative).parent
+    """A run whose protein is the one this test is about: the peptide builder's output unless one is passed."""
+    run = prepared_run(tmp_path, settings={'seed': 20261014, 'aggregation_number': 4},
+                       protein_text=protein if protein is not None else peptide())
+    return run, stage_dir(run, 'System preparation')
 
 
 def cg_directory(stage: Path) -> Path:

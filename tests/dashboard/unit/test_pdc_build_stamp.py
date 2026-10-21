@@ -14,6 +14,7 @@ import pytest
 
 from dashboard.execution.adapters import pdc
 from dashboard.execution.scripts import pdc_build
+from tests.dashboard.pdc_fixtures import candidate_file, write_cg_pdb
 
 MOLECULE_ROOT = Path(__file__).resolve().parents[3] / 'molecules'
 TEMPLATE = {
@@ -25,31 +26,6 @@ PROTEIN_ITP = '[ moleculetype ]\nPROT 1\n\n[ atoms ]\n1 C1 1 PROT B01 1 0 72\n'
 DRAFT = {'molecule_id': 'DDM', 'residue': 'DDM', 'terms': 2, 'reference_terms': 0, 'fallback_terms': 2,
          'beads': [{'name': 'TAIL1', 'type': 'C1', 'residue': 'DDM', 'position': [0.5, 0.0, 0.0]},
                    {'name': 'HEAD', 'type': 'SN6', 'residue': 'DDM', 'position': [0.0, 0.0, 0.0]}]}
-
-
-def gro_line(residue_id, residue, name, serial, xyz) -> str:
-    return (f'{residue_id:5d}{residue[:5]:<5}{name[:5]:>5}{serial:5d}'
-            f'{xyz[0]:8.3f}{xyz[1]:8.3f}{xyz[2]:8.3f}')
-
-
-def write_gro(path: Path, atoms, box=(8.0, 8.0, 8.0)) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = ['system', str(len(atoms))]
-    lines += [gro_line(residue_id, residue, name, index, xyz)
-              for index, (residue_id, residue, name, xyz) in enumerate(atoms, 1)]
-    lines.append(''.join(f'{value:10.5f}' for value in box))
-    path.write_text('\n'.join(lines) + '\n')
-    return path
-
-
-def write_cg_pdb(path: Path, atoms) -> Path:
-    """The CG structure as martinize2 writes it (`-x`): `ATOM` records in Angstroms, the stage reads them back."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [f'ATOM  {index:5d} {name:^4s} {residue:>3s} A{residue_id:4d}    '
-             f'{xyz[0] * 10.0:8.3f}{xyz[1] * 10.0:8.3f}{xyz[2] * 10.0:8.3f}  1.00  0.00'
-             for index, (residue_id, residue, name, xyz) in enumerate(atoms, 1)]
-    path.write_text('\n'.join(lines) + '\nEND\n')
-    return path
 
 
 def test_a_detergent_is_placed_with_its_head_end_at_the_site_it_was_given():
@@ -136,16 +112,6 @@ def test_the_topology_names_its_molecules_exactly_as_the_itps_do(tmp_path):
 def test_a_topology_without_a_molecule_name_is_refused_rather_than_guessed():
     with pytest.raises(SystemExit, match='moleculetype'):
         pdc_build.molecule_name('; a topology with nothing to name\n')
-
-
-def candidate_file(tmp_path: Path) -> Path:
-    path = tmp_path / 'ddm_mapping.json'
-    path.write_text(json.dumps({
-        'schema_version': 3, 'molecule_id': 'DDM', 'name': 'two beads over the real DDM', 'martini_version': 3,
-        'beads': [{'name': 'TAIL1', 'type': 'C1', 'atoms': [1, 2, 3, 4]},
-                  {'name': 'HEAD', 'type': 'SN6', 'atoms': [5, 6, 7, 8]}],
-        'connections': [['TAIL1', 'HEAD']]}))
-    return path
 
 
 def test_the_stage_completes_when_the_run_was_prepared_with_a_detergent_mapping(tmp_path):

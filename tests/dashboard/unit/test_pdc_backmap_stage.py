@@ -11,6 +11,9 @@ import json
 from pathlib import Path
 
 from dashboard.execution.adapters import pdc
+from tests.dashboard.pdc_fixtures import prepared_run
+
+BACKMAP = Path(pdc.stage_by_name('Back-mapping (CG2AT2)').relative).parent
 
 TOOL = Path(__file__).resolve().parents[3] / 'tools' / 'cg2at' / 'cg2at'
 TEMPLATE = {
@@ -20,17 +23,8 @@ TEMPLATE = {
 
 
 def prepared(tmp_path: Path) -> Path:
-    molecule = tmp_path / 'molecules' / 'DDM'
-    (molecule / 'results' / 'MMFF').mkdir(parents=True)
-    (molecule / 'results' / 'MMFF' / 'lig1.pdb').write_text('HETATM    1  C1  DDM A   1       0.000   0.000   0.000\n')
-    (molecule / 'results' / 'MMFF' / 'lig1.itp').write_text('[ moleculetype ]\nDDM             1\n')
-    (molecule / 'micelle_template.json').write_text(json.dumps(TEMPLATE))
-    (molecule / 'protein.pdb').write_text('ATOM      1  CA  ALA A   1       0.000   0.000   0.000\n')
-    run = tmp_path / 'run'
-    run.mkdir()
-    pdc.prepare(run, protein='molecules/DDM/protein.pdb', template='molecules/DDM/micelle_template.json',
-                settings={'seed': 20260930, 'aggregation_number': 4}, project_root=tmp_path)
-    return run / Path(pdc.stage_by_name('Back-mapping (CG2AT2)').relative).parent
+    # Four detergents, as this file's own assertions are about; the stage is resolved by name, not by position.
+    return prepared_run(tmp_path, settings={'aggregation_number': 4}, suffix=BACKMAP)
 
 
 def test_the_back_map_uses_the_align_method_and_the_martini_3_database(tmp_path):
