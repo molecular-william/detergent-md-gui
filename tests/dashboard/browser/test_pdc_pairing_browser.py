@@ -53,7 +53,8 @@ ROW_TOLERANCE_PX = 3
 
 def serve(page, catalog=CATALOG):
     page.route(re.compile(r'/api/pdc/catalog'), lambda route: route.fulfill(json=catalog))
-    page.route(re.compile(r'/api/mappings\?'), lambda route: route.fulfill(json={'candidates': []}))
+    page.route(re.compile(r'/api/pdc/models\?'),
+               lambda route: route.fulfill(json={'molecule': 'DDM', 'models': []}))
     page.route(re.compile(r'/api/readiness\?'),
                lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
     page.route(re.compile(r'/encapsulation'),

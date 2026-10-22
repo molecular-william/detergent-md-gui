@@ -65,6 +65,89 @@ def pdc_catalog():
     return jsonify(pdc.catalog(coordinator().ROOT))
 
 
+def model_entry(record):
+    """One saved mapping as a model the picker can offer, or `None` for one a build could not reuse.
+
+    A model is a mapping *and* the parameterization fitted to it. The mapping decides the beads and where they sit;
+    its parameterization decides the bonded terms when it carries one, and a mapping without one is built on terms
+    derived from the Martini 3 references. The join is by **content hash and never by name**: a revision is keyed by
+    the mapping's content identity, so a renamed candidate keeps its fit -- and the record's `owners` list is inferred
+    from those hashes rather than being an address that could be matched on.
+
+    `can_reuse` is the only reason a saved mapping is left out. It is the same verdict the CG half's picker reads and
+    `models/molecules/draft.py` refuses a build on, so this list cannot offer a mapping the build would reject at
+    preparation -- and the rule is not restated anywhere else.
+
+    `label` is the sentence the picker shows, built here so that what a model carries has one home: JavaScript
+    renders it and never decides fitted from derived. `terms` is `total_terms` (which excludes `virtual_sitesn`, the
+    count a panel prints) while `term_kinds` is the full row of counts `pdc.prepare` records.
+    """
+    from ...models.bonded import parameterization
+
+    if not isinstance(record, dict) or record.get('error'):
+        return None
+    if (record.get('validation') or {}).get('can_reuse') is not True:
+        return None
+    content_hash = parameterization.content_identity(record)
+    current = parameterization.one(content_hash).get('current') or {}
+    fitted = None
+    if current:
+        fitted = {'revision': current.get('revision'), 'terms': parameterization.total_terms(current),
+                  'term_kinds': parameterization.term_counts(current), 'engine': current.get('engine'),
+                  'created_at': current.get('created_at'),
+                  'scientifically_validated': bool(current.get('scientifically_validated'))}
+    beads = len(record.get('beads') or [])
+    name = record.get('name') or record.get('file')
+    label = (f'{name} \u00b7 revision {fitted["revision"]} \u00b7 {beads} beads \u00b7 {fitted["terms"]} terms \u00b7 '
+             f'fitted {str(fitted["created_at"] or "")[:10]}') if fitted else f'{name} \u00b7 {beads} beads \u00b7 derived terms'
+    return {'file': record.get('file'), 'name': record.get('name'), 'beads': beads, 'content_hash': content_hash,
+            'fitted': fitted, 'label': label}
+
+
+@blueprint.get('/api/pdc/models')
+def pdc_models():
+    """The detergent's saved mappings as the models a build can choose between, fitted ones first.
+
+    This is what the panel's picker reads, and it exists because the picker used to offer mapping *files*: a reader
+    chose an opaque name and could not see that one of the candidates carried a fitted parameterization while another
+    would be built on derived terms. So the list is filtered to the chosen detergent (a belt is built from that
+    detergent's own beads), joined to the parameterization store by content hash, and labelled with what each model
+    carries -- `fitted` first, newest first, because a model with a fit is the one a run should consume.
+
+    A missing or unknown `molecule_id` is a **400** that names it: the list is one detergent's models, and there is no
+    honest default for which detergent a caller meant.
+    """
+    from ...models import mappings
+    from ...models.molecules import detergent_registry
+    from .common import query_context
+
+    root = coordinator().ROOT
+    molecule = (request.args.get('molecule_id') or '').strip()
+    if not molecule:
+        return jsonify({'error': 'molecule_id is required: the models offered are one detergent\u2019s own saved '
+                                 'mappings, so the list cannot be answered without one'}), 400
+    if not detergent_registry.is_detergent(molecule, root):
+        return jsonify({'error': f'{molecule} is not a detergent in {detergent_registry.REGISTRY_FILE}, so it has no '
+                                 f'model this panel can build a belt from: a belt is made of the detergent\u2019s '
+                                 f'own beads'}), 400
+    if not (Path(root) / 'molecules' / molecule).is_dir():
+        return jsonify({'error': f'{molecule} has no folder under molecules/, so it has no saved CG mapping and no '
+                                 f'model to offer'}), 400
+    # The same context `/api/mappings?view=summary&molecule_id=` scopes its list by, so the two agree about which
+    # candidates belong to this molecule -- including the source snapshot each one was saved against.
+    rows = []
+    for record in mappings.list_candidates(context=query_context(molecule)):
+        entry = model_entry(record)
+        if entry is not None:
+            rows.append((entry, record.get('created_at') or ''))
+    # Fitted models first, each group newest first. A fitted model is dated by the fit it carries (a mapping fitted
+    # yesterday is the newer model however old the mapping is); a derived one by when its mapping was saved.
+    fitted = sorted((row for row in rows if row[0]['fitted']), key=lambda row: row[0]['fitted']['created_at'] or '',
+                    reverse=True)
+    derived = sorted((row for row in rows if not row[0]['fitted']), key=lambda row: row[1], reverse=True)
+    return jsonify({'molecule': molecule, 'models': [entry for entry, _ in fitted + derived]})
+
+
 @blueprint.post('/api/pdc/proteins/import')
 def pdc_import_structure():
     """Fetch one structure from OPM into the workspace, where it stays local.

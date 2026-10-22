@@ -36,9 +36,11 @@ CATALOG = {
                  'selection_threshold_fraction': 0.1, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20},
 }
 MAPPING_FILE = 'mapping_candidate_fixture.json'
-#: `can_reuse` is the verdict the picker filters on, so a stub without it offers no mapping at all.
-MAPPINGS = {'candidates': [{'name': 'DDM draft', 'file': MAPPING_FILE,
-                            'validation': {'issues': [], 'can_reuse': True}}]}
+#: One model, as `/api/pdc/models` answers: a saved mapping and what it carries. The server has already joined the
+#: parameterization and written the label, so a stub without a label offers nothing to choose.
+MODELS = {'molecule': 'DDM', 'models': [{'file': MAPPING_FILE, 'name': 'DDM draft', 'beads': 11,
+                                         'content_hash': 'ab' * 32, 'fitted': None,
+                                         'label': 'DDM draft · 11 beads · derived terms'}]}
 # The apolar area each selection is measured to have, from the plan for 1AT9.
 APOLAR = {'A': 38.0, 'A,B,C': 75.285}
 
@@ -65,7 +67,7 @@ def served_chains(url):
 
 def serve(page, asked=None):
     page.route(re.compile(r'/api/pdc/catalog'), lambda route: route.fulfill(json=CATALOG))
-    page.route(re.compile(r'/api/mappings\?'), lambda route: route.fulfill(json=MAPPINGS))
+    page.route(re.compile(r'/api/pdc/models\?'), lambda route: route.fulfill(json=MODELS))
     page.route(re.compile(r'/api/readiness\?'),
                lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
 

@@ -837,37 +837,46 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     describeDetergent();
   }
 
+  // The models this detergent can be built from, fitted ones first, each grouped by what it carries. The server has
+  // already decided which saved mappings a build can reuse, which of them carry a fitted parameterization and what the
+  // sentence beside each one says -- so this renders two groups and never infers fitted from derived itself. The
+  // option's value stays the mapping's file, because that file is the model's identity to the form, the preview and
+  // the run (`mapping_candidate`), even though it is no longer what the reader is shown.
   async function loadMappings() {
     const select = field('mapping_candidate');
     const molecule = field('molecule_id').value;
     const wanted = select.value || saved().mapping_candidate || '';
     if (!molecule) { select.replaceChildren(new Option('Choose a detergent first', '')); return; }
-    select.replaceChildren(new Option('Looking for saved mappings…', ''));
-    let candidates = [];
+    select.replaceChildren(new Option('Looking for saved models…', ''));
+    let models = [];
     try {
-      const result = await cachedApi(`/api/mappings?view=summary&molecule_id=${encodeURIComponent(molecule)}`,
+      const result = await cachedApi(`/api/pdc/models?molecule_id=${encodeURIComponent(molecule)}`,
                                      {maxAge: 10000});
-      candidates = result.candidates || [];
+      models = result.models || [];
     } catch (error) {
-      select.replaceChildren(new Option('The mapping list could not be read', ''));
+      select.replaceChildren(new Option('The model list could not be read', ''));
       return;
     }
-    // Only a mapping a build can reuse is offered, on the same verdict the CG half's picker reads
-    // (`validation.can_reuse`, what `models/molecules/draft.py` refuses on). A candidate whose beads leave heavy atoms
-    // unassigned would otherwise be selectable, chosen by default as the first entry, and refused only when the build
-    // tried to use it. An unreadable candidate has no verdict and is not offered either.
-    const usable = candidates.filter(candidate => candidate.validation?.can_reuse === true);
-    select.replaceChildren(new Option(usable.length ? 'No mapping: a build records centres-only'
+    const group = (title, entries) => {
+      const element = document.createElement('optgroup');
+      element.label = title;
+      element.append(...entries.map(model => new Option(model.label, model.file)));
+      return element;
+    };
+    select.replaceChildren(new Option(models.length ? 'No model: a build records centres-only'
       : 'No saved mapping this detergent can be built from', ''),
-      ...usable.map(candidate => new Option(`${candidate.name} · ${candidate.file}`, candidate.file)));
-    select.value = mappingFor(molecule, wanted, usable);
+      ...(models.length ? [group('Models (fitted)', models.filter(model => model.fitted)),
+                           group('Mappings with derived terms', models.filter(model => !model.fitted))] : []));
+    select.value = mappingFor(molecule, wanted, models);
   }
 
-  // Which mapping the panel hands the form, and therefore the preview and the run: the detergent's own first saved
-  // mapping, so the picture is made of the beads that mapping declares. It reached the writer as a centres-only
-  // frame until 2026-10-14 -- one point per detergent, no moleculetype, hence no types -- which is why every bead
-  // on this detergent's preview came back `family not stated`; the frame the reader asked to see carrying its own
-  // families is the mapping's beads, and a build with no mapping is a real build rather than the default.
+  // Which model the panel hands the form, and therefore the preview and the run: the detergent's own first one -- a
+  // fitted model before a derived one, because the list is ordered that way -- so the picture is made of the beads that
+  // mapping declares and the run simulates the terms its parameterization carries when it has one. It reached the
+  // writer as a centres-only frame until 2026-10-14 -- one point per detergent, no moleculetype, hence no types --
+  // which is why every bead on this detergent's preview came back `family not stated`; the frame the reader asked to
+  // see carrying its own families is the mapping's beads, and a build with no mapping is a real build rather than the
+  // default.
   //
   // A reader who chooses it means it, so the choice is remembered per detergent (`'none'` for the centres-only
   // option) and never defaulted over -- including when the reader moves to another detergent, whose own first

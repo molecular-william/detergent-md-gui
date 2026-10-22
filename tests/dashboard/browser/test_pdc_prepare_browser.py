@@ -28,9 +28,11 @@ CATALOG = {'templates': [{'id': 'DDM:DDM', 'name': 'DDM skeleton', 'molecule': '
                         'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
                         'selection_threshold_fraction': 0.1, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20,
                         'prepare_protein': False}}
-#: `can_reuse` is the verdict the picker filters on, so a stub without it offers no mapping at all.
-MAPPINGS = {'candidates': [{'name': 'DDM draft', 'file': 'mapping_candidate_fixture.json',
-                            'validation': {'issues': [], 'can_reuse': True}}]}
+#: One model, as `/api/pdc/models` answers: a saved mapping and what it carries. The server has already joined the
+#: parameterization and written the label, so a stub without a label offers nothing to choose.
+MODELS = {'molecule': 'DDM', 'models': [{'file': 'mapping_candidate_fixture.json', 'name': 'DDM draft', 'beads': 11,
+                                         'content_hash': 'ab' * 32, 'fitted': None,
+                                         'label': 'DDM draft · 11 beads · derived terms'}]}
 
 #: The refusal the user actually met, in the placement gate's own words, and the sentence the preparation step
 #: answers when it cannot run at all.
@@ -68,7 +70,7 @@ PLACEMENT_PDB = ('REMARK 950 PLACEMENT PREVIEW\n'
 def serve(page, body, requests=None):
     """Every read the panel makes before it can ask, and the route under test."""
     page.route(re.compile(r'/api/pdc/catalog'), lambda route: route.fulfill(json=CATALOG))
-    page.route(re.compile(r'/api/mappings\?'), lambda route: route.fulfill(json=MAPPINGS))
+    page.route(re.compile(r'/api/pdc/models\?'), lambda route: route.fulfill(json=MODELS))
     page.route(re.compile(r'/api/readiness\?'),
                lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
 

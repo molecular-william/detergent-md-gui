@@ -367,29 +367,40 @@ def test_an_opm_download_joins_the_picker_and_states_the_half_thickness_it_found
     assert errors == [], errors
 
 
-def test_the_mapping_picker_offers_only_a_mapping_a_build_can_reuse(dashboard, live_page):
-    """A mapping whose beads leave heavy atoms unassigned is not an option, and is never the default.
+#: Two models, in the shape `/api/pdc/models` answers with: a saved mapping, the fit it carries (or `None`), and the
+#: sentence the picker shows. Which of them a build can reuse, and which carries a fit, is the server's decision --
+#: the panel used to filter `can_reuse` itself and to read a file name into the label.
+FITTED = {'file': 'mapping_candidate_fitted.json', 'name': 'DDM_CG_20261021', 'beads': 11,
+          'content_hash': 'ab' * 32,
+          'fitted': {'revision': 2, 'terms': 26, 'term_kinds': {'bonds': 20, 'angles': 6}, 'engine': 'fast-forward',
+                     'created_at': '2026-10-22T06:35:10.928624+00:00', 'scientifically_validated': False},
+          'label': 'DDM_CG_20261021 · revision 2 · 11 beads · 26 terms · fitted 2026-10-22'}
+DERIVED = {'file': 'mapping_candidate_derived.json', 'name': 'DDM draft from the automatic recogniser', 'beads': 11,
+           'content_hash': 'cd' * 32, 'fitted': None,
+           'label': 'DDM draft from the automatic recogniser · 11 beads · derived terms'}
+MODELS = {'molecule': 'DDM', 'models': [FITTED, DERIVED]}
 
-    The filter is `validation.can_reuse` -- the verdict `models/molecules/draft.py` refuses a build on -- so this
-    panel cannot list a candidate the build would reject at preparation. Before it, every candidate was listed and
-    `mappingFor` defaulted to the first one, which is how an unusable mapping could become the one a build was made
-    from without the reader choosing it.
+
+def test_the_model_picker_lists_the_servers_models_by_what_they_carry(dashboard, live_page):
+    """One option per model, grouped fitted-then-derived, each labelled with what it carries and never with its file.
+
+    The mappings a build can reuse, and whether one carries a fitted parameterization, are `/api/pdc/models`'s
+    answer: the panel used to filter `validation.can_reuse` itself and to print `${name} · ${file}`. An unusable
+    mapping is now one the server never lists (`tests/dashboard/integration/test_pdc_models_api.py`), and the option's
+    value is still the file, because that file is the model's identity to the form.
     """
     page, errors = live_page
-    usable = {'name': 'DDM draft from the automatic recogniser (Martini 3)', 'file': 'mapping_usable.json',
-              'validation': {'issues': [], 'can_reuse': True}}
-    unusable = {'name': 'DDM draft with unassigned atoms', 'file': 'mapping_unusable.json',
-                'validation': {'issues': [{'code': 'coverage', 'message': 'Missing heavy atoms: 24, 25',
-                                           'bead': None}], 'can_reuse': False}}
     serve_catalogue(page)
-    page.route(re.compile(r'/api/mappings\?'),
-               lambda route: route.fulfill(json={'candidates': [unusable, usable]}))
+    page.route(re.compile(r'/api/pdc/models\?'), lambda route: route.fulfill(json=MODELS))
     page.route(re.compile(r'/api/readiness\?'),
                lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
     open_panel(page, live_page.base_url)
 
     page.wait_for_function("() => document.querySelectorAll('#new-mapping option').length > 1", timeout=30000)
-    expect(page.locator('#new-mapping')).to_have_value('mapping_usable.json')
+    expect(page.locator('#new-mapping')).to_have_value(FITTED['file'])
     options = page.evaluate("Array.from(document.querySelectorAll('#new-mapping option')).map(o => o.textContent)")
-    assert not [text for text in options if 'unassigned' in text], options
+    assert options == ['No model: a build records centres-only', FITTED['label'], DERIVED['label']], options
+    assert not [text for text in options if '.json' in text], f'a mapping file is still what the picker shows: {options}'
+    labels = page.evaluate("Array.from(document.querySelectorAll('#new-mapping optgroup')).map(g => g.label)")
+    assert labels == ['Models (fitted)', 'Mappings with derived terms'], labels
     assert errors == [], errors

@@ -29,9 +29,11 @@ CATALOG = {'templates': [{'id': 'DDM:DDM', 'name': 'DDM skeleton', 'molecule': '
                         'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
                         'selection_threshold_fraction': 0.1, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20}}
 MAPPING_FILE = 'mapping_candidate_fixture.json'
-#: `can_reuse` is the verdict the picker filters on, so a stub without it offers no mapping at all.
-MAPPINGS = {'candidates': [{'name': 'DDM draft', 'file': MAPPING_FILE,
-                            'validation': {'issues': [], 'can_reuse': True}}]}
+#: One model, as `/api/pdc/models` answers: a saved mapping and what it carries. The server has already joined the
+#: parameterization and written the label, so a stub without a label offers nothing to choose.
+MODELS = {'molecule': 'DDM', 'models': [{'file': MAPPING_FILE, 'name': 'DDM draft', 'beads': 11,
+                                         'content_hash': 'ab' * 32, 'fitted': None,
+                                         'label': 'DDM draft · 11 beads · derived terms'}]}
 
 METHOD = ('Flat-area estimate from the deposited structure, no simulation. Per-atom solvent-accessible area by '
           'Shrake-Rupley (biotite.structure.sasa), summed over the transmembrane slab, divided by the area one '
@@ -67,7 +69,7 @@ def serve(page, body, catalog=None):
     fulfil it later in an order of its own choosing.
     """
     page.route(re.compile(r'/api/pdc/catalog'), lambda route: route.fulfill(json=catalog or CATALOG))
-    page.route(re.compile(r'/api/mappings\?'), lambda route: route.fulfill(json=MAPPINGS))
+    page.route(re.compile(r'/api/pdc/models\?'), lambda route: route.fulfill(json=MODELS))
     page.route(re.compile(r'/api/readiness\?'),
                lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
     page.route(re.compile(r'/encapsulation'), body)

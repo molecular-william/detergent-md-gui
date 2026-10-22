@@ -59,9 +59,15 @@ CATALOG = {'templates': [{'id': 'DDM:DDM', 'name': 'DDM skeleton', 'molecule': '
                         'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
                         'selection_threshold_fraction': 0.1, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20}}
 MAPPING_FILE = 'mapping_candidate_fixture.json'
-#: `can_reuse` is the verdict the picker filters on, so a stub without it offers no mapping at all.
-MAPPINGS = {'candidates': [{'name': 'DDM draft', 'file': MAPPING_FILE,
-                            'validation': {'issues': [], 'can_reuse': True}}]}
+#: The model the panel's picker is served, in the shape `/api/pdc/models` answers with: a saved mapping, the fit it
+#: carries, and the sentence the picker shows. `fitted` is what a run consumes; the label is the server's, so this
+#: fixture never decides fitted from derived.
+MODEL = {'file': MAPPING_FILE, 'name': 'DDM draft', 'beads': len(DDM_BEADS), 'content_hash': 'ab' * 32,
+         'fitted': {'revision': 2, 'terms': 26, 'term_kinds': {'bonds': 20, 'angles': 6},
+                    'engine': 'fast-forward', 'created_at': '2026-10-22T06:35:10.928624+00:00',
+                    'scientifically_validated': False},
+         'label': (f'DDM draft · revision 2 · {len(DDM_BEADS)} beads · 26 terms · fitted 2026-10-22')}
+MODELS = {'molecule': 'DDM', 'models': [MODEL]}
 
 MOLECULES = 2
 #: The refusal the clearance gate writes, in its own words (`pdc_placement.place_detergents`).
@@ -162,7 +168,7 @@ def serve(page, body, requests=None, structure=None):
     routes a file nobody should fetch would hide exactly that.
     """
     page.route(re.compile(r'/api/pdc/catalog'), lambda route: route.fulfill(json=CATALOG))
-    page.route(re.compile(r'/api/mappings\?'), lambda route: route.fulfill(json=MAPPINGS))
+    page.route(re.compile(r'/api/pdc/models\?'), lambda route: route.fulfill(json=MODELS))
     page.route(re.compile(r'/api/readiness\?'),
                lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
 
@@ -190,7 +196,7 @@ def serve_raw(page, body):
     own JSON writer produced, bare `NaN` token and all.
     """
     page.route(re.compile(r'/api/pdc/catalog'), lambda route: route.fulfill(json=CATALOG))
-    page.route(re.compile(r'/api/mappings\?'), lambda route: route.fulfill(json=MAPPINGS))
+    page.route(re.compile(r'/api/pdc/models\?'), lambda route: route.fulfill(json=MODELS))
     page.route(re.compile(r'/api/readiness\?'),
                lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
     page.route(re.compile(r'/api/pdc/preview/placement'),
@@ -590,6 +596,37 @@ def test_the_beads_are_coloured_by_type_family_and_the_legend_says_which(dashboa
     labels = {entry['family']: entry['label'] for entry in measured['entries']}
     assert labels == {'unstated': 'family not stated', 'C': 'apolar (C)', 'N': 'nonpolar (N)', 'P': 'polar (P)',
                       'Q': 'charged (Q)'}, labels
+    assert errors == [], errors
+
+
+def test_the_model_picker_shows_the_fit_and_still_sends_the_mappings_file(dashboard, live_page):
+    """A reader chooses a detergent and then a model, by revision and terms rather than by a file name.
+
+    The second control used to list mapping files. It lists the models `/api/pdc/models` answers with -- this
+    detergent's saved mappings joined to their parameterization -- and the sentence beside the chosen one says what it
+    carries: here revision 2 and its 26 terms, which is what makes a fitted model recognisable at the moment of
+    choosing. The option's *value* is still the mapping file, because that file is the model's identity to the form,
+    the preview and the run; the request the card sends is where that is checked, since a picker that showed the
+    label and submitted the label would queue nothing.
+    """
+    page, errors = live_page
+    requests = []
+    serve(page, answer(empty_micelle_pdb()), requests)
+    open_panel(page, live_page.base_url, protein=None)
+
+    select = page.locator('#new-mapping')
+    expect(select).to_have_value(MAPPING_FILE)
+    shown = select.locator('option:checked')
+    expect(shown).to_contain_text('revision 2')
+    expect(shown).to_contain_text('26 terms')
+    assert MAPPING_FILE not in shown.inner_text(), 'the picker still shows the mapping file'
+    values = page.evaluate("Array.from(document.querySelectorAll('#new-mapping option')).map(o => o.value)")
+    assert values == ['', MAPPING_FILE], values
+
+    derive(page)
+
+    assert len(requests) == 1, requests
+    assert f'mapping_candidate={MAPPING_FILE}' in requests[0], requests[0]
     assert errors == [], errors
 
 
