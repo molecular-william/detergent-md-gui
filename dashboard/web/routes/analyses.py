@@ -1,11 +1,12 @@
 """Analyses HTTP endpoints."""
 import json
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Blueprint, abort, jsonify, request
 
-from dashboard.execution import workflow
+from dashboard.execution import assessment_rescore, workflow
 from dashboard.models import mappings
 
 from ...analysis.runs import transferability
@@ -343,6 +344,35 @@ def recompute_analyses(jid):
     return jsonify(c.analysis_coordinator.drain(jid)), 202
 
 
+@blueprint.post('/api/jobs/<jid>/assessment/rescore')
+def rescore_assessment(jid):
+    """Re-score a finished run's stage 5 against its model's current references, as a second attempt.
+
+    The Analysis graphs panel's second control, and not the same request as Recompute: that one re-queues analyses,
+    which are derived from the run's outputs, while the score matrix and the distance distributions are the assessment
+    *stage's* own outputs and were written once when the run ran. A run whose model carried no pairwise references
+    therefore has nothing that Recompute could fix -- so this stages a new attempt beside the first (the attempt is
+    prepared here, because its reference count and revision are the answer), starts it in a background thread the way
+    the analysis queue starts a worker, and answers 202 with what it will score against.
+
+    Every refusal is a `RunConflict` (409) or `RunBusy` (409) with its own sentence: no assessment stage, a run that
+    has not finished, no CG trajectory, no current parameterization revision, a revision with no pairwise family, or an
+    attempt already running for this run.
+    """
+    c = coordinator()
+    attempt = assessment_rescore.prepare(c, jid)
+    try:
+        threading.Thread(target=assessment_rescore.run, args=(c, jid, attempt), daemon=True).start()
+    except RuntimeError:
+        # A thread that could not be started would otherwise leave the run claimed for the life of the process.
+        assessment_rescore.release(jid)
+        abort(503, 'The re-score could not be started; try again')
+    return jsonify({'attempt': attempt['attempt'], 'directory': attempt['relative'],
+                    'references': attempt['references']['files'],
+                    'pairs': (attempt['references'].get('pairs') or {}).get('files'),
+                    'revision': attempt['revision']['revision']}), 202
+
+
 @blueprint.get('/api/jobs/<jid>/analyses')
 def analyses_api(jid):
     c = coordinator()
@@ -361,26 +391,58 @@ def targets_get(jid):
     return jsonify(json.loads((c.run_path(job)/path).read_text()) if path else targets.read(workflow.execution_root(c.run_path(job))))
 
 
+def assessment_directories(root):
+    """Every attempt of a run's stage-5 assessment, newest first: `(attempt, directory)`.
+
+    `5_assessment` is the first attempt, numbered 0, and `5_assessment@<n>` is a re-score's. The number is what
+    orders them, because a lexicographic order puts attempt 10 before attempt 9; anything else in the directory that
+    merely starts with the same name is not an attempt and is not read.
+    """
+    attempts = []
+    for path in Path(root).glob('5_assessment*'):
+        if not path.is_dir():
+            continue
+        suffix = path.name[len('5_assessment'):]
+        if suffix == '':
+            attempts.append((0, path))
+        elif suffix.startswith('@') and suffix[1:].isdigit():
+            attempts.append((int(suffix[1:]), path))
+    return sorted(attempts, reverse=True)
+
+
 @blueprint.get('/api/jobs/<jid>/distance-diagnostics')
 def distance_diagnostics_api(jid):
-    """Expose the additive Wasserstein/ring diagnostic for the Runs view."""
+    """Expose the additive Wasserstein/ring diagnostic for the Runs view.
+
+    Read from the newest assessment attempt that wrote one: a re-score's `5_assessment@1/` holds the diagnostics of the
+    references it was scored against, and answering from the first attempt would show the panel the numbers the
+    re-score replaced. An attempt that wrote none falls through to the one before it, so a re-score that failed in the
+    tool leaves the run's own publication standing rather than turning the panel blank.
+    """
     c = coordinator()
     job = c.lookup(jid)
-    assessment = workflow.execution_root(c.run_path(job)) / '5_assessment'
-    path = assessment / 'distance_diagnostics_stratified.json'
-    legacy = False
-    if not path.is_file():
-        # Runs written before the writer stopped emitting the duplicate name. Their pairs may predate
-        # the per-pair `kind` classification, so the response says which file answered rather than
-        # letting a reader assume the stratified one did.
-        path = assessment / 'distance_diagnostics.json'; legacy = True
-    if not path.is_file():
+    root = workflow.execution_root(c.run_path(job))
+    found = None
+    for attempt, assessment in assessment_directories(root):
+        strat = assessment / 'distance_diagnostics_stratified.json'
+        legacy_path = assessment / 'distance_diagnostics.json'
+        if strat.is_file():
+            found = (attempt, strat, False)
+            break
+        if legacy_path.is_file():
+            # Runs written before the writer stopped emitting the duplicate name. Their pairs may predate the
+            # per-pair `kind` classification, so the response says which file answered rather than letting a
+            # reader assume the stratified one did.
+            found = (attempt, legacy_path, True)
+            break
+    if found is None:
         abort(404, 'Distance diagnostics are not available for this run')
+    attempt, path, legacy = found
     try:
         data = json.loads(path.read_text())
     except (OSError, ValueError):
         abort(422, 'Distance diagnostics are invalid')
-    return jsonify(data=data, source=str(path.relative_to(c.run_path(job))), legacy=legacy)
+    return jsonify(data=data, source=str(path.relative_to(c.run_path(job))), legacy=legacy, attempt=attempt)
 
 
 @blueprint.get('/api/compare')

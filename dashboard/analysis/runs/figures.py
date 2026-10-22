@@ -7,8 +7,21 @@ nobody asked, and the picture a reader wants is buried among its own earlier sel
 
 The rule is the one the frame series already follows: the newest set of a given analysis kind is what the run
 currently shows, and every earlier set stays on disk, reachable through the artifact index the Runs gallery reads.
-A figure outside `analyses/` -- one a stage wrote as it ran -- belongs to no attempt and is always shown.
+
+A figure outside `analyses/` -- one a stage wrote as it ran -- belongs to no analysis attempt and is otherwise always
+shown, with one exception that is the same rule applied to a stage: an assessment a run re-scored leaves
+`stages/5_assessment@1/` beside the first `stages/5_assessment/`, and both hold a score matrix, a distance
+distribution and a diagnostic matrix. Only the newest attempt's are what the run currently shows; the earlier ones
+stay on disk and are counted, because a reader comparing a re-score with what it replaced needs to reach the old
+pictures rather than have them disappear.
 """
+
+import re
+
+#: A figure one assessment attempt wrote: the stage's own directory, or a re-score's `5_assessment@<n>`. The `stages/`
+#: prefix is optional because `execution_root` puts the stage directories at the run's root in the layout written before
+#: `layout_version` 2, and an attempt directory is created where the stage root is.
+ASSESSMENT_ATTEMPT = re.compile(r'^(?:stages/)?5_assessment(?:@(\d+))?/')
 
 
 def current_figures(entries):
@@ -18,6 +31,9 @@ def current_figures(entries):
     different analyses (different settings, different payloads), and the newer of them is the one the run currently
     shows -- the same choice `snapshots` makes when it plays the newest frame series, and the older ones are counted
     rather than dropped in silence so a reader can go and look.
+
+    An assessment attempt is a set by the same reading: `stages/5_assessment` is attempt 0 and `stages/5_assessment@n`
+    is attempt n, the newest one is what the run currently shows, and each earlier one is counted as superseded.
     """
     sets, loose = {}, []
     for entry in entries or ():
@@ -36,4 +52,18 @@ def current_figures(entries):
                 kept.extend(sorted(signatures[signature], key=lambda entry: str(entry.get('path'))))
             else:
                 superseded += 1
-    return kept + sorted(loose, key=lambda entry: str(entry.get('path'))), superseded
+    attempts = {}
+    for entry in loose:
+        match = ASSESSMENT_ATTEMPT.match(str(entry.get('path', '')))
+        if match:
+            attempts.setdefault(int(match.group(1) or 0), []).append(entry)
+    shown = loose
+    if attempts:
+        newest = max(attempts)
+        shown = []
+        for entry in loose:
+            match = ASSESSMENT_ATTEMPT.match(str(entry.get('path', '')))
+            if match is None or int(match.group(1) or 0) == newest:
+                shown.append(entry)
+        superseded += len(attempts) - 1
+    return kept + sorted(shown, key=lambda entry: str(entry.get('path'))), superseded

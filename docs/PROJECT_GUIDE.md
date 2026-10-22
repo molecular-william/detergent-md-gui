@@ -361,6 +361,31 @@ CONECT, locating the topology by `analysis/runs/layout.cg_topology` and naming i
 `.pdb` is refused. Readers never distance-guess a file that carries CONECT, and a coarse-grained file is
 `inferBonds: 'none'` even without it.
 
+### Re-scoring the assessment (`execution/assessment_rescore.py`)
+
+Stage 5 is not an analysis: its score matrix and distance distributions are the stage's own outputs, written once
+when the run ran, so Recompute -- which re-queues *analyses* derived from those outputs -- cannot repair a matrix
+drawn against a revision that carried no pairwise references. `POST /api/jobs/<id>/assessment/rescore` stages a second
+attempt instead, beside the first and with no new MD: `prepare` resolves the run's mapping to its **current**
+parameterization revision, stages that revision's histograms into `stages/5_assessment@<n>/references/` through
+`cg.stage_distributions` (one copy rule, one digest check), copies `assess.sh` and the two scripts it calls beside
+them, and writes `attempt.json`. `run` executes it in a background thread and appends `{attempt, directory,
+started_at, ended_at, exit_code, status, references, revision, mapping_hash, log}` to the manifest's
+**`assessment_attempts`** -- a key of its own, append-only, so `stages` is never touched, the first attempt's
+directory is never written to, and a non-zero exit is recorded as a failed attempt rather than failing the run (which
+stays `completed`). Numbering is the recorded count plus one, and never a number already on disk. Refusals are
+`RunConflict` (409) with their own sentences: no assessment stage, a run that has not finished, no CG trajectory, no
+current revision, and a revision with no pairwise family -- the last carrying `stage_distributions`'s own reason,
+which names how many histograms it holds and how many pairs it would need.
+
+`5_assessment@<n>` sits beside `5_assessment` in the same stage root, so `assess.sh`'s `../4_CG_sim/prod/` still
+resolves. The two directories it reads are named rather than written in: `INITIAL_DIR` is the run's own
+`3_initial_CG` (where `-i` finds the ITP the run simulated) and `REFERENCES` is what `-d` is handed and what the
+pairwise gate counts -- the same directory for a run as it executes, the attempt's staged references for a re-score,
+and the skip reason says which one it checked. In the panel, `/figures` shows the newest attempt's figures and counts
+the earlier attempts as superseded (`analysis/runs/figures.current_figures`), and `/distance-diagnostics` reads the
+newest attempt that published one.
+
 ### Panels: invariants and the 3D scene
 
 A mapping whose current revision names `aa_reference.run_id` pins New Run's AA source: the picker is disabled, the AA

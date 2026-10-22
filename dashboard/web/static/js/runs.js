@@ -124,6 +124,13 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
       const validate = $('.job-validate', card);
       validate.hidden = !(job.run_type === 'aa_cg' && job.status === 'completed');
       setText(validate, consistencyLine(job) || 'Mapping validation');
+      // Stage 5 is the one output a *stage* wrote that a reader can ask for again, and only a run that ran it has one
+      // to re-score. Drawn from the recorded stage list rather than from the run type, because that list is what says
+      // the run holds an assessment: a run type whose assessment never ran has no directory to write a second into.
+      // Its state is set on every render beside the status, like the comparison control above; the handler is bound
+      // once, in the tasks block, where the run id it closes over is fixed.
+      const rescore = $('.analysis-rescore', card);
+      if (rescore) rescore.hidden = !(job.stages || []).some(stage => stage.name === 'CG assessment (ff_assess)');
       setText($('.job-stage', card), job.stage || 'Queued');
       // A run that declared itself a stub says so on the card, next to the status it
       // would otherwise share with a run that really executed the stage.
@@ -233,6 +240,26 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
           }
           const link = document.createElement('a'); link.href = `/api/jobs/${job.id}/artifacts/${task.directory}/console.log`; link.textContent = ' Analysis log'; row.append(link);
           taskList.append(row);
+        }
+        // The assessment's own second control, beside Recompute and deliberately a different request: Recompute
+        // re-queues *analyses*, while the score matrix and the distance distributions are the work of stage 5 and were
+        // written once when the run ran. This asks the server for a second attempt, and reports what that attempt will
+        // score with -- the reference count is the whole answer to "was it worth pressing" -- or the server's refusal,
+        // which says why the run cannot be re-scored at all.
+        const rescore = $('.analysis-rescore', card);
+        if (rescore && !rescore.dataset.bound) {
+          rescore.dataset.bound = '1';
+          rescore.onclick = async () => {
+            rescore.disabled = true;
+            try {
+              const answer = await post(`/api/jobs/${job.id}/assessment/rescore`, {});
+              const histograms = `${answer.references} reference histogram${answer.references === 1 ? '' : 's'}`;
+              notice(`Re-scoring ${answer.directory} with ${histograms}`
+                     + `${answer.pairs ? `, ${answer.pairs} of them pairwise` : ''}, from parameterization revision ${answer.revision}`);
+              await refreshJobs();
+            } catch (error) { notice(error.message); }
+            finally { rescore.disabled = false; }
+          };
         }
         card.dataset.tasks = tasksKey;
         if ($('.job-artifacts',card).open || $('.job-analysis',card).open) refreshArtifactViews(card,job).catch(error=>notice(error.message));

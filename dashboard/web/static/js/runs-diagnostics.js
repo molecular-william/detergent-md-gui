@@ -12,7 +12,11 @@ export async function renderDistanceDiagnostics(card, job) {
   // same refresh -- so whichever of the two wrote second erased the other, and the card's contents depended on
   // whether the diagnostics had been fetched yet rather than on the run.
   const host = $('.analysis-diagnostics', card); if (!host) return;
-  if (host.dataset.distanceRun === job.id) return;
+  // Idempotent per run *and* per artifact revision. A run whose assessment was re-scored publishes a new matrix under
+  // `stages/5_assessment@<n>/`, and the index revision is what changes when that attempt's worker re-read the run -- so
+  // keying on the run id alone would keep showing the numbers the re-score replaced until the page was reloaded.
+  const key = `${job.id}:${job.artifact_revision ?? ''}`;
+  if (host.dataset.distanceRun === key) return;
   let response;
   try { response = await api(`/api/jobs/${job.id}/distance-diagnostics`); }
   catch (_) { return; }
@@ -80,5 +84,5 @@ export async function renderDistanceDiagnostics(card, job) {
   }
   t.append(body); table.append(t);
   host.replaceChildren(box);
-  host.dataset.distanceRun = job.id;
+  host.dataset.distanceRun = key;
 }

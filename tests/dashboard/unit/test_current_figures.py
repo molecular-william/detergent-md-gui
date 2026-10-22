@@ -41,6 +41,57 @@ def test_a_figure_a_stage_wrote_belongs_to_no_attempt_and_is_always_shown():
     assert superseded == 0
 
 
+def test_a_rescored_assessment_shows_only_its_newest_attempt():
+    """A re-score writes `stages/5_assessment@1/` beside the first attempt's `stages/5_assessment/`.
+
+    Both hold a score matrix, a distance distribution and a diagnostic matrix, and only the newest is what the run
+    currently shows -- the same rule the analysis kinds follow. The first attempt's pictures stay on disk and are
+    counted, because "the run scored 0.00" is what a reader comparing a re-score with it came to see.
+    """
+    first = figure('stages/5_assessment/score_matrix_LIG1.png', '2026-10-01T00:00:00+00:00')
+    rescored = figure('stages/5_assessment@1/score_matrix_LIG1.png', '2026-10-05T00:00:00+00:00')
+
+    kept, superseded = current_figures([first, rescored])
+
+    assert [entry['path'] for entry in kept] == [rescored['path']]
+    assert superseded == 1
+
+
+def test_the_attempt_number_orders_the_sets_and_not_the_file_name():
+    """Attempt 10 is newer than attempt 9, and both are newer than the run's own first attempt."""
+    entries = [figure('stages/5_assessment/score_matrix_LIG1.png'),
+               figure('stages/5_assessment@9/score_matrix_LIG1.png'),
+               figure('stages/5_assessment@10/score_matrix_LIG1.png')]
+
+    kept, superseded = current_figures(entries)
+
+    assert [entry['path'] for entry in kept] == ['stages/5_assessment@10/score_matrix_LIG1.png']
+    assert superseded == 2
+
+
+def test_a_run_in_the_older_layout_numbers_its_attempts_by_the_same_rule():
+    """`execution_root` puts the stage directories at the run's root before `layout_version` 2, and attempts go there."""
+    first = figure('5_assessment/score_matrix_LIG1.png')
+    rescored = figure('5_assessment@1/score_matrix_LIG1.png')
+
+    kept, superseded = current_figures([first, rescored])
+
+    assert [entry['path'] for entry in kept] == [rescored['path']]
+    assert superseded == 1
+
+
+def test_a_figure_outside_the_assessment_is_not_superseded_by_a_rescore():
+    """The rule is about one stage's attempts, not about everything under `stages/`."""
+    sasa = figure('stages/6_SASA/CG/SASA-CG.xvg.png')
+    first = figure('stages/5_assessment/score_matrix_LIG1.png')
+    rescored = figure('stages/5_assessment@1/score_matrix_LIG1.png')
+
+    kept, superseded = current_figures([sasa, first, rescored])
+
+    assert [entry['path'] for entry in kept] == ['stages/5_assessment@1/score_matrix_LIG1.png', sasa['path']]
+    assert superseded == 1
+
+
 def test_the_set_with_the_newest_file_wins_even_when_another_signature_has_one_too():
     """A signature's figures are written together, so the newest file in a set dates that set.
 

@@ -56,6 +56,23 @@ Measured end to end on that run's own trajectory with its 55 pair references: `O
 every cell filled, all 55 distribution panels drawn. The revision itself stays unscorable by design; a re-fit records the
 family.
 
+**Re-scoring a finished run's assessment (`2bd2fbd` + this).** The matrix and the distributions are stage-5 outputs, so
+neither the Analyses panel's Recompute button nor any other control could change them: Recompute re-queues analyses, and
+`retry` only rebuilds a *failed* run. `POST /api/jobs/<jid>/assessment/rescore` (`execution/assessment_rescore.py`) runs
+stage 5 again for a `completed` run as a **recorded second attempt**: `stages/5_assessment@<n>/` beside the original,
+the current revision's histograms staged into its `references/` through `cg.stage_distributions` (one copy rule, one
+digest check), the run's own ITP still read from its `3_initial_CG` (`INITIAL_DIR`), `-d` pointed at `REFERENCES`,
+`attempt.json` naming mapping hash, revision, trajectory sha256 and inventory, and one append-only entry under the
+manifest's new `assessment_attempts` key. `stages` is never touched, a non-zero exit is recorded as a failed attempt and
+the run stays `completed`, and a second press while an attempt runs is refused. `current_figures` treats `5_assessment`
+and `5_assessment@<n>` as one attempt set (newest wins, earlier ones counted as superseded, `@10 > @9`), so the panel
+shows the newest attempt's figures.
+
+Measured, in that order: the mapping `10c31894…` was re-fitted (fast-forward against `dbc366ae772b`, ~20 s, no MD) and
+revision 2 records **55** pairwise `*_distances_distr.dat` where revision 1 recorded none; `ff_assess` over
+`ce1318485197`'s own CG trajectory with those 55 references scores `Overall Score 0.255 +/- 0.014`, max 0.68, every cell
+filled. `22075892b606`'s mapping carries no current revision and is refused with that sentence.
+
 **Decided 2026-10-22: the CPU budget is the run's.** `cg.RUN_EXECUTION_SETTINGS` now keeps `mdrun_gpu`,
 `mdrun_ntomp` and `mdrun_ranks`, so an AA-to-CG form that asks for 16 threads and 2 ranks gets them on the atomistic
 half as well as the coarse-grained one, instead of the dialect filter dropping them and the run executing 8 while the
