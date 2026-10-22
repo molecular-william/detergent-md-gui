@@ -3,14 +3,14 @@
 .new-run-inputs,.new-run-settings{min-width:0}
 #run-form .card{margin:0 0 16px}
 #run-form .run-settings{min-width:0;padding:14px}
-/* The stage settings are a form to scan, not a field to fill: narrower inputs inside each column, and
-   tighter rows so the whole set reads as one block. */
-/* Three columns: the inputs are narrow enough now to fit them, so each cell stacks its caption above a
-   control row of the input plus a compact Default button. */
-#run-form .settings-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 10px}
+/* The stage settings are a form to scan, not a field to fill: tighter rows so the whole set reads as one block,
+   and each cell stacks its caption above a control row of the input plus a compact Default button. Two columns at
+   a desktop width rather than three: three gave every number field 115 px -- narrower than the eight-digit seed it
+   has to hold -- while the panel had width to spare. */
+#run-form .settings-grid{grid-template-columns:repeat(auto-fit,minmax(13.5rem,1fr));gap:6px 10px}
 #run-form .settings-grid > label{display:flex;flex-direction:column;gap:2px}
 #run-form .setting-control{min-width:0}
-#run-form .setting-control input,#run-form .setting-control select{min-width:0;width:100%;max-width:8.5rem}
+#run-form .setting-control input,#run-form .setting-control select{min-width:0;width:100%;max-width:12rem}
 /* The run-configuration pairs share a row so the card uses its width instead of stacking one per line. */
 #run-form .run-config-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px}
 /* Run type, Method and Force field read as one choice: what to run, and with what. Three columns, so a
