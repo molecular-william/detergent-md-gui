@@ -43,6 +43,14 @@ names the **all-atom file martinize2 was handed** -- its cache key and the URL t
 (`PROTEIN_STRUCTURE_ROUTE`), never the file itself, which would double every placement answer -- and the card draws
 it as a neutral ribbon underneath the beads. The two are in one frame (martinize2 writes its beads in the coordinates
 it read), so nothing is transformed to overlay them.
+
+The detergent's **bonded terms** are the ones the run would simulate, which is not always the derivation: a mapping
+that carries a current parameterization is simulated on that fit (`detergent_cg.adopt_stored`, the same resolver
+`pdc.prepare` uses), so this module adopts the same topology rather than drawing a bond set the run would never
+simulate. `basis['detergent_terms']` says which of the two the picture's bonds are -- the sentence the run's own
+record carries, the count, and the revision -- because the card states that these bonds are the model's own, and
+which model that is has to be answerable. Only the bonds can move between the two: the fit decides the terms, the
+mapping decides where the beads are.
 """
 from __future__ import annotations
 
@@ -432,16 +440,36 @@ def _discard_unreadable(cache_root, protein_path, chains, executable, *, prepare
 
 
 def detergent_model(mapping_path, molecule_root, project_root):
-    """The detergent's beads and the topology that bonds them, derived from the run's own mapping.
+    """The detergent's beads and the topology that bonds them, as the run will build that topology.
 
     `models.molecules.detergent_cg.derive` is the one derivation a run uses (`pdc.prepare` writes its `topology` as
     `detergent_CG.itp` and its `beads` as `detergent_CG.json`), so the preview stamps the same molecule the run will.
+
+    The *terms* are the run's too. A mapping that carries a current parameterization is simulated on that fit's
+    bonded terms (`pdc.prepare` adopts it through `detergent_cg.adopt_stored`), so the preview adopts the same
+    topology rather than handing the card a derivation the run would never simulate -- the card says the bonds are
+    the model's own, and a derived bond set under a fitted run is a false statement, not a cosmetic one. The fit
+    decides the terms and the mapping decides where the beads are, so the geometry, and every position in the frame,
+    is identical either way; only the bonds can differ, which is exactly what this function must get right.
+
+    `source` is `detergent_cg.terms_source`'s sentence -- the one the run's own record carries -- so the card and the
+    manifest cannot describe the same build two ways. A fitted model states the fit's own term count and drops the
+    derivation's reference/fallback split, because it simulates none of those terms.
+
     Not cached: it is derived from the mapping the reader is choosing, in under a second, and a second cache of a
     second derived artifact is one more thing to invalidate for a saving the plan did not ask for.
     """
     started = time.perf_counter()
     draft = detergent_cg.derive(Path(mapping_path), Path(molecule_root), Path(project_root))
-    return draft, time.perf_counter() - started
+    adopted = detergent_cg.adopt_stored(draft, detergent_cg.candidate(Path(mapping_path)))
+    source = detergent_cg.terms_source(adopted, draft)
+    if not adopted:
+        return {**draft, 'source': source}, time.perf_counter() - started
+    # A fitted model carries the fit's own term count and no reference/fallback split: it derived none of those
+    # terms, and a reader comparing the two counts would be reading one model's numbers beside another's topology.
+    fitted = {key: value for key, value in draft.items() if key not in ('reference_terms', 'fallback_terms')}
+    return ({**fitted, 'topology': adopted['topology'], 'terms': adopted['total'],
+             'parameterization': adopted['parameterization'], 'source': source}, time.perf_counter() - started)
 
 
 def _box(points, placement, frame, margin_nm, initial_z_nm):
@@ -476,6 +504,11 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     the class each letter falls in, and how many residues each class holds. It is `None` for a build with no protein,
     and a dict that names its reason when a protein has no assignment to hand on -- so the panel can say the one
     thing or the other, and never colour a bead from a structure that was not stated.
+
+    `basis['detergent_terms']` is which terms the picture's bonds are: `{source, terms, revision}` when the mapping
+    was given. `source` is the sentence the run's own record carries (`detergent_cg.terms_source`), `terms` the count
+    of the topology drawn, and `revision` the parameterization revision that topology was adopted from, or `None` for
+    a derivation. It is `None` for a centres-only build, which draws no bonds to attribute.
 
     `prepare_protein` is the plan's step 1, and it is the reader's choice rather than the service's: with it, the
     protein is rebuilt and protonated by `pdb2pqr` (or `prepare_executable`, where the route has resolved one) before
@@ -518,6 +551,9 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
              'beads': None, 'protein_beads': 0, 'box_nm': None, 'clearance_nm': None,
              'placement_shape': None, 'band_radius_nm': None, 'slab_radius_nm': None, 'tube_radius_nm': None,
              'detergent_representation': None,
+             # Which terms the picture's bonds are -- the mapping's fit or its derivation -- in the run's own words.
+             # `None` for a centres-only build, which draws no bonds to attribute.
+             'detergent_terms': None,
              # The plan's step 1: whether this derive would prepare the protein, and the record when it did.
              'prepare_protein': bool(prepare_protein), 'prepare': None,
              # The assignment martinize2 builds the protein with, keyed by the frame's own residue numbers. `None`
@@ -673,6 +709,11 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
             return _refusal('detergent model', [str(error)], basis, cost, subject=mapping_path)
         topology = pdc_view.read_moleculetype_text(model['topology'], source=DETERGENT_TOPOLOGY)
         basis['detergent_representation'] = 'the mapping\u2019s beads'
+        # The card says these bonds are the model's own, so it also says *which* model's: the sentence the run's own
+        # record carries, the count of the topology drawn, and -- when the mapping was fitted -- the revision it came
+        # from. A fitted run and a derived one are different systems, and this is the only place a reader is told.
+        basis['detergent_terms'] = {'source': model['source'], 'terms': model['terms'],
+                                    'revision': (model.get('parameterization') or {}).get('revision')}
 
     basis['beads'] = len(atoms)
     # The assignment martinize2 built the protein with, keyed by the residue number the frame below gives each

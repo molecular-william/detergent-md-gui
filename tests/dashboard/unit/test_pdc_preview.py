@@ -33,6 +33,7 @@ import pytest
 from dashboard.execution import pdc_preview
 from dashboard.execution.adapters import pdc_box, pdc_placement, pdc_preparation, pdc_view
 from dashboard.execution.scripts import pdc_build
+from dashboard.models.bonded import parameterization
 from dashboard.models.molecules import detergent_cg
 from micelle.registry import load_template
 from tests.dashboard.support import PROJECT_ROOT
@@ -457,6 +458,117 @@ def test_a_frame_with_a_mapping_carries_the_models_own_bonds_as_conect_records(t
     assert answer['pdb'].count('\nCONECT') == 40 * per_molecule
     assert "BONDS ARE THE MODEL'S OWN, NOT GUESSED" in answer['pdb']
     assert 'NO BONDS RECORDED' not in answer['pdb']
+
+
+# --- the terms the picture's bonds are -------------------------------------------------------------------------
+#
+# A fitted mapping is simulated on its fit's bonded terms, and `pdc.prepare` adopted that topology while this preview
+# still drew `detergent_cg.derive`'s -- so the card, which says the bonds are the model's own, showed a bond set the
+# run would never simulate. Positions are identical either way (the fit decides the terms, the mapping decides where
+# the beads are), which is why nothing else in the frame moves and only the bonds can disagree. What these two tests
+# pin is that the frame's CONECT records are the fit's own when the mapping carries one, that they are the
+# derivation's when it does not, and that the basis says which of the two the reader is looking at.
+
+#: What a fit of the fixture mapping writes: `ff_inter`'s export names (`B01`..`B04`), one bond the derivation does
+#: not carry -- `TAIL1`-`S1A`, where the derivation bonds `TAIL1`-`TAIL2` and `TAIL2`-`S1A` -- and a ring constraint to
+#: the virtual site the derivation bonds nothing to. Same term count as the derivation, different pairs, so a frame
+#: that merely counted its bonds could not pass.
+FITTED = """; This file was generated using the following command:
+; ff_inter -f ../2_mapping/mapped.xtc -s ../2_mapping/mapped.gro -i DDM_initial.itp
+
+[ moleculetype ]
+DDM 1
+
+[ atoms ]
+ 1 C1   1 DDM B01 1 0.0 72.0
+ 2 C1   1 DDM B02 2 0.0 72.0
+ 3 SP1r 1 DDM B03 3 0.0 54.0
+ 4 TC4  1 DDM B04 4 0.0  0.0
+
+[ bonds ]
+ 1  3 1 0.9 100.0 ; B01_B03
+
+[ constraints ]
+ 3  4 1 0.32
+
+[ virtual_sitesn ]
+ 4 1 2 3
+"""
+
+#: A revision as the fit records one: the engine, its ITP, the options it fitted under and the AA reference.
+FIT_REVISION = {'engine': 'fast-forward', 'topology': FITTED,
+                'options': {'constraints_threshold': 10000.0, 'temperature_k': 300.0,
+                            'torsion_model': 'legacy', 'torsion_scale': 1.0},
+                'ensemble': {'frames': 20001, 'trajectory': '2_mapping/mapped.xtc',
+                             'source': 'the mapped AA frames of the linked reference'},
+                'aa_reference': {'run_id': 'dbc366ae772b'}}
+
+
+def fit(mapping_path):
+    """Store the fixture mapping's fit the way the panel's own fit does, and answer what a preview may read back."""
+    return parameterization.save(json.loads(Path(mapping_path).read_text()), FIT_REVISION)
+
+
+def conect_pairs(pdb):
+    """The `CONECT` pairs a frame declares, as the bead serials the file itself writes."""
+    return [(int(line[6:11]), int(line[11:16])) for line in pdb.splitlines() if line.startswith('CONECT')]
+
+
+def molecule_pairs(pdb, beads=len(BEADS)):
+    """Those pairs by position within the molecule, so every copy of the detergent reads the same."""
+    return [((first - 1) % beads + 1, (second - 1) % beads + 1) for first, second in conect_pairs(pdb)]
+
+
+def test_a_fitted_mapping_is_drawn_with_the_fits_bonds(tmp_path):
+    """The frame draws the fit's bond set, under the mapping's bead names, and the basis names the parameterization.
+
+    The fit's topology is deliberately different from the derivation's: `TAIL1`-`S1A` is not a pair the derivation
+    bonds, and `TAIL2`-`S1A` is not a pair the fit carries. A frame that drew the derivation here would show the
+    card's "bonds are the model's own" saying something false about the run behind it.
+    """
+    mapping_path = mapping(tmp_path)
+    revision = fit(mapping_path)
+
+    answer = preview(tmp_path, mapping=str(mapping_path), molecule_id='DDM', aggregation_number=40)
+
+    assert answer['valid'], answer['reasons']
+    per_molecule = molecule_pairs(answer['pdb'])
+    assert set(per_molecule) == {(1, 3), (3, 4)}, 'the fit bond and its ring constraint, not the derivation pairs'
+    assert len(per_molecule) == 40 * 2, 'one bond and one constraint per detergent molecule'
+    # The derivation's own pairs are the ones a preview that still derived would have drawn.
+    assert (1, 2) not in set(per_molecule) and (2, 3) not in set(per_molecule)
+    # And the atoms are the mapping's names, adopted from `ff_inter`'s export names -- what `grompp` matches the
+    # stamped coordinates by, and what makes these bonds this molecule's. The name column is four characters, so the
+    # two tail beads both read `TAIL` here; what the rows show is that the fit's `B01`..`B04` are not what got drawn.
+    names = [line[12:16].strip() for line in answer['pdb'].splitlines()
+             if line.startswith('HETATM') and line[17:20].strip() == 'DET']
+    assert names[:len(BEADS)] == [str(bead['name'])[:4] for bead in BEADS], names[:len(BEADS)]
+    assert "BONDS ARE THE MODEL'S OWN, NOT GUESSED: 1 [ bonds ] + 1 [ constraints ]" in answer['pdb']
+    assert answer['basis']['detergent_terms'] == {'source': "the mapping's current parameterization", 'terms': 2,
+                                                  'revision': revision['revision']}
+
+
+def test_a_mapping_with_no_parameterization_is_drawn_from_its_derivation_and_says_so(tmp_path):
+    """Nothing was fitted, so the derivation's bonds are the run's -- and the basis says which terms they are."""
+    mapping_path = mapping(tmp_path)
+
+    answer = preview(tmp_path, mapping=str(mapping_path), molecule_id='DDM', aggregation_number=40)
+
+    draft = detergent_cg.derive(mapping_path, MOLECULES, PROJECT_ROOT)
+    model = pdc_view.read_moleculetype_text(draft['topology'])
+    drawn = set(molecule_pairs(answer['pdb']))
+    assert drawn == {tuple(pair) for pair in (*model['bonds'], *model['constraints'])}, 'the derivation pairs'
+    assert answer['basis']['detergent_terms'] == {
+        'source': (f"the mapping's derived topology: {draft['reference_terms']} reference terms, "
+                   f"{draft['fallback_terms']} fallbacks"),
+        'terms': draft['terms'], 'revision': None}
+
+
+def test_a_centres_only_build_attributes_no_bonds_to_any_model(tmp_path):
+    """One centre per molecule draws nothing to attribute, so the basis states no term source at all."""
+    answer = preview(tmp_path, mapping=None, aggregation_number=40)
+
+    assert answer['valid'] and answer['basis']['detergent_terms'] is None
 
 
 def test_a_centres_only_build_says_so_and_carries_no_bonds(tmp_path):

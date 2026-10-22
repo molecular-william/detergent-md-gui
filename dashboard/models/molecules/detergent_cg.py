@@ -12,8 +12,9 @@ file someone might edit.
 
 There is one thing a mapping may carry that is *not* derived: a fitted parameterization (`bonded.parameterization`),
 the mapping's own bonded terms with a revision behind them. `adopt` takes that topology instead of generating one,
-renaming its atoms to the mapping's own bead names and refusing a fit of a different molecule -- a run that has been
-fitted must simulate the fit, and one that has not must say it did not.
+renaming its atoms to the mapping's own bead names and refusing a fit of a different molecule; `adopt_stored` resolves
+which revision that is from the mapping's content identity. A run that has been fitted must simulate the fit, and one
+that has not must say it did not -- `terms_source` is the sentence both of them record.
 """
 from __future__ import annotations
 
@@ -196,3 +197,49 @@ def adopt(draft: dict, revision: dict) -> dict:
     return {'topology': '\n'.join(lines) + ('\n' if topology.endswith('\n') else ''),
             'terms': counts, 'total': parameterization.total_terms(revision),
             'bead_names': names, 'molecule': molecule, 'source': source}
+
+
+def adopt_stored(draft: dict, candidate: dict) -> dict | None:
+    """The mapping's current parameterization adopted for this draft, or `None` when it carries none.
+
+    A mapping may carry a fitted parameterization of its own (`bonded.parameterization`): revisions keyed by the
+    mapping's content identity, one of them current. When it does, a build simulates *that* -- the terms a fit
+    produced against an AA reference -- instead of re-deriving terms from the Martini 3 references and the geometry,
+    which is what "the run simulates my fit" means. The revision is resolved by the content identity of the candidate
+    the draft was derived from, so a renamed mapping keeps its fit and a mapping whose beads changed does not.
+
+    The resolver lives here rather than in an adapter because two callers make the same claim: `pdc.prepare` writes
+    the topology the run simulates, and the New run preview draws the bonds its card shows as the model's own. A
+    second copy of this lookup is a preview that can disagree with the run it is a preview of.
+
+    A mapping with no record, or a record with no current revision, answers `None` and the caller keeps today's
+    derivation exactly. What the build did is recorded either way (`terms_source`), because the two are not the same
+    system and a reader must be able to tell them apart.
+    """
+    content = parameterization.content_identity(candidate)
+    record = parameterization.one(content)
+    revision = record.get('current') if isinstance(record, dict) else None
+    if not revision or not revision.get('topology'):
+        return None
+    adopted = adopt(draft, revision)
+    reference = revision.get('aa_reference') or {}
+    return {'topology': adopted['topology'], 'terms': adopted['terms'], 'total': adopted['total'],
+            'bead_names': adopted['bead_names'],
+            'parameterization': {'content_hash': content, 'revision': revision.get('revision'),
+                                 'engine': revision.get('engine'), 'created_at': revision.get('created_at'),
+                                 'scientifically_validated': bool(revision.get('scientifically_validated')),
+                                 'aa_reference': {'run_id': reference.get('run_id')} if reference else None}}
+
+
+def terms_source(adopted: dict | None, draft: dict) -> str:
+    """Where a detergent's bonded terms came from, in the one sentence a record and a card both use.
+
+    `pdc.prepare` writes it into the run's manifest and the New run preview puts it on the card, and the card's whole
+    claim is that its picture is the system the run will build -- so the two must not spell the same fact two ways.
+    A fitted build says which one it is by naming the parameterization; a derived one states its reference terms and
+    its fallbacks, because those are the two numbers that say how much of it was looked up and how much was geometry.
+    """
+    if adopted:
+        return "the mapping's current parameterization"
+    return (f"the mapping's derived topology: {draft['reference_terms']} reference terms, "
+            f"{draft['fallback_terms']} fallbacks")
