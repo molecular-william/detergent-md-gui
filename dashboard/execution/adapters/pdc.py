@@ -67,7 +67,11 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             'mdrun_gpu': 0}
 _PROTEIN_LIMIT = 50
 # Values a spec allows as a fraction but that the builders use as counts or seeds.
-_INTEGRAL = ('seed', 'snapshot_cap', 'minimisation_steps', 'mdrun_gpu')
+# Canonical settings that are counts, not sizes: a supplied value is stored as an `int`, so the run's record says `120`
+# rather than `120.0`. `aggregation_number` was missing here while `validate_payload` refused anything that was not an
+# `int`, so the normalizer turned every supplied aggregation number into a float and the validator then rejected the
+# record the normalizer had just written -- no pdc build with an aggregation number could get past `prepare`.
+_INTEGRAL = ('seed', 'snapshot_cap', 'minimisation_steps', 'mdrun_gpu', 'aggregation_number', 'attempts_max')
 
 # One shape across every run type: (label, lo, hi). Numbers only; a choice would need the registry, so it is
 # validated in validate_payload where the templates are actually known.
@@ -237,6 +241,22 @@ def validate_chains(protein_path, requested):
     return [str(chain) for chain in requested]
 
 
+def _count(value):
+    """A whole number from a payload that may carry it as a float, or `None` if it is not one.
+
+    A JSON number arrives as `int` when the panel sends `Number('120')`, but a record written before the normalizer kept
+    counts integral carries `120.0`, and a value that came through a float is still the integer the builders want. A
+    string is not: the payload states numbers, and `'120'` would reach an MDP as text.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
+
+
 def validate_payload(payload):
     """The choices a build must carry, checked where the protocol can see them.
 
@@ -250,11 +270,11 @@ def validate_payload(payload):
         raise ValueError('pdc payload must be an object')
     # The builder's own policy: every build requires an integer seed, so a missing one is an error rather than a
     # default that would make two builds look comparable when they are not.
-    seed = payload.get('seed')
-    if not isinstance(seed, int) or isinstance(seed, bool) or seed < 1:
+    seed = _count(payload.get('seed'))
+    if seed is None or seed < 1:
         raise ValueError('pdc seed must be a positive integer')
-    aggregation = payload.get('aggregation_number', DEFAULTS['aggregation_number'])
-    if not isinstance(aggregation, int) or isinstance(aggregation, bool) or aggregation < 1:
+    aggregation = _count(payload.get('aggregation_number', DEFAULTS['aggregation_number']))
+    if aggregation is None or aggregation < 1:
         raise ValueError('pdc aggregation number must be a positive integer')
     try:
         salt = float(payload.get('salt_molar', DEFAULTS['salt_molar']))
