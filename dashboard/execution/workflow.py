@@ -54,7 +54,19 @@ def run_completed(run_dir):
 
 
 def missing_files(directory, patterns):
-    return [pattern for pattern in patterns if not any(p.is_file() and p.stat().st_size for p in directory.glob(pattern))]
+    """The declared inputs a stage directory does not hold.
+
+    A declaration ending in `/` names a directory the stage carries whole (the pdc adapter declares the protein's
+    topology tree that way, because martinize2 decides how many `.itp`s there are), so the directory's own presence
+    is what satisfies it -- `is_file` would call every such entry missing and refuse the stage.
+    """
+    def given(path, pattern):
+        if path.is_file() and path.stat().st_size:
+            return True
+        return str(pattern).endswith('/') and path.is_dir()
+
+    return [pattern for pattern in patterns
+            if not any(given(p, pattern) for p in directory.glob(pattern))]
 
 
 def declared_output_hashes(directory, patterns, recorded=None):
@@ -81,6 +93,19 @@ def declared_output_hashes(directory, patterns, recorded=None):
                 relative = path.relative_to(directory).as_posix()
                 result[relative] = files.sha256(path)
     return result
+
+
+def _declared_paths(directory, pattern):
+    """The files a declared input names: the match itself, or -- for an entry ending in `/` -- every file inside it.
+
+    A stage that carries a directory whole is given those files, so they are what its manifest has to record as its
+    provenance. Hashing the entry alone records nothing, because a directory is not a file.
+    """
+    for path in directory.glob(pattern):
+        if str(pattern).endswith('/') and path.is_dir():
+            yield from sorted(child for child in path.rglob('*') if child.is_file())
+            continue
+        yield path
 
 
 def validate_stage_inputs(name, directory, required):
@@ -290,7 +315,7 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
             # for `inputs_sha256` and relative to the execution root for `dependency_sha256`.
             declared_inputs = [(path, files.sha256(path))
                                for pattern in required_inputs.get(name, ())
-                               for path in script.parent.glob(pattern)
+                               for path in _declared_paths(script.parent, pattern)
                                if path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(stage_root.resolve())]
             entry['inputs_sha256'] = {str(path.relative_to(script.parent)): digest for path, digest in declared_inputs}
             entry['dependency_sha256'] = {str(path.relative_to(stage_root)): digest for path, digest in declared_inputs}

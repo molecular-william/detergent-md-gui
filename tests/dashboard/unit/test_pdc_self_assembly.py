@@ -135,7 +135,10 @@ def _prepared_run(tmp_path: Path, *, placement_mode=None, aggregation_number=8):
     ellipsoid = _protein()
     write_cg_pdb(stage / 'cg' / 'protein_cg.pdb',
                  [(1, 'PRO', f'B{index:02d}', point) for index, point in enumerate(ellipsoid, 1)])
-    (stage / 'cg' / 'protein_CG.itp').write_text(PROTEIN_ITP)
+    # martinize2's own output: the itp is named after its molecule type, and its `protein.top` lists it.
+    (stage / 'cg' / 'PROT.itp').write_text(PROTEIN_ITP)
+    (stage / 'cg' / 'protein.top').write_text('#include "martini.itp"\n#include "PROT.itp"\n\n[ system ]\nTitle\n\n'
+                                              '[ molecules ]\nPROT    1\n')
     return run, stage
 
 

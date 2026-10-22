@@ -21,9 +21,10 @@ Two things it deliberately does not do yet, and says so rather than guessing:
   molecule's **head end** -- the tube's outer surface for a belt, the shell for a sphere. Placing the
   detergent's own beads needs the template's bead geometry, which the shipped templates do not carry -- their one
   bead is typed `registered-template`.
-* `system.top` is not written. Its `[ molecules ]` section needs the molecule names from the two `.itp` files
-  (`protein_CG.itp` and the detergent's), and that assembly is the next slice; the stage exits 3 instead of
-  writing a topology it cannot check.
+* `system.top` is written from what `grompp` will read: martinize2's own `[ molecules ]`, reproduced row for row with
+  each molecule's `.itp` included from `cg/`, and the detergent's molecule type -- but a build whose detergent is a
+  bare centre (no mapping, so no bead model) stops before it, at exit 3: a `[ molecules ]` row naming a molecule whose
+  beads nothing knows cannot be written.
 
     python -m dashboard.execution.scripts.pdc_build --stage .
 
@@ -46,7 +47,7 @@ from micelle import frame as micelle_frame
 from micelle import output as micelle_output
 from micelle import registry as micelle_registry
 
-CG_DIRECTORY = 'cg'
+CG_DIRECTORY = pdc.PROTEIN_TOPOLOGY_DIRECTORY
 # Where the protein's chosen chains are written when the run carries a selection. martinize2 reads this rather than
 # the whole file, which is what makes a deposited assembly runnable as one of its subunits.
 SELECTED_PROTEIN = 'protein_selected.pdb'
@@ -54,7 +55,8 @@ SELECTED_PROTEIN = 'protein_selected.pdb'
 LIMITATIONS = [
     'the detergent is one point per molecule -- its head end -- not its bead geometry: the shipped templates '
     'carry no bead shape',
-    'system.top is not written yet, because its [ molecules ] names come from the two .itp files',
+    'system.top lists the molecules grompp reads -- martinize2\'s own, and the detergent\'s -- but a build with no '
+    'detergent model writes none: a molecule whose beads nothing knows cannot be listed',
 ]
 
 
@@ -203,23 +205,79 @@ def molecule_name(topology_text: str) -> str:
     raise SystemExit('a topology without a [ moleculetype ] name cannot be listed in [ molecules ]')
 
 
+def molecule_rows(topology: Path) -> list[tuple[str, int]]:
+    """Every molecule a topology lists in its own `[ molecules ]`: names and counts, in its own order.
+
+    Read rather than assumed, because martinize2 emits **one molecule per chain**: 1AT9's chain A gives one and
+    4IAR's gives two, so neither the number of rows nor their counts is something this stage may decide. The run that
+    motivated this wrote only the first row, and the second molecule's beads then sat in `system.gro` with no
+    topology and no `[ molecules ]` row. A row this function cannot read is refused, not skipped: a topology it
+    half-understood would produce a system `grompp` refuses after a stage has already run.
+    """
+    rows, section = [], ''
+    for raw in Path(topology).read_text().splitlines():
+        line = raw.split(';', 1)[0].strip()
+        if line.startswith('['):
+            section = line.strip('[] \t').lower()
+            continue
+        if section != 'molecules' or not line:
+            continue
+        fields = line.split()
+        if len(fields) < 2 or not fields[1].lstrip('-').isdigit():
+            raise SystemExit(f'{Path(topology).name} lists a [ molecules ] row this stage cannot read: {line!r}')
+        rows.append((fields[0], int(fields[1])))
+    if not rows:
+        raise SystemExit(f'{Path(topology).name} lists no molecule in [ molecules ], so the system cannot be '
+                         'assembled')
+    return rows
+
+
+def protein_topology(topology: Path) -> tuple[list[tuple[str, int]], str, str]:
+    """The protein's molecules, the `#include`s for them and its `[ molecules ]` rows, all from martinize2's topology.
+
+    The includes name `cg/<name>.itp` -- a path relative to the *stage* directory, which is where `system.top` lives
+    and therefore where `grompp` resolves an include from. The tool's own `protein.top` names the same files by bare
+    name because it was written beside them, which is why the itps stay in `cg/` rather than being collected up: the
+    two topologies then agree about where the files are, and only one of them is the one the legs run.
+
+    The tool's header include `martini.itp` is **not** reproduced. That is vermouth's force field; this system's is
+    `pdc.FORCEFIELD_FILES`, and copying the header would hand `grompp` a second, incompatible parameter set.
+
+    Each row's `.itp` is checked for where the include says it is, so a molecule whose topology is not there is
+    refused here, naming the file -- rather than by `grompp` in the middle of a run, as `Topology include file
+    "molecule_0.itp" not found` was.
+    """
+    includes, rows = [], []
+    molecules = molecule_rows(topology)
+    for name, count in molecules:
+        itp = Path(topology).parent / f'{name}.itp'
+        if not itp.is_file():
+            raise SystemExit(f'{Path(topology).name} lists molecule {name!r}, whose {itp.name} is not beside it in '
+                             f'{Path(topology).parent.name}/: the system cannot be assembled')
+        includes.append(f'#include "{CG_DIRECTORY}/{itp.name}"\n')
+        rows.append(f'{name}\t{count}\n')
+    return molecules, ''.join(includes), ''.join(rows)
+
+
 # What every topology this stage writes includes: the published Martini 3 lipid set, which is where the bead types,
 # the water molecule type and the ion molecule types all live. Without them `grompp` refuses the solvated system,
 # because `W` is undefined. The names come from the adapter, so the two cannot drift apart.
 _INCLUDES = ''.join(f'#include "{name}"\n' for name in pdc.FORCEFIELD_FILES)
 
 
-def write_topologies(stage: Path, protein_itp: Path | None, detergent_itp: Path | None, detergents: int) -> dict:
+def write_topologies(stage: Path, protein_topology_path: Path | None, detergent_itp: Path | None,
+                     detergents: int) -> dict:
     """`system_EMPTY.top` (the protein alone, the stage's declared input) and `system.top` (the whole system).
 
-    Both name their molecules exactly as the two `.itp` files do, and the counts are the counts of molecules the
-    structure actually holds -- the invariant `grompp` checks, and the one whose violation cost three failed sugar
-    runs.
+    Both reproduce the protein's molecules **exactly as the tool that built them listed them**: the include lines name
+    `cg/<name>.itp` for every row of martinize2's own `[ molecules ]`, and the rows are copied with the tool's own
+    names and counts. The counts of the detergent are the count of molecules the structure actually holds -- the
+    invariant `grompp` checks, and the one whose violation cost three failed sugar runs.
 
     A protein-free build (the empty micelle) writes the same two files with no protein row, so every reader
     downstream sees the shape it expects rather than a special case.
     """
-    if protein_itp is None:
+    if protein_topology_path is None:
         (stage / 'system_EMPTY.top').write_text(
             '; the system before the detergent arrives, filled in by the system-preparation stage\n'
             f'{_INCLUDES}'
@@ -232,20 +290,21 @@ def write_topologies(stage: Path, protein_itp: Path | None, detergent_itp: Path 
             f'{_INCLUDES}#include "{detergent_itp.name}"\n\n[ system ]\nempty micelle, detergent only\n\n'
             f'[ molecules ]\n{detergent}\t{detergents}\n')
         return {'protein_molecule': None, 'detergent_molecule': detergent, 'detergents': detergents}
-    protein = molecule_name(protein_itp.read_text())
+    molecules, includes, protein_rows = protein_topology(protein_topology_path)
+    record = {'protein_molecule': molecules[0][0], 'protein_molecules': [name for name, _ in molecules]}
     empty = (f'; the system before the detergent arrives, filled in by the system-preparation stage\n'
-             f'{_INCLUDES}#include "{protein_itp.name}"\n\n[ system ]\nprotein-detergent complex, CG protein\n\n'
-             f'[ molecules ]\n{protein}\t1\n')
+             f'{_INCLUDES}{includes}\n[ system ]\nprotein-detergent complex, CG protein\n\n'
+             f'[ molecules ]\n{protein_rows}')
     (stage / 'system_EMPTY.top').write_text(empty)
     if detergent_itp is None or not detergents:
-        return {'protein_molecule': protein}
+        return record
     detergent = molecule_name(detergent_itp.read_text())
     (stage / 'system.top').write_text(
         f'; the whole system, written by the system-preparation stage\n'
-        f'{_INCLUDES}#include "{protein_itp.name}"\n#include "{detergent_itp.name}"\n\n[ system ]\n'
+        f'{_INCLUDES}{includes}#include "{detergent_itp.name}"\n\n[ system ]\n'
         f'protein-detergent complex, CG protein and detergent\n\n[ molecules ]\n'
-        f'{protein}\t1\n{detergent}\t{detergents}\n')
-    return {'protein_molecule': protein, 'detergent_molecule': detergent, 'detergents': detergents}
+        f'{protein_rows}{detergent}\t{detergents}\n')
+    return {**record, 'detergent_molecule': detergent, 'detergents': detergents}
 
 
 #: The secondary-structure source this stage wires, named in the run's report. See `secondary_structure`.
@@ -497,6 +556,11 @@ def prepared_protein(stage: Path) -> Path | None:
 
 def build(stage: Path) -> int:
     settings = read_settings(stage)
+    # The CG protein's own directory, created for every build -- including one with no protein, which coarse-grains
+    # nothing and includes nothing from it. Every leg declares this tree as an input and carries it whole
+    # (`pdc.PROTEIN_TOPOLOGY_DIRECTORY`), so an empty tree is the protein-free answer, and the declaration is then one
+    # spelling for every build rather than one condition the stage contract would have to be told about.
+    (stage / CG_DIRECTORY).mkdir(exist_ok=True)
     template = micelle_registry.load_template(resolve(settings, 'template', stage))
     template_issues = list(micelle_registry.validate_template(template))
     # Which generator places the detergents is a decision the build carries, so it is read here and written into the
@@ -613,15 +677,22 @@ def build(stage: Path) -> int:
         _record_placement(stage, template, settings)
         return 3
 
-    protein_itp = next(iter(sorted((stage / CG_DIRECTORY).glob('*.itp'))), None)
-    if protein_itp is None and (settings.get('protein') or '').strip():
-        raise SystemExit('the CG protein step wrote no topology, so the system cannot be assembled')
+    # The topology martinize2 wrote, by the name its own command was told to use (`pdc_protein.TOPOLOGY_NAME`), rather
+    # than the first `*.itp` that sorts first in `cg/`: that guess is how a two-molecule protein came to be recorded as
+    # one. Its `[ molecules ]` list is the system's, and `write_topologies` reproduces all of it.
+    protein_topology_path = stage / CG_DIRECTORY / pdc_protein.TOPOLOGY_NAME
+    if not protein_topology_path.is_file():
+        if (settings.get('protein') or '').strip():
+            raise SystemExit(f'the CG protein step wrote no {pdc_protein.TOPOLOGY_NAME}, so the system cannot be '
+                             'assembled')
+        protein_topology_path = None
     atoms += stamp(model, placement['centers'], placement['directions'],
                    first_residue=max([bead['residue_id'] for bead in beads], default=0) + 1)
     micelle_output.write_gro(stage / 'system.gro', atoms,
                              title=f'protein-detergent complex ({template.name}, '
                                    f'AN={settings["aggregation_number"]}, {model["residue"]})', box=box)
-    topologies = write_topologies(stage, protein_itp, stage / DETERGENT_TOPOLOGY, len(placement['centers']))
+    topologies = write_topologies(stage, protein_topology_path, stage / DETERGENT_TOPOLOGY,
+                                  len(placement['centers']))
     report.update({'valid': True, 'box_nm': box, 'atoms': len(atoms),
                    'placed_detergents': len(placement['centers']),
                    'detergent_model': settings.get('detergent_model') or {},

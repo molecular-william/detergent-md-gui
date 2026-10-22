@@ -291,7 +291,11 @@ def test_every_copied_stage_script_runs_under_this_interpreters_own_python(tmp_p
 
 
 def test_each_stage_copies_in_the_inputs_it_declares(tmp_path):
-    """A stage reads the phase before it; nothing else puts a file in its directory, which cost a run at stage 2."""
+    """A stage reads the phase before it; nothing else puts a file in its directory, which cost a run at stage 2.
+
+    A declaration that ends in `/` names a directory the stage carries whole (the protein's `cg/` tree), so it is
+    copied contents-and-all into a target of that name rather than by file.
+    """
     root = molecule_tree(tmp_path)
     pdc.prepare(tmp_path / 'run', template=TEMPLATE_PATH, settings={'seed': 1}, project_root=root)
 
@@ -301,7 +305,11 @@ def test_each_stage_copies_in_the_inputs_it_declares(tmp_path):
         for entry in stage.inputs:
             if str(entry).startswith('../'):
                 # The phase before it stays immutable, so the script copies the input in itself.
-                assert f'cp -f {entry} ' in text, f'{stage.relative} never copies its declared input {entry}'
+                if str(entry).endswith('/'):
+                    assert f'cp -rf {entry}. {str(entry).rstrip("/").split("/")[-1]}/' in text, \
+                        f'{stage.relative} never copies its declared directory {entry}'
+                else:
+                    assert f'cp -f {entry} ' in text, f'{stage.relative} never copies its declared input {entry}'
             else:
                 # A local input is one this stage already has when it starts, which is checkable here.
                 assert (script.parent / str(entry)).is_file(), \

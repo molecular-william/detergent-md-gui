@@ -94,19 +94,40 @@ def test_a_mapping_that_marks_no_hydrophobic_core_is_refused():
         pdc_build.stamp(undifferentiated, [[0.0, 0.0, 0.0]], [[1.0, 0.0, 0.0]])
 
 
-def test_the_topology_names_its_molecules_exactly_as_the_itps_do(tmp_path):
-    protein = tmp_path / 'protein_CG.itp'
-    protein.write_text(PROTEIN_ITP)
+def test_the_topology_names_its_molecules_exactly_as_the_tool_listed_them(tmp_path):
+    """martinize2 writes one `.itp` per molecule type, named after it, and lists each with its count.
+
+    The fixture reproduces that shape -- the itps in `cg/`, beside the tool's own `protein.top` -- because the include
+    this stage writes has to name the file where the tool left it.
+    """
+    cg = tmp_path / 'cg'
+    cg.mkdir()
+    (cg / 'PROT.itp').write_text(PROTEIN_ITP)
+    (cg / 'protein.top').write_text('#include "martini.itp"\n#include "PROT.itp"\n\n[ system ]\nTitle\n\n'
+                                    '[ molecules ]\nPROT    1\n')
     detergent = tmp_path / 'detergent_CG.itp'
     detergent.write_text('[ moleculetype ]\nDDM 1\n\n[ atoms ]\n1 C1 1 DDM TAIL1 1 0 72\n')
 
-    written = pdc_build.write_topologies(tmp_path, protein, detergent, 3)
+    written = pdc_build.write_topologies(tmp_path, cg / 'protein.top', detergent, 3)
 
     whole = (tmp_path / 'system.top').read_text()
-    assert written == {'protein_molecule': 'PROT', 'detergent_molecule': 'DDM', 'detergents': 3}
-    assert '#include "protein_CG.itp"' in whole and '#include "detergent_CG.itp"' in whole
+    assert written == {'protein_molecule': 'PROT', 'protein_molecules': ['PROT'],
+                       'detergent_molecule': 'DDM', 'detergents': 3}
+    assert '#include "cg/PROT.itp"' in whole and '#include "detergent_CG.itp"' in whole
     assert 'PROT\t1' in whole and 'DDM\t3' in whole
+    assert 'martini.itp' not in whole, "the tool's own force field is not this system's"
     assert 'DDM\t' not in (tmp_path / 'system_EMPTY.top').read_text(), 'the empty topology is the protein alone'
+
+
+def test_a_molecule_the_tool_listed_without_its_itp_is_refused_rather_than_written(tmp_path):
+    """The failure this replaces was `grompp`'s, in a stage after the build: name the missing file at the build."""
+    cg = tmp_path / 'cg'
+    cg.mkdir()
+    (cg / 'PROT.itp').write_text(PROTEIN_ITP)
+    (cg / 'protein.top').write_text('[ molecules ]\nPROT 1\nLIGAND 2\n')
+
+    with pytest.raises(SystemExit, match='LIGAND'):
+        pdc_build.write_topologies(tmp_path, cg / 'protein.top', None, 0)
 
 
 def test_a_topology_without_a_molecule_name_is_refused_rather_than_guessed():
@@ -133,7 +154,11 @@ def test_the_stage_completes_when_the_run_was_prepared_with_a_detergent_mapping(
     write_cg_pdb(stage / 'cg' / 'protein_cg.pdb', [(1, 'PRO', 'B01', (0.0, 0.0, 0.0)),
                                                   (1, 'PRO', 'B02', (1.0, 0.0, 0.0)),
                                                   (1, 'PRO', 'B03', (0.0, 1.0, 0.0))])
-    (stage / 'cg' / 'protein_CG.itp').write_text(PROTEIN_ITP)
+    # martinize2's own output: the itps in `cg/`, named after their molecule types, and the `protein.top` that lists
+    # them. `build` reads the list from the tool's file rather than from the first itp it can find.
+    (stage / 'cg' / 'PROT.itp').write_text(PROTEIN_ITP)
+    (stage / 'cg' / 'protein.top').write_text('#include "martini.itp"\n#include "PROT.itp"\n\n[ system ]\nTitle\n\n'
+                                              '[ molecules ]\nPROT    1\n')
 
     code = pdc_build.build(stage)
 
@@ -148,4 +173,5 @@ def test_the_stage_completes_when_the_run_was_prepared_with_a_detergent_mapping(
     assert beads == protein + 2 * per_detergent, 'the atoms present are what [ molecules ] claims'
     topology = (stage / 'system.top').read_text()
     assert 'DDM\t2' in topology and 'PROT\t1' in topology
+    assert '#include "cg/PROT.itp"' in topology, 'the topology includes the protein itp where the tool left it'
     assert (stage / 'snapshots' / 'placement.pdb').is_file()

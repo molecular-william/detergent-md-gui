@@ -40,6 +40,13 @@ REPORT_NAME = 'prepare_report.json'
 # with the provenance of its bonded terms.
 DETERGENT_TOPOLOGY = 'detergent_CG.itp'
 DETERGENT_GEOMETRY = 'detergent_CG.json'
+# Where the protein's own `.itp`s live: martinize2's output directory, which is where its `protein.top` includes them
+# from by bare name. `system.top` includes them as `cg/<name>.itp` (`pdc_build.write_topologies`), and every leg that
+# runs `grompp` on that topology carries this whole tree -- one declared directory rather than a list of file names,
+# because martinize2 emits one molecule per chain (one for 1AT9's chain A, two for 4IAR's) and no static list can be
+# right for both. A declared input spelled with a trailing `/` is a directory, carried whole: see
+# `_stage_declared_inputs`.
+PROTEIN_TOPOLOGY_DIRECTORY = 'cg'
 
 DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900,
             'selection_threshold_fraction': 0.10, 'attempts_max': 3, 'box_margin_nm': 2.0,
@@ -140,15 +147,18 @@ STAGES = (
     # A leg the run asks none of records `skipped` (exit 4) rather than leaving the chain.
     Stage('Energy minimisation', '2_minimisation/minimise.sh',
           ('../1_system/system.gro', '../1_system/system.top', '../1_system/' + DETERGENT_TOPOLOGY,
+           f'../1_system/{PROTEIN_TOPOLOGY_DIRECTORY}/',
            *('../1_system/' + name for name in FORCEFIELD_FILES), 'minimisation.mdp', 'ions.mdp',
            'inputs/water.gro'),
           ('system.tpr', 'system.gro', 'system.edr', 'system.log', 'solvation.json')),
     Stage('NVT equilibration', '3_nvt/equilibrate.sh',
           ('../2_minimisation/system.gro', '../2_minimisation/system.top', '../2_minimisation/' + DETERGENT_TOPOLOGY,
+           f'../2_minimisation/{PROTEIN_TOPOLOGY_DIRECTORY}/',
            *('../2_minimisation/' + name for name in FORCEFIELD_FILES), 'nvt.mdp'),
           ('system.tpr', 'system.gro', 'system.edr', 'system.log', 'system.cpt', 'system.xtc')),
     Stage('NPT equilibration', '4_npt/equilibrate.sh',
           ('../3_nvt/system.gro', '../3_nvt/system.top', '../3_nvt/' + DETERGENT_TOPOLOGY,
+           f'../3_nvt/{PROTEIN_TOPOLOGY_DIRECTORY}/',
            *('../3_nvt/' + name for name in FORCEFIELD_FILES), 'npt.mdp'),
           ('system.tpr', 'system.gro', 'system.edr', 'system.log', 'system.cpt', 'system.xtc')),
     # And the counterpart of change 2: this leg is production only, and it samples the system the NPT leg left. It
@@ -157,13 +167,17 @@ STAGES = (
     # the copy of it is emitted from here like every other stage's.
     Stage('CG assessment MD', '2_assessment/pdc_assessment.sh',
           ('../4_npt/system.gro', '../4_npt/system.top', '../4_npt/' + DETERGENT_TOPOLOGY,
+           f'../4_npt/{PROTEIN_TOPOLOGY_DIRECTORY}/',
            *('../4_npt/' + name for name in FORCEFIELD_FILES), 'assessment.mdp'),
           ('prod/run.gro', 'prod/run.tpr', 'prod/run.xtc', 'prod/run.cpt')),
     Stage('Micelle assessment', '3_assessment/pdc_assess.sh',
           ('../2_assessment/prod/run.gro', '../2_assessment/prod/run.xtc'),
           ('assessment.json', 'kept.gro', 'removed.json')),
+    # The extension's `system.top` is the assessment phase's, so the protein tree it includes comes from that phase's
+    # directory too -- not from `1_system`, whose copy the assessment leg already carried forward.
     Stage('CG extension MD', '4_extension/pdc_extension.sh',
           ('../2_assessment/prod/run.tpr', '../2_assessment/prod/run.cpt', '../2_assessment/system.top',
+           f'../2_assessment/{PROTEIN_TOPOLOGY_DIRECTORY}/',
            '../1_system/' + DETERGENT_TOPOLOGY, *('../1_system/' + name for name in FORCEFIELD_FILES),
            'extension.mdp'),
           ('prod/run.gro', 'prod/run.xtc')),
@@ -715,11 +729,22 @@ def _stage_declared_inputs(script, stage):
     and an assessment reads the phase's trajectory, so both need a local copy. The copy is emitted from the stage's
     own declaration, which is the one place the contract is stated -- the alternative is what the first run did,
     where the script named `system.top` and nothing had ever put one there.
+
+    A declaration spelled with a trailing `/` names a **directory** and is carried whole, contents and all. The
+    protein's topology tree is declared that way, and it is the only spelling that can be: martinize2 writes one
+    `.itp` per chain, so a stage cannot name the files before the tool has run, and a glob would leave `protein.top`
+    behind -- the file that includes the itps it names. `cp -rf <source>/. <target>/` copies those contents *into*
+    the stage's own `cg/` instead of nesting a second `cg/` inside it, which is what a re-entered stage would get
+    from `cp -r <source> <target>` when `<target>` already exists.
     """
     lines = []
     for entry in stage.inputs:
         source = str(entry)
         if not source.startswith('../'):
+            continue
+        if source.endswith('/'):
+            target = re.sub(r'^(?:\.\./[^/]+/)+', '', source).rstrip('/')
+            lines.append(f'mkdir -p {target} && cp -rf {source}. {target}/')
             continue
         target = re.sub(r'^(?:\.\./[^/]+/)+', '', source)
         parent = str(Path(target).parent)

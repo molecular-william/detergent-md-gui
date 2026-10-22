@@ -19,10 +19,14 @@ DEFAULT_FORCE_FIELD = 'martini3001'
 #: the one `execution/tools.search_path()` built, so whatever tool it finds there is the declared one -- while a caller
 #: that has already resolved the executable (`execution/tools.tool_path`) hands that path in instead.
 DEFAULT_EXECUTABLE = 'martinize2'
+#: The name the tool is told to write its topology under, in the output directory it runs in. It is where
+#: `[ molecules ]` -- the list the system topology has to reproduce -- comes from, so the builder of the command and
+#: the reader of that list cannot name two different files.
+TOPOLOGY_NAME = 'protein.top'
 
 
 def martinize_command(protein_pdb, out_dir, *, executable=DEFAULT_EXECUTABLE, force_field=DEFAULT_FORCE_FIELD,
-                      structure_name='protein_cg.pdb', topology_name='protein.top'):
+                      structure_name='protein_cg.pdb', topology_name=TOPOLOGY_NAME):
     """The command that produces the CG protein and its topology from the atomistic structure.
 
     The executable is a parameter rather than a lookup: the stage resolves it through `execution/tools.py`, where a
