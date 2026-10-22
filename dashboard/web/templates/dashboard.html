@@ -631,26 +631,33 @@
       <span class="badge" id="bonded-model-badge">no parameterization</span>
     </div>
     <p class="hint" id="bonded-mapping-facts"></p>
-    <div class="form-grid bonded-model-fields">
-      <label>Mapping<select id="bonded-mapping-select" class="bonded-mapping-select" aria-describedby="bonded-mapping-facts"></select></label>
-      <label>AA reference<select id="bonded-aa-reference" aria-describedby="bonded-aa-facts"></select></label>
-      <label>Fit with<select id="bonded-engine" aria-describedby="bonded-engine-note"></select></label>
-      <label>Constraint threshold <span class="hint">kJ mol⁻¹ nm⁻²</span><input id="bonded-constraints-threshold" type="number" min="1" step="any" value="10000" aria-describedby="bonded-constraints-note"><span class="hint" id="bonded-constraints-note"></span></label>
-      <label>Fit temperature <span class="hint">K · default 300</span><input id="bonded-temperature" type="number" min="1" max="1000" step="1" value="300"></label>
-      <label>Torsion model<select id="bonded-torsion-model" class="bonded-torsion-model">
-        <option value="legacy">Legacy — periodic fit, as recorded</option>
-        <option value="circular-harmonic">Circular-harmonic — each torsion fitted to the AA distribution</option>
-      </select></label>
-      <label>Torsion stiffness scale<input id="bonded-torsion-scale" class="bonded-torsion-scale" type="number" min="0.1" max="3" step="0.1" value="1" disabled></label>
+    {# The fields and the torsion fieldset are one body: the fieldset states a property of the same mapping, and it is
+       read beside the fields rather than stacked under them -- four rows of fields put the first button below the
+       fold. Three fields to a row, because seven fields in two columns is the height this removes. #}
+    <div class="bonded-model-body">
+      <div class="form-grid bonded-model-fields">
+        <label>Mapping<select id="bonded-mapping-select" class="bonded-mapping-select" aria-describedby="bonded-mapping-facts"></select></label>
+        <label>AA reference<select id="bonded-aa-reference" aria-describedby="bonded-aa-facts"></select></label>
+        <label>Fit with<select id="bonded-engine" aria-describedby="bonded-engine-note"></select></label>
+        <label>Constraint threshold <span class="hint">kJ mol⁻¹ nm⁻²</span><input id="bonded-constraints-threshold" type="number" min="1" step="any" value="10000" aria-describedby="bonded-constraints-note"><span class="hint" id="bonded-constraints-note"></span></label>
+        <label>Fit temperature <span class="hint">K · default 300</span><input id="bonded-temperature" type="number" min="1" max="1000" step="1" value="300"></label>
+        <label>Torsion model<select id="bonded-torsion-model" class="bonded-torsion-model">
+          <option value="legacy">Legacy — periodic fit, as recorded</option>
+          <option value="circular-harmonic">Circular-harmonic — each torsion fitted to the AA distribution</option>
+        </select></label>
+        <label>Torsion stiffness scale<input id="bonded-torsion-scale" class="bonded-torsion-scale" type="number" min="0.1" max="3" step="0.1" value="1" disabled></label>
+      </div>
+      <fieldset class="bonded-torsion">
+        <legend>Torsion refinement · a property of this mapping</legend>
+        <p class="hint">The torsion model and its stiffness scale are how those terms are written into the CG topology: either the legacy periodic fit, or a circular-harmonic fit of each torsion to the AA distribution at the stiffness chosen above. <strong>Save to mapping</strong> writes the pair into the mapping file — the file a run is queued from and whose hash a run records — so a run already queued keeps the model its own snapshot carried. Nothing on the New run panel can change this.</p>
+        <div class="toolbar"><button type="button" class="secondary bonded-save-torsion" id="bonded-save-torsion" disabled>Save to mapping</button></div>
+        <p class="bonded-torsion-status hint" id="bonded-torsion-status" role="status">Choose a mapping to read its torsion model.</p>
+      </fieldset>
     </div>
+    {# The two per-field notes stay outside both grids: in a cell they would hold a row open whenever they fill, and
+       in a track of their own they would take the fieldset's place beside the fields. #}
     <p class="hint" id="bonded-aa-facts"></p>
     <p class="hint" id="bonded-engine-note"></p>
-    <fieldset class="bonded-torsion">
-      <legend>Torsion refinement · a property of this mapping</legend>
-      <p class="hint">The torsion model and its stiffness scale are how those terms are written into the CG topology: either the legacy periodic fit, or a circular-harmonic fit of each torsion to the AA distribution at the stiffness chosen above. <strong>Save to mapping</strong> writes the pair into the mapping file — the file a run is queued from and whose hash a run records — so a run already queued keeps the model its own snapshot carried. Nothing on the New run panel can change this.</p>
-      <div class="toolbar"><button type="button" class="secondary bonded-save-torsion" id="bonded-save-torsion" disabled>Save to mapping</button></div>
-      <p class="bonded-torsion-status hint" id="bonded-torsion-status" role="status">Choose a mapping to read its torsion model.</p>
-    </fieldset>
     <div class="toolbar">
       <button type="button" id="bonded-fit">Fit this model</button>
       {# This control removes the selected model's *parameterization* -- its revisions, the fits that produced them, the
@@ -663,32 +670,37 @@
     <div class="notice bonded-help"><strong>What a fit is</strong><p>Fast-Forward and BARTENDER build the mapped trajectory from the AA reference first — minutes of CPU and no MD — then fit bonds, angles and dihedrals to it. Generated parameters are hypotheses, and a fit is not scientific approval: the checks below re-derive two of them and report the numbers.</p></div>
   </section>
 
-  {# The job box: status, the log tail, and the one control that can stop it. #}
-  <section class="card bonded-job" id="bonded-job" aria-labelledby="bonded-job-title" hidden>
-    <div class="section-heading">
-      <div><span class="eyebrow">Job</span><h3 id="bonded-job-title">No fit queued</h3>
-        <p class="hint" id="bonded-job-detail"></p></div>
-      <span class="badge" id="bonded-job-status">queued</span>
-    </div>
-    <div class="bonded-job-meter" role="progressbar" aria-label="Fit progress" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0"><span id="bonded-job-bar"></span></div>
-    {# Built by the panel from the job record's own `steps`, so the four names here cannot drift from the job that runs
-       them; it is what makes a bar sitting at 25% read as "fit, in progress" rather than as a stalled job. #}
-    <ol class="bonded-job-steps" id="bonded-job-steps"></ol>
-    <p class="hint" id="bonded-job-error" role="alert" hidden></p>
-    <pre id="bonded-job-log" hidden></pre>
-    <div class="toolbar"><button type="button" class="secondary" id="bonded-job-cancel">Cancel this fit</button></div>
-  </section>
+  {# Job and Result are one row: each is a badge, a line of detail and a few rows, and at full width they are mostly
+     empty -- stacked, they pushed the interactions table off screen for the minutes a fit runs. Both stay `hidden`
+     until the panel has something to say, and a hidden card leaves no hole in the row. #}
+  <div class="bonded-run-cards">
+    {# The job box: status, the log tail, and the one control that can stop it. #}
+    <section class="card bonded-job" id="bonded-job" aria-labelledby="bonded-job-title" hidden>
+      <div class="section-heading">
+        <div><span class="eyebrow">Job</span><h3 id="bonded-job-title">No fit queued</h3>
+          <p class="hint" id="bonded-job-detail"></p></div>
+        <span class="badge" id="bonded-job-status">queued</span>
+      </div>
+      <div class="bonded-job-meter" role="progressbar" aria-label="Fit progress" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0"><span id="bonded-job-bar"></span></div>
+      {# Built by the panel from the job record's own `steps`, so the four names here cannot drift from the job that runs
+         them; it is what makes a bar sitting at 25% read as "fit, in progress" rather than as a stalled job. #}
+      <ol class="bonded-job-steps" id="bonded-job-steps"></ol>
+      <p class="hint" id="bonded-job-error" role="alert" hidden></p>
+      <pre id="bonded-job-log" hidden></pre>
+      <div class="toolbar"><button type="button" class="secondary" id="bonded-job-cancel">Cancel this fit</button></div>
+    </section>
 
-  {# The result card: the current revision's provenance and the two checks' own numbers. #}
-  <section class="card bonded-result" id="bonded-result" aria-labelledby="bonded-result-title" hidden>
-    <div class="section-heading">
-      <div><span class="eyebrow">Result</span><h3 id="bonded-result-title">No revision yet</h3>
-        <p class="hint" id="bonded-result-summary"></p></div>
-      <span class="badge" id="bonded-result-badge">saved</span>
-    </div>
-    <dl class="review-grid bonded-provenance" id="bonded-result-provenance"></dl>
-    <div class="notice" id="bonded-result-checks"></div>
-  </section>
+    {# The result card: the current revision's provenance and the two checks' own numbers. #}
+    <section class="card bonded-result" id="bonded-result" aria-labelledby="bonded-result-title" hidden>
+      <div class="section-heading">
+        <div><span class="eyebrow">Result</span><h3 id="bonded-result-title">No revision yet</h3>
+          <p class="hint" id="bonded-result-summary"></p></div>
+        <span class="badge" id="bonded-result-badge">saved</span>
+      </div>
+      <dl class="review-grid bonded-provenance" id="bonded-result-provenance"></dl>
+      <div class="notice" id="bonded-result-checks"></div>
+    </section>
+  </div>
 
   <div class="bonded-columns">
     <section class="card">

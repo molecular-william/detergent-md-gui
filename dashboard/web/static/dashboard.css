@@ -100,3 +100,32 @@ nav{max-width:100%;overflow-x:auto;white-space:nowrap}nav button{flex:0 0 auto}
   .bonded-provenance { grid-template-columns: minmax(0, 1fr) }
   .bonded-revision { border-radius: 10px }
 }
+
+/* The model card's two columns: the seven fields three to a row on the left, the torsion fieldset beside them rather
+ * than under them. `minmax(0, …)` on every track is load-bearing -- a `<select>` whose option text is long otherwise
+ * sets its track's min-content width and the card overflows the document, the same class of bug `.hint` carries
+ * `overflow-wrap` for. The fieldset fills its column's height so the two read as one card rather than as a box with
+ * a gap under it.
+ *
+ * Job and Result are one row at half width each: `align-items: start` is the point, because the job card grows when
+ * its log opens and the result card must not stretch to match an empty box.
+ */
+.bonded-model-body { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(300px, 1fr); gap: 20px; align-items: start }
+.bonded-model-fields { grid-template-columns: repeat(3, minmax(0, 1fr)) }
+.bonded-torsion { margin: 0; height: 100% }
+.bonded-run-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start }
+.bonded-run-cards > .card { margin: 0 }
+@media (max-width: 1100px) {
+  .bonded-model-body { grid-template-columns: minmax(0, 1fr) }
+}
+@media (max-width: 1000px) {
+  .bonded-run-cards { grid-template-columns: minmax(0, 1fr) }
+}
+@media (max-width: 760px) {
+  .bonded-model-fields { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+}
+/* `.form-grid` states one column below 520 px earlier in this sheet, and a later rule of equal specificity wins, so
+   the collapse is restated here rather than left to the block above. */
+@media (max-width: 520px) {
+  .bonded-model-fields { grid-template-columns: minmax(0, 1fr) }
+}

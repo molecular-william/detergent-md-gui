@@ -272,6 +272,19 @@ def test_the_model_card_offers_the_engines_their_references_and_the_four_options
     expect(page.locator('#bonded-revisions')).to_contain_text('no revisions yet')
     # And the table is the mapping's own draft, saying so in the source column.
     expect(cells(page, 0).last).to_have_text('mapping')
+
+    # The card is laid out in two columns, the torsion fieldset beside the fields rather than under them, and the
+    # fields three to a row: seven fields in two columns is four rows of a card read before the first button, which
+    # is the height this shape removes. Positions, because the markup alone would pass a card stacked the old way.
+    fields = page.locator('.bonded-model-fields').bounding_box()
+    torsion = page.locator('fieldset.bonded-torsion').bounding_box()
+    assert torsion['x'] > fields['x'] + fields['width'] - 1, (fields, torsion)
+    boxes = [page.locator('.bonded-model-fields > label').nth(index).bounding_box() for index in range(4)]
+    assert abs(boxes[0]['y'] - boxes[2]['y']) < 2, f'the first three fields are not one row: {boxes}'
+    assert boxes[3]['y'] > boxes[0]['y'] + 10, f'the fourth field did not start a row: {boxes}'
+    # The assertion that caught the `.hint` overflow on 2026-10-21: a card wider than the page scrolls it sideways.
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), \
+        page.evaluate('document.documentElement.scrollWidth')
     assert errors == [], errors
 
 
@@ -519,6 +532,15 @@ def test_the_default_cadence_polls_a_few_seconds_apart_and_stops_when_the_job_en
     # A finished job has nothing running: all four steps read done, and none claims to be current.
     expect(page.locator('#bonded-job-steps li[data-state=done]')).to_have_count(4)
     expect(page.locator('#bonded-job-steps li[aria-current=step]')).to_have_count(0)
+    # The two cards that describe this fit share one row at half width each. They are read together -- the job that
+    # finished and the revision it left -- and stacked at full width they pushed the interactions table off screen
+    # for the minutes the job ran, which is when a reader is watching both.
+    job_box = page.locator('#bonded-job').bounding_box()
+    result_box = page.locator('#bonded-result').bounding_box()
+    assert abs(job_box['y'] - result_box['y']) < 2, f'the two cards sit in one row: {(job_box, result_box)}'
+    viewport = page.evaluate('innerWidth')
+    assert job_box['width'] < viewport * 0.5 and result_box['width'] < viewport * 0.5, \
+        f'each card is half width or less: {(job_box, result_box, viewport)}'
     assert errors == [], errors
 
 
