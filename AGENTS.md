@@ -107,14 +107,14 @@ them.
 
 ## Verify
 ```
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast: 1,891, ~19 s with a private MPLCONFIGDIR
+dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast: 1,896, ~19 s with a private MPLCONFIGDIR
 dashboard/.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser: 241, ~41 s
 dashboard/.venv/bin/python -m pytest -m slow -q -n 0                       # slow: 67, ~61 s serial
 dashboard/.venv/bin/ruff check dashboard tests                             # F, E9, I must exit 0
 scripts/gate_commit.sh <message-file> <paths...>                           # fast tier + ruff over named paths
 dashboard/.venv/bin/python scripts/mutation_check.py                       # 11 mutants: 10 caught, 1 survived
 ```
-The suite is 2,199 tests (1,891 + 241 + 67). Export a private `MPLCONFIGDIR` before running a tier, gate included: a
+The suite is 2,204 tests (1,896 + 241 + 67). Export a private `MPLCONFIGDIR` before running a tier, gate included: a
 shared one makes four distance-diagnostic tests race. Re-run a red in `test_bonded_parameterization_browser.py` serially
 before believing it -- its recorded flake is per-worker draft storage, and `HANDOFF.md` carries the history. Scope lint
 to the paths you touched: repo-wide `ruff check .` exits 1 on 19 pre-existing `micelle/` findings.

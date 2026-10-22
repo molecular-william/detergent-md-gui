@@ -135,8 +135,14 @@ def running_stage(job, stages):
     return current, stage_dir
 
 
-def stage_log_file(job, current, stage_dir, *, run_dir, console_log=None):
-    """The path of the running stage's log, or None when no candidate file holds it."""
+def stage_log_candidates(job, current, stage_dir, *, run_dir, console_log=None) -> list:
+    """Every file that could hold the running stage's log, most specific first.
+
+    A stage's recorded `log` is not proof of what is in it. Prepare records the run's console log against a stage
+    that has not started yet, and `run()` replaces it with the stage's own `logs/<stage>.log` -- so a run prepared
+    one way and executed another records a file that exists and carries none of GROMACS' output. Existence cannot
+    choose between them; the callers below pick by what the file says.
+    """
     attempt = None
     if job.get('resume_in_place') and job.get('resume_count'):
         try:
@@ -157,7 +163,16 @@ def stage_log_file(job, current, stage_dir, *, run_dir, console_log=None):
         # resuming, the console log is not a fallback: its tail belongs to the attempt
         # being resumed from, so an ETA read from it would report progress not yet made.
         candidates.append(Path(console_log))
-    for candidate in candidates:
+    return candidates
+
+
+def stage_log_file(job, current, stage_dir, *, run_dir, console_log=None):
+    """The first recorded or discoverable log file for the running stage, or None.
+
+    What the console tail reads: the file the writer named, whether or not GROMACS ever wrote to it. Progress and
+    the ETA ask a different question and go through `stage_log_candidates` instead.
+    """
+    for candidate in stage_log_candidates(job, current, stage_dir, run_dir=run_dir, console_log=console_log):
         if candidate.is_file():
             return candidate
     return None
@@ -170,11 +185,21 @@ def stage_log(job, current, stage_dir, *, run_dir, console_log=None) -> str:
 
 
 def eta(job, stages, *, run_dir, console_log=None) -> dict:
-    """GROMACS ETA parsed from the most recent log of the running stage."""
+    """GROMACS ETA parsed from the first log of the running stage that carries one.
+
+    Same reason as `progress`: the recorded file exists on every stage and on a run prepared differently from how it
+    was executed it is the console log, whose GROMACS block belongs to whichever stage last wrote there -- or to none.
+    """
     current, stage_dir = running_stage(job, stages)
     if current is None:
         return {}
-    return parse_gromacs_eta(stage_log(job, current, stage_dir, run_dir=run_dir, console_log=console_log))
+    for path in stage_log_candidates(job, current, stage_dir, run_dir=run_dir, console_log=console_log):
+        if not path.is_file():
+            continue
+        found = parse_gromacs_eta(tail(path))
+        if found:
+            return found
+    return {}
 
 
 def progress(job, stages, *, run_dir, console_log=None) -> dict:
@@ -192,11 +217,15 @@ def progress(job, stages, *, run_dir, console_log=None) -> dict:
     directory = None
     if stage_dir is not None:
         directory = Path(stage_dir) if Path(stage_dir).is_absolute() else Path(run_dir) / 'stages' / stage_dir
-    path = stage_log_file(job, current, stage_dir, run_dir=run_dir, console_log=console_log)
-    if path is None:
-        return {}
     # The file, not a tail: leg markers stand at the start of legs, which on a long production is megabytes from the end.
-    return stage_progress.progress_from_file(current.get('name') or '', directory, path)
+    # And the *content* chooses: a recorded console log exists on every stage and states no legs, so trusting the first
+    # file that opens is what left this bar empty on a run whose own `logs/4_CG_sim.log` said 93%.
+    name = current.get('name') or ''
+    for path in stage_log_candidates(job, current, stage_dir, run_dir=run_dir, console_log=console_log):
+        reading = stage_progress.progress_from_file(name, directory, path)
+        if reading.get('legs'):
+            return reading
+    return {}
 
 
 def gpu_name(manifest, job=None):
