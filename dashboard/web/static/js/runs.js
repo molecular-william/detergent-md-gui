@@ -109,12 +109,12 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
       }
       card.job=job;
       if (previousCard.nextElementSibling !== card) previousCard.after(card); previousCard = card;
-      setText($('.job-title', card), (job.label || `${job.detergent} · ${job.method}`) + (job.profile === 'draft-smoke' ? ' · Draft smoke test' : ''));
+      setText($('.job-title', card), (job.label || `${job.detergent}${job.method ? ` · ${job.method}` : ''}`) + (job.profile === 'draft-smoke' ? ' · Draft smoke test' : ''));
       // The run's identity line: its id, and the mdrun device it recorded, so a run's own card says which GPU
       // produced it -- from the manifest (`views.gpu_name`), never from the form that asked for one.
       setText($('.job-meta', card), job.gpu_name ? `${job.id} · GPU ${job.gpu_name}` : job.id);
       setText($('.job-molecule', card), job.molecule_name || job.detergent || '—');
-      setText($('.job-method', card), {fast_forward: 'Fast_Forward', bartender: 'Bartender'}[job.method] || job.method);
+      setText($('.job-method', card), {fast_forward: 'Fast_Forward', bartender: 'Bartender'}[job.method] || job.method || '—');
       setText($('.job-created', card), job.created ? new Date(job.created).toLocaleString() : '—');
       setText($('.job-status', card), job.status === 'cancelling' ? 'Cancelling…' : job.status);
       $('.job-status', card).dataset.status = job.status;

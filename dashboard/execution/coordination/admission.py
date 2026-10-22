@@ -15,6 +15,11 @@ AA_ONLY_FORBIDDEN = (
     'sasa_probe_nm',
 )
 
+# The CG parameterizers a payload may name. Only the run types that *map* an atomistic structure choose one; a run whose
+# topology comes from a mapping -- a protein-detergent build, a composition, an osmotic series -- has no choice to make.
+# Asking every run for one is how a pdc job was refused with "Unsupported method" while its own adapter was ready.
+CG_METHODS = ('fast_forward', 'bartender')
+
 
 def validate_run_type(data):
     """Reject payloads whose run_type and fields are inconsistent."""
@@ -52,6 +57,8 @@ def validate_run_type(data):
             if data.get(key) not in (None, ''):
                 raise ValueError('CG composition runs cannot include AA or ordinary mapping inputs')
         return
+    if kind in (None, 'aa_cg') and data.get('method') not in CG_METHODS:
+        raise ValueError('Unsupported method')
     if kind != 'aa_only':
         return
     if any(data.get(key) not in (None, '') for key in AA_ONLY_FORBIDDEN):

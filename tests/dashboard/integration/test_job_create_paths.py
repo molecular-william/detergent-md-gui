@@ -84,3 +84,42 @@ def test_a_retry_of_a_composition_run_keeps_its_composition(dashboard, created):
 
     assert response.status_code == 201, response.data
     assert created[0]['composition_id'] == 'composition_ddm_belt'
+
+
+def test_a_protein_detergent_payload_reaches_its_own_readiness(dashboard, monkeypatch):
+    """The method allow-list used to refuse every pdc job before its adapter was asked.
+
+    A pdc payload names no method at all -- its topology comes from a mapping, and the panel has no field to fill --
+    so the old check answered 400 "Unsupported method" for a run whose own adapter was ready. The rule now asks only
+    the run types that map atoms; this test stops at the adapter's readiness, with a stub that refuses, so no run is
+    created and the assertion is about which refusal came back.
+    """
+    from dashboard.execution import protocol
+
+    asked = []
+
+    def readiness(payload):
+        asked.append(payload)
+        return {'ready': False, 'blockers': ['stub: no protein was given']}
+
+    real = protocol.adapter_for('pdc')
+
+    class Stub:
+        """The real adapter with only its readiness replaced: the route and the coordinator ask it several things."""
+
+        def __getattr__(self, name):
+            return getattr(real, name)
+
+        def readiness(self, payload):
+            return readiness(payload)
+
+    monkeypatch.setitem(protocol._BUILDERS, 'pdc', lambda: Stub())
+    # Job creation is `POST /` (`routes/runs.py`), the endpoint the panel's own form posts to; `/api/jobs` is the
+    # list and answers 405 to a POST, which is a different refusal and would prove nothing about this one.
+    response = dashboard.client.post('/', json={'run_type': 'pdc',
+                                               'template': 'molecules/DDM/micelle_template.json',
+                                               'protein': 'nowhere/absent.pdb'})
+
+    assert b'Unsupported method' not in response.data
+    assert asked, response.data
+    assert b'stub: no protein was given' in response.data

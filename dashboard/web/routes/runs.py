@@ -307,7 +307,10 @@ def clone_job(jid):
     # What the source states and the payload does not is still part of the run being cloned: validation and the new
     # record both read the same merged view, so a composition clone cannot lose the composition it is a clone of.
     carried={key:source.get(key) for key in ('composition_id','protein','template') if source.get(key)}
-    admission.validate_run_type({**carried, **data, 'run_type':effective_type})
+    # The method is the source's -- `create_job` takes it from the record, not from the payload -- so the payload this
+    # check sees carries that one too. Without it, every clone whose payload did not restate `method` (the panel does
+    # not) was refused, whatever its run type.
+    admission.validate_run_type({**carried, **data, 'method':source.get('method'), 'run_type':effective_type})
     if 'molecule_id' in data:
         try: aa_molecules.validate_id(data['molecule_id'])
         except ValueError as exc: abort(400, str(exc))

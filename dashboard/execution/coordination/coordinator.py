@@ -52,7 +52,6 @@ class Coordinator:
         self.JOBS_LOCK = threading.RLock()
         self.MANIFEST_CACHE = ManifestCache()
         self.analysis_coordinator = AnalysisCoordinator(self)
-        self.ALLOWED_METHODS = {'fast_forward', 'bartender'}
 
     def Worker(self, run_dir=None):
         return Worker(self, run_dir)
@@ -470,8 +469,6 @@ class Coordinator:
                     raise ValueError('Molecule files changed; clone with a fresh selection instead')
                 molecule_snapshot = selected if not resume_of else molecule_snapshot
             except (OSError, ValueError) as exc: raise RunConflict(str(exc))
-        if method not in self.ALLOWED_METHODS:
-            raise InvalidRequest('Unsupported method')
         if mapping_snapshot is not None:
             mapping_snapshot = cg.draft_model.load(mapping_snapshot, molecule_root=self.ROOT / 'molecules')
         elif mapping_candidate:
