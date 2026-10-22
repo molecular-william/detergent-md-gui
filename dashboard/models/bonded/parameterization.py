@@ -76,6 +76,13 @@ _OPTION_KEYS = ('constraints_threshold', 'temperature_k', 'torsion_model', 'tors
 #: which is the most flattering possible wrong answer.
 DISTRIBUTION = re.compile(r'.+_distr\.dat$')
 
+#: The one family of those histograms the pairwise score is built from, and the only one whose absence is silent.
+#:
+#: `score.py` asks for `<resid1>_<name1>_<resid2>_<name2>_distances_distr.dat` per bead pair and `continue`s when the
+#: file is missing, leaving that cell of the matrix at its 0.00 default -- "identical". So a revision that recorded
+#: bonds and angles but no pairwise family is not a scorable baseline, and whoever stages it has to say so.
+PAIR_DISTRIBUTION = re.compile(r'^\d+_\w+_\d+_\w+_distances_distr\.dat$')
+
 
 def storage_root() -> Path:
     """Where parameterization records live: one directory beside the mapping drafts.

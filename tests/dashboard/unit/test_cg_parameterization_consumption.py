@@ -67,8 +67,9 @@ def fitted(candidate, revision=None,
            files=('B01_B11_bonds_distr.dat', 'B01_B02_B05_angles_distr.dat', '1_B01_1_B02_distances_distr.dat')):
     """Save a revision the way a real fit does: with the AA reference's histograms in its working directory.
 
-    `refine_bonded` measures them while fitting, and `parameterization.save` copies and hashes them beside the revision.
-    They are the baseline `ff_assess` scores a CG run against, so a run that consumes this revision stages them.
+    `ff_inter -dists -dist-matrix` measures them while fitting, and `parameterization.save` copies and hashes them
+    beside the revision. They are the baseline `ff_assess` scores a CG run against, so a run that consumes this revision
+    stages them.
     """
     work = parameterization.work_root() / f'{parameterization.content_identity(candidate)}-{REFERENCE["source_run_id"]}'
     stage = work / '3_initial_CG'
@@ -76,6 +77,20 @@ def fitted(candidate, revision=None,
     for name in files:
         (stage / name).write_text('0.005 0.0\n0.015 1.0\n')
     return parameterization.save(candidate, revision or REVISION, work=work)
+
+
+def bead_pairs(candidate):
+    """One reference file name per bead pair, in the tool's own convention.
+
+    `ff_assess` scores every unordered pair of a molecule's atoms and asks for
+    `f'{resid1}_{name1}_{resid2}_{name2}_distances_distr.dat'` (`fast_forward/score.py`), so a scorable revision holds
+    `n(n-1)/2` of them. The names are spelled here rather than derived from the module under test, so a fixture that
+    drifted from the tool's rule fails these tests instead of agreeing with itself; `test_cg_reference_distributions.py`
+    pins what the tool actually writes.
+    """
+    names = [bead['name'] for bead in candidate['beads']]
+    return [f'1_{first}_1_{second}_distances_distr.dat'
+            for index, first in enumerate(names) for second in names[index + 1:]]
 
 
 def prepared(tmp_path, monkeypatch, **arguments):
@@ -150,7 +165,9 @@ def test_the_assessment_stage_is_the_shape_of_the_fit_that_did_not_happen(tmp_pa
         '../4_CG_sim/prod/lig_CG.xtc', '../4_CG_sim/prod/lig_CG.tpr',
         '../4_CG_sim/prod/lig_CG.gro', '../3_initial_CG/DDM_initial.itp')
     limitations = ' '.join(manifest(run)['limitations'])
-    assert 'wrote no `*_distr.dat`' in limitations
+    assert 'fitted nothing' in limitations
+    assert 'carries 1 pairwise distance histograms' in limitations, \
+        'the run says how much of a baseline came with the model rather than claiming it has none'
     assert 'revision 1' in limitations
 
 
@@ -164,6 +181,7 @@ def test_a_model_with_no_parameterization_is_fitted_by_the_run_and_the_run_recor
     assert not (run / '3_initial_CG/parameterization.json').exists()
     assert record['consumes_parameterization'] is False and record['fitted'] is True
     assert record['revision'] is None and record['engine'] is None
+    assert record['reference_pairs'] is None, 'nothing was staged: stage 3 measures the reference while it fits'
     assert record['source'] == 'fitted by this run, in stage 3, from the AA reference it consumes'
     # The fit script is stamped with the run's own temperature, as it always was (303.15 K rounds to
     # 303 for `ff_inter`, which declares `-temperature` an int).
@@ -347,6 +365,68 @@ def test_the_consuming_run_stages_the_baseline_into_the_stage_the_assessment_rea
     assert manifest(run)['bonded']['assessment'] == {'scored': True, 'reason': None}
 
 
+def test_the_run_records_how_many_pair_histograms_it_can_score_with(tmp_path, monkeypatch):
+    """The score matrix is built from one `<resid>_<a>_<resid>_<b>_distances_distr.dat` per bead pair, so the run
+    counts that family rather than listing 68 names and hoping: a reader can see 55 of 55 before the simulation runs."""
+    candidate = ddm_mapping()
+    pairs = bead_pairs(candidate)
+    bonded = ('B01_B11_bonds_distr.dat', 'B01_B02_B05_angles_distr.dat')
+    assert len(pairs) == 55, 'eleven beads make fifty-five pairs, which is what `ff_assess` scores'
+    fitted(candidate, files=(*bonded, *pairs))
+    run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
+
+    staged = run / '3_initial_CG'
+    inventory = json.loads((staged / 'distributions.json').read_text())
+    assert inventory['pairs'] == {'files': 55, 'expected': 55}
+    assert inventory['interactions'] == {'files': 2}
+    assert inventory['reason'] is None
+    assert all((staged / name).is_file() for name in pairs), 'every pair histogram is staged where `-d` reads it'
+    record = manifest(run)['bonded']
+    assert record['reference_pairs'] == {'files': 55, 'expected': 55}
+    assert record['assessment'] == {'scored': True, 'reason': None}
+
+
+def test_a_revision_without_the_pair_histograms_is_not_scored_and_says_why(tmp_path, monkeypatch):
+    """The quiet half of the defect: a revision holding bonds and angles but no pairwise family.
+
+    `ff_assess` skips every pair whose reference file is missing and leaves the cell at 0.00, so such a run printed an
+    all-zero matrix under `Overall Score : 0.0` -- a perfect score for a comparison that never happened (run
+    `ce1318485197`, whose revision predates the pair family being recorded). It is now not scored at all, and the run's
+    own stage 5 records `skipped` with the reason rather than a number it did not measure.
+    """
+    candidate = ddm_mapping()
+    fitted(candidate, files=('B01_B11_bonds_distr.dat', 'B01_B02_B05_angles_distr.dat'))
+    run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
+
+    inventory = json.loads((run / '3_initial_CG/distributions.json').read_text())
+    assert inventory['pairs'] == {'files': 0, 'expected': 55}
+    assert 'none of the pairwise distance histograms' in inventory['reason']
+    assert '0.00' in inventory['reason'] and 'identical' in inventory['reason'], \
+        'it names the failure it prevents: an unbaselined cell scores 0.00, which reads identical'
+    record = manifest(run)['bonded']
+    assert record['assessment'] == {'scored': False, 'reason': inventory['reason']}
+    assert 'no pairwise distance histograms' in ' '.join(manifest(run)['limitations'])
+
+    # The prepared run's own stage 5, in the layout the run has: `skipped`, with the inventory's sentence.
+    stage = run / '5_assessment'
+    done = run_stage(stage)
+    assert done.returncode == 4, done.stdout + done.stderr
+    assert json.loads((stage / 'skip.json').read_text()) == {'reason': inventory['reason']}
+    assert not (stage / 'report_distances.out').exists(), 'no matrix was printed at all'
+
+
+def test_the_prepared_stage_five_goes_on_when_the_revision_brought_the_pair_histograms(tmp_path, monkeypatch):
+    """The other half: with the family staged, the guard does not fire and `ff_assess` is what runs."""
+    candidate = ddm_mapping()
+    fitted(candidate, files=(*bead_pairs(candidate), 'B01_B11_bonds_distr.dat'))
+    run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
+
+    stage = run / '5_assessment'
+    done = run_stage(stage)
+
+    assert done.returncode != 4 and not (stage / 'skip.json').exists()
+
+
 def test_a_bartender_model_runs_and_its_assessment_records_that_it_had_nothing_to_score(tmp_path, monkeypatch):
     """D6a: BARTENDER's analysis is its own and is unbuilt, which postpones scoring -- not the run.
 
@@ -366,6 +446,7 @@ def test_a_bartender_model_runs_and_its_assessment_records_that_it_had_nothing_t
     record = manifest(run)['bonded']
     assert record['consumes_parameterization'] is True and record['engine'] == 'bartender'
     assert record['reference_distributions'] == []
+    assert record['reference_pairs'] == {'files': 0, 'expected': 55}, 'nothing staged, and the count says so'
     assert record['assessment'] == {'scored': False, 'reason': inventory['reason']}
     # The consuming stage still records what it consumed, and that it consumed no baseline.
     assert not (run / '3_initial_CG/DDM_ff_inter.itp').exists(), 'nothing is fitted or staged by prepare itself'
@@ -385,17 +466,37 @@ def test_a_revision_that_predates_recorded_baselines_also_runs_and_says_so(tmp_p
     assert manifest(run)['bonded']['assessment']['scored'] is False
 
 
+def assessment_stage(tmp_path, inventory=None, histograms=()):
+    """Stage 5 as `prepare` lays it out: the script in `5_assessment/`, the histograms in `3_initial_CG/`.
+
+    The layout is the point. The reference histograms live in stage 3 -- the directory `ff_assess -d` is handed -- and
+    so does the inventory that lists them. A test that put the inventory beside the script would pass while a real run
+    never found it, which is how the skip path this stage documents was unreachable for a run.
+    """
+    stage = tmp_path / '5_assessment'
+    stage.mkdir(parents=True)
+    (stage / 'assess.sh').write_text((PROJECT_ROOT / 'dashboard/execution/scripts/assess.sh').read_text())
+    reference = stage.parent / '3_initial_CG'
+    reference.mkdir(exist_ok=True)
+    for name in histograms:
+        (reference / name).write_text('0.005 0.0\n')
+    if inventory is not None:
+        (reference / 'distributions.json').write_text(json.dumps(inventory))
+    return stage
+
+
+def run_stage(stage):
+    """Run a stage's own script the way the executor does: bash, in the stage directory, with an interpreter on PATH."""
+    return subprocess.run(['bash', 'assess.sh'], cwd=stage, capture_output=True, text=True,
+                          env={'PATH': f'{Path(sys.executable).parent}:/usr/bin:/bin'})
+
+
 def test_the_assessment_stage_skips_and_says_why_when_the_inventory_is_empty(tmp_path):
     """The stage's own half of the contract: exit 4 with `skip.json` beside it, so the run records `skipped`."""
-    stage = tmp_path / '5_assessment'
-    stage.mkdir()
-    (stage / 'assess.sh').write_text((PROJECT_ROOT / 'dashboard/execution/scripts/assess.sh').read_text())
-    (stage / 'distributions.json').write_text(json.dumps(
-        {'directory': '.', 'files': [], 'reason': 'BARTENDER measured no reference histograms'}))
+    stage = assessment_stage(tmp_path, {'directory': '.', 'files': [], 'pairs': {'files': 0, 'expected': 55},
+                                        'reason': 'BARTENDER measured no reference histograms'})
 
-    # The stage runs under the interpreter the executor hands it, so the guard is tested with one on PATH.
-    done = subprocess.run(['bash', 'assess.sh'], cwd=stage, capture_output=True, text=True,
-                          env={'PATH': f'{Path(sys.executable).parent}:/usr/bin:/bin'})
+    done = run_stage(stage)
 
     assert done.returncode == 4, done.stdout + done.stderr
     assert json.loads((stage / 'skip.json').read_text()) == {
@@ -406,12 +507,9 @@ def test_the_assessment_stage_skips_and_says_why_when_the_inventory_is_empty(tmp
 def test_the_assessment_stage_does_not_skip_a_run_that_brought_no_inventory(tmp_path):
     """A run that fits has no inventory and does not need one: its own fit left the histograms in stage 3. So a missing
     inventory is not an empty one, and the stage goes on to the tool rather than claiming it had nothing to do."""
-    stage = tmp_path / '5_assessment'
-    stage.mkdir()
-    (stage / 'assess.sh').write_text((PROJECT_ROOT / 'dashboard/execution/scripts/assess.sh').read_text())
+    stage = assessment_stage(tmp_path, histograms=('1_B01_1_B02_distances_distr.dat',))
 
-    done = subprocess.run(['bash', 'assess.sh'], cwd=stage, capture_output=True, text=True,
-                          env={'PATH': f'{Path(sys.executable).parent}:/usr/bin:/bin'})
+    done = run_stage(stage)
 
     assert done.returncode != 4, 'a stage with no inventory is not a stage with nothing to do'
     assert not (stage / 'skip.json').exists()
@@ -430,12 +528,13 @@ def test_the_consuming_stage_records_the_baseline_and_refuses_a_changed_one(tmp_
     (stage / 'B01_B11_bonds_distr.dat').write_text('0.005 0.0\n')
     record = {'directory': '.', 'files': [{'name': 'B01_B11_bonds_distr.dat',
                                            'sha256': parameterizations_digest(stage / 'B01_B11_bonds_distr.dat')}]}
-    (stage / 'distributions.json').write_text(json.dumps(record))
+    (stage / 'distributions.json').write_text(json.dumps({**record, 'pairs': {'files': 1, 'expected': 55}}))
 
     subprocess.run([sys.executable, str(script)], cwd=stage, check=True,
                    env={'PATH': '/usr/bin', 'FINAL_ITP': 'DDM.itp'})
     written = json.loads((stage / 'parameterization_used.json').read_text())
     assert written['reference_distributions'] == record['files']
+    assert written['reference_pairs'] == {'files': 1, 'expected': 55}
 
     (stage / 'B01_B11_bonds_distr.dat').write_text('0.005 9.9\n')
     result = subprocess.run([sys.executable, str(script)], cwd=stage, env={'PATH': '/usr/bin', 'FINAL_ITP': 'DDM.itp'},

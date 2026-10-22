@@ -42,8 +42,13 @@ ensemble = revision.get('ensemble') or {}
 # than three stages later in a tool's stdout.
 inventory = Path('distributions.json')
 recorded = []
+pairs = {}
 if inventory.is_file():
-    for entry in (json.loads(inventory.read_text()).get('files') or []):
+    contents = json.loads(inventory.read_text())
+    # The count `prepare` staged beside the files: the pairwise family is what stage 5 builds its score matrix from, and
+    # 0 of them is the difference between a run that scores and one whose stage 5 records `skipped`.
+    pairs = contents.get('pairs') or {}
+    for entry in contents.get('files') or []:
         path = Path(entry['name'])
         if not path.is_file():
             raise FileNotFoundError(
@@ -78,8 +83,10 @@ record = {
         sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest(),
     'checks_published_with_the_revision': sorted((revision.get('checks') or {}).keys()),
     # What stage 5 will score this run against, named by the stage that consumed the model: the baseline is part of
-    # the model and travels with it, so a run's own record can say which histograms its numbers came from.
+    # the model and travels with it, so a run's own record can say which histograms its numbers came from -- and how
+    # many of them are the pairwise family the score matrix is built from.
     'reference_distributions': recorded,
+    'reference_pairs': pairs,
     'scientifically_validated': False,
 }
 Path('parameterization_used.json').write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')

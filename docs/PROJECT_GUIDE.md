@@ -412,12 +412,19 @@ line as a dihedral measures the same torsion eight times. `dihedral_fit.read_dec
 compares the whole curve; `bonded_terms` keeps the lines.
 
 `ff_assess` scores against pre-computed reference distributions (`<group>_<type>_distr.dat` in its `-d` directory) and
-does not make them. `refine_bonded` writes them while fitting, so `parameterization.save` copies and hashes every
+does not make them. `ff_inter -dists -dist-matrix` writes them while fitting -- both families, through the tool's own
+`interaction_distribution` and on its own bins (599 rows for `distances`, six hundred edges from `np.arange(0, 30, 0.05)`;
+a hand-rolled 600-row or 0.01-nm grid is a different array) -- so `parameterization.save` copies and hashes every
 `*distr.dat` beside the revision (`records/<content>.revisions/<n>/`; the tool's own glob, so the distance histograms
-travel too -- without them `ff_assess` skips each pair and scores it **0.00**, which reads perfect). `cg.prepare` stages
-them into `3_initial_CG` for a consuming run. A revision that records none still runs: `prepare` writes an empty
-inventory with the reason and stage 5 exits 4 with it (`skipped`), because a score it cannot take is not a reason to
-discard the simulation.
+travel too) and `cg.prepare` stages them into `3_initial_CG` for a consuming run, recording how many are the pairwise
+family (`distributions.json` `pairs`, and `bonded.reference_pairs` in the manifest).
+
+The pairwise family (`<resid>_<a>_<resid>_<b>_distances_distr.dat`, one per bead pair, `n(n-1)/2` of them) is the one
+that decides whether the stage can score at all: `score.py` `continue`s past a pair whose file is missing and leaves its
+cell at 0.00, which reads **identical**. So a revision that records none still runs, but `prepare` writes an inventory
+with that reason and stage 5 exits 4 with it (`skipped`) rather than printing an all-zero matrix; the stage asks the
+directory it hands `-d` how many pair histograms are there, and reads the inventory from `3_initial_CG`, where `prepare`
+writes it.
 
 BARTENDER models get their own analysis instead (per-parameter `Bond_Hooke`/`Angle_Hooke`/`Cosine`/`Ryckaert-Belleman`
 figures, 0.001 nm / 1 deg / 10 deg bins, bonded terms only) and cannot feed `ff_assess`'s histograms; unifying the two

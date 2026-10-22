@@ -291,31 +291,41 @@ def stage_parameterization(directory: Path, data, *, names, molecule_root=None) 
         f'[ system ]\n{names.residue_name} draft\n[ molecules ]\n{names.residue_name} 1\n')
 
 
-def stage_distributions(directory, mapping_candidate=None):
+def stage_distributions(directory, mapping_candidate=None, beads=None):
     """Stage the model's reference histograms into stage 3, where stage 5's `-d` reads them; or say there are none.
 
     `ff_assess` does not measure the reference: it reads `<group>_<type>_distr.dat` files from its `-d` directory and
     scores the CG trajectory against them. A run that *fits* in-run leaves them in `3_initial_CG` as a by-product of
-    fitting; a run that *consumes* a parameterization copies only the topology, so without this its assessment finds
-    nothing -- and finds it quietly, averaging no interactions into `nan` and scoring every unbaselined distance 0.00.
+    fitting -- `ff_inter -dists -dist-matrix` measures both families on the tool's own bins -- and a run that *consumes*
+    a parameterization copies only the topology, so without this its assessment finds nothing.
 
     A revision that records none is **not** a reason to refuse the run. It is a reason to say, in the stage that has
     nothing to do, that it had nothing to do: the simulation is still worth running (D6a keeps BARTENDER's analysis
     separate, and it is unbuilt), and the run records `skipped` with this reason rather than a number it did not measure.
 
-    Returns `(files, reason)`: the staged files with their digests, and why there are none when there are none. A
-    recorded file whose digest no longer matches is still an error -- that is a store changed under the model, not a
-    model without evidence.
+    Two counts decide that, and they are counted separately because only the second one decides. `pairs` is the family
+    the score matrix is built from (`parameterization.PAIR_DISTRIBUTION`), one histogram per bead pair, with the count a
+    molecule of `beads` atoms needs beside it; `interactions` is bonds, angles and dihedrals. A revision carrying only
+    the second family is *not* scorable and does not say so: `ff_assess` skips a pair whose reference is missing and
+    leaves that cell at 0.00, so the run would print a perfect matrix for a comparison that never happened. That is the
+    state this inventory exists to make impossible to mistake, so it is recorded with its own reason here rather than
+    discovered in the stage's log.
+
+    Returns the run's inventory: `files` (every staged histogram with its digest), `pairs`, `interactions` and `reason`
+    (why stage 5 has nothing to score, `None` when it does). A recorded file whose digest no longer matches is still an
+    error -- that is a store changed under the model, not a model without evidence.
     """
     recorded = parameterizations.distributions(mapping_candidate)
     if not recorded:
         engine = (parameterizations.current(mapping_candidate) or {}).get('engine')
         if engine == 'bartender':
-            return [], ("BARTENDER measured no reference histograms when this model was fitted, and its own analysis "
-                        "is not built yet (D6a of docs/design/2026-10-16-parameterization-and-new-run.md), so the CG "
-                        'assessment has nothing to score this run against.')
-        return [], ('This model records no AA reference histograms -- it predates them being recorded -- so the CG '
-                    'assessment has nothing to score this run against. A re-fit (Fit this model) records them.')
+            return _inventory([], [], beads, "BARTENDER measured no reference histograms when this model was fitted, "
+                              "and its own analysis is not built yet (D6a of "
+                              'docs/design/2026-10-16-parameterization-and-new-run.md), so the CG '
+                              'assessment has nothing to score this run against.')
+        return _inventory([], [], beads, 'This model records no AA reference histograms -- it predates them being '
+                          'recorded -- so the CG assessment has nothing to score this run against. A re-fit (Fit this '
+                          'model) records them.')
     listing = []
     for entry in recorded['files']:
         data = (recorded['directory'] / entry['name']).read_bytes()
@@ -325,7 +335,33 @@ def stage_distributions(directory, mapping_candidate=None):
                              'the parameterization store has been changed under it')
         (directory / entry['name']).write_bytes(data)
         listing.append({'name': entry['name'], 'sha256': digest})
-    return listing, None
+    pairs = [entry for entry in listing if parameterizations.PAIR_DISTRIBUTION.match(entry['name'])]
+    reason = None
+    if not pairs:
+        reason = (f'This model records {len(listing)} AA reference histogram(s) for its bonded terms and none of the '
+                  'pairwise distance histograms the CG assessment scores ('
+                  f'{_pair_count(beads)} expected, one `<resid>_<a>_<resid>_<b>_distances_distr.dat` per bead pair), '
+                  'so it has nothing to score this run against: `ff_assess` skips a pair with no reference file and '
+                  'leaves its cell at 0.00, which reads identical. A re-fit (Fit this model) records them.')
+    return _inventory(listing, pairs, beads, reason)
+
+
+def _pair_count(beads):
+    """How many pairwise distance histograms a molecule of `beads` atoms needs, or `None` when the count is not known.
+
+    `score.py` scores every unordered pair of a molecule's atoms, virtual sites included, so the family is
+    `n(n-1)/2` files. This is arithmetic rather than a naming rule: the names are the tool's, and nothing here invents
+    one it cannot name.
+    """
+    return beads * (beads - 1) // 2 if beads else None
+
+
+def _inventory(listing, pairs, beads, reason):
+    """The staged-file record `distributions.json` carries, and the shape a reader can count from."""
+    return {'files': listing,
+            'pairs': {'files': len(pairs), 'expected': _pair_count(beads)},
+            'interactions': {'files': len(listing) - len(pairs)},
+            'reason': reason}
 
 
 def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM', profile=AA_CG_PROFILE, settings=None, mapping_candidate=None, shared_reference=None, reference_root=None, molecule_snapshot=None, molecule_root=None):
@@ -377,6 +413,7 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     cg = run_dir / '3_initial_CG'
     stage_parameterization(cg, data, names=names, molecule_root=molecule_root)
     recorded, unscored = None, None
+    inventory = None
     if revision is not None:
         # The model's own terms, and the driver that writes them instead of fitting. `bonded.py` is
         # staged either way; the refinement is not, because nothing in this stage reads it.
@@ -385,12 +422,14 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
         # consumes a model copies no such files from anywhere else -- which is how a run reaches stage 5 with nothing
         # to score and reports `Overall Score : nan`. The staged copy is the run's own, so the baseline survives the
         # parameterization being deleted.
-        recorded, unscored = stage_distributions(cg, mapping_candidate)
+        inventory = stage_distributions(cg, mapping_candidate, beads=len(data['beads']))
+        recorded, unscored = inventory['files'], inventory['reason']
         # The run's own inventory of what it copied, beside -- not inside -- the revision: the staged revision stays
-        # byte-for-byte the store's, so the digest the run records is the digest the store computes. An empty inventory
-        # carries the reason, and stage 5 records `skipped` with it instead of scoring against nothing.
+        # byte-for-byte the store's, so the digest the run records is the digest the store computes. The two counts say
+        # which families it brought, and a `reason` says in the run's own words why stage 5 cannot score -- either none
+        # at all or, the quiet case, none of the pairwise family the score matrix is built from.
         (cg / 'distributions.json').write_text(
-            json.dumps({'directory': '.', 'files': recorded, 'reason': unscored, 'source':
+            json.dumps({'directory': '.', **inventory, 'source':
                         f"revision {(revision or {}).get('revision')} of this mapping's parameterization"},
                        indent=2, sort_keys=True) + '\n')
         (cg / 'parameterization.json').write_text(json.dumps(revision, indent=2, sort_keys=True) + '\n')
@@ -453,12 +492,18 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
         # The baseline stage 5 scores against, copied into stage 3 from the revision: named here so a reader can see
         # which histograms a run's numbers were measured against without opening the store.
         'reference_distributions': [entry['name'] for entry in (recorded or [])],
+        # Of those, the pairwise family the score matrix is built from: one file per bead pair, beside the count a
+        # molecule of this many beads needs. The count is what says whether stage 5 can score at all, so it is recorded
+        # rather than left to be counted out of a 68-name list. A run that fits records `None` here: nothing was staged,
+        # and its own stage 3 is what measures them.
+        'reference_pairs': ((inventory or {}).get('pairs') if revision is not None else None),
         # Whether this run's assessment can score anything. Recorded so a reader knows before the simulation ends
-        # that stage 5 will be `skipped`, and why -- D6a's deferred BARTENDER analysis is the reason it happens.
-        # A run that fits leaves its own histograms in stage 3 (`refine_bonded` measures them while fitting), so it is
-        # scored however little the mapping recorded; a consuming run is scored only if the model brought a baseline.
-        'assessment': ({'scored': bool(recorded), 'reason': unscored} if revision is not None
-                       else {'scored': True, 'reason': None}),
+        # that stage 5 will be `skipped`, and why -- D6a's deferred BARTENDER analysis is one reason it happens, a
+        # revision whose record carries no pairwise histograms is the other. A run that fits leaves its own histograms
+        # in stage 3 (`ff_inter -dists -dist-matrix` measures them while fitting), so it is scored however little the
+        # mapping recorded; a consuming run is scored only if the model brought a scorable baseline.
+        'assessment': ({'scored': bool(((inventory or {}).get('pairs') or {}).get('files')), 'reason': unscored}
+                       if revision is not None else {'scored': True, 'reason': None}),
         'source': ("the mapping's current parameterization"
                    if revision else 'fitted by this run, in stage 3, from the AA reference it consumes'),
     }
@@ -474,13 +519,19 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     metadata['analysis_topology'] = 'GRO atom/residue order + explicit ITP interactions; MDAnalysis 2.10 does not support GROMACS 2026 TPR 138. Trajectories made whole with gmx trjconv.'
     metadata['limitations'] = ['Draft mapping and nonbonded bead types, not scientifically validated', f'AA production {settings["aa_production_ps"]} ps; CG production {settings["cg_production_ps"]} ps; pure water', 'Bonded parameters fit to the recorded AA reference; no convergence or thermodynamic validation']
     if revision is not None:
-        # The consequence of consuming rather than fitting, said in the run's own words: the
-        # atomistic reference distributions stage 5 compares against are a fit's output, and this
-        # stage produced none. Stated here rather than discovered as a stage that failed.
+        # The consequence of consuming rather than fitting, said in the run's own words: the atomistic reference
+        # distributions stage 5 compares against are a fit's output, and this stage produced none of its own -- the ones
+        # it will score against came from the revision's record, and the run says how many or says there are none.
+        # Stated here rather than discovered as a stage that failed or, worse, as a matrix of 0.00 that reads perfect.
+        pairs = ((inventory or {}).get('pairs') or {})
+        staged = (f"its record carries {pairs.get('files')} pairwise distance histograms, staged beside it"
+                  if pairs.get('files') else
+                  'its record carries no pairwise distance histograms, so the assessment stage has no atomistic '
+                  'reference to score against and records `skipped`')
         metadata['limitations'].append(
             "Stage 3 used the model's parameterization (revision "
-            f"{revision['revision']}) and fitted nothing, so it wrote no `*_distr.dat`: the assessment "
-            'stage has no atomistic reference distributions to score against.')
+            f"{revision['revision']}) and fitted nothing while writing the terms: "
+            f'{staged}.')
         linked = (revision.get('aa_reference') or {}).get('run_id')
         if linked and linked != shared_reference['source_run_id']:
             metadata['limitations'].append(
