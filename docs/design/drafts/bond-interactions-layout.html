@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Draft — CG Bond Interactions layout</title>
+<style>
+  :root{--ink:#1c2940;--muted:#5a697d;--line:#dae2eb;--accent:#2455b0;--surface:#fff;--bg:#f3f6fa;--danger:#a52230}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,sans-serif}
+  main{max-width:1180px;margin:auto;padding:28px 24px 64px}
+  h1{font-size:26px;letter-spacing:-.6px;margin:2px 0 4px}
+  h2{font-size:20px;margin:0}
+  h3{font-size:16px;margin:0}
+  .eyebrow{font-size:11px;letter-spacing:2px;color:var(--accent);font-weight:700}
+  .hint{color:var(--muted);font-size:12px;margin:4px 0 0;overflow-wrap:anywhere}
+  .card{padding:20px 22px;border:1px solid var(--line);border-radius:12px;background:var(--surface);margin:16px 0;box-shadow:0 3px 10px #162c4810}
+  .banner{border:1px dashed var(--accent);border-radius:10px;padding:10px 14px;background:#eef4ff;font-size:13px;margin:14px 0 22px}
+  .section-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:10px}
+  .badge{font-size:12px;padding:4px 10px;border-radius:18px;background:#e8eef6;font-weight:650;white-space:nowrap}
+  .badge.good{background:#e3f2ea;color:#286644}
+  label{display:block;font-weight:600;font-size:13px}
+  label > span.hint{display:block;font-weight:400}
+  select,input{font:inherit;color:inherit;padding:8px 9px;border:1px solid #b5c3d4;background:#fff;border-radius:6px;width:100%;margin-top:5px}
+  button{font:inherit;font-weight:600;border:1px solid transparent;border-radius:8px;padding:9px 14px;cursor:pointer;background:var(--accent);color:#fff}
+  button.secondary{background:#fff;color:var(--accent);border-color:var(--line)}
+  button.danger{background:#fff4f5;color:var(--danger);border-color:#eeb6be}
+  button:disabled{opacity:.55;cursor:not-allowed}
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+
+  /* ---- the proposed layout ---- */
+  .bonded-model-body{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(300px,1fr);gap:20px;align-items:start}
+  .bonded-model-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 18px}
+  fieldset.bonded-torsion{margin:0;border:1px solid var(--line);border-radius:10px;padding:14px 16px;background:#f8fafc;height:100%}
+  fieldset.bonded-torsion legend{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:var(--accent);font-weight:700;padding:0 6px}
+  .bonded-run-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
+  .bonded-run-cards > .card{margin:0}
+  .meter{height:8px;border-radius:6px;background:#e6ecf4;overflow:hidden;margin:10px 0}
+  .meter > span{display:block;height:100%;width:50%;background:var(--accent)}
+  .steps{list-style:none;padding:0;margin:8px 0 0;display:flex;gap:8px;flex-wrap:wrap}
+  .steps li{font-size:12px;padding:3px 8px;border-radius:12px;background:#eef3f9;color:var(--muted)}
+  .steps li.done{background:#e3f2ea;color:#286644}
+  .steps li.now{background:#e6f3ff;color:#18579a;font-weight:650}
+  dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:12px 0 0;font-size:13px}
+  dt{color:var(--muted)}dd{margin:0;font-weight:600}
+  pre{background:#142236;color:#e5ecf7;font:12px/1.55 ui-monospace,monospace;white-space:pre-wrap;padding:12px;border-radius:8px;margin:10px 0 0;max-height:150px;overflow:auto}
+  .notice{background:#fff8e7;border:1px solid #efdfad;border-radius:8px;padding:10px 12px;font-size:13px;margin-top:12px;overflow-wrap:anywhere}
+  .columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;opacity:.55}
+  table{border-collapse:collapse;width:100%;font-size:12px}
+  td,th{padding:5px 4px;border-bottom:1px solid var(--line);text-align:left}
+  .diagram{height:180px;border:1px dashed var(--line);border-radius:8px;display:grid;place-items:center;color:var(--muted);font-size:12px}
+  @media (max-width:1100px){.bonded-model-body{grid-template-columns:1fr}}
+  @media (max-width:760px){.bonded-model-fields{grid-template-columns:1fr 1fr}.bonded-run-cards{grid-template-columns:1fr}.columns{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">Draft · 2026-10-21</div>
+  <h1>CG Bond Interactions — layout proposal</h1>
+  <p class="hint">Static mock of the panel with realistic content. Nothing here is wired: it exists to judge the
+    arrangement. Compare with the live panel at <code>/detergent-validation</code> → CG Bond Interactions.</p>
+
+  <div class="banner">
+    <b>What changes:</b> the seven inputs read three per row (was two per row, four rows); the
+    <b>Torsion refinement</b> fieldset moves beside them instead of below; <b>Job</b> and <b>Result</b> share one row at
+    half width each, above the interactions table.
+  </div>
+
+  <section class="card">
+    <div class="section-heading">
+      <div>
+        <span class="eyebrow">Model</span>
+        <h3>What is being parameterized</h3>
+        <p class="hint">DDM_CG_20261021 · 26 terms · fitted 2026-10-21 14:02 from run dbc366ae772b</p>
+      </div>
+      <span class="badge good">revision 1 current</span>
+    </div>
+
+    <div class="bonded-model-body">
+      <div>
+        <div class="bonded-model-fields">
+          <label>Mapping<select><option>DDM_CG_20261021 — 4 beads, 12 rings</option></select></label>
+          <label>AA reference<select><option>dbc366ae772b — 10 ns, 300 K, DDM</option></select></label>
+          <label>Fit with<select><option>Fast-Forward (ff_inter)</option><option>BARTENDER (-refit -owntraj)</option></select></label>
+
+          <label>Constraint threshold <span class="hint">kJ mol⁻¹ nm⁻²</span><input type="number" value="10000"></label>
+          <label>Fit temperature <span class="hint">K · default 300</span><input type="number" value="300"></label>
+          <label>Torsion model<select><option>Circular-harmonic — each torsion fitted to the AA distribution</option><option>Legacy — periodic fit, as recorded</option></select></label>
+
+          <label>Torsion stiffness scale <span class="hint">0.1–3 · 1.0 is the recorded value</span><input type="number" value="1"></label>
+        </div>
+        <p class="hint" style="margin-top:12px">The AA reference is 10 ns of production at 300 K, 20 001 mapped frames.
+          Fast-Forward fits 26 flexible terms; it needs the mapping's trajectory and makes no MD.</p>
+      </div>
+
+      <fieldset class="bonded-torsion">
+        <legend>Torsion refinement · a property of this mapping</legend>
+        <p class="hint">The torsion model and its stiffness scale are how those terms are written into the CG topology:
+          either the legacy periodic fit, or a circular-harmonic fit of each torsion to the AA distribution at the
+          stiffness chosen at left. <b>Save to mapping</b> writes the pair into the mapping file — the file a run is
+          queued from and whose hash a run records — so a run already queued keeps the model its own snapshot carried.
+          Nothing on the New run panel can change this.</p>
+        <div class="toolbar"><button class="secondary">Save to mapping</button></div>
+        <p class="hint" role="status">Mapping and file agree: circular-harmonic at 1.0.</p>
+      </fieldset>
+    </div>
+
+    <div class="toolbar">
+      <button>Fit this model</button>
+      <button class="secondary danger">Delete this parameterization</button>
+    </div>
+    <p class="hint" role="status">Queueing a fit on DDM_CG_20261021 with Fast-Forward…</p>
+
+    <div class="notice"><b>What a fit is.</b> Fast-Forward and BARTENDER build the mapped trajectory from the AA
+      reference first — minutes of CPU and no MD — then fit bonds, angles and dihedrals to it. Generated parameters are
+      hypotheses, and a fit is not scientific approval: the checks below re-derive two of them and report the numbers.</div>
+  </section>
+
+  <div class="bonded-run-cards">
+    <section class="card">
+      <div class="section-heading">
+        <div><span class="eyebrow">Job</span><h3>Fit · mapped frames</h3>
+          <p class="hint">Fast-Forward on dbc366ae772b · 2 of 4 steps · 00:41 elapsed</p></div>
+        <span class="badge">running</span>
+      </div>
+      <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="4" aria-valuenow="2"><span></span></div>
+      <ol class="steps"><li class="done">1 mapped frames</li><li class="done">2 fit</li><li class="now">3 checks</li><li>4 save</li></ol>
+      <pre>reading mapped.xtc: 20001 frames, 1 molecule
+[B01 B02] bond 0.472 nm  →  K 4210 kJ/mol/nm²
+[B02 B03] angle 118.4°    →  K 26.1 kJ/mol/rad²</pre>
+      <div class="toolbar"><button class="secondary">Cancel this fit</button></div>
+    </section>
+
+    <section class="card">
+      <div class="section-heading">
+        <div><span class="eyebrow">Result</span><h3>Revision 1 · current</h3>
+          <p class="hint">26 terms · Fast-Forward · mapped 20 001 frames · checks recorded</p></div>
+        <span class="badge good">saved</span>
+      </div>
+      <dl>
+        <dt>AA reference</dt><dd>dbc366ae772b · 10 ns</dd>
+        <dt>Torsion model</dt><dd>circular-harmonic · 1.0</dd>
+        <dt>Bonds / angles</dt><dd>12 / 8</dd>
+        <dt>Dihedrals / impropers</dt><dd>6 / 0</dd>
+        <dt>dihedral-fit</dt><dd>RMS 3.1° · 6 of 6 within 10°</dd>
+        <dt>bonded-cross-check</dt><dd>26 of 26 re-derived</dd>
+        <dt>Histograms</dt><dd>13 files, digests recorded</dd>
+      </dl>
+      <div class="notice" style="margin-top:14px">A check that cannot run is recorded with its reason rather than
+        failing the fit. A fit is not scientific approval.</div>
+    </section>
+  </div>
+
+  <div class="columns">
+    <section class="card">
+      <h3>Interactions</h3>
+      <p class="hint">Unchanged · shown faded so the row above can be judged in place.</p>
+      <table>
+        <tr><th>Term</th><th>Beads</th><th>Value</th><th>Source</th></tr>
+        <tr><td>bond</td><td>B01–B02</td><td>0.472</td><td>ff_inter</td></tr>
+        <tr><td>bond</td><td>B02–B03</td><td>0.415</td><td>ff_inter</td></tr>
+        <tr><td>angle</td><td>B01–B02–B03</td><td>118.4°</td><td>ff_inter</td></tr>
+        <tr><td>dihedral</td><td>B01–B02–B03–B04</td><td>−102.3°</td><td>ff_inter</td></tr>
+        <tr><td>constraint</td><td>R1 ring</td><td>0.292</td><td>mapping</td></tr>
+      </table>
+    </section>
+    <section class="card">
+      <h3>Molecular connectivity</h3>
+      <p class="hint">Unchanged.</p>
+      <div class="diagram">Plotly 3D connectivity diagram</div>
+    </section>
+  </div>
+
+  <p class="hint">Narrower viewports: the model card's two columns become one at 1100 px, Job and Result stack at
+    760 px, and the fields go two per row there. The <code>scrollWidth ≤ innerWidth</code> assertion in the browser tier
+    is what keeps the 3-per-row grid honest.</p>
+</main>
+</body>
+</html>
