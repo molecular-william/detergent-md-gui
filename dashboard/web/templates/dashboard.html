@@ -273,49 +273,26 @@
         <dt>Kept</dt><dd class="new-pdc-preview-kept">—</dd>
       </dl>
 
-      <p class="hint"><strong>It is the placement, and nothing after it.</strong> Both generators are deterministic in
-        the seed, so for these inputs this frame is the frame the run will build. It is <em>not</em> a prediction of the
-        system that will run: solvation, the two equilibration legs, the belt's final size and the back-map all come
-        after this picture, and none of them is predicted here.</p>
-
-      <p class="hint"><strong>Heads to the water, tails to the core; beads coloured by their own type family, with
-        bonds at a quarter of a bead.</strong> The placement's direction is the way <em>out</em> of the micelle, and
-        each detergent is stamped with its head along it. The radii are the model's own for the size class the file
-        states, times this card's own reading scale; the colours are the beads' Martini 3 polarity families, resolved
-        from the code the writer puts in the file's b-factor column. Both tables are <code>ngl-beads.js</code>'s, and
-        the legend under the picture names them, so this card and the run's own viewer cannot draw one bead two ways.</p>
-
-      <p class="hint"><strong>A ribbon of the structure the beads were coarse-grained from, under them; the beads
-        coloured by secondary structure, and their bonds able to be made visible.</strong> The ribbon is the protein's
-        own all-atom file — the very file <code>martinize2</code> was handed, in the coordinates it wrote the beads in,
-        so the two overlay with nothing transformed — drawn in one neutral colour at a third opacity so it reads as
-        the structure underneath rather than as a layer of its own; <em>Ribbon</em> hides it. It states no secondary
-        structure: <em>the colours in this picture are the beads'</em>, and the ribbon does not restate them. The
-        assignment those colours come from is the one <code>martinize2</code> coarse-grained the protein with —
-        mdtraj's DSSP, run before the beads — and each backbone bead takes the class of the residue it belongs to:
-        helix, sheet or coil, from the second legend under the picture, with that assignment's own counts beside it. A
-        backbone bead whose residue the frame cannot give one class to is drawn in its family colour instead, because
-        a colour there would claim a secondary structure the assignment does not state. <em>Bonds</em> switches the
-        protein's beads to licorice sticks so the model's bonds — this frame's own <code>CONECT</code> records — read
-        at the scale the beads are drawn at; it is a view of the frame and changes nothing the build derives.</p>
-
-      <p class="hint"><strong>What it does not show.</strong></p>
-      <ul class="hint new-pdc-preview-nots">
-        <li><strong>No solvent and no ions.</strong> The build leaves a <em>dry</em> system: water and salt are added
-          by the first equilibration leg, which is why nothing in this picture is in water. That is the build's own
-          artifact, not a reduction of it.</li>
-        <li><strong>Not the box you will simulate.</strong> This is the box the build writes — x and y from the
-          protein's own extent plus the margin, z from the initial z or the membrane slab. The NPT leg changes it, so
-          the density here is not the run's density.</li>
-        <li><strong>Not a verdict on the micelle.</strong> A placement is geometry, not dynamics: whether the belt
-          closes and survives is decided by the run's own assessment, after CG MD, and this panel never decides it.</li>
-        <li><strong>Not the final system.</strong> The assessment leg removes the detergents that are not in the
-          micelle, and the back-map turns the surviving state atomistic; neither is here.</li>
-        <li><strong>Beads, not chemistry.</strong> A coarse-grained bead has no element, so the file writes a neutral
-          stand-in for each one (<code>pdc_view</code> states it) and colours each from its own Martini 3 polarity
-          family. With a mapping the picture is that mapping's beads and its own bonds; with none, the build records one
-          centre per molecule and writes no topology, and every bead is drawn the neutral family-not-stated colour.</li>
-      </ul>
+      {# What the picture is *not* is folded away: it is the statement a reader needs once and then knows, and at full
+         length it buried the facts above it. The summary line keeps the one claim that has to survive on its own --
+         that this is the placement and nothing after it -- and the list names each thing it is not. #}
+      <details class="new-pdc-preview-limits">
+        <summary>It is the placement, and nothing after it: what it does not show</summary>
+        <ul class="hint new-pdc-preview-nots">
+          <li><strong>No solvent and no ions.</strong> The build leaves a <em>dry</em> system: water and salt are added
+            by the first equilibration leg. That is the build's own artifact, not a reduction of it.</li>
+          <li><strong>Not the box you will simulate.</strong> x and y come from the protein's extent plus the margin,
+            z from the initial z or the membrane slab; the NPT leg changes it, so the density here is not the run's.</li>
+          <li><strong>Not a verdict on the micelle.</strong> A placement is geometry, not dynamics: whether the belt
+            closes and survives is decided by the run's own assessment, after CG MD.</li>
+          <li><strong>Not the final system.</strong> The assessment leg removes the detergents that are not in the
+            micelle, and the back-map turns the surviving state atomistic; neither is here.</li>
+          <li><strong>Beads, not chemistry.</strong> A coarse-grained bead has no element, so the file writes a neutral
+            stand-in (<code>pdc_view</code> states it) and colours each from its own Martini 3 polarity family. With a
+            mapping the picture is that mapping's beads and bonds; with none, the build records one centre per molecule,
+            writes no topology, and every bead is the family-not-stated colour.</li>
+        </ul>
+      </details>
 
       <details class="new-pdc-preview-explanation">
         <summary>Where this picture comes from, what it costs, and when there is none</summary>

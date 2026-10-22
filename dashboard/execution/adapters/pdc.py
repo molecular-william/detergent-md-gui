@@ -1,8 +1,8 @@
 """The protein-detergent complex pipeline. `micelle/` owns the science; this adapter owns the stages.
 
-Only the catalogue and the stage contract live here so far: the placement, sampling, assessment and back-mapping
-stages arrive with the phases that implement them, and every one of them belongs to this module rather than to the
-route layer.
+The catalogue, the stage contract and every stage's script belong here rather than to the route layer: `prepare`
+fills the functions the chain runs (`pdc_prepare.sh`, `prepare_system.sh`, the three equilibration legs) and copies
+the rest (`pdc_assessment.sh`, `pdc_assess.sh`, `pdc_extension.sh`, `pdc_backmap.sh`) as they stand.
 """
 import json
 import math
@@ -315,7 +315,9 @@ def _templates(root):
                           'missing_files': missing,
                           'limitations': (['the template names files that are missing: ' + ', '.join(missing)]
                                           if missing else
-                                          ['skeleton placeholder template, not a fitted detergent model'])})
+                                          ['the template states one bead at its own origin and no bead shape: a build '
+                                           'with a mapping takes its beads from the mapping, and a build without one '
+                                           'places one centre per molecule'])})
     return templates
 
 
@@ -736,6 +738,22 @@ def _stamp_interpreter(script, root):
         script.write_text(rewritten)
 
 
+def _limitations(model):
+    """What a build does not claim, said by what it actually did.
+
+    Two sentences used to be written into every run -- that the detergent is one centre per molecule, and that the
+    assessment, removal, extension and back-mapping stage scripts are unimplemented. Both read as "this pipeline is not
+    there yet": the first is false for a build given a mapping (its beads, topology and bonds come from the mapping),
+    and the second is false outright, because those scripts are copied into every run. A record that misstates what a
+    run did is worse than one that says nothing.
+    """
+    if model.get('mapping'):
+        return [f"the detergent's beads, topology and bonds are {Path(str(model['mapping'])).name}, the mapping this "
+                'run was given; the template supplied no bead shape']
+    return ['the detergent is one centre per molecule: no mapping was given, and the shipped templates carry no bead '
+            'shape']
+
+
 def prepare(run_dir, *, protein=None, template=None, settings=None, project_root=None, mapping=None, **kwargs):
     """Write the stage directories and everything the first stage needs to start.
 
@@ -901,6 +919,8 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
             manifest = json.loads((run_dir / 'manifest.json').read_text())
         except ValueError:
             manifest = {}
+    # What this build does not claim, said by what it actually did (see `_limitations`).
+    limitations = _limitations(model)
     manifest.update(
         {'run_type': 'pdc', 'stage_plan': _plan(), 'settings': numbers,
          'environment': devices.environment_record(manifest.get('environment')),
@@ -908,8 +928,7 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
          'template_issues': template_issues,
          'assessment_steps': assessment_steps, 'extension_ps': extension_ps,
          'equilibration_steps': equilibration_steps, 'tools': recorded_tools,
-         'limitations': ['the detergent is one centre per molecule: the shipped templates carry no bead shape',
-                         'the assessment, removal, extension and back-mapping stage scripts are task B7b']})
+         'limitations': limitations})
     manifest.setdefault('stages', [])
     (run_dir / 'manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True))
 

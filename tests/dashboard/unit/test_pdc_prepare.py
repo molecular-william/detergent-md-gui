@@ -162,6 +162,39 @@ def test_the_run_record_names_the_stages_and_the_limits(tmp_path):
         'the preparer the optional prepare step runs is recorded with the tools the run always resolves'
 
 
+def test_a_mapped_build_does_not_call_itself_one_centre_per_molecule():
+    """The limit follows what the build did: a mapping supplies the beads, so that sentence would be false.
+
+    And no run's record may say the assessment, removal, extension or back-mapping scripts are unimplemented -- they
+    are copied into every run, so that sentence told a reader the pipeline was not there.
+    """
+    mapped = pdc._limitations({'mapping': 'mapping_candidate_0123456789abcdef0123456789abcdef.json'})
+    unmapped = pdc._limitations({'mapping': None})
+
+    assert any('mapping_candidate_0123456789abcdef0123456789abcdef.json' in line for line in mapped), mapped
+    assert not any('centre per molecule' in line for line in mapped), mapped
+    assert any('centre per molecule' in line for line in unmapped), unmapped
+    for line in mapped + unmapped:
+        assert 'B7b' not in line, line
+        assert 'not implemented' not in line.lower(), line
+
+
+def test_the_catalogue_says_what_the_template_lacks_not_that_the_pipeline_is_a_placeholder(tmp_path):
+    """The one shipped template states a single bead at its origin and no shape; that is the template's limit.
+
+    Calling it a "skeleton placeholder template, not a fitted detergent model" under the picker read as a verdict on
+    the protein-detergent pipeline, which builds with a mapping's beads and runs its stages.
+    """
+    templates = pdc._templates(molecule_tree(tmp_path))
+    assert templates, 'the fixture tree lists no template'
+    for entry in templates:
+        assert entry['files_present'], entry
+        joined = ' '.join(entry['limitations'])
+        assert 'bead shape' in joined, joined
+        assert 'skeleton placeholder' not in joined, joined
+        assert 'not a fitted detergent model' not in joined, joined
+
+
 def test_the_entry_point_applies_the_builders_rather_than_restating_them():
     source = Path(pdc_build.__file__).read_text()
 
