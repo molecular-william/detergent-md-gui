@@ -411,6 +411,7 @@ def static_setup():
             'seed': 20261006,
             'mdrun_ntomp': osmotic.DEFAULTS['mdrun_ntomp'],
             'mdrun_ranks': osmotic.DEFAULTS['mdrun_ranks'],
+            'mdrun_gpu': osmotic.DEFAULTS['mdrun_gpu'],
             'temperature_source': 'the experimental dataset\'s own temperature; 308.15 K for maltose'}
 
 

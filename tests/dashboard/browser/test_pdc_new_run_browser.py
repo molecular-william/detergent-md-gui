@@ -298,6 +298,11 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
     posted = {}
     serve_catalogue(page, proteins=CATALOG['proteins'])
     page.route(re.compile(r'/api/readiness\?'), lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+    # The device select is filled from the host's own answer, so it is stubbed: this fixture may or may not have a
+    # GPU, and the payload this test pins must not depend on the machine it runs on.
+    page.route('**/api/run/devices', lambda route: route.fulfill(json={
+        'devices': [{'index': 0, 'name': 'NVIDIA GeForce RTX 4090', 'memory_mib': 24564, 'uuid': 'GPU-aaaa'}],
+        'in_use': {}}))
 
     def queue(route):
         if route.request.method != 'POST':
@@ -308,6 +313,7 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
 
     page.route(re.compile(r'^http://127\.0\.0\.1:\d+/$'), queue)
     open_panel(page, live_page.base_url)
+    page.wait_for_function("() => document.querySelectorAll('[name=mdrun_gpu] option').length === 1", timeout=30000)
 
     page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
     enter_seed(page, '20260928')
@@ -328,6 +334,8 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         'aggregation_number': 220, 'pdc_assessment_ns': 100, 'pdc_extension_ns': 900, 'pdc_seed': 20260928,
         'salt_molar': 0.15, 'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
         'selection_threshold_fraction': 0.1, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20,
+        # The device the run will use, as an ordinary setting: `mdrun_gpu` is the index the panel selected.
+        'mdrun_gpu': 0,
     }, posted
     assert errors == [], errors
 

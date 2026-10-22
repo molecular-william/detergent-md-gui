@@ -80,7 +80,7 @@ run_stage() {
         fi
         outcome=ok
         ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm "$stage" -cpi "$stage.cpt" \
-            ${PLUMED} ${MDRUN_FLAGS:--ntomp 4 -gpu_id 0 -nb gpu -pin on} -v || outcome=failed
+            ${PLUMED} ${MDRUN_FLAGS:--ntomp 4} -v || outcome=failed
         record_attempt "$stage" "$attempt" "$resumed" "$outcome"
         if [ "$outcome" = ok ]; then return 0; fi
         echo "### $stage failed on attempt $attempt of $OSMOTIC_ATTEMPTS_MAX" >&2

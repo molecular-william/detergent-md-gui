@@ -209,7 +209,9 @@
           <label>Removal threshold (fraction)<span class="setting-control"><input name="selection_threshold_fraction" type="number" min="0" max="1" step="0.01"></span></label>
           <label>Snapshot interval (ns)<span class="setting-control"><input name="snapshot_interval_ns" type="number" min="0.1" max="1000" step="0.1"></span></label>
           <label>Snapshots per stage (cap)<span class="setting-control"><input name="snapshot_cap" type="number" min="1" max="200" step="1"></span></label>
+          <label>GPU device<span class="setting-control"><select name="mdrun_gpu" class="new-pdc-gpu-device"></select></span></label>
         </div>
+        <p class="hint new-pdc-gpu-note" role="status"></p>
         <p class="hint">The seed defaults to today's date (YYYYMMDD). Detergents are placed at random in the self-assembly style, so two builds are comparable only when both record the seed they placed with; clearing it stops the run rather than letting one be chosen for it. The rest are the protocol's own numbers, recorded in every run's manifest.</p>
       </details>
       <label>Run label <input name="label" maxlength="160" placeholder="Optional label for this run"></label>
@@ -398,12 +400,13 @@
         <label>Box edge (nm)<span class="setting-control"><input name="box_nm" type="number" min="1" max="20" step="0.1"><button type="button" class="secondary use-default" data-field="box_nm">Default</button></span></label>
         <label>mdrun threads<span class="setting-control"><input name="mdrun_ntomp" type="number" min="1" max="72" step="1"><button type="button" class="secondary use-default" data-field="mdrun_ntomp">Default</button></span></label>
         <label>mdrun ranks<span class="setting-control"><input name="mdrun_ranks" type="number" min="1" max="72" step="1"><button type="button" class="secondary use-default" data-field="mdrun_ranks">Default</button></span></label>
+        <label>GPU device<span class="setting-control"><select name="mdrun_gpu" id="run-gpu-device" aria-describedby="run-gpu-note"></select><button type="button" class="secondary use-default" data-field="mdrun_gpu">Default</button></span></label>
         <label>Nonbonded scheme<span class="setting-control"><select name="mdrun_nb"><option value="auto">auto · profile decides</option><option value="cpu">CPU</option><option value="gpu">GPU</option></select><button type="button" class="secondary use-default" data-field="mdrun_nb">Default</button></span></label>
         <label>PME scheme<span class="setting-control"><select name="mdrun_pme"><option value="auto">auto · profile decides</option><option value="cpu">CPU</option><option value="gpu">GPU</option></select><button type="button" class="secondary use-default" data-field="mdrun_pme">Default</button></span></label>
         <label>AA random seed<span class="setting-control"><input name="aa_seed" type="number" min="1" max="2147483646" step="1"><button type="button" class="secondary use-default" data-field="aa_seed">Default</button></span></label>
         <label>Trajectory interval (ps)<span class="setting-control"><input name="output_interval_ps" type="number" min="0.001" step="0.001"><button type="button" class="secondary use-default" data-field="output_interval_ps">Default</button></span></label>
         <label class="cg-setting">SASA probe (nm)<span class="setting-control"><input name="sasa_probe_nm" type="number" min="0.05" max="0.5" step="0.001"><button type="button" class="secondary use-default" data-field="sasa_probe_nm">Default</button></span></label>
-      </div><p id="defaults-source" class="hint" aria-live="polite"></p>
+      </div><p class="hint" id="run-gpu-note" role="status"></p><p id="defaults-source" class="hint" aria-live="polite"></p>
     </fieldset>
     <section class="card run-review" aria-labelledby="run-checks-title"><div class="review-heading"><h3 id="run-checks-title">Review before launch</h3><span id="review-status" class="review-status" role="status">Checking readiness…</span></div>
     <dl id="run-input-summary" class="review-grid"><dt>Molecule</dt><dd id="run-molecule-summary">Select a molecule</dd><dt>Directory</dt><dd id="run-directory-summary">—</dd><dt>Run type</dt><dd id="run-type-summary">AA–CG run</dd><dt>AA source</dt><dd id="run-aa-summary">New reference</dd><dt>CG mapping</dt><dd id="run-mapping-summary">Select a mapping</dd><dt>Bonded fit</dt><dd id="run-bonded-summary">Fitted from the AA reference by the run</dd><dt>Settings</dt><dd id="run-settings-summary">300 K · AA/CG durations</dd></dl>

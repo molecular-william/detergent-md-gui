@@ -199,6 +199,35 @@ def progress(job, stages, *, run_dir, console_log=None) -> dict:
     return stage_progress.progress_from_file(current.get('name') or '', directory, path)
 
 
+def gpu_name(manifest, job=None):
+    """The mdrun device a run used, by the name the host reported for it, or None when it recorded none.
+
+    Read from the manifest, not from the form that asked for it: a prepared run records every device the host
+    had (`environment.devices`) and each stage records the index, name and UUID it ran on
+    (`resource_usage.gpu`). A run prepared before this setting existed records no device and therefore shows
+    no name; a run on a host that reported none records its index with an empty name, which is the honest
+    answer rather than the driver's guess.
+    """
+    settings = manifest.get('settings')
+    if not isinstance(settings, dict):
+        settings = (job or {}).get('settings')
+    index = settings.get('mdrun_gpu', 0) if isinstance(settings, dict) else 0
+    try:
+        choice = int(0 if index in (None, '') else index)
+    except (TypeError, ValueError):
+        return None
+    environment = manifest.get('environment')
+    for device in (environment.get('devices') if isinstance(environment, dict) else None) or []:
+        if isinstance(device, dict) and device.get('index') == choice and device.get('name'):
+            return device['name']
+    for stage in reversed(manifest.get('stages') or []):
+        usage = stage.get('resource_usage') if isinstance(stage, dict) else None
+        device = usage.get('gpu') if isinstance(usage, dict) else None
+        if isinstance(device, dict) and device.get('index') == choice and device.get('name'):
+            return device['name']
+    return None
+
+
 def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, console_log=None, summary=False) -> dict:
     """One run as the browser sees it.
 
@@ -217,6 +246,7 @@ def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, co
     run_dir = Path(run_dir)
     manifest = manifest or {}
     result.update(ownership or {})
+    result['gpu_name'] = gpu_name(manifest, job)
     result['analyses'] = analysis_view(job, summary)
     result['consistency'] = consistency_summary(job)
     if result.get('execution_kind') == 'screening-stub':

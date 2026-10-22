@@ -8,9 +8,10 @@
 # The system is copied in by the prelude the pdc adapter emits from this stage's own declaration, which is why the
 # grompp below names `system.gro` and `system.top` rather than a path into `4_npt`.
 #
-# The mdrun budget and the scheme choices arrive as environment -- MDRUN_LAUNCHER is an mpirun prefix or empty,
-# MDRUN_FLAGS the flags -- because these stages are scripts rather than generated commands. The defaults below are
-# this host's: an 8-thread MPI-only GROMACS with one GPU.
+# The mdrun budget, the device and the scheme choices arrive as environment -- MDRUN_LAUNCHER is an mpirun
+# prefix or empty, MDRUN_FLAGS the flags -- because these stages are scripts rather than generated commands. The
+# default below is the case with no executor and no device named, threads only: the device is decided in one
+# place (`aa.mdrun_command_flags`, from `mdrun_gpu`), so this file states no second opinion about it.
 #
 # No -ntmpi anywhere: /usr/local/gromacs/2026.3/bin/gmx is a symlink to gmx_mpi, an MPI build with no thread-MPI,
 # where that flag aborts mdrun before the first step. -ntomp is valid for both builds.
@@ -21,7 +22,7 @@ mkdir -p prod
 # file is read when it is there rather than declared as an input no skip path could satisfy.
 if [ -f ../4_npt/system.cpt ]; then CHECKPOINT="-t ../4_npt/system.cpt"; else CHECKPOINT=""; fi
 gmx grompp -f assessment.mdp -p system.top -c system.gro $CHECKPOINT -o prod/run.tpr -maxwarn 1
-${MDRUN_LAUNCHER:-}gmx mdrun -deffnm prod/run ${MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on} -v
+${MDRUN_LAUNCHER:-}gmx mdrun -deffnm prod/run ${MDRUN_FLAGS:--ntomp 8} -v
 
 # The trajectory is written molecule-whole below, because the criterion and the viewer both need molecules that
 # have not been broken at periodic boundaries, and reading them back whole is what makes a snapshot reproducible.

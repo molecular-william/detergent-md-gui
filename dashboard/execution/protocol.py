@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import Callable
 
 from .. import files
+from . import devices
 from .stages import Stage
 
 
@@ -59,13 +60,17 @@ def write_prepared_manifest(run_dir, metadata, *, tools, plan, environment=None)
 
     `metadata` carries what is specific to the run; this adds what every prepared run
     records. `inputs/` must exist before the call, because this hashes it.
+
+    The environment recorded beside it also carries `devices`: every GPU this host reported at prepare,
+    so a report written later can still say what the host had. A caller that records no environment still
+    records none -- that rule is the oldest one here and a run type that records none is saying so.
     """
     document = dict(metadata)
     document.update(layout_version=2, stage_plan=list(plan), stages=[], tools=tools,
                     input_snapshot_sha256=files.hashes(Path(run_dir) / 'inputs'),
                     prepared_at=datetime.now(timezone.utc).isoformat())
     if environment is not None:
-        document['environment'] = environment
+        document['environment'] = devices.environment_record(environment)
     files.atomic_json(Path(run_dir) / 'manifest.json', document)
     return document
 

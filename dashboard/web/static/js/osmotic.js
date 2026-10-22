@@ -260,8 +260,9 @@ export function createOsmoticSeries() {
       ['Salt', 'none added — the osmometry it compares against measured salt-free solutions'],
       ['Seed', 'placement <code>random.Random(' + setup.seed + ')</code> in the runner; the mdps fix '
         + '<code>gen-seed = -1</code>. Not a control: a series is comparable because its conditions share these'],
-      ['mdrun', '<code>-ntomp ' + setup.mdrun_ntomp + ' -nb gpu -gpu_id 0 -pin on</code>, ' + setup.mdrun_ranks
-        + ' MPI rank — the measured best for this box with the confinement loaded'],
+      ['mdrun', '<code>-ntomp ' + setup.mdrun_ntomp + ' -gpu_id ' + setup.mdrun_gpu + ' -nb gpu -pin on</code>, '
+        + setup.mdrun_ranks + ' MPI rank — the measured best for this box with the confinement loaded; the device is '
+        + 'the series\' own <code>mdrun_gpu</code>'],
     ];
     body.replaceChildren(...rows.map(([label, text]) => {
       const tr = document.createElement('tr');

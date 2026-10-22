@@ -7,7 +7,7 @@ from pathlib import Path
 from ... import files
 from ...analysis.runs import references as aa_references
 from ...models.molecules import aa as aa_molecules
-from .. import forcefields, protocol, tools
+from .. import devices, forcefields, protocol, tools
 from ..environment import environment, probe_tool, recorded_environment
 from ..stages import Stage, stage_tables
 from . import aa_box
@@ -38,7 +38,24 @@ LONG_DURATIONS={'aa-200ns':{'aa_nvt_ps':100.0,'aa_npt_ps':1000.0,'aa_production_
 def validate_profile(profile):
     if profile not in PROFILES:raise ValueError('Unsupported execution profile')
     return profile
-MDRUN_GPU_NONBONDED_FLAGS='-gpu_id 0 -nb gpu -pin on'
+def gpu_flags(settings):
+    """The device choice and the nonbonded offload, from the setting.
+
+    One index, not a list: `-gpu_id 0,1` would spread ranks across devices and is a follow-up, so today the
+    run names one device and the panel says when several ranks share it. `0` is the default rather than
+    `auto`, and deliberately: `auto` would let GROMACS pick a different device than every existing run used,
+    and the point of the setting is to make the device visible and choosable, not to move the work silently.
+    """
+    choice = settings.get('mdrun_gpu')
+    index = 0 if choice in (None, '') else int(choice)
+    if index < 0:
+        raise ValueError('mdrun_gpu must be a device index of 0 or more')
+    return f'-gpu_id {index} -nb gpu -pin on'
+
+
+# The default bracket, kept for the callers that read the constant (the pdc scripts' fallback and the
+# manifest's recorded environment). It is the same string it has always been: device 0, nonbonded on the GPU.
+MDRUN_GPU_NONBONDED_FLAGS=gpu_flags({})
 MDRUN_GPU_PME_FLAGS=f'{MDRUN_GPU_NONBONDED_FLAGS} -pme gpu -pmefft gpu'
 
 
@@ -125,7 +142,9 @@ def mdrun_command_flags(settings, stage, flavour=None):
     result is byte-for-byte the command these stages produced before the settings existed.
     """
     launcher, thread_flags = mdrun_launch(settings, flavour)
-    bracket = MDRUN_GPU_NONBONDED_FLAGS if stage == 'em' else MDRUN_GPU_PME_FLAGS
+    # The device is read here, from the setting, and nowhere else: the constants above are the default the
+    # scripts' own fallbacks state, not a second opinion about which device this run uses.
+    bracket = gpu_flags(settings) if stage == 'em' else f'{gpu_flags(settings)} -pme gpu -pmefft gpu'
     for key, flag in (('mdrun_nb', '-nb'), ('mdrun_pme', '-pme')):
         if str(settings.get(key) or 'auto') == 'auto': continue
         bracket = ' '.join(part for part in bracket.split()
@@ -163,7 +182,7 @@ STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS = stage_tables(STAGE_DEFS)
 DEFAULTS=dict(aa_nvt_ps=100,aa_npt_ps=1000,aa_production_ps=10000,
               temperature_k=forcefields.entry().temperature_k,
               pressure_bar=1,output_interval_ps=10,box_nm=aa_box.DEFAULT_EDGE_NM,aa_seed=20260917,
-              mdrun_ntomp=8,mdrun_ranks=1,mdrun_nb='auto',mdrun_pme='auto',
+              mdrun_ntomp=8,mdrun_ranks=1,mdrun_nb='auto',mdrun_pme='auto',mdrun_gpu=0,
               box_shape=aa_box.DEFAULT_SHAPE,
               force_field=forcefields.DEFAULT)
 # Choices are a separate shape rather than a third element of the numeric tuple, which unpacks as (label, lo,
@@ -182,6 +201,10 @@ SETTING_SPECS={'aa_nvt_ps':('AA NVT duration',1,1000000),'aa_npt_ps':('AA NPT du
                'aa_production_ps':('AA production duration',1,1000000),
                'mdrun_ntomp':('mdrun OpenMP threads per rank',1,72),
                'mdrun_ranks':('mdrun MPI ranks',1,72),
+               # An index, not a list: one device per run, chosen from the ones the host reports. The upper bound
+               # is a form bound rather than a statement about any machine -- the check that matters is against
+               # the devices that exist, at prepare.
+               'mdrun_gpu':('mdrun GPU device',0,64),
                'temperature_k':('Temperature',200,500),'pressure_bar':('Pressure',.1,100),
                'output_interval_ps':('Trajectory output interval',.002,100000),
                'box_nm':('Box edge',1.0,20),'aa_seed':('AA random seed',1,2147483646)}
@@ -222,6 +245,8 @@ def normalize_settings(settings=None, profile='standard'):
         label,lo,hi=SETTING_SPECS[key]
         if not math.isfinite(value) or not lo<=value<=hi:raise ValueError(f'{key} must be between {lo} and {hi}')
         result[key]=value
+    if int(result['mdrun_gpu'])!=result['mdrun_gpu']:raise ValueError('mdrun_gpu must be an integer')
+    result['mdrun_gpu']=int(result['mdrun_gpu'])
     if int(result['aa_seed'])!=result['aa_seed']:raise ValueError('AA seed must be an integer')
     result['aa_seed']=int(result['aa_seed'])
     if result['output_interval_ps']>result['aa_production_ps']:raise ValueError('Output interval exceeds AA production duration')
@@ -311,6 +336,10 @@ def mdp(settings,kind,ff=None):
 
 def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
     run_dir=Path(run_dir); settings=normalize_settings(settings)
+    # The device is checked against the ones this host reports, before anything is written: a run that named a
+    # device that is not there would otherwise be refused by mdrun three stages in. A host that reports none is
+    # not a refusal -- see `devices.require`.
+    devices.require(settings['mdrun_gpu'])
     aa_molecules.verify_selection(molecule_root,molecule_snapshot)
     stages=run_dir/'stages'; stages.mkdir()
     common=stages/'common'; common.mkdir(); molecule=common/'molecule'; molecule.mkdir()

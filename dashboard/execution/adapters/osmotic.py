@@ -23,7 +23,7 @@ import subprocess
 from pathlib import Path
 
 from ... import files
-from .. import protocol, tools
+from .. import devices, protocol, tools
 from ..environment import ROOT, TUTORIAL_TEMPLATE, recorded_environment
 from ..stages import Stage, stage_tables
 from . import osmotic_box, osmotic_mdp
@@ -240,7 +240,7 @@ DEFAULTS = dict(temperature_k=308.15,
                 osmotic_production_ps=osmotic_mdp.DEFAULT_PRODUCTION_PS,
                 osmotic_equilibration_ps=osmotic_mdp.DEFAULT_EQUILIBRATION_PS,
                 osmotic_output_interval_ps=osmotic_mdp.DEFAULT_OUTPUT_INTERVAL_PS,
-                mdrun_ntomp=4, mdrun_ranks=1,
+                mdrun_ntomp=4, mdrun_ranks=1, mdrun_gpu=0,
                 # **The retry ceiling, and a series' policy on a condition that ends failed.** Three is the house
                 # ceiling -- `attempts_max = 3` in `pdc.DEFAULTS` and the loop bound in `pdc_extension.py`. Both are
                 # advertised because a setting the adapter does not name is dropped by the queueing routes without
@@ -253,6 +253,8 @@ SETTING_SPECS = {
     'osmotic_output_interval_ps': ('Trajectory output interval', 0.002, 10000),
     'mdrun_ntomp': ('mdrun OpenMP threads per rank', 1, 72),
     'mdrun_ranks': ('mdrun MPI ranks', 1, 72),
+    # An index into the devices the host reports; `0` keeps the command every existing series produces.
+    'mdrun_gpu': ('mdrun GPU device', 0, 64),
     # A count, not a duration: an attempt either happened or did not, so a fractional value is refused rather than
     # silently floored (see `normalize_settings`). The runner also carries a default, for a script run by hand.
     'osmotic_attempts_max': ('Attempts before a condition ends failed', 1, 10),
@@ -496,7 +498,10 @@ def normalize_settings(settings=None, profile='standard'):
     # reader can reconcile with the `attempts.json` the runner writes.
     if result['osmotic_attempts_max'] != int(result['osmotic_attempts_max']):
         raise ValueError('osmotic_attempts_max must be a whole number of attempts')
-    for key in ('mdrun_ntomp', 'mdrun_ranks', 'osmotic_attempts_max'):
+    # A device index is an index: 1.5 is not a device, and flooring it would run on one nobody chose.
+    if result['mdrun_gpu'] != int(result['mdrun_gpu']):
+        raise ValueError('mdrun_gpu must be a whole device index')
+    for key in ('mdrun_ntomp', 'mdrun_ranks', 'mdrun_gpu', 'osmotic_attempts_max'):
         result[key] = int(result[key])
     # The mdps refuse a duration that is not a whole number of output intervals, and so does this: two conditions with
     # different averaging windows are not comparable, and the earlier the refusal the cheaper it is.
@@ -640,6 +645,9 @@ def prepare(run_dir, metadata):
     """
     run_dir = Path(run_dir)
     settings = normalize_settings(metadata.get('settings'), metadata.get('profile', 'standard'))
+    # The device must be one this host reports, before any condition directory is written. A host with no devices
+    # is not a refusal (`devices.require`).
+    devices.require(settings['mdrun_gpu'])
     molecule_id = metadata.get('molecule_id')
     # The sugar gate, at the build as well as at the door: without it a non-sugar reaches GROMACS and the failure
     # is a GROMACS error rather than the answer to "what did you ask me to run a series with".

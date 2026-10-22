@@ -27,7 +27,9 @@ from pathlib import Path
 ATTEMPTS = 'attempts.json'
 KEPT_TOPOLOGY = 'kept.top'
 RESTART_MDP = 'restart.mdp'
-DEFAULT_MDRUN_FLAGS = '-ntomp 8 -gpu_id 0 -nb gpu -pin on'
+# The case with no executor and no device named: threads only. The device comes from the executor's
+# MDRUN_FLAGS, which one builder writes from `mdrun_gpu` -- a copy here would be a second opinion about it.
+DEFAULT_MDRUN_FLAGS = '-ntomp 8'
 
 
 def sections(text: str) -> list[str]:

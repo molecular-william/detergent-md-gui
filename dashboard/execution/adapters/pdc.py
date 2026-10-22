@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 from ... import files, paths
-from .. import protocol, tools
+from .. import devices, protocol, tools
 from ..environment import ROOT, TUTORIAL_TEMPLATE
 from ..stages import Stage
 from . import pdc_import, pdc_preparation
@@ -60,10 +60,14 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             # file. A run that asks for it has its protein rebuilt and protonated by PDB2PQR before martinize2 reads
             # it -- which is what answers a structure whose side chains are incomplete, and therefore whose
             # coarse-grained beads have no position.
-            'protein_chains': None, 'backmap': True, 'prepare_protein': False}
+            'protein_chains': None, 'backmap': True, 'prepare_protein': False,
+            # The device this run's mdrun uses. Here rather than in the AA half's vocabulary because a pdc run has
+            # no AA half and this is the only table its own normalizer reads; the value is one index, and the
+            # default keeps every existing run's command byte-identical.
+            'mdrun_gpu': 0}
 _PROTEIN_LIMIT = 50
 # Values a spec allows as a fraction but that the builders use as counts or seeds.
-_INTEGRAL = ('seed', 'snapshot_cap', 'minimisation_steps')
+_INTEGRAL = ('seed', 'snapshot_cap', 'minimisation_steps', 'mdrun_gpu')
 
 # One shape across every run type: (label, lo, hi). Numbers only; a choice would need the registry, so it is
 # validated in validate_payload where the templates are actually known.
@@ -84,6 +88,8 @@ SETTING_SPECS = {
     'pdc_minimisation_steps': ('CG minimisation steps', 0, 1000000),
     'pdc_nvt_ps': ('CG NVT equilibration (ps)', 0, 1000000),
     'pdc_npt_ps': ('CG NPT equilibration (ps)', 0, 1000000),
+    # An index into the devices the host reports, and the check that matters is against those, at prepare.
+    'mdrun_gpu': ('mdrun GPU device', 0, 64),
 }
 
 # What each equilibration leg's generated script has to know: the mdp it runs, the setting that turns into steps, and
@@ -503,10 +509,11 @@ PYTHONPATH={root}${{PYTHONPATH:+:$PYTHONPATH}} {python} -m dashboard.execution.s
 _LEG_SCRIPT = """#!/bin/bash
 # {label} for a protein-detergent complex run: {purpose}.
 #
-# The mdrun budget and the scheme choices arrive as environment -- MDRUN_LAUNCHER is an mpirun prefix or empty,
-# MDRUN_FLAGS the flags -- because this stage is a script rather than a generated command. No -ntmpi appears in the
-# executed lines: this host's `gmx` is an MPI-only build where that flag aborts mdrun before the first step, while
-# -ntomp is valid for every build.
+# The mdrun budget, the device and the scheme choices arrive as environment -- MDRUN_LAUNCHER is an mpirun prefix
+# or empty, MDRUN_FLAGS the flags -- because this stage is a script rather than a generated command. The default is
+# the case with no executor and no device named, threads only: the device is decided in one place
+# (`aa.mdrun_command_flags`, from `mdrun_gpu`). No -ntmpi appears in the executed lines: this host's `gmx` is an
+# MPI-only build where that flag aborts mdrun before the first step, while -ntomp is valid for every build.
 #
 # The contract's fourth outcome is `skipped`, and for a leg it is a real answer: a run may ask for none of it, and the
 # adapter stamps the step count into {mdp}, so the number this stage acts on is the number in the file it runs.
@@ -521,7 +528,7 @@ if [ "${{STEPS:-0}}" -eq 0 ]; then
 fi
 
 {solvation}{checkpoint}gmx grompp -f {mdp} -p system.top -c system.gro{checkpoint_flag} -o system.tpr -maxwarn 1
-${{MDRUN_LAUNCHER:-}}gmx mdrun -deffnm system ${{MDRUN_FLAGS:--ntomp 8 -gpu_id 0 -nb gpu -pin on}} -v
+${{MDRUN_LAUNCHER:-}}gmx mdrun -deffnm system ${{MDRUN_FLAGS:--ntomp 8}} -v
 """
 
 # The first leg's opening act: the system the build leaves is dry, and these are the commands that fill it. They come
@@ -749,6 +756,9 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
                 for key, value in {**(settings or {}), **kwargs}.items()}
     choices = validate_payload({'protein': protein, 'template': template, **supplied})
     numbers = settings_from(supplied)
+    # The device must be one this host reports, refused here rather than by mdrun three stages in. A host with no
+    # devices is not a refusal (`devices.require`), and the index travels to the stage scripts as MDRUN_FLAGS.
+    devices.require(numbers['mdrun_gpu'])
     from .pdc_placement import DEFAULT_RADIUS_NM
     numbers.update({'seed': choices['seed'], 'aggregation_number': choices['aggregation_number'],
                     'salt_molar': choices['salt_molar'], 'backmap': choices['backmap'],
@@ -893,6 +903,7 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
             manifest = {}
     manifest.update(
         {'run_type': 'pdc', 'stage_plan': _plan(), 'settings': numbers,
+         'environment': devices.environment_record(manifest.get('environment')),
          'protein': str(protein) if protein else '', 'template': str(template),
          'template_issues': template_issues,
          'assessment_steps': assessment_steps, 'extension_ps': extension_ps,

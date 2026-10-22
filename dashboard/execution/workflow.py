@@ -320,6 +320,7 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
             # The mdrun budget and the scheme choices in one place: the manifest records what ran, and the CG
             # stages get the flags as environment because their commands are shell scripts. A stage named for
             # minimisation keeps PME on the CPU; every other stage may put it on the GPU.
+            from . import devices
             from .adapters import aa as aa_adapter
             stage_settings = dict(initial.get('settings') or data.get('settings') or {})
             # The CG launchers offload nonbonded work only -- PME stays on the CPU there, which the GPU launcher
@@ -327,9 +328,16 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
             # overrides it, because the bracket only fills the choices left on 'auto'.
             gromacs_flavour = aa_adapter.gromacs_flavour()
             mdrun_launcher, mdrun_flags = aa_adapter.mdrun_command_flags(stage_settings, 'em', gromacs_flavour)
+            # The AA reference stage's own launcher runs dynamics as well as minimisation, and its dynamics put PME
+            # on the GPU -- the bracket that script has always asked for. Both brackets come from the one builder,
+            # so the device is decided once and stated twice rather than written into a script as a literal.
+            _, mdrun_flags_dynamics = aa_adapter.mdrun_command_flags(stage_settings, 'production', gromacs_flavour)
+            # The device this run uses, resolved once: every stage records the same index, and each stage measures
+            # what is on it when the stage starts.
+            gpu_index = int(stage_settings.get('mdrun_gpu') or 0)
 
             def finish_stage(record):
-                record['resource_usage'] = {'wall_seconds': __import__('time').monotonic()-tick, 'openmp_threads': int(stage_settings.get('mdrun_ntomp') or 8), 'mpi_ranks': int(stage_settings.get('mdrun_ranks') or 1), 'gromacs_flavour': gromacs_flavour, 'output_bytes': sum(p.stat().st_size for p in files.safe_files(script.parent))}
+                record['resource_usage'] = {'wall_seconds': __import__('time').monotonic()-tick, 'openmp_threads': int(stage_settings.get('mdrun_ntomp') or 8), 'mpi_ranks': int(stage_settings.get('mdrun_ranks') or 1), 'gromacs_flavour': gromacs_flavour, 'gpu': devices.usage(gpu_index), 'output_bytes': sum(p.stat().st_size for p in files.safe_files(script.parent))}
                 record['ended_at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
                 files.atomic_json(manifest, data)
 
@@ -340,6 +348,7 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
                 stage_env=environment()
                 stage_env['MDRUN_LAUNCHER']=mdrun_launcher
                 stage_env['MDRUN_FLAGS']=mdrun_flags
+                stage_env['MDRUN_FLAGS_PME']=mdrun_flags_dynamics
                 # **`OMP_NUM_THREADS` and `-ntomp` have to agree, and GROMACS refuses to run when they do not:**
                 # "Environment variable OMP_NUM_THREADS (8) and the number of threads requested on the command line
                 # (4) have different values. Either omit one, or set them both to the same value." `environment()`
@@ -352,6 +361,7 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
                     stage_env['OMP_NUM_THREADS'] = _flags[_flags.index('-ntomp') + 1]
                 entry['environment']['MDRUN_LAUNCHER']=mdrun_launcher
                 entry['environment']['MDRUN_FLAGS']=mdrun_flags
+                entry['environment']['MDRUN_FLAGS_PME']=mdrun_flags_dynamics
                 if stage_env.get('OMP_NUM_THREADS'):
                     entry['environment']['OMP_NUM_THREADS']=stage_env['OMP_NUM_THREADS']
                 if shared_path:

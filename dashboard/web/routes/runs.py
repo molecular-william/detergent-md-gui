@@ -13,7 +13,7 @@ from flask import Blueprint, Response, abort, jsonify, render_template, request,
 from dashboard import files
 
 from ...analysis.runs.figures import current_figures
-from ...execution import protocol
+from ...execution import devices, protocol
 from ...execution.adapters import pdc_view
 from ...execution.adapters.micelle import run_micelle_job
 from ...execution.coordination import admission
@@ -126,6 +126,19 @@ def pages_of_runs(c, page, limit, status='', search='', run_type=''):
                           + " ORDER BY json_extract(data,'$.created') DESC, rowid DESC LIMIT ? OFFSET ?",
                           (*args, limit, (page - 1) * limit)).fetchall()
     return [(json.loads(row[0]), row[1]) for row in rows], count
+
+
+@blueprint.get('/api/run/devices')
+def run_devices_api():
+    """The GPUs this host offers mdrun, and what is already running on each.
+
+    The panel's one source for the device select: it offers what exists, and `in_use` is `{index: process
+    count}` for the devices that have a compute process *now*. Both are readiness facts and neither is a
+    gate -- an empty `devices` means this host reports none, and an index that is not there is refused at
+    prepare, where the run is built, rather than here. `in_use` empty means "nothing reported", not "idle": a
+    device with no processes at this instant is not a device that will be free when mdrun starts.
+    """
+    return jsonify({'devices': devices.detect(), 'in_use': devices.in_use()})
 
 
 @blueprint.get('/api/jobs')

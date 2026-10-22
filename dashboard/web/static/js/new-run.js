@@ -1,4 +1,5 @@
 import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResource, guarded, DROP, panelIds } from './shared.js';
+import { createGpuDevice } from './gpu-device.js';
 import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, applyBeadRadii, renderBeadLegend } from './ngl-beads.js';
 
 //: The workspace whose New Run panel this module's pdc mode serves.
@@ -15,6 +16,10 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     return createPdcNewRun({ form, selectTab, refreshJobs });
   }
   const AA_FIELDS = ['aa_nvt_ps','aa_npt_ps','aa_production_ps','temperature_k','pressure_bar','output_interval_ps','box_nm','aa_seed','mdrun_ntomp','mdrun_ranks','mdrun_nb','mdrun_pme'];
+  // The device is a setting of *this host*, not of the AA reference a run inherits: a reference run's GPU must not
+  // be locked onto a new run, so this key is deliberately not in AA_FIELDS. It still has to travel as a setting
+  // when a run is cloned, which is what this list is for.
+  const GPU_FIELDS = ['mdrun_gpu'];
   const CG_FIELDS = ['cg_equil_ps','cg_production_ps','sasa_probe_nm','cg_seed'];
   //: The profile is the run type's own (`protocol.profile_for_run_type`): the panel offers no choice, sends no key, and
   //: asks `/api/defaults` and `/api/readiness` without one, so the durations it shows and the profile the run is
@@ -468,6 +473,15 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     preselectBondedMapping(file);
   }
 
+  const gpuDevice = createGpuDevice({
+    select: $('#run-gpu-device'),
+    note: $('#run-gpu-note'),
+    ranks: () => form.elements.mdrun_ranks?.value,
+    saved: () => storage.get('form', {}).mdrun_gpu,
+  });
+  // Ranks share the one device, so the note is repainted when the rank count moves rather than only on load.
+  form.elements.mdrun_ranks?.addEventListener('input', () => gpuDevice.refresh());
+
   let stageDefaults;
   // The force fields come from the registry, so the panel offers what the server can actually run rather than a
   // copy of the list held here. Choosing one moves the temperature to the value that entry's parameterisation
@@ -513,6 +527,7 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     try {
       defaultsLoading ||= loadStageDefaults(); await defaultsLoading; defaultsLoading = null;
       const field = button.dataset.field; form.elements[field].value = stageDefaults.values[field];
+      gpuDevice.refresh();
       syncRunSummary(); refreshReadiness();
       storage.set('form', formValues());
     } catch (error) { notice(error.message); }
@@ -604,7 +619,7 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     try {
       if(!await validateCloneSource())return;
       const data=formValues();
-      const fields=data.run_type==='aa_only'?AA_FIELDS:[...AA_FIELDS,...CG_FIELDS];
+      const fields=data.run_type==='aa_only'?[...AA_FIELDS,...GPU_FIELDS]:[...AA_FIELDS,...GPU_FIELDS,...CG_FIELDS];
       if(data.run_type==='aa_only')for(const key of ['method','mapping_candidate','reference_run_id',...CG_FIELDS])delete data[key];
       delete data.aa_equil_ps;
       if(data.clone_of) {
@@ -624,6 +639,9 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     mounting=(async()=>{
       await validateCloneSource();
       await Promise.all([loadMolecules(),loadStageDefaults()]);
+      // The device list and the readiness note arrive after the form's own answers: a probe of the host is not
+      // something the panel's molecule picker waits on, and the note is a status line, not a gate.
+      gpuDevice.load();
       await loadRunMappings();
       const modelCatalog=await cachedApi('/api/cg-models?view=summary',{maxAge:10000});
       form.elements.composition_id.replaceChildren(new Option('Select a saved composition',''));
@@ -661,6 +679,12 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
     }
     setCloneSource(source.id);syncRunType();
     await mount();
+    // The device options come from the host, so a clone's own index can only be applied once they exist.
+    const gpu = source.settings?.mdrun_gpu;
+    if (gpu != null && [...(form.elements.mdrun_gpu?.options || [])].some(option => option.value === String(gpu))) {
+      form.elements.mdrun_gpu.value = String(gpu);
+    }
+    gpuDevice.refresh();
     await loadMolecules(); await loadRunMappings(); await loadReferences(); refreshReadiness();
   }
 
@@ -702,10 +726,16 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // The adapter's own names, so a field left empty is omitted and the adapter's default stands rather than a 0.
   const NUMBERS = ['aggregation_number', 'pdc_assessment_ns', 'pdc_extension_ns', 'pdc_seed', 'salt_molar',
                    'box_margin_nm', 'initial_z_nm', 'contact_nm', 'selection_threshold_fraction',
-                   'snapshot_interval_ns', 'snapshot_cap'];
+                   'snapshot_interval_ns', 'snapshot_cap', 'mdrun_gpu'];
   // The catalogue publishes the settings under the builders' names; the panel's controls carry the pipeline's.
   const DEFAULT_ALIASES = {assessment_ns: 'pdc_assessment_ns', extension_ns: 'pdc_extension_ns',
                            placement_mode: 'pdc_placement_mode'};
+  // The device is the host's, not the build's: the select is filled from `/api/run/devices`, and a run that names
+  // none sends nothing, so the adapter's default device stands. The note is a readiness fact, never a gate.
+  const gpuSelect = field('mdrun_gpu');
+  const gpuDevice = gpuSelect
+    ? createGpuDevice({select: gpuSelect, note: pdcNode('.new-pdc-gpu-note'), saved: () => saved().mdrun_gpu})
+    : {load: async () => {}, refresh: () => {}};
   let catalogue = null, detergents = [], chosen = new Map();
   let mounted = false, mounting = null, generation = 0;
   // The coverage estimate is the server's answer. `estimateState` is the last one rendered; `estimateRequest`
@@ -1645,6 +1675,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       // The legend the beads are decoded with, filled from `ngl-beads.js`'s one family table at mount.
       renderBeadLegend(pdcNode('.new-pdc-preview .bead-legend'));
       await Promise.all([loadCatalogue(), loadDetergents()]);
+      // After the picks that decide what this build is: the device list is a host fact and a status line, not a
+      // precondition for the form.
+      gpuDevice.load();
       for (const input of [...form.elements].filter(el => el.name)) {
         if (input.value === '' && remembered[input.name] !== undefined && input.tagName !== 'SELECT') {
           input.value = remembered[input.name];

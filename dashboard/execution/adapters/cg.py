@@ -20,7 +20,7 @@ from ...models import bonded, mappings
 from ...models.bonded import parameterization as parameterizations
 from ...models.molecules import aa as aa_molecules
 from ...models.molecules import draft as draft_model
-from .. import protocol, tools
+from .. import devices, protocol, tools
 from ..environment import AA_TEMPLATE, FORCE_FIELD, ROOT, TUTORIAL_TEMPLATE, environment, probe_tool, recorded_environment, update_mdp
 from ..stages import Stage, stage_tables
 from . import aa
@@ -136,6 +136,10 @@ SETTING_SPECS = {
     'sasa_probe_nm': ('SASA probe radius', 0.05, 0.5),
     'output_interval_ps': ('Trajectory output interval', 0.001, 100000),
 }
+
+#: Settings from the AA half that describe *this run's* execution rather than the AA reference it consumes. A
+#: reference is prepared under its own settings; the device a run's mdrun uses is the run's own, on both halves.
+RUN_EXECUTION_SETTINGS = ('mdrun_gpu',)
 
 
 def _mdp_value(path, key):
@@ -407,6 +411,9 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     (sasa / 'CG/vdwradii.dat').write_text(''.join(f'{names.residue_name} B{i:02d} { {"R":0.264,"S":0.230,"T":0.191}[b["size"]]}\n' for i,b in enumerate(data['beads'],1)))
 
     settings = normalize_settings(settings, profile)
+    # The device this run names has to be one this host reports: refused at prepare, rather than by mdrun three
+    # stages in. A host that reports no devices is not a refusal (`devices.require`).
+    devices.require(settings['mdrun_gpu'])
     if inline_aa:
         aa_dt_eq = _mdp_value(aa_dir / 'eq.mdp', 'dt'); aa_dt_prod = _mdp_value(aa_dir / 'run.mdp', 'dt')
         update_mdp(aa_dir / 'eq.mdp', {'nsteps': round(settings['aa_equil_ps'] / aa_dt_eq), 'ref_t': settings['temperature_k'], 'nstxout-compressed': max(1, round(settings['output_interval_ps'] / aa_dt_eq))})
@@ -667,6 +674,21 @@ def _parameterization_state(metadata) -> dict:
     return state
 
 
+def run_settings(settings):
+    """The settings an AA-to-CG run keeps for its own build: its CG dialect and its own execution keys.
+
+    The CG dialect is its own vocabulary. A key from the AA half that this run type does not use is dropped rather
+    than refused, because those settings describe the *reference* it consumes instead of the run it builds --
+    `normalize_settings` would otherwise take them, since it accepts both dialects by design.
+
+    `mdrun_gpu` is the exception on purpose: it names the device *this run's* mdrun uses, on the atomistic half and
+    the coarse-grained half alike, so it is a property of the run rather than of the reference. Dropping it here
+    would leave the run recording and executing the default device whatever the panel posted.
+    """
+    return {key: value for key, value in (settings or {}).items()
+            if key in SETTING_SPECS or key in RUN_EXECUTION_SETTINGS}
+
+
 def _protocol_prepare(run_dir, metadata):
     """Prepare an AA-to-CG run the way every other run type is prepared: fill `stages/`, then finish the run.
 
@@ -678,12 +700,10 @@ def _protocol_prepare(run_dir, metadata):
     keys = ('structure', 'detergent', 'profile', 'settings', 'mapping_candidate',
             'shared_reference', 'reference_root', 'molecule_snapshot', 'molecule_root')
     values = {key: metadata[key] for key in keys if key in metadata}
-    # The CG settings dialect is its own vocabulary. A key from the AA half that this run type does not use is dropped
-    # rather than refused, because those settings describe the reference it consumes instead of the run it builds --
-    # `normalize_settings` would otherwise take them, since it accepts both dialects by design. The coordinator applied
-    # this filter before calling the old entry point; it belongs with the run type that declares the dialect.
+    # The coordinator applied this filter before calling the old entry point; it belongs with the run type that
+    # declares the dialect.
     if values.get('settings'):
-        values['settings'] = {key: value for key, value in values['settings'].items() if key in SETTING_SPECS}
+        values['settings'] = run_settings(values['settings'])
     stages = Path(run_dir) / 'stages'
     stages.mkdir(parents=True, exist_ok=True)
     prepare(stages, **values)
