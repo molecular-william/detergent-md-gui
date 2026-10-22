@@ -3,6 +3,53 @@
 State, measurements and open items for this repository. `AGENTS.md` holds the rules; this holds the record they were
 derived from. Read it before starting work on the DDM CG chain or the coordinator.
 
+## Landed 2026-10-22: the bond panel reads in rows, detergents are placed by their bodies, and the device is a setting
+
+Five commits, each with its own gate run.
+
+`f120b49` **bond layout.** `.bonded-model-body` holds the seven inputs (three equal columns, three rows) with the
+Torsion refinement fieldset beside them, and `.bonded-run-cards` puts Job and Result at half width on one row. Measured
+at the browser tier's 1700x1050 viewport: fields 985x273 at x 49, fieldset 597x279 at x 1054, run cards 818 px each at
+y 1183.7, card body 794 -> 279 px. The assertions are geometry, and one of them is `scrollWidth <= innerWidth` -- the
+check that caught the `.hint` overflow on 2026-10-21. Assertions live in the cadence test because it is the only one
+where a revision makes Result visible beside a job.
+
+`da2bbf0` **placement geometry.** Three faults, each confirmed before it was changed: the clearance gate tested the
+detergent's head *site* so a 2-3 nm body could cross the protein; `_self_assemble` returned one radial vector for every
+detergent; and `pack_micelle` used `radius_nm` as the sphere's radius, so one selected subunit kept the whole complex's
+3 nm shell. Now `detergent_profile`/`body_beads` gate every bead at `BEAD_CLEARANCE_NM = 0.25`, orientations are drawn
+from the seed and flipped head-outward, and the sphere's radius is `max(radius_nm, extent of the selection + clearance +
+detergent length)` with `radius_nm` a floor and `radius_source` recording which decided. `capacity()` bisects over the
+placer's own gate across three seeds. Flipping orientations *after* the gate was a real bug the work found (a 0.012 nm
+clash in a probe) and is pinned. Two old expectations asserted the defect and were replaced; the belt-selection test's
+chain B had 24 atoms 0.26 nm apart, which is empty under a 0.25 nm gate, so it keeps six.
+
+`495bf62` **preview and report.** The panel says what it measured (`the shell is 7.69 nm - measured from the protein this
+selection includes - clearance measured against all 12 beads ...`) and offers `Use N` from the measured capacity, which
+writes the field and queues nothing. `pdc_build` records `placement_shell`, `placement_capacity`, `orientation_policy`.
+Two sentences that had become false -- the module docstring and the guide -- are corrected.
+
+`0b4f161` **the device.** `-gpu_id 0` lived in eight places; `mdrun_gpu` (default 0) is now the only statement of it,
+`aa.mdrun_command_flags` the only builder, and `workflow.py` exports `MDRUN_FLAGS_PME` so `aa_reference.sh`'s dynamics
+legs stop carrying their own bracket. Byte-identical by measurement: the default returns
+`-ntomp 8 -gpu_id 0 -nb gpu -pin on -pme gpu -pmefft gpu`. `execution/devices.py` probes `nvidia-smi` (recorded text in
+every test, no GPU needed); prepare refuses an index the host reports and lacks, and does not refuse a host reporting
+none; `environment.devices`, `stages[i].resource_usage.gpu` and `settings.mdrun_gpu` record what ran; the panel's select
+carries a sharing note and never a refusal.
+
+`7ac75ea` **AGENTS.md** went from 181 human lines to 118 by moving detail into `PROJECT_GUIDE.md`'s new *Module notes*,
+and now states its own contract, enforced by `tests/dashboard/unit/test_agents_contract.py`: a 120-line budget, a fixed
+heading set, every invariant naming code or a pointer, no dated narrative. The rule found two offenders on its first run.
+
+**Owed:** `AGENTS.md`'s Verify counts still read 1,852 / 236 / 67 where the tree measures 1,890 / 240 / 67, and its
+Invariants section does not yet carry the two device bullets (`mdrun_gpu` is the only statement of the device; a
+prepared run records `environment.devices` and each stage `resource_usage.gpu`). Both edits need the write guard's
+approval, which timed out twice; nothing is lost -- the text is in this record and in the GPU commit message.
+
+**Open decision:** `aa_cg` drops every AA-half execution key through the dialect filter, so `mdrun_ntomp` and
+`mdrun_ranks` set in those panels are ignored by AA-CG runs; `mdrun_gpu` was kept and the rest left alone, because
+whether the CPU budget belongs to the run or to its reference is a decision rather than a cleanup.
+
 ## Landed 2026-10-21: one serializer, one store, one name per model
 
 **One JSON serializer, and a migration that proves every rewrite, `657489a`.** `files.json_sha256` hashed with the

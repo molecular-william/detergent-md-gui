@@ -451,3 +451,14 @@ be rebuilt by accident.
 CG2AT2 is vendored under `tools/cg2at/` (`tools/cg2at/cg2at`); `pdc_backmap.sh` runs its **align** method with the
 `martini_3-0_charmm36` fragment DB. The `memembed`, `martinize`, `insane` and `cg2at` package names earlier notes named
 are not maintained trees, and no `archive/` exists in this checkout.
+
+### mdrun device and stage flags
+
+`mdrun_gpu` (an integer index, default 0) is the only statement of the device. `aa.mdrun_command_flags` is the only
+builder that writes `-gpu_id`, and it fills `MDRUN_FLAGS` (the nonbonded bracket) and `MDRUN_FLAGS_PME` (PME offloaded),
+which `workflow.py` puts in each stage's environment; a stage script therefore states neither a device nor an offload
+scheme, and `em` keeps PME on the CPU as it always did. `execution/devices.py` probes the host with `nvidia-smi`:
+`detect()` (cached for 30 s per process), `in_use()`, `describe()`, and `require()`, which prepare calls -- an index the
+host reports and does not have is refused by name with the devices that do exist, and a host reporting none is not
+refused. `GET /api/run/devices` feeds the New run select and its sharing note; `views.gpu_name` puts the device's name
+in the run view, read from the manifest rather than from the form.
