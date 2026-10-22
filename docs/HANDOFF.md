@@ -41,10 +41,20 @@ carries a sharing note and never a refusal.
 and now states its own contract, enforced by `tests/dashboard/unit/test_agents_contract.py`: a 120-line budget, a fixed
 heading set, every invariant naming code or a pointer, no dated narrative. The rule found two offenders on its first run.
 
-**Owed:** `AGENTS.md`'s Verify counts still read 1,852 / 236 / 67 where the tree measures 1,890 / 240 / 67, and its
-Invariants section does not yet carry the two device bullets (`mdrun_gpu` is the only statement of the device; a
-prepared run records `environment.devices` and each stage `resource_usage.gpu`). Both edits need the write guard's
-approval, which timed out twice; nothing is lost -- the text is in this record and in the GPU commit message.
+**Settled after that list was written:** `AGENTS.md` carries the device and budget invariants and the counts were
+re-measured on the final tree (2,211 = 1,903 + 241 + 67). The `aa_cg` budget question was decided in favour of the run.
+
+**Why `ce1318485197` printed a perfect score matrix.** Stage 5 scored `0.00` in every cell and drew no distance
+distributions. The pairwise reference histograms are produced -- `ff_inter -dists -dist-matrix` writes one
+`<resid>_<a>_<resid>_<b>_distances_distr.dat` per pair -- but that run's revision was recorded at 11:04:49 on Oct 21,
+eight minutes before `48e62a2` widened the copy glob to `*_distr.dat`, so it carried the 13 bonded histograms and not the
+55 pair ones. `fast_forward/score.py` `continue`s past a missing pair and leaves the cell at its `np.zeros` default, so
+absence read as perfection. Two silent defects made that reachable and are now fixed (`285f263`): `assess.sh` tested for
+`distributions.json` in its own directory rather than in `3_initial_CG`, where `prepare` writes it, so the skip guard was
+never reachable; and nothing counted the pairwise family, so a revision with bonds and angles passed as scorable.
+Measured end to end on that run's own trajectory with its 55 pair references: `Overall Score 0.255 +/- 0.014`, max 0.68,
+every cell filled, all 55 distribution panels drawn. The revision itself stays unscorable by design; a re-fit records the
+family.
 
 **Decided 2026-10-22: the CPU budget is the run's.** `cg.RUN_EXECUTION_SETTINGS` now keeps `mdrun_gpu`,
 `mdrun_ntomp` and `mdrun_ranks`, so an AA-to-CG form that asks for 16 threads and 2 ranks gets them on the atomistic
