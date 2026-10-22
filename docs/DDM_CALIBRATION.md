@@ -1,6 +1,6 @@
 # DDM calibration and carbohydrate implementation — current handoff (2026-09-16)
 
-Read this before continuing DDM calibration, changing distance scoring, or extending the bonded-state dashboard. This document records current decisions and gaps; linked run reports contain the numerical evidence. Earlier design documents describe intended behavior, not proof of implementation.
+Read this before continuing DDM calibration, changing distance scoring, or extending the CG Bond Interactions panel. This document records current decisions and gaps; linked run reports contain the numerical evidence. Earlier design documents describe intended behavior, not proof of implementation.
 
 ## Resume here
 
@@ -91,78 +91,24 @@ values and uncertainties are entered. The paper-aligned minimums are 200 ns for
 geometry, 19 BAR lambda windows for transfer, and a 0–2.5 molal series with
 approximately 500 ns per concentration for osmotic pressure.
 
-Latest user preference: molecular connectivity is an **enlarged fixed 2D view**, not rotatable. Tabs are Runs, New run, CG Bead Assignment, CG Bond Interactions. Keep one selected mapping candidate at a time. The separate 3D bead-assignment visualization is a different feature.
+Molecular connectivity is the **3D NGL overlay** in CG Bead Assignment: heavy atoms, each bead a translucent sphere at the mean of its atoms. The enlarged fixed 2D depiction the earlier note described went on 2026-10-12 (`aa318e0`); the server's RDKit depiction stays only because the export bundle embeds its SVG. Tabs are Runs, Run view, New run, CG Bead Assignment, CG Bond Interactions; keep one selected mapping candidate at a time.
 
 Present in code:
 
 - Figure tabs with image zoom, native and stratified matrices, and diagnostic tables.
 - Figure listing refreshes the persisted artifact index for `media=1`, fixing stale completed-run lists that hid newly generated matrices. Figure captions are currently selected in JavaScript by filename.
-- Bonded-state JSON store, revision API, legacy-fit indexing, confirmation/dependency checks for deletion, fit-only/reuse run intents, short-validation launcher, topology parser, and read-only interaction table/ITP preview.
+- Parameterization store (revisions keyed by mapping content hash, one current, `owners` naming the mappings that claimed it), the fit-job queue that produces a revision without MD, confirmation/dependency checks for deletion, the topology parser, and the interaction table/ITP preview. The flat bonded-state store this bullet used to name was deleted on 2026-10-21 (`1667ff5`).
 - Manual bonded overrides remain available through the advanced JSON editor in CG Bead Assignment and are applied after fitting. `dashboard/models/bonded/` (the interaction library in `__init__.py`) supports circular-harmonic fitting and one override per flexible term.
 
-Code-inspected gaps, re-checked against the code on 2026-09-25 (Task 8.3 of the architecture
-consolidation). Three of the six are closed and three remain partly open. This section was written
-on 2026-09-21 and is being revised for the first time here, so the text below replaces claims the
-code has since contradicted; every verdict quotes the file:line that supports it.
-
-1. **Interactive editing: closed.** Parameter editing and save-as-new exist -- `bonded.js:159-176`
-   renders a number input per editable term, and the save-as-new button (`dashboard.html:179`) POSTs
-   `interactions`, which `routes/bonded.py:37-41` turns into a real topology with `status='complete'`.
-   A complete state cannot be stored without a topology: `states.py:83-88` rejects `status='complete'`
-   unless `[ moleculetype ]` and `[ atoms ]` are present, pinned by
-   `tests/dashboard/integration/test_bonded_api.py:36-39`. `in_place` is now distinct: `states.py:118-129`
-   copies to a new id carrying `parent_state_id`/`parent_revision`, while `:130-132` appends a revision
-   to the same id. Closed across `479f619`, `b0504e6`, `b5ed4c7`, `967e9ac`. By design,
-   `routes/bonded.py:30-41` still permits a `mapping-only` record (`topology=None`,
-   `status='incomplete'`) when no `interactions` key is sent; no UI path does that.
-2. **Mapping/state matching and overlay identities: partly closed.** The filter and the label
-   matching are in place: `routes/bonded.py:14-16` filters states by `mapping_hash` (the JS sends it,
-   `bonded.js:195`), and the topology's labels are the mapping's bead names (`generation.py:333-336`),
-   which is what the diagram is keyed by (`bonded.js:81-91`) -- the `B01/B02` form survives only as a
-   Fast_Forward torsion data-file label (`bonded/__init__.py:288`). Partly open: the mapping
-   identity hashes the candidate *name* (`identity.py:45`), which is right for provenance and wrong
-   for compatibility. The state side is now fixed: a state records the name-free content identity as
-   well, compatibility asks `bonded_states.belongs_to(...)`, and run admission uses it
-   (`coordinator.py:439`), so a renamed candidate keeps its fitted states and `reuse_state` no longer
-   fails. What remains is the *selector*: `routes/bonded.py:14-16` filters states by the candidate
-   hash the browser sends, so after a rename they stay hidden from the list until the candidate list
-   publishes a content identity for the browser to send. Name-free `content_identity` is otherwise
-   used for duplicate detection (`store.py:57`, `routes/mappings.py:78-80`).
-3. **Virtual-site parsing: closed.** `bonded/__init__.py:107-126` parses `virtual_sitesn` into
-   `parents=[...]` with `parameters=[]`, resolving `parent_beads` from `[ atoms ]`; asserted verbatim
-   by `tests/dashboard/unit/test_bonded_states.py:20-32`. The UI keeps them read-only (`bonded.js:36`,
-   `dashboard.html:176`).
-4. **Preview/load behaviour: closed, with one dead element removed.** A mapping-only selection
-   redraws -- `bonded.js:204-218`, reached from `refreshMapping` and the state selector -- stale
-   responses are guarded by a monotonic generation token (`:194-202, 208-210, 224-228, 276`), and
-   async plot errors surface (`bonded-plot.js:16-19,89`). The `[ mapping-only preview ]` text was
-   removed by `b0504e6`. The template's "Generated ITP preview" panel promised a provisional
-   connectivity preview that no script ever wrote, so it displayed "No bonded state loaded." for the
-   life of the page; it was removed with this reconciliation. Residue: `bonded.js:224` returns
-   without clearing the preview when `loadMapping` resolves falsy.
-5. **Scoring display: partly closed.** Captions prefer recorded artifact metadata (`figures.js:63-68`,
-   written by `analysis/worker.py:101` and `analysis/metadata.py:20`, attached at
-   `analysis/runs/observability.py:49-51` (the resolution is `metadata_for` at
-   `observability.py:25-38`; closed by `ac39797`), with the generic legacy caption left
-   as a fallback. Missing values are **not** rendered as zero: `runs-diagnostics.js:21-29` maps
-   `null`/`undefined`/`''` to `'n/a'`. **Closed** for the two things that were open here: an artifact
-   without per-pair `kind` is labelled `Unclassified (legacy artifact)` with its reason and the re-run,
-   instead of being guessed into "Physical bead" by a `/VS$/i` name test
-   (`runs-diagnostics.js`, driven by the response's `legacy` flag from `routes/analyses.py:75-82`); and
-   the per-run colour range is recorded by `write_matrix_plot` (`colour_scale_nm`) and stated by the
-   panel, so "compare numbers, not colour" is actionable. The scale itself stays per run by design --
-   a fixed scale across runs would have to pick a maximum, and that is a scientific choice, not a
-   rendering one.
-6. **State safety: partly closed.** Tests now cover in-place versus save-as-new
-   (`test_bonded_states.py:109-121`), a stale `expected_revision` returning 409 (`:137`,
-   `integration/test_bonded_api.py:59`), mapping identity held within a revision (`:105-106`),
-   virtual-site parsing (`:20`), delete-with-references (`:145`), and eleven `topology_from_terms`
-   cases (`test_bonded_generation.py`); the focused bonded suite is 33 passed. Still open: nothing
-   covers `RunConflict`'s "Bonded state does not belong to the selected mapping"
-   (`coordinator.py:439-440`) or `validate_payload`'s complete-topology rejection (`states.py:73-74`),
-   and there is no multi-writer concurrency test beyond stale revisions. Storage remains JSON
-   (`states.py:38-39`, `paths.py:37`): the SQLite state tables the plan envisaged are a recorded
-   decision, not an omission.
+Code-inspected gaps, written 2026-09-21 and re-checked 2026-09-25 against the bonded-state store. **That store is
+gone** (`models/bonded/states.py` and its seven routes were deleted on 2026-10-21, `1667ff5`), and so are the
+`file:line` references the six items quoted, so they are not reproduced here: a reader cannot verify a claim against a
+deleted file, and the panel they described was rewritten around parameterizations. Two of their behaviours still stand
+and are still worth reading as rules -- an artifact without per-pair `kind` is labelled unclassified with its reason
+rather than guessed into "Physical bead", and the interaction parser resolves `virtual_sitesn` into named parent beads,
+kept read-only in the panel. What replaced the rest of the block is recorded in `AGENTS.md` (revisions keyed by content
+hash, one current, deleted with the mapping that claimed them) and in `docs/HANDOFF.md` (the measurements behind each
+change).
 
 A `complete` status is an execution fact and never scientific validation; none of the closed items
 above should be read as endorsing a model.
