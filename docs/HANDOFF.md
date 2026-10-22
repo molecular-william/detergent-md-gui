@@ -38,6 +38,44 @@ now wraps anywhere.
 What this leaves: the "a second mapping with identical content gets its own empty record" half of the ownership design is
 moot rather than blocked -- a second copy cannot be saved, so there is nothing to give a record to.
 
+## Decided 2026-10-21, not yet built: three plans, and what each decision rules out
+
+The user asked for plans and HTML drafts before any of this is executed; the drafts were measured in a browser at
+1280 px (fields 664 px ending at x 753, torsion from x 773, three per row; Job and Result 558 px each at the same y).
+
+**CG Bond Interactions layout** — `docs/superpowers/plans/2026-10-21-bond-panel-layout.md`,
+`docs/design/drafts/bond-interactions-layout.html`. The model card becomes two columns (seven fields three per row, the
+Torsion refinement fieldset beside them), Job and Result one row at half width. Pure presentation; the ids do not move.
+
+**The mdrun device** — `docs/superpowers/plans/2026-10-21-mdrun-gpu-device.md`,
+`docs/design/drafts/new-run-mdrun-and-placement.html`. `-gpu_id 0` is a literal in `aa.py:41-42` and `pdc.py:524`
+today; it becomes a setting (`mdrun_gpu`), validated against `nvidia-smi` at prepare, with `environment.devices` and
+`resource_usage.gpu` recorded per run. **Decided: device 0 stays the default** (byte-identical commands for every
+existing run), and the convenience `auto` seems to offer is served by a *readiness note* naming the processes already on
+the chosen device — measured when shown, never a gate. `auto` and resolving-`auto`-to-the-emptiest-device were both
+rejected: the first names no device in the metadata, the second is a stale answer dressed as a measurement. One index
+for now; `-gpu_id 0,1` across ranks is a follow-up.
+
+**Detergent placement** — `docs/superpowers/plans/2026-10-21-pdc-detergent-placement.md`. Three faults, each with a
+test that fails today: the clearance tests only a detergent's head site (the module docstring says so), `_outward` gives
+every self-assembled detergent the cloud's radial vector, and `pack_micelle` uses `radius_nm` as the sphere's radius so
+one selected subunit keeps the whole complex's 3 nm shell. Fixes: a bead-level body gate at 0.25 nm, orientations drawn
+from the seed then flipped head-outward, and a shell measured from the selected subunits with `radius_nm` demoted to a
+floor — the role it already has on the torus. **Decided: the aggregation number stays the user's**, with a capacity
+report (bisection over the placer's own gate, three seeds) so a refusal says what the shell can hold and offers it;
+auto-scaling needs a headgroup area this project does not measure. **Decided: the random cloud stays the default** and no
+`belt-seed` mode is built.
+
+### Open measurement: cloud versus rough belt
+
+Not a task. One protein, one seed, two 100 ns assessment legs — a random cloud and a rough belt seeded tangent to the
+measured hydrophobic surface — comparing `fraction_removed`, final aggregation number and belt thickness around the
+slab. The reason it is a measurement rather than a switch: `pdc_assess` judges a run by the fraction of detergents
+outside the counted micelle against `selection_threshold_fraction = 0.10`, and that threshold was calibrated against a
+cloud's own removal rate. A pre-seeded belt passes it by construction, so adopting the belt also requires a pass
+criterion a pre-seeded arrangement cannot satisfy trivially — a change to the assessment's science, not to placement
+code. Until that measurement exists, the cloud is the control and the belt is unbuilt.
+
 ## Landed 2026-10-20, later: the panel stops choosing a profile, and offers only a mapping a run can reuse
 
 **The `Execution` combobox is gone, and one route fallback had to move with it.** The control was visible only for

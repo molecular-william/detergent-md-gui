@@ -102,5 +102,10 @@ workflow it was meant to serve is implemented through `pdc`.
 the decision it supported) and the scheduled cron drivers (2026-10-15). The routes and the `refinement-score` analysis
 that already existed stay.
 
+**Planned, not built** (2026-10-21, with HTML drafts in `docs/design/drafts/`): the CG Bond Interactions two-column
+layout (`docs/superpowers/plans/2026-10-21-bond-panel-layout.md`), a choosable mdrun GPU recorded by name
+(`2026-10-21-mdrun-gpu-device.md`), and body-aware, subunit-sized detergent placement
+(`2026-10-21-pdc-detergent-placement.md`).
+
 **Open items** are not tracked here. `docs/HANDOFF.md` holds the list with the measurement behind each one, and
 `AGENTS.md` holds the decisions that closed the rest.

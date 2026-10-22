@@ -159,6 +159,61 @@ between the two chain selections (the existing `test_pdc_preview_browser.py` has
 
 ---
 
+### Task 5: the capacity is measured, and the number stays the user's
+
+**Decided 2026-10-21:** the aggregation number is **not** scaled automatically. It stays the user's number; what the
+placement adds is a *measurement of what the shell can hold*, so a refusal can say what would fit. The reasoning, in
+the user's words accepted here: scaling needs a headgroup area we do not measure, and it would turn "can this many
+detergents form a belt here" into an assertion about density that nothing in this project supports. Capacity measured
+through the same gate the placement already uses invents nothing.
+
+**Files:** `dashboard/execution/adapters/pdc_placement.py`; `dashboard/execution/pdc_preview.py`; the New run panel;
+`tests/dashboard/unit/test_pdc_placement.py`.
+
+**Step 1 — the failing test.**
+
+```python
+def test_a_shell_too_small_reports_the_count_it_could_hold():
+    placed = place_detergents(small_region, TEMPLATE, 150, seed=5, mode='lattice')
+    assert not placed['valid']
+    capacity = placed['capacity_aggregation']
+    assert 0 < capacity['count'] < 150
+    # the number it reports is one the gate accepts, on every seed it was measured over
+    for seed in capacity['seeds']:
+        assert place_detergents(small_region, TEMPLATE, capacity['count'], seed=seed, mode='lattice')['valid']
+```
+
+**Step 2 — the measurement.** Bisect over the count against `place_detergents` itself, not against a formula:
+
+```python
+def capacity(points, template, requested, *, mode, radius_nm, min_clearance_nm, margin_nm, initial_z_nm,
+             frame=None, seeds=(1, 2, 3)) -> dict:
+    """The largest count every seed places validly, by bisection over the placer's own gate.
+
+    A bisection between 1 and `requested`, `ceil(log2(requested))` placements per seed and no geometry written down
+    twice: the answer is whatever the placement the run would build accepts, including the count, the overlap gate, the
+    clearance and the bead-level body gate Task 1 adds. Costs milliseconds for 150.
+    """
+```
+
+Recorded as `capacity_aggregation: {'count': N, 'seeds': [1, 2, 3], 'requested': 150}` on any placement that fails the
+count gate, and `None` when the full count fits — a succeeded placement has nothing to report. The **preview** computes
+it always (it is a read-only screen), so the panel can say "this shell holds about 46" before a run is queued.
+
+**Step 3 — the sentence and the control.** `issues` gains one clause, built from the measurement:
+`f'the shell holds about {count} at the 0.25 nm overlap gate (measured over {len(seeds)} seeds)'`. The panel renders it
+with the builder's other sentences and offers **Use {count}**, which writes the number into the aggregation field. It
+does not queue anything by itself.
+
+**Step 4 — run.** The unit test above, plus one asserting that a shell which holds the full count reports
+`capacity_aggregation is None`. Then the fast tier.
+
+**Step 5 — commit** `feat(pdc): a refusal says how many detergents the shell can hold`.
+
+**What this deliberately does not do:** change the user's number, or pick a density for a shape. A torus's capacity
+scales with its centre-line's circumference and a sphere's with R³; one rule cannot serve both, and the measurement
+sidesteps the question rather than guessing at it.
+
 ### Task 4: docs
 
 `AGENTS.md`'s belt bullet gains one line: the sphere's radius is a **floor** under a measured shell too, and the
@@ -175,6 +230,19 @@ bead–protein distance, orientation spread).
   records `'body_profile': None` with the reason, so a placement never silently claims a check it did not run.
 * The torus is not re-derived here: its centre-line is already measured and its tube radius is the detergent's length.
   What changes for it is only the bead-level gate (Task 1), which makes its acceptance stricter, not looser.
+
+**Decisions recorded (2026-10-21, by the user):**
+
+1. **The aggregation number stays the user's.** A capacity report (Task 5) tells a refusal what would fit; nothing is
+   scaled. Auto-scaling was rejected because it needs a headgroup area this project does not measure, and because it
+   would assert a density the evidence does not support.
+2. **The random cloud stays the default.** No `belt-seed` mode is built. The 100 ns assessment judges detergents that
+   are outside the micelle (`selection_threshold_fraction = 0.10`), and that metric is calibrated against a cloud's own
+   removal rate; a pre-seeded belt passes it by construction, so the test would stop being a test.
+3. **The comparison is a measurement, not a code change.** One protein, one seed, two assessment legs — cloud versus
+   rough belt — comparing `fraction_removed`, final aggregation number and belt thickness. Recorded as an open
+   measurement in `docs/HANDOFF.md`; if it ever justifies the belt, it also needs a pass criterion that a pre-seeded
+   arrangement cannot satisfy trivially, which is a change to the assessment, not to placement.
 
 **Acceptance:** with the same seed and count, no detergent bead is within 0.25 nm of a protein bead in either mode;
 orientation spread > 20° for self-assembly; one selected chain yields a smaller shell and a smaller box than the whole

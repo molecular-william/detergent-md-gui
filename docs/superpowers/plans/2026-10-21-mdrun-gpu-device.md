@@ -46,8 +46,20 @@ Rules: parse `nvidia-smi --query-gpu=index,name,uuid,memory.total --format=csv,n
 (the name itself may contain one, so split from the right: `index, name, uuid, memory`), and cache the result per
 process for 30 s — New run asks once per page load, and a run's prepare asks once.
 
+```python
+def in_use(timeout=10) -> dict[int, int]:
+    """{device index: compute process count} for the devices that have one.
+
+    `nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name --format=csv,noheader`, mapped through the UUIDs
+    `detect()` returned. `{}` when nothing is running or nothing can be asked -- the readiness note says "none
+    reported" rather than "idle", because a device with no processes at this instant is not a device that will be free
+    when mdrun starts.
+    """
+```
+
 **Test:** `tests/dashboard/unit/test_devices.py` feeds a recorded `nvidia-smi` line and a two-GPU line; a missing
-binary returns `[]`; a line that does not parse is skipped, not raised.
+binary returns `[]`; a line that does not parse is skipped, not raised; `in_use` maps a UUID to its index and ignores a
+process on a device that is not in `detect()`.
 
 **Commit** `feat(execution): the host's GPU devices, as a record`.
 
@@ -131,6 +143,11 @@ execution row beside threads and ranks:
 * Options: `0 · NVIDIA GeForce RTX 4090 · 24 GB` one per device; when the list is empty the select is replaced by the
   sentence "No GPU detected; mdrun will not be told which device to use."
 * The chosen name is shown in the run's summary card once the run exists (from the manifest, not from the form).
+* **A readiness note, not a gate.** Under the select, when `devices.in_use()` reports processes on the chosen device:
+  "Device 1 is already running 2 compute processes; mdrun will share it." Same for `mdrun_ranks > 1` with a single
+  device: "one device is shared by all 3 ranks". Both are checks that are recorded (`environment.devices[].compute_processes`)
+  and shown, never a refusal — the project's record-and-warn rule, and the honest form of the convenience `auto` would
+  have promised without measuring anything.
 
 **Browser test:** stub `/api/run/devices` with two devices, assert both options and that the posted settings carry
 `mdrun_gpu: 1` (the existing create-path tests already intercept the POST body).
@@ -147,6 +164,13 @@ execution row beside threads and ranks:
 * With the setting untouched, the generated command is byte-for-byte what it was before this change (device 0).
 * Fast tier, browser tier and the stage-command tests green.
 
-**Judgement recorded:** `0` remains the default rather than `auto`, because `auto` would let GROMACS choose a different
-device than the one every existing run used, and the point of this change is to make the device *visible and
-choosable*, not to change where work runs unless asked.
+**Decisions recorded (2026-10-21, by the user):**
+
+1. **`0` remains the default**, not `auto`: `auto` would let GROMACS choose a different device than the one every
+   existing run used, and the point is to make the device visible and choosable, not to move work silently.
+2. **Readiness instead of auto-selection.** The convenience `auto` seems to offer — "give me a free device" — is served
+   by a note that reports what is running on the chosen device, measured at the moment it is shown. Resolving `auto` to
+   the emptiest device at prepare was considered and rejected: the answer can be stale by the time mdrun starts, and two
+   runs preparing together resolve to the same device. A guess with a name attached is worse than a default with one.
+3. **A single index for now.** `-gpu_id 0,1` (a list, spread over ranks) is a follow-up; today the setting takes one
+   index and the panel states when several ranks will share it.
