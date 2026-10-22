@@ -85,3 +85,44 @@ def test_a_manifest_that_names_no_log_at_all_still_finds_the_stage_log(run_dir):
     stages[0].pop('log')
     reading = views.progress(job, stages, run_dir=run_dir)
     assert reading['percent'] == 83
+
+
+# A protein-detergent stage announces its leg the same way -- `+ gmx mdrun -deffnm system` under `set -x` -- but its
+# directory sits at the run root (`2_minimisation/`), not under `stages/`. The reader looked only under `stages/`, so
+# the mdp whose `nsteps` the step counter is divided by was never found, `percent` stayed `None`, and the bar on a
+# running pdc build could not move however many steps it printed.
+PDC_LOG = '\n'.join([
+    '+ gmx grompp -f minimisation.mdp -p system.top -c system.gro -o system.tpr -maxwarn 1',
+    '+ gmx mdrun -deffnm system -ntomp 8 -v',
+    'starting mdrun',
+    'step 50000',
+]) + '\n'
+
+
+@pytest.fixture
+def pdc_run_dir(tmp_path):
+    run = tmp_path / 'runs' / '5f9296d00cf0'
+    (run / 'logs').mkdir(parents=True)
+    stage = run / '2_minimisation'
+    stage.mkdir()
+    (stage / 'minimisation.mdp').write_text('integrator = steep\nnsteps = 200000\n')
+    (run / 'logs' / '2_minimisation.log').write_text(PDC_LOG)
+    return run
+
+
+def test_a_protein_detergent_stage_is_measured_where_its_mdp_lives(pdc_run_dir):
+    job = {'run_type': 'pdc', 'status': 'running', 'id': pdc_run_dir.name}
+    stages = [{'name': 'Energy minimisation', 'status': 'running',
+               'log': str(pdc_run_dir / 'logs' / '2_minimisation.log')}]
+
+    reading = views.progress(job, stages, run_dir=pdc_run_dir)
+
+    assert reading['leg'] == 'system' and reading['legs'] == 1
+    assert reading['step'] == 50000 and reading['steps'] == 200000
+    assert reading['percent'] == 25
+    assert reading['measured'] is True
+
+
+def test_the_stage_directory_is_found_in_either_spelling(pdc_run_dir, run_dir):
+    assert views.stage_directory(pdc_run_dir, '2_minimisation') == pdc_run_dir / '2_minimisation'
+    assert views.stage_directory(run_dir, '4_CG_sim') == run_dir / 'stages' / '4_CG_sim'

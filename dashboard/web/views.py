@@ -202,6 +202,25 @@ def eta(job, stages, *, run_dir, console_log=None) -> dict:
     return {}
 
 
+def stage_directory(run_dir, stage_dir):
+    """The directory a stage's script ran in, in either spelling.
+
+    An AA-to-CG run's stages sit under `runs/<id>/stages/`; a protein-detergent build's sit at the run root --
+    `0_prepare`, `1_system`, `2_minimisation`, `3_nvt`, ... -- which is the same difference `analysis/runs/layout.py`
+    resolves for the analysis readers. A reader that knows one spelling cannot find the other's mdp, so the length of
+    the leg is unknown, `percent` stays `None`, and a stage whose log states every step shows an empty bar.
+    """
+    if stage_dir is None:
+        return None
+    path = Path(stage_dir)
+    if path.is_absolute():
+        return path
+    for candidate in (Path(run_dir) / 'stages' / path, Path(run_dir) / path):
+        if candidate.is_dir():
+            return candidate
+    return Path(run_dir) / 'stages' / path
+
+
 def progress(job, stages, *, run_dir, console_log=None) -> dict:
     """How far the running stage has got: its legs and the step within the current one.
 
@@ -213,10 +232,9 @@ def progress(job, stages, *, run_dir, console_log=None) -> dict:
         return {}
     # `stage_dir` is the workflow's own relative path (`4_CG_sim`); the mdps the log names are relative to it, so the
     # reading needs the directory, not the relative name.
-    # Stage scripts and the mdps their logs name live under `stages/`; `stage_dir` is the workflow's own relative name.
-    directory = None
-    if stage_dir is not None:
-        directory = Path(stage_dir) if Path(stage_dir).is_absolute() else Path(run_dir) / 'stages' / stage_dir
+    # Stage scripts and the mdps their logs name live under `stages/` for an AA-to-CG run and at the run root for a
+    # protein-detergent build; `stage_dir` is the workflow's own relative name, and both spellings are resolved here.
+    directory = stage_directory(run_dir, stage_dir)
     # The file, not a tail: leg markers stand at the start of legs, which on a long production is megabytes from the end.
     # And the *content* chooses: a recorded console log exists on every stage and states no legs, so trusting the first
     # file that opens is what left this bar empty on a run whose own `logs/4_CG_sim.log` said 93%.
