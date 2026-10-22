@@ -20,7 +20,11 @@ Four claims, and each is the plan's:
   the unstated zero, which is the defect the last test in this file pins from the request the card sends; and
 * **the card shows what the placement measured** -- the shell the sites were placed on (and which number sized it),
   the detergent's own body as the clearance gate read it, and, when the requested count does not fit, the count the
-  shape would hold offered as a control that writes it into the count field.
+  shape would hold offered as a control that writes it into the count field; and
+* **the protein's backbone is coloured by its secondary structure, and its bonds can be made visible** -- the
+  assignment the server keyed by this frame's residue numbers, one representation per class, with the three swatches
+  beside the family legend and the assignment's own counts on the card; the Bonds control switches the protein's
+  representations to licorice and leaves the detergent's alone, changing nothing the build derives.
 
 The route is served as a fixture, so nothing here reads the developer's workspace, and the frames are written by
 `pdc_view.system_pdb` -- the same writer a run's own snapshot goes through -- rather than being typed out by hand.
@@ -116,7 +120,7 @@ def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, c
            seed=20261013, shell: float | None = None, radius_source: str | None = None,
            body_profile: dict | None = None, body_profile_reason: str | None = None,
            bead_clearance: float | None = None, density: float | None = None,
-           capacity: dict | None = None):
+           capacity: dict | None = None, secondary: dict | None = None):
     """A response shaped as the route answers, with the fields the card renders."""
     return {
         'valid': valid, 'reasons': list(reasons), 'pdb': pdb if valid else None,
@@ -134,7 +138,11 @@ def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, c
                   'shell_radius_nm': shell, 'radius_source': radius_source,
                   'body_profile': body_profile, 'body_profile_reason': body_profile_reason,
                   'bead_clearance_nm': bead_clearance, 'estimated_density_per_nm3': density,
-                  'capacity_aggregation': capacity},
+                  'capacity_aggregation': capacity,
+                  # The assignment martinize2 coarse-grained the protein with, keyed by the frame's residue numbers:
+                  # `None` for a build with no protein or an answer that carries no assignment, exactly as the
+                  # service writes it.
+                  'secondary_structure': secondary},
         'cost': cost or {'cg_cached': True, 'coarse_graining_seconds': 0.001, 'detergent_seconds': 0.074,
                          'placement_seconds': 0.005, 'seconds': 0.1017, 'cg_bytes': 50768,
                          'cg_key': '0423f94ce62e7698'},
@@ -500,7 +508,7 @@ async (el) => {
   for (let index = 0; index < structure.atomCount; index += 1) {
     colours.push(scheme.atomColor(structure.getAtomProxy(index)).toString(16).padStart(6, '0'));
   }
-  const entries = [...document.querySelectorAll('.new-pdc-preview .bead-legend-item')].map(item => ({
+  const entries = [...document.querySelectorAll('.new-pdc-preview [data-bead-legend] .bead-legend-item')].map(item => ({
     family: item.dataset.family,
     label: item.querySelector('.bead-legend-label').textContent,
     declared: item.querySelector('.bead-legend-swatch').dataset.colour,
@@ -620,4 +628,233 @@ def test_the_empty_micelle_preview_is_the_detergents_own_mapping_and_carries_its
     labels = {entry['family']: entry['label'] for entry in measured['entries']}
     assert labels == {'unstated': 'family not stated', 'C': 'apolar (C)', 'N': 'nonpolar (N)', 'P': 'polar (P)',
                       'Q': 'charged (Q)'}, labels
+    assert errors == [], errors
+
+
+# --- the protein's secondary structure, and its bonds ------------------------------------------------------------
+#
+# The assignment was computed and then dropped: `pdc_preview.preview` now puts it in `basis.secondary_structure`,
+# keyed by the residue number this frame gives each protein residue, and the card colours the protein's backbone beads
+# by their residue's class -- one representation per class, over NGL's own selections. What these two tests measure is
+# that picture and that control, off the loaded frame rather than off the code that drew it: the colours the
+# representations resolve to, the legend under them, and the shapes the Bonds control switches.
+
+#: Four residues as martinize2 writes them, then the detergents. The writer renames every protein bead `PRO` whatever
+#: amino acid it stands for and numbers the residues 1..4, which is what the assignment above is keyed by.
+PROTEIN_RESIDUES = ['ALA', 'GLY', 'SER', 'THR']
+#: The letters planted for them: two helices, one strand, one coil -- three classes in one frame.
+PROTEIN_LETTERS = 'HHEC'
+#: `ngl-beads.js`'s three class colours, written out so this file is not the module's answer read back to itself.
+SECONDARY_COLOURS = {'helix': '#e03131', 'sheet': '#f59f00', 'coil': '#495057'}
+
+
+def protein_frame(molecules=MOLECULES, *, residues=PROTEIN_RESIDUES):
+    """A placement frame with a four-residue protein -- a backbone bead and one side chain each -- and the belt."""
+    atoms = []
+    for index, name in enumerate(residues, 1):
+        atoms.append({'residue_id': index, 'residue': name, 'name': 'BB',
+                      'position': [-0.6 + 0.4 * index, 0.0, 0.0]})
+        atoms.append({'residue_id': index, 'residue': name, 'name': 'SC1',
+                      'position': [-0.6 + 0.4 * index, 0.4, 0.0]})
+    for molecule in range(molecules):
+        for name, xyz in zip(DDM_BEADS, DDM_PLACEMENT):
+            atoms.append({'residue_id': len(residues) + 1 + molecule, 'residue': 'DDM', 'name': name,
+                          'position': [xyz[0] + molecule * 4.0, xyz[1], xyz[2]]})
+    model = pdc_view.read_moleculetype_text(ddm_moleculetype(), source='detergent_CG.itp')
+    return pdc_view.system_pdb(atoms, detergent_residue='DDM', topology=model,
+                               title='placement preview (DDM, AN=2, mode=lattice, seed=20261013)')
+
+
+FRAME_ATOMS = len(PROTEIN_RESIDUES) * 2 + MOLECULES * len(DDM_BEADS)
+
+
+def secondary_basis(letters=PROTEIN_LETTERS):
+    """The assignment the service puts in `basis.secondary_structure`, written the way it writes one."""
+    table = {'H': 'helix', 'G': 'helix', 'I': 'helix', 'E': 'sheet', 'B': 'sheet'}
+    classes = {str(number): table.get(letter, 'coil') for number, letter in enumerate(letters, 1)}
+    summary = {name: 0 for name in SECONDARY_COLOURS}
+    for name in classes.values():
+        summary[name] += 1
+    return {'source': 'mdtraj.compute_dssp', 'route': '-dssp', 'residues': len(letters),
+            'letters': {str(number): letter for number, letter in enumerate(letters, 1)},
+            'protein_residues': len(letters), 'classes': classes, 'summary': summary, 'detail': None}
+
+
+#: Every representation's own selection, its resolved colours and the atoms it covers, read off the loaded component
+#: -- the same seam the bead tests use (`el.previewStage.compList[0]`), so what is measured is what is drawn.
+MEASURE_REPRESENTATIONS = """
+(el) => {
+  const component = el.previewStage.compList[0];
+  const structure = component.structure;
+  const atoms = [];
+  for (let index = 0; index < structure.atomCount; index += 1) {
+    const atom = structure.getAtomProxy(index);
+    atoms.push({resname: atom.resname.trim(), atomname: atom.atomname.trim(), resno: atom.resno});
+  }
+  const reps = component.reprList.map(rep => {
+    const parameters = rep.repr.getColorParams();
+    // The selection string a representation was drawn with: this build keeps it on `getParameters()`, which is where
+    // NGL itself reads it back from (`repr.parameters` does not carry it).
+    const requested = rep.repr.getParameters();
+    const sele = requested.sele || '*';
+    // A selection object's `test` is a method only when the string parsed; a parse failure leaves a boolean, which is
+    // what makes a mistyped selection fail a test here rather than quietly covering every atom.
+    const selection = new NGL.Selection(sele);
+    const test = selection.atomOnlyTest || selection.test;
+    if (typeof test !== 'function') throw new Error(`the selection ${JSON.stringify(sele)} does not parse`);
+    const scheme = NGL.ColormakerRegistry.getScheme(parameters);
+    const covered = [], colours = [];
+    for (let index = 0; index < structure.atomCount; index += 1) {
+      const atom = structure.getAtomProxy(index);
+      if (!test(atom)) continue;
+      covered.push(index);
+      colours.push(scheme.atomColor(atom).toString(16).padStart(6, '0'));
+    }
+    return {type: rep.repr.type, scheme: parameters.scheme, value: parameters.value || null, sele: sele,
+            atoms: covered, colours: colours};
+  });
+  return {atoms: atoms, count: structure.atomCount, bonds: structure.bondStore.count, reps: reps};
+}
+"""
+
+
+def drawn_colours(measured):
+    """The colour each atom is drawn in, from the representations that cover it."""
+    colours = {}
+    for rep in measured['reps']:
+        for index, colour in zip(rep['atoms'], rep['colours']):
+            colours[index] = '#' + colour
+    return colours
+
+
+def test_the_protein_backbone_is_drawn_in_its_residues_class_colour_and_the_legend_names_the_three(
+        dashboard, live_page):
+    """Measured off the loaded frame: each backbone bead its residue's class, each side chain its family, one legend.
+
+    Two residues are helix, one is a strand and one is coil, so a colouring that read one class for the whole protein
+    would show one colour here. Every atom is covered exactly once -- the class representations and the complement
+    below them are built from the same residue numbers -- and the detergents keep their polarity families, which is
+    the other table the same module carries.
+    """
+    page, errors = live_page
+    serve(page, answer(protein_frame(), secondary=secondary_basis(), protein_beads=len(PROTEIN_RESIDUES) * 2,
+                       beads=FRAME_ATOMS, clearance=0.51))
+    open_panel(page, live_page.base_url)
+    derive(page)
+    assert loaded_atoms(page, FRAME_ATOMS) == FRAME_ATOMS
+    measured = page.locator('.new-pdc-preview-viewer').evaluate(MEASURE_REPRESENTATIONS)
+
+    # The frame the writer wrote, read back: `PRO` for every protein bead, `BB` for its backbone, `DET` for the belt.
+    assert measured['atoms'][0] == {'resname': 'PRO', 'atomname': 'BB', 'resno': 1}, measured['atoms'][0]
+    residues = measured['atoms']
+    backbone = [index for index, atom in enumerate(residues) if atom['resname'] == 'PRO' and atom['atomname'] == 'BB']
+    sidechains = [index for index, atom in enumerate(residues)
+                  if atom['resname'] == 'PRO' and atom['atomname'] == 'SC1']
+    detergents = [index for index, atom in enumerate(residues) if atom['resname'] == 'DET']
+    assert len(backbone) == 4 and len(sidechains) == 4 and len(detergents) == MOLECULES * len(DDM_BEADS)
+
+    # No bead is drawn twice and none is dropped: the complement is the selections above it, not a second rule.
+    covered = sorted(index for rep in measured['reps'] for index in rep['atoms'])
+    assert covered == list(range(measured['count'])), covered
+
+    colours = drawn_colours(measured)
+    assert [colours[index] for index in backbone] == [SECONDARY_COLOURS['helix'], SECONDARY_COLOURS['helix'],
+                                                      SECONDARY_COLOURS['sheet'], SECONDARY_COLOURS['coil']]
+    # The protein's side chains have no secondary structure of their own, so they stay `family not stated`.
+    assert {colours[index] for index in sidechains} == {FAMILY_COLOURS['unstated']}
+    # And the belt is untouched by any of it: its beads are still their own polarity families' colours.
+    names = [name for _ in range(MOLECULES) for name in DDM_BEADS]
+    assert [colours[index] for index in detergents] == [FAMILY_COLOURS[DDM_FAMILIES[name]] for name in names]
+
+    # The legend beside the picture is the key to those three colours, and it is the module's table that draws it.
+    legend = page.locator('.new-pdc-preview .new-pdc-preview-secondary-legend')
+    expect(legend).to_be_visible()
+    entries = legend.locator('.bead-legend-item')
+    assert entries.count() == 3
+    names = [entries.nth(index).get_attribute('data-secondary-class') for index in range(3)]
+    assert names == ['helix', 'sheet', 'coil'], names
+    for index, name in enumerate(names):
+        item = entries.nth(index)
+        assert item.locator('.bead-legend-label').inner_text() == name
+        assert item.locator('.bead-legend-swatch').get_attribute('data-colour') == SECONDARY_COLOURS[name]
+        assert item.locator('.bead-legend-swatch').evaluate(
+            "el => getComputedStyle(el).backgroundColor") == rgb(SECONDARY_COLOURS[name])
+
+    # The counts are the server's own, printed beside the legend: a record of the assignment, not a measurement here.
+    expect(page.locator('.new-pdc-preview-secondary')).to_contain_text('1qj8: 2 helix, 1 sheet, 1 coil')
+    assert errors == [], errors
+
+
+def test_the_bonds_control_switches_the_protein_to_licorice_and_leaves_the_detergent_alone(dashboard, live_page):
+    """The control is a view of this frame: the protein's representations change shape, the belt's does not.
+
+    The frame carries the model's own bonds as `CONECT` records, drawn at a quarter of a bead's radius -- which the
+    beads at this card's 0.3 scale hide. `Bonds` redraws the protein's own representations as licorice, leaves the
+    detergent's `ball+stick` where it was, asks the server for nothing and leaves the state line saying the frame on
+    screen is the one this form asked for.
+    """
+    page, errors = live_page
+    requests = []
+    serve(page, answer(protein_frame(), secondary=secondary_basis(), protein_beads=len(PROTEIN_RESIDUES) * 2,
+                       beads=FRAME_ATOMS, clearance=0.51), requests)
+    open_panel(page, live_page.base_url)
+    derive(page)
+    assert loaded_atoms(page, FRAME_ATOMS) == FRAME_ATOMS
+
+    def shapes():
+        measured = page.locator('.new-pdc-preview-viewer').evaluate(MEASURE_REPRESENTATIONS)
+        detergent, protein = [], []
+        for rep in measured['reps']:
+            names = {measured['atoms'][index]['resname'] for index in rep['atoms']}
+            (detergent if 'DET' in names else protein).append(rep['type'])
+        return {'detergent': detergent, 'protein': protein, 'bonds': measured['bonds']}
+
+    before = shapes()
+    assert before['protein'] and set(before['protein']) == {'ball+stick'}, before
+    assert set(before['detergent']) == {'ball+stick'}, before
+    assert before['bonds'] > 0, 'the frame carries no bond for the control to make readable'
+    assert len(requests) == 1
+
+    toggle = page.locator('.new-pdc-preview-bonds input')
+    toggle.check()
+    after = shapes()
+    assert set(after['protein']) == {'licorice'}, after
+    assert after['detergent'] == ['ball+stick'], f'the detergent was switched with the protein: {after}'
+    assert after['bonds'] == before['bonds'], 'the control changed which bonds are drawn'
+    # Nothing was asked of the server, and the frame is still the one the form asked for: this is a view, not a
+    # different placement.
+    assert len(requests) == 1, requests
+    expect(page.locator('.new-pdc-preview-state')).to_have_text(DERIVED)
+
+    toggle.uncheck()
+    assert set(shapes()['protein']) == {'ball+stick'}
+    assert errors == [], errors
+
+
+def test_a_frame_with_no_assignment_says_so_and_colours_nothing_by_structure(dashboard, live_page):
+    """martinize2's no-assignment case on the card: the reason it gave, no legend, and the beads in their families.
+
+    A protein whose structure neither DSSP source could assign is a real build (it is what `-maxwarn 1` is for), so
+    the card must neither invent a class nor leave a legend keyed to colours nothing resolved to. The frame is drawn
+    as one representation, exactly as it was before there was an assignment to carry.
+    """
+    page, errors = live_page
+    no_assignment = {'source': None, 'route': None, 'residues': 0, 'protein_residues': len(PROTEIN_RESIDUES),
+                     'letters': {}, 'classes': {}, 'summary': None,
+                     'detail': 'mdtraj is not importable: no module named mdtraj'}
+    serve(page, answer(protein_frame(), secondary=no_assignment, protein_beads=len(PROTEIN_RESIDUES) * 2,
+                       beads=FRAME_ATOMS, clearance=0.51))
+    open_panel(page, live_page.base_url)
+    derive(page)
+    assert loaded_atoms(page, FRAME_ATOMS) == FRAME_ATOMS
+
+    expect(page.locator('.new-pdc-preview-secondary')).to_contain_text(
+        'No secondary structure is drawn: mdtraj is not importable: no module named mdtraj')
+    expect(page.locator('.new-pdc-preview .new-pdc-preview-secondary-legend')).to_be_hidden()
+
+    measured = page.locator('.new-pdc-preview-viewer').evaluate(MEASURE_REPRESENTATIONS)
+    assert len(measured['reps']) == 1, 'an answer with no assignment drew more than one representation'
+    colours = drawn_colours(measured)
+    protein = [index for index, atom in enumerate(measured['atoms']) if atom['resname'] == 'PRO']
+    assert protein and {colours[index] for index in protein} == {FAMILY_COLOURS['unstated']}, colours
     assert errors == [], errors

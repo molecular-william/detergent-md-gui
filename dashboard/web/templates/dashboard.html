@@ -235,6 +235,12 @@
            aria-label="Coarse-grained protein and detergent belt inside the simulation box"></div>
       <div class="bead-legend" data-bead-legend
            aria-label="Bead colour by Martini 3 polarity family"></div>
+      {# The protein's backbone is coloured by secondary structure, and this is that key: the three classes come from
+         `ngl-beads.js`'s table, the same one the representations are coloured from, and the counts above it are the
+         assignment the server made. Both are hidden until a frame carries an assignment to decode. #}
+      <div class="bead-legend new-pdc-preview-secondary-legend" data-secondary-legend hidden
+           aria-label="Protein backbone colour by secondary structure"></div>
+      <p class="hint new-pdc-preview-secondary" role="status" hidden></p>
       <p class="hint new-pdc-preview-basis" role="status"></p>
       <p class="hint new-pdc-preview-shell" role="status" hidden></p>
       <p class="hint new-pdc-preview-capacity" role="status" hidden></p>
@@ -243,6 +249,11 @@
       <div class="new-pdc-preview-actions">
         <button type="button" class="secondary new-pdc-preview-derive">Derive the preview</button>
         <button type="button" class="secondary new-pdc-preview-use-capacity" hidden>Use the measured count</button>
+        {# A view of the frame on screen, not an input to the derive: it switches the protein's beads to a licorice
+           stick so the model's own bonds are readable at this card's scale, and sends nothing to the server. #}
+        <label class="new-pdc-preview-bonds" title="Draw the protein as licorice sticks so the model's own bonds are visible">
+          <input type="checkbox"> Bonds
+        </label>
         <span class="hint new-pdc-preview-state" role="status">Nothing derived yet: press Derive the preview.</span>
       </div>
 
@@ -265,6 +276,15 @@
         states, times this card's own reading scale; the colours are the beads' Martini 3 polarity families, resolved
         from the code the writer puts in the file's b-factor column. Both tables are <code>ngl-beads.js</code>'s, and
         the legend under the picture names them, so this card and the run's own viewer cannot draw one bead two ways.</p>
+
+      <p class="hint"><strong>The protein's backbone is coloured by secondary structure, and its bonds can be made
+        visible.</strong> The assignment is the one martinize2 coarse-grained the protein with — mdtraj's DSSP, run
+        before the beads — and each backbone bead takes the class of the residue it belongs to: helix, sheet or coil,
+        from the second legend under the picture, with that assignment's own counts beside it. A backbone bead whose
+        residue the frame cannot give one class to is drawn in its family colour instead, because a colour there would
+        claim a secondary structure the assignment does not state. <em>Bonds</em> switches the protein's own beads to
+        licorice sticks so the model's bonds — this frame's own <code>CONECT</code> records — read at the scale the
+        beads are drawn at; it is a view of the frame and changes nothing the build derives.</p>
 
       <p class="hint"><strong>What it does not show.</strong></p>
       <ul class="hint new-pdc-preview-nots">

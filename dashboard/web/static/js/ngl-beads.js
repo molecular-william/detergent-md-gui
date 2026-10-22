@@ -84,6 +84,49 @@ export function renderBeadLegend(host) {
   return list;
 }
 
+// A protein bead's colour can say one of two things, and they are different questions: a detergent bead's *polarity
+// family* (above), and a backbone bead's *secondary structure*. The second is DSSP's, sorted into the three classes
+// `execution/pdc_preview.py`'s one table sorts the letters into -- `H G I` helix, `E B` sheet, everything else coil --
+// and the residue each bead belongs to comes from the server, which assigned it before the beads were drawn. This is
+// the one table of the browser's end of it: the three colours, the three names, and the legend below drawn from the
+// same two, so a swatch and a bead cannot disagree (`renderSecondaryLegend`, beside `renderBeadLegend`).
+export const SECONDARY_CLASS_ORDER = ['helix', 'sheet', 'coil'];
+export const SECONDARY_CLASS_COLOURS = {helix: '#e03131', sheet: '#f59f00', coil: '#495057'};
+export const SECONDARY_CLASS_LABELS = {helix: 'helix', sheet: 'sheet', coil: 'coil'};
+
+//: The atom name martinize2 gives a residue's backbone bead, read off a real frame rather than assumed (1AT9 through
+//: martinize2: 928 beads, 379 residues): the backbone bead is `BB` and the side chains are `SC1`..`SC5`. The residue
+//: *name* cannot be used to tell a protein bead from a detergent one in a viewer's selection -- `pdc_view.system_pdb`
+//: writes every protein bead `PRO` whatever amino acid it stands for, and this vendored NGL's grammar has no `resname`
+//: keyword at all (measured in the page: `resname PRO` is a parse error and `:PRO` is read as a chain) -- so the atom
+//: name is what identifies a backbone bead, and the residue *numbers* a selection filters on come from the assignment,
+//: which is protein by construction.
+export const PROTEIN_BACKBONE = 'BB';
+
+export function renderSecondaryLegend(host) {
+  // The same rule as the family legend, over the other table: the swatch a reader decodes a coloured backbone with is
+  // the colour the class' representation was given, because both come from `SECONDARY_CLASS_COLOURS`.
+  if (!host) return null;
+  const list = document.createElement('ul');
+  list.className = 'bead-legend-list';
+  for (const name of SECONDARY_CLASS_ORDER) {
+    const item = document.createElement('li');
+    item.className = 'bead-legend-item';
+    item.dataset.secondaryClass = name;
+    const swatch = document.createElement('span');
+    swatch.className = 'bead-legend-swatch';
+    swatch.dataset.colour = SECONDARY_CLASS_COLOURS[name];
+    swatch.style.backgroundColor = SECONDARY_CLASS_COLOURS[name];
+    const label = document.createElement('span');
+    label.className = 'bead-legend-label';
+    label.textContent = SECONDARY_CLASS_LABELS[name];
+    item.append(swatch, label);
+    list.append(item);
+  }
+  host.replaceChildren(list);
+  return list;
+}
+
 //: The stand-in element each class' beads are written with (`models/compositions/topology.py`'s `render_pdb` and
 //: `execution/adapters/pdc_view.py`'s `system_pdb` both choose it), read back here so a file that states only
 //: elements can still say which class its beads are.

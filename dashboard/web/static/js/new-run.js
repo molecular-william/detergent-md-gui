@@ -1,6 +1,7 @@
 import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResource, guarded, DROP, panelIds } from './shared.js';
 import { createGpuDevice } from './gpu-device.js';
-import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, applyBeadRadii, renderBeadLegend } from './ngl-beads.js';
+import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, SECONDARY_CLASS_COLOURS, SECONDARY_CLASS_ORDER,
+         PROTEIN_BACKBONE, applyBeadRadii, renderBeadLegend, renderSecondaryLegend } from './ngl-beads.js';
 
 //: The workspace whose New Run panel this module's pdc mode serves.
 const PDC_WORKSPACE = 'protein-detergent';
@@ -1357,7 +1358,102 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     return query;
   }
 
-  function showPreviewFrame(pdb) {
+  // The picture's own representations ----------------------------------------------------------------------------
+  //
+  // One frame, and three different things said about the beads in it:
+  //
+  // * the **detergent's** beads on their Martini 3 polarity family, which is the code the file carries in its b-factor
+  //   column and the one thing a bead's size cannot say;
+  // * the protein's **side chains** -- and any backbone bead the assignment leaves unstated -- on that same family,
+  //   which for a protein bead is `family not stated` and stays that way: a side chain has no secondary structure of
+  //   its own; and
+  // * the protein's **backbone** beads on the secondary structure of the residue each belongs to, from the assignment
+  //   the server put in `basis.secondary_structure` -- keyed by the residue number this very frame gives it, so no
+  //   number is measured here.
+  //
+  // One representation per class, over NGL's own selections on those residue numbers, rather than a rewritten file:
+  // the frame is the artifact the run records as its first snapshot, and its b-factor column already means the
+  // family. A residue the assignment does not give one class to -- its frame number holds two residues of different
+  // classes, or it is not in the payload at all -- is drawn with the protein's side chains in its family colour: a
+  // backbone bead is never given a structure the server did not state for its own residue.
+  //
+  // The protein's representations are the ones the **Bonds** control switches: `ball+stick` at the card's own scale,
+  // or `licorice`, which hides the ball and leaves a stick at a quarter of the bead's radius -- the shape the model's
+  // own `CONECT` records need to be visible inside beads drawn at 0.3 of their size. The detergent's representation
+  // is `ball+stick` either way.
+  //
+  // The selections name the backbone's atom name and the residue numbers the assignment carries, because that is what
+  // this vendored NGL's grammar understands: measured in the page, `resname PRO` is a parse error and `:PRO` is read
+  // as a chain, while `.BB` and bare `1-4` are the atom name and the residue range. Both are protein and nothing else
+  // is: the numbers come from the assignment, which has one entry per protein residue, and `BB` is martinize2's
+  // backbone bead (`ngl-beads.js` `PROTEIN_BACKBONE`).
+  const PREVIEW_BACKBONE = `.${PROTEIN_BACKBONE}`;
+
+  //: A list of residue numbers as one selection term, runs of them collapsed: `1-4 or 9`, which is the spelling this
+  //: NGL build parses. A protein of 379 residues arrives as a hundred such runs, and the selection is a string.
+  function residueSelection(numbers) {
+    const sorted = [...new Set(numbers)].filter(Number.isFinite).sort((a, b) => a - b);
+    const runs = [];
+    for (const number of sorted) {
+      const last = runs[runs.length - 1];
+      if (last && number === last[1] + 1) last[1] = number; else runs.push([number, number]);
+    }
+    return runs.map(([first, last]) => (first === last ? `${first}` : `${first}-${last}`)).join(' or ');
+  }
+
+  //: The residue numbers the assignment gives each class, from the payload as it arrived. A `null` class -- the
+  //: frame cannot tell two residues apart under one number -- is not in any of the three, and is drawn as family.
+  function secondaryGroups(assignment) {
+    const groups = {helix: [], sheet: [], coil: []};
+    for (const [resno, name] of Object.entries(assignment?.classes || {})) {
+      if (name in groups) groups[name].push(Number(resno));
+    }
+    return groups;
+  }
+
+  // The loaded frame and the assignment it is coloured with, kept on the host element beside `previewStage`: the
+  // Bonds control redraws the representations of the frame that is already here rather than asking the server for it
+  // again, and this is the state that redraw needs.
+  function drawPreviewRepresentations() {
+    const host = previewNode('.new-pdc-preview-viewer'), component = host?.previewComponent;
+    if (!component) return;
+    for (const representation of [...component.reprList]) component.removeRepresentation(representation);
+    // Read from the control at drawing time, so the two cannot drift: the control is a view of this frame, never an
+    // input to it -- it is absent from `previewInputs`, sends nothing, and leaves the state line saying the frame on
+    // screen is the one this form asked for.
+    const bonds = !!previewNode('.new-pdc-preview-bonds input')?.checked;
+    const protein = bonds ? 'licorice' : 'ball+stick';
+    const beads = {...BEAD_RADIUS_PARAMETERS, ...BEAD_FAMILY_PARAMETERS};
+    const assignment = host.previewSecondary;
+    const groups = secondaryGroups(assignment);
+    const coloured = [...groups.helix, ...groups.sheet, ...groups.coil];
+    // Every residue number the assignment carries is a protein residue's -- a `null` class is a residue the frame
+    // could not give one class to, not an absent one -- so its complement in the frame is the detergent's.
+    const proteinResidues = Object.keys(assignment?.classes || {}).map(Number);
+    if (!coloured.length || !proteinResidues.length) {
+      // No assignment to draw: one representation of the whole frame, which is what this card drew before it had
+      // one -- the beads on their families, and nothing claimed about a structure that was not stated.
+      component.addRepresentation('ball+stick', {sele: '*', ...beads});
+      return;
+    }
+    const residues = residueSelection(proteinResidues);
+    // The detergent's own beads, always `ball+stick`: what a detergent is doing in this picture does not depend on
+    // how a reader wants to read the protein's bonds.
+    component.addRepresentation('ball+stick', {sele: `not (${residues})`, ...beads});
+    // The protein's beads that are not a class' backbone: its side chains, and any residue the assignment does not
+    // name. Built as the complement of the very selections below, so no bead is drawn twice and none is dropped.
+    component.addRepresentation(protein, {
+      sele: `(${residues}) and not (${PREVIEW_BACKBONE} and (${residueSelection(coloured)}))`, ...beads});
+    for (const name of SECONDARY_CLASS_ORDER) {
+      if (!groups[name].length) continue;
+      component.addRepresentation(protein, {
+        sele: `${PREVIEW_BACKBONE} and (${residueSelection(groups[name])})`,
+        ...BEAD_RADIUS_PARAMETERS, colorScheme: 'uniform', colorValue: SECONDARY_CLASS_COLOURS[name],
+      });
+    }
+  }
+
+  function showPreviewFrame(pdb, assignment) {
     const host = previewNode('.new-pdc-preview-viewer');
     if (!host || typeof NGL === 'undefined') return;
     // The stage is built the moment there is something to draw, and asked to resize on a tab show and a window
@@ -1366,16 +1462,18 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     if (!host.previewStage) host.previewStage = new NGL.Stage(host, {backgroundColor: 'white'});
     const stage = host.previewStage;
     stage.removeAllComponents();
+    host.previewComponent = null;
+    host.previewSecondary = assignment || null;
     // The guess is off, not optional. A coarse-grained bead has no element and no covalent radius, so NGL's
     // distance-based `inferBonds` draws head beads onto tail beads -- measured in `pdc.js` at 90 bonds on a frame
     // the model bonds 60 ways. The file carries the model's own bonds as CONECT records whenever the build has a
     // mapping; when it carries none (a centres-only build, one bead per molecule) there is no bond to draw at all.
     stage.loadFile(new Blob([pdb], {type: 'text/plain'}), {ext: 'pdb', inferBonds: 'none'}).then(component => {
       applyBeadRadii(component.structure, {scale: PREVIEW_BEAD_SCALE});
-      // Both of the module's answers go on the one representation: the radius each bead's own size class gives it,
-      // and the colour its own type family gives it -- `BEAD_FAMILY_PARAMETERS` colours from the family code the
-      // writer put in the file's b-factor column, over a fixed domain so a bead's colour is its family's.
-      component.addRepresentation('ball+stick', {...BEAD_RADIUS_PARAMETERS, ...BEAD_FAMILY_PARAMETERS});
+      host.previewComponent = component;
+      // Both of the module's answers go on the representations: the radius each bead's own size class gives it, and
+      // the colour its type family -- or its residue's secondary structure -- gives it.
+      drawPreviewRepresentations();
       component.autoView();
       stage.handleResize();
     }).catch(error => sayPreview('.new-pdc-preview-basis',
@@ -1442,12 +1540,38 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     }
   }
 
+  // The secondary-structure sentence and its legend. The counts are the server's own -- `summary` is counted from
+  // the letters it assigned -- and the protein's name is the one the basis named, so the card prints a record rather
+  // than a measurement of its own. When the answer carries no assignment the card says so and names the reason the
+  // server gave; when it carries one, the legend under the picture is the key to the backbone's three colours, and
+  // both come from `ngl-beads.js`'s one table.
+  function renderPreviewSecondary(basis) {
+    const assignment = basis?.secondary_structure || null, legend = previewNode('.new-pdc-preview-secondary-legend');
+    const note = previewNode('.new-pdc-preview-secondary');
+    const groups = secondaryGroups(assignment);
+    const coloured = groups.helix.length + groups.sheet.length + groups.coil.length;
+    if (legend) legend.hidden = !coloured;
+    if (!note) return;
+    note.hidden = !assignment;
+    if (!assignment) { setText(note, ''); return; }
+    if (!coloured) {
+      const reason = assignment.detail || 'the assignment could not be keyed to this frame';
+      setText(note, `No secondary structure is drawn: ${reason}`);
+      return;
+    }
+    const summary = assignment.summary || {};
+    const counts = SECONDARY_CLASS_ORDER.map(name => `${Number(summary[name] || 0).toLocaleString()} ${name}`);
+    setText(note, `${basis.protein || 'the protein'}: ${counts.join(', ')}`
+      + ' — the protein\u2019s backbone beads, coloured by the residue each one belongs to');
+  }
+
   function renderPreviewFrame(body) {
     const basis = body.basis || {}, cost = body.cost || {}, box = basis.box_nm || [];
     const viewer = previewNode('.new-pdc-preview-viewer'), refusal = previewNode('.new-pdc-preview-refusal');
     if (refusal) { refusal.hidden = true; refusal.textContent = ''; }
     if (viewer) viewer.hidden = false;
-    showPreviewFrame(body.pdb || '');
+    showPreviewFrame(body.pdb || '', basis.secondary_structure);
+    renderPreviewSecondary(basis);
     sayPreview('.new-pdc-preview-basis', `Placement for ${describeFrame(basis)} · `
       + `${Number(basis.beads).toLocaleString()} beads · box ${box.map(value => Number(value).toFixed(2)).join(' × ')} nm `
       + '· before any dynamics, so no solvent and no ions'
@@ -1491,7 +1615,14 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     // The canvas belongs to NGL, not to this card: only its components are dropped, so a later frame still has
     // somewhere to draw. Emptying the host is what detaches it, and then no frame can be drawn again.
     previewStage()?.removeAllComponents();
+    const host = previewNode('.new-pdc-preview-viewer'), secondaryLegend = previewNode('.new-pdc-preview-secondary-legend');
+    const secondaryNote = previewNode('.new-pdc-preview-secondary');
+    if (host) { host.previewComponent = null; host.previewSecondary = null; }
     if (viewer) viewer.hidden = true;
+    // A refusal draws nothing, so it has no backbone to colour and no counts to print: both say nothing rather than
+    // leaving the last frame's legend and numbers beside a sentence about a system that was not built.
+    if (secondaryLegend) secondaryLegend.hidden = true;
+    if (secondaryNote) { secondaryNote.hidden = true; setText(secondaryNote, ''); }
     if (refusal) {
       refusal.hidden = false;
       // The builder's own sentence, and the scope it belongs to: a refusal from the sphere is not a verdict on the
@@ -1605,6 +1736,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   field('aggregation_number').addEventListener('input', previewMoved);
   for (const name of ['pdc_seed', 'box_margin_nm', 'initial_z_nm']) field(name)?.addEventListener('input', previewMoved);
   pdcNode('.new-pdc-preview-derive')?.addEventListener('click', derivePreview);
+  // The Bonds control is a view of the frame on screen and nothing else: it redraws the protein's own
+  // representations in `licorice` so the model's CONECT records read as sticks, leaves the detergent's as they were,
+  // and -- because it is not in `previewInputs` and sends no request -- cannot be mistaken for a different placement.
+  pdcNode('.new-pdc-preview-bonds input')?.addEventListener('change', () => { drawPreviewRepresentations(); });
   // The count the placement measured, put into the count field exactly as a reader typing it would: the field's own
   // `input` listener re-derives the frame (and the estimate and the readiness gate with it), so this button queues
   // nothing and starts no run.
@@ -1672,8 +1807,11 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     $('#start-run').disabled = true;
     mounting = (async () => {
       const remembered = saved();
-      // The legend the beads are decoded with, filled from `ngl-beads.js`'s one family table at mount.
+      // The legend the beads are decoded with, filled from `ngl-beads.js`'s one family table at mount -- and beside
+      // it the secondary structure's, from that module's other table. Neither is drawn until the frame answers with
+      // something to decode, which is why the second one starts hidden.
       renderBeadLegend(pdcNode('.new-pdc-preview .bead-legend'));
+      renderSecondaryLegend(pdcNode('.new-pdc-preview .new-pdc-preview-secondary-legend'));
       await Promise.all([loadCatalogue(), loadDetergents()]);
       // After the picks that decide what this build is: the device list is a host fact and a status line, not a
       // precondition for the form.

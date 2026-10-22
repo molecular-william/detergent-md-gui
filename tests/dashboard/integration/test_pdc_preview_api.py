@@ -287,6 +287,11 @@ def test_a_real_cold_and_warm_preview_pay_the_coarse_graining_once(dashboard, mo
     assert cold['pdb'] == warm['pdb'], 'the cached beads must give the same frame as the ones the tool wrote'
     assert cold['basis']['protein_beads'] > 0 and cold['basis']['beads'] > cold['basis']['protein_beads']
     assert cold['basis']['clearance_nm'] is not None, 'the sphere placement reports how close it got'
+    # The assignment survives the cache: `pdc_build.cg_protein` reports none for an entry it did not build, so the
+    # warm derive reads the one kept beside the beads rather than losing the colours on the second ask.
+    assignment = cold['basis']['secondary_structure']
+    assert assignment['letters'] and assignment['summary'], assignment
+    assert warm['basis']['secondary_structure'] == assignment
 
     # The cache is the workspace's own scratch area, and it is not a run: nothing appears in the runs list.
     assert (dashboard.paths.workspace / 'preview/cg').is_dir()

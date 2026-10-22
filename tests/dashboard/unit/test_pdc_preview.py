@@ -9,7 +9,10 @@ The claims this file pins are the plan's, and none of them is a claim about a dr
 * the frame is deterministic in the seed, which is what lets the panel say "this is the frame the run will build"
   rather than "this is roughly what it might look like";
 * a refusal is the builder's own sentence with no coordinates at all -- never a picture of a system the build would
-  refuse, and never a blank.
+  refuse, and never a blank;
+* the protein's **secondary structure**, which martinize2 was coarse-grained with, travels in the basis keyed by the
+  residue number the frame gives each residue -- the letters, the three classes they sort into and their counts -- and
+  a residue the frame cannot give one class to is left unstated rather than guessed into one.
 
 Fixtures are built here, and nothing reads the developer's workspace. Two read-only *inputs* do come from the
 checkout: `molecules/DDM`, which a fixture mapping is derived against, and the published Martini 3 set the derivation
@@ -233,12 +236,16 @@ def strict_loads(text):
     return json.loads(text, parse_constant=reject)
 
 
-def stubbed_cg(beads):
-    """A `coarse_grained` that answers with `beads`, so a test can hand the placement the protein it needs."""
+def stubbed_cg(beads, secondary=None):
+    """A `coarse_grained` that answers with `beads`, so a test can hand the placement the protein it needs.
+
+    `secondary` is the assignment that step would report (`pdc_build.secondary_structure`'s own record), because the
+    basis now carries it: a stub that says nothing about it is a build on which no secondary structure was assigned.
+    """
     return lambda *args, **kwargs: (beads, {'cached': False, 'seconds': 0.5, 'key': 'stub',
                                             'path': str(kwargs.get('entry') or ''), 'beads_bytes': 0,
                                             'dropped_residues': [], 'protein_input': 'protein.pdb',
-                                            'command': None, 'secondary_structure': None})
+                                            'command': None, 'secondary_structure': secondary})
 
 
 def refuses_at_template_load(tmp_path, monkeypatch):
@@ -489,3 +496,184 @@ def test_the_preview_says_which_tool_it_would_have_to_run(tmp_path, monkeypatch)
     assert calls and calls[0]['command'][0] == str(executable), (
         'the resolved tool is the command, not the bare name a stage relies on its own PATH for')
     assert answer['basis']['protein'] == 'protein', 'a resolution the caller made does not change what is drawn'
+
+
+# --- the secondary structure the assignment carries ------------------------------------------------------------
+#
+# The assignment was computed and then dropped: `pdc_build.secondary_structure` hands martinize2 the letters, the CG
+# beads are built from them, and every protein bead came back `family not stated` on the card. What these tests pin is
+# that the letters reach the basis *keyed by the residue number the frame itself gives each residue* -- the number a
+# viewer selects on -- together with the three classes they sort into and their counts, and that a residue the frame
+# cannot give one class to is left unstated rather than guessed into one.
+
+#: Eight residues as martinize2 writes them: a backbone bead and one side-chain bead each, in bead order. The
+#: residue names are the amino acids of the tool's own file -- the frame below renames them all `PRO`, so they are
+#: here to make the fixture the shape a real coarse-grained protein has, not to be read back.
+RESIDUES = ['ALA', 'GLY', 'SER', 'THR', 'VAL', 'LEU', 'ILE', 'PHE']
+
+
+def cg_residues(names, *, ids=None, backbone='BB') -> list[dict]:
+    """A coarse-grained protein's beads, one residue group after another: a backbone bead, then one side chain."""
+    beads = []
+    for index, name in enumerate(names, 1):
+        residue_id = index if ids is None else ids[index - 1]
+        beads.append({'residue_id': residue_id, 'residue': name, 'name': backbone,
+                      'position': [0.4 * index, 0.0, 0.0]})
+        beads.append({'residue_id': residue_id, 'residue': name, 'name': 'SC1',
+                      'position': [0.4 * index, 0.35, 0.0]})
+    return beads
+
+
+def assignment(letters, *, source=pdc_build.SS_SOURCE):
+    """`pdc_build.secondary_structure`'s record, for letters a test plants."""
+    return {'source': source, 'route': '-dssp', 'residues': len(letters), 'letters': letters,
+            **pdc_build.martini_classes(letters)}
+
+
+def assigned_preview(tmp_path, monkeypatch, record, beads=None):
+    """A preview whose coarse-graining is stubbed with `beads` and the assignment `record`."""
+    beads = cg_residues(RESIDUES) if beads is None else beads
+    monkeypatch.setattr(pdc_preview, 'coarse_grained', stubbed_cg(beads, record))
+    return preview(tmp_path, protein=str(protein(tmp_path)), chains=['A'], mapping=None, aggregation_number=12)
+
+
+def test_the_basis_carries_the_assignment_keyed_the_way_the_frame_names_its_residues(tmp_path, monkeypatch):
+    """The letters, the classes and the counts travel with the frame -- keyed by its own residue numbers.
+
+    The letters are planted (`H H G I E B C S`, so every class is in play), and the keys are read back out of the
+    frame the service returns rather than taken on trust: the backbone beads the file holds at residue 1..8 are the
+    residues the assignment is keyed for, which is what makes the payload usable as a selection.
+    """
+    answer = assigned_preview(tmp_path, monkeypatch, assignment('HHGIEBCS'))
+
+    assert answer['valid'], answer['reasons']
+    secondary = answer['basis']['secondary_structure']
+    assert secondary['source'] == pdc_build.SS_SOURCE and secondary['route'] == '-dssp'
+    assert secondary['detail'] is None
+    assert secondary['residues'] == 8 and secondary['protein_residues'] == 8
+
+    # The frame's own residue numbers, read from the file: every backbone bead is a `PRO` residue's `BB` atom, one
+    # per residue, and there are exactly as many as the assignment has letters.
+    frame = [line for line in answer['pdb'].splitlines() if line.startswith('HETATM')]
+    backbone = {int(line[22:26]): line[12:16].strip() for line in frame if line[17:20].strip() == 'PRO'
+                and line[12:16].strip() == 'BB'}
+    assert sorted(backbone) == list(range(1, 9)), backbone
+    assert sorted(secondary['classes']) == [str(number) for number in range(1, 9)]
+
+    assert secondary['letters'] == {str(number): letter for number, letter in enumerate('HHGIEBCS', 1)}
+    # One table, applied: `H G I` helix, `E B` sheet, everything else -- `C` and `S` here -- coil.
+    assert secondary['classes'] == {'1': 'helix', '2': 'helix', '3': 'helix', '4': 'helix',
+                                    '5': 'sheet', '6': 'sheet', '7': 'coil', '8': 'coil'}
+    # Counted from the letters, so the three add up to the assignment rather than to what could be drawn.
+    assert secondary['summary'] == {'helix': 4, 'sheet': 2, 'coil': 2}
+    assert sum(secondary['summary'].values()) == 8
+
+
+def test_a_residue_number_two_chains_share_is_left_unstated_when_their_classes_differ(tmp_path, monkeypatch):
+    """The one case this writer makes: `(name, residue_id)` names a residue, so two chains' `LEU 19` collide.
+
+    A frame residue number that holds a helix and a coil cannot be coloured: one colour there would claim a structure
+    one of the two beads does not have. The number is `null` in both the letters and the classes -- drawn in its
+    family colour by the panel -- while the summary still counts both letters, because it is a statement about the
+    protein's assignment rather than about what could be drawn.
+    """
+    beads = cg_residues(['LEU', 'ALA', 'LEU'], ids=[19, 20, 19])
+    answer = assigned_preview(tmp_path, monkeypatch, assignment('HHC'), beads=beads)
+
+    assert answer['valid'], answer['reasons']
+    secondary = answer['basis']['secondary_structure']
+    assert secondary['protein_residues'] == 3, 'each residue group is its own occurrence, collisions included'
+    assert secondary['classes'] == {'1': None, '2': 'helix'}, secondary['classes']
+    assert secondary['letters'] == {'1': None, '2': 'H'}, secondary['letters']
+    assert secondary['summary'] == {'helix': 2, 'sheet': 0, 'coil': 1}
+
+    # And the frame agrees: both `LEU 19` groups really do carry residue number 1, which is why they share one.
+    numbers = [int(line[22:26]) for line in answer['pdb'].splitlines()
+               if line.startswith('HETATM') and line[12:16].strip() == 'BB']
+    assert numbers == [1, 2, 1], numbers
+
+
+def test_an_assignment_that_does_not_match_the_frame_is_refused_rather_than_shifted(tmp_path, monkeypatch):
+    """Letters for a different number of residues cannot be keyed, and a guess is not an answer."""
+    answer = assigned_preview(tmp_path, monkeypatch, assignment('HHEE'))
+
+    assert answer['valid'], answer['reasons']
+    secondary = answer['basis']['secondary_structure']
+    assert secondary['classes'] == {} and secondary['letters'] == {} and secondary['summary'] is None
+    assert '4 letters' in secondary['detail'] and '8 residues' in secondary['detail'], secondary['detail']
+
+
+def test_a_protein_with_no_assignment_says_so_and_names_the_reason(tmp_path, monkeypatch):
+    """martinize2's documented no-assignment case: the card is told why, rather than being handed empty keys."""
+    record = {'source': None, 'detail': 'mdtraj is not importable: no module named mdtraj'}
+    answer = assigned_preview(tmp_path, monkeypatch, record)
+
+    assert answer['valid'], answer['reasons']
+    secondary = answer['basis']['secondary_structure']
+    assert secondary['source'] is None and secondary['classes'] == {} and secondary['summary'] is None
+    assert secondary['detail'] == 'mdtraj is not importable: no module named mdtraj'
+
+
+def test_a_refusal_carries_no_assignment_because_it_carries_no_frame(tmp_path, monkeypatch):
+    """A refusal draws nothing, so it has no residues to give a class to -- and says that rather than naming one."""
+    monkeypatch.setattr(pdc_preview, 'coarse_grained', stubbed_cg(shell(3.2), assignment('HH')))
+    answer = preview(tmp_path, protein=str(protein(tmp_path)), chains=['A'], mapping=None, aggregation_number=60)
+
+    assert answer['valid'] is False and answer['pdb'] is None
+    assert answer['basis']['secondary_structure'] is None
+
+
+def test_a_build_with_no_protein_has_no_assignment_to_carry(tmp_path):
+    """An empty micelle coarse-grains nothing, so there is no protein whose structure could be stated."""
+    answer = preview(tmp_path, aggregation_number=40, mapping=None)
+
+    assert answer['valid'] and answer['basis']['secondary_structure'] is None
+
+
+def test_the_three_classes_are_martinize2s_own_partition():
+    """The table cannot disagree with the tool's: vermouth's `SS_CG` sorts the same letters the same three ways.
+
+    `pdc_build.martini_classes` counts with `SS_CG` -- what martinize2 runs over the letters before it builds
+    anything -- so this is the one place the two spellings are compared: helix for `H G I`, `sheet` here for its
+    `extended` (`E B`), and coil for the rest.
+    """
+    martini = {'helix': 'helix', 'extended': 'sheet', 'coil': 'coil'}
+    for letter in sorted(pdc_build.DSSP_LETTERS):
+        counts = pdc_build.martini_classes(letter)
+        expected = next(martini[name] for name, count in counts.items() if count)
+        assert pdc_preview.secondary_class(letter) == expected, letter
+    # A letter outside either alphabet is a coil, not an exception: the table states a rule, not a lookup that fails.
+    assert pdc_preview.secondary_class('-') == 'coil' and pdc_preview.secondary_class('') == 'coil'
+
+
+def test_a_reused_cache_entry_keeps_the_assignment_martinize2_was_built_with(tmp_path, monkeypatch):
+    """A warm derive must not lose the letters, and must not pay for them twice.
+
+    `pdc_build.cg_protein` reports the assignment only when it *ran* martinize2: a re-used entry answers that the file
+    was already there, which says nothing about the structure. The preview therefore assigns a re-used entry the same
+    way it was assigned the first time and keeps the answer beside the beads -- so the second derive of the same
+    protein answers with the same letters, from the entry's own record, without a second assignment.
+    """
+    calls = []
+    monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_martinize2(calls))
+    planted = assignment('H')
+
+    def assign(structure, *args, **kwargs):
+        calls.append(('assign', str(structure)))
+        return planted
+
+    monkeypatch.setattr(pdc_build, 'secondary_structure', assign)
+    query = {'protein': str(protein(tmp_path)), 'chains': ['A'], 'mapping': None, 'aggregation_number': 12}
+
+    cold = preview(tmp_path, **query)
+    warm = preview(tmp_path, **query)
+
+    assert cold['cost']['cg_cached'] is False and warm['cost']['cg_cached'] is True
+    assignments = [call for call in calls if isinstance(call, tuple) and call[0] == 'assign']
+    assert len(assignments) == 1, f'the assignment was paid for {len(assignments)} times'
+    for answer in (cold, warm):
+        secondary = answer['basis']['secondary_structure']
+        assert secondary['letters'] == {'1': 'H'} and secondary['summary'] == {'helix': 1, 'sheet': 0, 'coil': 0}
+    assert cold['basis']['secondary_structure'] == warm['basis']['secondary_structure']
+    entry = tmp_path / 'cache' / cold['cost']['cg_key']
+    assert (entry / pdc_preview.SECONDARY_RECORD).is_file(), 'the assignment is kept beside the beads it was made for'
