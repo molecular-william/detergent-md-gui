@@ -129,3 +129,128 @@ def test_the_derivation_against_the_repositorys_own_ddm(tmp_path):
     assert '[ moleculetype ]\nDDM 1' in draft['topology']
     assert '[ atoms ]' in draft['topology'] and '[ bonds ]' in draft['topology']
     assert draft['topology'].count('\n') >= 8, 'the topology carries atoms and the terms that were generated'
+
+
+# --- adopting a fitted parameterization -----------------------------------------------------------
+
+#: A fit's own topology, with its own header and its own terms: the export names `B01`.. are what a fit writes, and
+#: the mapping names these beads `S1A`.. The numbers are arbitrary on purpose -- a test that borrowed a fit's numbers
+#: would pass while the wiring did nothing.
+FITTED = """; This file was generated using the following command:
+; ff_inter -f ../2_mapping/mapped.xtc -s ../2_mapping/mapped.gro -i DDM_initial.itp
+
+[ moleculetype ]
+DDM 1
+
+[ atoms ]
+ 1 SP1r 1 DDM B01  1 0.0 54.0
+ 2 SP1r 1 DDM B02  2 0.0 54.0
+ 3 TC4  1 DDM B03  3 0.0  0.0
+ 4 SN6  1 DDM B04  4 0.0 54.0
+ 5 C1   1 DDM B05  5 0.0 72.0
+
+[ bonds ]
+ 1  5 1 0.431 2690.007 ; B01_B05
+ 2  4 1 0.334 6309.064 ; B02_B04
+
+[ constraints ]
+ 1  2 1 0.259821
+
+[ angles ]
+ 2  1  5 1 137.802 107.554 ; B02_B01_B05
+
+[ exclusions ]
+ 3  1  2  4
+
+[ virtual_sitesn ]
+ 3 1  1  2  4
+"""
+
+
+def fitted_draft() -> dict:
+    """The mapping's side of the same molecule: five beads, in this order, with the mapping's own names."""
+    return {'residue': 'DDM', 'molecule_id': 'DDM',
+            'beads': [{'name': 'S1A', 'type': 'SP1r'}, {'name': 'S1B', 'type': 'SP1r'},
+                      {'name': 'S1VS', 'type': 'TC4'}, {'name': 'S2A', 'type': 'SN6'},
+                      {'name': 'TAIL1', 'type': 'C1'}]}
+
+
+def revision(topology: str = FITTED, **overrides) -> dict:
+    return {'revision': 2, 'engine': 'fast-forward', 'mapping_content_hash': 'f' * 64,
+            'terms': {'bonds': 2, 'constraints': 1, 'angles': 1, 'virtual_sitesn': 1},
+            'topology': topology, **overrides}
+
+
+def fields(line: str) -> list[str]:
+    return line.split(';', 1)[0].split()
+
+
+def atom_rows(text: str) -> list[list[str]]:
+    """The `[ atoms ]` rows: the lines a reader of a topology means when it says "the atoms"."""
+    section, rows = '', []
+    for line in text.splitlines():
+        content = line.split(';', 1)[0].strip()
+        if content.startswith('[') and content.endswith(']'):
+            section = content[1:-1].strip().lower()
+        elif content and section == 'atoms':
+            rows.append(content.split())
+    return rows
+
+
+def test_adopting_a_fit_renames_the_atoms_and_changes_nothing_else():
+    """The one transformation the build needs: `grompp` matches topology to coordinates by atom name."""
+    adopted = detergent_cg.adopt(fitted_draft(), revision())
+
+    assert adopted['topology'].startswith('; This file was generated using the following command:'), \
+        'the fit\'s header is not the run\'s to rewrite'
+    assert adopted['molecule'] == 'DDM' and '[ moleculetype ]\nDDM 1' in adopted['topology']
+    assert adopted['bead_names'] == ['S1A', 'S1B', 'S1VS', 'S2A', 'TAIL1']
+    assert adopted['terms'] == {'bonds': 2, 'constraints': 1, 'angles': 1, 'virtual_sitesn': 1}
+    rows = atom_rows(adopted['topology'])
+    assert [row[1] for row in rows] == ['SP1r', 'SP1r', 'TC4', 'SN6', 'C1'], 'the types are the fit\'s'
+    assert [row[4] for row in rows] == ['S1A', 'S1B', 'S1VS', 'S2A', 'TAIL1'], 'and the names are the mapping\'s'
+
+
+def test_adopting_a_fit_touches_only_the_name_column_of_the_atom_rows():
+    before, after = FITTED.splitlines(), detergent_cg.adopt(fitted_draft(), revision())['topology'].splitlines()
+
+    assert len(before) == len(after), 'a line was added or lost'
+    changed = [index for index, (old, new) in enumerate(zip(before, after)) if old != new]
+    assert len(changed) == 5, f'only the five atom rows may differ, and these did: {changed}'
+    for index in changed:
+        old, new = fields(before[index]), fields(after[index])
+        assert old[:4] == new[:4] and old[5:] == new[5:], f'line {index} changed more than its name column'
+        assert old[4] != new[4]
+        if ';' in before[index]:
+            assert before[index].split(';', 1)[1] == after[index].split(';', 1)[1], 'a comment is not a name'
+
+
+def test_adopting_a_fit_keeps_the_section_order():
+    def sections(text: str) -> list[str]:
+        return [line.strip() for line in text.splitlines() if line.strip().startswith('[')]
+
+    assert sections(detergent_cg.adopt(fitted_draft(), revision())['topology']) == sections(FITTED)
+
+
+def test_a_fit_of_a_different_atom_count_is_refused_with_both_counts():
+    topology = FITTED.replace(' 5 C1   1 DDM B05  5 0.0 72.0\n', '')
+    with pytest.raises(ValueError, match='declares 4 atoms and the mapping has 5'):
+        detergent_cg.adopt(fitted_draft(), revision(topology))
+
+
+def test_a_fit_of_a_different_bead_type_is_refused_naming_the_atom():
+    draft = fitted_draft()
+    draft['beads'][3]['type'] = 'SP4r'
+    with pytest.raises(ValueError, match='atom 4 is SN6 in the parameters and SP4r in the mapping'):
+        detergent_cg.adopt(draft, revision())
+
+
+def test_a_fit_that_names_another_molecule_is_refused():
+    """`grompp` reconciles the topology's molecule with the coordinates' residue, so this is a build that fails."""
+    with pytest.raises(ValueError, match="names its molecule DDMX and the mapping's residue is DDM"):
+        detergent_cg.adopt(fitted_draft(), revision(FITTED.replace('DDM 1', 'DDMX 1')))
+
+
+def test_a_revision_with_no_topology_is_refused_rather_than_adopted():
+    with pytest.raises(ValueError, match='no topology to adopt'):
+        detergent_cg.adopt(fitted_draft(), revision(''))

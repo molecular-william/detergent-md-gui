@@ -486,6 +486,21 @@ concentration gets its own directory and its own checkpoint (resumed with `gmx m
 `carry_on` or `stop`. The old one-concentration shape (`osmotic_molality`) is removed from the vocabulary, so it cannot
 be rebuilt by accident.
 
+### The detergent's own terms: a fitted mapping or the derivation
+
+A mapping that carries a **current parameterization revision** is what a pdc build simulates: `pdc.prepare` resolves
+the record by the content identity of the candidate it derived from (`parameterization.content_identity` /
+`parameterization.one`) and writes that revision's topology as `detergent_CG.itp`. The revision's `[ atoms ]` name
+column is rewritten to the mapping's bead names and nothing else is touched (`detergent_cg.adopt`), because
+`pdc_build.stamp` writes the mapping's names into `system.gro` and `grompp` reconciles the two by name; a topology
+whose atom count, bead types or molecule name disagrees with the mapping is refused there rather than failing three
+stages later. A mapping with no record, or none current, keeps the derivation from the Martini 3 references and the
+geometry, and `settings.detergent_model` says which happened: `source` is `the mapping's current parameterization` with
+`parameterization {content_hash, revision, engine, created_at, scientifically_validated, aa_reference}` and
+`term_kinds`, or `the mapping's derived topology: N reference terms, M fallbacks`. `pdc._limitations` states the same
+in the run's own words, naming the revision and the AA run it was fitted from. The bead **positions** come from the
+mapping either way, so the placement is identical.
+
 ### Back-mapping
 
 CG2AT2 is vendored under `tools/cg2at/` (`tools/cg2at/cg2at`); `pdc_backmap.sh` runs its **align** method with the

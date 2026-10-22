@@ -746,12 +746,65 @@ def _limitations(model):
     there yet": the first is false for a build given a mapping (its beads, topology and bonds come from the mapping),
     and the second is false outright, because those scripts are copied into every run. A record that misstates what a
     run did is worse than one that says nothing.
+
+    And a detergent simulated with its *fitted* bonded terms and one whose terms were looked up in the Martini 3
+    references are different systems, so the sentence names which was built and, for a fit, the revision it came from:
+    a reader must never have to open `detergent_CG.itp` to find out whether it holds fitted or reference terms.
     """
-    if model.get('mapping'):
-        return [f"the detergent's beads, topology and bonds are {Path(str(model['mapping'])).name}, the mapping this "
-                'run was given; the template supplied no bead shape']
-    return ['the detergent is one centre per molecule: no mapping was given, and the shipped templates carry no bead '
-            'shape']
+    if not model.get('mapping'):
+        return ['the detergent is one centre per molecule: no mapping was given, and the shipped templates carry no bead '
+                'shape']
+    mapping = Path(str(model['mapping'])).name
+    recorded = model.get('parameterization') or {}
+    if recorded:
+        reference = (recorded.get('aa_reference') or {}).get('run_id') or 'no AA reference'
+        validated = ('its record marks it scientifically validated' if recorded.get('scientifically_validated')
+                     else 'its record marks it not scientifically validated')
+        return [f"the detergent's bonded terms are the mapping's own parameterization, revision "
+                f"{recorded.get('revision')} of content hash {recorded.get('content_hash')}, fitted "
+                f"{_day(recorded.get('created_at'))} by {recorded.get('engine')} from AA run {reference}; {validated}",
+                f"its beads and their positions are {mapping}, the mapping this run was given; the template supplied "
+                'no bead shape']
+    counts = ''
+    if 'reference_terms' in model and 'fallback_terms' in model:
+        counts = f", with {model['reference_terms']} reference terms and {model['fallback_terms']} fallbacks"
+    return [f"the detergent's beads, topology and bonds are derived from {mapping}, the mapping this run was given"
+            f'{counts}; the template supplied no bead shape']
+
+
+def _day(value):
+    """The date part of a recorded timestamp, for a sentence that says when something was made."""
+    return str(value or '')[:10] or 'an unrecorded date'
+
+
+def _adopt_parameterization(draft, candidate):
+    """The mapping's current parameterization adopted for this draft, or `None` when it carries none.
+
+    A mapping may carry a fitted parameterization of its own (`bonded.parameterization`): revisions keyed by the
+    mapping's content identity, one of them current. When it does, this build simulates *that* -- the terms a fit
+    produced against an AA reference -- instead of re-deriving terms from the Martini 3 references and the geometry,
+    which is what "the pdc runs on my fit" means. The revision is resolved by the content identity of the candidate
+    the draft was derived from, so a renamed mapping keeps its fit and a mapping whose beads changed does not.
+
+    A mapping with no record, or a record with no current revision, answers `None` and the caller keeps today's
+    derivation exactly. What the build did is recorded either way (`_limitations`), because the two are not the same
+    system and a reader must be able to tell them apart.
+    """
+    from ...models.bonded import parameterization
+    from ...models.molecules import detergent_cg
+    content = parameterization.content_identity(candidate)
+    record = parameterization.one(content)
+    revision = record.get('current') if isinstance(record, dict) else None
+    if not revision or not revision.get('topology'):
+        return None
+    adopted = detergent_cg.adopt(draft, revision)
+    reference = revision.get('aa_reference') or {}
+    return {'topology': adopted['topology'], 'terms': adopted['terms'], 'total': adopted['total'],
+            'bead_names': adopted['bead_names'],
+            'parameterization': {'content_hash': content, 'revision': revision.get('revision'),
+                                 'engine': revision.get('engine'), 'created_at': revision.get('created_at'),
+                                 'scientifically_validated': bool(revision.get('scientifically_validated')),
+                                 'aa_reference': {'run_id': reference.get('run_id')} if reference else None}}
 
 
 def prepare(run_dir, *, protein=None, template=None, settings=None, project_root=None, mapping=None, **kwargs):
@@ -759,9 +812,10 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
 
     `protein` and `template` are paths relative to `project_root` -- the spelling `catalog` reports, so the panel's
     own choice can be handed straight in. `mapping` is a saved CG mapping for the detergent: with it, the run's
-    detergent is a real coarse-grained molecule (its topology derived from the mapping, its beads' centres computed
-    from the atomistic structure); without it, the build records that it is centres-only and the stage stops where it
-    always did, rather than pretending a dot is a molecule.
+    detergent is a real coarse-grained molecule (its beads' centres computed from the atomistic structure, and its
+    topology either the mapping's own current parameterization -- when it was fitted -- or the terms derived from the
+    Martini 3 references and the geometry); without it, the build records that it is centres-only and the stage stops
+    where it always did, rather than pretending a dot is a molecule.
 
     A build with a template and no protein is the design spec's empty micelle: the protein stages are skipped, so an
     absence that is a choice is told apart from one that is an oversight -- an oversight has no template at all.
@@ -852,7 +906,8 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     (system / Path(system_stage.inputs[1]).name).write_text(_empty_topology())
     # The detergent's coarse-grained model, derived from the run's own mapping: the topology the system will include
     # and the bead geometry the placement stamps. A build without a mapping is recorded as centres-only.
-    model = {'mapping': None, 'terms': 0, 'reference_terms': 0, 'fallback_terms': 0}
+    model = {'mapping': None, 'terms': 0, 'reference_terms': 0, 'fallback_terms': 0,
+             'source': 'no mapping: the detergent is one centre per molecule'}
     mapping_tail_beads = []
     if mapping is not None:
         from ...models.mappings import store
@@ -866,11 +921,23 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         if not source.is_file():
             raise ValueError(f'the detergent mapping is not a file: {mapping}')
         draft = detergent_cg.derive(source, root / 'molecules', root)
-        (system / DETERGENT_TOPOLOGY).write_text(draft['topology'])
+        # The mapping's own fit, when it has one: the run simulates the terms that were fitted against an AA
+        # reference, and only falls back to the references-and-geometry derivation when the mapping carries no
+        # current revision. The geometry stays the mapping's in both cases -- the fit decides the terms, the
+        # mapping decides where the beads are -- so the placement is unchanged by which one this is.
+        adopted = _adopt_parameterization(draft, detergent_cg.candidate(source))
+        (system / DETERGENT_TOPOLOGY).write_text(adopted['topology'] if adopted else draft['topology'])
         (system / DETERGENT_GEOMETRY).write_text(json.dumps(draft, indent=2, sort_keys=True))
-        model = {'mapping': str(source), 'residue': draft['residue'], 'beads': len(draft['beads']),
-                 'terms': draft['terms'], 'reference_terms': draft['reference_terms'],
-                 'fallback_terms': draft['fallback_terms']}
+        model = {'mapping': str(source), 'residue': draft['residue'], 'beads': len(draft['beads'])}
+        if adopted:
+            model.update({'terms': adopted['total'], 'term_kinds': adopted['terms'],
+                          'parameterization': adopted['parameterization'],
+                          'source': "the mapping's current parameterization"})
+        else:
+            model.update({'terms': draft['terms'], 'reference_terms': draft['reference_terms'],
+                          'fallback_terms': draft['fallback_terms'],
+                          'source': (f"the mapping's derived topology: {draft['reference_terms']} reference terms, "
+                                     f"{draft['fallback_terms']} fallbacks")})
         # The mapping answers for itself when the template cannot: a bead of the aliphatic carbon series is a tail
         # bead, and the sugar and polar series are not. This is what lets the criterion judge a run whose template is
         # still the skeleton -- one bead, no roles -- instead of refusing it.

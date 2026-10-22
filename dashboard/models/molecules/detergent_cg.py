@@ -9,13 +9,19 @@ rather than a dot.
 Everything here is derived, so nothing is stored: a run re-derives it from the mapping it recorded, which is why the
 provenance (how many terms were references and how many were fallbacks) travels with the answer instead of with a
 file someone might edit.
+
+There is one thing a mapping may carry that is *not* derived: a fitted parameterization (`bonded.parameterization`),
+the mapping's own bonded terms with a revision behind them. `adopt` takes that topology instead of generating one,
+renaming its atoms to the mapping's own bead names and refusing a fit of a different molecule -- a run that has been
+fitted must simulate the fit, and one that has not must say it did not.
 """
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
-from ..bonded import generation
+from ..bonded import generation, parameterization
 from ..mappings.context import as_structure, build_context
 from ..sugars.units import angstrom_factor
 
@@ -123,3 +129,70 @@ def derive(candidate_path, molecule_root, project_root) -> dict:
             'fallback_terms': sum(1 for entry in provenance if entry.get('fallback')),
             'diagnostics': list(generated['diagnostics']),
             'mapping_file': str(candidate_path)}
+
+
+def adopt(draft: dict, revision: dict) -> dict:
+    """A parameterization revision's topology, with its atoms named the way the mapping names them.
+
+    The fit's own topology names its beads `B01`..`B11`: those are the export names `bonded.generation` writes, not
+    the mapping's (`S1A`, `TAIL1`). `pdc_build.stamp` writes the mapping's names into `system.gro`, and `grompp`
+    reconciles a topology with its coordinates by atom name, so the two spellings are a build that fails eleven times
+    over at the first stage that runs `grompp`. Only the `[ atoms ]` name column is rewritten -- every other section
+    addresses atoms by number, so a bond, an angle and a ring constraint are the same term afterwards -- and the
+    comment header, the molecule type and every parameter line are left byte-for-byte as the fit wrote them.
+
+    What it refuses, and why here rather than at `grompp`: a topology whose atom count, bead types or molecule name
+    disagree with this mapping is a fit of a *different* model, and adopting it would simulate one molecule under
+    another molecule's name. The count and the types are the two facts the two records share, so they are what is
+    checked, and the refusal names the atom whose type differs -- "12 against 11" without a position is a search.
+
+    Returns the renamed text, the revision's own term counts, the bead names it wrote, and one line of provenance.
+    """
+    topology = str((revision or {}).get('topology') or '')
+    if not topology.strip():
+        raise ValueError('the parameterization revision carries no topology to adopt')
+    beads = list(draft.get('beads') or [])
+    names = [str(bead.get('name') or '') for bead in beads]
+    types = [str(bead.get('type') or '') for bead in beads]
+    lines = topology.splitlines()
+    section = ''
+    atoms: list[int] = []
+    molecule = None
+    for index, line in enumerate(lines):
+        content = line.split(';', 1)[0].strip()
+        if content.startswith('[') and content.endswith(']'):
+            section = content[1:-1].strip().lower()
+            continue
+        if not content:
+            continue
+        if section == 'atoms':
+            atoms.append(index)
+        elif section == 'moleculetype' and molecule is None:
+            molecule = content.split()[0]
+    if not atoms:
+        raise ValueError("the parameterization's topology has no [ atoms ] section")
+    if len(atoms) != len(beads):
+        raise ValueError(f"the parameterization's topology declares {len(atoms)} atoms and the mapping has "
+                         f'{len(beads)}')
+    residue = str(draft.get('residue') or '')
+    if molecule is not None and residue and molecule != residue:
+        raise ValueError(f"the parameterization's topology names its molecule {molecule} and the mapping's residue "
+                         f'is {residue}: grompp matches a topology to its coordinates by name')
+    for position, (index, name, type_) in enumerate(zip(atoms, names, types), start=1):
+        body, separator, comment = lines[index].partition(';')
+        fields = list(re.finditer(r'\S+', body))
+        if len(fields) < 5:
+            raise ValueError(f"the parameterization's topology declares atom {position} with fewer than five "
+                             'columns, so it has no name to adopt')
+        declared = fields[1].group()
+        if declared != type_:
+            raise ValueError(f'atom {position} is {declared} in the parameters and {type_} in the mapping')
+        start, end = fields[4].span()
+        lines[index] = f'{body[:start]}{name}{body[end:]}{separator}{comment}'
+    counts = revision.get('terms')
+    counts = dict(counts) if isinstance(counts, dict) and counts else parameterization.term_counts(revision)
+    source = (f"the mapping's current parameterization: revision {revision.get('revision')}, "
+              f"engine {revision.get('engine')}, content hash {revision.get('mapping_content_hash')}")
+    return {'topology': '\n'.join(lines) + ('\n' if topology.endswith('\n') else ''),
+            'terms': counts, 'total': parameterization.total_terms(revision),
+            'bead_names': names, 'molecule': molecule, 'source': source}
