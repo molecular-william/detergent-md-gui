@@ -206,6 +206,25 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
         // Sole writer of the task list. The diagnostics box beside it has its own host and its own module; sharing
         // this one made the two erase each other on the same refresh.
         const taskList = $('.analysis-tasks',card); taskList.replaceChildren();
+        // The button asks the run for the analyses it owes; `queue` fingerprints the analysis code, so it recomputes
+        // what a change has invalidated and leaves what is already current alone. Bound once per card: this block
+        // re-runs whenever the task list changes.
+        const recompute = $('.analysis-recompute',card);
+        if (recompute && !recompute.dataset.bound) {
+          recompute.dataset.bound = '1';
+          recompute.onclick = async () => {
+            recompute.disabled = true;
+            try {
+              const answer = await post(`/api/jobs/${job.id}/analyses/recompute`, {});
+              const queued = (answer.queued || []).length, owed = (answer.owed || []).length;
+              notice(queued ? `${queued} analysis${queued === 1 ? '' : 'es'} queued${owed ? `, ${owed} to follow` : ''}`
+                            : owed ? `Nothing new queued: ${owed} still waiting to start`
+                                   : 'Every analysis this run owes is already current');
+              await refreshJobs();
+            } catch (error) { notice(error.message); }
+            finally { recompute.disabled = false; }
+          };
+        }
         for (const task of job.analyses || []) {
           const row = document.createElement('p'); row.textContent = `${task.kind} · ${task.status} · ${task.progress || task.error || ''}`;
           if (['queued','running','cancelling'].includes(task.status)) {

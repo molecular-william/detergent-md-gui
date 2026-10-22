@@ -327,6 +327,22 @@ def cancel_analysis(jid, aid):
     return jsonify(coordinator().analysis_coordinator.cancel(jid, aid)), 202
 
 
+@blueprint.post('/api/jobs/<jid>/analyses/recompute')
+def recompute_analyses(jid):
+    """Queue every analysis the run owes that this code has not already produced for it.
+
+    The Analysis graphs panel's button, and the same list the completion event drains: `automatic_analyses` is the one
+    place a run's owed kinds are decided, so the button cannot ask for a set the run does not owe. `queue` fingerprints
+    the analysis code itself, so pressing it after a change starts fresh attempts for every owed kind, and pressing it
+    with nothing changed starts none. `owed` names what is waiting behind an analysis that is already running.
+    """
+    c = coordinator()
+    job = c.lookup(jid)
+    if job.get('status') not in ('completed', 'failed', 'cancelled'):
+        abort(409, 'Analyses are queued once the run has stopped')
+    return jsonify(c.analysis_coordinator.drain(jid)), 202
+
+
 @blueprint.get('/api/jobs/<jid>/analyses')
 def analyses_api(jid):
     c = coordinator()

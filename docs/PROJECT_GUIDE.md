@@ -343,11 +343,18 @@ a three-leg script stage (`cg_simulation.sh`: min, eq, md) has no single GROMACS
 `percent: null` rather than 0 when a leg has not printed yet. The ETA is GROMACS' own text, so the two numbers answer
 different questions.
 
-`snapshots` runs for every run with a trajectory. `coordinator.queue_defaults` asks one resolver
-(`coordinator.automatic_analyses`), which is `kinds.for_every_run()` plus `kinds.default_for(run_type)`, so an `aa_cg`
-run also owes `dihedral-fit` and `bonded-cross-check`; a run with no trajectory records `skipped` with a reason and
-stays `complete`. Frames resolve through the run's own layout, so an AA-only run reads its `07_reference/` pair and a CG
-run its `4_CG_sim/`.
+`snapshots` runs for every run with a trajectory. `coordinator.automatic_analyses` is the one resolver the queueing
+path asks -- `kinds.for_every_run()` plus `kinds.default_for(run_type)` -- so an `aa_cg` run also owes `dihedral-fit` and
+`bonded-cross-check`; a run with no trajectory records `skipped` with a reason and stays `complete`.
+
+The owed kinds are worked through **one at a time**, because `queue` takes one analysis per run and refuses a second
+with `RunBusy` while the first holds the worker. `analysis_coordinator.drain` queues what it can and names the rest in
+`owed`; `analysis_coordinator.chain` drains again when an attempt settles, which is how a three-kind list finishes with
+nobody pressing anything. A *failed* attempt does not chain -- the kind is not current by signature, so draining from it
+would queue itself again -- and waits for `POST /api/jobs/<id>/analyses/recompute`, the Analysis graphs panel's
+Recompute button. That route asks the same resolver, so it cannot request a set the run does not owe, and `queue`
+fingerprints the analysis code, so pressing it after a code change starts fresh attempts and pressing it with nothing
+changed starts none. `owed` is what the panel reports as still waiting.
 
 `GET /api/jobs/<id>/structure?path=<run-relative .gro>` writes the run's own `[ bonds ]` and `[ constraints ]` as
 CONECT, locating the topology by `analysis/runs/layout.cg_topology` and naming it from the manifest's `FINAL_ITP`. A

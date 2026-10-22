@@ -87,18 +87,61 @@ class AnalysisCoordinator:
         or a record that names no layout this kind reads. Nothing is invented for those: a person asking for the
         kind by name still gets the resolver's own refusal, which names every path it looked for.
         """
-        queued = []
+        return self.drain(jid)['queued']
+
+    def drain(self, jid):
+        """Queue the owed kinds the run does not already hold, and say which are still waiting.
+
+        `queue` takes one analysis at a time for a run: it refuses a second with `RunBusy` while the first holds the
+        worker, which is what keeps a person's cancel meaningful. Asking for the whole list at once therefore queued
+        exactly one kind and silently dropped the rest -- an `aa_cg` run that owes `snapshots`, `bonded-cross-check`
+        and `dihedral-fit` published its frames and nothing else, and `HANDOFF` recorded the analysis as "queued by
+        nobody" when it was queued and immediately refused.
+
+        So draining stops at the first refusal and is called again when an analysis finishes, which is how the list
+        is worked through with nobody pressing anything. `owed` is what a person is told about: the kinds this pass
+        could not start, either because one is already active or because the queue is full.
+        """
+        queued, owed = [], []
         # `automatic_analyses` is the one place the two facets of the kind table are read together -- the kinds every
         # run owes its reader, and the run type's own -- so the queueing path asks it rather than restating half of
         # it. Restating it is how `dihedral-fit` and `bonded-cross-check` came to be declared for AA-to-CG runs and
         # queued by nobody.
         for kind in self.owner.automatic_analyses(jid):
             try:
-                task, _ = self.queue(jid, kind, {})
-            except (CapacityFull, RunBusy, RunNotFound, OSError, ValueError):
+                task, status = self.queue(jid, kind, {})
+            except RunBusy:
+                # One is active. The rest follow when it finishes, from `finish` below.
+                owed.append(kind)
+                owed.extend(self._rest_owed(jid, kind))
+                break
+            except (CapacityFull, RunNotFound, OSError, ValueError):
+                owed.append(kind)
                 continue
-            queued.append(task['id'])
-        return queued
+            # 200 means this exact analysis is already here, computed from these sources by this code: nothing was
+            # queued and nothing is owed. That is what makes pressing recompute twice cheap and honest.
+            if status == 202:
+                queued.append(task['id'])
+        return {'queued': queued, 'owed': owed}
+
+    def _rest_owed(self, jid, after):
+        """The kinds listed after `after`, so a refusal reports the whole remainder rather than one name."""
+        kinds = list(self.owner.automatic_analyses(jid))
+        return kinds[kinds.index(after) + 1:] if after in kinds else []
+
+    def chain(self, jid, aid):
+        """Start the run's next owed kind after a settled attempt, and nothing after a failed or cancelled one.
+
+        A failure leaves the kind not-current by signature, so draining from here would queue it again in the same
+        breath and a run whose producer cannot succeed would spin. A failed attempt waits for a person: the panel's
+        recompute asks for it, and `drain` offers it again.
+        """
+        settled = next((task['status'] for task in self.owner.lookup(jid).get('analyses', [])
+                        if task['id'] == aid), None)
+        if settled in ('completed', 'skipped'):
+            return self.drain(jid)
+        return {'queued': [], 'owed': []}
+
 
     def dependencies(self, job):
         result = {}
@@ -204,6 +247,12 @@ class AnalysisCoordinator:
                         worker.lease_file.close()
                     with owner.JOBS_LOCK:
                         owner.ANALYSIS_WORKERS.pop((jid, aid), None)
+                    # One analysis per run at a time, so the run's next owed kind starts here rather than at queueing
+                    # time, where the second ask would be refused.
+                    try:
+                        self.chain(jid, aid)
+                    except Exception:
+                        pass
 
             worker.run_dir = owner.run_path(job)
             worker.lease_file = owner.lease(owner.run_path(job) / '.worker.lock')
