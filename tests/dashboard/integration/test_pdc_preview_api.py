@@ -26,30 +26,37 @@ pytestmark = pytest.mark.slow
 
 
 
-def peptide(residues=6) -> str:
+def peptide(residues=6, *, chain='A', shift_nm=0.0) -> str:
     """A compact six-residue peptide, in the columns martinize2 reads: N, CA, C, O and CB per residue.
 
-    Compact on purpose. The file states no membrane, so the placement is the sphere of the fixed 3.0 nm radius about
-    the centroid -- and a protein reaching past that shell puts its own atoms where the sites land, which is the
-    clearance *refusal* rather than a picture. Every atom here is within 1.3 nm of the centre, so the shell clears the
-    protein by more than a nanometre and the cold/warm test measures the cache instead of the gate. Six residues is
-    the shortest fixture both secondary-structure sources answer (MDAnalysis' DSSP raises below five).
+    Compact on purpose. The file states no membrane, so the placement is a **sphere whose radius is measured from the
+    protein** -- the extent about the centroid plus the clearance plus the detergent's own length -- and a protein
+    reaching past that shell puts its own atoms where the sites land, which is the clearance *refusal* rather than a
+    picture. Every atom here is within 1.3 nm of the centre, so the shell clears the protein by more than a
+    nanometre and the cold/warm test measures the cache instead of the gate. Six residues is the shortest fixture
+    both secondary-structure sources answer (MDAnalysis' DSSP raises below five).
+
+    `chain` and `shift_nm` place a second copy in its own chain, for the tests about a chain selection: a structure
+    whose two halves are far apart measures a different shell for each.
     """
     records, serial = [], 0
     for residue in range(1, residues + 1):
         angle = 2.0 * math.pi * residue / residues
-        centre = (0.8 * math.cos(angle), 0.8 * math.sin(angle), 0.0)
+        centre = (0.8 * math.cos(angle) + shift_nm, 0.8 * math.sin(angle), 0.0)
         for name, offset, element in (('N', (0.0, 0.0, 0.25), 'N'), ('CA', (0.15, 0.0, 0.0), 'C'),
                                       ('C', (0.3, 0.1, -0.15), 'C'), ('O', (0.35, 0.2, -0.25), 'O'),
                                       ('CB', (0.2, -0.2, 0.1), 'C')):
             serial += 1
             xyz = [centre[axis] + offset[axis] for axis in range(3)]
-            records.append(f'ATOM  {serial:5d} {name:^4s} ALA A{residue:4d}    '
+            records.append(f'ATOM  {serial:5d} {name:^4s} ALA {chain}{residue:4d}    '
                            f'{xyz[0]:8.3f}{xyz[1]:8.3f}{xyz[2]:8.3f}  1.00  0.00          {element:>2s}')
     return '\n'.join(records) + '\nEND\n'
 
 
 PEPTIDE = peptide()
+#: Two copies of the peptide, the second in its own chain 8 nm away: selecting one chain halves the extent, which is
+#: what the sphere's radius is measured from.
+TWO_CHAINS = peptide() + peptide(chain='B', shift_nm=8.0)
 
 
 def import_protein(dashboard, monkeypatch, text=PEPTIDE, pdbid='1qj8'):
@@ -284,6 +291,49 @@ def test_a_real_cold_and_warm_preview_pay_the_coarse_graining_once(dashboard, mo
     # The cache is the workspace's own scratch area, and it is not a run: nothing appears in the runs list.
     assert (dashboard.paths.workspace / 'preview/cg').is_dir()
     assert dashboard.client.get('/api/jobs').get_json()['total'] == 0
+
+def test_a_chain_selection_measures_its_own_shell(dashboard, monkeypatch):
+    """Task 3 through the route: selecting one subunit gets the shell that subunit needs, not the complex's.
+
+    The coarse-graining is stubbed with beads that follow the selection, because what is under test is the radius the
+    route reports -- `basis.shell_radius_nm` and `basis.radius_source`, the two fields the panel's sentence reads.
+    The structure states no membrane, so the placement is the sphere, and its radius is measured from the beads the
+    selection coarse-grains to.
+    """
+    from dashboard.execution import pdc_preview as preview_module
+
+    def stub(cache_root, protein_path, chains, **kwargs):
+        selected = [chain for chain in ('A', 'B') if chain in (chains or [])] or ['A']
+        beads = []
+        for chain in selected:
+            shift = 8.0 if chain == 'B' else 0.0
+            beads += [{'residue_id': index + 1, 'residue': 'PRO', 'name': f'B{index:03d}',
+                       'position': [0.8 * index + shift, 0.0, 0.0]} for index in range(1, 5)]
+        return beads, {'cached': True, 'seconds': 0.0, 'key': 'stub', 'path': str(cache_root),
+                       'beads_bytes': 0, 'dropped_residues': [], 'protein_input': 'protein.pdb',
+                       'command': None, 'secondary_structure': None}
+
+    monkeypatch.setattr(preview_module, 'coarse_grained', stub)
+    entry = import_protein(dashboard, monkeypatch, text=TWO_CHAINS, pdbid='1abc')
+    query = {'template': TEMPLATE, 'protein': entry['name'], 'pdc_seed': 20261013, 'aggregation_number': 20}
+
+    whole = get(dashboard, **{**query, 'chains': 'A,B'})
+    part = get(dashboard, **{**query, 'chains': 'A'})
+
+    assert whole.status_code == 200 and part.status_code == 200
+    both, one = whole.get_json(), part.get_json()
+    assert both['valid'] and one['valid'], (both.get('reasons'), one.get('reasons'))
+    assert one['basis']['chains'] == ['A'] and both['basis']['chains'] == ['A', 'B']
+    part_basis = one['basis']
+    assert part_basis['shell_radius_nm'] < both['basis']['shell_radius_nm'], \
+        'one subunit of a two-chain complex is a smaller shell'
+    assert part_basis['radius_source'] == 'measured' and both['basis']['radius_source'] == 'measured'
+    assert part_basis['measured_extent_nm'] < both['basis']['measured_extent_nm']
+    assert part_basis['radius_floor_nm'] == both['basis']['radius_floor_nm'], 'the setting is the same floor'
+    # The density the panel prints comes from the same volume, and the count is still the user's 20.
+    assert part_basis['aggregation_number'] == 20 and part_basis['estimated_density_per_nm3'] > 0
+    assert part_basis['capacity_aggregation'] is None, 'the count fits, so there is nothing to report'
+
 
 def test_the_route_reads_the_preparation_choice_and_refuses_a_value_that_is_not_one(dashboard, monkeypatch):
     """The plan's step 1 is a choice the panel states, so the route reads it -- and a non-answer is not one.

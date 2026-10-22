@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 from dashboard.execution.adapters import pdc_placement
+from dashboard.execution.adapters.pdc_box import initial_box
 from dashboard.execution.scripts import pdc_build
 from micelle.frame import frame_from_structure
 from micelle.packing import golden_angle_directions
@@ -109,8 +110,14 @@ def test_the_placement_direction_is_outward_from_the_micelle_centre(tmp_path):
         assert np.dot(centre - middle, direction) > 0, 'every direction points away from the centre'
 
 
-def test_the_self_assembly_direction_is_outward_too(tmp_path):
-    """The empty micelle's region is centred on the origin, so the outward direction is the centre's own heading."""
+def test_the_self_assembly_direction_faces_out_of_the_cloud(tmp_path):
+    """The convention `stamp` orients against, after the sampler stopped handing every detergent the same radial.
+
+    The direction is *drawn* now (`test_self_assembled_orientations_are_not_all_one_direction`), so it is no longer
+    the centre's own heading; what still has to hold -- because `pdc_build.stamp` puts the head end along it -- is
+    that it points away from the cloud rather than through it. The empty micelle's region is centred on the origin,
+    so "away" is measured against the site's own offset from that centre.
+    """
     template = _template(tmp_path)
     placed = pdc_placement.place_detergents(None, template, 24, seed=20260502, mode='self-assembly',
                                             radius_nm=3.0)
@@ -118,10 +125,10 @@ def test_the_self_assembly_direction_is_outward_too(tmp_path):
     centres = np.asarray(placed['centers'])
     directions = np.asarray(placed['directions'])
     assert len(centres) == 24
-    for centre, direction in zip(centres, directions):
-        assert np.linalg.norm(direction) == pytest.approx(1.0)
-        assert np.allclose(direction, centre / np.linalg.norm(centre)), \
-            'the self-assembly direction is the way out of the cloud too'
+    assert np.allclose(np.linalg.norm(directions, axis=1), 1.0)
+    assert np.all((centres * directions).sum(axis=1) > 0), 'a head drawn facing into the cloud was flipped'
+    assert not np.allclose(directions, centres / np.linalg.norm(centres, axis=1)[:, None]), \
+        'one radial for the whole cloud is the behaviour this replaces'
 
 
 # --- the tube: the shape a protein that states its own membrane is placed in --------------------------------
@@ -388,16 +395,44 @@ def test_a_detergent_whose_own_length_cannot_be_measured_keeps_the_sphere_it_had
     assert 'length' in placed['belt_reason']
 
 
-def test_a_protein_that_states_no_membrane_keeps_the_sphere_it_had(tmp_path):
-    """`frame=None` is every packaged protein and every import that states nothing: the shell, byte for byte."""
+def test_a_protein_that_states_no_membrane_gets_a_shell_measured_from_it(tmp_path):
+    """`frame=None` is every packaged protein and every import that states nothing: the sphere, now measured.
+
+    The radius used to *be* the setting -- the same 3.0 nm about every protein, whatever the selection reached. It is
+    now the greater of the setting and `extent about the centroid + the clearance + the molecule's own length`, the
+    relationship the belt's centre-line already had: the protein decides and the setting is only a floor. This protein
+    reaches 5.0 nm from its own centroid, so the measured shell is 5.0 + 0.5 + 2.0 = 7.5 nm and the old 3.0 nm shell
+    would have put every site inside it.
+    """
     points = _asymmetric_protein()
     placed = pdc_placement.place_detergents(points, _template(tmp_path), 12, seed=4)
 
     centres = np.asarray(placed['centers'])
     centroid = np.asarray(points).mean(axis=0)
+    extent = pdc_placement.extent_about_centroid(points)
+    shell = placed['shell']
 
     assert placed['placement_shape'] == 'sphere' and placed['band'] is None and placed['frame'] is None
-    assert np.allclose(np.linalg.norm(centres - centroid, axis=1), pdc_placement.DEFAULT_RADIUS_NM)
+    assert shell['radius_source'] == 'measured', 'the protein reached further than the setting'
+    assert shell['measured_extent_nm'] == pytest.approx(extent)
+    assert shell['radius_nm'] == pytest.approx(extent + pdc_placement.MIN_CLEARANCE_NM + MOLECULE_LENGTH_NM)
+    assert np.allclose(np.linalg.norm(centres - centroid, axis=1), shell['radius_nm']), \
+        'every site is on the shell the record states'
+    assert placed['radius_nm'] == shell['radius_nm'] and placed['radius_floor_nm'] == pdc_placement.DEFAULT_RADIUS_NM
+    assert np.all(np.linalg.norm(centres - centroid, axis=1) > pdc_placement.DEFAULT_RADIUS_NM), \
+        'the old fixed shell is what this replaces'
+
+
+def test_a_sphere_whose_protein_is_smaller_than_the_setting_keeps_the_setting_as_its_radius(tmp_path):
+    """The other half of the rule: a shell the setting already clears is the setting's, and says so."""
+    points = [[0.0, 0.0, 0.0], [0.2, 0.0, 0.0]]
+    placed = pdc_placement.place_detergents(points, _template(tmp_path), 12, seed=4, radius_nm=4.0)
+
+    assert placed['shell']['radius_nm'] == pytest.approx(4.0)
+    assert placed['shell']['radius_source'] == 'floor'
+    assert placed['shell']['measured_shell_nm'] < 4.0
+    assert np.allclose(np.linalg.norm(np.asarray(placed['centers']) - np.asarray(points).mean(axis=0), axis=1), 4.0)
+
 
 
 def test_a_stated_membrane_the_protein_sits_entirely_outside_keeps_the_sphere(tmp_path):
@@ -501,3 +536,307 @@ def test_the_spheres_sites_are_its_shell_and_the_stamped_heads_stand_on_it(tmp_p
         tail = np.asarray([atom['position'] for atom in beads if atom['name'] == 'TAIL1'][0])
         assert np.allclose(head, site, atol=SURFACE_TOLERANCE_NM), 'the head end stands at the site it was given'
         assert np.linalg.norm(tail) < np.linalg.norm(head), 'and the tail beads sit inside the shell'
+
+
+# --- the clearance is the detergent's own body, not its head site -------------------------------------------
+
+#: A molecule that reaches 3 nm from its head end along its own axis: three atoms, at the head and 1 and 3 nm back.
+#: The clearance the placement has always measured knows only where the head is, so a 3 nm tail is invisible to it.
+TAIL_3NM_POINTS = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (3.0, 0.0, 0.0)]
+#: The molecule's own beads, expanded through the module's own function -- the same body `pdc_build.stamp` writes.
+def molecule_beads(site, direction, template):
+    return pdc_placement.body_beads(site, direction, pdc_placement.detergent_profile(template))
+
+
+def atom_records(points, residue='DDM'):
+    """A molecule's own coordinate file: one `HETATM` per bead, in a PDB's Angstrom columns."""
+    return ''.join(f'HETATM{index:5d}  C{index}  {residue} A   1   '
+                   f'{x * 10:8.3f}{y * 10:8.3f}{z * 10:8.3f}  1.00  0.00\n'
+                   for index, (x, y, z) in enumerate(points, 1))
+
+
+def shaped_template(directory, points, *, residue='DDM'):
+    """A template whose molecule is the beads `points`, loaded the way the builders load one."""
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / 'molecule.pdb').write_text(atom_records(points, residue))
+    (directory / 'molecule.itp').write_text('')
+    path = directory / 'micelle_template.json'
+    path.write_text(json.dumps({'name': residue, 'residue': residue, 'beads': [{'name': 'B1'}],
+                                'coordinates': 'molecule.pdb', 'topology': 'molecule.itp',
+                                'tail_direction': [0, 0, -1]}))
+    return load_template(path)
+
+
+def protein_bead_clearance(placed, template, protein):
+    """The closest any placed detergent's own bead comes to any protein point, over the whole placement."""
+    protein = np.asarray(protein, dtype=float)
+    return min(float(np.linalg.norm(bead - protein, axis=1).min())
+               for site, direction in zip(placed['centers'], placed['directions'])
+               for bead in molecule_beads(site, direction, template))
+
+
+def test_no_detergent_bead_lands_inside_the_protein(tmp_path):
+    """Task 1's acceptance: the protein is two points 0.5 nm apart and the molecule reaches 3 nm past its head.
+
+    A head site 0.5 nm from either point passes the clearance this module has always measured -- and the tail then
+    runs straight through the pair, which is the clash the preview showed. Every bead is measured now.
+    """
+    template = shaped_template(tmp_path, TAIL_3NM_POINTS)
+    protein = [[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]]
+
+    placed = pdc_placement.place_detergents(protein, template, 6, seed=7, mode='self-assembly')
+
+    assert placed['valid'], placed['issues']
+    assert len(placed['centers']) == 6
+    for site, direction in zip(placed['centers'], placed['directions']):
+        beads = molecule_beads(site, direction, template)
+        assert len(beads) == 3
+        assert min(np.linalg.norm(bead - np.asarray(protein), axis=1).min() for bead in beads) >= \
+            pdc_placement.BEAD_CLEARANCE_NM
+    assert placed['bead_clearance_nm'] >= pdc_placement.BEAD_CLEARANCE_NM
+    assert placed['body_profile']['bead_count'] == 3, 'the gate measured the molecule, and the record says so'
+
+
+def test_the_body_gate_refuses_more_draws_than_the_head_gate_alone_would(tmp_path):
+    """The gate is doing the work, not the size of the box: a 3 nm molecule is refused where its head would pass.
+
+    The same protein, placed with a molecule that states no coordinates at all, keeps the head-only gate and reports
+    it (`body_profile: None` with a reason) -- so a placement never claims a check it did not run.
+    """
+    template = shaped_template(tmp_path, TAIL_3NM_POINTS)
+    protein = [[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]]
+
+    placed = pdc_placement.place_detergents(protein, template, 6, seed=7, mode='self-assembly')
+
+    assert placed['body_profile_reason'] is None
+    assert protein_bead_clearance(placed, template, protein) >= pdc_placement.BEAD_CLEARANCE_NM
+    # The measured bead gap is smaller than the head clearance on at least one detergent: the body is inside the
+    # head gate's own 0.5 nm sphere of influence, and only the bead-level measurement could have refused it there.
+    assert placed['bead_clearance_nm'] < placed['protein_clearance_nm']
+
+
+def test_a_molecule_that_states_no_coordinates_keeps_the_head_only_gate_and_says_so(tmp_path):
+    """No coordinates, no profile: the template is not silently given a length and the record carries the reason."""
+    template = _template(tmp_path, length_nm=None)
+    placed = pdc_placement.place_detergents(PROTEIN, template, 8, seed=3, mode='self-assembly')
+
+    assert placed['valid'], placed['issues']
+    assert placed['body_profile'] is None
+    assert 'no coordinates' in placed['body_profile_reason']
+    assert placed['bead_clearance_nm'] is None, 'nothing was measured, so no number is reported'
+
+
+def test_no_detergent_bead_lands_inside_a_protein_the_tube_wraps(tmp_path):
+    """The same gate on the belt: a second ring inside the tube's own volume, where only a body can reach it.
+
+    The in-slab ring sets the measured cylinder (2.0 nm) and the tube's radius is the molecule's own 2.0 nm, so the
+    sites stand at 4.0 nm in the membrane plane while every body reaches back to the centre-line. A ring at 3.0 nm
+    sits on that path: a head site is a nanometre clear of it, and the tail is what comes within the gate.
+    """
+    template = _template(tmp_path)                       # two atoms, 2.0 nm apart
+    points = _ring(2.0, 0.0) + _ring(3.0, 0.0, count=12)
+
+    placed = pdc_placement.place_detergents(points, template, 12, seed=4, frame=_frame(), radius_nm=2.0)
+
+    assert placed['valid'], placed['issues']
+    assert placed['placement_shape'] == 'belt-torus'
+    assert placed['protein_clearance_nm'] >= pdc_placement.MIN_CLEARANCE_NM
+    assert protein_bead_clearance(placed, template, points) >= pdc_placement.BEAD_CLEARANCE_NM
+    assert placed['bead_clearance_nm'] < placed['protein_clearance_nm'], \
+        'the bodies reach past the heads, and it is the bodies the protein is near'
+
+
+def test_a_sphere_keeps_every_bead_clear_by_construction(tmp_path):
+    """The shell's own guarantee: radius = extent + clearance + reach, so no bead can reach the protein."""
+    template = shaped_template(tmp_path, TAIL_3NM_POINTS)
+    points = np.asarray(_asymmetric_protein())
+
+    placed = pdc_placement.place_detergents(points, template, 16, seed=5, mode='lattice')
+
+    assert placed['valid'], placed['issues']
+    assert protein_bead_clearance(placed, template, points) >= pdc_placement.MIN_CLEARANCE_NM, \
+        'the measured shell clears the protein by the head clearance, so the body does too'
+
+
+# --- orientations are drawn ----------------------------------------------------------------------------------
+
+
+def test_self_assembled_orientations_are_not_all_one_direction(tmp_path):
+    """Task 2's acceptance: a cloud's directions span the sphere instead of sharing one radial."""
+    template = _template(tmp_path)
+    placed = pdc_placement.place_detergents(_asymmetric_protein(), template, 8, seed=11, mode='self-assembly')
+
+    unit = np.asarray(placed['directions']) / np.linalg.norm(placed['directions'], axis=1)[:, None]
+    angles = [np.degrees(np.arccos(np.clip(unit[i] @ unit[j], -1.0, 1.0)))
+              for i in range(len(unit)) for j in range(i)]
+    assert len(unit) == 8
+    assert max(angles) > 20, 'orientations are all radial'
+
+
+def test_a_self_assembled_head_faces_away_from_the_nearest_protein_bead(tmp_path):
+    """Drawn, then *flipped* -- the one transformation allowed after the draw, and it only swaps the axis's ends."""
+    template = _template(tmp_path)
+    protein = np.asarray(_asymmetric_protein())
+    placed = pdc_placement.place_detergents(protein, template, 10, seed=12, mode='self-assembly')
+
+    for site, direction in zip(np.asarray(placed['centers']), np.asarray(placed['directions'])):
+        nearest = protein[int(np.argmin(np.linalg.norm(protein - site, axis=1)))]
+        assert float(np.dot(direction, site - nearest)) >= 0, 'the head is aimed at the protein'
+
+
+def test_the_drawn_orientations_are_the_seeds_own(tmp_path):
+    """One generator, one draw order: the same seed rebuilds the same directions, a different one does not."""
+    template = _template(tmp_path)
+    first = pdc_placement.place_detergents(_asymmetric_protein(), template, 10, seed=21, mode='self-assembly')
+    again = pdc_placement.place_detergents(_asymmetric_protein(), template, 10, seed=21, mode='self-assembly')
+    other = pdc_placement.place_detergents(_asymmetric_protein(), template, 10, seed=22, mode='self-assembly')
+
+    assert first['directions'] == again['directions']
+    assert first['directions'] != other['directions']
+
+
+def test_the_record_says_which_orientation_policy_built_the_cloud(tmp_path):
+    """A report has to tell a drawn cloud from a lattice without inspecting vectors."""
+    template = _template(tmp_path)
+    drawn = pdc_placement.place_detergents(PROTEIN, template, 8, seed=3, mode='self-assembly')
+    lattice = pdc_placement.place_detergents(PROTEIN, template, 8, seed=3, mode='lattice')
+
+    assert drawn['orientation_policy'] == 'random-outward'
+    assert lattice['orientation_policy'] == 'radial'
+
+
+# --- the shell is sized by the subunits the run includes -----------------------------------------------------
+
+
+def _rod(half=False, radius=1.0):
+    """A protein shaped like a rod along x: a tube of points 12 nm long, or the 6 nm of its first half."""
+    ends = (-6.0, 0.0) if half else (-6.0, 6.0)
+    points = []
+    for x in np.linspace(*ends, 7):
+        for angle in np.linspace(0.0, 2.0 * np.pi, 12, endpoint=False):
+            points.append([float(x), radius * float(np.cos(angle)), radius * float(np.sin(angle))])
+    return points
+
+
+def test_the_shell_follows_the_selected_subunits(tmp_path):
+    """Task 3's acceptance: half the protein gets a smaller shell, a smaller box, and says the measurement decided."""
+    template = shaped_template(tmp_path, [(0.0, 0.0, 0.0), (2.0, 0.0, 0.0)])
+    whole_rod, half_rod = _rod(), _rod(half=True)
+
+    whole = pdc_placement.place_detergents(whole_rod, template, 40, seed=3, mode='lattice')
+    half = pdc_placement.place_detergents(half_rod, template, 40, seed=3, mode='lattice')
+
+    assert whole['valid'] and half['valid'], (whole['issues'], half['issues'])
+    assert half['shell']['radius_nm'] < whole['shell']['radius_nm'] * 0.75
+    assert half['shell']['radius_source'] == 'measured' and whole['shell']['radius_source'] == 'measured'
+    # The box the build derives from the same points follows the selection too -- `pdc_box.initial_box` is measured
+    # from the coordinates handed in, so a smaller selection is a smaller box.
+    assert initial_box(half_rod)[0] < initial_box(whole_rod)[0]
+
+
+def test_the_radius_setting_is_the_floor_the_shell_is_measured_over(tmp_path):
+    """Both numbers are in the record, and `radius_source` says which of them decided."""
+    template = shaped_template(tmp_path, [(0.0, 0.0, 0.0), (2.0, 0.0, 0.0)])
+
+    lifted = pdc_placement.place_detergents(_rod(half=True), template, 24, seed=3, radius_nm=12.0)
+
+    assert lifted['shell']['radius_nm'] == pytest.approx(12.0)
+    assert lifted['shell']['radius_source'] == 'floor'
+    assert lifted['shell']['radius_floor_nm'] == 12.0
+    assert lifted['shell']['measured_shell_nm'] < 12.0, 'the measurement is kept, even when it lost'
+    assert lifted['radius_nm'] == 12.0
+
+
+def test_the_shell_reports_its_density_rather_than_scaling_the_count(tmp_path):
+    """The count stays the user's; the crowding is reported so a tight shell can be read as tight."""
+    template = shaped_template(tmp_path, [(0.0, 0.0, 0.0), (2.0, 0.0, 0.0)])
+    placed = pdc_placement.place_detergents(_rod(half=True), template, 24, seed=3, mode='lattice')
+
+    shell = placed['shell']
+    volume = 4.0 / 3.0 * np.pi * shell['radius_nm'] ** 3
+    assert placed['aggregation_number'] == 24 and len(placed['centers']) == 24
+    assert shell['volume_nm3'] == pytest.approx(volume, rel=1e-6)
+    assert shell['estimated_density_per_nm3'] == pytest.approx(24 / volume, rel=1e-5)
+    assert shell['capacity_nm3_per_detergent'] == pytest.approx(volume / 24, rel=1e-5)
+
+
+def test_the_belt_reports_its_own_density_the_same_way(tmp_path):
+    """A torus's volume is its own (Pappus), so the panel's density sentence reads the same field for either shape."""
+    placed = pdc_placement.place_detergents(_asymmetric_protein(), _template(tmp_path), 12, seed=4, frame=_frame(),
+                                            radius_nm=1.0)
+
+    band = placed['band']
+    volume = 2.0 * np.pi ** 2 * band['centre_line_radius_nm'] * band['tube_radius_nm'] ** 2
+    assert band['volume_nm3'] == pytest.approx(volume, rel=1e-6)
+    assert band['estimated_density_per_nm3'] == pytest.approx(12 / volume, rel=1e-5)
+    assert placed['shell'] is None, 'a belt is not a sphere, so the sphere record is not written'
+
+
+# --- capacity: the number the user asked for never changes ------------------------------------------------
+
+
+def _short_molecule(tmp_path):
+    """A molecule 0.2 nm long, so a small protein cannot enlarge the shell by much."""
+    return shaped_template(tmp_path, [(0.0, 0.0, 0.0), (0.2, 0.0, 0.0)])
+
+
+def test_a_shell_too_small_reports_the_count_it_could_hold(tmp_path):
+    """Task 5's acceptance: a refusal measures what the shape holds, on every seed it reports."""
+    template = _short_molecule(tmp_path)
+    small_region = [[0.0, 0.0, 0.0]]
+
+    placed = pdc_placement.place_detergents(small_region, template, 150, seed=5, mode='lattice', radius_nm=0.5)
+
+    assert not placed['valid']
+    measurement = placed['capacity_aggregation']
+    assert 0 < measurement['count'] < 150
+    assert measurement['requested'] == 150 and measurement['seeds'] == [1, 2, 3]
+    for seed in measurement['seeds']:
+        assert pdc_placement.place_detergents(small_region, template, measurement['count'], seed=seed,
+                                              mode='lattice', radius_nm=0.5)['valid']
+    assert any('the shell holds about' in issue for issue in placed['issues']), placed['issues']
+    assert f'{measurement["count"]}' in [issue for issue in placed['issues'] if 'shell holds' in issue][0]
+
+
+def test_one_more_than_the_capacity_is_refused(tmp_path):
+    """The measurement is a boundary and not a slogan: the count above it fails the gate it was measured over."""
+    template = _short_molecule(tmp_path)
+    small_region = [[0.0, 0.0, 0.0]]
+    measurement = pdc_placement.place_detergents(small_region, template, 150, seed=5, mode='lattice',
+                                                radius_nm=0.5)['capacity_aggregation']
+
+    over = pdc_placement.place_detergents(small_region, template, measurement['count'] + 1, seed=1, mode='lattice',
+                                          radius_nm=0.5)
+
+    assert not over['valid'], 'a shell that holds N must refuse N + 1 on the seed that was measured'
+
+
+def test_a_shell_that_holds_the_full_count_reports_no_capacity(tmp_path):
+    """A succeeded placement has nothing to report, so the field is `None` and no clause is added."""
+    template = _short_molecule(tmp_path)
+    placed = pdc_placement.place_detergents([[0.0, 0.0, 0.0]], template, 8, seed=5, mode='lattice', radius_nm=1.0)
+
+    assert placed['valid'], placed['issues']
+    assert placed['capacity_aggregation'] is None
+    assert not any('shell holds' in issue for issue in placed['issues'])
+
+
+def test_the_capacity_measurement_does_not_measure_itself(tmp_path):
+    """`measure_capacity=False` is the inner call: the bisection's own placements report nothing."""
+    template = _short_molecule(tmp_path)
+    placed = pdc_placement.place_detergents([[0.0, 0.0, 0.0]], template, 150, seed=5, mode='lattice',
+                                            radius_nm=0.5, measure_capacity=False)
+
+    assert not placed['valid'] and placed['capacity_aggregation'] is None
+
+
+def test_the_capacity_is_the_placers_own_measurement_not_a_formula(tmp_path):
+    """It is `place_detergents` at the top of it: no second geometry, and the same number for a direct call."""
+    template = _short_molecule(tmp_path)
+    small_region = [[0.0, 0.0, 0.0]]
+
+    measured = pdc_placement.capacity(small_region, template, 150, mode='lattice', radius_nm=0.5)
+    placed = pdc_placement.place_detergents(small_region, template, 150, seed=5, mode='lattice', radius_nm=0.5)
+
+    assert measured == placed['capacity_aggregation']
+

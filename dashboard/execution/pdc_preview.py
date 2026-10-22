@@ -373,9 +373,34 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     # selection): a reader checking whether the plane shrank with the subunits was shown one number that never moved.
     # The tube's radius is stated under its own name, and the measurement beside it, so all three can be re-added.
     band = placement['band'] or {}
+    shell = placement.get('shell') or {}
+    # The shell's own numbers, and the density they and the count make. `shell`/`band` are never both set: a belt's
+    # volume is the torus's (Pappus) and a sphere's is the ball's, so the panel reads one pair of fields for either
+    # shape and the shape's name says which geometry produced them.
+    shape_record = shell or band
     basis.update({'placement_shape': placement['placement_shape'], 'clearance_nm': placement['protein_clearance_nm'],
                   'band_radius_nm': band.get('centre_line_radius_nm'), 'slab_radius_nm': band.get('slab_radius_nm'),
-                  'tube_radius_nm': band.get('tube_radius_nm')})
+                  'tube_radius_nm': band.get('tube_radius_nm'),
+                  # The sphere's measured radius (a belt's is `band_radius_nm` above), and which number decided it --
+                  # the protein's own extent or the radius setting used as a floor. A run that selects one subunit
+                  # measures a smaller shell, and these two fields are where that shows.
+                  'shell_radius_nm': shell.get('radius_nm'),
+                  'radius_source': (shell.get('radius_source') or band.get('radius_source')
+                                    or placement.get('radius_source')),
+                  'radius_floor_nm': shell.get('radius_floor_nm') or band.get('radius_floor_nm'),
+                  'measured_extent_nm': shell.get('measured_extent_nm'),
+                  # How the orientations were come by, and the detergent's own body as the clearance gate read it.
+                  'orientation_policy': placement.get('orientation_policy'),
+                  'body_profile': placement.get('body_profile'),
+                  'body_profile_reason': placement.get('body_profile_reason'),
+                  'bead_clearance_nm': placement.get('bead_clearance_nm'),
+                  # Crowding, reported and never acted on, and -- when the requested count cannot be placed -- what
+                  # the shape would hold, measured over the placer's own gate. The refusal's `reasons` carry the same
+                  # measurement as a sentence; this is the number behind it, for the panel's "Use N" control.
+                  'estimated_density_per_nm3': shape_record.get('estimated_density_per_nm3'),
+                  'capacity_nm3_per_detergent': shape_record.get('capacity_nm3_per_detergent'),
+                  'volume_nm3': shape_record.get('volume_nm3'),
+                  'capacity_aggregation': placement.get('capacity_aggregation')})
     if not placement['valid']:
         cost['seconds'] = time.perf_counter() - started
         return _refusal('placement', placement['issues'], basis, cost, subject=protein_path or f'{mode} placement')

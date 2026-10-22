@@ -128,8 +128,15 @@ def test_the_measured_slab_radius_shrinks_with_the_selection(tmp_path):
 
 
 def test_the_selection_moves_the_belt_whenever_the_measurement_is_over_the_floor(tmp_path):
-    """A radius stated below both measurements is only a floor, so the belt follows each selection's own cylinder."""
-    source = structure(tmp_path, [('A', ring(3.0)), ('B', ring(1.0))])
+    """A radius stated below both measurements is only a floor, so the belt follows each selection's own cylinder.
+
+    Chain B is six atoms here and not twenty-four. The slab radius is the *furthest* in-slab atom, and a ring of
+    twenty-four atoms all at exactly that radius (0.26 nm apart) leaves no azimuth clear: every detergent's tail bead
+    reaches the centre-line, and the bead-level gate (0.25 nm) refuses all of them, so the belt is empty and there is
+    no surface to measure. A real cross-section has one atom at its furthest point and the rest inside it; six atoms
+    keep the measurement exact (1.0 nm) and leave the belt placeable, which is what this test is about.
+    """
+    source = structure(tmp_path, [('A', ring(3.0)), ('B', ring(1.0, count=6))])
 
     one, _ = placement_for(tmp_path / 'a', source, ['A'], 12, radius_nm=1.0)
     other, _ = placement_for(tmp_path / 'b', source, ['B'], 12, radius_nm=1.0)
@@ -138,6 +145,7 @@ def test_the_selection_moves_the_belt_whenever_the_measurement_is_over_the_floor
     assert other['band']['centre_line_radius_nm'] == pytest.approx(1.0, abs=1e-4)
     assert other['band']['tube_radius_nm'] == pytest.approx(MOLECULE_LENGTH_NM)
     # And the placed sites are on the smaller tube's surface, not on the larger one's: the belt really moved.
+    assert len(other['centers']) == 12
     assert np.allclose(distance_to_centre_line(other['centers'], 1.0), MOLECULE_LENGTH_NM, atol=1e-5)
 
 
@@ -201,6 +209,13 @@ def test_no_two_detergents_share_an_orientation_so_the_belt_is_not_parallel(tmp_
     axis -- so the belt has one distinct direction per detergent and its body is not in the membrane plane unless its
     own meridian puts it there. A belt whose bodies were parallel would have one direction repeated, a meridian range
     of zero, and a mean direction of unit length; all three are measured here.
+
+    The near-duplicate bound is 0.1 degree rather than 1.0: near the top of the half-circle every meridian points
+    almost along the membrane normal, so two sites at different azimuths there are a fraction of a degree apart while
+    half a nanometre apart on the belt. While every site came from the ladder's first pass those two never coincided;
+    the bead-level gate now refuses entries, so a replacement can come from a later pass and land beside one. What
+    the placement promises is one *distinct* direction per detergent -- asserted exactly below -- and a belt spanning
+    the whole half-circle, not a minimum gap between neighbours at the pole.
     """
     source = structure(tmp_path, [('A', ring(1.5))])
     placed, frame = placement_for(tmp_path / 'a', source, ['A'], 60, radius_nm=1.5)
@@ -214,8 +229,11 @@ def test_no_two_detergents_share_an_orientation_so_the_belt_is_not_parallel(tmp_
     separations = np.degrees(np.arccos(np.clip(directions @ directions.T, -1.0, 1.0)))
     np.fill_diagonal(separations, np.nan)
     assert len(distinct) == len(directions), 'no two detergents may share a direction'
-    assert float(np.nanmin(separations)) > 1.0, 'and no two may be within a degree of each other'
-    assert float(np.linalg.norm(directions.mean(axis=0))) < 0.05, \
+    assert float(np.nanmin(separations)) > 0.1, 'and no two may be effectively the same orientation'
+    # A mean of unit length is one direction repeated. The bound is 0.25 and not 0.05 because a belt the protein
+    # refuses entries from keeps a *subset* of the ladder's directions: the kept ones no longer cancel to nothing, and
+    # measured here the mean is 0.08 against a parallel belt's 1.0.
+    assert float(np.linalg.norm(directions.mean(axis=0))) < 0.25, \
         'parallel bodies would have a mean of unit length'
 
     # The meridian is the angle out of the membrane plane: the belt reaches the plane and the axis, so it is not one
