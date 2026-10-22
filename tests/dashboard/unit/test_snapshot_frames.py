@@ -94,7 +94,10 @@ def test_a_cg_run_is_read_at_the_cg_simulation_stage(tmp_path):
 
     assert result['role'] == 'cg_stage_trajectory'
     assert result['trajectory'] == 'stages/4_CG_sim/md.xtc'
-    assert {'CG-first.pdb', 'CG-first.svg', 'CG-last.pdb', 'CG-frames.pdb'} <= set(result['files'])
+    assert 'CG-frames.pdb' in result['files']
+    # A coarse-grained run writes the playable series and no first/middle/last moments: three pictures of a bead
+    # cloud say nothing the series does not, and they were most of the analysis panel's width.
+    assert [name for name in result['files'] if name.endswith(('.pdb', '.svg')) and not name.endswith('frames.pdb')] == []
     assert not list((tmp_path / 'snapshots').glob('AA-*'))
 
 
@@ -218,10 +221,6 @@ def test_a_cg_series_carries_the_family_code_and_the_models_own_bonds(tmp_path):
     assert any('SAMPLED SERIES: 2 models' in line for line in lines), \
         'the file does not say how many models it holds'
     assert result['series']['topology'] and 'SUCR_initial.itp' in result['series']['topology']
-    # The moments the strip's buttons jump to are written the same way: a reader landing on one sees the same beads.
-    first = (tmp_path / 'snapshots/CG-first.pdb').read_text()
-    assert first.count('CONECT') == 3, 'a single moment must carry the model\'s bonds too'
-    assert {line[60:66].strip() for line in first.splitlines() if line.startswith('HETATM')} == {'3.00'}
 
 
 def test_a_cg_series_with_no_moleculetype_says_it_has_no_bonds(tmp_path):

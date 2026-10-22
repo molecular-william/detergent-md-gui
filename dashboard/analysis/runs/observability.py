@@ -383,7 +383,10 @@ def generate(run_dir, labels=('first', 'middle', 'last'), samples=SERIES_SAMPLES
                                for letter, members in sorted(groups.items())) or 'no fragment'
             raise ValueError(f"The run's own mapping places no bead in fragment '{align_on}', so there is nothing "
                              f'to fit on: it states {stated}')
-    for label in labels:
+    # A coarse-grained run gets the series and no moments: first/middle/last pictures of a bead cloud say nothing the
+    # playable series does not, and three of them is most of the analysis panel's width for no measurement.
+    moments = [] if coarse else list(labels)
+    for label in moments:
         if label not in indices:
             raise ValueError(f'Unknown snapshot label: {label}')
         index = indices[label]
