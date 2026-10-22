@@ -37,11 +37,18 @@ frame gives each protein residue, the three classes they sort into, and their co
 backbone bead by its residue's class without measuring anything itself. The mapping of DSSP's letters onto the three
 classes is one table in this module (`SECONDARY_CLASSES`), and a residue the frame cannot give one class to is left
 uncoloured rather than guessed at.
+
+The beads are a coarse-graining of a structure, so the picture carries both halves: `basis['protein_structure']`
+names the **all-atom file martinize2 was handed** -- its cache key and the URL that serves it
+(`PROTEIN_STRUCTURE_ROUTE`), never the file itself, which would double every placement answer -- and the card draws
+it as a neutral ribbon underneath the beads. The two are in one frame (martinize2 writes its beads in the coordinates
+it read), so nothing is transformed to overlay them.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import time
@@ -108,6 +115,52 @@ SECONDARY_CLASS_ORDER = ('helix', 'sheet', 'coil')
 #: The file inside a cache entry holding the assignment martinize2 was built with. Optional: an entry written before
 #: it existed has none, and a record that carries no letters is not written at all -- see `_secondary_record`.
 SECONDARY_RECORD = 'secondary_structure.json'
+
+#: A cache entry's name: `cache_key`'s digest to `CACHE_KEY_LENGTH` hex characters, and the only spelling anything
+#: resolving an entry will take. The preview's protein route validates against this pattern rather than against the
+#: filesystem, so a key can never name a path outside the cache root -- there is no separator, no dot and no case in
+#: it to escape with -- and a typo is answered as a malformed request instead of as a missing file.
+CACHE_KEY_LENGTH = 16
+CACHE_KEY_PATTERN = re.compile(rf'[0-9a-f]{{{CACHE_KEY_LENGTH}}}')
+
+#: The all-atom structure inside an entry, in the order it is looked for: the **prepared** protein when the derive
+#: asked for `prepare_protein` (that is the file `coarse_grained` hands martinize2 in a run, so it is the one the
+#: beads came from), and the **chain selection** otherwise (`pdc_build.select_protein`'s own output). Either is in the
+#: frame martinize2 wrote the beads in, which is what lets a ribbon drawn from it overlay the beads with no transform;
+#: an entry whose source file needed neither holds neither, and then there is no all-atom structure to draw.
+PROTEIN_STRUCTURES = (pdc_preparation.PREPARED_NAME, pdc_build.SELECTED_PROTEIN)
+
+#: The route that serves an entry's all-atom protein. The placement's `basis` names this URL beside the key, so the
+#: client never builds a URL -- one spelling of it, in the module that answers with the other half of the picture.
+PROTEIN_STRUCTURE_ROUTE = '/api/pdc/preview/protein'
+
+
+def protein_structure_path(entry):
+    """The all-atom structure martinize2 was handed for a cache entry, or `None` when the entry holds none.
+
+    One rule, used by the service that names the structure and by the route that serves it, so the two cannot point
+    at different files: the prepared protein first (a prepared entry coarse-grains that one), the chain selection
+    otherwise. A directory that is not an entry -- no `protein_selected.pdb`, no `protein_prepared.pdb` -- answers
+    `None` rather than falling back to whatever the caller would have read next.
+    """
+    for name in PROTEIN_STRUCTURES:
+        path = Path(entry) / name
+        if path.is_file():
+            return path
+    return None
+
+
+def protein_structure_basis(key, entry):
+    """The all-atom protein's key and URL, for the basis of a frame whose beads were coarse-grained from it.
+
+    `None` unless the entry really holds that structure: a basis that named a URL answering `404` would put a
+    control on the card for a layer that cannot be drawn, and a build with no protein has no entry at all. The key is
+    the entry's own name (`cost['cg_key']`), validated as one, so the URL is a read of the cache and nothing else.
+    """
+    token = str(key or '')
+    if not entry or not CACHE_KEY_PATTERN.fullmatch(token) or protein_structure_path(entry) is None:
+        return None
+    return {'key': token, 'url': f'{PROTEIN_STRUCTURE_ROUTE}?key={token}'}
 
 
 def secondary_class(letter) -> str:
@@ -274,7 +327,7 @@ def cache_key(protein_path, chains, executable, *, prepare=False, prepare_execut
         digest.update(b'\0' + files.sha256(executable).encode())
     digest.update(f'\0{pdc_protein.DEFAULT_FORCE_FIELD}|{pdc_protein.FORCE_CONSTANT}'
                   f'|{pdc_protein.UPPER_BOUND_NM}'.encode())
-    return digest.hexdigest()[:16]
+    return digest.hexdigest()[:CACHE_KEY_LENGTH]
 
 
 def coarse_grained(cache_root, protein_path, chains, *, executable=None, prepare=False,
@@ -471,7 +524,11 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
              # until a frame is actually drawn from a coarse-grained protein: a refusal carries no coordinates, so
              # it has no residues to give a class to, and says that rather than naming an assignment for a picture
              # that does not exist.
-             'secondary_structure': None}
+             'secondary_structure': None,
+             # The all-atom protein the beads were coarse-grained from: `{key, url}` for the route that serves it, so
+             # the card can draw a ribbon of the structure the beads stand for. `None` for a build with no protein,
+             # and for a derive whose entry holds no such structure -- see `protein_structure_basis`.
+             'protein_structure': None}
     cost = {'cg_cached': False, 'coarse_graining_seconds': 0.0, 'detergent_seconds': 0.0,
             'placement_seconds': 0.0, 'seconds': 0.0, 'cg_bytes': 0, 'cg_key': None, 'prepare_seconds': 0.0}
     started = time.perf_counter()
@@ -623,6 +680,11 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     # to, and its basis says `None` rather than naming an assignment for a picture that does not exist.
     if beads:
         basis['secondary_structure'] = secondary_structure_basis(cg.get('secondary_structure'), beads)
+        # The all-atom protein the beads stand for, named by the entry that holds it and the route that serves it:
+        # the card draws it as a ribbon under the beads, so what was coarse-grained and what it became are in one
+        # picture. A derive whose coarse-graining was answered by something other than a cache entry names none,
+        # and so does an entry that holds neither a prepared nor a selected structure.
+        basis['protein_structure'] = protein_structure_basis(cg.get('key'), cg.get('path'))
     cost['seconds'] = time.perf_counter() - started
     pdb = pdc_view.system_pdb(atoms, detergent_residue=record.residue, topology=topology,
                               title=f'placement preview ({record.name}, AN={aggregation_number}, mode={mode}, '

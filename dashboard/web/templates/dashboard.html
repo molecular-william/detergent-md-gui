@@ -241,6 +241,7 @@
       <div class="bead-legend new-pdc-preview-secondary-legend" data-secondary-legend hidden
            aria-label="Protein backbone colour by secondary structure"></div>
       <p class="hint new-pdc-preview-secondary" role="status" hidden></p>
+      <p class="hint new-pdc-preview-ribbon-note" role="status" hidden></p>
       <p class="hint new-pdc-preview-basis" role="status"></p>
       <p class="hint new-pdc-preview-shell" role="status" hidden></p>
       <p class="hint new-pdc-preview-capacity" role="status" hidden></p>
@@ -253,6 +254,13 @@
            stick so the model's own bonds are readable at this card's scale, and sends nothing to the server. #}
         <label class="new-pdc-preview-bonds" title="Draw the protein as licorice sticks so the model's own bonds are visible">
           <input type="checkbox"> Bonds
+        </label>
+        {# The all-atom structure the beads were coarse-grained from, drawn as a ribbon under them. A view switch like
+           Bonds -- it sends nothing, changes no derived value, and is not one of the derive's inputs; the server names
+           the structure, so this card never builds the URL for it. #}
+        <label class="new-pdc-preview-ribbon"
+               title="Draw the all-atom structure the beads were coarse-grained from, as a ribbon under the beads">
+          <input type="checkbox" checked> Ribbon
         </label>
         <span class="hint new-pdc-preview-state" role="status">Nothing derived yet: press Derive the preview.</span>
       </div>
@@ -277,14 +285,19 @@
         from the code the writer puts in the file's b-factor column. Both tables are <code>ngl-beads.js</code>'s, and
         the legend under the picture names them, so this card and the run's own viewer cannot draw one bead two ways.</p>
 
-      <p class="hint"><strong>The protein's backbone is coloured by secondary structure, and its bonds can be made
-        visible.</strong> The assignment is the one martinize2 coarse-grained the protein with — mdtraj's DSSP, run
-        before the beads — and each backbone bead takes the class of the residue it belongs to: helix, sheet or coil,
-        from the second legend under the picture, with that assignment's own counts beside it. A backbone bead whose
-        residue the frame cannot give one class to is drawn in its family colour instead, because a colour there would
-        claim a secondary structure the assignment does not state. <em>Bonds</em> switches the protein's own beads to
-        licorice sticks so the model's bonds — this frame's own <code>CONECT</code> records — read at the scale the
-        beads are drawn at; it is a view of the frame and changes nothing the build derives.</p>
+      <p class="hint"><strong>A ribbon of the structure the beads were coarse-grained from, under them; the beads
+        coloured by secondary structure, and their bonds able to be made visible.</strong> The ribbon is the protein's
+        own all-atom file — the very file <code>martinize2</code> was handed, in the coordinates it wrote the beads in,
+        so the two overlay with nothing transformed — drawn in one neutral colour at a third opacity so it reads as
+        the structure underneath rather than as a layer of its own; <em>Ribbon</em> hides it. It states no secondary
+        structure: <em>the colours in this picture are the beads'</em>, and the ribbon does not restate them. The
+        assignment those colours come from is the one <code>martinize2</code> coarse-grained the protein with —
+        mdtraj's DSSP, run before the beads — and each backbone bead takes the class of the residue it belongs to:
+        helix, sheet or coil, from the second legend under the picture, with that assignment's own counts beside it. A
+        backbone bead whose residue the frame cannot give one class to is drawn in its family colour instead, because
+        a colour there would claim a secondary structure the assignment does not state. <em>Bonds</em> switches the
+        protein's beads to licorice sticks so the model's bonds — this frame's own <code>CONECT</code> records — read
+        at the scale the beads are drawn at; it is a view of the frame and changes nothing the build derives.</p>
 
       <p class="hint"><strong>What it does not show.</strong></p>
       <ul class="hint new-pdc-preview-nots">

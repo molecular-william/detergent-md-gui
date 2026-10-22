@@ -1258,7 +1258,15 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   const PREVIEW_BEAD_SCALE = 0.3;
   const previewNode = selector => pdcNode(`.new-pdc-preview ${selector}`);
   const sayPreview = (selector, text) => { const target = previewNode(selector); if (target) setText(target, text); };
-  let previewFrame = null, previewRequest = 0, previewTimer;
+  //: The line that says the ribbon could not be loaded. Its own element rather than `.new-pdc-preview-basis`, which
+  //: carries what the placement measured: a failure of the second request is not a fact about the frame.
+  function ribbonNote(text) {
+    const note = previewNode('.new-pdc-preview-ribbon-note');
+    if (!note) return;
+    setText(note, text || '');
+    note.hidden = !text;
+  }
+  let previewFrame = null, previewRequest = 0, previewTimer, previewDraw = 0;
   // The stage lives on the host element, the way `pdc.js` keeps its own (`viewer.pdcStage`): one owner, and a test
   // or a console can reach the thing that is drawn without a hook this module would have to publish.
   const previewStage = () => previewNode('.new-pdc-preview-viewer')?.previewStage || null;
@@ -1411,9 +1419,66 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     return groups;
   }
 
-  // The loaded frame and the assignment it is coloured with, kept on the host element beside `previewStage`: the
-  // Bonds control redraws the representations of the frame that is already here rather than asking the server for it
-  // again, and this is the state that redraw needs.
+  // The protein as the structure it was coarse-grained from ------------------------------------------------------
+  //
+  // The beads are a coarse-grained model *of* a structure, and the two are one picture here: the server names the
+  // all-atom file martinize2 was handed in `basis.protein_structure` (its cache key and the URL that serves it, so
+  // this file never builds a URL), and it is drawn as a ribbon **under** the beads. Both are in one frame --
+  // martinize2 writes its beads in the coordinates it read -- so nothing is transformed to overlay them.
+  //
+  // The ribbon makes no claim of its own. One neutral grey that is neither a Martini family nor a DSSP class, so it
+  // cannot be decoded as either: the colours in this picture are the *beads'*, and the card's sentence says so. It is
+  // also drawn first and with `depthWrite: false`, which is what makes "under" true in the renderer as well as in
+  // the prose -- a surface that wrote depth would cut holes in the beads in front of it and be cut by the ones behind.
+  // `side: 'front'` keeps the ribbon from blending its own far wall through its near one: measured on 1AT9, both
+  // sides accumulated to a near-opaque grey wherever helices are dense, which made the backdrop read as the subject.
+  //
+  // Which representation is the ribbon is asked of the bundle rather than assumed. This vendored NGL is 2.3.1
+  // (`vendor/ngl.js.source.json`), and its `NGL.RepresentationRegistry` -- the registry `addRepresentation` looks a
+  // name up in, and which carries `names` and `get(name)` rather than a `nameList` -- lists `cartoon`, `ribbon`,
+  // `backbone`, `trace` and `tube` among the twenty-four it knows. `cartoon` is the one taken, because it is the only
+  // one that draws helices as helices from the file's own `HELIX`/`SHEET` records -- which `pdc_build.select_protein`
+  // keeps, so a deposited structure arrives with its secondary structure in it. The order below is the fallback: a
+  // spline tube (`backbone`), then the C-alpha `trace`, neither of which needs anything but a backbone trace.
+  const PREVIEW_RIBBON_REPRESENTATIONS = ['cartoon', 'ribbon', 'backbone', 'trace'];
+  //: A grey that is neither a family colour nor a class colour (`ngl-beads.js` carries both tables), so the ribbon
+  //: under the beads cannot be decoded as either.
+  const PREVIEW_RIBBON_COLOUR = '#adb5bd';
+  //: Firm, not faint: the protein's beads are drawn translucent over this ribbon (`PREVIEW_PROTEIN_BEAD_OPACITY`),
+  //: and a ribbon at a third opacity under them measured as a grey smear rather than the helices it is. It still
+  //: writes no depth, so it cannot paint over a bead.
+  const PREVIEW_RIBBON_OPACITY = 0.85;
+  //: The protein's beads sit on the very atoms its ribbon runs through, so at full opacity they hide it completely
+  //: (measured on 1at9: a 2933-atom cartoon invisible under 928 beads). While the ribbon is shown the protein's beads
+  //: are drawn translucent, which is what makes the two layers one picture instead of two. The detergent's beads are
+  //: not -- nothing of the ribbon is under them, and a washed-out micelle would say the detergent is uncertain.
+  const PREVIEW_PROTEIN_BEAD_OPACITY = 0.5;
+
+  function ribbonRepresentation() {
+    const registry = NGL.RepresentationRegistry;
+    return PREVIEW_RIBBON_REPRESENTATIONS.find(name => !!(registry && registry.get(name))) || null;
+  }
+
+  // The ribbon's own redraw, from the component the load left on the host and the control's state at drawing time:
+  // toggling it removes or adds the ribbon's representation and touches nothing else -- not the beads, not the
+  // server, not the state line.
+  function drawPreviewRibbon() {
+    const ribbon = previewNode('.new-pdc-preview-viewer')?.previewRibbon;
+    if (!ribbon) return;
+    for (const representation of [...ribbon.reprList]) ribbon.removeRepresentation(representation);
+    // Read from the control at drawing time, exactly as Bonds reads its own: a view of the frame on screen, never an
+    // input to it -- absent from `previewInputs`, sending nothing, leaving the state line alone.
+    if (!previewNode('.new-pdc-preview-ribbon input')?.checked) return;
+    const name = ribbonRepresentation();
+    if (!name) return;
+    ribbon.addRepresentation(name, {colorScheme: 'uniform', colorValue: PREVIEW_RIBBON_COLOUR,
+                                    opacity: PREVIEW_RIBBON_OPACITY, depthWrite: false, side: 'front',
+                                    useInteriorColor: false});
+  }
+
+  // The loaded frame's beads and the assignment they are coloured with, kept on the host element beside
+  // `previewStage`: the Bonds control redraws the representations of the frame that is already here rather than
+  // asking the server for it again, and this is the state that redraw needs.
   function drawPreviewRepresentations() {
     const host = previewNode('.new-pdc-preview-viewer'), component = host?.previewComponent;
     if (!component) return;
@@ -1424,6 +1489,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     const bonds = !!previewNode('.new-pdc-preview-bonds input')?.checked;
     const protein = bonds ? 'licorice' : 'ball+stick';
     const beads = {...BEAD_RADIUS_PARAMETERS, ...BEAD_FAMILY_PARAMETERS};
+    // The ribbon is drawn from the same all-atom structure these beads were coarse-grained from, so it lies *inside*
+    // them: shown together, the protein's beads are translucent and the detergent's stay solid.
+    const underRibbon = previewNode('.new-pdc-preview-ribbon input')?.checked
+      ? {opacity: PREVIEW_PROTEIN_BEAD_OPACITY, depthWrite: false} : {};
     const assignment = host.previewSecondary;
     const groups = secondaryGroups(assignment);
     const coloured = [...groups.helix, ...groups.sheet, ...groups.coil];
@@ -1443,17 +1512,19 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     // The protein's beads that are not a class' backbone: its side chains, and any residue the assignment does not
     // name. Built as the complement of the very selections below, so no bead is drawn twice and none is dropped.
     component.addRepresentation(protein, {
-      sele: `(${residues}) and not (${PREVIEW_BACKBONE} and (${residueSelection(coloured)}))`, ...beads});
+      sele: `(${residues}) and not (${PREVIEW_BACKBONE} and (${residueSelection(coloured)}))`,
+      ...beads, ...underRibbon});
     for (const name of SECONDARY_CLASS_ORDER) {
       if (!groups[name].length) continue;
       component.addRepresentation(protein, {
         sele: `${PREVIEW_BACKBONE} and (${residueSelection(groups[name])})`,
-        ...BEAD_RADIUS_PARAMETERS, colorScheme: 'uniform', colorValue: SECONDARY_CLASS_COLOURS[name],
+        ...BEAD_RADIUS_PARAMETERS, ...underRibbon, colorScheme: 'uniform',
+        colorValue: SECONDARY_CLASS_COLOURS[name],
       });
     }
   }
 
-  function showPreviewFrame(pdb, assignment) {
+  function showPreviewFrame(pdb, assignment, structure) {
     const host = previewNode('.new-pdc-preview-viewer');
     if (!host || typeof NGL === 'undefined') return;
     // The stage is built the moment there is something to draw, and asked to resize on a tab show and a window
@@ -1463,21 +1534,51 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     const stage = host.previewStage;
     stage.removeAllComponents();
     host.previewComponent = null;
+    host.previewRibbon = null;
     host.previewSecondary = assignment || null;
+    ribbonNote('');
+    // Which draw this is. NGL resolves a `loadFile` whenever the file arrives, so a derive pressed while an earlier
+    // frame is still loading would otherwise add the older picture on top of the newer one: a draw that is no longer
+    // the latest drops its component instead of stacking it.
+    const draw = ++previewDraw;
+    const superseded = () => draw !== previewDraw;
+    // The ribbon is loaded **first and waited for**, so the beads are added to the stage after it: NGL draws its
+    // components in the order they were added, and two layers that swap places depending on which file arrived first
+    // would flicker between derives. A URL the server named but that cannot be fetched (an entry pruned between the
+    // two requests) leaves the beads and says so, rather than showing a picture that silently lost half of itself.
+    const ribbon = structure?.url
+      ? stage.loadFile(structure.url, {ext: 'pdb', defaultRepresentation: false}).then(component => {
+          if (superseded()) { stage.removeComponent(component); return null; }
+          host.previewRibbon = component;
+          drawPreviewRibbon();
+          return component;
+        }).catch(error => {
+          if (superseded()) return null;
+          ribbonNote(`The all-atom structure the beads were coarse-grained from could not be loaded `
+                     + `(${error.message || error}), so there is no ribbon under them: the beads are the frame's own.`);
+          return null;
+        })
+      : Promise.resolve(null);
     // The guess is off, not optional. A coarse-grained bead has no element and no covalent radius, so NGL's
     // distance-based `inferBonds` draws head beads onto tail beads -- measured in `pdc.js` at 90 bonds on a frame
     // the model bonds 60 ways. The file carries the model's own bonds as CONECT records whenever the build has a
     // mapping; when it carries none (a centres-only build, one bead per molecule) there is no bond to draw at all.
-    stage.loadFile(new Blob([pdb], {type: 'text/plain'}), {ext: 'pdb', inferBonds: 'none'}).then(component => {
-      applyBeadRadii(component.structure, {scale: PREVIEW_BEAD_SCALE});
-      host.previewComponent = component;
-      // Both of the module's answers go on the representations: the radius each bead's own size class gives it, and
-      // the colour its type family -- or its residue's secondary structure -- gives it.
-      drawPreviewRepresentations();
-      component.autoView();
-      stage.handleResize();
-    }).catch(error => sayPreview('.new-pdc-preview-basis',
-                                 `The frame the server sent could not be drawn: ${error.message || error}`));
+    // The all-atom structure above keeps the guess: it has elements, and no `CONECT` records to trust instead.
+    ribbon.then(() => (superseded() ? null
+                                    : stage.loadFile(new Blob([pdb], {type: 'text/plain'}),
+                                                     {ext: 'pdb', inferBonds: 'none'})))
+      .then(component => {
+        if (!component) return;
+        if (superseded()) { stage.removeComponent(component); return; }
+        applyBeadRadii(component.structure, {scale: PREVIEW_BEAD_SCALE});
+        host.previewComponent = component;
+        // Both of the module's answers go on the representations: the radius each bead's own size class gives it, and
+        // the colour its type family -- or its residue's secondary structure -- gives it.
+        drawPreviewRepresentations();
+        component.autoView();
+        stage.handleResize();
+      }).catch(error => sayPreview('.new-pdc-preview-basis',
+                                   `The frame the server sent could not be drawn: ${error.message || error}`));
   }
 
   // What the placement measured, beside the picture --------------------------------------------------------------
@@ -1570,7 +1671,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     const viewer = previewNode('.new-pdc-preview-viewer'), refusal = previewNode('.new-pdc-preview-refusal');
     if (refusal) { refusal.hidden = true; refusal.textContent = ''; }
     if (viewer) viewer.hidden = false;
-    showPreviewFrame(body.pdb || '', basis.secondary_structure);
+    showPreviewFrame(body.pdb || '', basis.secondary_structure, basis.protein_structure);
     renderPreviewSecondary(basis);
     sayPreview('.new-pdc-preview-basis', `Placement for ${describeFrame(basis)} · `
       + `${Number(basis.beads).toLocaleString()} beads · box ${box.map(value => Number(value).toFixed(2)).join(' × ')} nm `
@@ -1615,9 +1716,13 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     // The canvas belongs to NGL, not to this card: only its components are dropped, so a later frame still has
     // somewhere to draw. Emptying the host is what detaches it, and then no frame can be drawn again.
     previewStage()?.removeAllComponents();
+    // A load still in flight belongs to the picture being replaced, and it must not land on this one: bumping the
+    // draw token makes it drop its component instead of drawing a frame beside a refusal.
+    previewDraw += 1;
     const host = previewNode('.new-pdc-preview-viewer'), secondaryLegend = previewNode('.new-pdc-preview-secondary-legend');
     const secondaryNote = previewNode('.new-pdc-preview-secondary');
-    if (host) { host.previewComponent = null; host.previewSecondary = null; }
+    if (host) { host.previewComponent = null; host.previewRibbon = null; host.previewSecondary = null; }
+    ribbonNote('');
     if (viewer) viewer.hidden = true;
     // A refusal draws nothing, so it has no backbone to colour and no counts to print: both say nothing rather than
     // leaving the last frame's legend and numbers beside a sentence about a system that was not built.
@@ -1740,6 +1845,15 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // representations in `licorice` so the model's CONECT records read as sticks, leaves the detergent's as they were,
   // and -- because it is not in `previewInputs` and sends no request -- cannot be mistaken for a different placement.
   pdcNode('.new-pdc-preview-bonds input')?.addEventListener('change', () => { drawPreviewRepresentations(); });
+  // The Ribbon control beside it is the same kind of thing: it shows or hides the all-atom structure the beads were
+  // coarse-grained from, as a layer under them. It sends nothing, is not in `previewInputs`, and leaves the state
+  // line saying the frame on screen is the one this form asked for.
+  pdcNode('.new-pdc-preview-ribbon input')?.addEventListener('change', () => {
+    // The beads' opacity is read off this same control (`drawPreviewRepresentations`), so hiding the ribbon has to
+    // redraw them too -- otherwise the protein's beads would stay translucent over nothing.
+    drawPreviewRibbon();
+    drawPreviewRepresentations();
+  });
   // The count the placement measured, put into the count field exactly as a reader typing it would: the field's own
   // `input` listener re-derives the frame (and the estimate and the readiness gate with it), so this button queues
   // nothing and starts no run.

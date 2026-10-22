@@ -31,7 +31,7 @@ import numpy as np
 import pytest
 
 from dashboard.execution import pdc_preview
-from dashboard.execution.adapters import pdc_box, pdc_placement, pdc_view
+from dashboard.execution.adapters import pdc_box, pdc_placement, pdc_preparation, pdc_view
 from dashboard.execution.scripts import pdc_build
 from dashboard.models.molecules import detergent_cg
 from micelle.registry import load_template
@@ -677,3 +677,142 @@ def test_a_reused_cache_entry_keeps_the_assignment_martinize2_was_built_with(tmp
     assert cold['basis']['secondary_structure'] == warm['basis']['secondary_structure']
     entry = tmp_path / 'cache' / cold['cost']['cg_key']
     assert (entry / pdc_preview.SECONDARY_RECORD).is_file(), 'the assignment is kept beside the beads it was made for'
+
+
+# --- the all-atom structure the frame is a coarse-graining of --------------------------------------------------
+#
+# The picture had beads and no protein under them. What these tests pin is the *name* of the structure, not a
+# drawing: the basis carries the cache entry the beads came from and the route that serves it -- and carries neither
+# for a build with no protein -- and the route serves that entry's file, refuses a key that is not an entry name, and
+# answers 404 for an entry the cache does not hold. The file itself is never inlined in the placement answer.
+
+def test_a_protein_build_names_the_structure_its_beads_were_coarse_grained_from(tmp_path, monkeypatch):
+    """The key is the entry the beads are in, and the URL is the route that serves it -- named, never built here.
+
+    Read back out of the answer: `basis.protein_structure.key` is `cost.cg_key`, and the file the URL resolves to on
+    this workspace's disk is the chain selection `pdc_build.select_protein` wrote for martinize2. That is the file the
+    ribbon is drawn from, so it must be the one martinize2 was handed rather than the source the reader picked.
+    """
+    calls = []
+    monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_martinize2(calls))
+
+    answer = preview(tmp_path, protein=str(protein(tmp_path)), chains=['A'], mapping=None, aggregation_number=12)
+
+    assert answer['valid'], answer['reasons']
+    structure = answer['basis']['protein_structure']
+    assert structure['key'] == answer['cost']['cg_key'], structure
+    assert structure['url'] == f'/api/pdc/preview/protein?key={answer["cost"]["cg_key"]}', structure
+    assert answer['cost']['cg_key'] in structure['url']
+    entry = tmp_path / 'cache' / structure['key']
+    assert pdc_preview.protein_structure_path(entry) == entry / pdc_build.SELECTED_PROTEIN
+    # The frame's own beads are not the all-atom structure: the answer carries a name for it, and no coordinates.
+    assert 'CA ' in (entry / pdc_build.SELECTED_PROTEIN).read_text()
+    assert ' CA ' not in answer['pdb'], 'the all-atom structure was inlined in the placement answer'
+
+
+def test_an_empty_micelle_names_no_structure_because_it_coarse_grained_none(tmp_path):
+    """No protein, no coarse-graining, no entry -- so nothing for a ribbon to be drawn from."""
+    answer = preview(tmp_path, aggregation_number=40, mapping=None)
+
+    assert answer['valid'] and answer['basis']['protein_beads'] == 0
+    assert answer['basis']['protein_structure'] is None
+    assert answer['cost']['cg_key'] is None
+
+
+def test_a_refusal_names_no_structure_because_it_draws_nothing(tmp_path, monkeypatch):
+    """A refusal is a sentence and no picture: it has no ribbon to put under coordinates it did not produce."""
+    monkeypatch.setattr(pdc_preview, 'coarse_grained', stubbed_cg(shell(3.2), assignment('HH')))
+    answer = preview(tmp_path, protein=str(protein(tmp_path)), chains=['A'], mapping=None, aggregation_number=60)
+
+    assert answer['valid'] is False and answer['pdb'] is None
+    assert answer['basis']['protein_structure'] is None
+
+
+def test_a_prepared_entry_serves_the_prepared_structure_martinize2_read(tmp_path):
+    """One rule for which file is the one the beads came from, and the prepared one wins when the entry holds it.
+
+    `coarse_grained` hands martinize2 the prepared structure for a prepared derive, so that is the file the beads are
+    in; the chain selection is the file for every other derive. A directory holding neither answers `None` rather
+    than reading whatever the caller would have tried next.
+    """
+    entry = tmp_path / 'entry'
+    entry.mkdir()
+    assert pdc_preview.protein_structure_path(entry) is None
+
+    (entry / pdc_build.SELECTED_PROTEIN).write_text('ATOM\n')
+    assert pdc_preview.protein_structure_path(entry) == entry / pdc_build.SELECTED_PROTEIN
+    assert pdc_preview.protein_structure_basis('0123456789abcdef', entry) is not None
+
+    prepared = entry / pdc_preparation.PREPARED_NAME
+    prepared.write_text('ATOM\n')
+    assert pdc_preview.protein_structure_path(entry) == prepared
+    # A key that is not an entry name names nothing, even when the directory is real: the function is the one the
+    # route leans on for that, so it refuses it here too.
+    for malformed in ('../../etc', '0123456789abcde', 'ABCDEF0123456789', '', None):
+        assert pdc_preview.protein_structure_basis(malformed, entry) is None, malformed
+
+
+# --- the route that serves it ----------------------------------------------------------------------------------
+#
+# The route is asked through the application, with the entry written into the test workspace's own preview cache --
+# the same directory `pdc_preview.preview` writes to, so a key the placement named is a key this route answers for.
+
+ENTRY_KEY = '0123456789abcdef'
+ATOM_TEXT = ('ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00  0.00           N\n'
+             'ATOM      2  CA  ALA A   1       0.145   0.000   0.000  1.00  0.00           C\nEND\n')
+
+
+def planted_entry(dashboard, key=ENTRY_KEY, text=ATOM_TEXT, name=pdc_build.SELECTED_PROTEIN):
+    """A cache entry in the test workspace holding `text` as `name`, and the key to ask for it with."""
+    entry = dashboard.paths.workspace / pdc_preview.CACHE_DIRECTORY / key
+    entry.mkdir(parents=True, exist_ok=True)
+    (entry / name).write_text(text)
+    return key
+
+
+def test_the_protein_route_serves_the_cached_structure_it_was_asked_for(dashboard):
+    """A valid key reads the entry's all-atom file, unchanged, as the text a viewer loads."""
+    key = planted_entry(dashboard)
+
+    response = dashboard.client.get(f'/api/pdc/preview/protein?key={key}')
+
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert response.get_data(as_text=True) == ATOM_TEXT
+    assert response.mimetype == 'text/plain'
+
+
+def test_the_protein_route_refuses_a_key_that_is_not_an_entry_name(dashboard):
+    """Hex of the key's own length and nothing else -- which is also what keeps a key inside the cache root."""
+    planted_entry(dashboard)
+    outside = dashboard.paths.workspace / 'outside_the_cache.pdb'
+    outside.write_text(ATOM_TEXT)
+
+    for malformed in ('../../outside_the_cache.pdb', '..%2F..%2Foutside_the_cache.pdb', '/etc/passwd',
+                      '0123456789abcde', '0123456789abcdef0', 'ABCDEF0123456789', '0123456789abcdeZ', '', ' '):
+        response = dashboard.client.get('/api/pdc/preview/protein', query_string={'key': malformed})
+        assert response.status_code == 400, f'{malformed!r} was not refused: {response.status_code}'
+        assert 'key' in response.get_json()['error'], malformed
+    # Nothing was served for any of them: the file outside the cache root is still outside it, unread.
+    assert outside.is_file()
+
+
+def test_the_protein_route_says_404_for_an_entry_the_cache_does_not_hold(dashboard):
+    """A well-formed key with nothing behind it is a missing file, and the sentence names which."""
+    dashboard.paths.workspace.mkdir(parents=True, exist_ok=True)
+    missing = 'ffffffffffffffff'
+
+    response = dashboard.client.get(f'/api/pdc/preview/protein?key={missing}')
+
+    assert response.status_code == 404
+    assert missing in response.get_json()['error'], response.get_json()
+
+
+def test_the_protein_route_answers_404_for_an_entry_holding_no_structure(dashboard):
+    """An entry exists and holds no all-atom file (it was pruned, or the derive wrote neither): still no picture."""
+    entry = dashboard.paths.workspace / pdc_preview.CACHE_DIRECTORY / ENTRY_KEY
+    entry.mkdir(parents=True)
+
+    response = dashboard.client.get(f'/api/pdc/preview/protein?key={ENTRY_KEY}')
+
+    assert response.status_code == 404
+    assert ENTRY_KEY in response.get_json()['error']

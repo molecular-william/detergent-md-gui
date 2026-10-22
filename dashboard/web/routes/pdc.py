@@ -362,6 +362,34 @@ def preview_cache_root():
     return Path(workspace) / pdc_preview.CACHE_DIRECTORY
 
 
+@blueprint.get('/api/pdc/preview/protein')
+def pdc_preview_protein():
+    """The all-atom protein the preview's frame was coarse-grained from, for the card's ribbon.
+
+    The other half of the picture the placement route answers with: `basis['protein_structure']` names a cache entry
+    and this URL, and this serves the structure inside it -- the file martinize2 was handed, unchanged, because it is
+    already in the frame the beads were written in. The client is told the URL rather than building one, so the two
+    halves of the answer cannot spell the same file differently.
+
+    `key` is a cache entry's name and nothing else: `pdc_preview.CACHE_KEY_PATTERN` is hex of the key's own length,
+    which is also what keeps a key from naming a path outside the cache root -- there is no separator to escape
+    with. Anything that is not one is a **400** (a malformed request, the spelling the routes beside it use), and a
+    well-formed key the cache does not hold is a **404** that names it: a preview whose entry was removed is a
+    missing file, not a bad question. Nothing here writes, and nothing here is a run's input.
+    """
+    from ...execution import pdc_preview
+
+    key = (request.args.get('key') or '').strip()
+    if not pdc_preview.CACHE_KEY_PATTERN.fullmatch(key):
+        return jsonify({'error': f'key must be a preview cache entry name ({pdc_preview.CACHE_KEY_LENGTH} hex '
+                                 f'characters), not {key!r}'}), 400
+    structure = pdc_preview.protein_structure_path(preview_cache_root() / key)
+    if structure is None:
+        abort(404, f'the preview cache holds no all-atom protein for {key}: derive the preview again, and the entry '
+                   f'it builds will hold the structure its beads came from')
+    return Response(structure.read_text(errors='replace'), mimetype='text/plain')
+
+
 @blueprint.get('/api/pdc/preview/placement')
 def pdc_preview_placement():
     """The frame these inputs would build, derived from the build's own placement step and nothing else.
@@ -379,6 +407,9 @@ def pdc_preview_placement():
 
     Nothing a run reads is written and no run is created: the only thing this route leaves on disk is a
     coarse-grained protein under the workspace's preview cache (see `execution/pdc_preview.py`), which no stage reads.
+    `basis['protein_structure']` names that entry and `pdc_preview_protein` beside it, so the card can draw the
+    all-atom structure the beads were coarse-grained from under them -- and it names neither for a build with no
+    protein.
     """
     from ...execution import pdc_preview, tools
     from ...execution.adapters import pdc_preparation

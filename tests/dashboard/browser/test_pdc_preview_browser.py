@@ -120,7 +120,8 @@ def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, c
            seed=20261013, shell: float | None = None, radius_source: str | None = None,
            body_profile: dict | None = None, body_profile_reason: str | None = None,
            bead_clearance: float | None = None, density: float | None = None,
-           capacity: dict | None = None, secondary: dict | None = None):
+           capacity: dict | None = None, secondary: dict | None = None,
+           structure: dict | None = None):
     """A response shaped as the route answers, with the fields the card renders."""
     return {
         'valid': valid, 'reasons': list(reasons), 'pdb': pdb if valid else None,
@@ -142,15 +143,24 @@ def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, c
                   # The assignment martinize2 coarse-grained the protein with, keyed by the frame's residue numbers:
                   # `None` for a build with no protein or an answer that carries no assignment, exactly as the
                   # service writes it.
-                  'secondary_structure': secondary},
+                  'secondary_structure': secondary,
+                  # The all-atom structure the beads were coarse-grained from -- a cache key and the URL that serves
+                  # it, exactly as `pdc_preview.protein_structure_basis` writes one -- or `None` for a build with no
+                  # protein, exactly as the service writes that.
+                  'protein_structure': structure},
         'cost': cost or {'cg_cached': True, 'coarse_graining_seconds': 0.001, 'detergent_seconds': 0.074,
                          'placement_seconds': 0.005, 'seconds': 0.1017, 'cg_bytes': 50768,
                          'cg_key': '0423f94ce62e7698'},
     }
 
 
-def serve(page, body, requests=None):
-    """Every read the panel makes before it can ask, and the route under test."""
+def serve(page, body, requests=None, structure=None):
+    """Every read the panel makes before it can ask, and the route under test.
+
+    `structure` is the all-atom PDB the preview's protein route answers with when the card asks for it. It is not
+    routed at all when it is `None`, because a card whose basis names no structure must not ask -- and a test that
+    routes a file nobody should fetch would hide exactly that.
+    """
     page.route(re.compile(r'/api/pdc/catalog'), lambda route: route.fulfill(json=CATALOG))
     page.route(re.compile(r'/api/mappings\?'), lambda route: route.fulfill(json=MAPPINGS))
     page.route(re.compile(r'/api/readiness\?'),
@@ -162,6 +172,14 @@ def serve(page, body, requests=None):
         route.fulfill(json=body(route.request.url) if callable(body) else body)
 
     page.route(re.compile(r'/api/pdc/preview/placement'), route_preview)
+
+    def route_structure(route):
+        if requests is not None:
+            requests.append(route.request.url)
+        route.fulfill(status=200, content_type='text/plain', body=structure)
+
+    if structure is not None:
+        page.route(re.compile(r'/api/pdc/preview/protein'), route_structure)
 
 
 def serve_raw(page, body):
@@ -857,4 +875,209 @@ def test_a_frame_with_no_assignment_says_so_and_colours_nothing_by_structure(das
     colours = drawn_colours(measured)
     protein = [index for index, atom in enumerate(measured['atoms']) if atom['resname'] == 'PRO']
     assert protein and {colours[index] for index in protein} == {FAMILY_COLOURS['unstated']}, colours
+    assert errors == [], errors
+
+
+# --- the ribbon, under the beads --------------------------------------------------------------------------------
+#
+# The beads are a coarse-graining of a structure, and the picture now shows both: the server names the all-atom file
+# martinize2 was handed in `basis.protein_structure`, the card asks that URL for it, and it is drawn as a ribbon in
+# one neutral colour under the beads. What these tests measure on the loaded stage is which layer is which: two
+# components, the ribbon's first (NGL draws its components in the order they were added) carrying one ribbon
+# representation at less than full opacity and writing no depth, the frame's second carrying the bead representations
+# and nothing else; the Ribbon control removing and adding the ribbon and touching no bead; and a protein-free answer
+# producing one component and asking for no structure at all.
+
+#: The cache key the stubbed basis names, and the URL that serves it -- the card is handed both and must build
+#: neither, so this is what the request for the ribbon is asserted against.
+ENTRY_KEY = '0123456789abcdef'
+STRUCTURE = {'key': ENTRY_KEY, 'url': f'/api/pdc/preview/protein?key={ENTRY_KEY}'}
+
+
+def peptide(residues=4, *, chain='A'):
+    """An all-atom peptide in the columns NGL's own trace reads: `N`, `CA`, `C` and `O` per residue.
+
+    Real peptide geometry -- 1.45 A `N`-`CA`, 1.45 A `CA`-`C`, 1.33 A `C`-`N` to the next residue -- because the
+    viewer splits a polymer where its backbone stops being bonded, and a chain of residues spaced far apart arrives
+    as separate pieces that `cartoon` draws nothing for. `HELIX`/`SHEET` records are not written: the ribbon is one
+    neutral colour either way, and the classes in this picture are the *beads'* (`secondary_basis`), which is the
+    other half of the claim.
+    """
+    lines, serial = [], 0
+    for index in range(residues):
+        base = 4.23 * index
+        for name, xyz, element in (('N', (base, 0.0, 0.0), 'N'), ('CA', (base + 1.45, 0.2, 0.0), 'C'),
+                                   ('C', (base + 2.90, 0.0, 0.0), 'C'), ('O', (base + 3.40, 1.10, 0.0), 'O')):
+            serial += 1
+            lines.append(f'ATOM  {serial:5d} {name:^4s} ALA {chain}{index + 1:4d}    '
+                         f'{xyz[0]:8.3f}{xyz[1]:8.3f}{xyz[2]:8.3f}  1.00  0.00           {element}')
+    return '\n'.join(lines) + '\nEND\n'
+
+
+PEPTIDE = peptide()
+PEPTIDE_ATOMS = 4 * 4
+
+
+#: Every component on the stage, in the order NGL draws them, with the representation types and the two parameter
+#: these tests are about -- and each structure's own atom names, which is how a layer is identified as the all-atom
+#: protein or as the beads rather than by the order it happens to have been added in.
+MEASURE_LAYERS = """
+(el) => {
+  return el.previewStage.compList.map(component => {
+    const atomnames = new Set(), resnames = new Set();
+    for (let index = 0; index < component.structure.atomCount; index += 1) {
+      const atom = component.structure.getAtomProxy(index);
+      atomnames.add(atom.atomname.trim());
+      resnames.add(atom.resname.trim());
+    }
+    return {
+      atoms: component.structure.atomCount,
+      atomnames: [...atomnames], resnames: [...resnames], visible: component.visible,
+      reps: component.reprList.map(rep => {
+        const parameters = rep.repr.getParameters();
+        return {type: rep.repr.type, sele: parameters.sele || '*',
+                opacity: parameters.opacity, depthWrite: parameters.depthWrite};
+      }),
+    };
+  });
+}
+"""
+
+
+def layers(page, count, atoms):
+    """Wait for `count` components on the stage, the last of them the `atoms`-bead frame, and read them off."""
+    page.wait_for_function(
+        """([count, atoms]) => {
+          const stage = document.querySelector('.new-pdc-preview-viewer').previewStage;
+          return !!stage && stage.compList.length === count
+            && stage.compList[stage.compList.length - 1].structure.atomCount === atoms;
+        }""", arg=[count, atoms], timeout=30000)
+    return page.locator('.new-pdc-preview-viewer').evaluate(MEASURE_LAYERS)
+
+
+def test_the_protein_is_a_ribbon_of_its_all_atom_structure_under_the_beads(dashboard, live_page):
+    """Two components: the all-atom ribbon first and translucent, the frame's beads second and untouched.
+
+    The ribbon is identified by its atoms, not by its position: it is the one whose backbone is `N`/`CA`/`C`/`O`, and
+    the frame is the one whose atoms are the writer's beads (`BB`, `SC1`, ...). Two claims beyond "there are two" are
+    what keep the beads readable on top of it -- the ribbon is at less than full opacity and writes no depth, so it
+    cannot paint over a bead, and it is the component added first, which is the order NGL draws in. The legend stays
+    one legend: the ribbon has no colour key of its own.
+    """
+    page, errors = live_page
+    requests = []
+    serve(page, answer(protein_frame(), secondary=secondary_basis(), protein_beads=len(PROTEIN_RESIDUES) * 2,
+                       beads=FRAME_ATOMS, clearance=0.51, structure=STRUCTURE), requests, structure=PEPTIDE)
+    open_panel(page, live_page.base_url)
+    derive(page)
+
+    measured = layers(page, 2, FRAME_ATOMS)
+    ribbon, frame = measured
+
+    assert ribbon['atoms'] == PEPTIDE_ATOMS, ribbon
+    assert {'N', 'CA', 'C', 'O'} <= set(ribbon['atomnames']), ribbon['atomnames']
+    assert 'ALA' in ribbon['resnames'] and 'DET' not in ribbon['resnames'], ribbon['resnames']
+    assert len(ribbon['reps']) == 1, ribbon['reps']
+    assert ribbon['reps'][0]['type'] == 'cartoon', ribbon['reps']
+    assert ribbon['reps'][0]['opacity'] is not None and 0 < ribbon['reps'][0]['opacity'] < 1, ribbon['reps']
+    assert ribbon['reps'][0]['depthWrite'] is False, 'a translucent ribbon that writes depth cuts the beads behind it'
+    assert ribbon['reps'][0]['sele'] == '*', ribbon['reps']
+
+    assert frame['atoms'] == FRAME_ATOMS, frame
+    assert {'BB', 'SC1'} <= set(frame['atomnames']) and 'CA' not in frame['atomnames'], frame['atomnames']
+    assert set(rep['type'] for rep in frame['reps']) == {'ball+stick'}, frame['reps']
+    # The ribbon runs through the very atoms these beads were coarse-grained from, so the protein's bead
+    # representations are translucent (and write no depth) while the detergent's stay solid: with both at full
+    # opacity the cartoon is invisible under the beads it belongs to.
+    detergent_reps = [rep for rep in frame['reps'] if str(rep['sele']).startswith('not (')]
+    protein_reps = [rep for rep in frame['reps'] if not str(rep['sele']).startswith('not (')]
+    assert detergent_reps and protein_reps, frame['reps']
+    for rep in protein_reps:
+        assert rep['opacity'] is not None and 0 < rep['opacity'] < 1, rep
+        assert rep['depthWrite'] is False, rep
+    for rep in detergent_reps:
+        assert rep['opacity'] in (None, 1), 'the micelle is not under the ribbon and is not drawn as if it were'
+    # The bead representations are the frame's, and the ribbon's representation is not among them: the two layers are
+    # separate components, so the Bonds and Ribbon controls cannot redraw each other's.
+    assert abs(sum(1 for rep in frame['reps'] if rep['type'] == 'cartoon')) == 0
+
+    # The legend is still one key per question and no third for the ribbon: the family colours and the three classes.
+    assert page.locator('.new-pdc-preview .bead-legend').count() == 2
+    assert page.locator('.new-pdc-preview .bead-legend:not([hidden])').count() == 2
+
+    # One request each: the card asked the URL the server named, and built no URL of its own.
+    protein_requests = [url for url in requests if '/preview/protein' in url]
+    assert len(protein_requests) == 1 and protein_requests[0].endswith(STRUCTURE['url']), requests
+    assert len([url for url in requests if '/preview/placement' in url]) == 1, requests
+    expect(page.locator('.new-pdc-preview-ribbon-note')).to_be_hidden()
+    assert errors == [], errors
+
+
+def test_the_ribbon_control_removes_and_adds_only_the_ribbon(dashboard, live_page):
+    """The Ribbon switch beside Bonds is a view of this frame: one representation goes, the beads do not move.
+
+    Unchecked, the ribbon component carries no representation at all and every bead representation is exactly what it
+    was; checked again, one ribbon comes back. Nothing is asked of the server and the state line still says the frame
+    on screen is the one this form asked for -- it is a way of looking at the frame, not a different frame.
+    """
+    page, errors = live_page
+    requests = []
+    serve(page, answer(protein_frame(), secondary=secondary_basis(), protein_beads=len(PROTEIN_RESIDUES) * 2,
+                       beads=FRAME_ATOMS, clearance=0.51, structure=STRUCTURE), requests, structure=PEPTIDE)
+    open_panel(page, live_page.base_url)
+    derive(page)
+    drawn = layers(page, 2, FRAME_ATOMS)
+    assert len(requests) == 2, requests
+
+    ribbon, frame = drawn
+    assert [rep['type'] for rep in ribbon['reps']] == ['cartoon']
+    bead_reps = frame['reps']
+    assert bead_reps, 'the frame drew no bead'
+
+    toggle = page.locator('.new-pdc-preview-ribbon input')
+    assert toggle.is_checked(), 'the ribbon is drawn by default'
+
+    toggle.uncheck()
+    hidden = layers(page, 2, FRAME_ATOMS)
+    assert hidden[0]['reps'] == [], hidden[0]
+    # The same beads, the same selections -- now opaque, because the ribbon they were drawn translucent over is gone.
+    assert [(rep['type'], rep['sele']) for rep in hidden[1]['reps']] == \
+           [(rep['type'], rep['sele']) for rep in bead_reps], 'the control changed which beads are drawn'
+    for rep in hidden[1]['reps']:
+        assert rep['opacity'] in (None, 1), rep
+    assert hidden[1]['atoms'] == frame['atoms']
+
+    toggle.check()
+    shown = layers(page, 2, FRAME_ATOMS)
+    assert [rep['type'] for rep in shown[0]['reps']] == ['cartoon'], shown[0]
+    assert [(rep['type'], rep['sele']) for rep in shown[1]['reps']] == \
+           [(rep['type'], rep['sele']) for rep in bead_reps]
+    protein_reps = [rep for rep in shown[1]['reps'] if not str(rep['sele']).startswith('not (')]
+    assert protein_reps and all(rep['opacity'] is not None and 0 < rep['opacity'] < 1 for rep in protein_reps)
+
+    # A view, not a derive: one request each, and the state line has not moved.
+    assert len(requests) == 2, requests
+    expect(page.locator('.new-pdc-preview-state')).to_have_text(DERIVED)
+    assert errors == [], errors
+
+
+def test_a_protein_free_frame_asks_for_no_structure_and_draws_one_component(dashboard, live_page):
+    """An empty micelle coarse-grains nothing, so the basis names no structure -- and no ribbon is drawn or asked for.
+
+    The negative half of the claim above: a card that fetched a ribbon anyway (or invented a URL for one) would put a
+    layer on screen for a structure this build never had.
+    """
+    page, errors = live_page
+    requests = []
+    serve(page, answer(empty_micelle_pdb(), protein=None, chains=(), protein_beads=0,
+                       beads=len(DDM_BEADS) * 3, clearance=None, placement_shape='sphere', band=None,
+                       representation='the mapping\u2019s beads'), requests, structure=PEPTIDE)
+    open_panel(page, live_page.base_url, protein=PROTEIN['id'])
+    derive(page)
+
+    measured = layers(page, 1, len(DDM_BEADS) * 3)
+    assert len(measured) == 1, measured
+    assert not any('/preview/protein' in url for url in requests), requests
+    expect(page.locator('.new-pdc-preview-ribbon-note')).to_be_hidden()
+    assert page.locator('.new-pdc-preview-ribbon input').is_checked(), 'the control is present and on by default'
     assert errors == [], errors
