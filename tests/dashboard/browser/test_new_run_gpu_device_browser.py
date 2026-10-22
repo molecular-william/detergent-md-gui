@@ -93,3 +93,25 @@ def test_the_posted_settings_carry_the_chosen_device(dashboard, live_page):
     # The saved form remembers the choice, so a reload does not silently move the run back to device 0.
     assert json.loads(page.evaluate("localStorage.getItem('ddm.form')"))['mdrun_gpu'] == '1'
     assert errors == []
+
+
+def test_a_read_that_fails_keeps_device_0_and_does_not_claim_the_host_has_none(dashboard, live_page):
+    """An unreachable route is not a host without a GPU, and the panel must not say it is.
+
+    This is the shape of a server started before `/api/run/devices` existed: the route answers 404, `api()` throws,
+    and an earlier version filled an empty select labelled "No GPU detected" -- a claim about the host made by a
+    request that never reached it -- while the note underneath said the read had failed. Two sentences contradicting
+    each other, and the select also disabled itself, so `mdrun_gpu` left the form and the run recorded no device at
+    all. Now the option says what happened and keeps 0, which is the device the command carries regardless.
+    """
+    page, errors = live_page
+    page.route('**/api/run/devices', lambda route: route.fulfill(status=500, json={'error': 'probe failed'}))
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
+    page.wait_for_function(
+        "() => document.querySelectorAll('#run-gpu-device option').length === 1", timeout=30000)
+    option = page.evaluate(
+        "(() => { const o = document.querySelector('#run-gpu-device option'); return [o.value, o.textContent]; })()")
+    assert option == ['0', 'Device 0 (devices could not be read)']
+    expect(page.locator('#run-gpu-device')).to_be_enabled()
+    expect(page.locator('#run-gpu-note')).to_have_text(
+        'The GPU devices could not be read; the command keeps device 0.')
