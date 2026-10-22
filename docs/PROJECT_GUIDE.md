@@ -328,3 +328,124 @@ dashboard/.venv/bin/python -m pytest tests/dashboard/browser -v
 ```
 
 The suite exercises polling without state loss, mapping edits and draft persistence, console pause/follow/copy/download, and mobile layout using isolated test jobs. Worker tests cancel an actual short-lived subprocess without running MD.
+
+
+## Module notes
+
+Detail that matters while editing one module and would only be in the way in `AGENTS.md`. Each subsection names the
+code it describes; if the two disagree, the code is right and this is stale.
+
+### Run accounting: progress, analyses, structure
+
+`web/progress.py` counts mdrun legs in the stage log (`gmx mdrun -deffnm`) and the step within the current one, because
+a three-leg script stage (`cg_simulation.sh`: min, eq, md) has no single GROMACS estimate and a tool stage
+(`assess.sh`) prints no step at all. It streams the log -- leg markers stand at the start of legs -- and reports
+`percent: null` rather than 0 when a leg has not printed yet. The ETA is GROMACS' own text, so the two numbers answer
+different questions.
+
+`snapshots` runs for every run with a trajectory. `coordinator.queue_defaults` asks one resolver
+(`coordinator.automatic_analyses`), which is `kinds.for_every_run()` plus `kinds.default_for(run_type)`, so an `aa_cg`
+run also owes `dihedral-fit` and `bonded-cross-check`; a run with no trajectory records `skipped` with a reason and
+stays `complete`. Frames resolve through the run's own layout, so an AA-only run reads its `07_reference/` pair and a CG
+run its `4_CG_sim/`.
+
+`GET /api/jobs/<id>/structure?path=<run-relative .gro>` writes the run's own `[ bonds ]` and `[ constraints ]` as
+CONECT, locating the topology by `analysis/runs/layout.cg_topology` and naming it from the manifest's `FINAL_ITP`. A
+`.pdb` is refused. Readers never distance-guess a file that carries CONECT, and a coarse-grained file is
+`inferBonds: 'none'` even without it.
+
+### Panels: invariants and the 3D scene
+
+A mapping whose current revision names `aa_reference.run_id` pins New Run's AA source: the picker is disabled, the AA
+half's stage settings are filled from that run's recorded settings and locked, and deleting the source is not offered.
+The panel clears its readiness answer whenever it re-asks, so a null answer is not an unlock; release happens on a
+mapping change.
+
+A fit job is polled by `?job_id=`, never by the mapping's hash: the hash is a mapping's history, the id is the job the
+panel queued. Bead size and family colouring come from one table in `ngl-beads.js` (`BEAD_RADII_NM`,
+`BEAD_FAMILY_ORDER`/`BEAD_FAMILY_COLOURS`/`BEAD_FAMILY_LABELS`), and the on-screen legend is drawn from that same table
+(`renderBeadLegend`), so a new family is one entry.
+
+A revision's terms name beads by their **export** name -- `B01` is the mapping's first bead, virtual sites included
+(`mappings/exports.py`) -- so anything that needs a position translates them first. The scene did not, and drew no
+bonded term at all until it did.
+
+The 3D scene has one style per term kind (`bonded-plot.TERM_STYLES`): bonds the mapping's green; constraints a darker
+shade of it, left on the bond they fix; angles amber **arcs** between the two arms at alpha 0.7, radius 35% of the
+shorter arm; dihedrals green dashed at alpha 0.7, drawn as spine **and** arc -- the spine names the four atoms and is
+stepped off the bonds by 1.8% of the molecule's diagonal, seeded per (kind, bead set) so a re-render moves nothing and
+`ff_inter`'s eight harmonics of one torsion coincide, while the arc is the torsion itself, projected onto the plane
+perpendicular to the central bond and swept **signed** between the two outer atoms, because the two signs are different
+torsions; impropers slate dash-dot; virtual sites violet dotted. A virtual site is drawn twice: an open diamond as a
+bead (a solid circle reads as an atom the model lacks) and a violet star from the site to each parent, because the term
+names the site alone and the parents live on the mapping's bead record.
+
+The bonded panels draw the selected candidate's own molecule (`bonded.js:resolveStructure`), never the packaged
+reference: reading the reference for every candidate drew sucrose, trehalose and maltose on DDM's atoms.
+
+### Mapping identity and deletion
+
+`identity.candidate_identity` hashes numbers as values (`numbers_as_values`), so `1` and `1.0` are one identity: a
+mapping is read as JSON, posted back by a browser, and JS has no int. Hashing spellings differently gave one mapping two
+identities -- the file's and the posted snapshot's -- and a fit was filed under a digest no saved mapping addressed.
+Reads fall back to `legacy_content_identity` for records written before that. Only `candidate_identity` normalises;
+`canonical_sha256` and the file/snapshot digests are byte digests on purpose.
+
+`save_draft` refuses a second draft whose beads, rings and connections hash the same (`DuplicateMapping`, naming the
+file that holds it); `POST /api/mappings/drafts` answers 409 with `existing`; the editor disables Save-as-new from the
+validation result's `duplicate_file` and names the file in `#automatic-message`. A rename is an in-place save, so it is
+not a duplicate.
+
+A parameterization is produced by `POST /api/bonded-parameterizations` (engines `fast-forward` and `bartender`, the
+latter restricted to `-refit -owntraj`). Every engine fits to an AA ensemble, so `aa_reference` is required, and the
+request makes no MD. The record carries a claim list (`owners`): a save claims the mapping, a draft delete releases its
+claim, and the revisions go with the last claim (`parameterization.release`); a record written before claims existed
+answers `why`, so the store falls back to asking the drafts on disk. Deleting a saved mapping also deletes the fit jobs
+and staged frames built for it, which is why that one route (`DELETE /api/mappings/drafts/<name>`) says what went with
+it, while the panel's own control deletes the parameterization and leaves the mapping alone.
+
+### Scoring inputs: `ff_inter` and `ff_assess`
+
+`ff_inter` writes `funct 9`, not `funct 1`: one `phi C mult` triplet per line, eight lines for one quadruple, so eight
+lines are one dihedral with eight harmonics. A reader that assumes `funct 1` refuses the topology; one that treats each
+line as a dihedral measures the same torsion eight times. `dihedral_fit.read_declared_dihedrals` merges them and
+compares the whole curve; `bonded_terms` keeps the lines.
+
+`ff_assess` scores against pre-computed reference distributions (`<group>_<type>_distr.dat` in its `-d` directory) and
+does not make them. `refine_bonded` writes them while fitting, so `parameterization.save` copies and hashes every
+`*distr.dat` beside the revision (`records/<content>.revisions/<n>/`; the tool's own glob, so the distance histograms
+travel too -- without them `ff_assess` skips each pair and scores it **0.00**, which reads perfect). `cg.prepare` stages
+them into `3_initial_CG` for a consuming run. A revision that records none still runs: `prepare` writes an empty
+inventory with the reason and stage 5 exits 4 with it (`skipped`), because a score it cannot take is not a reason to
+discard the simulation.
+
+BARTENDER models get their own analysis instead (per-parameter `Bond_Hooke`/`Angle_Hooke`/`Cosine`/`Ryckaert-Belleman`
+figures, 0.001 nm / 1 deg / 10 deg bins, bonded terms only) and cannot feed `ff_assess`'s histograms; unifying the two
+is postponed. A bartender-parameterized mapping therefore runs with stage 5 `skipped` and its own sentence.
+
+### Shapes, stages and series
+
+A pdc belt is a **torus** when the protein states a membrane: the slab circle is the tube's centre-line, the tube radius
+is the detergent's measured length, and `radius_nm` is a floor under that centre-line (`_belt_torus`, `SHAPE_TORUS`). A
+build with no stated membrane -- the empty micelle, a packaged protein -- keeps a fixed-radius **sphere**
+(`SHAPE_SPHERE`), where `radius_nm` is the radius. Protein secondary structure is martinize2's `-dssp`, which vermouth
+answers with mdtraj (`pdc_build.SS_SOURCE`), and MDAnalysis' own DSSP is the recorded fallback
+(`SS_FALLBACK_SOURCE`); the two disagreed on 42 of 230 residues of 1AT9, and the assignment travels in the run report.
+
+Protein-detergent stages run pdc's own scripts: every non-generated stage file is named `pdc_...`
+(`pdc_assessment.sh`, `pdc_assess.sh`, `pdc_extension.sh`, `pdc_backmap.sh`). Only `1_system/prepare_system.sh`, the
+three equilibration legs and `0_prepare/pdc_prepare.sh` are filled at prepare time (`pdc.GENERATED_STAGES`). The
+directory names `2_assessment`, `3_assessment` and `4_extension` are historic. `Energy minimisation`, `NVT` and `NPT`
+(`pdc.LEGS`, mdps under `resources/templates/protein_detergent/`) are the equilibration, and `CG assessment MD` is
+production only, reading `../4_npt/`.
+
+The osmotic run type is one run owning N concentrations, listed in `settings.molalities` and gated to sugars: each
+concentration gets its own directory and its own checkpoint (resumed with `gmx mdrun -cpi`), and `series_on_failure` is
+`carry_on` or `stop`. The old one-concentration shape (`osmotic_molality`) is removed from the vocabulary, so it cannot
+be rebuilt by accident.
+
+### Back-mapping
+
+CG2AT2 is vendored under `tools/cg2at/` (`tools/cg2at/cg2at`); `pdc_backmap.sh` runs its **align** method with the
+`martini_3-0_charmm36` fragment DB. The `memembed`, `martinize`, `insane` and `cg2at` package names earlier notes named
+are not maintained trees, and no `archive/` exists in this checkout.
