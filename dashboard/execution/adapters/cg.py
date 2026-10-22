@@ -137,9 +137,9 @@ SETTING_SPECS = {
     'output_interval_ps': ('Trajectory output interval', 0.001, 100000),
 }
 
-#: Settings from the AA half that describe *this run's* execution rather than the AA reference it consumes. A
-#: reference is prepared under its own settings; the device a run's mdrun uses is the run's own, on both halves.
-RUN_EXECUTION_SETTINGS = ('mdrun_gpu',)
+#: Settings from the AA half that describe *this run's* execution rather than the AA reference it consumes: the device
+#: and the CPU budget. A reference is prepared under its own settings; these are the run's own, on both halves.
+RUN_EXECUTION_SETTINGS = ('mdrun_gpu', 'mdrun_ntomp', 'mdrun_ranks')
 
 
 def _mdp_value(path, key):
@@ -681,9 +681,11 @@ def run_settings(settings):
     than refused, because those settings describe the *reference* it consumes instead of the run it builds --
     `normalize_settings` would otherwise take them, since it accepts both dialects by design.
 
-    `mdrun_gpu` is the exception on purpose: it names the device *this run's* mdrun uses, on the atomistic half and
-    the coarse-grained half alike, so it is a property of the run rather than of the reference. Dropping it here
-    would leave the run recording and executing the default device whatever the panel posted.
+    `mdrun_gpu`, `mdrun_ntomp` and `mdrun_ranks` are the exceptions on purpose: they name how *this run's* mdrun
+    executes -- the device and the CPU budget -- on the atomistic half and the coarse-grained half alike, so they are
+    properties of the run rather than of the reference. Dropping them here left a run recording and executing the
+    defaults while the panel showed the numbers that had been posted: an AA-to-CG form asking for 16 threads ran 8.
+    The reference's own recorded budget stays provenance -- what it cost -- not an instruction to this run.
     """
     return {key: value for key, value in (settings or {}).items()
             if key in SETTING_SPECS or key in RUN_EXECUTION_SETTINGS}

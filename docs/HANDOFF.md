@@ -46,9 +46,13 @@ Invariants section does not yet carry the two device bullets (`mdrun_gpu` is the
 prepared run records `environment.devices` and each stage `resource_usage.gpu`). Both edits need the write guard's
 approval, which timed out twice; nothing is lost -- the text is in this record and in the GPU commit message.
 
-**Open decision:** `aa_cg` drops every AA-half execution key through the dialect filter, so `mdrun_ntomp` and
-`mdrun_ranks` set in those panels are ignored by AA-CG runs; `mdrun_gpu` was kept and the rest left alone, because
-whether the CPU budget belongs to the run or to its reference is a decision rather than a cleanup.
+**Decided 2026-10-22: the CPU budget is the run's.** `cg.RUN_EXECUTION_SETTINGS` now keeps `mdrun_gpu`,
+`mdrun_ntomp` and `mdrun_ranks`, so an AA-to-CG form that asks for 16 threads and 2 ranks gets them on the atomistic
+half as well as the coarse-grained one, instead of the dialect filter dropping them and the run executing 8 while the
+panel showed 16. The AA reference's own recorded budget stays provenance -- what it cost to make -- rather than an
+instruction to a run that consumes it. The offload schemes (`mdrun_nb`, `mdrun_pme`) are still filtered out of an
+AA-to-CG run: they are choices about one half's execution rather than about the budget, and whether an AA-CG run should
+own them is a separate question, recorded rather than answered.
 
 ## Landed 2026-10-21: one serializer, one store, one name per model
 

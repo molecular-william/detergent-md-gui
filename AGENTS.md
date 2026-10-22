@@ -63,12 +63,14 @@ them.
   carrying CONECT is never distance-guessed.
 - A revision's terms name beads by their export name (`B01` is the first bead, virtual sites included), so anything
   that needs a position translates them first.
-- The bonded scene draws one style per term kind (`bonded-plot.TERM_STYLES`), and a fit job is polled by `?job_id=`,
-  never by the mapping's hash.
-- The bonded panels draw the selected candidate's own molecule (`bonded.js:resolveStructure`), never the packaged
-  reference.
+- The bonded scene draws one style per term kind (`bonded-plot.TERM_STYLES`), a fit job is polled by `?job_id=` never
+  by the mapping's hash, and the panels draw the selected candidate's own molecule (`bonded.js:resolveStructure`).
 - Carbohydrate validation is an immutable analysis on a completed source run: a `setup` analysis proves execution,
   never validity, and checked-in targets are citation metadata until molecule-specific measurements exist.
+- `mdrun_gpu`, `mdrun_ntomp` and `mdrun_ranks` are the run's, not its reference's: `cg.run_settings` keeps them and
+  `aa.mdrun_command_flags` is the only builder; a stage script states neither a device nor an offload scheme. A run
+  records `environment.devices` and each stage `resource_usage.gpu`; an index the host lacks is refused at prepare, a
+  host reporting none is not.
 
 ## Engineering rules
 - Test against fixtures, never the developer's workspace; build the record through the route the UI uses.
@@ -105,14 +107,14 @@ them.
 
 ## Verify
 ```
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast: 1,852, ~20 s with a private MPLCONFIGDIR
-dashboard/.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser: 236, ~45 s
-dashboard/.venv/bin/python -m pytest -m slow -q -n 0                       # slow: 67, ~52 s serial
+dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast: 1,891, ~19 s with a private MPLCONFIGDIR
+dashboard/.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser: 241, ~41 s
+dashboard/.venv/bin/python -m pytest -m slow -q -n 0                       # slow: 67, ~61 s serial
 dashboard/.venv/bin/ruff check dashboard tests                             # F, E9, I must exit 0
 scripts/gate_commit.sh <message-file> <paths...>                           # fast tier + ruff over named paths
 dashboard/.venv/bin/python scripts/mutation_check.py                       # 11 mutants: 10 caught, 1 survived
 ```
-The suite is 2,155 tests (1,852 + 236 + 67). Export a private `MPLCONFIGDIR` before running a tier, gate included: a
+The suite is 2,199 tests (1,891 + 241 + 67). Export a private `MPLCONFIGDIR` before running a tier, gate included: a
 shared one makes four distance-diagnostic tests race. Re-run a red in `test_bonded_parameterization_browser.py` serially
 before believing it -- its recorded flake is per-worker draft storage, and `HANDOFF.md` carries the history. Scope lint
 to the paths you touched: repo-wide `ruff check .` exits 1 on 19 pre-existing `micelle/` findings.

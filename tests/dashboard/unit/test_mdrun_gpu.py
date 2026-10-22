@@ -91,6 +91,21 @@ def test_an_aa_cg_run_keeps_the_device_it_was_given():
     assert cg.normalize_settings({'mdrun_gpu': 1})['mdrun_gpu'] == 1
 
 
+def test_the_cpu_budget_a_form_posts_is_the_runs_and_reaches_both_halves():
+    """The budget belongs to the run, not to the reference it consumes.
+
+    The dialect filter used to drop `mdrun_ntomp` and `mdrun_ranks` with the rest of the AA half's keys, so an AA-to-CG
+    form asking for 16 threads ran the atomistic half at 8 while the panel showed 16 -- a control whose value no stage
+    consumed. Kept here, they survive the filter and the one builder turns them into the command the stage runs; the
+    reference's own recorded budget stays provenance, not an instruction.
+    """
+    kept = cg.run_settings({'mdrun_ntomp': 16, 'mdrun_ranks': 2, 'mdrun_gpu': 1, 'aa_nvt_ps': 20, 'cg_seed': 7})
+    assert kept == {'mdrun_ntomp': 16, 'mdrun_ranks': 2, 'mdrun_gpu': 1, 'cg_seed': 7}
+    launcher, flags = aa.mdrun_command_flags(kept, 'md', 'pme')
+    assert '-ntomp 16' in flags and '-gpu_id 1' in flags
+    assert 'np 2' in launcher
+
+
 def test_pdc_and_osmotic_accept_the_setting_and_default_it():
     assert pdc.normalize_settings({})['mdrun_gpu'] == 0
     assert pdc.normalize_settings({'mdrun_gpu': 2})['mdrun_gpu'] == 2
