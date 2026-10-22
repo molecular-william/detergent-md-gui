@@ -16,9 +16,10 @@ Two modes, and a build states which one it used:
   every detergent's **head end sits on the tube's outer surface** with its body pointing back at the centre-line.
   The head-to-tail axis is therefore the tube's own radial direction, which turns with where around the half-circle
   a detergent sits -- a direction the cylinder wall this replaces had no way to express. A build with no stated
-  membrane -- every packaged protein, every import that states nothing, and the empty micelle -- keeps the
-  fixed-radius sphere about the protein's centroid, where `radius_nm` *is* the radius. The mode is still `lattice`
-  either way: the tube is the lattice's own arrangement of a shape the frame decided, not a third generator.
+  membrane -- every packaged protein, every import that states nothing, and the empty micelle -- is placed in a
+  **sphere** whose radius is *measured* from the protein it is handed (see the measurements below), with `radius_nm`
+  acting as a floor. The mode is still `lattice` either way: the tube is the lattice's own arrangement of a shape the
+  frame decided, not a third generator.
 * `self-assembly` places them **at random** inside the box the protein is inserted into, off the protein and off each
   other, so CG MD can let the belt find its own arrangement -- MemProtMD's Self Assembly route. The seed is the whole
   of the randomness, so the same seed rebuilds the same system and a different seed rebuilds a different one, and

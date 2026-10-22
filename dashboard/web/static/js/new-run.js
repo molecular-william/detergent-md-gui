@@ -1252,6 +1252,8 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     return `${count >= 1 ? count.toFixed(1) : count.toFixed(3)} s`;
   }
   const kilobytes = bytes => `${Math.max(1, Math.round((Number(bytes) || 0) / 1024))} KB`;
+  // A distance the placement measured, at the resolution every other nanometre on this card is printed at.
+  const nanometres = value => `${Number(value).toFixed(2)} nm`;
 
   function describeFrame(basis) {
     const protein = basis?.protein
@@ -1350,6 +1352,66 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
                                  `The frame the server sent could not be drawn: ${error.message || error}`));
   }
 
+  // What the placement measured, beside the picture --------------------------------------------------------------
+  //
+  // Two things the run's own basis now carries and the card could not say before: the **shell** the sites were
+  // placed on, and -- when the count the reader asked for does not fit -- the count the shape would hold. Both are
+  // read from `basis` as the server wrote them and rendered as they arrived; nothing here measures anything.
+  //
+  // The shell sentence is the sphere's, and only the sphere's: a belt's geometry is a torus about a centre-line and
+  // its numbers are the band's (`band_radius_nm`, printed in the Box row), so a sentence built from `shell_radius_nm`
+  // there would describe a shape the build did not make. Each clause is dropped rather than printed as null or NaN:
+  // a template whose molecule states no coordinates has no bead count to report and its own recorded reason instead,
+  // and an empty micelle has no bead to be closest to.
+  function shellClauses(basis) {
+    if (!basis || basis.placement_shape !== 'sphere' || basis.shell_radius_nm == null) return [];
+    const clauses = [`the shell is ${nanometres(basis.shell_radius_nm)}`];
+    // Which of the two numbers decided the radius, in the placement's own two words (`radius_source`): the protein's
+    // measurement, or the setting used as a floor under it.
+    if (basis.radius_source === 'measured') clauses.push('measured from the protein this selection includes');
+    else if (basis.radius_source === 'floor') clauses.push('the radius setting, which the protein did not reach past');
+    const beads = basis.body_profile?.bead_count;
+    if (beads != null) clauses.push(`clearance measured against all ${beads} beads of the detergent`);
+    else if (basis.body_profile_reason) clauses.push(basis.body_profile_reason);
+    if (basis.bead_clearance_nm != null) clauses.push(`closest bead to the protein ${nanometres(basis.bead_clearance_nm)}`);
+    if (basis.estimated_density_per_nm3 != null) {
+      clauses.push(`${Number(basis.estimated_density_per_nm3).toFixed(2)} detergents per nm3`);
+    }
+    return clauses;
+  }
+
+  // The count the shape would hold, when the placement measured one: `0` is a measurement too -- nothing fits -- and
+  // is not a count a reader can use, so only a positive count reaches the paragraph and the button.
+  function measuredCapacity(basis) {
+    const measurement = basis?.capacity_aggregation;
+    const count = Number(measurement?.count);
+    if (!measurement || !Number.isFinite(count) || count <= 0) return null;
+    return {count, seeds: Array.isArray(measurement.seeds) ? measurement.seeds : []};
+  }
+
+  // The two paragraphs and the button, for an answer and for a refusal alike: a refusal's basis carries the same
+  // measurement (the gate measured what fits in order to write its own sentence), so the reader can see the number
+  // behind the refusal and take it without waiting for a second derive.
+  function renderPreviewPlacement(basis) {
+    const shell = previewNode('.new-pdc-preview-shell'), capacity = previewNode('.new-pdc-preview-capacity');
+    const button = previewNode('.new-pdc-preview-use-capacity');
+    const clauses = shellClauses(basis);
+    if (shell) { shell.hidden = !clauses.length; setText(shell, clauses.join(' - ')); }
+    const measured = measuredCapacity(basis);
+    if (capacity) {
+      capacity.hidden = !measured;
+      setText(capacity, measured
+        ? `The placement measured what fits: about ${measured.count} detergents, over ${measured.seeds.length} seeds, `
+          + 'at the 0.25 nm overlap gate.'
+        : '');
+    }
+    if (button) {
+      button.hidden = !measured;
+      setText(button, measured ? `Use ${measured.count}` : '');
+      if (measured) button.dataset.count = String(measured.count); else delete button.dataset.count;
+    }
+  }
+
   function renderPreviewFrame(body) {
     const basis = body.basis || {}, cost = body.cost || {}, box = basis.box_nm || [];
     const viewer = previewNode('.new-pdc-preview-viewer'), refusal = previewNode('.new-pdc-preview-refusal');
@@ -1371,6 +1433,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       + (basis.band_radius_nm ? ` · the belt is a band of radius ${Number(basis.band_radius_nm).toFixed(2)} nm in the membrane plane` : ''));
     sayPreview('.new-pdc-preview-cost', costSentence(cost, basis));
     sayPreview('.new-pdc-preview-kept', keptSentence(cost, basis));
+    renderPreviewPlacement(basis);
     renderPreviewState();
   }
 
@@ -1415,6 +1478,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     sayPreview('.new-pdc-preview-box', '—');
     sayPreview('.new-pdc-preview-cost', costSentence(cost, basis));
     sayPreview('.new-pdc-preview-kept', keptSentence(cost, basis));
+    renderPreviewPlacement(basis);
     renderPreviewState();
   }
 
@@ -1511,6 +1575,16 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   field('aggregation_number').addEventListener('input', previewMoved);
   for (const name of ['pdc_seed', 'box_margin_nm', 'initial_z_nm']) field(name)?.addEventListener('input', previewMoved);
   pdcNode('.new-pdc-preview-derive')?.addEventListener('click', derivePreview);
+  // The count the placement measured, put into the count field exactly as a reader typing it would: the field's own
+  // `input` listener re-derives the frame (and the estimate and the readiness gate with it), so this button queues
+  // nothing and starts no run.
+  pdcNode('.new-pdc-preview-use-capacity')?.addEventListener('click', event => {
+    const count = Number(event.currentTarget.dataset.count);
+    const input = field('aggregation_number');
+    if (!Number.isFinite(count) || count < 1 || !input) return;
+    input.value = String(count);
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+  });
   // NGL sizes its drawing buffer when the stage is built and only recomputes it when asked, so a card that comes
   // back into view -- or a window that grows -- asks. Measured in the mock: a stage built at one width kept a 548 px
   // buffer inside a 759 px host until it was asked to resize.

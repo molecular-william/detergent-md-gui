@@ -563,6 +563,10 @@ def build(stage: Path) -> int:
         'placement_shape': placement['placement_shape'],
         'membrane_frame': frame.as_record() if frame is not None else None,
         'placement_band': placement['band'],
+        # The shell and the capacity are what a later reader needs to tell a measured build from a fixed-radius one.
+        'placement_shell': placement.get('shell'),
+        'placement_capacity': placement.get('capacity_aggregation'),
+        'orientation_policy': placement.get('orientation_policy'),
         'placement_belt_reason': placement['belt_reason'],
         'protein_clearance_nm': placement['protein_clearance_nm'],
         'placement_issues': placement['issues'],

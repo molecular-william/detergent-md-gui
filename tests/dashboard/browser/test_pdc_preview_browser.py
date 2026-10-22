@@ -17,7 +17,10 @@ Four claims, and each is the plan's:
 * **the empty micelle is derived from the detergent's own mapping** -- the panel hands the derive the mapping the
   detergent has saved, so the frame carries that mapping's beads and their types. A derive that carries none is a
   centres-only build -- one point per detergent, no moleculetype, hence no types -- and every bead's family code is
-  the unstated zero, which is the defect the last test in this file pins from the request the card sends.
+  the unstated zero, which is the defect the last test in this file pins from the request the card sends; and
+* **the card shows what the placement measured** -- the shell the sites were placed on (and which number sized it),
+  the detergent's own body as the clearance gate read it, and, when the requested count does not fit, the count the
+  shape would hold offered as a control that writes it into the count field.
 
 The route is served as a fixture, so nothing here reads the developer's workspace, and the frames are written by
 `pdc_view.system_pdb` -- the same writer a run's own snapshot goes through -- rather than being typed out by hand.
@@ -110,7 +113,10 @@ def empty_micelle_pdb(molecules=3):
 def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, clearance: float | None = 0.5436,
            placement_shape='belt-torus', band: float | None = 3.1408, representation='the mapping\u2019s beads',
            cost=None, protein: str | None = '1qj8', chains=('A', 'B'), mode='lattice', aggregation=150,
-           seed=20261013):
+           seed=20261013, shell: float | None = None, radius_source: str | None = None,
+           body_profile: dict | None = None, body_profile_reason: str | None = None,
+           bead_clearance: float | None = None, density: float | None = None,
+           capacity: dict | None = None):
     """A response shaped as the route answers, with the fields the card renders."""
     return {
         'valid': valid, 'reasons': list(reasons), 'pdb': pdb if valid else None,
@@ -121,7 +127,14 @@ def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, c
                   'box_nm': [8.3517, 6.7817, 11.0804] if valid else None,
                   'clearance_nm': clearance,
                   'placement_shape': placement_shape,
-                  'band_radius_nm': band, 'detergent_representation': representation},
+                  'band_radius_nm': band, 'detergent_representation': representation,
+                  # What the placement measured: the shell it placed on and which number decided its radius, the
+                  # detergent's own body as the clearance gate read it, and -- when the requested count fails the
+                  # gate -- the count the shape would hold.
+                  'shell_radius_nm': shell, 'radius_source': radius_source,
+                  'body_profile': body_profile, 'body_profile_reason': body_profile_reason,
+                  'bead_clearance_nm': bead_clearance, 'estimated_density_per_nm3': density,
+                  'capacity_aggregation': capacity},
         'cost': cost or {'cg_cached': True, 'coarse_graining_seconds': 0.001, 'detergent_seconds': 0.074,
                          'placement_seconds': 0.005, 'seconds': 0.1017, 'cg_bytes': 50768,
                          'cg_key': '0423f94ce62e7698'},
@@ -378,6 +391,51 @@ def test_the_empty_micelle_derives_with_no_coarse_graining_at_all(dashboard, liv
     open_panel(page, live_page.base_url, protein=None)
     page.wait_for_function("() => document.querySelectorAll('#new-mapping option').length > 1", timeout=30000)
     assert page.locator('#new-mapping').input_value() == '', 'the reader\'s own choice was defaulted over'
+    assert errors == [], errors
+
+
+def test_the_preview_shows_the_shell_it_measured_and_the_count_that_fits(dashboard, live_page):
+    """The measured shell and the capacity control, on one answer -- and the control queues nothing.
+
+    Three facts the placement now records reached no card before: `shell_radius_nm` with the `radius_source` that
+    decided it, the detergent's own `body_profile` as the clearance gate read it, and -- when the requested count
+    fails the gate -- `capacity_aggregation`, the count the shape would hold. A reader asking for 150 molecules that
+    do not fit is told what does fit, and the button writes that number into the count field rather than into a
+    request of its own: the field's own `input` listener is what re-derives, so no POST is issued and nothing is
+    queued. The request list is this file's own, and the POSTs are counted on the page's own event stream.
+    """
+    page, errors = live_page
+    requests, posts = [], []
+    page.on('request', lambda request: posts.append(request.url) if request.method == 'POST' else None)
+    serve(page, answer(placement_pdb(), placement_shape='sphere', band=None, shell=4.87, radius_source='measured',
+                       body_profile={'bead_count': 11, 'length_nm': 2.1431, 'radial_nm': 0.4021, 'reach_nm': 2.2103,
+                                     'head_source': 'polar-atoms', 'source': 'coordinates'},
+                       bead_clearance=0.4123, density=0.3512,
+                       capacity={'count': 24, 'seeds': [1, 2, 3], 'requested': 150}), requests)
+    open_panel(page, live_page.base_url)
+    derive(page)
+    loaded_atoms(page, 2 + MOLECULES * len(DDM_BEADS))
+
+    # The shell's sentence: the radius, which number decided it, the body the gate measured the clearance over, the
+    # number itself, and the crowding -- joined, with nothing printed for a fact the answer did not carry.
+    expect(page.locator('.new-pdc-preview-shell')).to_be_visible()
+    expect(page.locator('.new-pdc-preview-shell')).to_have_text(
+        'the shell is 4.87 nm - measured from the protein this selection includes - clearance measured against all '
+        '11 beads of the detergent - closest bead to the protein 0.41 nm - 0.35 detergents per nm3')
+    # The capacity: what fits, and over how many seeds the placer measured it.
+    expect(page.locator('.new-pdc-preview-capacity')).to_be_visible()
+    expect(page.locator('.new-pdc-preview-capacity')).to_have_text(
+        'The placement measured what fits: about 24 detergents, over 3 seeds, at the 0.25 nm overlap gate.')
+    button = page.locator('.new-pdc-preview-use-capacity')
+    expect(button).to_be_visible()
+    expect(button).to_have_text('Use 24')
+
+    button.click()
+    expect(page.locator('#new-count')).to_have_value('24')
+    page.wait_for_timeout(600)
+    assert posts == [], f'the control issued a request of its own: {posts}'
+    # The re-derive is the count field's own: the frame is asked about the number the button wrote.
+    assert any('aggregation_number=24' in url for url in requests), requests
     assert errors == [], errors
 
 

@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from dashboard.execution.adapters import pdc, pdc_view
+from dashboard.execution.adapters import pdc, pdc_placement, pdc_view
 from dashboard.execution.adapters.pdc_placement import MIN_CLEARANCE_NM
 from dashboard.execution.scripts import pdc_build
 
@@ -236,3 +236,31 @@ def test_an_empty_micelle_build_states_no_membrane_and_places_the_sphere(tmp_pat
     assert report['membrane_frame'] is None and report['placement_band'] is None
     assert report['placement_shape'] == 'sphere'
     assert np.allclose(np.linalg.norm(centres, axis=1), 3.0, atol=1e-3), 'the simple sphere the empty micelle had'
+
+
+def test_the_report_carries_the_shell_it_measured_and_the_orientation_policy(tmp_path):
+    """A run's record says which number sized its shell: the protein's measurement, not a setting and not a silence.
+
+    `place_detergents` measures the sphere from the selection it was handed -- extent about the centroid, plus the
+    clearance, plus the detergent's own reach -- and records `radius_source` on the way. Neither number reached a
+    report before, so a run whose shell was measured was indistinguishable from one built at the fixed 3 nm setting.
+    The shell and the capacity are what a later reader needs to tell the two apart, so both travel in the report
+    beside the band, and `orientation_policy` says how the molecules were aimed.
+    """
+    stage = stage_directory(prepared(tmp_path, remark=False))
+    write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb', CG_BEADS)
+
+    code = pdc_build.build(stage)
+    report = report_of(stage)
+
+    assert code == 3
+    shell = report['placement_shell']
+    assert shell['shape'] == pdc_placement.SHAPE_SPHERE
+    # The beads reach 1.06 nm from their centroid, the clearance is 0.5 nm and the molecule's own length 2.4 nm, so
+    # the measurement (3.96 nm) is what the shell is -- above the 3.0 nm setting that is only its floor. That the two
+    # numbers differ is the whole point of the field: without `radius_source` a reader cannot tell them apart.
+    assert shell['radius_source'] == pdc_placement.RADIUS_MEASURED
+    assert shell['radius_nm'] > shell['radius_floor_nm'] == 3.0
+    assert report['orientation_policy'] == pdc_placement.ORIENTATION_RADIAL
+    # A build the gates accepted measured no capacity: the field is there, and `None` is its answer.
+    assert report['placement_capacity'] is None

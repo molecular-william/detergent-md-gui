@@ -427,10 +427,12 @@ is postponed. A bartender-parameterized mapping therefore runs with stage 5 `ski
 
 A pdc belt is a **torus** when the protein states a membrane: the slab circle is the tube's centre-line, the tube radius
 is the detergent's measured length, and `radius_nm` is a floor under that centre-line (`_belt_torus`, `SHAPE_TORUS`). A
-build with no stated membrane -- the empty micelle, a packaged protein -- keeps a fixed-radius **sphere**
-(`SHAPE_SPHERE`), where `radius_nm` is the radius. Protein secondary structure is martinize2's `-dssp`, which vermouth
-answers with mdtraj (`pdc_build.SS_SOURCE`), and MDAnalysis' own DSSP is the recorded fallback
-(`SS_FALLBACK_SOURCE`); the two disagreed on 42 of 230 residues of 1AT9, and the assignment travels in the run report.
+build with no stated membrane keeps a **sphere** (`SHAPE_SPHERE`) whose radius is `radius_nm` or the selected beads'
+extent about their centroid plus the clearance plus the detergent's length, whichever is larger: `radius_nm` is a
+floor there too, and `radius_source` records which number won -- only an empty micelle, with nothing to measure, has
+`radius_nm` itself. Protein secondary structure is martinize2's `-dssp`, which vermouth answers with mdtraj
+(`pdc_build.SS_SOURCE`), and MDAnalysis' own DSSP is the recorded fallback (`SS_FALLBACK_SOURCE`); the two disagreed on
+42 of 230 residues of 1AT9, and the assignment travels in the run report.
 
 Protein-detergent stages run pdc's own scripts: every non-generated stage file is named `pdc_...`
 (`pdc_assessment.sh`, `pdc_assess.sh`, `pdc_extension.sh`, `pdc_backmap.sh`). Only `1_system/prepare_system.sh`, the
