@@ -364,8 +364,9 @@ def test_the_route_reads_the_preparation_choice_and_refuses_a_value_that_is_not_
 
     default = get(dashboard, **query)
     assert default.status_code == 200 and default.get_json()['valid'] is True, default.get_data(as_text=True)
-    assert default.get_json()['basis']['prepare_protein'] is False
-    assert default.get_json()['cost']['prepare_seconds'] == 0.0
+    # On by default: a deposited file with incomplete side chains coarse-grains into beads with no position, and the
+    # placement refuses that build -- so the run that skips the step is the exception.
+    assert default.get_json()['basis']['prepare_protein'] is True
 
     asked = get(dashboard, **{**query, 'prepare_protein': 'true'})
     assert asked.status_code == 200 and asked.get_json()['valid'] is True, asked.get_data(as_text=True)

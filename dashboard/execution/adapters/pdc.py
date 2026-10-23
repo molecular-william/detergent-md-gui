@@ -62,12 +62,15 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             # atomistic one it came from. Both are choices rather than numbers and are validated in
             # `validate_payload` (shape) and `prepare` (against the file).
             #
-            # `prepare_protein` is the plan's step 1 and it is **off** by default, because the plan calls that step
-            # optional: a caller that has never heard of it builds exactly what it built before, from the deposited
-            # file. A run that asks for it has its protein rebuilt and protonated by PDB2PQR before martinize2 reads
-            # it -- which is what answers a structure whose side chains are incomplete, and therefore whose
-            # coarse-grained beads have no position.
-            'protein_chains': None, 'backmap': True, 'prepare_protein': False,
+            # `prepare_protein` is the plan's step 1 and it is **on** by default: a deposited file whose side chains are
+            # incomplete coarse-grains into beads with no position, and the placement then refuses the whole build, so
+            # the run that skips the step is the exception rather than the rule. A caller that has never heard of the
+            # setting gets its protein rebuilt and protonated by PDB2PQR before martinize2 reads it.
+            #
+            # "On" cannot mean "refuses when the tool is absent", though: a default that no machine is obliged to
+            # satisfy would block every run on a box without `pdb2pqr`. The stage therefore skips by name when the
+            # tool is not resolvable, and refuses only when a tool it did resolve could not prepare the structure.
+            'protein_chains': None, 'backmap': True, 'prepare_protein': True,
             # The device this run's mdrun uses. Here rather than in the AA half's vocabulary because a pdc run has
             # no AA half and this is the only table its own normalizer reads; the value is one index, and the
             # default keeps every existing run's command byte-identical.
@@ -184,9 +187,14 @@ STAGES = (
     Stage('Final assessment', '5_assessment/pdc_assess.sh',
           ('../4_extension/prod/run.gro', '../4_extension/prod/run.xtc'),
           ('assessment.json',)),
+    # The converted complex carries the protein's own net charge -- pdb2gmx's protonation states against the ions the CG
+    # system carried -- so the stage's last act is to neutralise it, and `neutralisation.json` is what says it did: the
+    # charges before and after, and the ions it took. The 4iar/DDM complex came out at -5, which CG2AT2's own steering
+    # leg refused to simulate ("Ewald electrostatics in a system with net charge").
     Stage('Back-mapping (CG2AT2)', '6_backmap/pdc_backmap.sh',
           ('../4_extension/prod/run.gro', '../1_system/protein.pdb'),
-          ('cg2at_input.pdb', 'FINAL/final_cg2at_aligned.pdb', 'backmap.log')),
+          ('cg2at_input.pdb', 'FINAL/final_cg2at_de_novo.pdb', 'FINAL/final_cg2at_neutral.pdb',
+           'backmap.log', 'neutralisation.json')),
 )
 
 
@@ -307,7 +315,13 @@ def validate_payload(payload):
         raise ValueError(f'the pdc back-map setting must be true or false, not {backmap!r}')
     # The plan's step 1 is a choice too, and it is checked here for the same reason: a string that means "yes" to a
     # caller would silently mean "no" to the builder.
-    prepare_protein = payload.get('prepare_protein', DEFAULTS['prepare_protein'])
+    # The default is the adapter's -- on -- but a step *about a protein* cannot be on for a build that has none: an empty
+    # micelle asked for protein preparation would be recorded as having prepared a structure that does not exist. So the
+    # default is applied only where there is something to prepare, and an explicit request is still refused below.
+    if 'prepare_protein' in payload:
+        prepare_protein = payload['prepare_protein']
+    else:
+        prepare_protein = bool(DEFAULTS['prepare_protein'] and payload.get('protein'))
     if not isinstance(prepare_protein, bool):
         raise ValueError(f'the pdc protein-preparation setting must be true or false, not {prepare_protein!r}')
     chains = normalize_chains(payload.get('protein_chains'))

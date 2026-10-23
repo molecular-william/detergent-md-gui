@@ -107,7 +107,7 @@ them.
 
 ## Verify
 ```
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast: 2,030, ~21 s with a private MPLCONFIGDIR
+dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast: 2,039, ~21 s with a private MPLCONFIGDIR
 dashboard/.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser: 252, ~50 s
 dashboard/.venv/bin/python -m pytest -m slow -q -n 0                       # slow: 67, ~61 s serial
 dashboard/.venv/bin/ruff check dashboard tests                             # F, E9, I must exit 0
@@ -116,7 +116,7 @@ dashboard/.venv/bin/python scripts/mutation_check.py                       # 11 
 ```
 Eleven areas in `tests/dashboard/areas.py`, the whole suite between them (`test_test_areas.py` fails on an unnamed module):
 `-m pdc` 584, `runs` 264, `bonded` 254, `analysis` 225, `infra` 203, `osmotic` 159, `mapping` 157, `carbohydrate` 130, `web` 130,
-`molecules` 113, `aa` 104. Compose with a tier: `-m 'pdc and not browser and not slow'` = 501, 10.6 s. Suite 2,349 (2,030 +
+`molecules` 113, `aa` 104. Compose with a tier: `-m 'pdc and not browser and not slow'` = 501, 10.6 s. Suite 2,358 (2,039 +
 252 + 67). Private `MPLCONFIGDIR`, or four distance tests race. Lint your own paths (repo-wide is 19 `micelle/`).
 
 <!-- gitnexus:start -->

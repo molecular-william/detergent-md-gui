@@ -79,6 +79,13 @@ def main(argv=None) -> int:
 
     if not settings.get('prepare_protein'):
         return skip(stage, 'the run does not ask for protein preparation, so this stage has nothing to do')
+    # The step is on by default, so it must be able to say "not on this machine" rather than refusing every run: a
+    # default no machine is obliged to satisfy would turn a missing optional tool into a blocked pipeline. A tool that
+    # *is* resolvable and then fails is still a refusal -- that is a structure this machine was asked to prepare and
+    # could not, not a step with nothing owed.
+    if pdc_preparation.resolve_tool() is None:
+        return skip(stage, f'{pdc_preparation.TOOL} is not resolvable on this machine, so the protein is '
+                           f'coarse-grained as deposited')
     source = source_protein(stage, settings)
     if source is None or not source.is_file():
         return skip(stage, f'there is no protein to prepare: this run names '

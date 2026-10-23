@@ -139,12 +139,17 @@ def test_the_plan_gains_the_preparation_first_and_no_existing_stage_moves():
         'the stage that existed keeps its own directory and script'
 
 
-def test_the_preparation_is_a_choice_a_run_states_and_it_is_off_by_default():
-    """The plan's step 1 is *optional*, so a caller that never heard of it builds exactly what it built before."""
-    assert pdc.DEFAULTS['prepare_protein'] is False
-    choices = pdc.validate_payload({'seed': 1, 'prepare_protein': True})
-    assert choices['prepare_protein'] is True
-    assert pdc.validate_payload({'seed': 1})['prepare_protein'] is False
+def test_the_preparation_is_a_choice_a_run_states_and_it_is_on_where_there_is_a_protein():
+    """On by default: a deposited file with incomplete side chains coarse-grains into beads with no position.
+
+    A build with no protein has nothing for a step *about a protein* to rebuild, so there the default follows the
+    structure -- and an explicit request for it is still refused, below.
+    """
+    assert pdc.DEFAULTS['prepare_protein'] is True
+    assert pdc.validate_payload({'seed': 1, 'protein': 'molecules/1qj8/1qj8.pdb'})['prepare_protein'] is True
+    assert pdc.validate_payload({'seed': 1})['prepare_protein'] is False, 'an empty micelle has nothing to prepare'
+    assert pdc.validate_payload({'seed': 1, 'protein': 'molecules/1qj8/1qj8.pdb',
+                                 'prepare_protein': False})['prepare_protein'] is False
     with pytest.raises(ValueError, match='protein-preparation'):
         pdc.validate_payload({'seed': 1, 'prepare_protein': 'yes'})
 
@@ -197,8 +202,9 @@ def test_a_protein_free_run_cannot_ask_for_a_preparation_there_is_nothing_to_pre
 
 # --- the skip path -----------------------------------------------------------------------------------------------
 
-def test_a_run_that_does_not_ask_for_the_preparation_records_skipped_with_its_reason(tmp_path):
-    run = prepared(tmp_path)
+def test_a_run_that_switches_the_preparation_off_records_skipped_with_its_reason(tmp_path):
+    """Off is now a choice a caller makes rather than the default, and a skipped step still writes nothing."""
+    run = prepared(tmp_path, prepare_protein=False)
 
     result = run_stage(run)
 
@@ -233,17 +239,21 @@ def test_a_run_with_no_protein_skips_the_step_and_says_what_it_has_nothing_to_do
 
 # --- the refusal path ---------------------------------------------------------------------------------------------
 
-def test_the_step_refuses_by_name_when_the_preparer_cannot_be_resolved(tmp_path, monkeypatch):
+def test_the_step_skips_by_name_when_the_machine_has_no_preparer(tmp_path, monkeypatch):
+    """The default is on, so a missing optional tool must not block every run on a machine that lacks it.
+
+    A tool that *is* resolvable and then fails is still a refusal -- that is a structure this machine was asked to
+    prepare and could not.
+    """
     run = prepared(tmp_path, prepare_protein=True)
     monkeypatch.setattr(pdc_preparation, 'resolve_tool', lambda: None)
 
     code = pdc_prepare.main(['--stage', str(stage_directory(run))])
 
-    assert code == 2, 'a step the run asked for and the machine cannot run is a refusal, never a skip'
-    record = json.loads((stage_directory(run) / pdc_preparation.RECORD_NAME).read_text())
-    assert record['ok'] is False
+    assert code == 4, 'nothing attempted, nothing owed'
+    record = json.loads((stage_directory(run) / 'skip.json').read_text())
     assert 'pdb2pqr' in record['reason'] and 'resolvable' in record['reason']
-    assert not (stage_directory(run) / 'skip.json').exists()
+    assert not (stage_directory(run) / pdc_preparation.RECORD_NAME).exists()
 
 
 def test_a_preparer_that_exits_non_zero_is_a_refusal_that_carries_its_own_log(tmp_path, monkeypatch):

@@ -86,22 +86,23 @@ def open_panel(page, base_url, *, protein=PROTEIN['id']):
     return panels.open_pdc_new_run(page, base_url, protein=protein, chains=True)
 
 
-def test_the_panel_offers_the_step_with_its_off_state_and_the_workflow_says_so(dashboard, live_page):
-    """The control, its own sentence, the review row and the strip: four places, one choice."""
+def test_the_panel_offers_the_step_with_its_on_state_and_the_workflow_says_so(dashboard, live_page):
+    """The control, its own sentence, the review row and the strip: four places, one choice -- and the default is *on*,
+    because a structure whose side chains are incomplete coarse-grains into beads with no position."""
     page, errors = live_page
     serve(page, answer(pdb=PLACEMENT_PDB))
     open_panel(page, live_page.base_url)
 
     box = page.locator('[name=prepare_protein]')
     expect(box).to_be_visible()
-    expect(box).not_to_be_checked()
-    expect(page.locator('.new-pdc-prepare-note')).to_contain_text('reads the structure as deposited')
-    expect(page.locator('.new-pdc-prepare-note')).to_contain_text('20 of its 928')
-    expect(page.locator('[data-new-summary=prepare]')).to_contain_text('off')
+    expect(box).to_be_checked()
+    expect(page.locator('.new-pdc-prepare-note')).to_contain_text('rebuilds the residues')
+    expect(page.locator('.new-pdc-prepare-note')).to_contain_text('104 heavy atoms across 25 residues')
+    expect(page.locator('[data-new-summary=prepare]')).to_contain_text('PDB2PQR')
 
     step = page.locator('.new-pdc-prepare-step')
-    expect(step).to_contain_text('1 · Prepare (optional)')
-    expect(step).to_contain_text('martinize2 coarse-grains the file as deposited')
+    expect(step).to_contain_text('1 · Prepare (PDB2PQR)')
+    expect(step).to_contain_text('rebuilds the deposited file')
 
 
 def test_switching_it_on_states_what_it_does_needs_and_costs(dashboard, live_page):

@@ -11,8 +11,10 @@
 #
 # CG2AT2: Vickery & Stansfeld, J. Chem. Theory Comput. 2021, 17 (10), 6472-6482, DOI 10.1021/acs.jctc.1c00295.
 #
-# Measured limit: `DDM` is not in the fragment database, so the detergent is not converted -- the tool stops with
-# "DDM is not in the fragment database!" on any complex whose CG input still carries it.
+# Measured limit: `DDM` is not in the tool's own fragment database, so this stage cannot convert the detergent until the
+# run's mapping writes one (`cg2at_fragment.py`) and the conversion tree carries the molecule's types
+# (`extend_forcefield`) -- both measured to work, neither wired into this script yet. Until then the tool stops at
+# "DDM is not in the fragment database!" on a complex whose CG input still carries the detergent.
 set -euxo pipefail
 
 # Back-mapping is a toggle now, on by default. A run that switched it off records the contract's fourth outcome --
@@ -78,4 +80,21 @@ gmx editconf -f ../4_extension/prod/run.gro -o cg2at_input.pdb -box $BOX
 python "$CG2AT" -c cg2at_input.pdb -a cg2at_atomistic.pdb -o align -fg martini_3-0_charmm36 -ff charmm36-mar2019-updated -w tip3p \
   -silent -loc FINAL < /dev/null 2>&1 | tee backmap.log
 
-test -f FINAL/final_cg2at_aligned.pdb
+# The conversion writes the de-novo build whenever it converts at all, and the aligned one only when its steering leg
+# succeeds: measured on this box, the steering leg refuses a system with net charge ("Ewald electrostatics in a system with
+# net charge"), so a stage that demanded `final_cg2at_aligned.pdb` failed after converting the whole complex. The de-novo
+# build is the success this stage claims, and it says which one it produced.
+if [ -f FINAL/final_cg2at_aligned.pdb ]; then
+  echo "back-mapped: FINAL/final_cg2at_aligned.pdb (aligned to the CG input)"
+elif [ -f FINAL/final_cg2at_de_novo.pdb ]; then
+  echo "back-mapped: FINAL/final_cg2at_de_novo.pdb (de novo; the alignment leg did not produce one)"
+else
+  echo "back-mapping produced no converted structure; see backmap.log" >&2
+  exit 3
+fi
+
+# The converted complex carries the atomistic protein's own net charge against the ions the CG system held -- measured on
+# the 4iar/DDM complex: -5. Neutralising it here is what lets a later atomistic leg (and CG2AT2's own steering) run in a
+# box GROMACS will simulate without warning about Ewald background charge. `neutralisation.json` records the sum before and
+# after and the ions it took, so a converted system that is still charged is visible rather than assumed fixed.
+python "$PROJECT_ROOT/dashboard/execution/scripts/pdc_neutralise.py" --system FINAL --stage . 2>&1 | tee neutralise.log
