@@ -107,17 +107,17 @@ them.
 
 ## Verify
 ```
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast: 1,999, ~19 s with a private MPLCONFIGDIR
-dashboard/.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser: 251, ~41 s
+dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast: 2,004, ~21 s with a private MPLCONFIGDIR
+dashboard/.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser: 252, ~50 s
 dashboard/.venv/bin/python -m pytest -m slow -q -n 0                       # slow: 67, ~61 s serial
 dashboard/.venv/bin/ruff check dashboard tests                             # F, E9, I must exit 0
 scripts/gate_commit.sh <message-file> <paths...>                           # fast tier + ruff over named paths
 dashboard/.venv/bin/python scripts/mutation_check.py                       # 11 mutants: 10 caught, 1 survived
 ```
-The suite is 2,322 tests (1,999 + 252 + 67). Export a private `MPLCONFIGDIR` before running a tier, gate included: a
-shared one makes four distance-diagnostic tests race. Re-run a red in `test_bonded_parameterization_browser.py` serially
-before believing it -- its recorded flake is per-worker draft storage, and `HANDOFF.md` carries the history. Scope lint
-to the paths you touched: repo-wide `ruff check .` exits 1 on 19 pre-existing `micelle/` findings.
+Eleven areas in `tests/dashboard/areas.py`, the whole suite between them (`test_test_areas.py` fails on an unnamed module):
+`-m pdc` 584, `runs` 264, `bonded` 254, `analysis` 225, `infra` 203, `osmotic` 159, `mapping` 157, `carbohydrate` 130, `web` 130,
+`molecules` 113, `aa` 104. Compose with a tier: `-m 'pdc and not browser and not slow'` = 501, 10.6 s. Suite 2,323 (2,004 +
+252 + 67). Private `MPLCONFIGDIR`, or four distance tests race. Lint your own paths (repo-wide is 19 `micelle/`).
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

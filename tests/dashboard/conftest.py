@@ -5,7 +5,7 @@ import pytest
 
 from dashboard import paths
 from dashboard.app import default_coordinator
-from tests.dashboard import factory
+from tests.dashboard import areas, factory
 from tests.dashboard.support import PROJECT_ROOT
 
 
@@ -48,3 +48,9 @@ def pytest_collection_modifyitems(items):
         # "*_browser*" unit test into the tier that needs Playwright and Chrome.
         if 'browser' in Path(item.path).parts:
             item.add_marker(pytest.mark.browser)
+        # The area is a second axis, from the table in `tests/dashboard/areas.py`: `-m pdc` runs the protein-detergent
+        # tests, `-m 'mapping and not browser'` the mapping ones without a browser. A module the table does not name is
+        # a failure in `test_test_areas.py`, not a silently uncategorised file.
+        area = areas.area_of(item.path)
+        if area:
+            item.add_marker(getattr(pytest.mark, area))
