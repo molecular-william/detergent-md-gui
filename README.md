@@ -47,7 +47,7 @@ process after changing Python code — routes and models are loaded at start, `s
 | `aa_only` | Solvation, neutralisation, minimisation, NVT, NPT, production, reference publication. 2 fs. |
 | `aa_cg` | AA reference → trajectory mapping → CG parameterization → CG simulation → assessment → SASA. 20 fs production, 5 fs equilibration. |
 | `cg_composition` | CG simulation, assessment and SASA from an immutable composition: no AA half, no settable settings. |
-| `pdc` | Protein preparation (optional PDB2PQR), system preparation, minimisation/NVT/NPT, CG assessment MD, micelle assessment, extension MD, final assessment, optional CG2AT2 back-mapping. |
+| `pdc` | Protein preparation (PDB2PQR rebuild and protonation, on by default, skipped when the tool is absent), system preparation, minimisation/NVT/NPT, CG assessment MD, micelle assessment, extension MD, final assessment, optional CG2AT2 back-mapping. |
 | `osmotic` | One run owning N concentrations: each has its own directory and checkpoint and is resumable. Sugars only. |
 
 ## Repository layout

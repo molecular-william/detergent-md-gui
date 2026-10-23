@@ -3,6 +3,154 @@
 State, measurements and open items for this repository. `AGENTS.md` holds the rules; this holds the record they were
 derived from. Read it before starting work on the DDM CG chain or the coordinator.
 
+## Landed 2026-10-23: DDM back-maps, the fragment and the force field it needed, and a neutralised complex
+
+Eight commits, newest first: `f283d78`, `b736f18`, `0b16115`, `025cb02`, `a2d99ef`, `8b02a08`, `39f86de`, and the resume of
+`00b9ae6db23f` that came before them. **The headline: CG2AT2 now converts a DDM complex whole** -- 76 of 76 detergents, 81
+atoms each, 113,724-atom system -- from a fragment written out of the run's own mapping and a force field extended with the
+molecule's own types. What it has not yet produced is the *aligned* build, and nothing is wired yet.
+
+### The CG extension's LINCS failure was a seed, not the model
+
+`00b9ae6db23f` died at step 651,895 of 5,000,000 (13.04 ns) with `Too many LINCS warnings (1217)`, atoms 1759/1760 = DDM
+`S2A`/`S2B`, bulk healthy (T 299.9 +/- 2.4 K, P 2.06 +/- 37 bar, rho 1057.6 kg/m3). Resumed in place with seed+1 and a fresh
+minimisation and equilibration (10,427 atoms, `eq.log` 0 LINCS warnings), the same system ran to **72.7 ns with zero LINCS
+warnings**, so the fit's constraints and the re-equilibration are not implicated and the step-up is what gets softened.
+Insurance rather than a rescue: `8b02a08` restarts the extension through **100 ps at 10 fs** before its unchanged 20 fs
+production, `ramp_mdp` rewriting only `dt` and `nsteps` so it is the same physics at half the step, `restart_plan` holding
+the ordered eight commands, and the stage record gaining `ramp: {dt_ps, ps}`. Proven with real GROMACS on a scratch copy of
+the failed stage: `grompp` 0, `mdrun -nsteps 3000` 0 (30.000 ps at 10 fs, no LINCS), and a following `grompp` whose tpr
+states `dt = 0.02`.
+
+`39f86de` fixed the extension's empty progress bar: it is the only stage that launches GROMACS from Python, so its log
+carried 16,520 `step` lines and no leg header for the reader to measure against. `run()` now prints `+ <argv>` and every
+grompp/mdrun goes through it. `progress._leg_lengths` also had to key `-o prod/run.tpr` as `prod/run`, not `run`:
+`.stem` answered the wrong name.
+
+### Back-mapping: five measured requirements before the tool would even start
+
+`a2d99ef` -- the stage had refused with exit 3, *"tools/cg2at/cg2at is not there"*, because a stage runs from
+`runs/<id>/6_backmap` and the template's relative default named a path inside the run. The adapter now stamps
+`export PROJECT_ROOT=${PROJECT_ROOT:-<root>}` beside the interpreter and `PYTHONPATH`, and the script resolves CG2AT2 under
+it. Four more requirements came from running the tool, one prompt per missing flag:
+
+* `-ff charmm36-mar2019-updated` -- the only database ff carrying `merged.rtp` (and `CYSD`). `charmm36` is not a name at all
+  ("Too many invalid choices"); `charmm36-jul2022` has no `merged.rtp` ("Issue finding information for residue: CYSD", then a
+  complaint about its own `solvent.rtp`).
+* `-w tip3p` -- without it, the water prompt.
+* `-box` from the gro's last line, nm passed through unconverted (8.26492 7.92381 17.01660 -> `CRYST1 82.649 79.238 170.166`);
+  without it, "The input file is missing the Box vectors".
+* `-a ../0_prepare/protein_prepared.pdb` (falling back to `1_system/protein.pdb`): `1_system/protein.pdb` is heavy atoms only
+  and pdb2gmx answers "the supplied protein structure contains incorrectly named or missing atoms".
+* `< /dev/null`, because `-silent` suppresses the banner and not the questions.
+
+### The fragment: `cg2at_fragment.py` (`025cb02`)
+
+The tool's own database has 48 lipid and sterol fragments and no detergent, which is why it stopped at *"DDM is not in the
+fragment database!"*. A mapping says which atoms each bead covers, the topology says what each atom is, so the fragment is a
+rewrite of data we hold. Four decisions, each measured against the converter:
+
+| decision | why |
+| --- | --- |
+| hydrogens follow the bead of their heavy neighbour | the mapping covers 35 of DDM's 81 atoms; the fragment must describe all 81 |
+| every bead owns >= 1 atom, and no atom belongs to two | an empty section (which is what a virtual site *is*) raised `KeyError: 1` inside the tool's centre-of-mass routine; duplicated atoms are written into the molecule twice. `S1VS` borrows the lowest-numbered atom of `S1A` -- an approximation the module states |
+| bead names cut to 4 characters | CG2AT2 round-trips the CG input through PDB, so `TAIL1`/`TAIL2`/`TAIL3` all arrive as `TAIL` ("The bead TAIL is missing from the fragment library"). `safe_names` answers `TAI1`/`TAI2`/`TAI3`, refuses a collision, and `renamed_gro` rewrites only that column of that residue |
+| the file opens with a `[ BEAD ]` header | the reader sets its bead from that line and stops with "error reading: <file>.pdb" on any comment or blank before the first one |
+
+### The force field: `extend_forcefield` (`0b16115`)
+
+The fragment alone stops one step later at *"Invalid order for directive atomtypes"*: CG2AT2 builds one itp per residue
+behind a single `#include` of the force field, and GROMACS refuses `[ atomtypes ]` after a moleculetype. The types must be in
+the force field. `extend_forcefield` builds that directory beside the vendored tree -- a symlink farm (23 entries; none of the
+6.7 MB copied), `ffnonbonded.itp` rewritten because it changes -- putting the four SwissParam types at the end of
+`[ atomtypes ]` and the molecule's four 1-4 pairs at the end of `[ pairtypes ]`. Both placements are measured; three wrong
+ones were not:
+
+| placement | result |
+| --- | --- |
+| before `[ defaults ]` | "Found a second defaults directive" |
+| before `[ nonbond_params ]` | this tree has none, so the types landed after `[ pairtypes ]` and were read as pair entries: "Invalid pairs type 12" |
+| replacing the atomtypes block | "Atomtype N3 not found" -- it took the protein's stock types with it |
+
+`fragment_itp` now carries only what is the molecule's (it begins at `[ moleculetype ]`), and `write` reports the
+`atomtypes`/`pairtypes` it stripped so the caller can place them. The vendored tree is never edited.
+
+**Measured end to end with the real tool** on `00b9ae6db23f`'s own structure and its own fragment: DDM read, PBC-fixed
+("Fixing PBC of residue type DDM"), fitted, built atomistically; all residue types merged; minimised;
+`MERGED/merged_cg2at_aligned.pdb` written by the steering step; `FINAL/final_cg2at_de_novo.pdb` = **113,724 atoms, 76 DDM
+residues at 81 atoms each, 3 protein chains, TIP3P, 111 NA / 120 CL, CRYST1 preserved**. "Script has completed, time for a
+beer."
+
+### The one thing still in the way: net charge -5, and the tool's own warning budget
+
+The steering leg that produces `final_cg2at_aligned.pdb` refuses to grompp the complex, and the three warnings are:
+
+1. a duplicate dihedral line in CHARMM's `ffbonded.itp` (stock; harmless)
+2. `-D NP`, defined by the tool's mdp and unused by its topology (its own; harmless)
+3. **Ewald in a system with net charge -5** -- not harmless
+
+CG2AT2 passes `-maxwarn 1` (minimisation, merge) and `-maxwarn 2` (steering) as literals in `database/bin/gro.py`, with no
+CLI flag, so (3) is a real defect rather than a budget to raise. Its source: the atomistic protein's pdb2gmx protonation
+states against the ions the CG system carried -- per moleculetype, `protein_0` +4, `protein_1` -1, `protein_2` +1, NA +111,
+CL -120.
+
+### Neutralisation: `pdc_neutralise.py` (`b736f18`), measured -5.0 -> 0.0
+
+The back-map stage's last act. `grompp` (no-dynamics mdp) then `genion -neutral` over the conversion's own topology, and
+`neutralisation.json` records the charge before and after, each moleculetype's share, the ions added, the water it renamed
+and the warnings grompp raised. Measured twice on `00b9ae6db23f`'s conversion: **-5.0 -> 0.0, five NA ions, the solvent five
+molecules smaller**; grompp reports no net charge afterwards, having reported -5 before. Two details it took:
+
+* `genion` matches solvent by **moleculetype** name and CG2AT2 writes `[ moleculetype ] tip3p` while the residues are `SOL`
+  ("No line with moleculetype 'SOL' found the [ molecules ] section"), so the step renames the water moleculetype and its
+  `[ molecules ]` row, and nothing else.
+* it must run **in the conversion's own directory**: `genion` writes its edited topology to a temporary file and renames it
+  over the target, and a working directory on another filesystem (scratch under `$HOME` against a repo under `/mnt/data`)
+  made that rename fail *after* it had already moved the original aside. That cost this session a topology; the `cwd=` and
+  the reason are in `neutralise()`.
+
+The back-map stage now claims `FINAL/final_cg2at_de_novo.pdb` as its success and says in `backmap.log` which build it
+produced, because demanding the aligned one failed a stage that had converted the whole complex.
+
+### Protein preparation is the default now (`b736f18`, `f283d78`)
+
+`prepare_protein` is `True` in `DEFAULTS` and the panel's checkbox opens checked: a deposited file with incomplete side
+chains coarse-grains into beads with no position, and the placement refuses the whole build (measured on 4iar: 20 of 928).
+"On" cannot mean "refuses when the tool is absent" -- a default no machine is obliged to satisfy would block every run on a
+box without `pdb2pqr` -- so `pdc_prepare` **skips by name** (exit 4, reason in `skip.json`) when the preparer is not
+resolvable, and still refuses (exit 2, log tail in `prepare_protein.json`) when a tool it resolved failed. A build with no
+protein keeps the step off: the default is applied only where there is something to prepare, and an explicit request for it
+without a protein is still refused in `validate_payload`. `f283d78` corrected the readiness row, which still described the
+old refusal.
+
+### What the next agent should do, in order
+
+1. **Wire the fragment and the force field into `pdc_backmap.sh`** -- the two things this slice built and did not connect.
+   The script needs, from the run: the mapping candidate the build used (the run's `pdc-settings.json` and manifest name it),
+   the molecule's topology and coordinates (`molecules/<mol>/results/MMFF/lig1.itp`, `lig1.pdb`), and a place to put the
+   fragment. The tool reads fragments from `tools/cg2at/database/fragments/martini_3-0_charmm36/non_protein/<NAME>/`, which is
+   a **vendored, gitignored** tree: installing per run mutates it, so either install there and record it in the manifest, or
+   copy the database to the run and point `-fg` at the copy (`-ff` already takes a path, so the pattern exists). Then the
+   conversion needs no hand-holding, and `-c` takes the **renamed gro** (`cg2at_fragment.renamed_gro`), not the pdb that
+   `gmx editconf` writes -- the renaming is lost once the tool rewrites it to PDB.
+2. **Then the aligned leg.** With the charge fixed, the steering grompp has two warnings and `-maxwarn 2`, so it should pass;
+   if it does not, the next question is whether the aligned build is worth its cost at all, since the de-novo complex is a
+   complete atomistic system.
+3. **Re-run back-mapping on `00b9ae6db23f`, or start a fresh pdc run.** Stage scripts are written at prepare time, so that
+   run's `6_backmap/pdc_backmap.sh` predates `a2d99ef` and everything after it; a run needs re-preparing. The dashboard was
+   restarted before these commits and must be restarted again before the panel reads the new defaults (Python routes are
+   frozen at process start).
+4. The rest of the standing list is unchanged: `4_extension/prod/` is not cleared between attempts (a stale checkpoint from an
+   11,708-atom system beside the current 10,427-atom tpr refuses with "Checkpoint file is for a system of 11708 atoms"),
+   pdc's ETA reads null, `template.topology` has no consumer, the chain set differs by placement mode, and `compare_api`
+   reads the first assessment attempt's `validation.json`.
+
+### Recorded flakes
+
+`test_pdc_new_run_browser.py::test_the_panel_sends_the_initialisation_style_it_shows` failed once at `-n 4` over two files
+and passed serially (1 in 2.1 s) and at `-n 4` on its own file (12 in 18 s). Not absorbed: it is a route-mock race under
+parallel collection, alongside the three already recorded in `AGENTS.md`.
+
 ## Landed 2026-10-22: the bond panel reads in rows, detergents are placed by their bodies, and the device is a setting
 
 Five commits, each with its own gate run.
