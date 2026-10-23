@@ -1123,8 +1123,8 @@ def readiness(protein=None, template=None, project_root=None, **kwargs):
     ok, detail = probe_tool(executable) if executable else (False, 'Executable not found')
     checks.append({'label': pdc_preparation.TOOL, 'path': executable or pdc_preparation.TOOL, 'ready': ok,
                    'detail': (f'{detail} -- the optional Prepare step rebuilds and protonates with it' if ok else
-                              'not resolvable: a run that asks for protein preparation refuses at that step, and a '
-                              'run that does not ask for it needs nothing here')})
+                              'not resolvable: a run that asks for protein preparation -- which is the default where '
+                              'there is a protein -- skips that step and coarse-grains the structure as deposited')})
     return {'ready': not blockers, 'checks': checks, 'blockers': blockers}
 
 
