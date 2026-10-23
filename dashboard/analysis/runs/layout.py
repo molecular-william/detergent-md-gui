@@ -30,6 +30,12 @@ CANDIDATES = {
     'cg_stage_structure': ('4_CG_sim/md.gro',),
     'cg_equilibrium_trajectory': ('4_CG_sim/eq.xtc',),
     'cg_equilibrium_structure': ('4_CG_sim/eq.gro',),
+    #: A protein-detergent run keeps its stages under names of their own, and its CG production is the extension's: the
+    #: final assessment re-declares that same trajectory rather than writing a second one. Two spellings get two roles,
+    #: because `resolve` refuses a role spelled twice and this run holds both the whole-box and the raw file.
+    'pdc_trajectory': ('4_extension/prod/whole.xtc',),
+    'pdc_raw_trajectory': ('4_extension/prod/run.xtc',),
+    'pdc_structure': ('4_extension/prod/run.gro',),
     #: Where a consumer run wrote its atomistic half before the reference/consumer split.
     'legacy_aa_trajectory': ('1_AA-reference/3-run.xtc',),
     'legacy_aa_structure': ('1_AA-reference/3-run.tpr',),
@@ -165,6 +171,10 @@ REVIEW_SOURCES = (
     ('cg_trajectory', 'cg_structure'),
     ('cg_stage_trajectory', 'cg_stage_structure'),
     ('cg_equilibrium_trajectory', 'cg_equilibrium_structure'),
+    # A protein-detergent run's CG production, whole-box first: a frame read raw shows molecules broken across the
+    # periodic boundary, which is a picture of the box rather than of the system.
+    ('pdc_trajectory', 'pdc_structure'),
+    ('pdc_raw_trajectory', 'pdc_structure'),
     ('aa_trajectory', 'aa_structure'),
     ('legacy_aa_trajectory', 'legacy_aa_structure'),
 )

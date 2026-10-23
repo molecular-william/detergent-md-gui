@@ -7,6 +7,7 @@ import tempfile
 import uuid
 import zipfile
 from pathlib import Path
+from urllib.parse import quote
 
 from flask import Blueprint, Response, abort, jsonify, render_template, request, send_file
 
@@ -410,6 +411,33 @@ def run_topology(run_dir, manifest=None) -> Path | None:
         return layout.cg_topology(run_dir, name)
     except ValueError:
         return None
+
+
+@blueprint.get('/api/jobs/<jid>/trajectory')
+def run_trajectory_api(jid):
+    """What a run offers to play, as ordered segments rather than one file.
+
+    A single-molecule run has one trajectory. A protein-detergent run has several, because its system is rebuilt when the
+    removal path takes detergents out and re-solvates: measured on `00b9ae6db23f`, 11,708 atoms through minimisation, NVT,
+    NPT and the assessment, then 10,427 in the extension. Legs with the same atom count merge; a change of count is a
+    boundary a player must switch files at, and `segments` reports both facts so the panel does not have to guess them.
+
+    The answer carries run-relative paths, because the files are served by the artifact route; a run with nothing to play
+    is a 200 with `why`, not an error -- "this run has no trajectory" is a state a panel draws.
+    """
+    from ...analysis.runs import segments as segments_module
+
+    c = coordinator()
+    job = c.lookup(jid)
+    run_dir = c.run_path(job)
+    answer = segments_module.segments(run_dir, getattr(job, 'run_type', None))
+    for entry in answer['segments']:
+        entry['structure_url'] = (f'/api/jobs/{jid}/structure?path={quote(entry["structure"])}'
+                                  if entry.get('structure') else None)
+        entry['trajectory_url'] = (f'/api/jobs/{jid}/artifacts/{quote(entry["trajectory"])}'
+                                   if entry.get('trajectory') else None)
+    answer['id'] = jid
+    return jsonify(answer)
 
 
 @blueprint.get('/api/jobs/<jid>/structure')
