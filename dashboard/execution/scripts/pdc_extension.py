@@ -27,6 +27,14 @@ from pathlib import Path
 ATTEMPTS = 'attempts.json'
 KEPT_TOPOLOGY = 'kept.top'
 RESTART_MDP = 'restart.mdp'
+RAMP_MDP = 'ramp.mdp'
+# A short, gentler first segment before the extension's 20 fs production. The first extension attempt this workspace ran
+# died at 13.04 ns on a LINCS failure inside one DDM headgroup's rigid triangle (S2A-S2B, a 0.29596 nm constraint), with
+# bulk temperature, pressure and density healthy to the last saved frame and a clean 5 ns equilibration, and a reseeded retry
+# of the same system passed 32 ns without a warning -- so the failure was local and the step-up is what to soften, not the
+# fit. `RAMP_PS` at `RAMP_DT_PS`, then the production the run asked for, unchanged.
+RAMP_DT_PS = 0.01
+RAMP_PS = 100.0
 # The case with no executor and no device named: threads only. The device comes from the executor's
 # MDRUN_FLAGS, which one builder writes from `mdrun_gpu` -- a copy here would be a second opinion about it.
 DEFAULT_MDRUN_FLAGS = '-ntomp 8'
@@ -145,6 +153,52 @@ def run(command, *, piped: str | None = None) -> None:
                    stdout=subprocess.DEVNULL if piped else None)
 
 
+def ramp_mdp(text: str, dt_ps: float = RAMP_DT_PS, ps: float = RAMP_PS) -> str:
+    """The restart mdp at a smaller timestep for a short first segment.
+
+    Only `dt` and `nsteps` change. The integrator, cutoffs, thermostat, barostat and seed stay byte-identical, so the segment
+    is the same physics at half the step, and its length is `ps / dt` steps rather than a second duration setting that could
+    disagree with the timestep it is divided by.
+    """
+    nsteps = int(round(ps / dt_ps))
+    rewritten = {'dt': f'{dt_ps}', 'nsteps': f'{nsteps}'}
+    lines, seen = [], set()
+    for line in text.splitlines():
+        key = line.split('=', 1)[0].strip().lower()
+        if key in rewritten:
+            seen.add(key)
+            lines.append(f'{key} = {rewritten[key]} ; the extension ramp')
+        else:
+            lines.append(line)
+    missing = set(rewritten) - seen
+    if missing:
+        raise ValueError(f'the extension mdp states no {" or ".join(sorted(missing))}')
+    return '\n'.join(lines) + '\n'
+
+
+def restart_plan(launcher: str = '', mdrun_flags: str = DEFAULT_MDRUN_FLAGS) -> list[list[str]]:
+    """The commands that restart the phase, in order: minimise, equilibrate, ramp, produce.
+
+    Each segment continues from the checkpoint of the one before it, which is what makes the ramp work at all -- the
+    velocities it hands the production are its own. `-t` is the checkpoint and `-c` the structure it must match.
+    """
+    def grompp(mdp: str, structure: str, tpr: str, checkpoint: str | None = None) -> list[str]:
+        command = ['gmx', 'grompp', '-f', mdp, '-p', 'system.top', '-c', structure]
+        if checkpoint:
+            command += ['-t', checkpoint]
+        return command + ['-o', tpr, '-maxwarn', '1']
+
+    def mdrun(name: str) -> list[str]:
+        return [f'{launcher}gmx', 'mdrun', '-deffnm', name, *mdrun_flags.split(), '-v']
+
+    return [
+        grompp('minimization.mdp', 'system.gro', 'min.tpr'), mdrun('min'),
+        grompp('equilibration.mdp', 'min.gro', 'eq.tpr'), mdrun('eq'),
+        grompp(RAMP_MDP, 'eq.gro', 'ramp.tpr', 'eq.cpt'), mdrun('ramp'),
+        grompp(RESTART_MDP, 'ramp.gro', 'prod/run.tpr', 'ramp.cpt'), mdrun('prod/run'),
+    ]
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description='Run the extension phase, removing what the criterion left out.')
     parser.add_argument('--settings', default='../1_system/pdc-settings.json')
@@ -197,15 +251,11 @@ def main(argv=None) -> int:
         # seed has to differ from the one the phase it replaces used, so the first restart is seed + 1.
         seed = int(settings.get('seed', 1)) + len(history) + 1
         (stage / RESTART_MDP).write_text(restart_mdp((stage / 'extension.mdp').read_text(), seed))
-        for target, source in (('min.tpr', 'minimization.mdp'), ('eq.tpr', 'equilibration.mdp')):
-            previous_structure = 'system.gro' if target == 'min.tpr' else 'min.gro'
-            run(['gmx', 'grompp', '-f', source, '-p', 'system.top', '-c', previous_structure,
-                 '-o', target, '-maxwarn', '1'])
-            run([f'{launcher}gmx', 'mdrun', '-deffnm', target.split('.')[0], *mdrun_flags.split(), '-v'])
-        run(['gmx', 'grompp', '-f', RESTART_MDP, '-p', 'system.top', '-c', 'eq.gro', '-t', 'eq.cpt',
-             '-o', 'prod/run.tpr', '-maxwarn', '1'])
-        run([f'{launcher}gmx', 'mdrun', '-deffnm', 'prod/run', *mdrun_flags.split(), '-v'])
+        (stage / RAMP_MDP).write_text(ramp_mdp((stage / RESTART_MDP).read_text()))
+        for command in restart_plan(launcher, mdrun_flags):
+            run(command)
         record = {'attempt': len(history) + 1, 'removed': len(removed), 'mode': 'restarted',
+                  'ramp': {'dt_ps': RAMP_DT_PS, 'ps': RAMP_PS},
                   'removed_fraction': decision.get('fraction_removed'), 'seed': seed,
                   'above_threshold': bool(decision.get('fraction_removed', 0) >
                                           float(settings.get('selection_threshold_fraction', 0.10)))}
