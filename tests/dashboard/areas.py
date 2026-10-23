@@ -17,6 +17,8 @@ TESTS_ROOT = Path(__file__).resolve().parent
 AREAS = {
     'pdc': (
         'unit/test_pdc_*', 'integration/test_pdc_*', 'browser/test_pdc_*',
+        # Back-mapping's fragment generator is pdc's own conversion science, named for the tool it feeds.
+        'unit/test_cg2at_fragment.py',
         # The micelle builder is pdc's placement science; a change there is a change to a protein build.
         'unit/test_micelle_*', 'integration/test_micelle_api.py',
     ),
