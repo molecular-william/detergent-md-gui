@@ -136,12 +136,44 @@ def fragment_pdb(name: str, beads: dict[str, list[int]], coordinates: list[dict]
     return '\n'.join(lines) + 'END\n'
 
 
-def fragment_itp(text: str, name: str) -> str:
-    """The molecule's topology with its moleculetype and residue column renamed to `name`.
+MOLECULETYPE_HEADER = re.compile(r'^\[\s*moleculetype\s*\]', re.IGNORECASE | re.MULTILINE)
 
-    Everything else -- `[ atomtypes ]` included -- is carried unchanged, because the parameters are the molecule's and this
-    module has no business inventing different ones.
+
+def strip_preamble(text: str) -> str:
+    """The topology from `[ moleculetype ]` on.
+
+    SwissParam writes `[ atomtypes ]` and `[ pairtypes ]` ahead of the molecule; both are force-field sections, not molecule
+    sections, and a converted complex includes one itp per residue behind a single force field, where GROMACS refuses them
+    ("Invalid order for directive atomtypes"). `write` reports them so the caller can put them in the force field
+    (`extend_forcefield`), and the molecule itp keeps only what is the molecule's.
     """
+    found = MOLECULETYPE_HEADER.search(text)
+    return text[found.start():] if found else text
+
+
+def pairtype_lines(text: str) -> list[str]:
+    """The `[ pairtypes ]` block's data lines: the molecule's own 1-4 Lennard-Jones pairs."""
+    found = re.search(r'^\[\s*pairtypes\s*\]', text, re.IGNORECASE | re.MULTILINE)
+    if not found:
+        return []
+    lines = []
+    for line in text[found.end():].splitlines():
+        if line.lstrip().startswith('['):
+            break
+        if line.strip() and not line.lstrip().startswith((';', '#')):
+            lines.append(line.rstrip())
+    return lines
+
+
+def fragment_itp(text: str, name: str) -> str:
+    """The molecule's topology with its moleculetype and residue column renamed to `name`, its atomtypes removed.
+
+    The parameters are the molecule's and this module invents none of them -- but where they live is not a free choice:
+    GROMACS refuses `[ atomtypes ]` in a file included after a moleculetype, and a converted complex includes one itp per
+    residue behind a single force field. The types therefore travel with the force field instead (`extend_forcefield`), and
+    `write` reports them so the caller can put them there.
+    """
+    text = strip_preamble(text)
     out, in_atoms, in_type = [], False, False
     for line in text.splitlines():
         if MOLECULETYPE.match(line):
@@ -219,6 +251,59 @@ def renamed_gro(text: str, residue: str, names: dict[str, str]) -> str:
     return ''.join(out)
 
 
+ATOMTYPES = re.compile(r'^\[\s*atomtypes\s*\]', re.IGNORECASE | re.MULTILINE)
+
+
+def atomtype_lines(text: str) -> list[str]:
+    """The `[ atomtypes ]` block's data lines, comments dropped: what a molecule needs to be simulated."""
+    found = ATOMTYPES.search(text)
+    if not found:
+        return []
+    lines = []
+    for line in text[found.end():].splitlines():
+        if line.lstrip().startswith('['):
+            break
+        if line.strip() and not line.lstrip().startswith((';', '#')):
+            lines.append(line.rstrip())
+    return lines
+
+
+def extend_forcefield(tree: Path, types: list[str], out: Path, pairtypes: list[str] | None = None) -> Path:
+    """A force-field directory that is `tree` plus `types`, built beside it rather than inside it.
+
+    The vendored tree is not ours to edit, and a molecule's `[ atomtypes ]` cannot travel in the molecule's own itp: GROMACS
+    refuses the directive once a moleculetype has been read ("Invalid order for directive atomtypes"), which is exactly what
+    a converted complex does -- the force field is included once, then one itp per residue. So the types have to be in the
+    force field, and the place is the end of `ffnonbonded.itp`'s own `[ atomtypes ]` block, immediately before
+    `[ pairtypes ]`: after that header the same lines parse as pair entries and grompp answers "Invalid pairs type 12"
+    (measured, twice, at the two wrong boundaries).
+
+    The directory is a symlink farm: every file of `tree` is linked, `ffnonbonded.itp` is written because it changes, and
+    the 6.7 MB tree is not copied per run.
+    """
+    out.mkdir(parents=True, exist_ok=True)
+    for entry in tree.iterdir():
+        link = out / entry.name
+        if link.exists() or link.is_symlink():
+            continue
+        link.symlink_to(entry.resolve(), target_is_directory=entry.is_dir())
+
+    source = (tree / 'ffnonbonded.itp').read_text()
+    block = '\n; types carried by the converted molecule (see molecules/*/results: SwissParam, CGenFF 4.x assumed)\n'
+    block += '\n'.join(types) + '\n\n'
+    pairs = re.search(r'^\[\s*pairtypes\s*\]', source, re.IGNORECASE | re.MULTILINE)
+    extended = source + block if pairs is None else source[:pairs.start()] + block + source[pairs.start():]
+    if pairtypes:
+        # The molecule's 1-4 pairs go at the end of the force field's own `[ pairtypes ]`, which is the last section here;
+        # anywhere earlier they would land inside `[ atomtypes ]` and be read as types.
+        extended += ('\n; 1-4 pairs carried by the converted molecule\n' + '\n'.join(pairtypes) + '\n')
+    written = out / 'ffnonbonded.itp'
+    if written.is_symlink():
+        written.unlink()
+    written.write_text(extended)
+    return out
+
+
 def read_pdb_atoms(path: Path) -> list[dict]:
     atoms = []
     for line in path.read_text().splitlines():
@@ -235,6 +320,7 @@ def write(directory: Path, mapping_path: Path, topology_path: Path, coordinates_
     mapping = json.loads(mapping_path.read_text())
     residue = name or mapping.get('name', '').split('_')[0] or 'LIG'
     topology = topology_path.read_text()
+    types, pairs = atomtype_lines(topology), pairtype_lines(topology)
     names = safe_names([bead['name'] for bead in mapping['beads']])
     beads = {names[bead]: numbers for bead, numbers in bead_atoms(mapping, topology).items()}
     coordinates = read_pdb_atoms(coordinates_path)
@@ -242,6 +328,7 @@ def write(directory: Path, mapping_path: Path, topology_path: Path, coordinates_
     (directory / f'{residue}.pdb').write_text(fragment_pdb(residue, beads, coordinates))
     (directory / f'{residue}.itp').write_text(fragment_itp(topology, residue))
     return {'residue': residue, 'renamed': {old: new for old, new in names.items() if old != new},
+            'atomtypes': types, 'pairtypes': pairs,
             'beads': {bead: len(numbers) for bead, numbers in beads.items()},
             'atoms': sum(len(numbers) for numbers in beads.values()),
             'files': [str(directory / f'{residue}.pdb'), str(directory / f'{residue}.itp')]}

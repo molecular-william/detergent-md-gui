@@ -117,10 +117,39 @@ def test_the_fragment_file_opens_with_a_bead_header(tmp_path):
 def test_the_topology_is_carried_renamed_and_not_reparameterised():
     itp = fragment.fragment_itp(TOPOLOGY, 'DDM')
 
-    assert 'DDM      3' in itp and 'LIG1' not in itp
-    assert '[ atomtypes ]' in itp and 'C1  6  12.0110' in itp, 'the molecule\'s own parameters travel with it'
+    assert 'DDM      3' in itp and 'LIG1' not in itp, 'the molecule keeps its parameters, renamed'
     atoms = [line for line in itp.splitlines() if line.strip().startswith('1 ') and 'DDM' in line]
     assert atoms and 'DDM' in atoms[0]
+
+
+def test_the_molecule_itp_carries_no_force_field_sections():
+    """GROMACS refuses `[ atomtypes ]` in an itp included after a moleculetype, which is what a converted complex is."""
+    itp = fragment.fragment_itp(TOPOLOGY, 'DDM')
+
+    assert itp.splitlines()[0].startswith('[ moleculetype ]'), 'the force-field preamble belongs in the force field'
+    assert '[ atomtypes ]' not in itp and 'C1  6  12.0110' not in itp
+
+
+def test_the_preamble_sections_are_reported_rather_than_dropped():
+    assert fragment.atomtype_lines(TOPOLOGY) == ['C1  6  12.0110  0.0  A  0.3  0.2']
+    assert fragment.pairtype_lines(TOPOLOGY) == [], 'no pairtypes section, no pairs'
+
+
+def test_the_force_field_gains_the_molecules_types_and_pairs(tmp_path):
+    tree = tmp_path / 'charmm36.ff'
+    tree.mkdir()
+    (tree / 'ffnonbonded.itp').write_text('[ atomtypes ]\nCA  6  12.0  0.0  A  0.3  0.2\n\n'
+                                          '[ pairtypes ]\nCA  CA  1  0.3  0.2\n')
+    (tree / 'ffbonded.itp').write_text('[ bondtypes ]\n')
+    out = fragment.extend_forcefield(tree, ['CR  6  12.0110  0.0  A  0.36  0.23'], tmp_path / 'ddm.ff',
+                                     ['CR  CR  1  0.34  0.04'])
+
+    written = (out / 'ffnonbonded.itp').read_text()
+    types, pairs = written.split('[ pairtypes ]')
+    assert 'CR  6  12.0110' in types, 'an atomtype must sit inside [ atomtypes ], not after its header'
+    assert 'CR  CR  1  0.34  0.04' in pairs, 'a pair entry must sit inside [ pairtypes ]'
+    assert (out / 'ffbonded.itp').is_symlink(), 'the rest of the tree is linked, not copied'
+    assert (tree / 'ffnonbonded.itp').read_text().startswith('[ atomtypes ]\nCA'), 'the vendored tree is not edited'
 
 
 def test_the_renamed_gro_changes_only_the_named_beads(tmp_path):
