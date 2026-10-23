@@ -115,13 +115,29 @@ def elapsed(job):
         return None, ['Invalid persisted timestamp; elapsed time unavailable']
 
 
+def plan_names(job, manifest=None):
+    """The workflow's stage names, whichever spelling the plan arrives in.
+
+    A manifest's `stage_plan` is the workflow's `(name, script)` pairs, and the timeline looks each stage up in the run's
+    own stage records *by name*: pairs left every lookup empty, so a protein-detergent build -- the one run type whose
+    plan is always recorded in the manifest -- drew ten blank dots with no tick for the seven stages it had completed.
+    The plan also comes from the job's own run type; `cg.STAGES` is only the last resort for a record that states neither.
+    """
+    plan = (manifest or {}).get('stage_plan') or job.get('stage_plan')
+    if not plan:
+        try:
+            plan = workflow.stage_definitions(job)[0]
+        except (KeyError, ValueError, IndexError, TypeError):
+            plan = cg.STAGES
+    return [entry[0] if isinstance(entry, (list, tuple)) else entry for entry in plan]
+
+
 def stage_view(job, manifest):
     """(stages, workflow_stages) with defensive type checks."""
     stages = manifest.get('stages', []) if manifest else []
     if not isinstance(stages, list) or any(not isinstance(stage, dict) for stage in stages):
         stages = []
-    workflow_stages = manifest.get('stage_plan') or job.get('stage_plan') or [name for name, _ in cg.STAGES]
-    return stages, workflow_stages
+    return stages, plan_names(job, manifest)
 
 
 def running_stage(job, stages):
@@ -288,7 +304,7 @@ def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, co
     if run_dir is None or not usable_run_id(job):
         return result | {'status': 'failed', 'error': UNREPAIRABLE, 'can_cancel': False,
                          'can_delete': False, 'can_retry': False, 'stages': [],
-                         'workflow_stages': [name for name, _ in cg.STAGES],
+                         'workflow_stages': plan_names(job),
                          'elapsed_seconds': None, 'analyses': [], 'consistency': None}
     run_dir = Path(run_dir)
     manifest = manifest or {}
