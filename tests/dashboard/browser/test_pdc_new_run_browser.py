@@ -93,7 +93,7 @@ def test_the_panel_asks_for_the_pdc_inputs_and_for_nothing_else(dashboard, live_
     expect(preview).to_contain_text('What these inputs would build')
     workflow = page.locator('.new-run-settings .card').nth(1)
     expect(workflow).to_contain_text('What this run will do')
-    expect(workflow.locator('.new-pdc-selfassembly strong')).to_have_text('3 · Build the micelle')
+    expect(workflow.locator('.new-pdc-placed-node text.title')).to_have_text('3 · Build the micelle')
     assert errors == [], errors
 
 
@@ -229,13 +229,13 @@ def test_the_style_decides_whether_the_belt_is_the_count_or_settles_from_it(dash
 
     expect(page.locator('[data-new-summary=placement]')).to_have_text('Pre-assembled micelle · CHARMM-GUI')
     expect(page.locator('.new-pdc-estimate-note')).to_contain_text('exactly the 150 detergents')
-    expect(page.locator('.new-pdc-selfassembly strong')).to_have_text('3 · Place the belt')
+    expect(page.locator('.new-pdc-placed-node text.title')).to_have_text('3 · Place the belt')
 
     page.locator('#new-placement').select_option('self-assembly')
     expect(page.locator('[data-new-summary=placement]')).to_have_text('Self-assembly · MemProtMD')
     expect(page.locator('.new-pdc-placement-note')).to_contain_text('settles')
     expect(page.locator('.new-pdc-estimate-note')).to_contain_text('placed at random')
-    expect(page.locator('.new-pdc-selfassembly strong')).to_have_text('3 · Self-assemble')
+    expect(page.locator('.new-pdc-placed-node text.title')).to_have_text('3 · Self-assemble')
     assert errors == [], errors
 
 

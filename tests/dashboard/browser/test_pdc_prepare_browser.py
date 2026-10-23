@@ -1,11 +1,15 @@
-"""The panel's control for the plan's step 1: what it says, what it sends, and what a refusal from it looks like.
+"""The panel's statement of the plan's step 1, and the workflow card -- neither of which asks anything any more.
 
 The user met this step as a refusal: their 4iar download has 20 of 928 coarse-grained beads with no position, and the
-preview card said so in the placement gate's own words with no way to act on it. So the claims here are about the
-control that answers it -- it is offered in the protein card, its off state says what it costs the build, its on state
-states what it does, what it needs and what it costs, the derive request carries the choice (the prepared structure is
-a different coarse-grained protein, so a preview that did not say which one it asked for would be ambiguous), and a
-refusal from the step is rendered as the tool's own sentence with no picture.
+preview card said so in the placement gate's own words with no way to act on it. The step answers it, so it stopped being
+a choice: pdb2pqr rebuilds and protonates the protein before martinize2 reads it, and the stage records `skipped` when the
+tool is not resolvable -- a default no machine is obliged to satisfy must not block runs. So the claims here are that the
+control is **gone**, that the sentence replacing it is the honest one (always on, skipped when absent), that the derive
+still *states* the choice rather than omitting it, and that a refusal from the step is rendered as the tool's own sentence
+with no picture.
+
+The workflow card is the other half: it is a closed `<details>` holding one inline SVG of the chain, so the shape of the
+run is available without pushing the form down the page.
 
 The routes are served as fixtures, exactly as the preview card's own browser tests do, so nothing here reads the
 developer's workspace and no tool runs.
@@ -27,7 +31,7 @@ CATALOG = {'templates': [{'id': 'DDM:DDM', 'name': 'DDM skeleton', 'molecule': '
            'defaults': {'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900, 'salt_molar': 0.15,
                         'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
                         'selection_threshold_fraction': 0.1, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20,
-                        'prepare_protein': False}}
+                        'prepare_protein': True}}
 #: One model, as `/api/pdc/models` answers: a saved mapping and what it carries. The server has already joined the
 #: parameterization and written the label, so a stub without a label offers nothing to choose.
 MODELS = {'molecule': 'DDM', 'models': [{'file': 'mapping_candidate_fixture.json', 'name': 'DDM draft', 'beads': 11,
@@ -43,8 +47,8 @@ NO_TOOL = 'pdb2pqr is not resolvable on this machine, and it is the tool this st
 
 
 def answer(*, valid=True, step=None, reasons=(), pdb='', prepare_seconds=0.0, heavy_atoms=0,
-           prepare_protein=False):
-    """A response shaped as the route answers, with the fields this control and card render."""
+           prepare_protein=True):
+    """A response shaped as the route answers, with the fields this statement and card render."""
     return {
         'valid': valid, 'step': step, 'reasons': list(reasons), 'pdb': pdb if valid else None,
         'basis': {'protein': '4iar', 'chains': ['A'], 'template': 'micelle_template.json', 'detergent': 'DDM',
@@ -86,69 +90,36 @@ def open_panel(page, base_url, *, protein=PROTEIN['id']):
     return panels.open_pdc_new_run(page, base_url, protein=protein, chains=True)
 
 
-def test_the_panel_offers_the_step_with_its_on_state_and_the_workflow_says_so(dashboard, live_page):
-    """The control, its own sentence, the review row and the strip: four places, one choice -- and the default is *on*,
-    because a structure whose side chains are incomplete coarse-grains into beads with no position."""
+def test_the_step_is_stated_rather_than_offered(dashboard, live_page):
+    """No control, one sentence, one review row -- and the sentence says the step always runs."""
     page, errors = live_page
     serve(page, answer(pdb=PLACEMENT_PDB))
     open_panel(page, live_page.base_url)
 
-    box = page.locator('[name=prepare_protein]')
-    expect(box).to_be_visible()
-    expect(box).to_be_checked()
-    expect(page.locator('.new-pdc-prepare-note')).to_contain_text('rebuilds the residues')
-    expect(page.locator('.new-pdc-prepare-note')).to_contain_text('104 heavy atoms across 25 residues')
-    expect(page.locator('[data-new-summary=prepare]')).to_contain_text('PDB2PQR')
-
-    step = page.locator('.new-pdc-prepare-step')
-    expect(step).to_contain_text('1 · Prepare (PDB2PQR)')
-    expect(step).to_contain_text('rebuilds the deposited file')
-
-
-def test_switching_it_on_states_what_it_does_needs_and_costs(dashboard, live_page):
-    """The honest voice the preview card uses: the tool it needs, what it builds, and its measured wall time."""
-    page, errors = live_page
-    serve(page, answer(pdb=PLACEMENT_PDB))
-    open_panel(page, live_page.base_url)
-
-    page.locator('[name=prepare_protein]').check()
-
+    assert page.locator('[name=prepare_protein]').count() == 0, 'the step is not a choice any more'
     note = page.locator('.new-pdc-prepare-note')
-    expect(note).to_contain_text('pdb2pqr rebuilds the residues')
-    expect(note).to_contain_text('needs pdb2pqr on this machine')
-    expect(note).to_contain_text('104 heavy atoms across 25 residues in 1.5 s')
-    expect(page.locator('[data-new-summary=prepare]')).to_contain_text('PDB2PQR')
-    expect(page.locator('.new-pdc-prepare-step')).to_contain_text('1 · Prepare (PDB2PQR)')
-    expect(page.locator('.new-pdc-prepare-step')).to_contain_text('Energy minimisation leg in step 4')
+    expect(note).to_contain_text('Prepare the protein (PDB2PQR): always on')
+    expect(note).to_contain_text('104 heavy atoms across 25 residues')
+    expect(note).to_contain_text('skipped')
+    expect(page.locator('[data-new-summary=prepare]')).to_contain_text('PDB2PQR: always on')
+    assert errors == [], errors
 
 
-def test_the_derive_carries_the_choice_and_the_cost_row_reports_the_step(dashboard, live_page):
-    """A prepared protein is a different coarse-grained protein, so the request says which one it asked for."""
+def test_the_derive_always_asks_for_the_preparation_and_the_cost_row_reports_it(dashboard, live_page):
+    """The request states the choice rather than omitting it: a prepared protein is a different bead set."""
     page, errors = live_page
     requests = []
-    serve(page, lambda url: answer(pdb=PLACEMENT_PDB, prepare_seconds=1.5, heavy_atoms=104,
-                                   prepare_protein='prepare_protein=true' in url), requests=requests)
+    serve(page, answer(pdb=PLACEMENT_PDB, prepare_seconds=1.5, heavy_atoms=104), requests=requests)
     open_panel(page, live_page.base_url)
 
-    page.locator('[name=prepare_protein]').check()
     page.locator('.new-pdc-preview-derive').click()
     page.wait_for_function("() => document.querySelector('.new-pdc-preview-cost').textContent.includes('PDB2PQR')",
                            timeout=30000)
 
-    assert 'prepare_protein=true' in requests[-1], requests[-1]
+    assert requests and 'prepare_protein=true' in requests[-1], requests[-1]
     expect(page.locator('.new-pdc-preview-cost')).to_contain_text('PDB2PQR 1.5 s')
     expect(page.locator('.new-pdc-preview-cost')).to_contain_text('104 heavy atoms')
-
-    # And switched back off, the next derive says so rather than leaving the reader to assume the last choice stood.
-    #
-    # The wait is on this derive's *request*, not on the cost row: the row already holds the previous derive's answer,
-    # so waiting for "the text is not empty" returns at once and the assertion reads whichever request happened to be
-    # last -- the race this test was rewritten for, measured intermittent under a loaded parallel browser tier.
-    page.locator('[name=prepare_protein]').uncheck()
-    with page.expect_request(lambda request: 'prepare_protein=false' in request.url) as derived:
-        page.locator('.new-pdc-preview-derive').click()
-    assert 'prepare_protein=false' in derived.value.url, derived.value.url
-    assert '/api/pdc/preview/placement?' in derived.value.url, derived.value.url
+    assert errors == [], errors
 
 
 def test_a_refusal_from_the_preparation_is_the_tools_own_sentence_and_no_picture(dashboard, live_page):
@@ -157,7 +128,6 @@ def test_a_refusal_from_the_preparation_is_the_tools_own_sentence_and_no_picture
     serve(page, answer(valid=False, step='protein preparation', reasons=[NO_TOOL]))
     open_panel(page, live_page.base_url)
 
-    page.locator('[name=prepare_protein]').check()
     page.locator('.new-pdc-preview-derive').click()
     page.wait_for_function("() => !document.querySelector('.new-pdc-preview-refusal').hidden", timeout=30000)
 
@@ -165,12 +135,36 @@ def test_a_refusal_from_the_preparation_is_the_tools_own_sentence_and_no_picture
     expect(refusal).to_contain_text('the protein preparation step refuses')
     expect(refusal).to_contain_text(NO_TOOL)
     expect(page.locator('.new-pdc-preview-viewer')).to_be_hidden()
+    assert errors == [], errors
+
+
+def test_the_workflow_card_is_closed_and_draws_the_chain_when_opened(dashboard, live_page):
+    """Minimised by default, and what it holds is a diagram of the chain rather than a paragraph per step."""
+    page, errors = live_page
+    serve(page, answer(pdb=PLACEMENT_PDB))
+    open_panel(page, live_page.base_url)
+
+    details = page.locator('details.new-pdc-diagram')
+    expect(details).to_be_visible()
+    assert not details.evaluate('element => element.open'), 'minimised by default'
+    expect(details.locator('summary')).to_contain_text('CG-MD chain as a diagram')
+
+    details.locator('summary').click()
+    svg = details.locator('svg.new-pdc-workflow-svg')
+    expect(svg).to_be_visible()
+    # The chain, not a decoration: every stage the run can take is drawn, and the back-map is marked apart from it.
+    titles = [text.strip() for text in svg.locator('text:not(.sub)').all_text_contents()]
+    assert len(titles) == 10, titles
+    assert titles[0].startswith('1 · Prepare') and titles[-1].startswith('10 · Result')
+    assert svg.locator('.new-pdc-backmap-node').count() == 1
+    assert errors == [], errors
 
 
 def test_the_other_workspace_is_untouched(dashboard, live_page):
-    """The step is this pipeline's: the single-molecule panel renders no such control, and no such row."""
+    """The step is this pipeline's: the single-molecule panel renders no such statement, and no such row."""
     page, errors = live_page
     page.goto(f'{live_page.base_url}/detergent-validation/new-run')
 
     assert page.locator('[name=prepare_protein]').count() == 0
     assert page.locator('.new-pdc-prepare-note').count() == 0
+    assert page.locator('details.new-pdc-diagram').count() == 0

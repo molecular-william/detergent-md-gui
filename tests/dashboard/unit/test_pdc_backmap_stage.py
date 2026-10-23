@@ -27,13 +27,18 @@ def prepared(tmp_path: Path) -> Path:
     return prepared_run(tmp_path, settings={'aggregation_number': 4}, suffix=BACKMAP)
 
 
-def test_the_back_map_uses_the_align_method_and_the_martini_3_database(tmp_path):
+def test_the_back_map_uses_the_align_method_and_the_inputs_the_stage_built(tmp_path):
+    """`-fg` and `-ff` name what `pdc_backmap.py` staged: the vendored library has no detergent fragment, and the stock
+    force field has no types for one."""
     script = (prepared(tmp_path) / Path(pdc.stage_by_name('Back-mapping (CG2AT2)').relative).name).read_text()
     executed = ' '.join(line for line in script.splitlines() if not line.strip().startswith('#'))
 
     assert '-o align' in executed
-    assert '-fg martini_3-0_charmm36' in executed and '-ff charmm36' in executed
-    assert 'final_cg2at_aligned.pdb' in script, 'the stage checks the file its contract declares'
+    assert '-fg "$FRAGMENTS"' in executed and '-ff "$FORCEFIELD"' in executed
+    assert 'pdc_backmap.py' in executed, 'the fragment, force field and gro are staged before the tool runs'
+    assert 'backmap_inputs.json' in executed
+    assert 'final_cg2at_aligned.pdb' in script, 'the stage still reports which build it produced'
+    assert 'final_cg2at_de_novo.pdb' in script, 'and accepts the de-novo build, which is the one the tool completes'
 
 
 def test_the_stage_never_lets_the_tool_ask_a_question(tmp_path):

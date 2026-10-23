@@ -49,7 +49,7 @@ def test_the_toggle_is_on_by_default_and_the_review_names_the_atomistic_end(dash
     expect(toggle).to_be_visible()
     assert toggle.is_checked(), 'back-mapping must be on by default so nothing existing moves'
     expect(page.locator('[data-new-summary=backmap]')).to_contain_text('CG2AT2 to atomistic')
-    expect(page.locator('.new-pdc-backmap-step strong')).to_contain_text('back-map')
+    expect(page.locator('.new-pdc-backmap-node text.title')).to_contain_text('9 · Back-map')
     expect(page.locator('.new-pdc-backmap-note')).to_contain_text('atomistic')
     assert errors == [], errors
 
@@ -68,8 +68,8 @@ def test_switching_it_off_says_the_run_stops_coarse_grained(dashboard, live_page
     off_text = summary.inner_text()
     assert 'coarse-grained' in off_text, off_text
     assert on_text != off_text
-    expect(page.locator('.new-pdc-backmap-step strong')).to_have_text('6 · Extend (no back-map)')
-    expect(page.locator('.new-pdc-backmap-step span')).to_contain_text('coarse-grained')
+    expect(page.locator('.new-pdc-backmap-node text.title')).to_have_text('9 · Back-map (off)')
+    expect(page.locator('.new-pdc-backmap-node text.sub')).to_contain_text('coarse-grained')
     expect(page.locator('.new-pdc-backmap-note')).to_contain_text('skipped')
 
     # And back on: the atomistic sentence returns, so the review tracks the toggle rather than a stale render.

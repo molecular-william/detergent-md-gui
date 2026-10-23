@@ -124,7 +124,10 @@ def test_the_back_map_stage_now_has_a_tool_and_an_invocation(tmp_path):
     stage = prepared(tmp_path).parent / Path(pdc.stage_by_name('Back-mapping (CG2AT2)').relative)
 
     script = stage.read_text()
-    assert '-fg martini_3-0_charmm36' in script and '-silent' in script
+    # The library is the one the stage builds rather than the vendored name: it has to hold this run's detergent
+    # fragment, and the vendored one holds 48 lipids and sterols and no detergent at all.
+    assert '-fg "$FRAGMENTS"' in script and '-silent' in script
+    assert 'pdc_backmap.py' in script
 
 
 class FakeRun:

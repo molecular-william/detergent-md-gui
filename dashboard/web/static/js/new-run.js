@@ -773,9 +773,11 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   const chainBoxes = () => [...form.elements].filter(el => el.name === 'protein_chains');
   const selectedChains = () => chainBoxes().filter(el => el.checked).map(el => el.value);
   const backmapping = () => !!field('backmap')?.checked;
-  // The plan's step 1: whether the protein is rebuilt and protonated before it is coarse-grained. The adapter reads
-  // `prepare_protein`, so that is the name the control carries and the only place this panel reads it.
-  const preparing = () => !!field('prepare_protein')?.checked;
+  // The plan's step 1 is unconditional now: pdb2pqr rebuilds and protonates the protein before martinize2 reads it,
+  // and the stage itself records `skipped` when the tool is not resolvable, so the panel has nothing to ask. The
+  // payload still states the choice (`prepare_protein: true`) rather than omitting it, so a run never looks like it
+  // prepared something it did not.
+  const preparing = () => true;
   // The select's option value is the catalogue entry's id (`DDM:DDM`), which is what the Complexes panel's own picker
   // carries; what a run is *prepared* with is the template file, and `pdc.prepare`/`pdc.readiness` resolve that path
   // against the project root. So the path travels from the entry, never from the option's value.
@@ -970,7 +972,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     say('.new-pdc-workflow-note', hasProtein
       ? "With a protein, steps 3 and 5 use the protein's hydrophobic surface."
       : "Empty micelle: step 3 is the micelle on its own, and step 5's protein clause does not apply.");
-    pdcNode('.new-pdc-selfassembly')?.classList.toggle('optional', !hasProtein);
+
     // The choice has to mean something on the screen, so the strip, the count's own note and the review all say
     // which style is in force. A pre-assembled belt is the count asked for; a self-assembled one starts there.
     const pre = preassembled();
@@ -980,20 +982,17 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       : 'Self-assembly (MemProtMD): the detergents start at random and CG MD settles the '
         + (hasProtein ? 'belt, so the count is where the belt starts rather than where it ends.'
                       : 'micelle, so the count is where the micelle starts rather than where it ends.'));
-    const step = pdcNode('.new-pdc-selfassembly');
+    // The diagram carries the choice: step 3 is the one node whose words depend on it, and a diagram that drew one
+    // style while the run took the other would be the sort of picture this panel exists not to draw.
+    const step = pdcNode('.new-pdc-placed-node');
     if (step) {
-      step.querySelector('strong').textContent = pre ? (hasProtein ? '3 · Place the belt' : '3 · Build the micelle')
-                                                     : '3 · Self-assemble';
-      step.querySelector('span').textContent = pre
-        ? (hasProtein
-            ? "Detergent molecules are initialised as a pre-assembled micelle around the protein: the belt is "
-              + "exactly the count you ask for, as CHARMM-GUI's Micelle Builder builds it."
-            : "The micelle is initialised pre-assembled with exactly the count you ask for, as CHARMM-GUI's Micelle "
-              + 'Builder builds it.')
-        : (hasProtein
-            ? 'Detergents are placed at random around the protein, then CG MD lets the belt find its own '
-              + "arrangement — MemProtMD's self-assembly route. The count is where the belt starts, not where it ends."
-            : "The detergents start at random, then CG MD settles the micelle — MemProtMD's self-assembly route.");
+      step.querySelector('text.title').textContent = pre ? (hasProtein ? '3 · Place the belt' : '3 · Build the micelle')
+                                                         : '3 · Self-assemble';
+      // A diagram node holds one line, so the sub-label says the same thing in the space it has; the sentence that
+      // spelled it out belongs to the note beside the count, which the reader is looking at when they choose.
+      step.querySelector('text.sub').textContent = pre
+        ? (hasProtein ? 'pre-assembled micelle · the count as asked' : 'pre-assembled · the count as asked')
+        : (hasProtein ? 'random start · CG MD settles the belt' : 'random start · CG MD settles the micelle');
     }
     say('.new-pdc-estimate-note', pre
       ? (hasProtein
@@ -1015,38 +1014,19 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     say('.new-pdc-backmap-note', backmap
       ? 'On: the extended CG state is converted to atomistic with CG2AT2 (-o align).'
       : 'Off: the back-map stage records skipped and the run stops coarse-grained, with no atomistic structure produced.');
-    const backStep = pdcNode('.new-pdc-backmap-step');
+    // The diagram's last stage, in the two states the toggle has: a node that drew a conversion the run will not do
+    // would be the sort of picture this panel exists not to draw.
+    const backStep = pdcNode('.new-pdc-backmap-node');
     if (backStep) {
-      backStep.querySelector('strong').textContent = backmap ? '6 · Extend, then back-map' : '6 · Extend (no back-map)';
-      backStep.querySelector('span').textContent = backmap
-        ? 'Continuation from the surviving checkpoint, then CG2AT2 with -o align: the final CG state becomes atomistic.'
-        : 'Continuation from the surviving checkpoint only. Back-mapping is switched off, so the run stops '
-          + 'coarse-grained and produces no atomistic structure.';
+      backStep.querySelector('text.title').textContent = backmap ? '9 · Back-map' : '9 · Back-map (off)';
+      backStep.querySelector('text.sub').textContent = backmap
+        ? 'CG2AT2 · atoms, then neutralise'
+        : 'skipped · the run stops coarse-grained';
     }
-    // The plan's step 1, and the same honesty: what the run will do with this structure, whether or not it was asked
-    // for. The step is optional, so its *off* state is a statement too -- and the one the refusal this panel shows is
-    // answered by is the *on* one.
-    const prepare = preparing();
-    setText(summary('prepare'), prepare ? 'PDB2PQR: rebuild the missing atoms, then protonate'
-                                       : 'off — the structure is coarse-grained as deposited');
-    say('.new-pdc-prepare-note', prepare
-      ? 'On: pdb2pqr rebuilds the residues the deposited file left incomplete and adds the hydrogens its protonation '
-        + 'states need; the prepared structure is what martinize2 reads, so this panel\'s frame is derived from it '
-        + 'too. Measured on 4iar: 104 heavy atoms across 25 residues in 1.5 s. It needs pdb2pqr on this machine — the '
-        + 'readiness list above reports whether it is resolvable — and the run pays it once, in its first stage.'
-      : 'Not asked for: martinize2 reads the structure as deposited. A protein whose file is missing side-chain atoms '
-        + 'coarse-grains into beads with no position (4iar: 20 of its 928), and the placement refuses that build '
-        + 'rather than placing a belt against a protein no distance can be measured to — this step is what answers it.');
-    const prepareStep = pdcNode('.new-pdc-prepare-step');
-    if (prepareStep) {
-      prepareStep.querySelector('strong').textContent = prepare ? '1 · Prepare (PDB2PQR)' : '1 · Prepare (optional)';
-      prepareStep.querySelector('span').textContent = prepare
-        ? 'PDB2PQR rebuilds the deposited file\'s missing side chains and protonates the protein, and the prepared '
-          + 'structure is what martinize2 coarse-grains. The minimisation MemProtMD\'s own route also names is the CG '
-          + 'Energy minimisation leg in step 4, not an atomistic one here.'
-        : 'Not asked for: martinize2 coarse-grains the file as deposited, and a structure whose side chains are '
-          + 'incomplete is refused by the placement. Switching this on rebuilds them with PDB2PQR first.';
-    }
+    // The plan's step 1 has no control any more: it always runs, and the stage records `skipped` when pdb2pqr is not
+    // resolvable. What the review row says is therefore the same sentence every time -- and it is the sentence the
+    // placement's refusal is answered by, so it stays a statement rather than a value.
+    setText(summary('prepare'), 'PDB2PQR: always on — rebuild the missing atoms, then protonate (skipped if the tool is absent)');
     const number = item && item.aggregation_number != null ? String(item.aggregation_number) : null;
     // The estimate is the server's: the review shows the answer the route gave (or its refusal), and with no
     // protein there is no slab to size, so the detergent's own measured micelle size stands instead.
@@ -1842,7 +1822,6 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   field('backmap')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
   // The prepare step changes what martinize2 reads, so it is one of the expensive inputs: the frame on screen is no
   // longer this form's once it moves, and the card says so rather than quietly drawing the old one.
-  field('prepare_protein')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); previewMoved(); });
   pdcNode('.new-pdc-import-button')?.addEventListener('click', importStructure);
   // The preview's own cheap inputs: each of these re-derives a frame that already exists, and the exchange rate is
   // the cache -- the coarse-grained protein is not rebuilt -- which is why these move and the three expensive ones

@@ -48,12 +48,28 @@ def test_the_invocation_names_every_flag_that_would_otherwise_prompt(tmp_path):
     assert '< /dev/null' in text, 'a prompt must fail at once rather than wait for an answer that cannot come'
 
 
-def test_the_box_is_written_into_the_pdb_the_tool_reads(tmp_path):
-    text = stamped(tmp_path, TEMPLATE.read_text())
+def test_the_structure_handed_over_is_a_gro_so_the_box_travels_with_it(tmp_path):
+    """A gro carries its own box line, so there is no CRYST1 to write and no `-box` to get wrong.
 
-    assert 'BOX=$(tail -1 ../4_extension/prod/run.gro' in text
-    assert 'gmx editconf -f ../4_extension/prod/run.gro -o cg2at_input.pdb -box $BOX' in text, (
-        'without -box the pdb carries no CRYST1 and the tool stops at "missing the Box vectors"')
+    The shape matters for a second reason: the tool rewrites whatever it is given to PDB, and the bead names have to
+    survive that round trip, which is why the stage hands over a *renamed* gro rather than a pdb from `gmx editconf`.
+    """
+    text = stamped(tmp_path, TEMPLATE.read_text())
+    executed = ' '.join(line for line in text.splitlines() if not line.strip().startswith('#'))
+
+    assert 'STRUCTURE=cg2at_input.gro' in executed
+    assert '-c "$STRUCTURE"' in executed
+    assert 'editconf' not in executed, 'no pdb round trip to carry the box through'
+    assert 'pdc_backmap.py' in executed, 'the renamed gro is what that helper writes'
+
+
+def test_the_stage_clears_the_conversion_it_is_about_to_redo(tmp_path):
+    """A leftover topology and structure are one system only with each other; a re-run must not inherit them."""
+    text = stamped(tmp_path, TEMPLATE.read_text())
+    executed = ' '.join(line for line in text.splitlines() if not line.strip().startswith('#'))
+
+    assert 'rm -rf FINAL' in executed
+    assert executed.index('rm -rf FINAL') < executed.index('STRUCTURE=cg2at_input.gro'), 'before anything is staged'
 
 
 def test_the_alignment_uses_the_protonated_reference_when_there_is_one(tmp_path):

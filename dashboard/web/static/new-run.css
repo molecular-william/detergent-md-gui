@@ -47,11 +47,19 @@
    6 + 6 spans, and it is linked after this file, which is what puts the halves side by side. What is added here are
    the shapes this fieldset has no equivalent of -- the workflow strip that states what will run, and the two
    branches the detergent count is read in. */
-.new-pdc-workflow{display:flex;flex-direction:column;gap:6px;margin:10px 0 0;padding:0;list-style:none}
-.new-pdc-workflow li{border:1px solid var(--line);background:#f7fafd;border-radius:8px;padding:8px 10px;font-size:12px}
-.new-pdc-workflow li strong{display:block;font-size:13px}
-.new-pdc-workflow li span{color:var(--muted)}
-.new-pdc-workflow li.optional{border-style:dashed}
+/* The chain as a diagram, inside a closed <details>: a reader who wants the shape can see it, and one who wants the
+   form is not scrolled past a picture first. The SVG is inline, so it needs no request and prints with the page. */
+.new-pdc-diagram{margin-top:10px}
+.new-pdc-diagram>summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--accent,#1b5f9e)}
+.new-pdc-diagram-figure{margin:10px 0 0}
+.new-pdc-workflow-svg{width:100%;height:auto;display:block;background:#f7fafd;border:1px solid var(--line);border-radius:8px}
+.new-pdc-flow-node rect{fill:#fff;stroke:#9db4c9;stroke-width:1.2}
+.new-pdc-flow-node text{font:600 13px/1.2 system-ui,sans-serif;fill:#16324a;text-anchor:middle}
+.new-pdc-flow-node text.sub{font:400 10.5px/1.2 system-ui,sans-serif;fill:#5b7085}
+.new-pdc-flow-node.new-pdc-backmap-node rect{fill:#fff7e8;stroke:#c9963c}
+.new-pdc-flow-link{stroke:#8aa2b8;stroke-width:1.4;fill:none}
+.new-pdc-flow-arrow-head{fill:#8aa2b8}
+.new-pdc-diagram figcaption{margin-top:8px;font-size:12px;color:var(--muted)}
 .new-pdc-estimate,.new-pdc-estimate-table{border-collapse:collapse;font-size:13px;margin-top:8px}
 .new-pdc-estimate td,.new-pdc-estimate-table td{padding:2px 14px 2px 0}
 /* The coverage estimate the server sizes: its verdict, its numbers, its method and its caveat, in one box. */

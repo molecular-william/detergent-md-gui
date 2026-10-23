@@ -193,8 +193,8 @@ STAGES = (
     # leg refused to simulate ("Ewald electrostatics in a system with net charge").
     Stage('Back-mapping (CG2AT2)', '6_backmap/pdc_backmap.sh',
           ('../4_extension/prod/run.gro', '../1_system/protein.pdb'),
-          ('cg2at_input.pdb', 'FINAL/final_cg2at_de_novo.pdb', 'FINAL/final_cg2at_neutral.pdb',
-           'backmap.log', 'neutralisation.json')),
+          ('cg2at_input.gro', 'FINAL/FINAL/final_cg2at_de_novo.pdb', 'FINAL/FINAL/final_cg2at_neutral.pdb',
+           'backmap_inputs.json', 'backmap.log', 'neutralisation.json')),
 )
 
 

@@ -47,6 +47,12 @@ if [ ! -e "$CG2AT" ]; then
   exit 3
 fi
 
+# A conversion is not resumable, and the tool does not clear up after itself: it writes a topology and a structure that
+# are one system, and a leftover pair from an earlier attempt is read as this attempt's. Measured on a re-run: grompp
+# refused "number of coordinates in coordinate file (113724) does not match topology (113714)" because the topology was
+# the previous, already-neutralised one. So the stage clears its own conversion before it starts.
+rm -rf FINAL
+
 # The atomistic reference the conversion aligns to. The prepared protein when the run built one: `1_system/protein.pdb`
 # carries heavy atoms only, and CG2AT2 runs pdb2gmx on what it is handed -- measured, that answers "the supplied protein
 # structure contains incorrectly named or missing atoms", while the protonated `0_prepare/protein_prepared.pdb` completes.
@@ -54,12 +60,18 @@ ATOMISTIC=../0_prepare/protein_prepared.pdb
 [ -f "$ATOMISTIC" ] || ATOMISTIC=../1_system/protein.pdb
 cp -f "$ATOMISTIC" cg2at_atomistic.pdb
 
-# The stage's declared input: the extension's structure as a PDB, which is what CG2AT2 takes for -c. The tool reads the
-# periodic box from the PDB's CRYST1 record, and `gmx editconf` writes that record only when it is given a box -- without
-# `-box` the conversion stops at "The input file is missing the Box vectors". The gro's own box line is in nm and `-box`
-# takes nm, so it is passed through unconverted (measured: 8.26492 7.92381 17.01660 -> CRYST1 82.649 79.238 170.166).
-BOX=$(tail -1 ../4_extension/prod/run.gro | awk '{printf "%.5f %.5f %.5f", $1, $2, $3}')
-gmx editconf -f ../4_extension/prod/run.gro -o cg2at_input.pdb -box $BOX
+# The conversion's own inputs, from the run's own mapping: the detergent's fragment, a force-field directory carrying the
+# molecule's atom types, a mirror of the fragment library that holds them, and the CG structure with bead names short
+# enough to survive the tool's PDB round trip. Built inside the stage -- the vendored database is not written to. A run
+# whose detergent has no mapping cannot be converted, and the helper says so and exits 3.
+python "$PROJECT_ROOT/dashboard/execution/scripts/pdc_backmap.py" --stage . --project-root "$PROJECT_ROOT" \
+  2>&1 | tee backmap_inputs.log
+test -f backmap_inputs.json
+FRAGMENTS=$(python -c "import json;print(json.load(open('backmap_inputs.json'))['library'])")
+FORCEFIELD=$(python -c "import json;print(json.load(open('backmap_inputs.json'))['force_field'])")
+# `-c` takes the renamed **gro**, not a pdb from `gmx editconf`: the tool rewrites whatever it is handed to PDB, and the
+# shortening is lost the moment it does. The gro carries its own box line, so no `-box` is needed either.
+STRUCTURE=cg2at_input.gro
 
 # Every one of these flags is named because leaving it out does not fail, it *prompts*: `-silent` suppresses the banner, not
 # the questions, so a stage with no terminal answers "Oops! That was a invalid choice" three times and dies.
@@ -68,26 +80,36 @@ gmx editconf -f ../4_extension/prod/run.gro -o cg2at_input.pdb -box $BOX
 #                                  lookup reads, and the only one with `CYSD`, the disulphide cysteine this protein needs.
 #                                  `charmm36-jul2022` here has no `merged.rtp` at all, and `charmm36` is not a name in the
 #                                  list: measured, each of those ends in a prompt.
-#   -fg martini_3-0_charmm36       the fragment library the design names.
+#   -fg <path>                     the mirrored copy of `martini_3-0_charmm36` that holds this run's detergent fragment.
+#                                  `-fg` takes a path, not just a name: the mirror keeps the library's own name and
+#                                  structure, because the tool reads `<parent>/<name>/non_protein/...`.
 #   -w tip3p                       the water the all-atom half uses (`charmm36-jul2022.ff/tip3p.itp` in the reference
 #                                  topology), and a prompt without it.
 #   -loc FINAL                     the directory the last line of this script tests for.
 #
-# stdin is `/dev/null` so any prompt still to come fails at once instead of waiting on nobody. Measured limit, not a
-# guess: the tool stops at "DDM is not in the fragment database!" -- this detergent has no fragments in
-# `martini_3-0_charmm36`, so a protein-detergent complex cannot be converted whole, and what this stage can produce is the
-# protein's atoms.
-python "$CG2AT" -c cg2at_input.pdb -a cg2at_atomistic.pdb -o align -fg martini_3-0_charmm36 -ff charmm36-mar2019-updated -w tip3p \
+# stdin is `/dev/null` so any prompt still to come fails at once instead of waiting on nobody.
+#
+# The tool's exit status is not this stage's verdict: it exits 1 whenever the aligned build is missing, and the aligned
+# build is missing whenever its steering leg gives up -- while the de-novo complex it did convert sits on disk. So the
+# status is tolerated and the files are what decide (measured: a whole 113,724-atom complex, exit 1).
+set +e
+python "$CG2AT" -c "$STRUCTURE" -a cg2at_atomistic.pdb -o align -fg "$FRAGMENTS" -ff "$FORCEFIELD" -w tip3p \
   -silent -loc FINAL < /dev/null 2>&1 | tee backmap.log
+CG2AT_EXIT=$?
+set -e
+echo "cg2at exit status: $CG2AT_EXIT (the converted files, not this, decide the outcome)"
 
 # The conversion writes the de-novo build whenever it converts at all, and the aligned one only when its steering leg
 # succeeds: measured on this box, the steering leg refuses a system with net charge ("Ewald electrostatics in a system with
 # net charge"), so a stage that demanded `final_cg2at_aligned.pdb` failed after converting the whole complex. The de-novo
 # build is the success this stage claims, and it says which one it produced.
-if [ -f FINAL/final_cg2at_aligned.pdb ]; then
-  echo "back-mapped: FINAL/final_cg2at_aligned.pdb (aligned to the CG input)"
-elif [ -f FINAL/final_cg2at_de_novo.pdb ]; then
-  echo "back-mapped: FINAL/final_cg2at_de_novo.pdb (de novo; the alignment leg did not produce one)"
+# `-loc FINAL` names the tool's *working* directory; it writes the finished system one level deeper, in `FINAL/FINAL/`
+# (measured: topol_final.top and the 113,724-atom pdb both live there, and a check one level short reads a converted
+# complex as no conversion at all).
+if [ -f FINAL/FINAL/final_cg2at_aligned.pdb ]; then
+  echo "back-mapped: FINAL/FINAL/final_cg2at_aligned.pdb (aligned to the CG input)"
+elif [ -f FINAL/FINAL/final_cg2at_de_novo.pdb ]; then
+  echo "back-mapped: FINAL/FINAL/final_cg2at_de_novo.pdb (de novo; the alignment leg did not produce one)"
 else
   echo "back-mapping produced no converted structure; see backmap.log" >&2
   exit 3
@@ -97,4 +119,4 @@ fi
 # the 4iar/DDM complex: -5. Neutralising it here is what lets a later atomistic leg (and CG2AT2's own steering) run in a
 # box GROMACS will simulate without warning about Ewald background charge. `neutralisation.json` records the sum before and
 # after and the ions it took, so a converted system that is still charged is visible rather than assumed fixed.
-python "$PROJECT_ROOT/dashboard/execution/scripts/pdc_neutralise.py" --system FINAL --stage . 2>&1 | tee neutralise.log
+python "$PROJECT_ROOT/dashboard/execution/scripts/pdc_neutralise.py" --system FINAL/FINAL --stage . 2>&1 | tee neutralise.log
