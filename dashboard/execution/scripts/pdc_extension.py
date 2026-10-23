@@ -133,7 +133,14 @@ def attempts(stage: Path) -> list[dict]:
 
 
 def run(command, *, piped: str | None = None) -> None:
-    """Run one stage command with newline-free output going to the stage's own log."""
+    """Run one stage command, announcing it the way a shell's `set -x` would.
+
+    Every other stage that runs mdrun is a shell script under `set -euxo pipefail`, and the dashboard reads progress out of
+    that trace: `+ gmx mdrun -deffnm X` starts a leg, and the `+ gmx grompp ... -f mdp -o X.tpr` before it names the mdp
+    whose `nsteps` the leg's step counter is divided by. This stage launches its tools from Python, which traces nothing, so
+    its bar read empty through a whole 5 ns equilibration and a 100 ns production while the log carried every step.
+    """
+    print('+ ' + ' '.join(str(part) for part in command), file=sys.stderr, flush=True)
     subprocess.run(command, input=piped, text=True, check=True,
                    stdout=subprocess.DEVNULL if piped else None)
 
@@ -160,10 +167,8 @@ def main(argv=None) -> int:
             if source.is_file():
                 shutil.copy2(source, stage / name)
         extension_ps = (stage / 'extension.ps').read_text().strip()
-        subprocess.run(['gmx', 'convert-tpr', '-s', 'run.tpr', '-extend', extension_ps, '-o', 'prod/run.tpr'],
-                       check=True)
-        subprocess.run([f'{launcher}gmx', 'mdrun', '-deffnm', 'run', '-cpi', 'run.cpt',
-                        *mdrun_flags.split(), '-v'], check=True)
+        run(['gmx', 'convert-tpr', '-s', 'run.tpr', '-extend', extension_ps, '-o', 'prod/run.tpr'])
+        run([f'{launcher}gmx', 'mdrun', '-deffnm', 'run', '-cpi', 'run.cpt', *mdrun_flags.split(), '-v'])
         shutil.copy2(stage / 'run.gro', stage / 'prod' / 'run.gro')
         shutil.copy2(stage / 'run.xtc', stage / 'prod' / 'run.xtc')
         record = {'attempt': len(attempts(stage)) + 1, 'removed': 0, 'removed_fraction': 0.0, 'mode': 'continued',
@@ -194,13 +199,12 @@ def main(argv=None) -> int:
         (stage / RESTART_MDP).write_text(restart_mdp((stage / 'extension.mdp').read_text(), seed))
         for target, source in (('min.tpr', 'minimization.mdp'), ('eq.tpr', 'equilibration.mdp')):
             previous_structure = 'system.gro' if target == 'min.tpr' else 'min.gro'
-            subprocess.run(['gmx', 'grompp', '-f', source, '-p', 'system.top', '-c', previous_structure,
-                            '-o', target, '-maxwarn', '1'], check=True)
-            subprocess.run([f'{launcher}gmx', 'mdrun', '-deffnm', target.split('.')[0], *mdrun_flags.split(), '-v'],
-                           check=True)
-        subprocess.run(['gmx', 'grompp', '-f', RESTART_MDP, '-p', 'system.top', '-c', 'eq.gro', '-t', 'eq.cpt',
-                        '-o', 'prod/run.tpr', '-maxwarn', '1'], check=True)
-        subprocess.run([f'{launcher}gmx', 'mdrun', '-deffnm', 'prod/run', *mdrun_flags.split(), '-v'], check=True)
+            run(['gmx', 'grompp', '-f', source, '-p', 'system.top', '-c', previous_structure,
+                 '-o', target, '-maxwarn', '1'])
+            run([f'{launcher}gmx', 'mdrun', '-deffnm', target.split('.')[0], *mdrun_flags.split(), '-v'])
+        run(['gmx', 'grompp', '-f', RESTART_MDP, '-p', 'system.top', '-c', 'eq.gro', '-t', 'eq.cpt',
+             '-o', 'prod/run.tpr', '-maxwarn', '1'])
+        run([f'{launcher}gmx', 'mdrun', '-deffnm', 'prod/run', *mdrun_flags.split(), '-v'])
         record = {'attempt': len(history) + 1, 'removed': len(removed), 'mode': 'restarted',
                   'removed_fraction': decision.get('fraction_removed'), 'seed': seed,
                   'above_threshold': bool(decision.get('fraction_removed', 0) >

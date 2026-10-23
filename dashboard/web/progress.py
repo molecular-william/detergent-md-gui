@@ -60,7 +60,9 @@ def _leg_lengths(grompp, stage_dir):
     for line in grompp:
         mdp, tpr = MDP_PATH.search(line), TPR_PATH.search(line)
         if mdp and tpr:
-            pairs[Path(tpr.group(1)).stem] = mdp.group(1)
+            # The leg is named by `-deffnm`, which may carry a directory (`-deffnm prod/run` in the extension stage), so the
+            # key drops only the `.tpr` suffix: `Path(...).stem` would answer `run` and miss the leg it describes.
+            pairs[tpr.group(1).removesuffix('.tpr')] = mdp.group(1)
     lengths = {}
     if stage_dir is None:
         return lengths
