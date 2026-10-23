@@ -779,6 +779,11 @@ def _stamp_interpreter(script, root):
     rewritten = re.sub(r'(?m)^(\s*)python(?=\s|$)', lambda match: f'{match.group(1)}{sys.executable}', text)
     if 'PYTHONPATH=' not in rewritten:
         rewritten = rewritten.replace('\nset -', f'\nexport PYTHONPATH={root}${{PYTHONPATH:+:$PYTHONPATH}}\nset -', 1)
+    if 'PROJECT_ROOT=' not in rewritten:
+        # A stage runs from its own directory (`runs/<id>/6_backmap`), so a relative path to anything outside the run --
+        # the vendored CG2AT2 under `tools/`, the force fields under `resources/` -- resolves against the stage and is not
+        # found: back-mapping refused with exit 3 while `tools/cg2at/cg2at` sat where the repository root says it is.
+        rewritten = rewritten.replace('\nset -', f'\nexport PROJECT_ROOT=${{PROJECT_ROOT:-{root}}}\nset -', 1)
     if rewritten != text:
         script.write_text(rewritten)
 

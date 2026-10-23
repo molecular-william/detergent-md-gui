@@ -47,7 +47,8 @@ def test_the_stage_never_lets_the_tool_ask_a_question(tmp_path):
 def test_the_stage_names_the_tool_it_is_waiting_for_rather_than_failing_obscurely(tmp_path):
     script = (prepared(tmp_path) / Path(pdc.stage_by_name('Back-mapping (CG2AT2)').relative).name).read_text()
 
-    assert 'CG2AT="${CG2AT:-tools/cg2at/cg2at}"' in script
+    assert 'CG2AT="${CG2AT:-$PROJECT_ROOT/tools/cg2at/cg2at}"' in script
+    assert 'export PROJECT_ROOT=' in script, 'a stage runs from its own directory; the tool lives at the repository root'
     assert 'not there' in script and 'exit 3' in script
 
 
