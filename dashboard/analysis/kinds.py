@@ -232,6 +232,13 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
          "4_CG_sim/prod/lig_CG.gro", "4_CG_sim/prod/lig_CG.xtc",
          "4_CG_sim/md.gro", "4_CG_sim/md.xtc",
          "4_CG_sim/eq.gro", "4_CG_sim/eq.xtc",
+         # A protein-detergent run's CG production: its stages keep their own names, and the whole-box trajectory is
+         # what the layout prefers. Copied for the same reason as the others -- the subprocess reads a work directory
+         # holding only what its kind declares, so a role the layout can resolve is useless if nothing copies it.
+         "4_extension/prod/run.gro", "4_extension/prod/whole.xtc", "4_extension/prod/run.xtc",
+         # The detergent's own topology, which states the beads' bonds and families exactly as `3_initial_CG/*.itp`
+         # does for a single-molecule build.
+         "1_system/*.itp",
          # The run's own mapping, which is what says which beads make up which fragment: a reader fitting on one
          # ring of a sugar is asking about a grouping only this document states, and the file carries it too.
          "2_mapping/model.json",

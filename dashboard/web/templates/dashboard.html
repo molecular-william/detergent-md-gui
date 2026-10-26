@@ -72,8 +72,8 @@
 {# The Run view panel. One section, rendered in both workspaces and hidden unless this workspace opened it;
    the run types it offers arrive from the registry (`run_view_scope`), so the module never has to work out
    which workspace it was mounted in. It draws a run's own stage files through the artifact route, lists its
-   figures, delegates a `pdc` run to Complexes rather than duplicating it, and plays a run's sampled frames on
-   the transport row below the canvas. Every id below is read by `run-view.js` and styled by `run-view.css`;
+   figures, draws a protein-detergent run's CG chain as segments (`/api/jobs/<id>/trajectory`: which legs share one
+   system, and where the system is rebuilt), and plays a run's sampled frames on the transport row below the canvas. Every id below is read by `run-view.js` and styled by `run-view.css`;
    `tests/dashboard/integration/test_dom_ids.py` fails if an id is rendered and read by nothing. #}
 <section id="runview" class="panel" role="tabpanel" aria-labelledby="tab-runview"{% if panel != 'run-view' %} hidden{% endif %}>
   <div class="section-heading">

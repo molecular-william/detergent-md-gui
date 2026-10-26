@@ -149,3 +149,15 @@
 /* A run's paths are its longest words, and they appear as often in prose as in a table: an unbreakable one inside a
    paragraph widens the document, which is what a 390 px check catches and nothing else does. */
 .monitor p, .monitor td, .monitor summary, .monitor label, .monitor .hint { overflow-wrap: anywhere }
+
+/* The CG chain as segments, inside the frames sub-panel: which legs share one system, and where the system is
+ * rebuilt. Two states are drawn because a reader must not have to infer them -- a stage that holds no trajectory
+ * (nothing to play) and the stage whose atom count changed (the boundary a player switches files at). */
+.run-view-segments{width:100%;border-collapse:collapse;font-size:12px}
+.run-view-segments th,.run-view-segments td{text-align:left;padding:4px 8px 4px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.run-view-segments thead th{font-weight:600;color:var(--muted);border-bottom-width:2px}
+.run-view-segments tbody th{font-weight:600;white-space:nowrap}
+.run-view-segments tr[data-idle='true'] td,.run-view-segments tr[data-idle='true'] th{color:var(--muted)}
+.run-view-segments tr[data-boundary='true'] td,.run-view-segments tr[data-boundary='true'] th{
+  background:#fff7e8;border-bottom-color:#c9963c}
+.run-view-segments tr[data-boundary='true'] td:last-child{font-weight:600}

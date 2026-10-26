@@ -131,11 +131,12 @@ export function createRunView() {
   // ----------------------------------------------------------------------------------------------- the pair and the link
 
   async function open(monitor, job, {refresh = false} = {}) {
-    // A complex run is drawn in Complexes, which already shows its built system and its whole snapshot series with
-    // each moment's criterion numbers -- so this monitor draws nothing and says where to look, carrying the run
-    // across. That decision is the monitor's own (`delegate`), and the host is what decides to make it.
-    if (job && String(job.run_type) === 'pdc') monitor.delegate(job);
-    else await monitor.loadRun(job);
+    // Every run type plays here now, a protein-detergent run included. It used to be handed to Complexes on the
+    // grounds that that panel already drew its built system and its snapshot series; what made this panel unable to
+    // draw it was that the run's CG trajectory matched no role in `analysis/runs/layout.py`, so the snapshots
+    // analysis skipped it. Both are answered: the layout resolves a pdc run's production trajectory, and the segments
+    // (which legs merge, and where the system is rebuilt) come from `/api/jobs/<id>/trajectory`.
+    await monitor.loadRun(job);
     remember();
   }
 

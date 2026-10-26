@@ -102,5 +102,24 @@ export function structureRank(path) {
   if (text.includes('2_mapping/mapped.')) return 1;
   if (text.includes('3_initial_CG/')) return 2;
   if (text.includes('4_CG_sim/')) return 3;
-  return 4;
+  // A protein-detergent run keeps its stages under names of their own, and the system it publishes is the
+  // extension's: the legs before it are the boxes the run passed through, which is why they rank after it.
+  if (text.includes('4_extension/prod/run.gro')) return 0;
+  if (text.includes('5_assessment/prod/run.gro')) return 1;
+  if (text.includes('2_assessment/prod/run.gro')) return 2;
+  if (text.includes('4_npt/system.gro')) return 3;
+  if (text.includes('1_system/system.gro')) return 4;
+  return 5;
+}
+
+//: The directories a run's own stages live in. A single-molecule run keeps them under `stages/`; a
+//: protein-detergent run keeps them at the run's root under the stage names their scripts use.
+// An array, not a parenthesised list: `('a/', 'b/')` is a comma expression that evaluates to the last string, so
+// `.some()` on it throws and every caller of `inStage` dies where it is called.
+export const STAGE_DIRECTORIES = ['stages/', '0_prepare/', '1_system/', '2_minimisation/', '3_nvt/', '4_npt/',
+                                  '2_assessment/', '3_assessment/', '4_extension/', '5_assessment/', '6_backmap/'];
+
+export function inStage(path) {
+  const text = String(path || '');
+  return STAGE_DIRECTORIES.some(directory => text.startsWith(directory));
 }

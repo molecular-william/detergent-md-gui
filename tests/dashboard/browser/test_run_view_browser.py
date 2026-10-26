@@ -1,4 +1,4 @@
-"""The Run view panel, driven in a browser: one run, its own structures, its figures, and where it delegates.
+"""The Run view panel, driven in a browser: one run, its own structures, its segments, its figures.
 
 Every run here is a fixture this test builds in its own workspace -- nothing reads the developer's `workspace/`,
 which holds surviving runs as evidence rather than as a fixture. The structures are the *shape* a live run has
@@ -19,6 +19,8 @@ Two of the four traps the plan measured are proved here, on real NGL objects:
 
 The third and fourth traps belong with the transport row and are proved in `test_run_view_transport_browser.py`.
 """
+import re
+
 from playwright.sync_api import expect
 
 from . import panels
@@ -240,6 +242,15 @@ def json_text(payload):
 def mapped_gro():
     rows = ['Written by MDAnalysis', '    8']
     for index, (name, xyz) in enumerate(zip(BEADS, MAPPED_NM), 1):
+        rows.append(f'{1:5d}{"LIG1":<5}{name:>5}{index:5d}' + ''.join(f'{value:8.3f}' for value in xyz))
+    rows.append('   2.48092   2.48092   2.48092')
+    return '\n'.join(rows) + '\n'
+
+
+def six_bead_gro():
+    """The extension's system after the removal path: fewer atoms than the legs before it, which is the boundary."""
+    rows = ['Written by MDAnalysis', '    6']
+    for index, (name, xyz) in enumerate(zip(BEADS[:6], MAPPED_NM[:6]), 1):
         rows.append(f'{1:5d}{"LIG1":<5}{name:>5}{index:5d}' + ''.join(f'{value:8.3f}' for value in xyz))
     rows.append('   2.48092   2.48092   2.48092')
     return '\n'.join(rows) + '\n'
@@ -798,23 +809,47 @@ def test_a_run_with_no_figure_says_so_instead_of_showing_an_empty_list(dashboard
     assert errors == []
 
 
-def test_a_complex_run_is_delegated_to_complexes_and_nothing_is_drawn_here(dashboard, live_page):
-    """D9: the one genuine duplication, answered by not doing it."""
+def test_a_complex_run_plays_here_and_its_segments_say_where_it_is_rebuilt(dashboard, live_page):
+    """A protein-detergent run is drawn in this panel now, with the CG chain's segments under the frames.
+
+    What used to make this panel unable to draw one was that the run's CG trajectory matched no role in the run
+    layout, so the snapshots analysis skipped it. The layout resolves it and `/api/jobs/<id>/trajectory` states which
+    legs are one system and where the system is rebuilt (its own integration test pins that answer, and it is measured
+    on the real run); this test is the panel's half, with the endpoint stubbed so the rendering is what is under test.
+    A run drawn here must also stop saying it is drawn elsewhere: the old delegation link and its sentence are gone.
+    """
     seed(dashboard)
     page, errors = live_page
+    segments = {'id': PDC_RUN, 'run_type': 'pdc', 'why': None, 'boundaries': [
+        {'at': 'CG extension MD', 'after': 'CG assessment MD', 'atoms_from': 8, 'atoms_to': 6}],
+        'segments': [
+            {'name': 'System preparation', 'atoms': 4, 'trajectory': None, 'group': None,
+             'note': 'the built system, before solvation'},
+            {'name': 'NVT equilibration', 'atoms': 8, 'trajectory': 'stages/1_system/system.gro', 'group': 1},
+            {'name': 'CG extension MD', 'atoms': 6, 'trajectory': 'stages/1_system/system.gro', 'group': 2},
+        ]}
+    hits = []
+
+    def serve_trajectory(route):
+        hits.append(route.request.url)
+        route.fulfill(json=segments)
+
+    page.route(re.compile(r'/api/jobs/[^/]+/trajectory'), serve_trajectory)
     open_panel(page, live_page, workspace='protein-detergent', run=PDC_RUN)
     assert PDC_RUN in page.locator('#run-view-choose-A').input_value()
 
-    expect(page.locator('#run-view-delegation-A')).to_be_visible()
-    link = page.locator('#run-view-delegation-A a')
-    expect(link).to_have_count(1)
-    assert link.get_attribute('href') == f'/protein-detergent/complexes?run={PDC_RUN}'
-    expect(page.locator('#run-view-delegation-A')).to_contain_text('reads ?run= at mount')
-
-    assert page.locator('#run-view-viewer-A').is_hidden(), 'no canvas is drawn for a complex run'
-    assert page.locator('#run-view-transport-A').is_hidden(), 'and no transport row either'
-    expect(page.locator('#run-view-transport-note-A')).to_contain_text('deliberately')
-    assert page.evaluate("() => document.querySelector('#run-view-viewer-A').runViewStage") is None
+    # `#run-view-segments-A` *is* the tbody, so the rows are its own children, not a `tbody` inside it.
+    rows = page.locator('#run-view-segments-A tr')
+    expect(rows).to_have_count(3, timeout=30000)
+    expect(rows.nth(0)).to_contain_text('System preparation')
+    expect(page.locator('#run-view-segments-note-A')).to_contain_text('3 stages in 2 trajectories')
+    boundary = page.locator("#run-view-segments-A tr[data-boundary='true']")
+    expect(boundary).to_have_count(1)
+    expect(boundary).to_contain_text('CG extension MD')
+    expect(boundary).to_contain_text('system rebuilt here: 6 atoms, from 8')
+    assert page.locator('#run-view-delegation-A').is_hidden()
+    assert 'drawn in Complexes' not in page.locator('#run-view-what-A').inner_text()
+    assert hits, 'the panel asked for the run\'s trajectory'
     assert errors == []
 
 

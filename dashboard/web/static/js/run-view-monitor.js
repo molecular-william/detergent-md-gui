@@ -14,7 +14,8 @@
 
 import { $, api, panelIds, post } from './shared.js';
 import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, applyBeadRadii, renderBeadLegend, sizeClassOf } from './ngl-beads.js';
-import { conectCount, dropBonds, isCoarseGrained, loadParameters, structureExtension, structureRank } from './run-view-structure.js';
+import { conectCount, dropBonds, inStage, isCoarseGrained, loadParameters, structureExtension,
+         structureRank } from './run-view-structure.js';
 
 //: D13 -- nglview's own `Play(interval=100)`: ten frames a second. Printed on the row, and not a control: the row is
 //: two buttons and the slider, and a rate field would be a fourth element in it.
@@ -38,6 +39,9 @@ export function createMonitor({root, side, runs, onPick, onFrame}) {
   const holdsCount = $(id('run-view-holds-count'));
   const what = $(id('run-view-what'));
   const delegation = $(id('run-view-delegation'));
+  const segmentsWrap = $(id('run-view-segments-wrap'));
+  const segmentsBody = $(id('run-view-segments'));
+  const segmentsNote = $(id('run-view-segments-note'));
   const viewer = $(id('run-view-viewer'));
   const readoutHost = $(id('run-view-readout'));
   const label = $(id('run-view-label'));
@@ -140,6 +144,15 @@ function monitorMarkup(side) {
     <details class="card run-view-sub" id="run-view-frames-details-${side}">
       <summary>frames <span class="count" id="run-view-frames-count-${side}"></span></summary>
       <div class="body">
+        <div class="table-scroll" id="run-view-segments-wrap-${side}" hidden>
+          <table class="run-view-segments">
+            <caption class="sr-only">The CG MD segments this run holds, in stage order</caption>
+            <thead><tr><th scope="col">Stage</th><th scope="col">Atoms</th>
+              <th scope="col">Trajectory</th><th scope="col">Note</th></tr></thead>
+            <tbody id="run-view-segments-${side}"></tbody>
+          </table>
+          <p class="hint" id="run-view-segments-note-${side}"></p>
+        </div>
         <div id="run-view-frames-${side}" class="run-view-strip"></div>
         <p class="hint" id="run-view-frames-note-${side}"></p>
         <div class="toolbar run-view-generate">
@@ -254,31 +267,6 @@ function chooser(root, side, runs, onPick) {
   };
 }
 
-  function delegate(job) {
-    // D9 -- the overlap named rather than discovered. Complexes already draws a complex run's built system and its
-    // whole snapshot series, each moment carrying its own criterion numbers, so this panel draws nothing and says
-    // where to look, carrying the run across so the reader arrives on it already drawn.
-    structures = [];
-    moments = [];
-    holds.replaceChildren(row('This run is drawn in Complexes.', '—'));
-    what.textContent = 'Protein-detergent runs are drawn in Complexes, which already shows the built system and the '
-      + "whole snapshot series with each moment's criterion numbers.";
-    delegation.replaceChildren();
-    delegation.hidden = false;
-    const link = document.createElement('a');
-    link.href = `/protein-detergent/complexes?run=${encodeURIComponent(job.id)}`;
-    link.textContent = `Open run ${job.id} in Complexes`;
-    delegation.append(link, document.createTextNode(' — that panel reads ?run= at mount and arms its viewer.'));
-    viewer.hidden = true;
-    stage?.removeAllComponents();
-    transport.hide();
-    transport.note('No transport row here, deliberately: the row belongs under a canvas this panel draws, and for '
-      + "a complex run Complexes' own snapshot strip is the control for that run's frames.");
-    readout([]);
-    strip.replaceChildren();
-    stripNote.textContent = "A complex run's frames are drawn in Complexes, in the same series.";
-    loadFigures(job);
-  }
 
   async function loadRun(job, {refresh = false} = {}) {
     // `refresh` asks the artifact routes to re-read the run directory rather than serve the index the store holds:
@@ -298,6 +286,7 @@ function chooser(root, side, runs, onPick) {
     strip.replaceChildren();
     stripNote.textContent = '';
 
+
     let entries = [];
     published = {frames: null, moments: [], series: null};
     try {
@@ -313,7 +302,7 @@ function chooser(root, side, runs, onPick) {
 
     moments = published.moments;
     structures = entries
-      .filter(entry => entry.path.startsWith('stages/') && structureExtension(entry.path)
+      .filter(entry => inStage(entry.path) && structureExtension(entry.path)
                        && !entry.path.includes('/inputs/'))
       .map(entry => ({path: entry.path, rank: structureRank(entry.path)}))
       .sort((first, second) => first.rank - second.rank || second.path.localeCompare(first.path));
@@ -336,6 +325,9 @@ function chooser(root, side, runs, onPick) {
       return;
     }
     await draw(job, structures[0].path);
+    // The segments are asked for once the run is on screen, and independently of the artifact index: the index walk
+    // pages through every analysis attempt a run holds, and `/trajectory` answers from the stage files alone.
+    loadSegments(job);
   }
 
   async function artifactIndex(jobId, term, {refresh = false} = {}) {
@@ -410,7 +402,7 @@ function chooser(root, side, runs, onPick) {
     // of what the run was handed rather than what it wrote.
     try {
       const entries = await artifactIndex(job.id, '.xtc');
-      return entries.some(entry => entry.path.startsWith('stages/') && !entry.path.includes('/inputs/'));
+      return entries.some(entry => inStage(entry.path) && !entry.path.includes('/inputs/'));
     } catch (error) {
       return false;
     }
@@ -608,6 +600,57 @@ function chooser(root, side, runs, onPick) {
       line.addEventListener('click', () => { draw(job, entry.path).catch(error => { what.textContent = error.message; }); });
       return line;
     }));
+  }
+
+  // The CG chain as segments: which legs are one system, and where the system is rebuilt. A protein-detergent run's
+  // film is sampled from one of these (the snapshots analysis reads the run's own layout), so the table is the map of
+  // what a player would do -- legs sharing a `group` play as one trajectory, and a change of group is a boundary.
+  let segmentsToken = 0;
+
+  async function loadSegments(job) {
+    if (!segmentsWrap) return;
+    const token = (segmentsToken += 1);
+    segmentsWrap.hidden = true;
+    segmentsBody.replaceChildren();
+    segmentsNote.textContent = '';
+    let answer;
+    try {
+      answer = await api(`/api/jobs/${encodeURIComponent(job.id)}/trajectory`);
+    } catch (error) {
+      segmentsWrap.hidden = false;
+      segmentsNote.textContent = `The segments could not be read: ${error.message}`;
+      return;
+    }
+    if (token !== segmentsToken) return;   // the monitor moved to another run while this answered
+    const rows = (answer && answer.segments) || [];
+    segmentsWrap.hidden = false;
+    if (!rows.length) {
+      segmentsNote.textContent = (answer && answer.why) || 'This run holds no CG trajectory.';
+      return;
+    }
+    const boundaries = new Map(((answer.boundaries) || []).map(entry => [entry.at, entry]));
+    segmentsBody.replaceChildren(...rows.map(entry => {
+      const line = document.createElement('tr');
+      if (!entry.group) line.dataset.idle = 'true';
+      if (boundaries.has(entry.name)) line.dataset.boundary = 'true';
+      const note = boundaries.has(entry.name)
+        ? `system rebuilt here: ${entry.atoms} atoms, from ${boundaries.get(entry.name).atoms_from}`
+        : (entry.duplicate_of ? `the same trajectory as ${entry.duplicate_of}` : (entry.note || ''));
+      const texts = [entry.name,
+                     entry.atoms == null ? '—' : String(entry.atoms),
+                     entry.trajectory ? entry.trajectory.split('/').pop() : 'none',
+                     note];
+      texts.forEach((text, index) => {
+        const cell = document.createElement(index === 0 ? 'th' : 'td');
+        if (index === 0) cell.setAttribute('scope', 'row');
+        cell.textContent = text;
+        line.append(cell);
+      });
+      return line;
+    }));
+    const groups = new Set(rows.filter(entry => entry.group).map(entry => entry.group)).size;
+    segmentsNote.textContent = `${rows.length} stages in ${groups} ${groups === 1 ? 'trajectory' : 'trajectories'}: `
+      + 'stages in the same group share one system and play as one; a change of group is where the system is rebuilt.';
   }
 
   function renderStrip(job) {
@@ -1068,6 +1111,5 @@ function chooser(root, side, runs, onPick) {
     // For a run the workspace's own list does not hold -- a link from the Runs table to a run of another
     // workspace -- the monitor still draws it, and this is what says so where the identity line is.
     identify: text => { identity.textContent = text; },
-    delegate: job => { selected = job; combo.set(job); delegate(job); refreshCounts(); },
   };
 }
