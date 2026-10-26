@@ -49,7 +49,8 @@ SECTIONS = {
         'tabs': ('runs', 'run-view', 'new-run', 'complexes'),
         'panel_labels': {'new-run': 'Protein-Detergent Simulations'},
         # This workspace queues protein-detergent complexes and nothing else, so its Run view offers a
-        # `pdc` run -- and delegates the drawing of one to the Complexes panel rather than repeating it.
+        # `pdc` run -- and draws it here now: the panel plays the CG chain's film and lists its segments under the
+        # frames. Complexes is the other door to the same run's set-up picture, not the panel this one defers to.
         'run_types': ('pdc',),
     },
 }

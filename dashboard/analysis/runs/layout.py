@@ -52,6 +52,14 @@ CG_TOPOLOGY_PATTERN = '*.itp'
 CG_TOPOLOGY_GLOB = f'{CG_TOPOLOGY_DIR}/{CG_TOPOLOGY_PATTERN}'
 CG_TOPOLOGY_EXCLUDED = ('system', 'topol')
 
+#: A protein-detergent run's detergent topology, in the directory its build stage writes: `1_system/`. That directory
+#: also holds the template's atomistic copy (`detergent.itp`) and the three Martini libraries the stage copies in, so
+#: "the only `.itp` here" does not select on a real run -- the build's own filename does, and `PDC_TOPOLOGY_NAME` is
+#: `pdc.DETERGENT_TOPOLOGY`, spelled again here because the analysis layer may not import an execution adapter.
+PDC_TOPOLOGY_DIR = '1_system'
+PDC_TOPOLOGY_NAME = 'detergent_CG.itp'
+PDC_TOPOLOGY_GLOB = f'{PDC_TOPOLOGY_DIR}/{CG_TOPOLOGY_PATTERN}'
+
 
 def candidates(role):
     """The relative paths that would satisfy one role, as the execution root spells them."""
@@ -90,6 +98,13 @@ def resolve(root, role):
                      + ', '.join(str(path) for path in found))
 
 
+def _itps(root, directory):
+    """Every molecule topology in one stage directory, at either root spelling, system files out."""
+    return [path for spelling in _spellings(root, directory)
+            for path in sorted(spelling.glob(CG_TOPOLOGY_PATTERN))
+            if not path.name.startswith(CG_TOPOLOGY_EXCLUDED)]
+
+
 def cg_topology(root, name=None):
     """The CG consumer's molecule topology under `3_initial_CG/`, named for the residue.
 
@@ -101,9 +116,7 @@ def cg_topology(root, name=None):
     ranked, because the topology an analysis reads decides which beads exist.
     """
     root = Path(root)
-    found = [path for directory in _spellings(root, CG_TOPOLOGY_DIR)
-             for path in sorted(directory.glob(CG_TOPOLOGY_PATTERN))
-             if not path.name.startswith(CG_TOPOLOGY_EXCLUDED)]
+    found = _itps(root, CG_TOPOLOGY_DIR)
     if name is not None:
         chosen = [path for path in found if path.name == name]
         if len(chosen) == 1:
@@ -119,6 +132,51 @@ def cg_topology(root, name=None):
                          f'{CG_TOPOLOGY_GLOB} excluding {CG_TOPOLOGY_EXCLUDED}')
     raise ValueError(f'{root} holds more than one CG molecule topology: '
                      + ', '.join(path.name for path in found))
+
+
+def pdc_topology(root, name=None):
+    """The detergent moleculetype a protein-detergent run simulated, or a refusal naming what it found.
+
+    The run's build stage writes it into `1_system/` under `pdc.DETERGENT_TOPOLOGY`, beside the template's atomistic
+    copy and the three Martini libraries it also copies in -- measured on `00b9ae6db23f`: `detergent_CG.itp`,
+    `detergent.itp` and three `martini_v3.0.0*.itp`, so a directory of five has no "the only one" to fall back on
+    and the build's own name is what is looked for. `name` is the file the run recorded when it recorded one. A
+    directory holding no build-name file but exactly one other molecule topology still answers, because an analysis
+    subprocess is handed a *staged* directory holding only the sources its kind declares. Anything else is refused
+    rather than ranked, for `cg_topology`'s reason: the topology is what decides which beads exist.
+    """
+    root = Path(root)
+    found = _itps(root, PDC_TOPOLOGY_DIR)
+    for wanted in (name, PDC_TOPOLOGY_NAME):
+        chosen = [path for path in found if path.name == wanted] if wanted else []
+        if len(chosen) == 1:
+            return chosen[0]
+    if name is not None:
+        here = ', '.join(path.name for path in found) or 'nothing'
+        raise ValueError(f'{root} has no {name}; under {PDC_TOPOLOGY_GLOB} it holds {here}')
+    if len(found) == 1:
+        return found[0]
+    if not found:
+        raise ValueError(f'{root} has no detergent topology; looked for '
+                         f'{PDC_TOPOLOGY_GLOB} excluding {CG_TOPOLOGY_EXCLUDED}')
+    raise ValueError(f'{root} holds more than one candidate detergent topology: '
+                     + ', '.join(path.name for path in found))
+
+
+def coarse_topology(root, run_type=None, name=None):
+    """The coarse-grained molecule topology a run simulated, from the directory its own layout keeps it in.
+
+    A protein-detergent run's detergent is under `1_system/`, written by its build stage; a single-molecule CG
+    build's molecule is under `3_initial_CG/`, written by the mapping. `run_type` decides when the caller has the
+    run's own record -- the structure route does -- and a caller without one gets whichever layout the run wrote,
+    because neither run type writes both.
+    """
+    if run_type is not None:
+        return pdc_topology(root, name) if run_type == 'pdc' else cg_topology(root, name)
+    try:
+        return pdc_topology(root, name)
+    except ValueError:
+        return cg_topology(root, name)
 
 
 def rank_model(paths):

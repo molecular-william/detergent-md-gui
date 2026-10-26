@@ -38,8 +38,8 @@ export function createMonitor({root, side, runs, onPick, onFrame}) {
   const identity = $(id('run-view-identity'));
   const holdsCount = $(id('run-view-holds-count'));
   const what = $(id('run-view-what'));
-  const delegation = $(id('run-view-delegation'));
   const segmentsWrap = $(id('run-view-segments-wrap'));
+  const segmentsTable = $(id('run-view-segments-table'));
   const segmentsBody = $(id('run-view-segments'));
   const segmentsNote = $(id('run-view-segments-note'));
   const viewer = $(id('run-view-viewer'));
@@ -138,14 +138,13 @@ function monitorMarkup(side) {
           <thead><tr><th scope="col">File</th><th scope="col">Bonds</th></tr></thead>
           <tbody id="run-view-holds-${side}"><tr><td colspan="2">No run selected.</td></tr></tbody>
         </table></div>
-        <p class="hint" id="run-view-delegation-${side}" hidden></p>
       </div>
     </details>
     <details class="card run-view-sub" id="run-view-frames-details-${side}">
       <summary>frames <span class="count" id="run-view-frames-count-${side}"></span></summary>
       <div class="body">
         <div class="table-scroll" id="run-view-segments-wrap-${side}" hidden>
-          <table class="run-view-segments">
+          <table class="run-view-segments" id="run-view-segments-table-${side}">
             <caption class="sr-only">The CG MD segments this run holds, in stage order</caption>
             <thead><tr><th scope="col">Stage</th><th scope="col">Atoms</th>
               <th scope="col">Trajectory</th><th scope="col">Note</th></tr></thead>
@@ -272,8 +271,6 @@ function chooser(root, side, runs, onPick) {
     // `refresh` asks the artifact routes to re-read the run directory rather than serve the index the store holds:
     // a completed run's index is otherwise frozen, so a run whose analysis published while this panel watched would
     // show nothing new until a restart. Only the path that queued that analysis sets it.
-    delegation.hidden = true;
-    delegation.replaceChildren();
     viewer.hidden = false;
     // Who this monitor is holding, in one line: the id, what the run is called, the molecule it is about and the
     // day it ran. It was the list that used to say this, and the list is two combos now.
@@ -285,7 +282,11 @@ function chooser(root, side, runs, onPick) {
     moments = [];
     strip.replaceChildren();
     stripNote.textContent = '';
-
+    // The segments are asked for here -- before the artifact index, the structure gate and the canvas -- and fired
+    // rather than awaited: `/trajectory` answers from the run's stage files alone, so neither an index that failed
+    // nor a structure list that matched nothing can stop the panel asking, the endpoint's own `why` is printed for a
+    // run with nothing to play, and a slow answer cannot delay the drawing below.
+    loadSegments(job);
 
     let entries = [];
     published = {frames: null, moments: [], series: null};
@@ -325,9 +326,6 @@ function chooser(root, side, runs, onPick) {
       return;
     }
     await draw(job, structures[0].path);
-    // The segments are asked for once the run is on screen, and independently of the artifact index: the index walk
-    // pages through every analysis attempt a run holds, and `/trajectory` answers from the stage files alone.
-    loadSegments(job);
   }
 
   async function artifactIndex(jobId, term, {refresh = false} = {}) {
@@ -608,7 +606,9 @@ function chooser(root, side, runs, onPick) {
   let segmentsToken = 0;
 
   async function loadSegments(job) {
-    if (!segmentsWrap) return;
+    // Every const this function dereferences, guarded together: guarding one of the four is a guard that lets the
+    // others throw the moment a page renders without them.
+    if (!segmentsWrap || !segmentsTable || !segmentsBody || !segmentsNote) return;
     const token = (segmentsToken += 1);
     segmentsWrap.hidden = true;
     segmentsBody.replaceChildren();
@@ -617,21 +617,33 @@ function chooser(root, side, runs, onPick) {
     try {
       answer = await api(`/api/jobs/${encodeURIComponent(job.id)}/trajectory`);
     } catch (error) {
+      // The token test comes first here too: a failure that belongs to the run the monitor has already left is that
+      // run's failure, and writing it into the next run's panel names an error the reader is not looking at.
+      if (token !== segmentsToken) return;
+      segmentsTable.hidden = true;
       segmentsWrap.hidden = false;
       segmentsNote.textContent = `The segments could not be read: ${error.message}`;
       return;
     }
     if (token !== segmentsToken) return;   // the monitor moved to another run while this answered
     const rows = (answer && answer.segments) || [];
-    segmentsWrap.hidden = false;
-    if (!rows.length) {
-      segmentsNote.textContent = (answer && answer.why) || 'This run holds no CG trajectory.';
+    const why = (answer && answer.why) || '';
+    // The table is a protein-detergent run's: it lists the run's stages, and a single-molecule run has one trajectory
+    // rather than a chain of them, so its single row would print a layout role (`cg_trajectory`) in a column headed
+    // Stage. "Nothing to play" is a state either run type can be in, so that sentence is kept either way.
+    const pdc = Boolean(answer && answer.run_type === 'pdc');
+    segmentsTable.hidden = !pdc;
+    segmentsWrap.hidden = !(pdc || why);
+    if (!pdc || !rows.length) {
+      segmentsNote.textContent = why;
       return;
     }
     const boundaries = new Map(((answer.boundaries) || []).map(entry => [entry.at, entry]));
     segmentsBody.replaceChildren(...rows.map(entry => {
       const line = document.createElement('tr');
-      if (!entry.group) line.dataset.idle = 'true';
+      // `== null` rather than a falsy test: a merge group of 0 is a group, and a stage that has none is idle for one
+      // of two reasons, which the value names instead of folding them into `true`.
+      if (entry.group == null) line.dataset.idle = entry.duplicate_of ? 'duplicate' : 'no-trajectory';
       if (boundaries.has(entry.name)) line.dataset.boundary = 'true';
       const note = boundaries.has(entry.name)
         ? `system rebuilt here: ${entry.atoms} atoms, from ${boundaries.get(entry.name).atoms_from}`
@@ -648,9 +660,12 @@ function chooser(root, side, runs, onPick) {
       });
       return line;
     }));
-    const groups = new Set(rows.filter(entry => entry.group).map(entry => entry.group)).size;
-    segmentsNote.textContent = `${rows.length} stages in ${groups} ${groups === 1 ? 'trajectory' : 'trajectories'}: `
-      + 'stages in the same group share one system and play as one; a change of group is where the system is rebuilt.';
+    // A `group` is a system, not a trajectory: group 1 on the measured run holds four distinct `.xtc` files, so
+    // calling it a trajectory contradicts the table under this sentence.
+    const systems = new Set(rows.filter(entry => entry.group != null).map(entry => entry.group)).size;
+    segmentsNote.textContent = `${rows.length} stage${rows.length === 1 ? '' : 's'} in `
+      + `${systems} system${systems === 1 ? '' : 's'}: stages in the same group share one system and play as one; `
+      + 'a change of group is where the system is rebuilt.';
   }
 
   function renderStrip(job) {
@@ -858,9 +873,10 @@ function chooser(root, side, runs, onPick) {
       parameters = {ext: 'pdb', inferBonds: 'none',
         reason: conectCount(text)
           ? "the run's own moleculetype, written as CONECT over this file's coordinates "
-            + '(stages/3_initial_CG/) — the model\'s bonds, and the distance guess is off'
-          : 'coarse-grained, and this run states no moleculetype under stages/3_initial_CG/, so the picture claims '
-            + 'no bonds rather than guessing them'};
+            + "(its own topology file, for the molecule this file holds) — the model's bonds, and the distance "
+            + 'guess is off'
+          : 'coarse-grained, and this run states no moleculetype for the molecule this file holds, so the picture '
+            + 'claims no bonds rather than guessing them'};
     } else {
       text = await artifactText(job.id, path);
       parameters = loadParameters(text, {path, runType: job.run_type});

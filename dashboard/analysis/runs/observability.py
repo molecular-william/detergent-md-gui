@@ -107,14 +107,17 @@ def _frame_atoms(universe, index, *, reference=None, selection=None):
             for atom, position in zip(universe.atoms, positions)], rmsd
 
 
-def _run_topology(run_dir):
+def _run_topology(run_dir, role=None):
     """The moleculetype the run simulated, by the run's own layout rule, or `None` when it states none.
 
     The same resolution the structure route makes, because a series and the run's own structure must read one
-    topology: the manifest's `FINAL_ITP` names the `.itp` a CG stage simulated, and `layout.cg_topology` refuses an
-    ambiguous directory rather than ranking an answer.
+    topology: `layout.coarse_topology` answers from the directory the *role* keeps its model in -- `3_initial_CG/`
+    for a single-molecule CG build, `1_system/` for a protein-detergent run's detergent -- and the manifest's
+    `FINAL_ITP` names the `.itp` a CG stage simulated when the run recorded one. Either directory refuses an
+    ambiguous answer rather than ranking one.
     """
     run_dir = Path(run_dir)
+    run_type = 'pdc' if str(role or '').startswith('pdc_') else None
     name = None
     try:
         manifest = json.loads((run_dir / 'manifest.json').read_text())
@@ -125,7 +128,7 @@ def _run_topology(run_dir):
         if name:
             break
     try:
-        return layout.cg_topology(run_dir, name)
+        return layout.coarse_topology(run_dir, run_type, name)
     except ValueError:
         return None
 
@@ -337,13 +340,14 @@ def generate(run_dir, labels=('first', 'middle', 'last'), samples=SERIES_SAMPLES
     n_frames = len(universe.trajectory)
     if n_frames < 1:
         raise ValueError(f'{trajectory.name} contains no frames')
-    stem = 'CG' if role.startswith('cg_') else 'AA'
+    stem = 'CG' if role.startswith(('cg_', 'pdc_')) else 'AA'
     # Resolved before anything is written: the moments and the series are both written through the run's own
     # conventions, and which conventions those are is decided by the source's role and the moleculetype the run
     # simulated -- a coarse-grained frame gets the family code and the model's own bonds, an all-atom frame keeps
-    # real elements and no records it cannot know.
-    coarse = role.startswith('cg_')
-    topology_path = _run_topology(run_dir) if coarse else None
+    # real elements and no records it cannot know. A protein-detergent run's film is beads like any CG one, so its
+    # role is coarse here as well as in the panel, which draws `pdc` with b-factor colours and no distance guess.
+    coarse = role.startswith(('cg_', 'pdc_'))
+    topology_path = _run_topology(run_dir, role) if coarse else None
     moleculetype = None
     if topology_path is not None:
         try:

@@ -236,6 +236,105 @@ def test_a_cg_series_with_no_moleculetype_says_it_has_no_bonds(tmp_path):
     assert any('NO BONDS RECORDED' in line for line in text.splitlines())
 
 
+#: A protein-detergent run's own CG system: one DDM molecule, the shape its `1_system` build and
+#: `4_extension/prod` hold after the removal path.
+PDC_BEADS = ('S1A', 'S1B', 'S2A', 'TAIL1')
+PDC_BONDS = ((1, 2), (2, 3), (3, 4))
+
+
+def _pdc_moleculetype():
+    atoms = '\n'.join(f'{index} SP1r 1 DDM {name} {index} 0 54' for index, name in enumerate(PDC_BEADS, 1))
+    bonds = '\n'.join(f'{first} {second} 1 0.429 5000' for first, second in PDC_BONDS)
+    return ("; the run's own detergent model\n[ moleculetype ]\nDDM 1\n\n[ atoms ]\n"
+            f'{atoms}\n\n[ bonds ]\n{bonds}\n')
+
+
+def _pdc_run(root, frames=4, topology_name='DDM.itp'):
+    """The layout a protein-detergent run publishes: `4_extension/prod/{run.gro,whole.xtc}` and its `1_system/`.
+
+    The topology is named by the caller because a real build writes `detergent_CG.itp` beside the template's own
+    atomistic copy and the three Martini libraries; a *staged* work directory may hold that file alone.
+    """
+    stage = root / 'stages/4_extension/prod'
+    stage.mkdir(parents=True)
+    universe = mda.Universe.empty(len(PDC_BEADS), n_residues=1, atom_resindex=[0] * len(PDC_BEADS),
+                                  trajectory=True)
+    universe.add_TopologyAttr('names', list(PDC_BEADS))
+    universe.add_TopologyAttr('resnames', ['DDM'])
+    universe.add_TopologyAttr('resids', [1])
+    base = np.arange(len(PDC_BEADS) * 3, dtype=float).reshape(-1, 3) * 10.0
+    with mda.Writer(str(stage / 'whole.xtc'), n_atoms=len(PDC_BEADS)) as writer:
+        for frame in range(frames):
+            universe.atoms.positions = base + frame * 10.0
+            if frame == 0:
+                universe.atoms.write(str(stage / 'run.gro'))
+            writer.write(universe.atoms)
+    topology = root / 'stages/1_system' / topology_name
+    topology.parent.mkdir(parents=True)
+    topology.write_text(_pdc_moleculetype())
+    return root
+
+
+def test_a_protein_detergent_run_publishes_a_coarse_series_named_cg(tmp_path):
+    """A `pdc_` role is coarse, so the film is a CG series and carries the model's own bonds and families.
+
+    Measured before this: `pdc_trajectory` was not `cg_`-prefixed, so the producer wrote `AA-first/middle/last` and
+    `AA-frames.pdb` through MDAnalysis's writer -- no CONECT, b-factor 0.00 -- while the panel draws a `pdc` run with
+    b-factor colours and its distance guess off, which is the grey unbonded beads that defect produced.
+    """
+    result = observability.generate(_pdc_run(tmp_path), samples=2)
+
+    assert result['role'] == 'pdc_trajectory'
+    created = set(result['files'])
+    assert 'CG-frames.pdb' in created, 'a protein-detergent run must publish a CG series'
+    assert not [name for name in created if name.startswith('AA-')]
+    assert result['series']['topology'] == 'stages/1_system/DDM.itp'
+    text = (tmp_path / 'snapshots/CG-frames.pdb').read_text()
+    assert text.count('CONECT') == len(PDC_BONDS) * result['series']['sampled'], \
+        f"the series carries {text.count('CONECT')} CONECT records for {len(PDC_BONDS)} bonds per model"
+    families = [line[60:66].strip() for line in text.splitlines() if line.startswith('HETATM')]
+    assert set(families) == {'3.00'}, f'the b-factor column is not the beads\' own family: {sorted(set(families))}'
+
+
+def test_a_pdc_series_reads_the_detergent_model_not_the_template_it_was_built_from(tmp_path):
+    """`1_system` holds five `.itp` files on the measured run; the detergent's is the build's own name."""
+    root = _pdc_run(tmp_path, topology_name='detergent_CG.itp')
+    (root / 'stages/1_system/detergent.itp').write_text('[ moleculetype ]\nLIG1 3\n\n[ atoms ]\n'
+                                                       '1 C1 1 LIG1 C1 1 0 12.011\n')
+    for name in ('martini_v3.0.0.itp', 'martini_v3.0.0_solvents_v1.itp', 'martini_v3.0.0_ions_v1.itp'):
+        (root / 'stages/1_system' / name).write_text('[ atomtypes ]\n')
+
+    result = observability.generate(root, samples=2)
+
+    assert result['series']['topology'] == 'stages/1_system/detergent_CG.itp'
+    assert 'CONECT' in (root / 'snapshots/CG-frames.pdb').read_text()
+
+
+def test_a_protein_detergent_runs_declared_sources_are_staged_for_its_frames(tmp_path):
+    """The kind declares the pdc files and the worker copies them; the legacy pair must not discard them.
+
+    Measured on `00b9ae6db23f`: its `sources.json` held `manifest.json` alone and the skip said "offers no
+    trajectory to review" -- because `worker.source_entries` replaced *every* declared pattern with the pre-split
+    legacy pair for any run holding no `1_AA-reference/prod/lig.xtc`. A protein-detergent run has no AA reference at
+    all, so the patterns this slice added for it, and `1_system/*.itp` among them, were read by nothing.
+    """
+    root = _pdc_run(tmp_path)
+    (root / 'manifest.json').write_text(json.dumps({'run_type': 'pdc', 'stages': []}))
+
+    entries = worker.source_entries(workflow.execution_root(root), 'snapshots')
+
+    assert {'4_extension/prod/run.gro', '4_extension/prod/whole.xtc', '1_system/DDM.itp'} <= set(entries), \
+        f'the pdc sources the kind declares were not staged: {sorted(entries)}'
+    work = tmp_path / 'work'
+    for relative, path in entries.items():
+        target = work / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+    result = observability.generate(work, samples=2)
+    assert result['series']['topology'] == '1_system/DDM.itp'
+    assert 'CONECT' in (work / 'snapshots/CG-frames.pdb').read_text()
+
+
 def test_an_all_atom_series_keeps_the_readers_own_records(tmp_path):
     """Real chemistry, not beads: the elements come from the atoms and the panel guesses the bonds it can see."""
     result = observability.generate(_aa_only_run(tmp_path, frames=5), samples=2)

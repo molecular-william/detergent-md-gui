@@ -1,4 +1,6 @@
 """Two stage layouts, resolved by role rather than guessed at."""
+from pathlib import Path
+
 import pytest
 
 from dashboard.analysis.runs import layout
@@ -117,6 +119,55 @@ def test_a_recorded_name_that_is_not_there_says_what_is(tmp_path):
     with pytest.raises(ValueError) as error:
         layout.cg_topology(tmp_path, 'SUCR.itp')
     assert 'has no SUCR.itp' in str(error.value) and 'SUCR_initial.itp' in str(error.value)
+
+
+def test_the_detergent_topology_is_the_builds_own_name_among_the_libraries(tmp_path):
+    """The measured `1_system` of `00b9ae6db23f` holds five `.itp` files, so a count cannot select the detergent.
+
+    `detergent.itp` is the template's atomistic moleculetype, handed to the build as an input, and the three
+    `martini_v3.0.0*.itp` are the force field; only `detergent_CG.itp` is the model the run simulated -- the file
+    its `system.top` includes.
+    """
+    write(tmp_path, 'stages/1_system/detergent_CG.itp', 'stages/1_system/detergent.itp',
+          'stages/1_system/martini_v3.0.0.itp', 'stages/1_system/martini_v3.0.0_solvents_v1.itp',
+          'stages/1_system/martini_v3.0.0_ions_v1.itp')
+
+    assert layout.pdc_topology(tmp_path).name == 'detergent_CG.itp'
+    assert layout.coarse_topology(tmp_path, 'pdc').name == 'detergent_CG.itp'
+
+
+def test_a_detergent_topology_is_found_in_a_staged_directory_holding_only_it(tmp_path):
+    """A producer is handed the work directory its kind's sources made, which may hold one `.itp` and nothing else."""
+    write(tmp_path, '1_system/DDM.itp')
+
+    assert layout.pdc_topology(tmp_path).name == 'DDM.itp'
+    assert layout.coarse_topology(tmp_path, None).name == 'DDM.itp', \
+        'without a run type, the layout the run wrote answers'
+
+
+def test_two_detergent_candidate_topologies_are_refused_rather_than_ranked(tmp_path):
+    """No build-name file and more than one other: refused, naming what it found, for `cg_topology`'s reason."""
+    write(tmp_path, 'stages/1_system/DDM.itp', 'stages/1_system/DDM_v2.itp')
+
+    with pytest.raises(ValueError, match='more than one candidate detergent topology'):
+        layout.pdc_topology(tmp_path)
+
+
+def test_a_run_type_names_the_directory_its_topology_lives_in(tmp_path):
+    """`coarse_topology` is the one entry point: `pdc` answers from `1_system/`, everything else from `3_initial_CG/`."""
+    write(tmp_path, 'stages/1_system/detergent_CG.itp', 'stages/3_initial_CG/SUCR_initial.itp')
+
+    assert layout.coarse_topology(tmp_path, 'pdc').name == 'detergent_CG.itp'
+    assert layout.coarse_topology(tmp_path, 'aa_cg').name == 'SUCR_initial.itp'
+    assert layout.coarse_topology(tmp_path, 'aa_only').name == 'SUCR_initial.itp'
+
+
+def test_the_detergent_topology_name_is_the_adapters_own():
+    """`layout` cannot import an execution adapter, so it spells the name again; this is what keeps them one name."""
+    from dashboard.execution.adapters import pdc
+
+    assert layout.PDC_TOPOLOGY_NAME == pdc.DETERGENT_TOPOLOGY == 'detergent_CG.itp'
+    assert layout.PDC_TOPOLOGY_DIR == Path(pdc.stage_by_name('System preparation').relative).parent.as_posix()
 
 
 def test_the_frame_source_prefers_the_extracted_solute_over_the_stage_output(tmp_path):

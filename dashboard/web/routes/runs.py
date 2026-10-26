@@ -390,15 +390,16 @@ def structure_target(run_dir, relative: str) -> Path:
     return path
 
 
-def run_topology(run_dir, manifest=None) -> Path | None:
+def run_topology(run_dir, manifest=None, run_type=None) -> Path | None:
     """The run's own coarse-grained moleculetype, or `None` when the run states none.
 
-    The location is the run's own layout rule (`analysis.runs.layout.cg_topology`): the `.itp` under
-    `stages/3_initial_CG/` that is not a system topology, searched at the run's root and under `stages/`. A fitted
-    run leaves several copies there, so the run's manifest names the one it simulated -- `FINAL_ITP`, which every
-    CG stage records in its environment. A run that recorded no name and holds exactly one `.itp` is answered by
-    that one; every other case resolves to `None` rather than to a ranked guess, because the topology is what
-    decides which beads exist and a picture of a model nobody ran is not worth drawing.
+    The location is the run's own layout rule (`analysis.runs.layout.coarse_topology`): the molecule `.itp` under
+    `stages/3_initial_CG/` for a single-molecule CG build, and under `stages/1_system/` for a protein-detergent
+    run's detergent -- searched at the run's root and under `stages/`, because both layouts are live in one
+    workspace. A fitted run leaves several copies in its directory, so the run's manifest names the one it simulated
+    -- `FINAL_ITP`, which every CG stage records in its environment -- and the protein-detergent build's own
+    filename answers when nothing was recorded. Every other case resolves to `None` rather than to a ranked guess,
+    because the topology is what decides which beads exist and a picture of a model nobody ran is not worth drawing.
     """
     from ...analysis.runs import layout
 
@@ -408,7 +409,7 @@ def run_topology(run_dir, manifest=None) -> Path | None:
         if name:
             break
     try:
-        return layout.cg_topology(run_dir, name)
+        return layout.coarse_topology(run_dir, run_type, name)
     except ValueError:
         return None
 
@@ -430,7 +431,7 @@ def run_trajectory_api(jid):
     c = coordinator()
     job = c.lookup(jid)
     run_dir = c.run_path(job)
-    answer = segments_module.segments(run_dir, getattr(job, 'run_type', None))
+    answer = segments_module.segments(run_dir, job.get('run_type'))
     for entry in answer['segments']:
         entry['structure_url'] = (f'/api/jobs/{jid}/structure?path={quote(entry["structure"])}'
                                   if entry.get('structure') else None)
@@ -447,13 +448,14 @@ def run_structure_api(jid):
     Measured on this box: a `.gro` carries no bond records, and this vendored viewer's GRO parser guesses from
     distances regardless of `inferBonds` -- eight mapped beads came back with four guessed bonds whichever flag was
     passed -- so the client clears the store and a coarse-grained run's mapped model, the picture that run exists to
-    publish, comes out as beads with no connectivity at all. The run's own moleculetype under `stages/3_initial_CG/`
-    states which beads are bonded, and this route writes those `[ bonds ]` and `[ constraints ]` as CONECT records
-    over the file's own coordinates, through the same writer the complex system view uses
+    publish, comes out as beads with no connectivity at all. The run's own moleculetype -- under
+    `stages/3_initial_CG/` for a single-molecule CG build, `stages/1_system/` for a protein-detergent run's
+    detergent -- states which beads are bonded, and this route writes those `[ bonds ]` and `[ constraints ]` as
+    CONECT records over the file's own coordinates, through the same writer the complex system view uses
     (`execution.adapters.pdc_view.structure_pdb`). The client's CONECT branch then draws exactly those bonds and
     leaves its distance guess off, which is the one rule this repository already had.
 
-    The topology is located by the run's own layout rule (`analysis.runs.layout.cg_topology`, named by the
+    The topology is located by the run's own layout rule (`analysis.runs.layout.coarse_topology`, named by the
     manifest's `FINAL_ITP` when the run recorded one), so a picture and an analysis read the same file. A topology
     that is absent or unreadable is a state the answer reports -- coordinates, no CONECT, and a REMARK saying so --
     never a guess, because the topology is what decides which beads exist.
@@ -465,7 +467,7 @@ def run_structure_api(jid):
     job = c.lookup(jid)
     run_dir = c.run_path(job)
     path = structure_target(run_dir, request.args.get('path', '').strip())
-    topology = run_topology(run_dir, c.manifest_data(job))
+    topology = run_topology(run_dir, c.manifest_data(job), job.get('run_type'))
     moleculetype = None
     if topology is not None:
         try:

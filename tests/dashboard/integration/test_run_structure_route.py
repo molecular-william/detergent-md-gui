@@ -17,6 +17,11 @@ from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CONSTRAINTS, ddm_m
 JOB_ID = '00000000feed'
 MAPPED = 'stages/2_mapping/mapped.gro'
 TOPOLOGY = 'stages/3_initial_CG/DDM.itp'
+#: The same two files in the layout a protein-detergent run writes: its detergent's model in `1_system/` and the
+#: extension's system under its own stage name.
+PDC_JOB = '00000000dcdc'
+PDC_STRUCTURE = 'stages/4_extension/prod/run.gro'
+PDC_TOPOLOGY = 'stages/1_system/DDM.itp'
 
 
 def conect_pairs(lines):
@@ -89,6 +94,33 @@ def test_a_run_with_no_topology_still_gets_its_coordinates_and_claims_no_bonds(d
     assert not conect_pairs(text.splitlines()), 'a bond nothing declares is a bond the picture invented'
     assert 'NO BONDS RECORDED' in text
     assert len([line for line in text.splitlines() if line.startswith('HETATM')]) == len(DDM_BEADS)
+
+
+def test_a_protein_detergent_runs_structure_carries_the_detergents_bonds(dashboard):
+    """A pdc run keeps its detergent's moleculetype in `1_system/`, not in `3_initial_CG/`.
+
+    Measured on `00b9ae6db23f`: `stages/1_system/detergent_CG.itp` is the model its `system.top` includes, and the
+    route answered `topology=None` for every one of that run's structures -- coordinates, no CONECT, while the panel
+    drew the CG system with its distance guess off and said the bonds were under a directory the run does not have.
+    """
+    root = dashboard.coordinator.RUNS / PDC_JOB
+    structure = root / PDC_STRUCTURE
+    structure.parent.mkdir(parents=True)
+    structure.write_text(mapped_gro())
+    topology = root / PDC_TOPOLOGY
+    topology.parent.mkdir(parents=True)
+    topology.write_text(ddm_moleculetype())
+    dashboard.coordinator.database().insert({'id': PDC_JOB, 'run_type': 'pdc', 'status': 'completed',
+                                             'stage': 'Final assessment', 'molecule_id': 'DDM',
+                                             'created': '2026-10-22T19:00:00+00:00'})
+
+    response = dashboard.client.get(f'/api/jobs/{PDC_JOB}/structure?path={PDC_STRUCTURE}')
+
+    assert response.status_code == 200
+    text = response.get_data(as_text=True)
+    assert sorted(conect_pairs(text.splitlines())) == sorted(model_pairs()), \
+        'a pdc structure is served without the detergent bonds its own run states'
+    assert 'DDM.itp' in text, 'the file does not say which topology its bonds came from'
 
 
 def test_a_path_that_leaves_the_run_is_a_404(dashboard):

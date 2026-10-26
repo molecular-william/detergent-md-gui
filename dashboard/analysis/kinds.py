@@ -237,7 +237,8 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
          # holding only what its kind declares, so a role the layout can resolve is useless if nothing copies it.
          "4_extension/prod/run.gro", "4_extension/prod/whole.xtc", "4_extension/prod/run.xtc",
          # The detergent's own topology, which states the beads' bonds and families exactly as `3_initial_CG/*.itp`
-         # does for a single-molecule build.
+         # does for a single-molecule build. Read by `layout.pdc_topology`, so a pdc series carries CONECT and
+         # family codes instead of being written as a bondless all-atom-style file.
          "1_system/*.itp",
          # The run's own mapping, which is what says which beads make up which fragment: a reader fitting on one
          # ring of a sugar is asking about a grouping only this document states, and the file carries it too.

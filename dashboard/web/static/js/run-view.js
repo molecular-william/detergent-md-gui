@@ -2,9 +2,9 @@
 //
 // Scoped, never duplicated. The workspace the panel was mounted in decides which run types it offers -- the scope
 // arrives in the page (`#run-view-scope`, written from `web/sections.py`'s per-workspace `run_types`) -- and this
-// host asks `/api/jobs` for each of those types *by name* rather than paging every run on disk. A `pdc` run is not
-// drawn here at all: Complexes already draws a complex run's built system and its whole snapshot series with each
-// moment's criterion numbers, so this panel is a door to it rather than a second strip.
+// host asks `/api/jobs` for each of those types *by name* rather than paging every run on disk. A `pdc` run is drawn
+// here like any other: the monitor plays its CG chain's film from the snapshots analysis and lists the chain's own
+// segments under the frames, because `/api/jobs/<id>/trajectory` answers from the run's stage files.
 //
 // Two runs at once is the point: a coarse-grained run and the atomistic reference it consumed read side by side, so
 // a reader can see what a mapping was measured against. `run-view-monitor.js` holds one monitor's work -- its

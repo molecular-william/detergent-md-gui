@@ -30,6 +30,12 @@ CG_RUN = 'cc00cc000002'
 FRAMES_RUN = 'ff00ff000003'
 PDC_RUN = 'dd00dd000004'
 OSMOTIC_RUN = 'ee00ee000005'
+#: A second protein-detergent run, for the tests that need the monitor to hold one run and then another.
+PDC_OTHER = 'dd00dd000008'
+#: A protein-detergent run whose stage files are planted, so `/api/jobs/<id>/trajectory` answers from them.
+PDC_SEGMENTS_RUN = 'dd00dd000009'
+#: A single-molecule run holding one trajectory, whose `single()` entry is named by its layout role.
+ONE_TRAJECTORY_RUN = 'aa00aa00000a'
 #: A coarse-grained run that holds no moleculetype: the state the structure route has to report rather than guess
 #: bonds for. Planted by its own test, because the chooser's tests count the runs in the shared seed.
 NO_TOPOLOGY_RUN = 'aa00aa000007'
@@ -583,7 +589,10 @@ def test_a_cg_runs_mapped_model_is_drawn_with_the_models_own_bonds(dashboard, li
     expect(page.locator('#run-view-what-A')).to_contain_text('stages/2_mapping/mapped.gro')
     expect(page.locator('#run-view-readout-A')).to_contain_text("bonds the run's own topology states")
     expect(page.locator('#run-view-readout-A')).to_contain_text("the run's own moleculetype, written as CONECT")
-    expect(page.locator('#run-view-readout-A')).to_contain_text('stages/3_initial_CG/')
+    # The readout names the file's own topology, not a directory: a protein-detergent run keeps its detergent's model
+    # somewhere else entirely, and this sentence was the one that told a pdc reader to look under `3_initial_CG/`.
+    expect(page.locator('#run-view-readout-A')).to_contain_text('its own topology file')
+    assert 'stages/3_initial_CG/' not in page.locator('#run-view-readout-A').inner_text()
     assert errors == []
 
 
@@ -718,7 +727,7 @@ def test_cg_beads_are_drawn_at_the_radius_their_own_size_class_has(dashboard, li
     assert errors == []
 
 
-# ------------------------------------------------------------------------------------------ figures and delegation
+# ---------------------------------------------------------------------------------------------------------- figures
 
 
 #: Martini 3's polarity families as `ngl-beads.js` colours them. This fixture's moleculetype types every bead
@@ -816,7 +825,7 @@ def test_a_complex_run_plays_here_and_its_segments_say_where_it_is_rebuilt(dashb
     layout, so the snapshots analysis skipped it. The layout resolves it and `/api/jobs/<id>/trajectory` states which
     legs are one system and where the system is rebuilt (its own integration test pins that answer, and it is measured
     on the real run); this test is the panel's half, with the endpoint stubbed so the rendering is what is under test.
-    A run drawn here must also stop saying it is drawn elsewhere: the old delegation link and its sentence are gone.
+    A run drawn here must also stop saying it is drawn elsewhere, which the caption assertion below holds.
     """
     seed(dashboard)
     page, errors = live_page
@@ -842,14 +851,142 @@ def test_a_complex_run_plays_here_and_its_segments_say_where_it_is_rebuilt(dashb
     rows = page.locator('#run-view-segments-A tr')
     expect(rows).to_have_count(3, timeout=30000)
     expect(rows.nth(0)).to_contain_text('System preparation')
-    expect(page.locator('#run-view-segments-note-A')).to_contain_text('3 stages in 2 trajectories')
+    # A stage with no trajectory is idle, and the row says *why* it is: a bare `true` cannot tell "nothing to play"
+    # from "the same file as another row".
+    expect(rows.nth(0)).to_have_attribute('data-idle', 'no-trajectory')
+    # `group` is a system: group 1 on the measured run holds four distinct `.xtc` files, so calling it a trajectory
+    # contradicted the table above the sentence.
+    expect(page.locator('#run-view-segments-note-A')).to_contain_text('3 stages in 2 systems')
     boundary = page.locator("#run-view-segments-A tr[data-boundary='true']")
     expect(boundary).to_have_count(1)
     expect(boundary).to_contain_text('CG extension MD')
     expect(boundary).to_contain_text('system rebuilt here: 6 atoms, from 8')
-    assert page.locator('#run-view-delegation-A').is_hidden()
     assert 'drawn in Complexes' not in page.locator('#run-view-what-A').inner_text()
     assert hits, 'the panel asked for the run\'s trajectory'
+    assert errors == []
+
+
+def test_the_segments_are_asked_for_even_when_the_artifact_index_fails(dashboard, live_page):
+    """`/trajectory` answers from the stage files alone, so a broken index must not silence it.
+
+    It used to be asked after `await draw(...)`, behind two `return`s -- an artifact index that failed and a
+    structure list that matched nothing -- so a run in either state never asked, never printed the endpoint's own
+    `why`, and left the reader with an empty panel and no reason for it. The call is fired, not awaited: this test
+    also holds that a slow answer cannot be what draws the canvas, because the index here fails before any canvas.
+    """
+    seed(dashboard)
+    page, errors = live_page
+    segments = {'id': PDC_RUN, 'run_type': 'pdc', 'why': None, 'segments': [
+        {'name': 'System preparation', 'atoms': 4, 'trajectory': None, 'group': None},
+        {'name': 'CG assessment MD', 'atoms': 4, 'trajectory': 'stages/1_system/system.gro', 'group': 1}]}
+    page.route(re.compile(r'/api/jobs/[^/]+/trajectory'), lambda route: route.fulfill(json=segments))
+    page.route(re.compile(r'/api/jobs/[^/]+/artifacts'),
+               lambda route: route.fulfill(status=500, json={'error': 'the index is unavailable'}))
+
+    open_panel(page, live_page, workspace='protein-detergent', run=PDC_RUN)
+
+    expect(page.locator('#run-view-segments-A tr')).to_have_count(2, timeout=30000)
+    expect(page.locator('#run-view-segments-note-A')).to_contain_text('2 stages in 1 system')
+    expect(page.locator('#run-view-holds-A')).to_contain_text('the index is unavailable')
+    assert errors == []
+
+
+def test_a_failed_segments_answer_for_the_previous_run_does_not_land_in_the_next(dashboard, live_page):
+    """The token test is the catch block's first statement too, or run A's failure is printed in run B's panel.
+
+    Run A's `/trajectory` is held open here until the monitor has already moved to run B, which is the ordering the
+    panel cannot avoid: the answer is fired and the reader can pick another run before it lands. Its failure belongs
+    to the row the reader left.
+    """
+    seed(dashboard)
+    plant(dashboard, PDC_OTHER, job(PDC_OTHER, 'pdc', 'Complex build 2', '2026-10-04T11:00:00+00:00'),
+          {'stages/1_system/system.gro': mapped_gro()})
+    page, errors = live_page
+    held = []
+    second = {'id': PDC_OTHER, 'run_type': 'pdc', 'why': None, 'segments': [
+        {'name': 'System preparation', 'atoms': 8, 'trajectory': 'stages/1_system/system.gro', 'group': 1}]}
+
+    def serve(route):
+        if PDC_RUN in route.request.url:
+            held.append(route)      # answered by this test, after the monitor has moved on
+            return
+        route.fulfill(json=second)
+
+    page.route(re.compile(r'/api/jobs/[^/]+/trajectory'), serve)
+    open_panel(page, live_page, workspace='protein-detergent', run=PDC_RUN)
+    page.locator('#run-view-choose-A').click()
+    page.locator(f'#run-view-list-A button[data-id="{PDC_OTHER}"]').click()
+    expect(page.locator('#run-view-segments-note-A')).to_contain_text('1 stage in 1 system', timeout=30000)
+
+    assert held, 'the first run\'s answer was never held, so nothing stale was left to land'
+    for route in held:
+        route.fulfill(status=500, json={'error': 'the first run could not be read'})
+    page.wait_for_timeout(500)
+
+    expect(page.locator('#run-view-segments-note-A')).to_contain_text('1 stage in 1 system')
+    assert 'the first run could not be read' not in page.locator('#run-view-segments-note-A').inner_text(), \
+        'a failure that belongs to the run the monitor left was written into the run it holds'
+    assert errors == []
+
+
+def test_the_boundary_row_is_read_from_the_endpoints_own_fields(dashboard, live_page):
+    """The table is drawn from a real `/api/jobs/<id>/trajectory` answer, not from a stub this file wrote.
+
+    The stub above hard-codes `at`/`atoms_from` and `atoms`, so renaming any of them in `analysis/runs/segments.py`
+    would leave it green while the panel printed "from undefined". This plants a protein-detergent run's own stage
+    files -- two systems of different atom counts, six in the extension and eight in the assessment -- and lets the
+    endpoint answer.
+    """
+    plant(dashboard, PDC_SEGMENTS_RUN, job(PDC_SEGMENTS_RUN, 'pdc', 'Complex build 3', '2026-10-04T12:00:00+00:00'),
+          {'stages/1_system/system.gro': six_bead_gro(),
+           'stages/2_assessment/prod/run.gro': mapped_gro(),
+           'stages/2_assessment/prod/whole.xtc': 'the assessment leg\'s trajectory, never read by this endpoint\n',
+           'stages/4_extension/prod/run.gro': six_bead_gro(),
+           'stages/4_extension/prod/whole.xtc': 'the extension\'s own trajectory, a different file\n'})
+    page, errors = live_page
+
+    open_panel(page, live_page, workspace='protein-detergent', run=PDC_SEGMENTS_RUN)
+
+    rows = page.locator('#run-view-segments-A tr')
+    expect(rows).to_have_count(3, timeout=30000)
+    expect(page.locator('#run-view-segments-note-A')).to_contain_text('3 stages in 2 systems')
+    boundary = page.locator("#run-view-segments-A tr[data-boundary='true']")
+    expect(boundary).to_contain_text('CG extension MD')
+    expect(boundary).to_contain_text('system rebuilt here: 6 atoms, from 8')
+    # The row with nothing to play is marked as such, and the duplicate the endpoint drops is marked differently.
+    expect(page.locator("#run-view-segments-A tr[data-idle='no-trajectory']")).to_have_count(1)
+    assert errors == []
+
+
+def test_a_single_molecule_run_shows_no_stage_table(dashboard, live_page):
+    """A single-molecule run has one trajectory, so a table whose Stage column holds a layout role is not a table.
+
+    `segments.single()` names its one entry by the layout role (`cg_stage_trajectory` here) rather than by a stage,
+    and the sr-only caption calls the table the CG chain's -- so the table is drawn for a `pdc` answer only. A run
+    with nothing to play still says so, which is the sentence kept for both run types.
+    """
+    seed(dashboard)
+    plant(dashboard, ONE_TRAJECTORY_RUN, job(ONE_TRAJECTORY_RUN, 'aa_cg', 'Maltose CG, one trajectory',
+                                             '2026-10-07T10:00:00+00:00'),
+          {'stages/4_CG_sim/md.gro': mapped_gro(),
+           'stages/4_CG_sim/md.xtc': 'the stage\'s own trajectory, never read by this endpoint\n'})
+    page, errors = live_page
+    open_panel(page, live_page, run=ONE_TRAJECTORY_RUN)
+    wait_for_component(page, atoms=8)
+
+    expect(page.locator('#run-view-segments-table-A')).to_be_hidden()
+    expect(page.locator('#run-view-segments-wrap-A')).to_be_hidden()
+    assert 'cg_stage_trajectory' not in page.locator('#run-view-segments-A').inner_text()
+
+    # A run with nothing to play still gets the endpoint's own sentence rather than silence.
+    open_panel(page, live_page, run=AA_RUN)
+    expect(page.locator('#run-view-segments-table-A')).to_be_hidden()
+    expect(page.locator('#run-view-segments-note-A')).to_contain_text('offers no trajectory to play')
+
+    # And a protein-detergent run is the table: its rows are stages, in the order the run ran them.
+    open_panel(page, live_page, workspace='protein-detergent', run=PDC_RUN)
+    expect(page.locator('#run-view-segments-table-A')).to_be_visible()
+    expect(page.locator('#run-view-segments-A tr')).to_have_count(1)
     assert errors == []
 
 

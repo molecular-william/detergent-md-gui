@@ -66,11 +66,13 @@ export function loadParameters(text, {path, runType} = {}) {
   if (ext === 'gro' && isCoarseGrained(path, runType)) {
     // This vendored build's GRO parser guesses from distances whatever the flag, and a `.gro` carries no bond
     // records of its own, so the picture is bondless once the caller clears the store: the caption says so rather
-    // than implying a connectivity, and names where the model's own bonds actually are.
+    // than implying a connectivity, and says where the model's own bonds are without naming a directory -- a
+    // single-molecule CG build keeps its moleculetype in `3_initial_CG/` and a protein-detergent run keeps its
+    // detergent's in `1_system/`, and this module has no run directory to look in.
     return {ext, inferBonds: 'none',
             reason: 'a .gro carries coordinates and no bond records, so this viewer draws no bond of its own'
                     + ", so a coarse-grained model is drawn as loose beads and its own [ bonds ] and "
-                    + '[ constraints ] are in the run\'s topology file under stages/3_initial_CG/'};
+                    + '[ constraints ] are in the run\'s topology file for the molecule it holds'};
   }
   if (isCoarseGrained(path, runType)) {
     return {ext, inferBonds: 'none',
@@ -112,8 +114,10 @@ export function structureRank(path) {
   return 5;
 }
 
-//: The directories a run's own stages live in. A single-molecule run keeps them under `stages/`; a
-//: protein-detergent run keeps them at the run's root under the stage names their scripts use.
+//: The directories a run's own stages live in: `stages/` for a run written in the current layout, and the stage names
+//: their own scripts use for a protein-detergent run written before it. Measured on `00b9ae6db23f`: that run's
+//: directory holds `1_system/`, `4_extension/` and no `stages/` at all, so `/api/jobs/<id>/artifacts` answers
+//: `1_system/system.gro` and the entries after `stages/` are what make its structures reachable.
 // An array, not a parenthesised list: `('a/', 'b/')` is a comma expression that evaluates to the last string, so
 // `.some()` on it throws and every caller of `inStage` dies where it is called.
 export const STAGE_DIRECTORIES = ['stages/', '0_prepare/', '1_system/', '2_minimisation/', '3_nvt/', '4_npt/',
