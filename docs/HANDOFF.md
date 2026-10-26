@@ -3,6 +3,90 @@
 State, measurements and open items for this repository. `AGENTS.md` holds the rules; this holds the record they were
 derived from. Read it before starting work on the DDM CG chain or the coordinator.
 
+## Landed 2026-10-26: the Run view draws a protein-detergent run, as segments, and its film became coarse
+
+Three commits, and the middle one was rejected by review and corrected by the third. `e49cc2e` (server) -> `405e996`
+(panel) -> `325fe7f` (the correction). **The headline: a pdc run plays in the Run view like any run, its CG chain is shown
+as segments, and the frame series it publishes is a coarse one with bonds and bead families.**
+
+### The run's trajectory is segments, not one file (`e49cc2e`)
+
+`analysis/runs/layout.py` knew only the single-molecule spellings, so a pdc run's `4_extension/prod/whole.xtc` matched no
+role and `frame_source` raised `NoTrajectory` -- which is why the `snapshots` analyses for such a run kept recording skips
+rather than frames. Two pdc roles and one structure now resolve, whole-box first (a raw frame shows molecules broken across
+the periodic boundary). `analysis/runs/segments.py` reports the run as an ordered list, and `GET /api/jobs/<id>/trajectory`
+serves it. Measured on `00b9ae6db23f`:
+
+| stage | atoms | group | note |
+| --- | --- | --- | --- |
+| System preparation | 2,248 | - | the dry build, no frames |
+| Energy minimisation | 11,708 | - | this pipeline writes none |
+| NVT / NPT / CG assessment | 11,708 | 1 | one system: concatenate freely |
+| CG extension | 10,427 | 2 | rebuilt after the removal path |
+| Final assessment | 10,427 | - | `duplicate_of` the extension: the same file |
+
+Legs merge **inside** a group and the atom-count change is a boundary a player switches files at. No `gmx trjcat` copy is
+worth it: 3 GB per segment, and it could not cross the boundary anyway. The duplicate rule compares *every* candidate a
+stage holds, not only the one chosen to play -- the final assessment re-declares the extension's raw `run.xtc` while the
+extension plays its `whole.xtc`, and a rule that compared chosen files would have played the same frames twice.
+
+### The panel draws it (`405e996`), and one bug cost a long detour
+
+The `delegate` branch is gone: a pdc run loads like any other, with a segments table under the frames. The defect worth
+remembering: `STAGE_DIRECTORIES` was written as a parenthesised list -- `('stages/', '0_prepare/', ...)` -- which in
+JavaScript is a comma expression evaluating to the last string, so `inStage()` threw `STAGE_DIRECTORIES.some is not a
+function` inside **every** run's `loadRun`. The panel sat at "Reading what this run holds..." with no canvas, for every run
+type, while the modules loaded cleanly and `node --check` passed. An array now, with the reason beside it.
+
+The full browser tier was run five times at `-n 16` and each run lost 1-3 tests to load (load average 20-27 on 72 cores,
+tier wall time 109-120 s against the documented ~50 s). Every failure was in a file the slice does not touch, each passed
+alone at `-n 0`, and the recurring `test_bonded_parameterization_browser.py::test_a_running_job_shows_its_step_and_cancels_only_after_a_confirmation`
+was reproduced on a stashed tree at HEAD. Recorded as a flake with that evidence, not absorbed as green.
+
+### The review rejected it, and was right (`325fe7f`)
+
+Spec compliance passed; the quality pass found that the film the feature exists to publish was **all-atom**.
+`observability.py` picked its coarse branch by role prefix (`role.startswith('cg_')`), the new role is `pdc_trajectory`, so
+the series was written through `mda.Writer`: `AA-frames.pdb`, **zero CONECT**, no bead families, `topology=None` -- drawn by
+the panel as coarse with bfactor colouring, i.e. grey unbonded beads. `405e996`'s commit message claimed a CG series; it did
+not have one. The correction:
+
+* `stem`/`coarse` accept `pdc_`; `layout.pdc_topology()` and `layout.coarse_topology(run_type)` resolve
+  `1_system/detergent_CG.itp` for the producer **and** the structure route (760 CONECT per model on the real run).
+* **A second defect underneath it**: `worker.source_entries` replaced *every* declared pattern with the pre-split legacy
+  pair for any run without `1_AA-reference/prod/lig.xtc`, so a pdc run staged **nothing** -- `sources.json` held
+  `manifest.json` alone, and the producer would have reported "offers no trajectory to review" however right the layout was.
+  The substitution now happens only when a legacy file exists; 10 sources stage for the real run.
+* `run_structure_api` resolves the pdc topology too, and no longer reads `getattr(job, 'run_type')` on a dict (always
+  `None`); the readout no longer names `stages/3_initial_CG/`, a directory a pdc run does not have.
+* Panel: the stale-load guard is the catch block's first statement (a failed answer for run A could print into run B); the
+  segments are asked for at the top of `loadRun`, before the index read and the structure gate; the caption counts
+  *systems* (a group holds four xtc files) and singularises; the table renders only for a pdc run.
+* Minors: `sections.py` no longer claims the pdc Run view delegates drawing; the dead `#run-view-delegation` element, handle
+  and tautological assertion are gone; `data-idle` distinguishes no-trajectory from duplicate and compares `== null`.
+
+**One review finding was not adopted, with the measurement that overrules it.** `STAGE_DIRECTORIES = ['stages/']` was
+asked for on the reading that every run type keeps its stages there. That holds for the *analysis work directory* and for
+the browser fixtures; it does not hold on this workspace's own pdc run, which keeps `1_system/`, `4_extension/` and the rest
+at the run root -- 47 `.gro` entries under those prefixes and **zero** under `stages/`. Reducing the list would leave the
+only pdc run here saying "This run holds no structure file". The speculative sentence is gone and the measurement is written
+where the list is.
+
+### What the next agent should do
+
+1. **Prove the series live, which nobody has done yet.** Restart the dashboard (Python changed), then
+   `POST /api/jobs/00b9ae6db23f/analyses/recompute {"kind":"snapshots"}` and open the Run view on that run: it must play a
+   `CG-frames.pdb` whose models carry CONECT and family colours. The fix is verified read-only on the run's own staged files
+   (`CG-frames.pdb`, `topology = 1_system/detergent_CG.itp`, 760 CONECT/model) but no one has watched the panel draw it.
+2. **The full browser tier at a quiet moment.** It has not been green since this slice landed; every failure so far has
+   been load, proven per-test at `-n 0` and once at HEAD. Run it when the load average is low and record the count.
+3. Two spellings of one name are deliberate and pinned: the detergent topology is `layout.PDC_TOPOLOGY_NAME` in the
+   analysis layer and `pdc.DETERGENT_TOPOLOGY` in the adapter, because the analysis layer must not import an execution
+   adapter. `test_the_detergent_topology_name_is_the_adapters_own` fails if they drift.
+4. Still open from before this slice: `4_extension/prod/` is not cleared between attempts, pdc's ETA reads null,
+   `template.topology` has no consumer, the chain set differs by placement mode, and `compare_api` reads the first
+   assessment attempt's `validation.json`.
+
 ## Landed 2026-10-23: DDM back-maps, the fragment and the force field it needed, and a neutralised complex
 
 Eight commits, newest first: `f283d78`, `b736f18`, `0b16115`, `025cb02`, `a2d99ef`, `8b02a08`, `39f86de`, and the resume of
