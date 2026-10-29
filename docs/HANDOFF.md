@@ -13,6 +13,10 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
   for an editable checkout whose metadata predates the entry point), so installing a wheel adds a workspace.
   `Feature.priority` orders them -- the shell opens on the first -- and core never imports one: blueprints, run types,
   analysis kinds, workspaces, admission rules and the prepare/readiness/series hooks all arrive through the record.
+- Tests have two selection axes: the subject `areas` and, since 2026-10-29, the owning distribution (`core`,
+  `validation`, `pdc`) from `tests/dashboard/modules.py`, enforced by `unit/test_test_modules.py`. `-m <module>` or
+  `scripts/test_module.sh <module> [fast|browser|slow]` runs one module's tests; the groups partition the suite and
+  every run still uses the full install.
 - `DASHBOARD_TABS` is validated when the app is constructed: every named slug must exist in every installed
   workspace, so a typo is a start-up failure rather than a 400 on the first page.
 - The data root is `DASHBOARD_ROOT` (falling back to the checkout), and the interpreter is `.venv/` at the

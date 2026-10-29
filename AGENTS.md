@@ -108,7 +108,7 @@ with a Flask dashboard over persisted manifests and logs. Reproducible; outputs 
 
 ## Verify
 ```
-.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast tier, private MPLCONFIGDIR
+.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast tier; -m core|validation|pdc for one module
 .venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser tier
 .venv/bin/python -m pytest -m slow -q -n 0                       # slow tier, serial
 .venv/bin/ruff check packages tests                             # F, E9, I must exit 0

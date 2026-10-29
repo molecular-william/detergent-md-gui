@@ -468,7 +468,16 @@ tiers in use:
 .venv/bin/python -m pytest -m slow -q -n 0
 ```
 
-Tests live under tests/dashboard/{unit,integration,browser}. Shared fixtures redirect every writable store; tests generate their own mapping candidates. The suite checks commands, lifecycle and recovery, quota and dependency guards, parsing, API contracts, and browser interactions without long simulations. Browser tests use installed Playwright and Chrome, temporary databases, and loopback servers.
+Tests live under tests/dashboard/{unit,integration,browser}. Shared fixtures redirect every writable store; tests generate their own mapping candidates.
+
+Two collection axes select a subset. `areas.py` answers "what subject" (`-m pdc`, `-m osmotic`, `-m 'mapping and not browser'`). `modules.py` answers "which distribution owns this test" and adds exactly one `core`, `validation` or `pdc` marker to every collected module: `unit/test_test_modules.py` fails on a pattern that matches no module, on a module claimed twice, or when the three groups do not cover the suite. The rule is ownership, not imports -- a browser test that opens a pdc page without importing the package is `pdc`, while an engine contract test that imports both features (discovery, the analysis fingerprint, a run-type matrix) is `core`. One module's tests, at any tier:
+
+```bash
+scripts/test_module.sh core|validation|pdc [fast|browser|slow]
+.venv/bin/python -m pytest -m 'validation and not browser and not slow' -q   # the same selection, spelled out
+```
+
+The selection is ownership, not isolation: every run uses the checkout's install with all three distributions present. Isolating a module's tests into an environment without the other features would be a different (and much larger) harness change. The suite checks commands, lifecycle and recovery, quota and dependency guards, parsing, API contracts, and browser interactions without long simulations. Browser tests use installed Playwright and Chrome, temporary databases, and loopback servers.
 
 Tiers answer "how expensive", areas answer "what about": `tests/dashboard/areas.py` holds one table of module patterns per area, applied as markers by `pytest_collection_modifyitems`, so `-m pdc` is the protein-detergent work, `-m 'mapping and not browser'` the bead editor without a browser, and `-m 'pdc and not browser and not slow'` that area's tool-free part. The areas are pdc, runs, bonded, analysis, infra, osmotic, mapping, carbohydrate, web, molecules and aa; they partition the suite exactly, which `unit/test_test_areas.py` enforces -- an unnamed module, a module two areas claim, or an area with no module fails that test. Order in the table decides an ambiguous name (a mapping test named `test_cg_mapping_script.py` is `mapping`, not `runs`), so a new file goes where its subject is, with the pattern that names it. Tier and area counts are measured in `pytest.ini`.
 

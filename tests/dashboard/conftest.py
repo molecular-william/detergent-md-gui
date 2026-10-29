@@ -25,7 +25,7 @@ import pytest
 from dashboard import paths
 from dashboard.app import default_coordinator
 
-from tests.dashboard import areas, factory
+from tests.dashboard import areas, factory, modules
 from tests.dashboard.support import PROJECT_ROOT
 
 
@@ -74,3 +74,7 @@ def pytest_collection_modifyitems(items):
         area = areas.area_of(item.path)
         if area:
             item.add_marker(getattr(pytest.mark, area))
+        # The ownership axis, from `tests/dashboard/modules.py`: `-m core|validation|pdc` is one distribution's
+        # tests. A module the table does not name is core, so a new engine test needs no entry; a new feature test
+        # is assigned in the pass that adds it, and `test_test_modules.py` checks the table.
+        item.add_marker(getattr(pytest.mark, modules.module_of(item.path)))
