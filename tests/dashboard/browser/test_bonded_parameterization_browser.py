@@ -208,6 +208,9 @@ def open_panel(page, live_page, file):
         if page.locator('#bonded-mapping-select').input_value() != file:
             page.locator('#bonded-mapping-select').select_option(file)
         expect(page.locator('#bonded-mapping-select')).to_have_value(file)
+        # The selector shows the new mapping while its catalogue answer is still in flight, so the value alone does not
+        # say the panel has loaded it: the panel's own busy state does, and it covers the whole switch.
+        expect(page.locator('.bonded-model')).to_have_attribute('aria-busy', 'false')
 
     return panels.open_panel(page, live_page.base_url, '/detergent-validation/bond-interactions', ready=ready)
 

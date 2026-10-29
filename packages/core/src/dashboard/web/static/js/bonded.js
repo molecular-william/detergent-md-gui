@@ -82,6 +82,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
   const mappingSelect = $('#bonded-mapping-select', host);
   const deleteButton = $('#bonded-delete-parameterization', host);
   const message = $('.bonded-panel-message', host);
+  const modelCard = $('.bonded-model', host);
   const tableHost = $('.bonded-interaction-table', host);
   const selectionStatus = $('.bonded-selection-status', host);
   const plot = mountBondedPlot($('.bonded-plot', host), {
@@ -320,6 +321,10 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
 
   async function refreshMapping() {
     const token = ++generation;
+    // The switch is busy from the click, not from the panel load: the selector already shows the new mapping while the
+    // catalogue answer is still in flight, so anything acting on the old panel's contents would act on a model that is
+    // no longer selected. The model card, not the whole panel, is the region a switch repaints.
+    modelCard.setAttribute('aria-busy', 'true');
     try {
       const mapping = await loadMapping(mappingSelect.value);
       if (token !== generation || !mapping) return;
@@ -334,6 +339,9 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       updateDelete();
     } catch (error) {
       if (token === generation) { notice(error.message); terms = []; renderState(); }
+    } finally {
+      // A superseded switch must not report the newer one idle: only the current generation owns the state.
+      if (token === generation) modelCard.setAttribute('aria-busy', 'false');
     }
   }
 
