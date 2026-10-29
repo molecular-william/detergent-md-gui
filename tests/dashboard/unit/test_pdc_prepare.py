@@ -19,7 +19,7 @@ from dashboard import martini3
 from detergent_pdc.execution.adapters import pdc
 from detergent_pdc.execution.scripts import pdc_build
 
-from tests.dashboard.pdc_fixtures import inputs_dir, molecule_tree, prepared_run, script_of, settings_of, stage_dir, system_stage
+from tests.harness.pdc_fixtures import inputs_dir, molecule_tree, prepared_run, script_of, settings_of, stage_dir, system_stage
 
 TEMPLATE = {
     'name': 'DDM',

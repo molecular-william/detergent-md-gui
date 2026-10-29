@@ -7,7 +7,7 @@ waiting for the signal is a test of the panel, so the signal stays a per-file ar
 The pattern stays the same as elsewhere in the suite: shared construction, per-file meaning. A file writes
 
     def open_panel(page, base_url):
-        return panels.open_panel(page, base_url, '/detergent-validation/osmotic-pressure',
+        return browser.open_panel(page, base_url, '/detergent-validation/osmotic-pressure',
                                  ready=lambda page: expect(page.locator('#osmotic-pressure:not([hidden])'))
                                  .to_be_visible())
 

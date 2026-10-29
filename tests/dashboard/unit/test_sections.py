@@ -168,7 +168,7 @@ def test_create_app_validates_dashboard_tabs_at_construction(tmp_path, monkeypat
     `create_app` builds its own application through the factory, so the setting can be changed and read again
     without touching the module-level `app` built at import.
     """
-    from tests.dashboard import factory
+    from tests.harness import factory
 
     monkeypatch.setenv('DASHBOARD_TABS', 'runs,not-a-panel')
     with pytest.raises(ValueError, match='not-a-panel'):

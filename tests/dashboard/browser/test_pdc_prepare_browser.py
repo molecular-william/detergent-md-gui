@@ -18,7 +18,7 @@ import re
 
 from playwright.sync_api import expect
 
-from . import panels
+from tests.harness import browser
 
 PROTEIN = {'id': 'workspace/dashboard/proteins/4iar.pdb', 'name': '4iar',
            'path': 'workspace/dashboard/proteins/4iar.pdb', 'source': 'imported',
@@ -87,7 +87,7 @@ def serve(page, body, requests=None):
 
 
 def open_panel(page, base_url, *, protein=PROTEIN['id']):
-    return panels.open_pdc_new_run(page, base_url, protein=protein, chains=True)
+    return browser.open_pdc_new_run(page, base_url, protein=protein, chains=True)
 
 
 def test_the_step_is_stated_rather_than_offered(dashboard, live_page):

@@ -10,7 +10,7 @@ import re
 
 from playwright.sync_api import expect
 
-from . import panels
+from tests.harness import browser
 
 CATALOG = {
     'templates': [{'id': 'DDM:DDM', 'name': 'DDM skeleton', 'molecule': 'DDM', 'residue': 'DDM',
@@ -36,7 +36,7 @@ def serve(page):
 
 
 def open_panel(page, base_url):
-    return panels.open_pdc_new_run(page, base_url, protein='molecules/1qj8/1qj8.pdb')
+    return browser.open_pdc_new_run(page, base_url, protein='molecules/1qj8/1qj8.pdb')
 
 
 def test_the_toggle_is_on_by_default_and_the_review_names_the_atomistic_end(dashboard, live_page):

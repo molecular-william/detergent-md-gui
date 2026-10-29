@@ -30,7 +30,7 @@ from pathlib import Path
 from dashboard import features
 from dashboard.web import sections
 
-from tests.dashboard.support import PACKAGE
+from tests.harness.support import PACKAGE
 
 REPO = Path(__file__).resolve().parents[3]
 WEB = PACKAGE / 'web'

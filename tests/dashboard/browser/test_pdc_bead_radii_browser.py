@@ -22,8 +22,8 @@ import re
 
 from dashboard.analysis.runs import structures as pdc_view
 
-from . import panels
-from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_PLACEMENT, PACKAGE, ddm_moleculetype
+from tests.harness import browser
+from tests.harness.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_PLACEMENT, PACKAGE, ddm_moleculetype
 
 MOLECULES = 6
 SPACING_NM = 3.0
@@ -90,7 +90,7 @@ def open_panel(page, live_page):
     """Drive the panel to the built system frame, and measure the loaded structure."""
     page.route('**/api/pdc/*/system.pdb',
                lambda route: route.fulfill(body=placement_pdb(), content_type='text/plain'))
-    panels.open_panel(page, live_page.base_url, '/protein-detergent/complexes', tab='Complexes')
+    browser.open_panel(page, live_page.base_url, '/protein-detergent/complexes', tab='Complexes')
     page.evaluate("window.pdcSetRun('pdcbeads')")
     page.wait_for_function(
         "() => document.querySelector('#pdc-viewer').pdcStage?.compList[0]?.structure?.atomCount === "
@@ -311,5 +311,5 @@ def test_the_complexes_view_colours_each_bead_by_its_type_family(dashboard, live
         assert entry['declared'] == FAMILY_COLOURS[entry['family']], entry
         assert entry['swatch'] == rgb(FAMILY_COLOURS[entry['family']]), entry
     labels = {entry['family']: entry['label'] for entry in measured['entries']}
-    assert labels == panels.BEAD_FAMILY_LABELS, labels
+    assert labels == browser.BEAD_FAMILY_LABELS, labels
     assert errors == []

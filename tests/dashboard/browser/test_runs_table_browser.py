@@ -2,7 +2,7 @@
 from dashboard import files
 from playwright.sync_api import expect
 
-from . import panels
+from tests.harness import browser
 
 
 def test_a_run_recorded_under_the_old_stage_name_keeps_its_short_label(dashboard, live_page):
@@ -148,7 +148,7 @@ def test_runs_views_checkpoints_and_inline_console(dashboard, live_page):
     page.set_viewport_size({'width':390, 'height':844})
     for view in ('table','dense','grouped'):
         page.locator(f'[data-run-view={view}]').click()
-        panels.assert_no_horizontal_scroll(page)
+        browser.assert_no_horizontal_scroll(page)
     assert not errors, errors
 
 

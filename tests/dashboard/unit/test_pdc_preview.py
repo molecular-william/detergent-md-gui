@@ -37,7 +37,7 @@ from detergent_pdc.execution.scripts import pdc_build
 from detergent_pdc.models.molecules import detergent_cg
 from micelle.registry import load_template
 
-from tests.dashboard.support import PROJECT_ROOT
+from tests.harness.support import PROJECT_ROOT
 
 MOLECULES = PROJECT_ROOT / 'molecules'
 

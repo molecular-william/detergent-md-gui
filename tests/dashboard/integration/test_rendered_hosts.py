@@ -16,7 +16,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-from tests.dashboard.support import PACKAGE
+from tests.harness.support import PACKAGE
 
 REPO = Path(__file__).resolve().parents[3]
 STATIC = PACKAGE / 'web/static/js'

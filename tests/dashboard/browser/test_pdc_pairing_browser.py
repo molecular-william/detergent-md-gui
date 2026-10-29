@@ -17,7 +17,7 @@ import re
 
 from playwright.sync_api import expect
 
-from . import panels
+from tests.harness import browser
 
 CATALOG = {
     'templates': [{'id': 'DDM:DDM', 'name': 'DDM skeleton', 'molecule': 'DDM', 'residue': 'DDM',
@@ -62,7 +62,7 @@ def serve(page, catalog=CATALOG):
 
 
 def open_panel(page, base_url, protein=PROTEIN):
-    return panels.open_pdc_new_run(page, base_url, protein=protein)
+    return browser.open_pdc_new_run(page, base_url, protein=protein)
 
 
 def pair_rows(page):
@@ -185,7 +185,7 @@ def test_the_two_columns_are_still_side_by_side_at_the_wide_viewport(dashboard, 
     form = page.locator('#run-form').bounding_box()
     inputs = page.locator('.new-run-inputs').bounding_box()
     settings = page.locator('.new-run-settings').bounding_box()
-    panels.assert_side_by_side(page, '.new-run-inputs', '.new-run-settings')
+    browser.assert_side_by_side(page, '.new-run-inputs', '.new-run-settings')
     assert abs(inputs['width'] - form['width'] / 2) <= 20, (inputs['width'], form['width'])
     assert abs(settings['width'] - form['width'] / 2) <= 20, (settings['width'], form['width'])
     assert errors == [], errors

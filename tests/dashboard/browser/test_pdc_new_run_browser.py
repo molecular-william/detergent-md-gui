@@ -14,7 +14,7 @@ import re
 
 from playwright.sync_api import expect
 
-from . import panels
+from tests.harness import browser
 
 # The labels the plan says go: each is a control `pdc.validate_payload` does not read.
 DROPPED = ('Run type', 'Method', 'AA reference source', 'Bonded parameters')
@@ -40,7 +40,7 @@ CATALOG = {
 
 
 def open_panel(page, base_url):
-    return panels.open_pdc_new_run(page, base_url)
+    return browser.open_pdc_new_run(page, base_url)
 
 
 def serve_catalogue(page, proteins=None):
@@ -114,7 +114,7 @@ def test_the_two_halves_sit_side_by_side_and_stack_at_the_breakpoint(dashboard, 
     inputs = page.locator('.new-run-inputs').bounding_box()
     settings = page.locator('.new-run-settings').bounding_box()
     assert inputs['x'] < settings['x'], (inputs, settings)
-    panels.assert_side_by_side(page, '.new-run-inputs', '.new-run-settings')
+    browser.assert_side_by_side(page, '.new-run-inputs', '.new-run-settings')
     assert settings['x'] + settings['width'] <= form['x'] + form['width'] + 1, 'the right half leaves the form'
     half = form['width'] / 2
     assert abs(inputs['width'] - half) <= 20, (inputs['width'], half)

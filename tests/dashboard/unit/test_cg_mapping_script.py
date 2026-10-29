@@ -15,7 +15,7 @@ import MDAnalysis as mda
 import numpy as np
 import pytest
 
-from tests.dashboard.support import PACKAGE
+from tests.harness.support import PACKAGE
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = PACKAGE / 'execution/scripts/sugar_mapping.py'

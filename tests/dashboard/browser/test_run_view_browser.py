@@ -21,7 +21,7 @@ import re
 
 from playwright.sync_api import expect
 
-from . import panels
+from tests.harness import browser
 
 AA_RUN = 'aa00aa000001'
 CG_RUN = 'cc00cc000002'
@@ -238,7 +238,7 @@ def open_panel(page, live_page, workspace='detergent-validation', run=None):
         for panel in ('holds-details', 'segments-details', 'figures-details'):
             page.locator(f'#run-view-{panel}-A').evaluate('el => { el.open = true; }')
 
-    return panels.open_panel(page, live_page.base_url, f'/{workspace}/run-view{query}', ready=ready)
+    return browser.open_panel(page, live_page.base_url, f'/{workspace}/run-view{query}', ready=ready)
 
 
 def mark_stage(page):
@@ -624,7 +624,7 @@ def test_cg_beads_are_drawn_at_the_radius_their_own_size_class_has(dashboard, li
 
     The two classes are the model's own -- a stand-in element would draw them all one size -- and the scale is the
     0.3 the reader asked for, which is also what the New Run preview draws at, so the same bead is the same size in
-    both panels. At 1 a mapped sugar reads as one lump: a Martini 3 bonded pair sits 1.4-2.2 A apart while an S
+    both browser. At 1 a mapped sugar reads as one lump: a Martini 3 bonded pair sits 1.4-2.2 A apart while an S
     bead's own radius is 2.30 A.
     """
     seed(dashboard)

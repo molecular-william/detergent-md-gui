@@ -3,7 +3,7 @@ import json
 
 from playwright.sync_api import expect
 
-from . import panels
+from tests.harness import browser
 
 
 def test_aa_form_preserves_cg_choices_and_reference_settings(dashboard, live_page):
@@ -52,5 +52,5 @@ def test_aa_form_preserves_cg_choices_and_reference_settings(dashboard, live_pag
     page.locator('#run-type').select_option('aa_cg')
     expect(page.locator('[name=cg_production_ps]')).to_have_value('250')
     page.set_viewport_size({'width':390,'height':844})
-    panels.assert_no_horizontal_scroll(page)
+    browser.assert_no_horizontal_scroll(page)
     assert not errors, errors

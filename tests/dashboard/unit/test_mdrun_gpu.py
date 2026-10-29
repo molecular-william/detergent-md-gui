@@ -20,7 +20,7 @@ from dashboard.execution.adapters import aa, cg
 from detergent_pdc.execution.adapters import pdc
 from detergent_validation.execution.adapters import osmotic
 
-from tests.dashboard.support import PROJECT_ROOT
+from tests.harness.support import PROJECT_ROOT
 
 MOLECULES = PROJECT_ROOT / 'molecules'
 #: The command every AA stage produced before the setting existed, and what an untouched form still produces.

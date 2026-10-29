@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from detergent_validation.analysis.runs import mapping_consistency
 
-from tests.dashboard import support
+from tests.harness import support
 
 BEADS = {1: (1, 'A'), 2: (1, 'B'), 3: (1, 'C'), 4: (1, 'VS')}
 PAIRS = {frozenset((1, 2)): [0.300, 0.310], frozenset((1, 3)): [0.400, 0.410], frozenset((2, 3)): [0.500, 0.510]}

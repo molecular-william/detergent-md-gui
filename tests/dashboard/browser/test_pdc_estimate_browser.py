@@ -14,7 +14,7 @@ from urllib.parse import unquote, urlsplit
 
 from playwright.sync_api import expect
 
-from . import panels
+from tests.harness import browser
 
 # The catalogue and the mapping list the panel reads: one protein and one saved mapping, so both questions the
 # route needs can be asked.
@@ -76,7 +76,7 @@ def serve(page, body, catalog=None):
 
 
 def open_panel(page, base_url, *, protein=PROTEIN['id']):
-    return panels.open_pdc_new_run(page, base_url, protein=protein)
+    return browser.open_pdc_new_run(page, base_url, protein=protein)
 
 
 def move_count(page, value):

@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 from detergent_validation.execution.adapters import osmotic
 
-from tests.dashboard.support import PROJECT_ROOT
+from tests.harness.support import PROJECT_ROOT
 
 MAPPING = {'beads': [{'name': 'S1A', 'type': 'SP1r', 'atoms': [1, 2, 3]},
                      {'name': 'S1B', 'type': 'SP4r', 'atoms': [4, 5, 6]},

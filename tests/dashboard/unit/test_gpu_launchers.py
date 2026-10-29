@@ -15,7 +15,7 @@ from pathlib import Path
 import detergent_pdc
 import detergent_validation
 
-from tests.dashboard.support import PACKAGE
+from tests.harness.support import PACKAGE
 
 SCRIPTS = PACKAGE / 'execution/scripts'
 #: The pdc scripts moved to their feature distribution; a launcher is checked where the run would find it.

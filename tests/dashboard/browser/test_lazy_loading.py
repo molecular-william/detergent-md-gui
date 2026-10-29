@@ -6,7 +6,7 @@ from dashboard.models import mappings
 from dashboard.models.mappings import context as mapping_context
 from playwright.sync_api import expect
 
-from tests.dashboard.support import physical_mapping
+from tests.harness.support import physical_mapping
 
 
 def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_page, monkeypatch):

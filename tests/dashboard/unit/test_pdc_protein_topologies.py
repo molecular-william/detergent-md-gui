@@ -25,7 +25,7 @@ from dashboard.execution import workflow
 from detergent_pdc.execution.adapters import pdc
 from detergent_pdc.execution.scripts import pdc_build
 
-from tests.dashboard.pdc_fixtures import prepared_run, stage_dir, write_gro
+from tests.harness.pdc_fixtures import prepared_run, stage_dir, write_gro
 
 #: martinize2's own output for a protein it split into two molecules, with a count that is not 1: the counts are the
 #: tool's, and a topology that assumed `1` would list a molecule the structure holds twice as often.

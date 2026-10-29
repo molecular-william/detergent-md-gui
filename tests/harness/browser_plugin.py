@@ -36,7 +36,7 @@ import pytest
 from playwright.sync_api import expect, sync_playwright
 from werkzeug.serving import make_server
 
-from tests.dashboard.support import QuietHandler
+from tests.harness.support import QuietHandler
 
 
 @dataclass

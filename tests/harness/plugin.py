@@ -1,4 +1,8 @@
-"""Every test gets isolated job, mapping, registry and bonded-state storage."""
+"""Every test gets isolated job, mapping, registry and bonded-state storage.
+
+Loaded from the repository's root `conftest.py` through `pytest_plugins`, so the fixtures reach every test tree
+(`tests/dashboard` today, `packages/<module>/tests` later) without each directory repeating them.
+"""
 import atexit
 import os
 import shutil
@@ -6,7 +10,7 @@ import tempfile
 from pathlib import Path
 
 # Matplotlib writes its font cache under MPLCONFIGDIR. Four distance-plot tests race when every xdist worker shares
-# the process default; a private per-process directory removes the race and the 20–45 s rerun it costs.
+# the process default; a private per-process directory removes the race and the 20-45 s rerun it costs.
 if 'MPLCONFIGDIR' not in os.environ:
     _mpl = tempfile.mkdtemp(prefix='dashboard-mpl-')
     os.environ['MPLCONFIGDIR'] = _mpl
@@ -25,13 +29,14 @@ import pytest
 from dashboard import paths
 from dashboard.app import default_coordinator
 
-from tests.dashboard import areas, factory, modules
-from tests.dashboard.support import PROJECT_ROOT
+from tests.dashboard import areas, modules
+from tests.harness import factory
+from tests.harness.support import PROJECT_ROOT
 
 
 @pytest.fixture
 def dashboard(tmp_path):
-    """An application the test owns, with no shared module state; see tests/dashboard/factory.py.
+    """An application the test owns, with no shared module state; see tests/harness/factory.py.
 
     Module-level path resolution is pointed at the same workspace for the duration, which is the
     part of the old autouse fixture a built application cannot do for itself: stores that resolve

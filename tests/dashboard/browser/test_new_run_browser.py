@@ -4,8 +4,8 @@ import shutil
 from dashboard.execution.adapters import cg
 from playwright.sync_api import expect
 
-from . import panels
-from tests.dashboard.support import PROJECT_ROOT
+from tests.harness import browser
+from tests.harness.support import PROJECT_ROOT
 
 #: The tier's own budget for an answer the server has to produce (`browser/conftest.py`): Playwright's default
 #: expectation timeout is 5 s, which a loaded box outruns.
@@ -120,7 +120,7 @@ def test_directory_selection_supports_generic_aa_and_ddm_cg_pair(dashboard, live
     settings=page.locator('.run-settings').bounding_box()
     assert settings['x'] > source['x']+source['width']
     page.set_viewport_size({'width':390,'height':844})
-    panels.assert_no_horizontal_scroll(page)
+    browser.assert_no_horizontal_scroll(page)
     expect(page.locator('#molecule-directory')).to_be_visible()
     with page.expect_response(lambda r: r.request.method=='POST' and r.url.endswith('/')) as response:
         page.locator('#start-run').click()

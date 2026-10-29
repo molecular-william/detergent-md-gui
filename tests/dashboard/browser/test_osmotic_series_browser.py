@@ -14,7 +14,7 @@ import re
 
 from playwright.sync_api import expect
 
-from . import panels
+from tests.harness import browser
 
 #: The catalogue the panel reads, in the states the repository is actually in: Maltose has a molecule folder, a
 #: saved mapping and its solute files; Sucrose has the first two and is *provisional*; Trehalose is missing one
@@ -114,7 +114,7 @@ def open_panel(page, base_url):
         expect(page.locator('#osmotic-pressure:not([hidden])')).to_be_visible()
         page.wait_for_function("() => document.querySelectorAll('.osmotic-sugar option').length > 1", timeout=30000)
 
-    return panels.open_panel(page, base_url, '/detergent-validation/osmotic-pressure', ready=ready)
+    return browser.open_panel(page, base_url, '/detergent-validation/osmotic-pressure', ready=ready)
 
 
 def choose(page, molecule_id):
@@ -273,7 +273,7 @@ def test_the_two_halves_sit_side_by_side_and_stack_at_the_breakpoint(dashboard, 
     inputs = page.locator('.osmotic-inputs').bounding_box()
     settings = page.locator('.osmotic-settings').bounding_box()
     assert inputs['x'] < settings['x'], (inputs, settings)
-    panels.assert_side_by_side(page, '.osmotic-inputs', '.osmotic-settings')
+    browser.assert_side_by_side(page, '.osmotic-inputs', '.osmotic-settings')
     assert settings['x'] + settings['width'] <= form['x'] + form['width'] + 1, 'the right half leaves the form'
     half = form['width'] / 2
     assert abs(inputs['width'] - half) <= 20, (inputs['width'], half)

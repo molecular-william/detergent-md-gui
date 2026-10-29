@@ -18,7 +18,7 @@ from dashboard.execution.adapters import aa
 from dashboard.models.molecules import aa as aa_molecules
 from dashboard.web import views
 
-from tests.dashboard.support import PROJECT_ROOT
+from tests.harness.support import PROJECT_ROOT
 
 MOLECULES = PROJECT_ROOT / 'molecules'
 DEVICES = [{'index': 0, 'name': 'NVIDIA GeForce RTX 4090', 'memory_mib': 24564, 'uuid': 'GPU-aaaa'},

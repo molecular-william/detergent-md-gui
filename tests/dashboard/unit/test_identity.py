@@ -17,7 +17,7 @@ import json
 from dashboard.models.compositions import topology
 from dashboard.models.mappings import identity
 
-from tests.dashboard.support import PACKAGE
+from tests.harness.support import PACKAGE
 
 LEGACY_V2 = {'schema_version': 2, 'name': 'legacy',
              'beads': [{'name': 'A', 'size': 'R', 'type': 'P1', 'atoms': [1]}],

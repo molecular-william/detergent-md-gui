@@ -13,7 +13,7 @@ import pytest
 from dashboard.analysis.runs import structures as pdc_view
 from detergent_pdc import topologies as pdc_topologies
 
-from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_TYPES, ddm_moleculetype
+from tests.harness.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_TYPES, ddm_moleculetype
 
 #: The stand-in element each class is written with -- `models/compositions/topology.py`'s own choice, written out here
 #: so this file fails if the writer's and the viewer's tables ever disagree.

@@ -22,7 +22,7 @@ viewer tests use.
 """
 import json
 
-from tests.dashboard.bond_fixtures import atom_count, model_pairs, regrouped
+from tests.harness.bond_fixtures import atom_count, model_pairs, regrouped
 
 OVERLAY = '#mapping-editor-overlay3d'
 MOLECULE = 'Maltose'

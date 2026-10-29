@@ -17,7 +17,7 @@ from dashboard.execution import environment, forcefields, run_inputs
 from dashboard.execution.adapters import aa
 from dashboard.models.molecules import aa as aa_molecules
 
-from tests.dashboard import support
+from tests.harness import support
 
 
 def _molecule_root(repo):

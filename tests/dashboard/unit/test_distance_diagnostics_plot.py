@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-from tests.dashboard.support import PACKAGE
+from tests.harness.support import PACKAGE
 
 sys.path.insert(0, str(PACKAGE / 'execution/scripts'))
 import distance_diagnostics as diagnostics  # noqa: E402

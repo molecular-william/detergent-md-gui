@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from playwright.sync_api import expect
 
-from . import panels
+from tests.harness import browser
 
 #: Two saved candidates, in the shape `/api/mappings?view=summary` answers with. The files are what the picker's
 #: option values carry, and therefore what the readiness answer is keyed by here.
@@ -116,7 +116,7 @@ def open_panel(page, live_page):
         page.wait_for_function(
             "() => document.querySelector('[name=molecule_id]').value === 'DDM'", timeout=30000)
 
-    return panels.open_panel(page, live_page.base_url, '/detergent-validation/new-run', ready=ready)
+    return browser.open_panel(page, live_page.base_url, '/detergent-validation/new-run', ready=ready)
 
 
 def card(page):
@@ -293,7 +293,7 @@ def test_the_card_fits_a_narrow_window_without_sideways_scroll(dashboard, live_p
     # `overflow-wrap:anywhere` on `#run-form .hint` is the rule that has to reach these lines.
     box = card(page).bounding_box()
     assert box['x'] >= 0 and box['x'] + box['width'] <= 390, box
-    panels.assert_no_horizontal_scroll(page)
+    browser.assert_no_horizontal_scroll(page)
     assert errors == []
 
 

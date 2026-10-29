@@ -11,7 +11,7 @@ from dashboard.models.mappings import depiction
 from dashboard.models.mappings import store as mapping_store
 from dashboard.models.molecules import draft as draft_model
 
-from tests.dashboard.support import fast_forward_source
+from tests.harness.support import fast_forward_source
 
 
 def test_ddm_canonical_ownership_and_coverage():

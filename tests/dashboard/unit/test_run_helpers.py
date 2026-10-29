@@ -14,7 +14,7 @@ from dashboard.execution import run_scripts
 from dashboard.execution.adapters import aa
 from dashboard.models.molecules import aa as aa_molecules
 
-from tests.dashboard.support import PROJECT_ROOT
+from tests.harness.support import PROJECT_ROOT
 
 #: The code an AA stage executes, by the name the manifest gives it. Pinned here rather than read from the adapter,
 #: because these paths are the run contract: a helper that moves without this list changing is a run that cannot say

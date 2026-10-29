@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from detergent_validation.analysis.runs import consistency
 
-from tests.dashboard import support
+from tests.harness import support
 
 MAPPING = {
     'beads': [

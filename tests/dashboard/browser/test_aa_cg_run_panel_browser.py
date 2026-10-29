@@ -20,12 +20,12 @@ The reasoning the two decisions carry, which is what makes the shape below the r
 """
 from playwright.sync_api import expect
 
-from . import panels
+from tests.harness import browser
 
 
 def open_panel(page, base_url):
     """The single-molecule New run panel: its own mount signal, not a fixed delay."""
-    return panels.open_panel(page, base_url, '/detergent-validation/new-run', tab='New run',
+    return browser.open_panel(page, base_url, '/detergent-validation/new-run', tab='New run',
                              ready=lambda page: expect(page.locator('#new')).to_have_attribute('aria-busy', 'false'))
 
 

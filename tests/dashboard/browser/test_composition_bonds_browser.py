@@ -26,7 +26,7 @@ panel's own seam (`compositionStages`).
 """
 import json
 
-from tests.dashboard.bond_fixtures import atom_count, model_pairs, regrouped
+from tests.harness.bond_fixtures import atom_count, model_pairs, regrouped
 
 HOST = '#compositions'
 

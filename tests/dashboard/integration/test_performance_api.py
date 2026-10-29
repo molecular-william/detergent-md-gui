@@ -5,7 +5,7 @@ from unittest.mock import patch
 from dashboard import files
 from dashboard.models import mappings
 
-from tests.dashboard.support import physical_mapping
+from tests.harness.support import physical_mapping
 
 
 def test_mapping_summary_and_cache_follow_content_changes(dashboard):

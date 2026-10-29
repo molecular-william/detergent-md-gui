@@ -15,7 +15,7 @@ from dashboard.execution.mdp import PROFILES
 from detergent_pdc.execution.adapters import pdc, pdc_solvation
 from detergent_pdc.execution.scripts import pdc_solvate
 
-from tests.dashboard.pdc_fixtures import inputs_dir, prepared_run, script_of, stage_dir
+from tests.harness.pdc_fixtures import inputs_dir, prepared_run, script_of, stage_dir
 
 TEMPLATE = {
     'name': 'DDM',

@@ -17,7 +17,7 @@ The frame is a fixture rather than a run: the eleven beads of one DDM molecule a
 from the same geometry -- 3 nm apart, so no two beads in different molecules are near enough for the guess. No test
 reads the developer's workspace.
 """
-from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CONSTRAINTS, DDM_PLACEMENT, ddm_moleculetype, ddm_system_gro
+from tests.harness.support import DDM_BEADS, DDM_BONDS, DDM_CONSTRAINTS, DDM_PLACEMENT, ddm_moleculetype, ddm_system_gro
 
 MOLECULES = 6
 SPACING_NM = 3.0

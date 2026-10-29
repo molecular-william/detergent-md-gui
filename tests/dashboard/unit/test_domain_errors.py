@@ -10,7 +10,7 @@ import pytest
 from dashboard.execution.coordination import errors
 from dashboard.web.routes import common
 
-from tests.dashboard.support import PACKAGE
+from tests.harness.support import PACKAGE
 
 LIFECYCLE = PACKAGE / 'execution/coordination'
 MODULES = ('coordinator.py', 'worker.py', 'analysis_coordinator.py', 'admission.py')

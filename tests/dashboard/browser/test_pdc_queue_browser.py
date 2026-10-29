@@ -15,7 +15,7 @@ import re
 
 from playwright.sync_api import expect
 
-from . import panels
+from tests.harness import browser
 
 CATALOG = {
     'templates': [{'id': 'DDM:DDM', 'name': 'DDM skeleton', 'molecule': 'DDM', 'residue': 'DDM',
@@ -35,7 +35,7 @@ MAPPING_FILE = CANDIDATE['file']
 
 def serve(page, readiness=None):
     """The endpoints the panel reads, with the queue POST left alone so the real route answers it."""
-    panels.serve_files(page,
+    browser.serve_files(page,
                        (re.compile(r'/api/pdc/catalog'), CATALOG),
                        (re.compile(r'/api/mappings\?'), {'candidates': [CANDIDATE]}),
                        (re.compile(r'/api/readiness\?'), readiness or {'ready': True, 'checks': [], 'blockers': []}))

@@ -27,8 +27,8 @@ from dashboard import files
 from dashboard.execution import assessment_rescore
 from dashboard.models.bonded import parameterization
 
-from tests.dashboard import support
-from tests.dashboard.support import PACKAGE
+from tests.harness import support
+from tests.harness.support import PACKAGE
 
 JID = 'a1b2c3d4e5f6'
 BEADS = ('B01', 'B02', 'B03')

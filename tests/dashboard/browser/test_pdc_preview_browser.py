@@ -35,8 +35,8 @@ import re
 from dashboard.analysis.runs import structures as pdc_view
 from playwright.sync_api import expect
 
-from . import panels
-from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_PLACEMENT, ddm_moleculetype
+from tests.harness import browser
+from tests.harness.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_PLACEMENT, ddm_moleculetype
 
 #: Martini 3's classes in nanometres, from `models/sugars/recognition.py`'s `RADII_NM`, written out so the preview's
 #: measurement and the model's table cannot drift.
@@ -203,7 +203,7 @@ def serve_raw(page, body):
 
 
 def open_panel(page, base_url, *, protein=PROTEIN['id']):
-    return panels.open_pdc_new_run(page, base_url, protein=protein)
+    return browser.open_pdc_new_run(page, base_url, protein=protein)
 
 
 def derive(page):
@@ -248,7 +248,7 @@ def test_the_card_is_first_in_the_right_column_and_the_layout_is_unchanged(dashb
     form = page.locator('#run-form').bounding_box()
     inputs = page.locator('.new-run-inputs').bounding_box()
     settings = page.locator('.new-run-settings').bounding_box()
-    panels.assert_side_by_side(page, '.new-run-inputs', '.new-run-settings')
+    browser.assert_side_by_side(page, '.new-run-inputs', '.new-run-settings')
     assert abs(inputs['width'] - form['width'] / 2) <= 20 and abs(settings['width'] - form['width'] / 2) <= 20
 
     # The pairing the panel already had is untouched: the first paired row still shares a y to the pixel.
@@ -593,7 +593,7 @@ def test_the_beads_are_coloured_by_type_family_and_the_legend_says_which(dashboa
         assert entry['declared'] == FAMILY_COLOURS[entry['family']], entry
         assert entry['swatch'] == rgb(FAMILY_COLOURS[entry['family']]), entry
     labels = {entry['family']: entry['label'] for entry in measured['entries']}
-    assert labels == panels.BEAD_FAMILY_LABELS, labels
+    assert labels == browser.BEAD_FAMILY_LABELS, labels
     assert errors == [], errors
 
 
@@ -679,7 +679,7 @@ def test_the_empty_micelle_preview_is_the_detergents_own_mapping_and_carries_its
     legend = {entry['family']: entry['swatch'] for entry in measured['entries']}
     assert legend['P'] == rgb(FAMILY_COLOURS['P']) and legend['C'] == rgb(FAMILY_COLOURS['C']), legend
     labels = {entry['family']: entry['label'] for entry in measured['entries']}
-    assert labels == panels.BEAD_FAMILY_LABELS, labels
+    assert labels == browser.BEAD_FAMILY_LABELS, labels
     assert errors == [], errors
 
 

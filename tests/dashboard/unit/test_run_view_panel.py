@@ -20,7 +20,7 @@ import pytest
 from dashboard.execution import protocol
 from dashboard.web.sections import PANEL_BLURBS, PANELS, TAB_IDS, panel_glyph, panel_label, run_types_for, tabs_for
 
-from tests.dashboard.support import PACKAGE
+from tests.harness.support import PACKAGE
 
 TEMPLATE = PACKAGE / 'web/templates/dashboard.html'
 MODULE = PACKAGE / 'web/static/js/run-view.js'

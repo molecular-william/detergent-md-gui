@@ -24,7 +24,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 from fast_forward.interaction_distribution import INTERACTIONS, interaction_distribution  # noqa: E402
 from fast_forward.score import calc_score, score_matrix  # noqa: E402
 
-from tests.dashboard.support import PACKAGE
+from tests.harness.support import PACKAGE
 
 DISTANCE_BINS = INTERACTIONS['distances']['bins']
 NAMES = ('B01', 'B02', 'B03')

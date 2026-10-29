@@ -13,7 +13,7 @@ import pytest
 from dashboard import features
 from dashboard.web.sections import SECTIONS, TAB_IDS
 
-from tests.dashboard.support import PACKAGE
+from tests.harness.support import PACKAGE
 
 
 def panel_sections_in_template():

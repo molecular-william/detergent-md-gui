@@ -27,7 +27,7 @@ from pathlib import Path
 from dashboard.execution import run_scripts
 from detergent_pdc.execution.adapters import pdc
 
-from tests.dashboard.support import PROJECT_ROOT
+from tests.harness.support import PROJECT_ROOT
 
 #: The repository's own scripts: a stage runs one of these from its directory, and the manifest records it by path.
 SCRIPTS = Path(pdc.__file__).resolve().parents[1] / 'scripts'

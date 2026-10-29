@@ -161,7 +161,7 @@ def test_the_extension_stage_can_re_solvate_after_a_removal(tmp_path):
     That mdp and the water are generated data now, written into the run's `inputs/` when either the first leg or the
     extension will run, and copied into the stage by the shared script that uses them.
     """
-    from tests.dashboard.pdc_fixtures import inputs_dir, prepared_run
+    from tests.harness.pdc_fixtures import inputs_dir, prepared_run
 
     inputs = inputs_dir(prepared_run(tmp_path))
 

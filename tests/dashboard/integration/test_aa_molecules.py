@@ -16,7 +16,7 @@ from unittest.mock import patch
 import pytest
 from dashboard import paths
 
-from tests.dashboard.support import PROJECT_ROOT
+from tests.harness.support import PROJECT_ROOT
 
 
 @pytest.fixture(autouse=True)

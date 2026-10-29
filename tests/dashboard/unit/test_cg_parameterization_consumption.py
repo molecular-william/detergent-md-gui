@@ -23,7 +23,7 @@ from dashboard.models.bonded import parameterization
 from dashboard.models.mappings.context import as_structure, build_context
 from dashboard.models.molecules import aa as aa_molecules
 
-from tests.dashboard.support import PACKAGE
+from tests.harness.support import PACKAGE
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 MOLECULES = PROJECT_ROOT / 'molecules'

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from tests.dashboard.support import PACKAGE
+from tests.harness.support import PACKAGE
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS = PACKAGE / 'execution/scripts'

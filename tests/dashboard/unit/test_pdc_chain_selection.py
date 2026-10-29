@@ -17,7 +17,7 @@ import pytest
 from detergent_pdc.execution.adapters import pdc, pdc_import
 from detergent_pdc.execution.scripts import pdc_build
 
-from tests.dashboard.pdc_fixtures import molecule_tree, prepared_run, settings_of, system_stage
+from tests.harness.pdc_fixtures import molecule_tree, prepared_run, settings_of, system_stage
 
 TEMPLATE = {
     'name': 'DDM', 'residue': 'DDM', 'coordinates': 'results/MMFF/lig1.pdb',

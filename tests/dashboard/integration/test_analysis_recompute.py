@@ -14,7 +14,7 @@ producer does about its sources is pinned where the producer lives.
 """
 import time
 
-from tests.dashboard import support
+from tests.harness import support
 
 JID = '123456abcdef'
 SOURCES = ('2_mapping/mapped.gro', '2_mapping/mapped.xtc', '2_mapping/model.json',

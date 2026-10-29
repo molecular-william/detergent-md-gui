@@ -14,7 +14,7 @@ import importlib.util
 
 import pytest
 
-from tests.dashboard.support import PACKAGE as PACKAGE_ROOT
+from tests.harness.support import PACKAGE as PACKAGE_ROOT
 
 PACKAGE = 'dashboard.analysis'
 ROOT = PACKAGE_ROOT / 'analysis'

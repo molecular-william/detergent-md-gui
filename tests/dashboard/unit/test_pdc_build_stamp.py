@@ -14,7 +14,7 @@ import pytest
 from detergent_pdc.execution.adapters import pdc
 from detergent_pdc.execution.scripts import pdc_build
 
-from tests.dashboard.pdc_fixtures import candidate_file, system_stage, write_cg_pdb
+from tests.harness.pdc_fixtures import candidate_file, system_stage, write_cg_pdb
 
 MOLECULE_ROOT = Path(__file__).resolve().parents[3] / 'molecules'
 TEMPLATE = {

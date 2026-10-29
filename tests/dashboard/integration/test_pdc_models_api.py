@@ -15,7 +15,7 @@ from __future__ import annotations
 from dashboard.models.bonded import parameterization
 from dashboard.models.mappings import context as mapping_context
 
-from tests.dashboard.support import physical_mapping
+from tests.harness.support import physical_mapping
 
 #: What a fit writes: three atoms, one bond and one angle, so `terms` and `term_kinds` are both worth asserting. The
 #: names are the export names a revision carries (`B01` is the first bead), which is how a term addresses a bead.

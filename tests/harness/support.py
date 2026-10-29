@@ -12,7 +12,7 @@ from pathlib import Path
 from dashboard import paths as dashboard_paths
 from werkzeug.serving import WSGIRequestHandler
 
-from tests.dashboard.factory import Dashboard, build
+from tests.harness.factory import Dashboard, build
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 

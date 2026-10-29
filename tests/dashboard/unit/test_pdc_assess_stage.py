@@ -13,7 +13,7 @@ import pytest
 from detergent_pdc.execution.adapters import pdc
 from detergent_pdc.execution.scripts import pdc_assess
 
-from tests.dashboard.pdc_fixtures import inputs_dir, script_of, settings_of
+from tests.harness.pdc_fixtures import inputs_dir, script_of, settings_of
 
 TEMPLATE = {
     'name': 'DDM',

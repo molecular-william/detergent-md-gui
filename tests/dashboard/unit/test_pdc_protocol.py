@@ -15,7 +15,7 @@ import pytest
 from dashboard.execution import protocol
 from detergent_pdc.execution.adapters import pdc
 
-from tests.dashboard.pdc_fixtures import molecule_tree
+from tests.harness.pdc_fixtures import molecule_tree
 
 TEMPLATE = {
     'name': 'DDM',

@@ -224,7 +224,7 @@ class MappingTests(unittest.TestCase):
         self.assertFalse(result['scientifically_validated'])
 
     def test_candidate_validation_exposes_nominal_size_mismatch(self):
-        from tests.dashboard.support import physical_mapping
+        from tests.harness.support import physical_mapping
         candidate=physical_mapping()
         for bead in candidate['beads']:bead['size']='T'
         validation=mappings.validate(candidate)

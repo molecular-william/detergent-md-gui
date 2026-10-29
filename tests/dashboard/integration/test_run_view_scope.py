@@ -13,7 +13,7 @@ import re
 
 from dashboard.web.sections import run_types_for
 
-from tests.dashboard.support import PACKAGE
+from tests.harness.support import PACKAGE
 
 TEMPLATE = PACKAGE / 'web/templates/dashboard.html'
 

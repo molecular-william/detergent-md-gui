@@ -22,7 +22,7 @@ def test_the_factory_workspace_is_the_tests_own(dashboard):
 
 
 def test_the_factory_accepts_config_for_the_application(tmp_path):
-    from tests.dashboard import factory
+    from tests.harness import factory
     built = factory.build(tmp_path, MAX_CONTENT_LENGTH=2048)
     assert built.app.config['MAX_CONTENT_LENGTH'] == 2048
     assert built.app.config['DISABLE_COORDINATOR'] is True, 'config defaults still apply'

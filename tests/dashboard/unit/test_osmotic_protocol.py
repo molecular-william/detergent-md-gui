@@ -12,7 +12,7 @@ import pytest
 from dashboard.execution import protocol, run_scripts
 from detergent_validation.execution.adapters import osmotic
 
-from tests.dashboard.support import PROJECT_ROOT
+from tests.harness.support import PROJECT_ROOT
 
 REPOSITORY = PROJECT_ROOT
 

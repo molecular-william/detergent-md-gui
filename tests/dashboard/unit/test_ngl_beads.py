@@ -16,7 +16,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from dashboard.models.compositions.topology import render_pdb  # noqa: E402
 from dashboard.models.sugars import RADII_NM  # noqa: E402
 
-from tests.dashboard.support import PACKAGE
+from tests.harness.support import PACKAGE
 
 SOURCE = PACKAGE / 'web/static/js/ngl-beads.js'
 #: The mock of the new-run panel's preview, which draws the same beads and bonds without importing this module (a

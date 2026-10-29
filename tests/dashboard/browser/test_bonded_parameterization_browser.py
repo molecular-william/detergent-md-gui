@@ -28,7 +28,7 @@ from dashboard.models.bonded import parameterization
 from dashboard.models.mappings import context as mapping_context
 from playwright.sync_api import expect
 
-from . import panels
+from tests.harness import browser
 
 AA_RUN = 'aa00aa000001'
 OTHER_AA_RUN = 'aa00aa000002'
@@ -212,7 +212,7 @@ def open_panel(page, live_page, file):
         # say the panel has loaded it: the panel's own busy state does, and it covers the whole switch.
         expect(page.locator('.bonded-model')).to_have_attribute('aria-busy', 'false')
 
-    return panels.open_panel(page, live_page.base_url, '/detergent-validation/bond-interactions', ready=ready)
+    return browser.open_panel(page, live_page.base_url, '/detergent-validation/bond-interactions', ready=ready)
 
 
 def cells(page, index):

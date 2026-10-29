@@ -6,7 +6,7 @@ import pytest
 from dashboard.execution import workflow
 from dashboard.models.molecules import aa as aa_molecules
 
-from tests.dashboard.support import PROJECT_ROOT
+from tests.harness.support import PROJECT_ROOT
 
 
 def test_generic_input_dependencies_and_aa_capability(tmp_path):

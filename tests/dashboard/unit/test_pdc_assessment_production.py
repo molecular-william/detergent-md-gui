@@ -16,7 +16,7 @@ from pathlib import Path
 
 from detergent_pdc.execution.adapters import pdc
 
-from tests.dashboard.pdc_fixtures import inputs_dir, prepared_run, script_of
+from tests.harness.pdc_fixtures import inputs_dir, prepared_run, script_of
 
 TEMPLATE = {
     'name': 'DDM',

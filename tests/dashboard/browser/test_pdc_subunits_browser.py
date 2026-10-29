@@ -21,7 +21,7 @@ from urllib.parse import unquote
 
 from playwright.sync_api import expect
 
-from . import panels
+from tests.harness import browser
 
 TRIMER = {'id': 'molecules/1at9/1at9.pdb', 'name': '1at9', 'path': 'molecules/1at9/1at9.pdb',
           'source': 'imported', 'half_thickness_nm': 1.5, 'chains': ['A', 'B', 'C']}
@@ -81,7 +81,7 @@ def serve(page, asked=None):
 
 
 def open_panel(page, base_url, *, protein=TRIMER['id']):
-    return panels.open_pdc_new_run(page, base_url, protein=protein)
+    return browser.open_pdc_new_run(page, base_url, protein=protein)
 
 
 def ticks(page):

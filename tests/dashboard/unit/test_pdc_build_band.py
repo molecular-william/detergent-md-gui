@@ -20,7 +20,7 @@ from detergent_pdc.execution.adapters import pdc, pdc_placement
 from detergent_pdc.execution.adapters.pdc_placement import MIN_CLEARANCE_NM
 from detergent_pdc.execution.scripts import pdc_build
 
-from tests.dashboard.pdc_fixtures import system_stage
+from tests.harness.pdc_fixtures import system_stage
 
 TEMPLATE = {
     'name': 'DDM',

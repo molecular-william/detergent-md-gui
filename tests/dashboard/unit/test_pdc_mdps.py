@@ -15,7 +15,7 @@ import json
 from dashboard.execution.mdp import PROFILES, render
 from detergent_pdc.execution.adapters import pdc as pdc_adapter
 
-from tests.dashboard.pdc_fixtures import inputs_dir, prepared_run, settings_of
+from tests.harness.pdc_fixtures import inputs_dir, prepared_run, settings_of
 
 #: The profile each file `prepare` writes is written from, keyed by the file name the stage scripts read.
 EXPECTED = {

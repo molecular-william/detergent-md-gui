@@ -1,7 +1,7 @@
 """Every `trjconv -center` in the pdc scripts is fed the two answers it asks for."""
 import re
 
-from tests.dashboard.support import PACKAGE
+from tests.harness.support import PACKAGE
 
 SCRIPTS = PACKAGE / 'execution/scripts'
 

@@ -11,7 +11,7 @@ This is the HTTP half of the fix; `test_pdc_bonds_browser.py` holds the panel's 
 """
 from __future__ import annotations
 
-from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, ddm_moleculetype, ddm_system_gro
+from tests.harness.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, ddm_moleculetype, ddm_system_gro
 
 JOB_ID = '00000000abcd'
 MOLECULES = 3
