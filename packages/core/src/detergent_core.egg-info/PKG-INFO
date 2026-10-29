@@ -1,9 +1,0 @@
-Metadata-Version: 2.1
-Name: detergent-core
-Version: 0.2.0
-Summary: Local GROMACS/Martini run lifecycle and dashboard engine.
-Requires-Python: >=3.12
-Requires-Dist: flask
-Requires-Dist: werkzeug
-Requires-Dist: plotly
-Requires-Dist: rdkit

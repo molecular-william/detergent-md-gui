@@ -1,6 +1,0 @@
-Metadata-Version: 2.1
-Name: detergent-validation
-Version: 0.2.0
-Summary: Detergent validation panels and the osmotic series for the detergent-md-gui dashboard.
-Requires-Python: >=3.12
-Requires-Dist: detergent-core==0.2.0
