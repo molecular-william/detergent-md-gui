@@ -14,7 +14,9 @@ from pathlib import Path
 from dashboard.models.bonded import generation
 from detergent_pdc.models.molecules import detergent_cg
 
-MOLECULE_ROOT = Path(__file__).resolve().parents[3] / 'molecules'
+from tests.harness.support import PROJECT_ROOT
+
+MOLECULE_ROOT = PROJECT_ROOT / 'molecules'
 
 DEFAULTS = """[ bondtypes ]
 #define b_C1_C1_mid         1      0.490    2800.0    ; in the middle of an alkane chain

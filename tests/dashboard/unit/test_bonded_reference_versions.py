@@ -13,6 +13,8 @@ from pathlib import Path
 
 from dashboard.models.bonded import generation
 
+from tests.harness.support import PROJECT_ROOT
+
 C1_BOND_M2 = '; m2\n[ moleculetype ]\nDET 1\n\n[ atoms ]\n1 C1 1 DET A 1 0 72\n2 C1 1 DET B 2 0 72\n\n' \
              '[ bonds ]\n1 2 1 0.50 1000\n'
 C1_BOND_M3 = C1_BOND_M2.replace('; m2', '; m3').replace('0.50 1000', '0.47 1250')
@@ -109,7 +111,7 @@ def test_the_repositorys_own_ddm_tail_carries_a_martini_3_reference(tmp_path):
         'beads': [{'name': 'A', 'type': 'C1', 'atoms': [1, 2, 3, 4]},
                   {'name': 'B', 'type': 'C1', 'atoms': [5, 6, 7, 8]}],
         'connections': [['A', 'B']]}))
-    molecule_root = Path(__file__).resolve().parents[3] / 'molecules'
+    molecule_root = PROJECT_ROOT / 'molecules'
     from detergent_pdc.models.molecules import detergent_cg
 
     draft = detergent_cg.derive(candidate, molecule_root, molecule_root.parent)
@@ -126,7 +128,7 @@ def test_the_published_lipid_set_states_its_generation():
     """A Martini 2 mapping must not pick up Martini 3 lipid parameters, so the family states which it is."""
     from dashboard.models.bonded import generation
 
-    root = Path(__file__).resolve().parents[3]
+    root = PROJECT_ROOT
     relative = 'references/M3-Lipid-Parameters/ITPs/martini_v3.0.0.itp'
 
     assert generation._reference_version(relative, root / relative) == 3

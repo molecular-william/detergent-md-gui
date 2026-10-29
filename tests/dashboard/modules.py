@@ -13,9 +13,8 @@ and that no module is claimed twice; `tests/dashboard/unit/test_test_areas.py` s
 Run one module's tests with `scripts/test_module.sh <core|validation|pdc> [fast|browser|slow]`.
 """
 import fnmatch
-from pathlib import Path
 
-from .areas import TESTS_ROOT
+from .areas import tree_relative
 
 #: Paths (inside `tests/dashboard`) owned by a feature. An unlisted module is `core`.
 VALIDATION = (
@@ -47,9 +46,8 @@ MODULES = {'validation': VALIDATION, 'pdc': PDC}
 
 def module_of(path):
     """The distribution a module's path belongs to; `core` when no feature claims it."""
-    try:
-        relative = Path(path).resolve().relative_to(TESTS_ROOT).as_posix()
-    except (ValueError, OSError):
+    relative = tree_relative(path)
+    if relative is None:
         return 'core'
     for name, patterns in MODULES.items():
         if any(fnmatch.fnmatch(relative, pattern) for pattern in patterns):

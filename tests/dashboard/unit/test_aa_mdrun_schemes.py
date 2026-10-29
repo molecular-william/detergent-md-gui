@@ -7,11 +7,11 @@ would stop meaning what they say.
 """
 
 import sys
-from pathlib import Path
 
 import pytest
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+from tests.harness.support import PROJECT_ROOT
+
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from dashboard.execution.adapters.aa import mdrun_command_flags, mdrun_launch, normalize_settings  # noqa: E402

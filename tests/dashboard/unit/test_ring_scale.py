@@ -8,7 +8,6 @@ were built with, the paper's 1.15 stays what the recogniser writes and what ever
 outside the admissible range is still refused.
 """
 import json
-from pathlib import Path
 
 import pytest
 from dashboard.models import mappings
@@ -16,7 +15,9 @@ from dashboard.models.mappings import schema
 from dashboard.models.sugars import validation
 from detergent_pdc.models.molecules import detergent_cg
 
-MOLECULE_ROOT = Path(__file__).resolve().parents[3] / 'molecules'
+from tests.harness.support import PROJECT_ROOT
+
+MOLECULE_ROOT = PROJECT_ROOT / 'molecules'
 
 BEADS = [{'name': 'A', 'type': 'SP1r', 'size': 'S', 'atoms': [1, 2, 3, 4]},
          {'name': 'B', 'type': 'SP1r', 'size': 'S', 'atoms': [5, 6, 7, 8]},

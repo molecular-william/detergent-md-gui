@@ -25,7 +25,8 @@ from dashboard.models import mappings
 from dashboard.models.bonded import fitting, parameterization
 from dashboard.models.mappings.context import as_structure, build_context
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+from tests.harness.support import PROJECT_ROOT
+
 MOLECULES = PROJECT_ROOT / 'molecules'
 TOPOLOGY = ('[ moleculetype ]\nDDM 1\n\n[ atoms ]\n1 C1 1 DDM B01 1 0 72\n2 C1 1 DDM B02 2 0 72\n\n'
             '[ bonds ]\n1 2 1 0.31 5000\n')

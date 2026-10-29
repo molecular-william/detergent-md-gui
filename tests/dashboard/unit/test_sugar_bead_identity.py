@@ -8,11 +8,12 @@ name used twice therefore addressed the first residue's atoms every time, which 
 single ring with the second ring's bonds pointing into it, and why "the visualization is a bit strange" had no
 symptom anywhere except the picture.
 """
-from pathlib import Path
 
 from dashboard.models.compositions import catalog, topology
 
-SOURCE = Path(__file__).resolve().parents[3] / 'references' / 'martini_v3.0.0_sugars_v2.itp'
+from tests.harness.support import PROJECT_ROOT
+
+SOURCE = PROJECT_ROOT / 'references' / 'martini_v3.0.0_sugars_v2.itp'
 
 
 def test_the_reference_really_does_repeat_the_names_it_is_asked_about():

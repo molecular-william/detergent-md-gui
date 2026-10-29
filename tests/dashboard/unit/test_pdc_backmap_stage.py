@@ -16,9 +16,10 @@ from pathlib import Path
 from detergent_pdc.execution.adapters import pdc
 
 from tests.harness.pdc_fixtures import inputs_dir, prepared_run, script_of
+from tests.harness.support import PROJECT_ROOT
 
 BACKMAP = 'Back-mapping (CG2AT2)'
-TOOL = Path(__file__).resolve().parents[3] / 'tools' / 'cg2at' / 'cg2at'
+TOOL = PROJECT_ROOT / 'tools' / 'cg2at' / 'cg2at'
 TEMPLATE = {
     'name': 'DDM', 'residue': 'DDM', 'coordinates': 'results/MMFF/lig1.pdb',
     'topology': 'results/MMFF/lig1.itp', 'beads': [{'name': 'TAIL1', 'type': 'C1', 'role': 'tail'}],

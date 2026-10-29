@@ -14,11 +14,10 @@ audit named.
 """
 import re
 from collections import defaultdict
-from pathlib import Path
 
-from tests.harness.support import PACKAGE
+from tests.harness.support import PACKAGE, PROJECT_ROOT
 
-REPO = Path(__file__).resolve().parents[3]
+REPO = PROJECT_ROOT
 STATIC = PACKAGE / 'web/static/js'
 
 #: `const host = $('.x', card)` / `$$('#x')` -- the selector text is what identifies the host.

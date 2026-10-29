@@ -38,6 +38,7 @@ export function mountOverlay3d(host, context, onAtom) {
   // what the code intended to hand it.
   host.overlayStage = stage;
   let signature = null;          // the bead assignment currently drawn, so an unchanged one costs no request
+  let generation = 0;            // which update owns the stage; a superseded one stops before it paints
   let atomIds = [];              // structure index -> mapping atom id
   let beads = [];                // the spheres as the server described them, in file order
   let labelsWanted = true;       // whether every atom is numbered; the panel's default, and what a toggle sets
@@ -81,15 +82,26 @@ export function mountOverlay3d(host, context, onAtom) {
   }
 
   async function update(candidate) {
+    const token = ++generation;
     const wanted = (candidate?.beads || []).map(bead => ({name: bead.name, size: bead.size, type: bead.type,
                                                           atoms: bead.atoms || []}));
     const key = JSON.stringify(wanted.map(bead => [bead.name, bead.size, bead.atoms]));
     if (key === signature) return;                     // same assignment: nothing to redraw
     signature = key;
+    // The panel's load is busy until its own request answers, and the drawing is the second half of that work: a
+    // reader that acts the moment the table fills would still catch a cleared stage. The host says when it is drawn.
+    host.setAttribute('aria-busy', 'true');
     let payload;
     try {
       payload = await request(wanted);
-    } catch (error) { note(error.message); return; }
+    } catch (error) {
+      note(error.message);
+      if (token === generation) host.setAttribute('aria-busy', 'false');
+      return;
+    }
+    // Two edits can overlap -- a re-render while an answer is in flight -- and both used to remove the components and
+    // load their own. The loser now stops at every await, so the components on screen are the newest request's only.
+    if (token !== generation) { return; }
     note('');
     stage.removeAllComponents();
     // Everything that pointed at the old components points at nothing now: removeAllComponents() disposed them.
@@ -106,7 +118,9 @@ export function mountOverlay3d(host, context, onAtom) {
       const moleculeParameters = {ext: 'pdb'};
       if (/^CONECT/m.test(payload.pdb)) moleculeParameters.inferBonds = 'none';
       const molecule = await stage.loadFile(new Blob([payload.pdb], {type: 'text/plain'}), moleculeParameters);
+      if (token !== generation) return;
       const beadFile = await stage.loadFile(new Blob([payload.bead_pdb], {type: 'text/plain'}), {ext: 'pdb'});
+      if (token !== generation) return;
       if (molecule && molecule.structure) {
         labelComponent = molecule;
         molecule.addRepresentation('ball+stick', {sele: 'all', colorScheme: 'element', radiusScale: 0.9});
@@ -131,6 +145,7 @@ export function mountOverlay3d(host, context, onAtom) {
     } catch (error) {
       note(`Could not draw the overlay: ${error.message}`);
     }
+    if (token === generation) host.setAttribute('aria-busy', 'false');
     if (!atomIds.length) note('This molecule has no heavy atoms to draw.');
   }
 
@@ -171,6 +186,7 @@ export function mountOverlay3d(host, context, onAtom) {
     // drawn it only records the choice, which update() applies.
     setLabels(visible) { labelsWanted = !!visible; applyLabels(); },
     destroy() {
+      generation += 1;             // a load still in flight must not paint into a disposed stage
       labelComponent = null; labelRepresentation = null;
       try { stage.dispose(); } catch (error) { /* a disposed stage is not an error worth showing */ }
       host.replaceChildren();

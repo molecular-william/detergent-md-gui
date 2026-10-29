@@ -15,14 +15,12 @@ from pathlib import Path
 import MDAnalysis as mda
 import numpy as np
 from dashboard.models.bonded import parameterization
-from vermouth.molecule import Molecule
-
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 # The tool's own grid, taken from the copy the project's tools resolve to rather than restated here: `score.py` and
 # `calc_score` both read it, and a reference saved on any other grid is a different measurement of the same thing.
 from fast_forward.interaction_distribution import INTERACTIONS, interaction_distribution  # noqa: E402
 from fast_forward.score import calc_score, score_matrix  # noqa: E402
+from vermouth.molecule import Molecule
 
 from tests.harness.support import PACKAGE
 

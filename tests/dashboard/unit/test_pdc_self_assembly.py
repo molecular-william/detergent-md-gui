@@ -21,10 +21,11 @@ from micelle.packing import pack_micelle
 from micelle.registry import load_template
 
 from tests.harness.pdc_fixtures import candidate_file, settings_of, system_stage, write_cg_pdb
+from tests.harness.support import PROJECT_ROOT
 
 MARGIN_NM = 2.0
 INITIAL_Z_NM = 6.0
-MOLECULE_ROOT = Path(__file__).resolve().parents[3] / 'molecules'
+MOLECULE_ROOT = PROJECT_ROOT / 'molecules'
 
 
 def _template(tmp_path):

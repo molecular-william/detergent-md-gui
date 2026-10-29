@@ -19,7 +19,9 @@ import pkgutil
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[3]
+from tests.harness.support import PROJECT_ROOT
+
+ROOT = PROJECT_ROOT
 
 # One entry per module the layout move retired, grouped by the package it left.
 RETIRED = (

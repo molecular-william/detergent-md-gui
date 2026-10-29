@@ -13,7 +13,9 @@ from pathlib import Path
 import pytest
 from detergent_pdc.models.molecules import detergent_cg
 
-MOLECULE_ROOT = Path(__file__).resolve().parents[3] / 'molecules'
+from tests.harness.support import PROJECT_ROOT
+
+MOLECULE_ROOT = PROJECT_ROOT / 'molecules'
 STRUCTURE = {'atoms': [{'id': 1, 'xyz': [0.0, 0.0, 0.0]}, {'id': 2, 'xyz': [1.0, 0.0, 0.0]},
                        {'id': 3, 'xyz': [0.0, 3.0, 0.0]}, {'id': 4, 'xyz': [0.0, 0.0, 3.0]}],
              'bonds': [[1, 2], [2, 3], [3, 4]]}

@@ -2,11 +2,8 @@ import json
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 from tests.harness.support import PACKAGE
-
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_ring_constraint_preparation_uses_molecule_specific_initial_itp(tmp_path):

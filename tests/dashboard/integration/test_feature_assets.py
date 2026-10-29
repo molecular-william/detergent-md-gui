@@ -4,12 +4,13 @@ The registry is the contract: `Feature.panel_modules` says which DOM id a featur
 come from its template package, and the shell loop includes what is installed and skips what is not. These tests read
 the registry rather than a list of file names, so a new feature is covered the moment it registers.
 """
-from pathlib import Path
 
 from dashboard import features, paths
 from dashboard.app import create_app
 
-TEMPLATE = Path(__file__).resolve().parents[3] / 'packages/core/src/dashboard/web/templates/dashboard.html'
+from tests.harness.support import PROJECT_ROOT
+
+TEMPLATE = PROJECT_ROOT / 'packages/core/src/dashboard/web/templates/dashboard.html'
 
 
 def test_every_registered_panel_has_a_module_and_a_pane():

@@ -28,7 +28,8 @@ from dashboard.models import mappings
 from dashboard.models.bonded import fitting, parameterization
 from dashboard.models.mappings.context import as_structure, build_context
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+from tests.harness.support import PROJECT_ROOT
+
 MOLECULES = PROJECT_ROOT / 'molecules'
 REFERENCE = {'run_id': 'a' * 12, 'directory': '/nonexistent/reference', 'reference_sha256': 'ab' * 32,
              'record': {'reference_sha256': 'ab' * 32, 'frames': 20001,

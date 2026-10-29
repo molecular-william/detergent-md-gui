@@ -11,7 +11,6 @@ seams are stubbed -- the AA reference resolution and the tool report -- because 
 import copy
 import inspect
 import json
-from pathlib import Path
 
 import pytest
 from dashboard.execution import run_scripts
@@ -20,7 +19,8 @@ from dashboard.models import mappings
 from dashboard.models.mappings.context import as_structure, build_context
 from dashboard.models.molecules import aa as aa_molecules
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+from tests.harness.support import PROJECT_ROOT
+
 MOLECULES = PROJECT_ROOT / 'molecules'
 REFERENCE = {'source_run_id': '111111111111', 'sha256': {}}
 

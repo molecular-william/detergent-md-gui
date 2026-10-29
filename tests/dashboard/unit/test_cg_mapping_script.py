@@ -9,15 +9,14 @@ import json
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 import MDAnalysis as mda
 import numpy as np
 import pytest
 
-from tests.harness.support import PACKAGE
+from tests.harness.support import PACKAGE, PROJECT_ROOT
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = PROJECT_ROOT
 SCRIPT = PACKAGE / 'execution/scripts/sugar_mapping.py'
 # Two beads of two atoms each, and no rings: bead A is atoms 1-2, bead B is atoms 3-4.
 MODEL = {'beads': [{'name': 'A', 'export_name': 'B01', 'atoms': [1, 2]},

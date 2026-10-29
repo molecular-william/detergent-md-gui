@@ -8,15 +8,15 @@ repository's own DDM with a mapping the test writes, which is the first time tha
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 from detergent_pdc.execution.adapters import pdc
 from detergent_pdc.execution.scripts import pdc_build
 
 from tests.harness.pdc_fixtures import candidate_file, system_stage, write_cg_pdb
+from tests.harness.support import PROJECT_ROOT
 
-MOLECULE_ROOT = Path(__file__).resolve().parents[3] / 'molecules'
+MOLECULE_ROOT = PROJECT_ROOT / 'molecules'
 TEMPLATE = {
     'name': 'DDM', 'residue': 'DDM', 'coordinates': 'results/MMFF/lig1.pdb',
     'topology': 'results/MMFF/lig1.itp', 'beads': [{'name': 'TAIL1', 'type': 'C1', 'role': 'tail'},

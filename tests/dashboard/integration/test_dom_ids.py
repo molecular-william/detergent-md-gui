@@ -25,14 +25,13 @@ at the cost of the exact churn the plan exists to avoid; these tests are what ma
 """
 import re
 from html.parser import HTMLParser
-from pathlib import Path
 
 from dashboard import features
 from dashboard.web import sections
 
-from tests.harness.support import PACKAGE
+from tests.harness.support import PACKAGE, PROJECT_ROOT
 
-REPO = Path(__file__).resolve().parents[3]
+REPO = PROJECT_ROOT
 WEB = PACKAGE / 'web'
 STATIC = WEB / 'static'
 BROWSER_TESTS = REPO / 'tests/dashboard/browser'

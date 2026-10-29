@@ -15,7 +15,9 @@ from pathlib import Path
 
 from dashboard.models.bonded import generation
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from tests.harness.support import PROJECT_ROOT
+
+REPO_ROOT = PROJECT_ROOT
 FITTED = REPO_ROOT / 'references' / 'bartender' / 'DDM.itp'
 
 #: The same bead types as the fitted file, with different values and another molecule's name: whichever molecule is

@@ -7,11 +7,9 @@ being a category. So a new test file fails here until it is given an area, and t
 "the subsets add up to the suite" checkable rather than assumed.
 """
 import fnmatch
-from pathlib import Path
 
 from tests.dashboard import areas
-
-TESTS_ROOT = Path(__file__).resolve().parent.parent
+from tests.dashboard.areas import TESTS_ROOT
 
 
 def modules():

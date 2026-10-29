@@ -6,9 +6,9 @@ Angstrom, and an element that is a radius stand-in rather than a chemistry state
 """
 
 import sys
-from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+from tests.harness.support import PROJECT_ROOT
+
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # `compositions` is a `dashboard` subpackage -- it imports through `from ... import`.

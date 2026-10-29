@@ -24,7 +24,8 @@ from dashboard.models.bonded import fitting, parameterization
 from dashboard.models.mappings.context import as_structure, build_context
 from dashboard.models.molecules import aa as aa_molecules
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+from tests.harness.support import PROJECT_ROOT
+
 MOLECULES = PROJECT_ROOT / 'molecules'
 REFERENCE = {'source_run_id': '2' * 12, 'sha256': {}}
 RESOLVED = {'run_id': '2' * 12, 'directory': '/nonexistent/reference', 'reference_sha256': 'ab' * 32,

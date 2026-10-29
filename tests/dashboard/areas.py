@@ -12,7 +12,15 @@ narrower patterns come first.
 import fnmatch
 from pathlib import Path
 
-TESTS_ROOT = Path(__file__).resolve().parent
+from tests.harness.support import PROJECT_ROOT
+
+#: The tree the tests live in today. Phase 3 splits it into `packages/<module>/tests`, so nothing below derives a
+#: module's area from this root: the tier's own directory is the anchor, and one table serves every tree.
+TESTS_ROOT = PROJECT_ROOT / 'tests/dashboard'
+
+#: The three tiers, as directories. A module's path is matched from the tier down, so `unit/test_x.py` means the same
+#: thing under `tests/dashboard` and under `packages/core/tests`.
+TIERS = ('unit', 'integration', 'browser')
 
 AREAS = {
     'pdc': (
@@ -80,6 +88,7 @@ AREAS = {
     'runs': (
         'unit/test_import_run.py',
         'unit/test_run_*', 'unit/test_stage_*', 'unit/test_progress_reading.py', 'unit/test_attempt.py',
+        'unit/test_store.py',
         'unit/test_candidate_verdict.py', 'unit/test_workflow_plan_pairs.py', 'unit/test_coordinator_surface.py',
         'unit/test_run_type_matrix.py', 'unit/test_prepare_time_skips.py',
         'integration/test_in_place_resume.py', 'integration/test_job*.py', 'integration/test_jobs_run_type_filter.py',
@@ -100,11 +109,24 @@ AREAS = {
 }
 
 
+def tree_relative(path):
+    """A module's path from its tier down (`unit/test_x.py`), or `None` when it is in no tier.
+
+    The tier's directory is the anchor rather than the repository: every test tree is `<something>/<tier>/<module>`,
+    so the same table matches `tests/dashboard/unit/test_x.py` and `packages/core/tests/unit/test_x.py` without the
+    path arithmetic that a move would silently break.
+    """
+    parts = Path(path).resolve().parts
+    for index in range(len(parts) - 1, 0, -1):
+        if parts[index] in TIERS:
+            return '/'.join(parts[index:])
+    return None
+
+
 def area_of(path):
     """The area a module's path names, or `None`; the first match in `AREAS` order wins."""
-    try:
-        relative = Path(path).resolve().relative_to(TESTS_ROOT).as_posix()
-    except (ValueError, OSError):
+    relative = tree_relative(path)
+    if relative is None:
         return None
     for name, patterns in AREAS.items():
         if any(fnmatch.fnmatch(relative, pattern) for pattern in patterns):

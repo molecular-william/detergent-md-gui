@@ -8,15 +8,13 @@ drawing a size the model does not state. The element stand-ins are checked again
 """
 import re
 import sys
-from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+from tests.harness.support import PACKAGE, PROJECT_ROOT
+
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from dashboard.models.compositions.topology import render_pdb  # noqa: E402
 from dashboard.models.sugars import RADII_NM  # noqa: E402
-
-from tests.harness.support import PACKAGE
 
 SOURCE = PACKAGE / 'web/static/js/ngl-beads.js'
 #: The mock of the new-run panel's preview, which draws the same beads and bonds without importing this module (a

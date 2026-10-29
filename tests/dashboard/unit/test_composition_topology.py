@@ -1,4 +1,3 @@
-from pathlib import Path
 
 import pytest
 from dashboard.models.compositions.topology import (
@@ -8,7 +7,9 @@ from dashboard.models.compositions.topology import (
     load_sugar_catalog,
 )
 
-ROOT = Path(__file__).resolve().parents[3]
+from tests.harness.support import PROJECT_ROOT
+
+ROOT = PROJECT_ROOT
 
 
 def payload(**overrides):

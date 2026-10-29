@@ -9,11 +9,13 @@ viewer is actually holding.
 Reads go through `_drawn`, not a bare `evaluate`. `update()` clears the viewer's components before it rebuilds them,
 so a read that lands in that window finds an empty list -- which is exactly how this file failed once, under load,
 with `Cannot read properties of undefined`. The read retries until the state it needs exists, and still fails loudly
-if the view never draws: a widened timeout would only decide how long the failure takes.
+if the view never draws within the tier's own 30 s.
 
 The candidate is created through the panel's own route into the fixture's workspace, so nothing here touches a
 developer's data and the fixture runs the current code.
 """
+import time
+
 from playwright.sync_api import expect
 
 OVERLAY = '#mapping-editor-overlay3d'
@@ -99,19 +101,25 @@ CLICK_EVIDENCE = """(el) => {
 }"""
 
 
-def _drawn(page, expression, ready=lambda value: bool(value), tries=24, pause_ms=250):
+def _drawn(page, expression, ready=lambda value: bool(value), deadline_s=30.0, pause_ms=250):
     """Read the viewer once it is holding what the read needs.
 
     `update()` rebuilds the components on every assignment change: it clears them first, so a read inside that window
     meets an empty list. Retrying the read is the remedy, and it is bounded -- if the view never draws, this raises
-    with the expression that timed out rather than letting a later assertion fail for an unrelated reason.
+    with the expression that timed out rather than letting a later assertion fail for an unrelated reason. The bound
+    is the tier's own 30 s rather than a fixed number of tries: at sixteen workers a WebGL rebuild can outlast six
+    seconds while the panel is fine.
     """
-    for _ in range(tries):
+    deadline = time.monotonic() + deadline_s
+    while True:
         value = page.locator(OVERLAY).evaluate(expression)
         if ready(value):
             return value
+        if time.monotonic() >= deadline:
+            status = page.locator(OVERLAY).evaluate("el => el.dataset.overlayStatus || ''")
+            raise AssertionError(f'the viewer never held what this read needs: {expression.strip()[:70]};'
+                                 f' it held {repr(value)[:400]}; overlay said {status!r}')
         page.wait_for_timeout(pause_ms)
-    raise AssertionError(f'the viewer never held what this read needs: {expression.strip()[:70]}')
 
 
 def _open_editor(page, live_page):
@@ -121,6 +129,10 @@ def _open_editor(page, live_page):
     page.locator('#tab-mappings').click()
     page.wait_for_function("() => document.querySelector('#mapping-molecule')?.options.length > 0", timeout=30000)
     page.locator('#mapping-molecule').select_option(MOLECULE)
+    # The overlay still holds the previously selected molecule until the load answers: wait for the editor's own
+    # busy state rather than for a stage the old molecule is already drawing.
+    expect(page.locator('.molecule-mapping-workspace')).to_have_attribute('aria-busy', 'false')
+    expect(page.locator(OVERLAY)).to_have_attribute('aria-busy', 'false')
     page.wait_for_function(f"() => document.querySelector('{OVERLAY}')?.overlayStage"
                            " && document.querySelector('" + OVERLAY + "').overlayStage.compList.length >= 2",
                            timeout=60000)

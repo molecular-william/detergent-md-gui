@@ -90,6 +90,8 @@ export function createMappings() {
     if (remove) remove.disabled = !moleculeEditor?.selectedBead;
   }
 
+  let editorGeneration = 0;
+
   function renderBeadRows() {
     const table = $('#mapping-bead-rows');
     if (!table) return;
@@ -179,6 +181,12 @@ export function createMappings() {
 
   async function loadMoleculeEditor(moleculeId) {
     if (!moleculeId) { editorMessage('Select a molecule to begin.'); return; }
+    const generation = ++editorGeneration;
+    // The editor is the two panels a molecule load replaces -- the bead table and the drawn overlay. Until the load
+    // answers, they still hold the previously selected molecule, so the workspace says it is busy rather than
+    // letting a reader (or a test) act on a model that is no longer selected.
+    const workspace = $('.molecule-mapping-workspace');
+    workspace?.setAttribute('aria-busy', 'true');
     moleculeEditor = null;
     // A stage holds a WebGL context and browsers cap how many exist, so the 3D view is disposed before this one is replaced.
     if (moleculeOverlay) moleculeOverlay.destroy(); moleculeOverlay = null;
@@ -222,6 +230,7 @@ export function createMappings() {
       for (const item of catalogue.candidates || []) filter.append(new Option(item.name, item.file));
       if (candidate?.file) filter.value = candidate.file;
     } catch (error) { editorMessage(error.message); }
+    finally { if (generation === editorGeneration) workspace?.setAttribute('aria-busy', 'false'); }
   }
 
   function makeDialog(title, submitText, fields = []) {

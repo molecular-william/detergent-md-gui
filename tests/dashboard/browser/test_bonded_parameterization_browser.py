@@ -867,7 +867,10 @@ def test_the_panel_deletes_the_parameterization_and_leaves_the_mapping(dashboard
     expect(page.locator('#bonded-delete-parameterization')).to_be_enabled()
     expect(page.locator('#bonded-revisions .bonded-revision')).to_have_count(1)
 
-    page.locator('#bonded-delete-parameterization').click()
+    # The click opens the panel's confirmation and the DELETE follows it: the response is the point where the request
+    # has been made, which the click alone does not establish.
+    with page.expect_response(lambda response: response.request.method == 'DELETE'):
+        page.locator('#bonded-delete-parameterization').click()
 
     assert len(deletes) == 1, deletes
     method, path, body = deletes[0]

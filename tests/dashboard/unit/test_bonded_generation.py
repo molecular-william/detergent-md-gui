@@ -1,8 +1,9 @@
 
-from pathlib import Path
 
 import pytest
 from dashboard.models.bonded import generation as bonded_generation
+
+from tests.harness.support import PROJECT_ROOT
 
 
 def _mapping(*, virtual=False):
@@ -243,7 +244,7 @@ def test_topology_from_terms_rejects_duplicate_pairs_and_keeps_virtual_site(tmp_
         bonded_generation.topology_from_terms(mapping, _structure(), terms + [{**terms[0]}], title='Draft')
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = PROJECT_ROOT
 
 
 def _triangle():

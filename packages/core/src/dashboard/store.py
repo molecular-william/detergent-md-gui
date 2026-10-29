@@ -1,8 +1,32 @@
 """Transactional SQLite job records."""
 import json
 import sqlite3
+import threading
 from contextlib import contextmanager
 from pathlib import Path
+
+#: Database files already switched to WAL, and the lock that serializes the switch. A Store is built per
+#: `coordinator.database()` call, so this cannot be instance state.
+_WAL = set()
+_WAL_LOCK = threading.Lock()
+
+
+def _enable_wal(db, path):
+    """Switch a database file to WAL once, not once per connection.
+
+    Changing journal mode needs exclusive access to the database. Doing it on every connection -- which is what this
+    store used to do -- races the concurrent connections a threaded server opens, and the request that loses raises
+    `sqlite3.OperationalError: database is locked` before it has read anything. The mode persists in the file, so the
+    first connection that can set it is enough.
+    """
+    key = str(Path(path).resolve())
+    if key in _WAL:
+        return
+    with _WAL_LOCK:
+        if key in _WAL:
+            return
+        db.execute('PRAGMA journal_mode=WAL')
+        _WAL.add(key)
 
 
 class Store:
@@ -14,7 +38,7 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         db = sqlite3.connect(self.path, timeout=30)
         try:
-            db.execute('PRAGMA journal_mode=WAL')
+            _enable_wal(db, self.path)
             db.execute('CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, data TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1)')
             db.execute('CREATE TABLE IF NOT EXISTS artifacts (id TEXT PRIMARY KEY, data TEXT, updated REAL)')
             db.execute('BEGIN IMMEDIATE')

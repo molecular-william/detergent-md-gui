@@ -11,8 +11,8 @@ from pathlib import Path
 import pytest
 
 from tests.dashboard import modules
+from tests.dashboard.areas import TESTS_ROOT
 
-TESTS_ROOT = Path(__file__).resolve().parents[1]
 FILES = sorted(TESTS_ROOT.rglob('test_*.py'))
 MODULE_NAMES = ('core', 'validation', 'pdc')
 

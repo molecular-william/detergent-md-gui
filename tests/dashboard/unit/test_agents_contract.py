@@ -12,11 +12,12 @@ re-appended on the next `analyze`, which reads as a regression that never happen
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[3]
+from tests.harness.support import PROJECT_ROOT
+
+ROOT = PROJECT_ROOT
 AGENTS = ROOT / 'AGENTS.md'
 
 HUMAN_BUDGET = 120

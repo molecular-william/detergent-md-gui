@@ -34,7 +34,7 @@ def seed_candidate(dashboard, molecule=MOLECULE):
     candidate['molecule_snapshot'] = context['snapshot']
     response = dashboard.client.post('/api/mappings/drafts', json=candidate)
     assert response.status_code == 201, response.get_json()
-    return context
+    return candidate
 
 
 def open_editor(page, live_page, molecule=MOLECULE):
@@ -42,7 +42,12 @@ def open_editor(page, live_page, molecule=MOLECULE):
     page.locator('#tab-mappings').click()
     page.wait_for_function("() => document.querySelector('#mapping-molecule')?.options.length > 0", timeout=30000)
     page.locator('#mapping-molecule').select_option(molecule)
+    # The status line and the table both still describe the previously selected molecule until this load answers,
+    # so the workspace's own busy state is what says the editor has switched.
+    expect(page.locator('.molecule-mapping-workspace')).to_have_attribute('aria-busy', 'false')
     expect(page.locator('#mapping-editor-status')).to_contain_text('loaded', timeout=30000)
+    # The table fills before the 3D view finishes drawing, and every test here reads the drawn stage.
+    expect(page.locator(OVERLAY)).to_have_attribute('aria-busy', 'false')
     page.locator('#mapping-bead-rows tr').first.wait_for(timeout=30000)
 
 
@@ -67,13 +72,15 @@ def test_the_atoms_are_twice_the_size_and_numbered_by_their_mapping_id(dashboard
 
 
 def test_add_and_delete_beads_sit_below_the_table_and_act_on_the_selection(dashboard, live_page):
-    seed_candidate(dashboard)
+    candidate = seed_candidate(dashboard)
     page, errors = live_page
     open_editor(page, live_page)
 
+    # The expected count is the seeded candidate's, not a guess that the table is ready: the editor replaces its rows
+    # whenever a molecule or a candidate lands, so the assertion is also the wait.
     rows = page.locator('#mapping-bead-rows tr')
+    expect(rows).to_have_count(len(candidate['beads']))
     before = rows.count()
-    assert before > 0, 'the seeded candidate drew no bead rows'
 
     add = page.get_by_role('button', name='Add new bead')
     delete = page.get_by_role('button', name='Delete selected bead')

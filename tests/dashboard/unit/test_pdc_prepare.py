@@ -20,6 +20,7 @@ from detergent_pdc.execution.adapters import pdc
 from detergent_pdc.execution.scripts import pdc_build
 
 from tests.harness.pdc_fixtures import inputs_dir, molecule_tree, prepared_run, script_of, settings_of, stage_dir, system_stage
+from tests.harness.support import PROJECT_ROOT
 
 TEMPLATE = {
     'name': 'DDM',
@@ -442,7 +443,7 @@ def test_the_mapping_answers_for_the_tail_when_the_template_names_none(tmp_path)
     mapping does know the tail, so the mapping answers and the settings say which source was used.
     """
     # The repository's own DDM is a tracked asset with a real topology; the mapping is the record the test builds.
-    root = Path(__file__).resolve().parents[3]
+    root = PROJECT_ROOT
     candidate = tmp_path / 'candidate.json'
     candidate.write_text(json.dumps({
         'schema_version': 3, 'molecule_id': 'DDM', 'name': 'a sugar bead and a tail bead', 'martini_version': 3,

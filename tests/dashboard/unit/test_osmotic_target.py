@@ -5,13 +5,14 @@ that matters is not that the JSON parses -- it is that the conversion's provenan
 count is the paper's series minus the trivial one, and that the osmotic leg's own required molalities are the ones the
 registry now carries values for.
 """
-from pathlib import Path
 
 import pytest
 from dashboard.analysis.validation import carbohydrate_targets
 from detergent_validation.analysis.validation import osmotic, targets
 
-ROOT = Path(__file__).resolve().parents[3]
+from tests.harness.support import PROJECT_ROOT
+
+ROOT = PROJECT_ROOT
 DATASET = 'maltose-osmotic-ebrahimi-2016'
 
 
