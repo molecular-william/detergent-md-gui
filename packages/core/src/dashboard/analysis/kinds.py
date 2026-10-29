@@ -237,6 +237,23 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
 )}
 
 
+def register(rows) -> None:
+    """Add the kinds one feature owns, refusing a second declaration of a name.
+
+    The table is the registration: `worker` and `metadata` read it through this module, so a row added here is
+    reachable everywhere a built-in one is.
+    """
+    for row in rows:
+        if row.name in TABLE:
+            raise ValueError(f'analysis kind {row.name!r} is already registered')
+        TABLE[row.name] = row
+
+
+def known(kind: str) -> bool:
+    """Whether a kind is registered. The one answer, because the table is the one registration."""
+    return kind in TABLE
+
+
 def for_every_run() -> tuple[str, ...]:
     """The kinds a run runs for itself, in table order.
 

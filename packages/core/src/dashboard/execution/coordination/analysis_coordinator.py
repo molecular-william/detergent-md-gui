@@ -187,7 +187,7 @@ class AnalysisCoordinator:
 
     def queue(self, jid, kind, payload, *, automatic=False):
         owner = self.owner
-        if kind not in analysis.KINDS:
+        if not analysis.known(kind):
             raise RunNotFound('Unknown analysis')
         if not isinstance(payload, dict):
             raise InvalidRequest('Expected an object')

@@ -250,6 +250,17 @@ published tuple. A list that has to agree with a dict is a second source of trut
 """
 
 
+def register(builders: Mapping[str, Callable[[], Protocol]]) -> None:
+    """Add the run types one feature owns, and republish the tuple that lists them.
+
+    `RUN_TYPES` is read through this module (`protocol.RUN_TYPES`), so rebinding it here is enough for the callers;
+    a feature never writes to `_BUILDERS` directly.
+    """
+    global RUN_TYPES
+    _BUILDERS.update(builders)
+    RUN_TYPES = tuple(_BUILDERS)
+
+
 def adapter_for(run_type: str) -> Protocol:
     """Return the protocol for a run type, or raise ValueError for an unknown one."""
     try:

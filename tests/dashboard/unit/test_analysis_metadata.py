@@ -1,3 +1,4 @@
+from dashboard.analysis.kinds import TABLE
 from dashboard.analysis.metadata import describe
 
 
@@ -37,14 +38,12 @@ def test_the_bartender_fit_is_described_like_every_other_published_analysis():
 def test_the_overlap_analysis_is_registered_in_all_three_places():
     """A kind missing any one of them fails silently: without KINDS it is unreachable, without PATTERNS it is handed no
     inputs, and without a DESCRIPTION its own report renders under the generic fallback title."""
-    from dashboard.analysis import worker
-
-    assert 'overlap' in worker.KINDS
+    assert 'overlap' in TABLE, 'the table is the registration the worker reads'
     described = describe('overlap')
     assert described['title'] != 'Overlap', 'the generic title is the fallback, not a registered description'
     assert 'reference' in described['ideal_result']
 
-    staged = worker.PATTERNS['overlap']
+    staged = list(TABLE['overlap'].sources)
     # The comparison is the model against the reference it was built from, so the atomistic reference and the CG
     # simulation are both staged, and the *mapped* trajectory deliberately is not: it is a third thing, and the
     # overlap is not a statement about it.

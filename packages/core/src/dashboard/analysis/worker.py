@@ -15,19 +15,21 @@ import tempfile
 import time
 from pathlib import Path
 
-from .. import files
+from .. import features, files
 from ..execution import tools, workflow
 from . import metadata as analysis_metadata
 from .kinds import TABLE
 from .runs import layout
 from .runs import references as aa_references
 
-KINDS = set(TABLE)
-PATTERNS = {name: list(row.sources) for name, row in TABLE.items()}
-
 
 def source_paths(root, kind):
     return list(source_entries(root,kind).values())
+
+
+def known(kind: str) -> bool:
+    """Whether the worker accepts this kind. The table is the registration, so this is its one answer."""
+    return kind in TABLE
 
 
 def _stage_alias(relative):
@@ -43,7 +45,7 @@ def _stage_alias(relative):
 
 
 def source_entries(root,kind):
-    patterns = list(PATTERNS[kind])
+    patterns = list(TABLE[kind].sources)
     run=root.parent if root.name=='stages' else root
     metadata=json.loads((run/'manifest.json').read_text()) if (run/'manifest.json').is_file() else {}
     pdc = metadata.get('run_type') == 'pdc'
@@ -75,8 +77,9 @@ def execute(request_path):
     request_path = Path(request_path)
     request = json.loads(request_path.read_text())
     run = Path(request['run']); attempt = request_path.parent
+    features.ensure()
     kind = request['kind']; root = layout.stage_root(run)
-    if kind not in KINDS: raise ValueError('Unknown analysis')
+    if kind not in TABLE: raise ValueError('Unknown analysis')
     def progress(phase):
         files.atomic_json(attempt/'progress.json', {'phase': phase})
     progress('Copying and hashing sources')

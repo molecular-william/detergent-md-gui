@@ -67,6 +67,7 @@ AREAS = {
     ),
     'web': (
         'unit/test_dashboard_factory.py', 'unit/test_sections.py', 'unit/test_paths.py', 'unit/test_json_repository.py',
+        'unit/test_features.py',
         'unit/test_deferred_imports.py', 'unit/test_temporary_validation_cleanup.py',
         'integration/test_dashboard.py', 'integration/test_app_factory.py', 'integration/test_dom_ids.py',
         'integration/test_rendered_hosts.py', 'integration/test_request_bodies.py',

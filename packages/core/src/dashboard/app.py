@@ -25,6 +25,8 @@ def create_app(paths=None, config=None):
     app.before_request(coordinator.ensure_service)
     for module in (runs, molecules, catalog, mappings, bonded, refinement, analyses, maintenance, pdc, osmotic):
         app.register_blueprint(module.blueprint)
+    from . import features
+    features.register(app)
 
     @app.errorhandler(ValueError)
     def invalid_value(error):

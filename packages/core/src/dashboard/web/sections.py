@@ -115,6 +115,22 @@ TAB_IDS = {
 }
 
 
+def register(section, *, panels=(), blurbs=(), tab_ids=()) -> None:
+    """Add one feature's workspace and panels to the registry.
+
+    The four dicts below are the objects routes and the template read, and `routes/runs.py` imported them by name, so
+    a feature is added by **mutating** them: rebinding a name would leave every earlier importer looking at the old
+    registry. A duplicate name raises, because two features claiming one workspace is a registry error, not a merge.
+    """
+    name, record = section
+    if name in SECTIONS:
+        raise ValueError(f'workspace {name!r} is already registered')
+    SECTIONS[name] = record
+    PANELS.update(panels)
+    PANEL_BLURBS.update(blurbs)
+    TAB_IDS.update(tab_ids)
+
+
 def section_for(name):
     """The section `name`, or `None`.
 
@@ -209,8 +225,7 @@ def legacy_tab_targets():
     page did most of its work, and a fragment-only link gives no other clue about which one was meant.
     """
     targets = {}
-    for name in ('validation', 'simulations'):
-        section = SECTIONS[name]
+    for section in SECTIONS.values():
         for slug in section['tabs']:
             targets.setdefault(TAB_IDS[slug], f"/{section['slug']}/{slug}")
     return targets

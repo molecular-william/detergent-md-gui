@@ -17,7 +17,7 @@ from dashboard.analysis import worker
 
 def test_the_table_covers_every_kind_the_worker_accepts():
     from dashboard.analysis.kinds import TABLE
-    assert set(TABLE) == set(worker.KINDS)
+    assert all(worker.known(name) for name in TABLE), 'every row is reachable through the worker'
 
 
 def test_every_row_carries_all_four_facets():
@@ -34,9 +34,8 @@ def test_every_row_carries_all_four_facets():
 
 def test_the_sources_the_worker_stages_are_the_rows_own():
     from dashboard.analysis.kinds import TABLE
-    assert set(worker.PATTERNS) == set(TABLE)
     for name, row in TABLE.items():
-        assert list(row.sources) == list(worker.PATTERNS[name]), name
+        assert isinstance(row.sources, tuple), name
 
 
 def test_an_unknown_kind_is_refused_rather_than_given_an_invented_title():
@@ -82,9 +81,11 @@ def test_the_evidence_section_descriptions_are_not_analysis_kinds():
     so they live in their own mapping, checked against that profile rather than floating among the kinds.
     """
     from dashboard.analysis import metadata
+    from dashboard.analysis.kinds import TABLE
     from dashboard.models.molecules import evidence
+
     sections = metadata.EVIDENCE_SECTIONS
     assert set(sections) == set(evidence.PROFILES['carbohydrate'])
-    assert not set(sections) & set(worker.KINDS), 'an evidence section is not an analysis kind'
+    assert not set(sections) & set(TABLE), 'an evidence section is not an analysis kind'
     for name, (title, ideal, units) in sections.items():
         assert title and ideal and units, name

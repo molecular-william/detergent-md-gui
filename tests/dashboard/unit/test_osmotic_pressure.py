@@ -220,7 +220,7 @@ def test_the_kind_is_registered_in_all_four_places():
     from dashboard.analysis.kinds import TABLE
 
     row = TABLE['osmotic-pressure']
-    assert 'osmotic-pressure' in worker.KINDS and row.name == 'osmotic-pressure'
+    assert worker.known('osmotic-pressure') and row.name == 'osmotic-pressure'
     assert list(row.sources) == ['01_simulate/osmotic_condition.json', '01_simulate/plumed.dat',
                                  '01_simulate/solvated.gro', '01_simulate/prod/md_whole.xtc']
     note, units = row.ideal_result, row.units_or_direction

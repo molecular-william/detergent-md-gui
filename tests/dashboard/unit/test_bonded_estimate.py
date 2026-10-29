@@ -264,7 +264,7 @@ def test_the_cross_check_kind_is_registered_in_all_four_places():
     """
     from dashboard.analysis.kinds import TABLE
     row = TABLE['bonded-cross-check']
-    assert 'bonded-cross-check' in worker.KINDS and row.name == 'bonded-cross-check'
+    assert worker.known('bonded-cross-check') and row.name == 'bonded-cross-check'
     assert list(row.sources) == [
         '2_mapping/mapped.gro', '2_mapping/mapped.xtc', '2_mapping/model.json',
         '3_initial_CG/*_ff_inter.itp', '3_initial_CG/*initial*.itp']
