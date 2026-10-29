@@ -4,6 +4,7 @@ from dashboard.execution import protocol
 
 from . import layout as pdc_layout
 from . import segments as pdc_segments
+from . import view as pdc_view
 from .execution.adapters import pdc
 from .web.routes import pdc as pdc_routes
 
@@ -45,6 +46,7 @@ FEATURE = features.Feature(
     create_settings={'pdc': _create_settings},
     readiness={'pdc': _readiness},
     layout=(pdc_layout.register, pdc_segments.register),
+    planned_skips=pdc_view.planned_skips,
     section=('simulations', {
         'slug': 'protein-detergent',
         'label': 'Protein-detergent simulations',

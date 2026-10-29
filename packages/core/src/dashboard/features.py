@@ -63,6 +63,8 @@ class Feature:
     on_run_failed: Callable | None = None
     #: `() -> None` callbacks that add the feature's run layout (stage directories, roles, review order, topology).
     layout: tuple = ()
+    #: `(job, manifest) -> {stage name: reason}` for the stages a queued run of this type will not run.
+    planned_skips: Callable | None = None
 
 
 _features: list[Feature] | None = None
@@ -150,6 +152,16 @@ def create_settings_for(run_type):
 def readiness_for(run_type):
     """The readiness question a feature registered for this run type, or None."""
     return _hook(lambda feature: feature.readiness, run_type)
+
+
+def planned_skips(job, manifest=None):
+    """The stages the run type itself says will not run, or {} when no feature owns this run's type."""
+    for feature in ensure():
+        if feature.planned_skips is not None:
+            answer = feature.planned_skips(job, manifest)
+            if answer:
+                return answer
+    return {}
 
 
 def run_failed(coordinator, jid):
