@@ -476,7 +476,7 @@ Use the commands above; do not re-state worker counts here. Threaded execution i
 
 ### Environment gaps
 
-Tier and area counts are measured in `pytest.ini`; quote a fresh `pytest --collect-only -q` rather than a copy. `dashboard/.venv/bin/ruff check dashboard tests` exits 0; repo-wide `ruff check .` is clean. Two further instruments sit beside the tiers: `scripts/gate_commit.sh <message-file> <paths...>` runs the fast tier and `ruff` over the paths it is given and commits only when both are clean, and `scripts/mutation_check.py` reports which tests notice a one-line change in `dashboard/analysis/` or `dashboard/execution/adapters/` (11 mutants, 10 caught, 1 survived -- the control).
+Tier and area counts are measured in `pytest.ini`; quote a fresh `pytest --collect-only -q` rather than a copy. `.venv/bin/ruff check packages tests` exits 0; repo-wide `ruff check .` is clean. Two further instruments sit beside the tiers: `scripts/gate_commit.sh <message-file> <paths...>` runs the fast tier and `ruff` over the paths it is given and commits only when both are clean, and `scripts/mutation_check.py` reports which tests notice a one-line change in an engine or feature analysis module or execution adapter (11 mutants, 10 caught, 1 survived -- the control).
 
 The two tests that used to skip by design on a missing vendor tree now run, because the Fast_Forward source tree is provisioned and patched:
 

@@ -30,7 +30,9 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
   on the validation blueprint, and `analysis/runs/statistics.py` (the block summary core and validation both report).
 - Still in core by decision: the bonded/dihedral analyses (`bonded-cross-check`, `dihedral-fit`, `bartender-fit`), the
   micelle adapter and its science, the mapping editor, the molecules panel, and `analysis/validation/
-  carbohydrate_targets.py` (a mapping route and the validation analyses both read it).
+  carbohydrate_targets.py` (a mapping route and the validation analyses both read it). The remaining engine-held
+  feature vocabulary is `analysis/metadata.py`'s carbohydrate evidence-section titles, `models/molecules/evidence.py`'s
+  `PROFILE`, and `cli/migrate_run_layout.py`'s legacy pdc stage list; each needs a registry seam before it can move.
 - Feature panels own their browser surface now: the shell loop includes each registered `panels/<id>.html` from the
   feature's template package, links its `styles`, and boots its `panel_modules` (mapping-validation + osmotic from
   detergent_validation, the Complexes panel from detergent_pdc); a deployment without a feature fetches neither its
@@ -59,7 +61,7 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
   `10_backmap`, and a stage the settings rule out has no directory. Two exceptions are recorded in the plan's
   *Notes from implementation*: AA still writes its generated `run.sh`, and osmotic's MDPs still come from
   `osmotic_mdp`.
-- **Run-layout migration** is `dashboard/.venv/bin/python -m dashboard.cli.migrate_run_layout --all --apply`
+- **Run-layout migration** is `.venv/bin/python -m dashboard.cli.migrate_run_layout --all --apply`
   (dry run without `--apply`). Per legacy run it archives `inputs/` and the copied code, or moves a pre-numbering
   pdc stage tree under `stages/`, to `legacy_evidence*.tar.gz`, proves the archive reads back, then writes
   `legacy_layout.json`; `manifest.json` is never rewritten. It has no busy-run guard and iterates in run-name

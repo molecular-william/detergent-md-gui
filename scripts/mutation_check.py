@@ -3,7 +3,7 @@
 
 The fast tier's count says how many tests there are and nothing about which of them would notice a
 change. This applies one mutation at a time from `scripts/mutants.json` to a module under
-`dashboard/analysis/` or `dashboard/execution/adapters/`, runs the test selection that mutant names,
+`analysis/` or `execution/adapters/` (engine or feature, as the mutant's path says), runs the test selection that mutant names,
 and reports whether the suite caught it.
 
     scripts/mutation_check.py [--only <id>] [--json <path>] [--timeout <seconds>]

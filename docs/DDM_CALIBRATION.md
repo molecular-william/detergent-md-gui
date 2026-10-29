@@ -98,7 +98,7 @@ with source hashes.
 
 ## Operation and verification
 
-- Use `dashboard/.venv/bin/python` from the repository root. Tier commands live in `AGENTS.md` (`## Verify`);
+- Use `.venv/bin/python` from the repository root. Tier commands live in `AGENTS.md` (`## Verify`);
   `pytest.ini` owns worker defaults and counts.
 - Maintained AA stages request GPU 0 for nonbonded and PME (`-gpu_id 0 -nb gpu -pme gpu -pmefft gpu`) with one MPI
   rank and eight OpenMP threads. CG leaves PME on CPU and takes its device from the run's setting. Confirm the

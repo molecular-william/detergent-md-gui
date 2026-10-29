@@ -22,7 +22,7 @@ generic adapters. Generated parameters are hypotheses: a fit is an execution fac
 From the repository root:
 
 ```bash
-dashboard/.venv/bin/python -m dashboard       # then open http://127.0.0.1:5000
+.venv/bin/python -m dashboard               # then open http://127.0.0.1:5000
 ```
 
 One coordinator per configured workspace. The checkout selects `workspace/dashboard/` through
@@ -83,10 +83,10 @@ process after changing Python code — routes and models are loaded at start, `s
 ## Verification
 
 ```bash
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast tier
-dashboard/.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser tier
-dashboard/.venv/bin/python -m pytest -m slow -q -n 0                       # slow tier, serial
-dashboard/.venv/bin/ruff check dashboard tests                             # must exit 0
+.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast tier
+.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser tier
+.venv/bin/python -m pytest -m slow -q -n 0                       # slow tier, serial
+.venv/bin/ruff check packages tests                             # must exit 0
 ```
 
 Tier counts and timings are measured in `pytest.ini`; for the current total, quote
