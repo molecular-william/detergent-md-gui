@@ -15,7 +15,6 @@ plausible answer rather than as an error:
   are what join the two enumerations.
 """
 import pytest
-
 from dashboard.execution import devices
 
 SINGLE = '0, NVIDIA GeForce RTX 4090, 24564, GPU-0a1b2c3d-1111-2222-3333-444455556666, 00000000:18:00.0\n'

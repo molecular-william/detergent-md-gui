@@ -8,10 +8,10 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
-
 from dashboard import paths
 from dashboard.execution import tools
 
@@ -73,7 +73,7 @@ def test_search_path_introduces_only_the_workspace_and_declared_directories(tmp_
     inherited = os.environ.get('PATH', '')
     assert composed.endswith(inherited), 'the inherited PATH stays last'
     introduced = [entry for entry in composed[:len(composed) - len(inherited)].split(os.pathsep) if entry]
-    assert introduced == [str(paths.current().project_root / 'dashboard/.venv/bin'), str(tmp_path)]
+    assert introduced == [str(Path(sys.executable).parent), str(tmp_path)]
 
 
 def test_a_provenance_declaration_is_not_treated_as_a_tool(tmp_path, monkeypatch):

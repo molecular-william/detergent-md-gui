@@ -1,5 +1,4 @@
 import pytest
-
 from dashboard.analysis.validation.geometry import block_summary, run
 
 

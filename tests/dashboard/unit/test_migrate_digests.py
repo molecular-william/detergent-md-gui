@@ -7,7 +7,6 @@ that guesses is worse than one that reports.
 import json
 
 import pytest
-
 from dashboard import files, paths
 from dashboard.cli import migrate_digests as migration
 from dashboard.store import Store

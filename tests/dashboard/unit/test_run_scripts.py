@@ -1,6 +1,5 @@
 """The recorded code a run executes, and the refusal when it changed."""
 import pytest
-
 from dashboard.execution import run_scripts
 
 

@@ -7,8 +7,8 @@ trajectory in ångström the way MDAnalysis holds it, so a forgotten conversion 
 """
 import numpy as np
 import pytest
-
 from dashboard.analysis.runs import consistency
+
 from tests.dashboard import support
 
 MAPPING = {

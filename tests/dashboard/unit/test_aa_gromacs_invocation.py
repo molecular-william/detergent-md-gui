@@ -8,7 +8,6 @@ import os
 import subprocess
 
 import pytest
-
 from dashboard.execution.adapters import aa
 
 

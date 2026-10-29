@@ -6,7 +6,6 @@ split, the linkage beads, and the join -- and that the caption says no more than
 """
 
 import pytest
-
 from dashboard.models.compositions import topology
 
 

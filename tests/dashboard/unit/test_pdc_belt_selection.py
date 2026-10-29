@@ -22,10 +22,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from dashboard.execution import pdc_preview
 from dashboard.execution.adapters import pdc_import, pdc_placement
 from dashboard.execution.scripts import pdc_build
+
 from micelle.frame import frame_from_pdb, unit_axis
 from micelle.registry import load_template
 

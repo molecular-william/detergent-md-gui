@@ -12,7 +12,6 @@ fail on the current code for their own reasons -- an unknown kind is given an in
 the evidence sections sit in the kind vocabulary where nothing checks them.
 """
 import pytest
-
 from dashboard.analysis import worker
 
 

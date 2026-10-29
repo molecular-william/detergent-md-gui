@@ -1,4 +1,5 @@
 from dashboard.models.mappings.references import load_index
+
 from tests.dashboard.support import PROJECT_ROOT
 
 

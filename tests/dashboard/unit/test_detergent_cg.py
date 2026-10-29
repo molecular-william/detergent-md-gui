@@ -11,7 +11,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from dashboard.models.molecules import detergent_cg
 
 MOLECULE_ROOT = Path(__file__).resolve().parents[3] / 'molecules'

@@ -16,7 +16,6 @@ orchestrator would be a cycle. It moved to `protocol` rather than being called t
 adapter that writes a plan and the workflow that resumes one read it in the same place.
 """
 import pytest
-
 from dashboard.execution.adapters import cg
 from dashboard.execution.protocol import plan_pairs
 from dashboard.execution.stages import Stage

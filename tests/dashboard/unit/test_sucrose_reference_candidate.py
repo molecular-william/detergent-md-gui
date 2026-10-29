@@ -5,7 +5,6 @@ three physical beads plus a massless ring site, the reference's bead types, the 
 residue the reference puts it on, and one inter-residue connection between the two glycosidic beads.
 """
 import pytest
-
 from dashboard import paths
 from dashboard.models.mappings import context as mapping_context
 from dashboard.models.sugars import candidate, reference

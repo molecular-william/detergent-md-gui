@@ -29,8 +29,10 @@ from pathlib import Path
 
 from dashboard.web import sections
 
+from tests.dashboard.support import PACKAGE
+
 REPO = Path(__file__).resolve().parents[3]
-WEB = REPO / 'dashboard/web'
+WEB = PACKAGE / 'web'
 STATIC = WEB / 'static'
 BROWSER_TESTS = REPO / 'tests/dashboard/browser'
 

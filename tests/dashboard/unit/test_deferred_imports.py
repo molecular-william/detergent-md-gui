@@ -11,12 +11,13 @@ the whole class: a wrong module, a wrong level, or a name the target module does
 import ast
 import importlib
 import importlib.util
-from pathlib import Path
 
 import pytest
 
+from tests.dashboard.support import PACKAGE as PACKAGE_ROOT
+
 PACKAGE = 'dashboard.analysis'
-ROOT = Path(__file__).resolve().parents[3] / 'dashboard/analysis'
+ROOT = PACKAGE_ROOT / 'analysis'
 
 
 def package_name(path):

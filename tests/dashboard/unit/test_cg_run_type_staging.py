@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 
 import pytest
-
+from dashboard.execution import run_scripts
 from dashboard.execution.adapters import cg
 from dashboard.models import mappings
 from dashboard.models.mappings.context import as_structure, build_context
@@ -135,7 +135,7 @@ def test_every_stage_declares_the_repository_script_it_runs():
     scripts = {stage.name: stage.script for stage in cg.stage_definitions(parameterized=True)}
 
     assert all(script.startswith('dashboard/execution/scripts/') for script in scripts.values())
-    assert [name for name, script in scripts.items() if not (PROJECT_ROOT / script).is_file()] == []
+    assert [name for name, script in scripts.items() if not run_scripts.code_path(script, root=PROJECT_ROOT).is_file()] == []
     assert scripts['CG parameterization'] == 'dashboard/execution/scripts/use_parameterization.sh'
     assert {stage.name: stage.script for stage in cg.stage_definitions()}['CG parameterization'] == \
         'dashboard/execution/scripts/fit_topology.sh'

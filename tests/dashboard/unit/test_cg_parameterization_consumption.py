@@ -23,6 +23,8 @@ from dashboard.models.bonded import parameterization
 from dashboard.models.mappings.context import as_structure, build_context
 from dashboard.models.molecules import aa as aa_molecules
 
+from tests.dashboard.support import PACKAGE
+
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 MOLECULES = PROJECT_ROOT / 'molecules'
 REFERENCE = {'source_run_id': '1' * 12, 'sha256': {}}
@@ -189,7 +191,7 @@ def test_a_model_with_no_parameterization_is_fitted_by_the_run_and_the_run_recor
     assert record['source'] == 'fitted by this run, in stage 3, from the AA reference it consumes'
     # The fit's temperature is the run's own setting, handed to the repository script as environment: nothing is
     # stamped into a copy, and the same file fits every run.
-    script = (PROJECT_ROOT / 'dashboard/execution/scripts/fit_topology.sh').read_text()
+    script = (PACKAGE / 'execution/scripts/fit_topology.sh').read_text()
     assert 'RUN_SETTING_TEMPERATURE_K:-300' in script
     assert '-temperature "$FIT_TEMPERATURE"' in script
 
@@ -264,7 +266,7 @@ def test_the_consuming_stage_writes_the_model_terms_and_the_record_that_it_did_n
     (stage / 'parameterization.json').write_text(json.dumps({**REVISION, 'revision': 3,
                                                              'created_at': '2026-01-01T00:00:00+00:00',
                                                              'checks': {'dihedral-fit': {'rows': []}}}))
-    script = PROJECT_ROOT / 'dashboard/execution/scripts/use_parameterization.py'
+    script = PACKAGE / 'execution/scripts/use_parameterization.py'
 
     subprocess.run([sys.executable, str(script)], cwd=stage, check=True,
                    env={'PATH': '/usr/bin', 'FINAL_ITP': 'DDM.itp'})
@@ -289,7 +291,7 @@ def test_the_consuming_stage_writes_the_model_terms_and_the_record_that_it_did_n
 def test_the_stage_refuses_to_run_when_it_was_staged_without_a_parameterization(tmp_path):
     stage = tmp_path / '3_initial_CG'
     stage.mkdir()
-    script = PROJECT_ROOT / 'dashboard/execution/scripts/use_parameterization.py'
+    script = PACKAGE / 'execution/scripts/use_parameterization.py'
     result = subprocess.run([sys.executable, str(script)], cwd=stage, env={'PATH': '/usr/bin'},
                             capture_output=True, text=True)
 
@@ -514,7 +516,7 @@ def run_stage(stage):
     There is no run-local script to pick: `assess.sh` is the repository file recorded in the manifest, and its helpers
     are package modules reached through `PYTHONPATH`.
     """
-    return subprocess.run(['bash', str(PROJECT_ROOT / 'dashboard/execution/scripts/assess.sh')],
+    return subprocess.run(['bash', str(PACKAGE / 'execution/scripts/assess.sh')],
                           cwd=stage, capture_output=True, text=True,
                           env={'PATH': f'{Path(sys.executable).parent}:/usr/bin:/bin',
                                'PYTHON': sys.executable, 'PYTHONPATH': str(PROJECT_ROOT)})
@@ -550,7 +552,7 @@ def test_the_consuming_stage_records_the_baseline_and_refuses_a_changed_one(tmp_
     Defence in depth, and the place a reader looks for what the run's numbers will be measured against: the record the
     stage writes is `parameterization_used.json`, so the baseline is named there beside the terms.
     """
-    script = PROJECT_ROOT / 'dashboard/execution/scripts/use_parameterization.py'
+    script = PACKAGE / 'execution/scripts/use_parameterization.py'
     stage = tmp_path / '3_initial_CG'
     stage.mkdir()
     (stage / 'parameterization.json').write_text(json.dumps({**REVISION, 'revision': 1}))

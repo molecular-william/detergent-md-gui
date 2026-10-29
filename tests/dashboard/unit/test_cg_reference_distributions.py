@@ -14,9 +14,8 @@ from pathlib import Path
 
 import MDAnalysis as mda
 import numpy as np
-from vermouth.molecule import Molecule
-
 from dashboard.models.bonded import parameterization
+from vermouth.molecule import Molecule
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -24,6 +23,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 # `calc_score` both read it, and a reference saved on any other grid is a different measurement of the same thing.
 from fast_forward.interaction_distribution import INTERACTIONS, interaction_distribution  # noqa: E402
 from fast_forward.score import calc_score, score_matrix  # noqa: E402
+
+from tests.dashboard.support import PACKAGE
 
 DISTANCE_BINS = INTERACTIONS['distances']['bins']
 NAMES = ('B01', 'B02', 'B03')
@@ -128,7 +129,7 @@ def test_the_fit_script_asks_ff_inter_for_both_families():
     measured at all -- and neither is `ff_assess`'s to invent. A script that drops one leaves stage 5 with a matrix of
     0.00, so the invocation is pinned beside the shape it must produce.
     """
-    executable = [line for line in (PROJECT_ROOT / 'dashboard/execution/scripts/fit_topology.sh').read_text().splitlines()
+    executable = [line for line in (PACKAGE / 'execution/scripts/fit_topology.sh').read_text().splitlines()
                   if not line.lstrip().startswith('#')]
     invocation = [line for line in executable if line.startswith('ff_inter ')]
 

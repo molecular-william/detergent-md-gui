@@ -10,7 +10,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from dashboard.execution.scripts import pdc_extension, pdc_solvate
 
 TOPOLOGY = ('#include "protein_CG.itp"\n#include "detergent_CG.itp"\n\n[ system ]\nname\n\n[ molecules ]\n'

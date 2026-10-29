@@ -8,11 +8,12 @@ import json
 from pathlib import Path
 
 import pytest
-
-from dashboard.execution import protocol
+from dashboard.execution import protocol, run_scripts
 from dashboard.execution.adapters import osmotic
 
-REPOSITORY = Path(osmotic.__file__).resolve().parents[3]
+from tests.dashboard.support import PROJECT_ROOT
+
+REPOSITORY = PROJECT_ROOT
 
 MAPPING = {'beads': [{'name': 'S1A', 'type': 'SP1r', 'atoms': [1, 2, 3]},
                      {'name': 'S1B', 'type': 'SP4r', 'atoms': [4, 5, 6]},
@@ -115,7 +116,7 @@ def test_the_retry_ceiling_reaches_the_runner_as_data_and_never_as_a_stamped_scr
     manifest = json.loads((tmp_path / 'manifest.json').read_text())
     assert manifest['settings']['osmotic_attempts_max'] == 5
     assert json.loads((stage / 'conditions.json').read_text())['attempts_max'] == 5
-    script = (REPOSITORY / osmotic.OSMOTIC_SCRIPT).read_text()
+    script = run_scripts.code_path(osmotic.OSMOTIC_SCRIPT, root=REPOSITORY).read_text()
     assert 'RUN_SETTING_OSMOTIC_ATTEMPTS_MAX' in script
     assert 'OSMOTIC_ATTEMPTS_MAX="5"' not in script, 'a per-run value is never stamped into the repository script'
     assert not (stage / 'run.sh').exists(), 'the driver is the repository file, not a copy in the run'
@@ -293,7 +294,6 @@ def test_an_output_interval_that_is_not_a_whole_number_of_steps_is_refused():
     """Silently flooring it would write frames at an interval nobody chose, and two conditions in a series would then
     have different windows -- which is what makes their averages incomparable."""
     import pytest
-
     from dashboard.execution.adapters import osmotic_mdp
 
     with pytest.raises(ValueError, match='whole number of'):
@@ -339,7 +339,7 @@ def test_the_placement_writes_a_gro_file_gromacs_can_read(tmp_path):
     # so its outputs are on disk. The return code is not what this test is about, the file it wrote is. The condition
     # is entered the way the series driver enters it: `OSMOTIC_CONDITION` set to the directory it works in. The stage
     # runs the repository script, as the executor does, with the stage directory as its working directory.
-    subprocess.run(['bash', str(REPOSITORY / osmotic.OSMOTIC_SCRIPT)], cwd=stage, capture_output=True, check=False,
+    subprocess.run(['bash', str(run_scripts.code_path(osmotic.OSMOTIC_SCRIPT, root=REPOSITORY))], cwd=stage, capture_output=True, check=False,
                    env={**os.environ, 'GROMACS': str(stub), 'OSMOTIC_CONDITION': str(condition)})
 
     lines = (condition / 'system.gro').read_text().splitlines()

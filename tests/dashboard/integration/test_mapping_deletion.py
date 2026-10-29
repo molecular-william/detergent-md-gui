@@ -10,7 +10,6 @@ These tests drive the real store and the real route -- no stubbed deletion -- in
 `dashboard` fixture built under `tmp_path`; the developer's `workspace/` is never read.
 """
 import pytest
-
 from dashboard.models.bonded import parameterization
 
 TOPOLOGY = ('[ moleculetype ]\nDDM 1\n\n[ atoms ]\n'

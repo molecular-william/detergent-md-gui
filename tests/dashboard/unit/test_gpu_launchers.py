@@ -10,9 +10,9 @@ device**. The fallbacks are the case with no executor and no device named -- thr
 named device 0 would silently overrule a run that chose device 1 whenever the executor failed to export the
 variable.
 """
-from tests.dashboard.support import PROJECT_ROOT
+from tests.dashboard.support import PACKAGE
 
-SCRIPTS = PROJECT_ROOT / 'dashboard/execution/scripts'
+SCRIPTS = PACKAGE / 'execution/scripts'
 
 
 def _mdrun_lines(name):

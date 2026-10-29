@@ -11,12 +11,12 @@ import shutil
 from pathlib import Path
 
 import pytest
-
 from dashboard import files, paths
 from dashboard.analysis.runs import references
 from dashboard.execution import environment, forcefields, run_inputs
 from dashboard.execution.adapters import aa
 from dashboard.models.molecules import aa as aa_molecules
+
 from tests.dashboard import support
 
 

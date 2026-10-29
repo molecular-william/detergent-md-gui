@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import MDAnalysis as mda
 import pytest
-
 from dashboard.analysis.runs import bartender_fit
 
 BEADS = [

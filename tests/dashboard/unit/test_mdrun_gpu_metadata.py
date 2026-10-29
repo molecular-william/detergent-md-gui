@@ -13,11 +13,11 @@ import json
 import subprocess
 
 import pytest
-
 from dashboard.execution import devices, protocol, workflow
 from dashboard.execution.adapters import aa
 from dashboard.models.molecules import aa as aa_molecules
 from dashboard.web import views
+
 from tests.dashboard.support import PROJECT_ROOT
 
 MOLECULES = PROJECT_ROOT / 'molecules'

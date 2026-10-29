@@ -11,7 +11,6 @@ files exist. These tests build exactly that shape and require the reader to choo
 """
 
 import pytest
-
 from dashboard.web import views
 
 STAGE_LOG = '\n'.join([

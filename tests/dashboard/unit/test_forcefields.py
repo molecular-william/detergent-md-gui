@@ -7,7 +7,6 @@ existence of every file an entry promises are all asserted against the filesyste
 from pathlib import Path
 
 import pytest
-
 from dashboard.execution import forcefields
 
 

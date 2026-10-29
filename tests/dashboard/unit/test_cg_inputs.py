@@ -23,7 +23,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from dashboard import martini3
 from dashboard.execution import run_inputs
 from dashboard.execution.adapters import cg
@@ -32,6 +31,8 @@ from dashboard.models import mappings
 from dashboard.models.bonded import parameterization
 from dashboard.models.mappings.context import as_structure, build_context
 from dashboard.models.molecules import aa as aa_molecules
+
+from tests.dashboard.support import PACKAGE
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 MOLECULES = PROJECT_ROOT / 'molecules'
@@ -164,7 +165,7 @@ def test_the_generated_topologies_name_the_installed_files_relative_to_themselve
     assert '#include "DDM.itp"' in system
     # The water box is read where it lives: `cg_simulation.sh` names it through `$PROJECT_ROOT` and nothing is linked
     # into the stage.
-    script = (PROJECT_ROOT / 'dashboard/execution/scripts/cg_simulation.sh').read_text()
+    script = (PACKAGE / 'execution/scripts/cg_simulation.sh').read_text()
     assert 'resources/templates/small_mols_fast_forward/4_CG_sim/inputs/water.gro' in script
     # `relative` keeps the stage's legacy entry-point name; the recorded `script` is the repository file the
     # executor runs.
@@ -186,9 +187,9 @@ def test_the_run_records_the_script_and_modules_each_stage_executes(fitted_run):
     assert set(recorded) == {name for name, _ in manifest['stage_plan']}
     for name, entry in recorded.items():
         verified = run_scripts.verify_one(name, entry, root=PROJECT_ROOT)
-        assert verified == (PROJECT_ROOT / entry['path']).resolve()
+        assert verified == run_scripts.code_path(entry['path'], root=PROJECT_ROOT).resolve()
         command = workflow.stage_command(name, verified)
-        assert command[-1] == str(PROJECT_ROOT / entry['path'])
+        assert command[-1] == str(run_scripts.code_path(entry['path'], root=PROJECT_ROOT))
         assert 'dashboard/execution/scripts/' in command[-1], 'the stage runs the repository script, not a copy'
     assert recorded['CG parameterization']['path'] == 'dashboard/execution/scripts/fit_topology.sh'
     assert recorded['CG simulation']['path'] == 'dashboard/execution/scripts/cg_simulation.sh'
@@ -196,7 +197,7 @@ def test_the_run_records_the_script_and_modules_each_stage_executes(fitted_run):
     modules = manifest['python_modules']
     assert set(modules) == set(cg.MODULES)
     for name, entry in modules.items():
-        assert run_scripts.verify_one(name, entry, root=PROJECT_ROOT) == (PROJECT_ROOT / entry['path']).resolve()
+        assert run_scripts.verify_one(name, entry, root=PROJECT_ROOT) == run_scripts.code_path(entry['path'], root=PROJECT_ROOT).resolve()
     assert modules['dashboard.models.bonded']['path'] == 'dashboard/models/bonded/__init__.py'
 
 

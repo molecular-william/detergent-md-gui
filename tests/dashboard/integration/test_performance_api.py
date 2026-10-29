@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from dashboard import files
 from dashboard.models import mappings
+
 from tests.dashboard.support import physical_mapping
 
 

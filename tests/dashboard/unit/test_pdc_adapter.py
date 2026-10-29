@@ -7,7 +7,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from dashboard import paths
 from dashboard.execution.adapters import pdc
 

@@ -7,7 +7,6 @@ which the paper's method defines as arithmetic over the trajectory -- "the force
 molal, the box is the paper's, and PLUMED's own `KAPPA` is a measurement of this engine rather than a convention.
 """
 import pytest
-
 from dashboard.analysis.runs import osmotic_pressure as op
 from dashboard.analysis.validation.osmotic import pressure_from_force, validate_series
 

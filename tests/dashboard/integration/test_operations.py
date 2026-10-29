@@ -15,7 +15,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from dashboard import files
 from dashboard.execution import workflow
 from dashboard.execution.adapters import aa, cg
@@ -217,7 +216,6 @@ class OperationsTests(unittest.TestCase):
     def test_observables_parse_bond_atom_columns_and_undirected_paths(self):
         import MDAnalysis as mda
         import numpy as np
-
         from dashboard.analysis.runs import observability
         mapping=self.run/'2_mapping'; mapping.mkdir()
         topology=self.run/'3_initial_CG'; topology.mkdir()

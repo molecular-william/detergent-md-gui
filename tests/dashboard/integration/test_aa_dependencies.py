@@ -1,6 +1,5 @@
 """AA sources cannot disappear underneath retained CG consumers."""
 import pytest
-
 from dashboard.store import Store
 
 

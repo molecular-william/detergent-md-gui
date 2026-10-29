@@ -1,8 +1,9 @@
 """Every `trjconv -center` in the pdc scripts is fed the two answers it asks for."""
 import re
-from pathlib import Path
 
-SCRIPTS = Path(__file__).resolve().parents[3] / 'dashboard/execution/scripts'
+from tests.dashboard.support import PACKAGE
+
+SCRIPTS = PACKAGE / 'execution/scripts'
 
 
 def test_a_centering_trjconv_is_given_both_its_answers():

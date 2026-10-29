@@ -17,7 +17,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from dashboard.execution import assessment_rescore
 from dashboard.execution.coordination import errors
 from dashboard.models.bonded import parameterization

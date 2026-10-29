@@ -6,9 +6,10 @@ a relative default `tools/cg2at/cg2at` named a path inside the run, and `-e` was
 now, so it derives the root from its own location (`dashboard/execution/scripts/` is three levels under it) and a caller
 that exports `PROJECT_ROOT` still wins.
 """
-from pathlib import Path
 
-TEMPLATE = Path(__file__).resolve().parents[3] / 'dashboard/execution/scripts/pdc_backmap.sh'
+from tests.dashboard.support import PACKAGE
+
+TEMPLATE = PACKAGE / 'execution/scripts/pdc_backmap.sh'
 ROOT_LINE = 'REPO_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"'
 
 

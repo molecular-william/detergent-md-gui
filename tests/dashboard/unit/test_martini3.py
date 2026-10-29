@@ -8,7 +8,6 @@ reason the install exists rather than a copy per stage.
 import json
 
 import pytest
-
 from dashboard import martini3, paths
 from dashboard.execution import run_inputs
 

@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 
 from dashboard.execution.adapters import pdc
+
 from tests.dashboard.pdc_fixtures import inputs_dir, prepared_run, script_of
 
 BACKMAP = 'Back-mapping (CG2AT2)'

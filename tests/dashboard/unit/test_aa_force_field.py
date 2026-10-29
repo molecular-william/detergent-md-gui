@@ -9,11 +9,11 @@ import json
 from pathlib import Path
 
 import pytest
-
 from dashboard import files
 from dashboard.execution import forcefields
 from dashboard.execution.adapters import aa
 from dashboard.models.molecules import aa as aa_molecules
+
 from tests.dashboard import support
 
 

@@ -6,7 +6,6 @@ arithmetic, and that is checked against the step count the file itself states.
 import re
 
 import pytest
-
 from dashboard.execution.adapters import osmotic_mdp
 
 #: What the tests confine. Every mdp call goes through `mdps()` so the count is stated once, and the per-molecule

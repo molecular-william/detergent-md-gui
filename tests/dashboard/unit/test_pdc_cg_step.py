@@ -30,9 +30,9 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from dashboard.execution.adapters import pdc
 from dashboard.execution.scripts import pdc_build
+
 from tests.dashboard.pdc_fixtures import prepared_run, system_stage
 
 TEMPLATE = {

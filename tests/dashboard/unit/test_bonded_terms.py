@@ -2,7 +2,6 @@
 import MDAnalysis as mda
 import numpy as np
 import pytest
-
 from dashboard.analysis.runs import bonded_terms
 
 TOPOLOGY = """[ moleculetype ]

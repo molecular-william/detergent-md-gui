@@ -3,9 +3,9 @@ import shutil
 from pathlib import Path
 
 import pytest
-
 from dashboard.execution import workflow
 from dashboard.models.molecules import aa as aa_molecules
+
 from tests.dashboard.support import PROJECT_ROOT
 
 

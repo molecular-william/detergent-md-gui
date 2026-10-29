@@ -4,13 +4,14 @@ import json
 from pathlib import Path
 
 import pytest
-
 from dashboard.execution.adapters import cg
 from dashboard.execution.adapters.cg_names import CGNames
 from dashboard.execution.environment import TUTORIAL_TEMPLATE
 from dashboard.models import mappings
 from dashboard.models.mappings.context import as_structure, build_context
 from dashboard.models.molecules import draft as draft_model
+
+from tests.dashboard.support import PACKAGE
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -81,7 +82,7 @@ def test_the_temperature_is_the_runs_setting_and_is_rounded_for_ff_inter():
     """`ff_inter` declares `-temperature` an int, so a fractional run temperature would make it exit before fitting
     anything. The script rounds for that one argument and reads the number from the run's environment: nothing is
     stamped into a per-run copy."""
-    script = (PROJECT_ROOT / 'dashboard/execution/scripts/fit_topology.sh').read_text()
+    script = (PACKAGE / 'execution/scripts/fit_topology.sh').read_text()
     executable = [line for line in script.splitlines() if not line.lstrip().startswith('#')]
 
     assert 'FIT_TEMPERATURE=$(printf \'%.0f\' "${RUN_SETTING_TEMPERATURE_K:-300}")' in executable
@@ -97,7 +98,7 @@ def test_the_topology_stage_lets_fast_forward_constrain_its_stiffest_bonds():
     constant does at a 20 fs timestep. This pins the flag so a later edit cannot quietly switch it off again;
     the executable lines only, because the comment above the line names the old value to explain it.
     """
-    script = (PROJECT_ROOT / 'dashboard/execution/scripts/fit_topology.sh').read_text()
+    script = (PACKAGE / 'execution/scripts/fit_topology.sh').read_text()
     executable = '\n'.join(line for line in script.splitlines() if not line.lstrip().startswith('#'))
 
     assert '-constraints 10000' in executable, "FF's own default: a bond above k=10000 becomes a constraint"

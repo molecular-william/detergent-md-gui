@@ -23,11 +23,10 @@ import json
 import re
 import time
 
-from playwright.sync_api import expect
-
 from dashboard.models import mappings
 from dashboard.models.bonded import parameterization
 from dashboard.models.mappings import context as mapping_context
+from playwright.sync_api import expect
 
 from . import panels
 

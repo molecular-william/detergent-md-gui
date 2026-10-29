@@ -8,7 +8,6 @@ registry now carries values for.
 from pathlib import Path
 
 import pytest
-
 from dashboard.analysis.validation import carbohydrate_targets, osmotic, targets
 
 ROOT = Path(__file__).resolve().parents[3]

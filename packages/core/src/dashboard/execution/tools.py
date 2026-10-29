@@ -8,8 +8,8 @@ a different build of the same tool would turn a run's recorded provenance into a
 guess.
 
 Nothing here hard-codes a home directory or a build tree. The search path is the
-workspace's own virtualenv bin directory, the directories of declared tools, and
-the inherited PATH last.
+bin directory of the interpreter running the dashboard, the directories of declared
+tools, and the inherited PATH last.
 """
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from .. import files, paths
@@ -116,8 +117,8 @@ def _declared_directory(declared_value: str) -> Path | None:
 
 
 def search_path() -> str:
-    """The PATH for stage subprocesses: this workspace first, never a home directory."""
-    entries = [str(paths.current().project_root / 'dashboard/.venv/bin')]
+    """The PATH for stage subprocesses: the running interpreter's bin first, never a home directory."""
+    entries = [str(Path(sys.executable).parent)]
     for declared_value in tool_declarations().values():
         directory = _declared_directory(declared_value)
         if directory is not None:

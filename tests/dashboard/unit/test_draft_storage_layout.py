@@ -12,7 +12,6 @@ they use the same validator and the same containment check as every other record
 import json
 
 import pytest
-
 from dashboard.models.mappings import store as candidate_store
 
 

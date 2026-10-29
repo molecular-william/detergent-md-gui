@@ -8,7 +8,6 @@ ring sizes; fragment order does not.
 """
 
 import pytest
-
 from dashboard import paths
 from dashboard.models.mappings import context as mapping_context
 from dashboard.models.sugars import recognition

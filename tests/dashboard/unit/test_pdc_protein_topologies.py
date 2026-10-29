@@ -24,6 +24,7 @@ from pathlib import Path
 from dashboard.execution import workflow
 from dashboard.execution.adapters import pdc
 from dashboard.execution.scripts import pdc_build
+
 from tests.dashboard.pdc_fixtures import prepared_run, stage_dir, write_gro
 
 #: martinize2's own output for a protein it split into two molecules, with a count that is not 1: the counts are the

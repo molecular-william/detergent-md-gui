@@ -13,10 +13,11 @@ with) and the historical digests of documents that are already on disk.
 """
 import ast
 import json
-from pathlib import Path
 
 from dashboard.models.compositions import topology
 from dashboard.models.mappings import identity
+
+from tests.dashboard.support import PACKAGE
 
 LEGACY_V2 = {'schema_version': 2, 'name': 'legacy',
              'beads': [{'name': 'A', 'size': 'R', 'type': 'P1', 'atoms': [1]}],
@@ -27,7 +28,7 @@ BOUND_V3 = {**LEGACY_V2, 'schema_version': 3, 'molecule_id': 'DDM',
 V2_IDENTITY = '9b687ef22a6f2719c874619129dbd58f1f7b6e3adca9d0d71a07b4af14fa808e'
 V2_CONTENT = '36df01e018007cbc9ca837a28c6e6e1c40cdc42ea8663c89299abf2724fb6b6f'
 V3_IDENTITY = 'a486b49df646f76e80914e36b2df71441c85122b274a1128f3f8ab3ee9acb88b'
-MODELS = Path('dashboard/models')
+MODELS = PACKAGE / 'models'
 
 
 def test_a_candidate_that_differs_only_in_molecule_id_hashes_differently():

@@ -8,7 +8,6 @@ import json
 import MDAnalysis as mda
 import numpy as np
 import pytest
-
 from dashboard.analysis import worker
 from dashboard.analysis.runs import bonded_estimate
 

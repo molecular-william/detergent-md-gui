@@ -10,9 +10,8 @@ makes it rather than only drawing a control. The response is routed, so no run i
 """
 import re
 
-from playwright.sync_api import expect
-
 from dashboard import files
+from playwright.sync_api import expect
 
 ASSESSED = 'abcdef123456'
 UNASSESSED = 'abcdef654321'

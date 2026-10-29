@@ -8,7 +8,6 @@ must go through the protocol, and the worker must not re-implement readiness.
 import inspect
 
 import pytest
-
 from dashboard.execution import workflow
 from dashboard.execution.coordination import admission, coordinator
 

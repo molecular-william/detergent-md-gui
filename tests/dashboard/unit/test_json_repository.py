@@ -1,6 +1,5 @@
 
 import pytest
-
 from dashboard.models.repository import JsonRepository
 
 

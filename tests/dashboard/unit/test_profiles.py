@@ -8,7 +8,6 @@ equilibration and 10000 ps production: the CG composition derived the AA duratio
 from AA settings that had no profile to begin with.
 """
 import pytest
-
 from dashboard.execution.adapters import aa, cg
 
 

@@ -22,7 +22,6 @@ from pathlib import Path
 import MDAnalysis as mda
 import numpy as np
 import pytest
-
 from dashboard import martini3
 from dashboard.execution.adapters import cg
 from dashboard.models import mappings

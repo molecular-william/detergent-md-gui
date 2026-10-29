@@ -9,7 +9,6 @@ back to asking the drafts on disk rather than guessing.
 import json
 
 import pytest
-
 from dashboard.models import mappings
 from dashboard.models.bonded import parameterization
 

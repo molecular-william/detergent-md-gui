@@ -2,7 +2,6 @@ import json
 
 import numpy as np
 import pytest
-
 from dashboard.execution.adapters import cg
 from dashboard.models import bonded, mappings
 from dashboard.models.mappings import store as mapping_store

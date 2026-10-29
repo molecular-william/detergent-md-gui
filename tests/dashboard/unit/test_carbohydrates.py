@@ -5,12 +5,12 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from dashboard.execution import tools
 from dashboard.models import mappings, sugars
 from dashboard.models.mappings import depiction
 from dashboard.models.mappings import store as mapping_store
 from dashboard.models.molecules import draft as draft_model
+
 from tests.dashboard.support import fast_forward_source
 
 

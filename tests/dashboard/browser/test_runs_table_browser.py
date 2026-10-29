@@ -1,7 +1,6 @@
 """Runs layout and inline resources, against an isolated dashboard database."""
-from playwright.sync_api import expect
-
 from dashboard import files
+from playwright.sync_api import expect
 
 from . import panels
 

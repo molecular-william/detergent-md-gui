@@ -6,7 +6,11 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+#: The data root: the checkout that holds `config/`, `molecules/`, `references/` and `resources/`. The package
+#: lives at `packages/core/src/dashboard` in this repository and in site-packages once installed, so the root is
+#: named by `DASHBOARD_ROOT` when it is set and derived from the repository layout otherwise.
+PROJECT_ROOT = (Path(os.environ['DASHBOARD_ROOT']).expanduser().resolve() if os.environ.get('DASHBOARD_ROOT')
+                else Path(__file__).resolve().parents[4])
 PACKAGE_ROOT = Path(__file__).resolve().parent
 
 

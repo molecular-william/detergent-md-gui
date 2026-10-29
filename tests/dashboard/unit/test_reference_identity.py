@@ -10,7 +10,6 @@ import hashlib
 import json
 
 import pytest
-
 from dashboard.analysis.runs import references
 
 METADATA = {'force_field': 'charmm36-jul2022', 'water_model': 'tip3p', 'molecule_type': 'protein', 'net_charge': 0}

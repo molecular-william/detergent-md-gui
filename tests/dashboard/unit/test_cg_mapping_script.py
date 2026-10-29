@@ -15,8 +15,10 @@ import MDAnalysis as mda
 import numpy as np
 import pytest
 
+from tests.dashboard.support import PACKAGE
+
 ROOT = Path(__file__).resolve().parents[3]
-SCRIPT = ROOT / 'dashboard/execution/scripts/sugar_mapping.py'
+SCRIPT = PACKAGE / 'execution/scripts/sugar_mapping.py'
 # Two beads of two atoms each, and no rings: bead A is atoms 1-2, bead B is atoms 3-4.
 MODEL = {'beads': [{'name': 'A', 'export_name': 'B01', 'atoms': [1, 2]},
                    {'name': 'B', 'export_name': 'B02', 'atoms': [3, 4]}]}

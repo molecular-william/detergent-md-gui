@@ -11,7 +11,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from dashboard import files
 from dashboard.execution.adapters import aa, cg
 from dashboard.models import mappings

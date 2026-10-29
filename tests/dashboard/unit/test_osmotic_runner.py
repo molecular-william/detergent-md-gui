@@ -22,7 +22,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from dashboard.execution.adapters import osmotic
 
 SCRIPTS = Path(osmotic.__file__).resolve().parents[1] / 'scripts'

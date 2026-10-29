@@ -16,8 +16,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from dashboard.execution.adapters import pdc, pdc_box, pdc_placement
+
 from micelle.packing import pack_micelle
 from micelle.registry import load_template
 from tests.dashboard.pdc_fixtures import candidate_file, settings_of, system_stage, write_cg_pdb

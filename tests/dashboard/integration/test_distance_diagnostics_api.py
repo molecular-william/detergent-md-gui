@@ -37,7 +37,7 @@ def test_the_stage_contract_requires_only_the_stratified_file():
 
 def test_the_writer_emits_only_the_stratified_file():
     """The script's __main__ block is its whole writer; the duplicate name is gone from it."""
-    source = (paths.PROJECT_ROOT / 'dashboard/execution/scripts/distance_diagnostics.py').read_text()
+    source = (paths.PACKAGE_ROOT / 'execution/scripts/distance_diagnostics.py').read_text()
     writes = [line for line in source.splitlines() if '.write_text(' in line and 'json.dumps' in line]
     assert len(writes) == 1, writes
     assert 'distance_diagnostics_stratified.json' in writes[0]

@@ -6,12 +6,12 @@ import json
 import shutil
 
 import pytest
-
 from dashboard import files
 from dashboard.analysis.runs import references as aa_references
 from dashboard.execution.adapters import aa, cg
 from dashboard.models import mappings
 from dashboard.models.molecules import aa as aa_molecules
+
 from tests.dashboard.support import PROJECT_ROOT
 
 

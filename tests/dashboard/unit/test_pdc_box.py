@@ -5,7 +5,6 @@ ends up at least 20 A from the system. Those are claims about numbers, so they a
 through a run.
 """
 import pytest
-
 from dashboard.execution.adapters import pdc_box
 
 

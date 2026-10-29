@@ -24,7 +24,6 @@ one test that runs its defaults, or the defaults are only ever exercised by the 
 import inspect
 
 import pytest
-
 from dashboard.execution.adapters import aa, cg
 
 

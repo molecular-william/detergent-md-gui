@@ -22,7 +22,7 @@
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
-PY="$ROOT/dashboard/.venv/bin/python"
+PY="$ROOT/.venv/bin/python"
 OUT="${TMPDIR:-/tmp}"
 
 if [ $# -lt 2 ]; then

@@ -1,5 +1,6 @@
 from dashboard.models.mappings import depiction
 from dashboard.models.mappings.context import build_context
+
 from tests.dashboard.unit.test_mapping_context import _write_fixture
 
 

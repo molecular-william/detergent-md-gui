@@ -4,12 +4,12 @@ import shutil
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-
 from dashboard import files
 from dashboard.analysis.runs import references as aa_references
 from dashboard.execution import forcefields, run_inputs
 from dashboard.execution.adapters import aa
 from dashboard.models.molecules import aa as aa_molecules
+
 from tests.dashboard.support import PROJECT_ROOT
 
 

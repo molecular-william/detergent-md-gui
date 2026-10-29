@@ -1,7 +1,9 @@
 from pathlib import Path
 
+from tests.dashboard.support import PACKAGE
+
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-SCRIPTS = PROJECT_ROOT / 'dashboard/execution/scripts'
+SCRIPTS = PACKAGE / 'execution/scripts'
 
 
 def test_run_local_cg_helpers_use_molecule_naming_environment():

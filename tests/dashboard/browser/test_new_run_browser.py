@@ -1,9 +1,9 @@
 """New run directory selection against the real API; simulation worker disabled."""
 import shutil
 
+from dashboard.execution.adapters import cg
 from playwright.sync_api import expect
 
-from dashboard.execution.adapters import cg
 from tests.dashboard.support import PROJECT_ROOT
 
 from . import panels

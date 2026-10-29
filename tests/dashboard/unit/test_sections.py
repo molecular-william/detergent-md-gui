@@ -8,7 +8,6 @@ The registry is also the answer to "where does a new panel go" -- a panel is add
 and giving it a label, and the tests below fail if either half is missing.
 """
 import pytest
-
 from dashboard.web.sections import PANEL_BLURBS, PANELS, PLANNED, SECTIONS, panel_glyph, panel_label, section_by_slug, section_for, tabs_for
 
 

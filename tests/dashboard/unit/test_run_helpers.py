@@ -9,11 +9,11 @@ refuses the stage instead of silently running other code.
 import json
 
 import pytest
-
 from dashboard import files
 from dashboard.execution import run_scripts
 from dashboard.execution.adapters import aa
 from dashboard.models.molecules import aa as aa_molecules
+
 from tests.dashboard.support import PROJECT_ROOT
 
 #: The code an AA stage executes, by the name the manifest gives it. Pinned here rather than read from the adapter,
@@ -42,8 +42,8 @@ def test_a_prepared_run_holds_no_python_and_names_the_modules_it_executes(prepar
     recorded = manifest['python_modules']
     assert {name: entry['path'] for name, entry in recorded.items()} == MODULES
     for name, entry in recorded.items():
-        assert entry['sha256'] == files.sha256(PROJECT_ROOT/entry['path'])
-        assert run_scripts.verify_one(name, entry, root=PROJECT_ROOT) == PROJECT_ROOT/entry['path']
+        assert entry['sha256'] == files.sha256(run_scripts.code_path(entry['path'], root=PROJECT_ROOT))
+        assert run_scripts.verify_one(name, entry, root=PROJECT_ROOT) == run_scripts.code_path(entry['path'], root=PROJECT_ROOT)
     # The generated stage scripts execute the module where it lives rather than a copy beside them.
     text = '\n'.join(path.read_text() for path in (prepared/'stages').rglob('run.sh'))
     assert ' -m dashboard.analysis.runs.references ' in text

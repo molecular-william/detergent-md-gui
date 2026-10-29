@@ -6,7 +6,6 @@ definitions rather than as remembered constants.
 """
 
 import pytest
-
 from dashboard.execution.adapters import osmotic_box
 
 

@@ -7,7 +7,6 @@ record is the number the run will use, so the fix is in the normalizer (counts a
 tolerant of a whole number that arrived through a float, which is what every record written before this carries.
 """
 import pytest
-
 from dashboard.execution.adapters import pdc
 
 

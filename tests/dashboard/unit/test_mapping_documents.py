@@ -1,8 +1,8 @@
 import pytest
-
 from dashboard.models import mappings
 from dashboard.models.mappings import store as mapping_store
 from dashboard.models.mappings.context import build_context
+
 from tests.dashboard.unit.test_mapping_context import _write_fixture
 
 

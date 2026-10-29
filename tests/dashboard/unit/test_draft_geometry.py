@@ -13,7 +13,6 @@ from __future__ import annotations
 import math
 
 import pytest
-
 from dashboard.analysis.runs import draft_geometry
 
 SIDE = 0.30

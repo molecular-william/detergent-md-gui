@@ -16,10 +16,9 @@ therefore weaker than a round trip on purpose: for arbitrary text the answer mus
 beads, and reading must never raise.
 """
 import pytest
+from dashboard.analysis.runs import transferability
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-
-from dashboard.analysis.runs import transferability
 
 PROFILE = settings(max_examples=150, deadline=None, suppress_health_check=(HealthCheck.too_slow,))
 

@@ -1,5 +1,4 @@
 import pytest
-
 from dashboard.analysis.validation.transfer import build_protocol, lambda_windows, parse_bar, run
 
 

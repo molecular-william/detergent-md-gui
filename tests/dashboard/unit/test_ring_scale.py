@@ -11,7 +11,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from dashboard.models import mappings
 from dashboard.models.mappings import schema
 from dashboard.models.molecules import detergent_cg

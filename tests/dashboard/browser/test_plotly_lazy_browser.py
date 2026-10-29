@@ -24,9 +24,9 @@ E. The Mapping Validation panel's text does not wait for the bundle: its tables 
 Every assertion about the bundle's URL derives it from `meta[name="plotly-src"]`, which the template writes
 from the route: the URL is defined in one place and the tests read that place rather than repeating it.
 """
+from dashboard.models import mappings
 from playwright.sync_api import expect
 
-from dashboard.models import mappings
 from tests.dashboard.browser.test_mapping_validation_browser import publish, publish_cross_check
 
 

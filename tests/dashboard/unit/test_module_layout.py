@@ -16,7 +16,6 @@ import ast
 import importlib
 import pathlib
 import pkgutil
-from pathlib import Path
 
 import pytest
 
@@ -154,11 +153,13 @@ def test_run_preparation_scripts_are_present():
     `finalize_mapping.py` is not among them any more: it existed to check and re-time bundled `ff_map` output, and
     the one mapper that has ever run here writes its own times and records its own check.
     """
-    from dashboard.execution import environment
+    from dashboard import paths as dashboard_paths
     from dashboard.execution.adapters import cg
 
     assert cg.SCRIPTS.is_dir(), f'{cg.SCRIPTS} is not a directory'
-    assert cg.SCRIPTS == Path(environment.ROOT / 'dashboard/execution/scripts')
+    # The scripts are the package's, not the data root's: the package lives under packages/core/src when the
+    # dashboard runs from a checkout, and in site-packages when it is installed.
+    assert cg.SCRIPTS == dashboard_paths.PACKAGE_ROOT / 'execution/scripts'
     modules = ('refine_bonded.py', 'sugar_mapping.py', 'prepare_ring_constraints.py', 'use_parameterization.py',
                'validate_run.py', 'distance_diagnostics.py')
     assert [name for name in modules if not (cg.SCRIPTS / name).is_file()] == []

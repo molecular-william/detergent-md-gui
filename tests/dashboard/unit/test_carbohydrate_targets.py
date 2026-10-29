@@ -1,7 +1,6 @@
 import json
 
 import pytest
-
 from dashboard.analysis.validation.carbohydrate_targets import catalog, validate_selection
 from dashboard.models.molecules.evidence import evaluate
 

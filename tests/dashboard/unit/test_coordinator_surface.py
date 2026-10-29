@@ -6,7 +6,6 @@ listing is the store's listing. Eight of them went. The four that stay each enfo
 something -- this pins that they keep saying what.
 """
 import pytest
-
 from dashboard.execution.coordination.coordinator import Coordinator
 
 FORWARDS = ('load', 'save', 'update_job', 'update_analysis', 'analysis_dependencies',

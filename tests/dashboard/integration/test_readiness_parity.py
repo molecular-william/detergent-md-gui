@@ -18,7 +18,6 @@ asks about). The real environment end to end is asked once, in
 `tests/dashboard/integration/test_readiness_aa_cg_profile.py::test_the_readiness_route_asks_about_the_profile_the_run_type_runs_under`.
 """
 import pytest
-
 from dashboard.execution import environment
 from dashboard.execution.adapters import aa, cg
 from dashboard.execution.protocol import adapter_for

@@ -1,10 +1,9 @@
 """Browser proof for run-specific figure selection, zoom, and display-only beads."""
 import json
 
-from playwright.sync_api import expect
-
 from dashboard.models import mappings
 from dashboard.models.mappings import context as mapping_context
+from playwright.sync_api import expect
 
 
 def test_run_figure_tabs_zoom_and_mapping_display(dashboard, live_page):

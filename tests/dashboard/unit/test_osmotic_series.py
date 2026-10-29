@@ -22,15 +22,16 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from dashboard.execution.adapters import osmotic
+
+from tests.dashboard.support import PROJECT_ROOT
 
 MAPPING = {'beads': [{'name': 'S1A', 'type': 'SP1r', 'atoms': [1, 2, 3]},
                      {'name': 'S1B', 'type': 'SP4r', 'atoms': [4, 5, 6]},
                      {'name': 'S1C', 'type': 'SP1r', 'atoms': [7, 8, 9]},
                      {'name': 'VS1', 'type': 'TC4', 'atoms': []}]}
 
-REPOSITORY = Path(osmotic.__file__).resolve().parents[3]
+REPOSITORY = PROJECT_ROOT
 
 
 def molecule_root(tmp_path, *names):

@@ -2,9 +2,8 @@
 import json
 import re
 
-from playwright.sync_api import expect
-
 from dashboard.models import mappings
+from playwright.sync_api import expect
 
 
 def test_tab_switch_preserves_form_and_mapping_edits(dashboard, live_page):

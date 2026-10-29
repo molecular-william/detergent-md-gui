@@ -1,6 +1,5 @@
 
 import pytest
-
 from dashboard.cli.reset_workspace import reset_workspace
 
 

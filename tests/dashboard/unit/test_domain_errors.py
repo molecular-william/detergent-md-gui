@@ -5,14 +5,14 @@ these modules cannot name an HTTP status code at all, so a failure has to be des
 in the vocabulary of the run lifecycle and mapped once, in the web layer.
 """
 import ast
-from pathlib import Path
 
 import pytest
-
 from dashboard.execution.coordination import errors
 from dashboard.web.routes import common
 
-LIFECYCLE = Path('dashboard/execution/coordination')
+from tests.dashboard.support import PACKAGE
+
+LIFECYCLE = PACKAGE / 'execution/coordination'
 MODULES = ('coordinator.py', 'worker.py', 'analysis_coordinator.py', 'admission.py')
 
 

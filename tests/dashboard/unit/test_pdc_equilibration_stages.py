@@ -22,6 +22,7 @@ from pathlib import Path
 
 from dashboard.execution.adapters import pdc
 from dashboard.execution.environment import ROOT
+
 from tests.dashboard.pdc_fixtures import inputs_dir, prepared_run, script_of
 
 TEMPLATE = {

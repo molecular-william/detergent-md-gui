@@ -20,10 +20,9 @@ Three properties over settings the adapter's own normalizer accepted:
 from pathlib import Path
 
 import pytest
+from dashboard.execution.adapters import aa, cg
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-
-from dashboard.execution.adapters import aa, cg
 
 PROFILE = settings(max_examples=40, deadline=None,
                   suppress_health_check=(HealthCheck.too_slow, HealthCheck.function_scoped_fixture))

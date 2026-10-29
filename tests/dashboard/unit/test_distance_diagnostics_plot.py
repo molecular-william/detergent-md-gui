@@ -12,7 +12,9 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'dashboard/execution/scripts'))
+from tests.dashboard.support import PACKAGE
+
+sys.path.insert(0, str(PACKAGE / 'execution/scripts'))
 import distance_diagnostics as diagnostics  # noqa: E402
 
 

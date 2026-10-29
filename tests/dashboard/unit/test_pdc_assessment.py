@@ -7,7 +7,6 @@ whose answer a reader can see by hand.
 from __future__ import annotations
 
 import pytest
-
 from dashboard.execution.adapters import pdc_assessment
 
 

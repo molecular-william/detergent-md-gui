@@ -9,7 +9,7 @@ import os
 import subprocess
 import sys
 
-from dashboard.execution import run_inputs
+from dashboard.execution import run_inputs, run_scripts
 from dashboard.execution.adapters import composition
 from dashboard.execution.environment import ROOT
 from dashboard.models import compositions
@@ -27,10 +27,10 @@ def test_each_composition_stage_runs_a_repository_script():
         'dashboard/execution/scripts/composition_assessment.sh',
         'dashboard/execution/scripts/composition_sasa.sh']
     for stage in composition.STAGE_DEFS:
-        assert (ROOT / stage.script).is_file(), stage.script
+        assert run_scripts.code_path(stage.script, root=ROOT).is_file(), stage.script
         # The stub says it executed nothing, in its own words -- a screening run must not look like MD.
         if stage.name != 'CG simulation':
-            assert 'executed' in (ROOT / stage.script).read_text()
+            assert 'executed' in run_scripts.code_path(stage.script, root=ROOT).read_text()
 
 
 def test_composition_screening_is_declared_and_its_scripts_are_recorded(tmp_path, monkeypatch):
@@ -75,7 +75,7 @@ def test_composition_screening_is_declared_and_its_scripts_are_recorded(tmp_path
     # Run the three repository scripts for real, with the stage directory as the working directory.
     env = {**os.environ, 'PYTHON': sys.executable}
     for stage in composition.STAGE_DEFS:
-        completed = subprocess.run(['bash', str(ROOT / stage.script)], capture_output=True, text=True, check=False,
+        completed = subprocess.run(['bash', str(run_scripts.code_path(stage.script, root=ROOT))], capture_output=True, text=True, check=False,
                                    cwd=(stages / stage.relative).parent, env=env)
         assert completed.returncode == 0, completed.stderr
     assert (stages / '1_CG-simulation' / 'cg.gro').read_text() == 'placeholder'

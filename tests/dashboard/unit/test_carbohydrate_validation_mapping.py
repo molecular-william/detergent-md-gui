@@ -1,7 +1,6 @@
 import copy
 
 import pytest
-
 from dashboard.models import mappings
 from dashboard.models.sugars.validation import derive_representation, validate_representation
 

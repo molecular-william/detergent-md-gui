@@ -24,7 +24,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+from dashboard.execution import run_scripts
 from dashboard.execution.adapters import pdc
+
+from tests.dashboard.support import PROJECT_ROOT
 
 #: The repository's own scripts: a stage runs one of these from its directory, and the manifest records it by path.
 SCRIPTS = Path(pdc.__file__).resolve().parents[1] / 'scripts'
@@ -86,8 +89,7 @@ def stage_dir(run: Path, stage_name: str) -> Path:
 
 def script_of(stage_name: str) -> Path:
     """The repository script a stage runs."""
-    repository = Path(pdc.__file__).resolve().parents[3]
-    return repository / pdc.stage_by_name(stage_name).script
+    return run_scripts.code_path(pdc.stage_by_name(stage_name).script, root=PROJECT_ROOT)
 
 
 def inputs_dir(run: Path) -> Path:

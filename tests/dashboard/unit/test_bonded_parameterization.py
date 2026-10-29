@@ -11,7 +11,6 @@ written into the isolated workspace the `dashboard` fixture selects.
 import json
 
 import pytest
-
 from dashboard.models import mappings
 from dashboard.models.bonded import parameterization
 

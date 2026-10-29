@@ -38,7 +38,7 @@ from pathlib import Path
 from .. import files
 from ..analysis.runs import layout
 from ..models.bonded import parameterization
-from . import environment
+from . import environment, run_scripts
 from .adapters import cg
 from .coordination import errors
 
@@ -194,7 +194,8 @@ def _prepare(coordinator, jid):
                        'source': (f"revision {revision.get('revision')} of this run's mapping parameterization")},
         # The repository code the attempt runs, named by path and digest instead of copied into the attempt
         # directory: the executor's own rule, applied to a stage that is re-entered rather than prepared.
-        'scripts': {relative: files.sha256(environment.ROOT / relative) for relative in SCRIPTS},
+        'scripts': {relative: files.sha256(run_scripts.code_path(relative, root=environment.ROOT))
+                    for relative in SCRIPTS},
     }
     files.atomic_json(directory / 'attempt.json', attempt)
     return attempt
@@ -247,7 +248,7 @@ def _execute(coordinator, jid, attempt):
 
 def _execute_script(directory, log, env):
     """`(exit_code, error)`: the stage script's exit status, and why it could not be started when it could not."""
-    command = ['bash', '-e', '-o', 'pipefail', str(environment.ROOT / ASSESS_SCRIPT)]
+    command = ['bash', '-e', '-o', 'pipefail', str(run_scripts.code_path(ASSESS_SCRIPT, root=environment.ROOT))]
     with Path(log).open('a') as output:
         output.write(f'$ {shlex.join(command)}\n')
         output.write(json.dumps({'environment': {key: env.get(key) for key in

@@ -9,11 +9,16 @@ The old names are re-exported for one commit while the importing files move over
 """
 from pathlib import Path
 
+from dashboard import paths as dashboard_paths
 from werkzeug.serving import WSGIRequestHandler
 
 from tests.dashboard.factory import Dashboard, build
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+#: The dashboard package itself. It lives at `packages/core/src/dashboard` in this repository and in
+#: site-packages once installed, so tests name it through the package rather than through the checkout.
+PACKAGE = dashboard_paths.PACKAGE_ROOT
 
 #: The vendored Fast_Forward tree; not part of every checkout, which is why lookups may return None.
 FAST_FORWARD_ROOT = PROJECT_ROOT / 'resources/parameterizers/fast_forward/fast_forward'

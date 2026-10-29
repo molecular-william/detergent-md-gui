@@ -23,7 +23,6 @@ import stat
 import sys
 
 import pytest
-
 from dashboard.execution import environment as environment_module
 
 #: A timestamp every case below sets explicitly, so a rewrite is a *different* file by mtime

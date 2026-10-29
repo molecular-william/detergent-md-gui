@@ -8,10 +8,10 @@ import zipfile
 
 import numpy as np
 import pytest
-from rdkit import Chem
-
 from dashboard.models import mappings
 from dashboard.models.mappings import depiction
+from rdkit import Chem
+
 from tests.dashboard.support import fast_forward_source, physical_mapping
 
 

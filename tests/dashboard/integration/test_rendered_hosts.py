@@ -16,8 +16,10 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+from tests.dashboard.support import PACKAGE
+
 REPO = Path(__file__).resolve().parents[3]
-STATIC = REPO / 'dashboard/web/static/js'
+STATIC = PACKAGE / 'web/static/js'
 
 #: `const host = $('.x', card)` / `$$('#x')` -- the selector text is what identifies the host.
 BIND = re.compile(r"""(?:const|let|var)\s+(\w+)\s*=\s*\$\$?\(\s*(['"`][^'"`]+['"`])""")

@@ -16,7 +16,6 @@ from pathlib import Path
 import MDAnalysis as mda
 import numpy as np
 import pytest
-
 from dashboard.analysis import kinds
 from dashboard.execution import workflow
 from dashboard.execution.adapters import cg

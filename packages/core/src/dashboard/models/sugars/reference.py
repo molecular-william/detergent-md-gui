@@ -16,10 +16,15 @@ from pathlib import Path
 REFERENCE_NAME = 'martini_v3.0.0_sugars_v2.itp'
 PROVENANCE_NAME = 'martini_v3.0.0_sugars_v2.source.json'
 
-# Resolved from this file rather than from dashboard.paths: the sugar package is also shipped whole into
-# the mapping export bundle, where no dashboard package exists above it. `.parents[3]` is the repository
-# root when it runs from the dashboard.
-ROOT = Path(__file__).resolve().parents[3]
+# The data root, asked of `dashboard.paths` when the package is importable -- it honours `DASHBOARD_ROOT`, and an
+# installed distribution does not sit inside a checkout. The sugar package is also shipped whole into the mapping
+# export bundle, where no dashboard package exists above it: that import can fail there, and the fallback only has
+# to resolve to something in a copy that never reads the reference file.
+try:
+    from ... import paths as _paths
+    ROOT = _paths.PROJECT_ROOT
+except ImportError:
+    ROOT = Path(__file__).resolve().parents[3]
 
 
 def reference_path(root=None):

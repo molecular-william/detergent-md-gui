@@ -5,7 +5,6 @@ the force is constant, and `-eu` is the upper cutoff beyond which it is zero. "W
 getting it wrong would have produced a network that looked plausible and restrained the wrong pairs.
 """
 import pytest
-
 from dashboard.execution.adapters import pdc_protein
 
 

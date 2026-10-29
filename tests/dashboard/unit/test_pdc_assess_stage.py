@@ -10,9 +10,9 @@ import json
 from pathlib import Path
 
 import pytest
-
 from dashboard.execution.adapters import pdc
 from dashboard.execution.scripts import pdc_assess
+
 from tests.dashboard.pdc_fixtures import inputs_dir, script_of, settings_of
 
 TEMPLATE = {

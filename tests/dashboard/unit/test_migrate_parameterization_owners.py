@@ -2,10 +2,10 @@
 import json
 
 import pytest
-
 from dashboard.cli import migrate_parameterization_owners as migration
 from dashboard.models import mappings
 from dashboard.models.bonded import parameterization
+
 from tests.dashboard.support import physical_mapping
 
 

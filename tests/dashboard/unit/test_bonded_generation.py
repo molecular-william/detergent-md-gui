@@ -2,7 +2,6 @@
 from pathlib import Path
 
 import pytest
-
 from dashboard.models.bonded import generation as bonded_generation
 
 

@@ -1,11 +1,11 @@
 """Tab activation fetches only visible data and reuses unchanged catalogues."""
 from urllib.parse import urlsplit
 
-from playwright.sync_api import expect
-
 from dashboard.execution.adapters import cg
 from dashboard.models import mappings
 from dashboard.models.mappings import context as mapping_context
+from playwright.sync_api import expect
+
 from tests.dashboard.support import physical_mapping
 
 

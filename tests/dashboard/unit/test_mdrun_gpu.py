@@ -14,10 +14,10 @@ Two claims carry the acceptance:
 import json
 
 import pytest
-
 from dashboard.execution import devices
 from dashboard.execution.adapters import aa, cg, osmotic, pdc
-from tests.dashboard.support import PROJECT_ROOT
+
+from tests.dashboard.support import PACKAGE, PROJECT_ROOT
 
 MOLECULES = PROJECT_ROOT / 'molecules'
 #: The command every AA stage produced before the setting existed, and what an untouched form still produces.
@@ -171,4 +171,4 @@ def test_a_pdc_runs_own_settings_build_the_flags_its_scripts_read():
     flags = aa.mdrun_command_flags(settings, 'em', 'mpi')[1]
     assert f' {flags} '.find(' -gpu_id 1 ') >= 0
     assert '-gpu_id 0' not in flags
-    assert '${MDRUN_FLAGS:-' in (PROJECT_ROOT / 'dashboard/execution/scripts/pdc_assessment.sh').read_text()
+    assert '${MDRUN_FLAGS:-' in (PACKAGE / 'execution/scripts/pdc_assessment.sh').read_text()

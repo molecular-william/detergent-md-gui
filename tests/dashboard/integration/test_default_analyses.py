@@ -12,9 +12,9 @@ import time
 from pathlib import Path
 
 import pytest
-
 from dashboard import files
 from dashboard.execution import workflow
+
 from tests.dashboard import support
 
 JID = '123456abcdef'

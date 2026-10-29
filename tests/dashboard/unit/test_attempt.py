@@ -10,7 +10,6 @@ code. This is the shape they share.
 import subprocess
 
 import pytest
-
 from dashboard.execution.coordination import attempt as attempt_module
 from dashboard.execution.workflow import Cancelled
 

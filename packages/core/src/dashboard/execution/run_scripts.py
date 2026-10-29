@@ -13,29 +13,47 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .. import files
+from .. import files, paths
+
+#: A run records the code it executes by repository path, spelled `dashboard/<rest>` since before the package moved
+#: to `packages/core/src/dashboard`. The spelling stays the record's -- an installed distribution has no checkout to
+#: name -- and the path is resolved against the package here, once, instead of in every adapter.
+_DECLARED_PREFIX = 'dashboard/'
+
+
+def code_path(declared, *, root):
+    """The file a recorded code path names: in this package, or relative to the data root."""
+    text = str(declared)
+    if text.startswith(_DECLARED_PREFIX):
+        return paths.PACKAGE_ROOT / text[len(_DECLARED_PREFIX):]
+    source = Path(text)
+    return source if source.is_absolute() else Path(root) / source
 
 
 def record(scripts, *, root):
     """`{stage name: repository path}` -> the manifest's `stage_scripts` record."""
     records = {}
     for name, path in scripts.items():
-        source = Path(path)
-        if not source.is_absolute():
-            source = Path(root) / source
+        source = code_path(path, root=root)
         if source.is_symlink() or not source.is_file():
             raise ValueError(f'stage script for {name} is not a regular file: {source}')
-        try:
-            relative = source.resolve().relative_to(Path(root).resolve()).as_posix()
-        except ValueError as exc:
-            raise ValueError(f'stage script for {name} is outside the repository: {source}') from exc
+        text = str(path)
+        if text.startswith(_DECLARED_PREFIX):
+            # The declaration is the record's spelling; it names a file in this package, not in the checkout. Runs
+            # prepared before the package moved recorded the same spelling, so their digests keep verifying.
+            relative = text
+        else:
+            try:
+                relative = source.resolve().relative_to(Path(root).resolve()).as_posix()
+            except ValueError as exc:
+                raise ValueError(f'stage script for {name} is outside the repository: {source}') from exc
         records[name] = {'path': relative, 'sha256': files.sha256(source)}
     return records
 
 
 def verify_one(name, declared, *, root):
     """Re-hash one recorded script, naming the stage and the file when it changed."""
-    path = Path(root) / declared['path']
+    path = code_path(declared['path'], root=root)
     if path.is_symlink() or not path.is_file():
         raise ValueError(f'the stage script for {name} is missing: {path}')
     measured = files.sha256(path)

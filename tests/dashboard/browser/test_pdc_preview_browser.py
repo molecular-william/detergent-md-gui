@@ -32,9 +32,9 @@ The route is served as a fixture, so nothing here reads the developer's workspac
 import json
 import re
 
+from dashboard.execution.adapters import pdc_view
 from playwright.sync_api import expect
 
-from dashboard.execution.adapters import pdc_view
 from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_PLACEMENT, ddm_moleculetype
 
 from . import panels

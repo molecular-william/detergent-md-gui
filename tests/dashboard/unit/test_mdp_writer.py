@@ -11,7 +11,6 @@ import shutil
 from dataclasses import replace
 
 import pytest
-
 from dashboard import paths
 from dashboard.execution import environment, forcefields
 from dashboard.execution.adapters import aa, cg, osmotic_mdp, pdc

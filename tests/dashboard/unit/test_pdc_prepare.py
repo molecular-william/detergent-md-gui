@@ -15,10 +15,10 @@ import re
 from pathlib import Path
 
 import pytest
-
 from dashboard import martini3
 from dashboard.execution.adapters import pdc
 from dashboard.execution.scripts import pdc_build
+
 from tests.dashboard.pdc_fixtures import inputs_dir, molecule_tree, prepared_run, script_of, settings_of, stage_dir, system_stage
 
 TEMPLATE = {

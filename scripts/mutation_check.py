@@ -35,7 +35,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = Path(__file__).resolve().parent / 'mutants.json'
-INTERPRETER = ROOT / 'dashboard/.venv/bin/python'
+INTERPRETER = ROOT / '.venv/bin/python'
 
 
 def digest(text: str) -> str:

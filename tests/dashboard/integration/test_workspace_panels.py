@@ -8,11 +8,11 @@ error anywhere. The osmotic series and the micelle builder were both registered 
 the tab lists rather than given empty sections, because a panel nobody has built should not look built.
 """
 import re
-from pathlib import Path
 
 import pytest
-
 from dashboard.web.sections import SECTIONS, TAB_IDS
+
+from tests.dashboard.support import PACKAGE
 
 
 def panel_sections_in_template():
@@ -22,7 +22,7 @@ def panel_sections_in_template():
     a workspace-specific class beside it (`class="panel bonded-workspace"`) is still a panel, and the stricter
     pattern reported a panel missing that the page renders -- a false red on a change that only added a class.
     """
-    html = (Path(__file__).resolve().parents[3] / 'dashboard/web/templates/dashboard.html').read_text()
+    html = (PACKAGE / 'web/templates/dashboard.html').read_text()
     found = set()
     for match in re.finditer(r'<section id="([a-z-]+)"([^>]*)>', html):
         classes = re.search(r'class="([^"]*)"', match.group(2))

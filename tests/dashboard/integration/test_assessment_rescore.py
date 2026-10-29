@@ -26,7 +26,9 @@ from pathlib import Path
 from dashboard import files
 from dashboard.execution import assessment_rescore
 from dashboard.models.bonded import parameterization
+
 from tests.dashboard import support
+from tests.dashboard.support import PACKAGE
 
 JID = 'a1b2c3d4e5f6'
 BEADS = ('B01', 'B02', 'B03')
@@ -142,7 +144,7 @@ def test_a_rescore_stages_the_revisions_references_and_appends_one_attempt(dashb
     # The repository script ran in the attempt's directory, with the run's stage 3 for the ITP and the attempt's
     # references for `-d`; its helpers are modules found through `PYTHONPATH`.
     assert calls[0]['cwd'] == str(directory)
-    assert calls[0]['command'][-1] == str(assessment_rescore.environment.ROOT / 'dashboard/execution/scripts/assess.sh')
+    assert calls[0]['command'][-1] == str(PACKAGE / 'execution/scripts/assess.sh')
     assert calls[0]['env']['INITIAL_DIR'] == str(run / 'stages/3_initial_CG')
     assert calls[0]['env']['REFERENCES'] == str((directory / 'references').resolve())
     assert calls[0]['env']['INITIAL_ITP'] == 'DDM_initial.itp'

@@ -22,9 +22,9 @@ if 'DASHBOARD_MARTINI3' not in os.environ:
     atexit.register(shutil.rmtree, _martini3, ignore_errors=True)
 
 import pytest
-
 from dashboard import paths
 from dashboard.app import default_coordinator
+
 from tests.dashboard import areas, factory
 from tests.dashboard.support import PROJECT_ROOT
 

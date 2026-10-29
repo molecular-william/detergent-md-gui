@@ -12,7 +12,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from dashboard.execution.scripts import pdc_backmap
 
 MAPPING = {'name': 'DDM_CG_test', 'beads': [

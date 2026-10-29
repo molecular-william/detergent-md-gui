@@ -3,7 +3,6 @@ import shutil
 from pathlib import Path
 
 import pytest
-
 from dashboard import files
 from dashboard.execution import workflow
 

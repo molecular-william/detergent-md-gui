@@ -4,7 +4,6 @@ The count of water and ions a run records comes from these commands and nothing 
 assertions are about `-radius`, `-neutral` and `-conc` rather than about a file that would need GROMACS to produce.
 """
 import pytest
-
 from dashboard.execution.adapters import pdc_solvation
 
 

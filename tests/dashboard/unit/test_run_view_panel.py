@@ -15,15 +15,15 @@ would be wrong without:
 The scope is registered here rather than written in the panel's JavaScript, because a second copy of the list is a
 second place for a run type to go missing -- and because which runs a workspace may reach is a registry question.
 """
-from pathlib import Path
 
 import pytest
-
 from dashboard.execution import protocol
 from dashboard.web.sections import PANEL_BLURBS, PANELS, TAB_IDS, panel_glyph, panel_label, run_types_for, tabs_for
 
-TEMPLATE = Path(__file__).resolve().parents[3] / 'dashboard/web/templates/dashboard.html'
-MODULE = Path(__file__).resolve().parents[3] / 'dashboard/web/static/js/run-view.js'
+from tests.dashboard.support import PACKAGE
+
+TEMPLATE = PACKAGE / 'web/templates/dashboard.html'
+MODULE = PACKAGE / 'web/static/js/run-view.js'
 
 
 def test_both_workspaces_offer_the_run_view_panel():

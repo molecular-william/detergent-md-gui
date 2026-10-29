@@ -16,7 +16,9 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from dashboard.models.compositions.topology import render_pdb  # noqa: E402
 from dashboard.models.sugars import RADII_NM  # noqa: E402
 
-SOURCE = PROJECT_ROOT / 'dashboard/web/static/js/ngl-beads.js'
+from tests.dashboard.support import PACKAGE
+
+SOURCE = PACKAGE / 'web/static/js/ngl-beads.js'
 #: The mock of the new-run panel's preview, which draws the same beads and bonds without importing this module (a
 #: standalone page carries no ES modules), so its copy of these numbers is held here like the table above.
 DRAFT = PROJECT_ROOT / 'docs/superpowers/drafts/2026-10-13-pdc-system-preview-draft.html'

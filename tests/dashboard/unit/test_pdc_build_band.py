@@ -15,10 +15,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from dashboard.execution.adapters import pdc, pdc_placement, pdc_view
 from dashboard.execution.adapters.pdc_placement import MIN_CLEARANCE_NM
 from dashboard.execution.scripts import pdc_build
+
 from tests.dashboard.pdc_fixtures import system_stage
 
 TEMPLATE = {

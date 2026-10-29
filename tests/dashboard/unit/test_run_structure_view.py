@@ -15,10 +15,10 @@ run's own layout rule, so nothing here spells a stage directory by hand.
 from __future__ import annotations
 
 import pytest
-from werkzeug.exceptions import NotFound
-
 from dashboard.execution.adapters import pdc_view
 from dashboard.web.routes.runs import run_topology, structure_target
+from werkzeug.exceptions import NotFound
+
 from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, ddm_moleculetype, gro_atom_line
 
 #: The stand-in element each class is written with (`models/compositions/topology.py`), written out so this file

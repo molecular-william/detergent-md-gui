@@ -17,7 +17,6 @@ import json
 import math
 
 import pytest
-
 from dashboard.execution import tools
 from dashboard.execution.adapters import pdc_view
 

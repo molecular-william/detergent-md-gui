@@ -6,6 +6,7 @@ file", which is a wiring failure wearing a missing-file costume.
 """
 from dashboard.execution.adapters import pdc
 from dashboard.models.mappings import store
+
 from tests.dashboard.unit.test_pdc_prepare import TEMPLATE_PATH, molecule_tree
 
 CANDIDATE = 'mapping_candidate_0123456789abcdef0123456789abcdef.json'

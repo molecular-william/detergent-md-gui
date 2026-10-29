@@ -21,7 +21,6 @@ from pathlib import Path
 import MDAnalysis as mda
 import numpy as np
 import pytest
-
 from dashboard.models import mappings
 from dashboard.models.bonded import fitting, parameterization
 from dashboard.models.mappings.context import as_structure, build_context

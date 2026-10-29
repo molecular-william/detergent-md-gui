@@ -6,7 +6,6 @@ the reference's per-residue A/B/C/VS convention, the residue number comes from t
 the pairs the reference constrains are the pairs this topology constrains.
 """
 import pytest
-
 from dashboard import paths
 from dashboard.models.mappings import context as mapping_context
 from dashboard.models.sugars import candidate, reference

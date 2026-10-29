@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.dashboard.support import PACKAGE
+
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -24,7 +26,7 @@ def test_ring_constraint_preparation_uses_molecule_specific_initial_itp(tmp_path
     environment['INITIAL_ITP'] = 'Maltose_initial.itp'
 
     result = subprocess.run(
-        [sys.executable, str(PROJECT_ROOT / 'dashboard/execution/scripts/prepare_ring_constraints.py')],
+        [sys.executable, str(PACKAGE / 'execution/scripts/prepare_ring_constraints.py')],
         cwd=stage, env=environment, capture_output=True, text=True,
     )
 

@@ -19,10 +19,10 @@ built-system route serves -- so the element column this test resolves the classe
 and not a second copy of its convention. No test reads the developer's workspace.
 """
 import re
-from pathlib import Path
 
 from dashboard.execution.adapters import pdc_view
-from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_PLACEMENT, ddm_moleculetype
+
+from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_PLACEMENT, PACKAGE, ddm_moleculetype
 
 from . import panels
 
@@ -129,7 +129,7 @@ MEASURE_DRAWN = """
 """
 #: The module's own two numbers, read from the file rather than restated: this test holds what is *drawn* to what
 #: `ngl-beads.js` says the app draws, and `test_ngl_beads.py` holds that file's numbers to their reasons.
-MODULE = Path(__file__).resolve().parents[3] / 'dashboard/web/static/js/ngl-beads.js'
+MODULE = PACKAGE / 'web/static/js/ngl-beads.js'
 ASPECT = re.search(r'BEAD_ASPECT_RATIO\s*=\s*([0-9.]+)', MODULE.read_text())
 assert ASPECT, 'ngl-beads.js states no BEAD_ASPECT_RATIO'
 ASPECT_RATIO = float(ASPECT.group(1))

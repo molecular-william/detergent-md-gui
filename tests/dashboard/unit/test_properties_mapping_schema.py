@@ -27,10 +27,9 @@ stripped length. The one failure that *was* the code's is the reason `refuses` r
 exception's own name: a non-dict body reached `data.get` before the isinstance check that was meant
 to catch it, so the validator raised `AttributeError` where its contract is a `ValueError`.
 """
+from dashboard.models.mappings import schema
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-
-from dashboard.models.mappings import schema
 
 BEADS = [{'name': 'A', 'type': 'SP1r', 'size': 'S', 'atoms': [1, 2, 3, 4]},
          {'name': 'B', 'type': 'SP1r', 'size': 'S', 'atoms': [5, 6, 7, 8]},

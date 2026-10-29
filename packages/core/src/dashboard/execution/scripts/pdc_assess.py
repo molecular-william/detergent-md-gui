@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 from dashboard.execution.adapters import pdc_assessment, pdc_view
+
 from micelle import output as micelle_output
 
 ASSESSMENT_NAME = 'assessment.json'

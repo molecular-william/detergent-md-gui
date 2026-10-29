@@ -10,11 +10,12 @@ reader arrives on the panel with that run already drawn.
 """
 import json
 import re
-from pathlib import Path
 
 from dashboard.web.sections import run_types_for
 
-TEMPLATE = Path(__file__).resolve().parents[3] / 'dashboard/web/templates/dashboard.html'
+from tests.dashboard.support import PACKAGE
+
+TEMPLATE = PACKAGE / 'web/templates/dashboard.html'
 
 
 def scope_of(client, url):
@@ -71,5 +72,5 @@ def test_a_run_row_carries_the_link_to_its_own_run_view(dashboard):
     """The second door to a run: the list is one, this link is the other, and it names the run in the query."""
     template = TEMPLATE.read_text()
     assert 'job-view-run' in template, 'the Runs table row has no View run link'
-    runs_js = (Path(__file__).resolve().parents[3] / 'dashboard/web/static/js/runs.js').read_text()
+    runs_js = (PACKAGE / 'web/static/js/runs.js').read_text()
     assert '/run-view?run=' in runs_js, 'the link is not addressed to the Run view panel'

@@ -13,7 +13,6 @@ would report on the file rather than on the rule.
 import json
 
 import pytest
-
 from dashboard.models.molecules import detergent_registry
 
 DDM = 'n-Dodecyl-β-D-maltoside (DDM)'

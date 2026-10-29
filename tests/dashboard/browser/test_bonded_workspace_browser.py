@@ -9,10 +9,9 @@ mapping's own options.
 """
 import re
 
-from playwright.sync_api import expect
-
 from dashboard.models import mappings
 from dashboard.models.bonded import parameterization
+from playwright.sync_api import expect
 
 #: A revision's topology with the two kinds the panel must never offer an editor for: a constraint, whose length is
 #: the mapping's, and a `virtual_sitesn`, whose parents are bead names rather than atoms.

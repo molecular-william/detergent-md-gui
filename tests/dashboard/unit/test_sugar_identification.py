@@ -6,7 +6,6 @@ pattern" plus an explicit statement that the identity rests on the structure's o
 """
 
 import pytest
-
 from dashboard import paths
 from dashboard.models.mappings import context as mapping_context
 from dashboard.models.sugars import identification, reference

@@ -16,7 +16,6 @@ import dataclasses
 import subprocess
 
 import pytest
-
 from dashboard import files
 from dashboard.execution import protocol, workflow
 from dashboard.execution.adapters import osmotic

@@ -6,7 +6,6 @@ the templates use, and where a fragment matches none of them the candidate says 
 guess as a result.
 """
 import pytest
-
 from dashboard import paths
 from dashboard.models.mappings import context as mapping_context
 from dashboard.models.sugars import candidate, recognition

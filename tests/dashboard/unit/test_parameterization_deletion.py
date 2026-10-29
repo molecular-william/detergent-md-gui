@@ -16,7 +16,6 @@ parameterization in the isolated workspace the `isolated_workspace` fixture sele
 import json
 
 import pytest
-
 from dashboard.models.bonded import parameterization
 from dashboard.models.mappings import store as candidate_store
 

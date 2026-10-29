@@ -9,8 +9,8 @@ import json
 
 import numpy as np
 import pytest
-
 from dashboard.analysis.runs import mapping_consistency
+
 from tests.dashboard import support
 
 BEADS = {1: (1, 'A'), 2: (1, 'B'), 3: (1, 'C'), 4: (1, 'VS')}

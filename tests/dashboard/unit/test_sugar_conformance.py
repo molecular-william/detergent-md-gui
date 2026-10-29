@@ -9,7 +9,6 @@ import copy
 from pathlib import Path
 
 import pytest
-
 from dashboard import paths
 from dashboard.models.mappings import context as mapping_context
 from dashboard.models.sugars import candidate, reference

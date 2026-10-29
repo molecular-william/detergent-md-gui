@@ -9,7 +9,6 @@ import subprocess
 from collections.abc import Mapping
 
 import pytest
-
 from dashboard.execution import protocol, tools
 
 RUN_TYPES = ('aa_only', 'aa_cg', 'cg_composition')

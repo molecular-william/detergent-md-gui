@@ -2,7 +2,6 @@
 import json
 
 import pytest
-
 from dashboard import files
 from dashboard.execution import run_inputs
 

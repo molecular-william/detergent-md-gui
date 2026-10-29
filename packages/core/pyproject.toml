@@ -1,0 +1,24 @@
+# The engine distribution: the run lifecycle, persistence, tool resolution, molecule and mapping models,
+# the analysis worker and the dashboard shell. The two selectable halves are `packages/validation` and
+# `packages/pdc`; the repository's meta distribution names them as extras.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "detergent-core"
+version = "0.2.0"
+description = "Local GROMACS/Martini run lifecycle and dashboard engine."
+requires-python = ">=3.12"
+# The scientific stack (numpy, MDAnalysis, mdtraj's dependants, GROMACS) is provisioned by the host
+# environment; these are the dashboard's own third-party imports.
+dependencies = [
+  "flask",
+  "werkzeug",
+  "plotly",
+  "rdkit",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["dashboard*"]

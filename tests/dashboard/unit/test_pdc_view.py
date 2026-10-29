@@ -10,8 +10,8 @@ The fixtures are formatted rather than hand-typed: a .gro is fixed-width, and a 
 shifts every float by a character.
 """
 import pytest
-
 from dashboard.execution.adapters import pdc_view
+
 from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_TYPES, ddm_moleculetype
 
 #: The stand-in element each class is written with -- `models/compositions/topology.py`'s own choice, written out here

@@ -4,7 +4,6 @@ A box that is too small is not a smaller experiment, it is a different one -- th
 periodic images -- so the rule is worth pinning as arithmetic rather than inspecting an mdrun log later.
 """
 import pytest
-
 from dashboard.execution.adapters import aa_box
 
 

@@ -11,7 +11,6 @@ anyway, after placement, where the counts come from the system rather than from 
 import json
 
 import pytest
-
 from dashboard.execution.adapters import osmotic, osmotic_box
 
 RADII = [0.264, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.191]

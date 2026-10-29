@@ -293,7 +293,7 @@ class AnalysisCoordinator:
                     files.atomic_json(attempt / 'request.json', request)
                     with (attempt / 'console.log').open('w') as output:
                         try:
-                            worker.execute(command, cwd=paths.PACKAGE_ROOT.parent, env=environment,
+                            worker.execute(command, cwd=paths.current().project_root, env=environment,
                                            stdout=output, stderr=subprocess.STDOUT)
                         except subprocess.CalledProcessError as failure:
                             if failure.returncode != workflow.SKIPPED_EXIT_CODE:

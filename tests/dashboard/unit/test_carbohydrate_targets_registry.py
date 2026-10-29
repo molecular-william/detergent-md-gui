@@ -10,7 +10,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from dashboard.analysis.validation import targets as target_analysis
 
 REGISTRY = Path(__file__).resolve().parents[3] / 'resources/validation/carbohydrates/targets-v1.json'

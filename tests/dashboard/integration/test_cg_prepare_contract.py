@@ -14,7 +14,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from dashboard.execution.adapters import cg
 from dashboard.execution.protocol import adapter_for
 

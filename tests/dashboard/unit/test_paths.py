@@ -1,6 +1,5 @@
 """Path selection is scoped; importing modules never creates workspace state."""
 import pytest
-
 from dashboard import paths
 
 
