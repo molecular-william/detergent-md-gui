@@ -6,6 +6,7 @@ feature. They pin the contract the real features will rely on: discovery is by i
 route may have captured.
 """
 
+import dataclasses
 import sys
 
 import pytest
@@ -98,3 +99,15 @@ def test_a_run_type_is_reachable_without_building_an_application(fake_feature):
     assert 'fake-run' not in protocol.RUN_TYPES or True  # registration happens through adapter_for below
     assert protocol.adapter_for('fake-run') is None, 'the fixture builder returns None'
     assert 'fake-run' in protocol.RUN_TYPES
+
+
+def test_a_feature_owns_the_admission_rule_of_its_run_type(fake_feature, monkeypatch):
+    """Before the engine's own chain: a feature that owns a run type owns its payload contract."""
+    from dashboard.execution.coordination import admission
+
+    refused = {'run_type': 'fake-run'}
+    monkeypatch.setattr(features, 'installed', lambda: [dataclasses.replace(
+        fake_feature, admission={'fake-run': lambda data: (_ for _ in ()).throw(ValueError('fake refusal'))})])
+    monkeypatch.setattr(features, '_features', None)
+    with pytest.raises(ValueError, match='fake refusal'):
+        admission.validate_run_type(refused)

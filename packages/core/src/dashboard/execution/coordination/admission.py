@@ -25,9 +25,18 @@ def validate_run_type(data):
     """Reject payloads whose run_type and fields are inconsistent."""
     if not hasattr(data, 'get'):
         raise ValueError('Expected an object')
+    from ... import features
+    from .. import protocol
+    features.ensure()
     kind = data.get('run_type')
-    if kind not in (None, 'aa_only', 'aa_cg', 'cg_composition', 'pdc', 'osmotic'):
+    # The published run types, not a second list: a feature's type is admitted when its distribution is installed, and
+    # a name no adapter answers is refused here before it reaches the coordinator.
+    if kind is not None and kind not in protocol.RUN_TYPES:
         raise ValueError('Unknown run type')
+    rule = features.admission_for(kind)
+    if rule is not None:
+        rule(data)
+        return
     if kind == 'osmotic':
         settings = data.get('settings') or data
         # **The shape first, and from the run type itself.** A payload that names no concentrations is the shape each

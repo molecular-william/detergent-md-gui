@@ -47,6 +47,8 @@ class Feature:
     #: `(recorded path prefix, distribution, prefix in that package)` for code the feature took over, so a prepared
     #: run's recorded `dashboard/...` path still resolves to the file's new home.
     code_prefixes: tuple = ()
+    #: `{run type: (payload) -> None}` admission rules a feature's run types need; raise ValueError to refuse.
+    admission: Mapping[str, Callable] = field(default_factory=dict)
 
 
 _features: list[Feature] | None = None
@@ -82,6 +84,18 @@ def ensure() -> list[Feature]:
                 sections.register(feature.section, panels=feature.panels, blurbs=feature.blurbs,
                                   tab_ids=feature.tab_ids)
     return _features
+
+
+def admission_for(run_type):
+    """The admission rule a feature registered for this run type, or None.
+
+    Called before the engine's own rule chain: a feature that owns a run type owns its payload contract too, and the
+    engine has no branch that could second-guess it.
+    """
+    for feature in ensure():
+        if run_type in feature.admission:
+            return feature.admission[run_type]
+    return None
 
 
 def register(app):
