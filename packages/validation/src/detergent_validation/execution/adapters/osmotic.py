@@ -26,7 +26,6 @@ from dashboard.execution import devices, protocol, run_inputs, tools
 from dashboard.execution.environment import ROOT, recorded_environment
 from dashboard.execution.settings import coerce_integers, normalize
 from dashboard.execution.stages import Stage, stage_tables
-
 from detergent_validation.execution.adapters import osmotic_box, osmotic_mdp
 
 #: The repository file the one stage runs. Recorded in the manifest's `stage_scripts` by path and digest; the stage's

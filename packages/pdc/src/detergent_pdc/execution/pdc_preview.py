@@ -63,7 +63,6 @@ from pathlib import Path
 
 from dashboard import files
 from dashboard.execution.adapters import pdc_view
-
 from detergent_pdc.execution.adapters import pdc as pdc_adapter
 from detergent_pdc.execution.adapters import pdc_box, pdc_placement, pdc_preparation, pdc_protein
 from detergent_pdc.execution.adapters.pdc import DETERGENT_TOPOLOGY

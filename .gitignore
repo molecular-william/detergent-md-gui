@@ -73,3 +73,7 @@ resources/forcefields/
 
 # Built distributions; `pip wheel packages/* -w dist` recreates them from source.
 dist/
+
+# Build artifacts from `pip wheel`/editable installs.
+*.egg-info/
+build/

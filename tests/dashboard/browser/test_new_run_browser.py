@@ -4,9 +4,8 @@ import shutil
 from dashboard.execution.adapters import cg
 from playwright.sync_api import expect
 
-from tests.dashboard.support import PROJECT_ROOT
-
 from . import panels
+from tests.dashboard.support import PROJECT_ROOT
 
 #: The tier's own budget for an answer the server has to produce (`browser/conftest.py`): Playwright's default
 #: expectation timeout is 5 s, which a loaded box outruns.

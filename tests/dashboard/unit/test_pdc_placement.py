@@ -16,7 +16,6 @@ import pytest
 from detergent_pdc.execution.adapters import pdc_placement
 from detergent_pdc.execution.adapters.pdc_box import initial_box
 from detergent_pdc.execution.scripts import pdc_build
-
 from micelle.frame import frame_from_structure
 from micelle.packing import golden_angle_directions
 from micelle.registry import load_template

@@ -35,9 +35,8 @@ import re
 from dashboard.execution.adapters import pdc_view
 from playwright.sync_api import expect
 
-from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_PLACEMENT, ddm_moleculetype
-
 from . import panels
+from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_PLACEMENT, ddm_moleculetype
 
 #: Martini 3's classes in nanometres, from `models/sugars/recognition.py`'s `RADII_NM`, written out so the preview's
 #: measurement and the model's table cannot drift.

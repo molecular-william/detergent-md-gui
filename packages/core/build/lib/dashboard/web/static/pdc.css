@@ -1,9 +1,0 @@
-/* The protein-detergent complex panel. Same two-column shape as the molecule combination panel: the setup
-   controls on the left, the system on the right, the status across the bottom. */
-.pdc-workspace{display:grid;grid-template-columns:minmax(240px,.85fr) minmax(420px,2.15fr);gap:18px;align-items:start}
-.pdc-workspace .card{margin:0}
-.pdc-status{grid-column:1/-1}
-/* NGL sizes itself to its host element rather than to its content, so the host carries the height. */
-.pdc-viewer{height:520px;min-height:360px;border:1px solid var(--line);border-radius:8px;background:#f7f9fc}
-.pdc-diagnostics{padding:12px;background:#f7f9fc;border-radius:6px;overflow-wrap:anywhere}
-@media(max-width:980px){.pdc-workspace{grid-template-columns:1fr}.pdc-status{grid-column:auto}}

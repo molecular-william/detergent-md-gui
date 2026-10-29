@@ -25,7 +25,6 @@ import pytest
 from detergent_pdc.execution import pdc_preview
 from detergent_pdc.execution.adapters import pdc_import, pdc_placement
 from detergent_pdc.execution.scripts import pdc_build
-
 from micelle.frame import frame_from_pdb, unit_axis
 from micelle.registry import load_template
 

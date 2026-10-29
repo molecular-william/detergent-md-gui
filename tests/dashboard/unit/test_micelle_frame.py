@@ -5,7 +5,6 @@ protein's own centroid, with a half-thickness no input set -- which on the OPM s
 361 of 1,158 atoms on the wrong side of the line.
 """
 import pytest
-
 from micelle import frame as frame_module
 
 

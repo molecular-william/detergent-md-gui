@@ -9,9 +9,8 @@ import zipfile
 from pathlib import Path
 from urllib.parse import quote
 
-from flask import Blueprint, Response, abort, jsonify, render_template, request, send_file
-
 from dashboard import files
+from flask import Blueprint, Response, abort, jsonify, render_template, request, send_file
 
 from ...analysis.runs.figures import current_figures
 from ...execution import devices, protocol

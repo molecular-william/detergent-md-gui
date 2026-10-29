@@ -18,7 +18,6 @@ import sys
 from pathlib import Path
 
 from dashboard.execution.adapters import pdc_view
-
 from detergent_pdc.execution.adapters import pdc_assessment
 from micelle import output as micelle_output
 

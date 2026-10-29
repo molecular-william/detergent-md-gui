@@ -4,10 +4,9 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Blueprint, abort, jsonify, request
-
 from dashboard.execution import assessment_rescore
 from dashboard.models import mappings
+from flask import Blueprint, abort, jsonify, request
 
 from ...analysis.runs import layout, transferability
 from ...analysis.validation import carbohydrate_targets, targets

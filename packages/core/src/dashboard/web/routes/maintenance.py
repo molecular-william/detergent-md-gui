@@ -1,9 +1,8 @@
 """Maintenance HTTP endpoints."""
 import time
 
-from flask import Blueprint, abort, current_app, jsonify, request
-
 from dashboard.cli import migration
+from flask import Blueprint, abort, current_app, jsonify, request
 
 from ...execution.coordination import temporary
 from .common import coordinator, json_object

@@ -42,7 +42,6 @@ import sys
 from pathlib import Path
 
 from dashboard import martini3
-
 from detergent_pdc.execution.adapters import pdc, pdc_box, pdc_import, pdc_placement, pdc_preparation, pdc_protein
 from detergent_pdc.execution.adapters.pdc import DETERGENT_GEOMETRY, DETERGENT_TOPOLOGY, REPORT_NAME, SETTINGS_NAME
 from micelle import frame as micelle_frame

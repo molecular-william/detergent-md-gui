@@ -22,9 +22,8 @@ import re
 
 from dashboard.execution.adapters import pdc_view
 
-from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_PLACEMENT, PACKAGE, ddm_moleculetype
-
 from . import panels
+from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_PLACEMENT, PACKAGE, ddm_moleculetype
 
 MOLECULES = 6
 SPACING_NM = 3.0

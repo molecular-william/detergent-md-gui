@@ -7,9 +7,8 @@ from dashboard import paths
 from dashboard.analysis.runs import layout
 from dashboard.execution.adapters import pdc_view
 from dashboard.web.routes.common import coordinator
-from flask import Blueprint, Response, abort, current_app, jsonify, request
-
 from detergent_pdc.execution.adapters import pdc, pdc_import
+from flask import Blueprint, Response, abort, current_app, jsonify, request
 
 blueprint = Blueprint('pdc', __name__)
 
@@ -453,7 +452,6 @@ def pdc_preview_placement():
     protein.
     """
     from dashboard.execution import tools
-
     from detergent_pdc.execution import pdc_preview
     from detergent_pdc.execution.adapters import pdc_preparation
 

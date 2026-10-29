@@ -40,7 +40,6 @@ Three measurements the module makes rather than assumes, and records:
   shape would hold. The requested number is never scaled (`capacity`).
 """
 import numpy as np
-
 from micelle.frame import belt_points, unit_axis
 from micelle.packing import golden_angle_directions, pack_micelle
 from micelle.validation import validate_positions

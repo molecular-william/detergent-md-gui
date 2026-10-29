@@ -15,7 +15,6 @@ from dashboard.execution.environment import TUTORIAL_TEMPLATE
 from dashboard.execution.mdp import PROFILES, write_mdp
 from dashboard.execution.settings import normalize
 from dashboard.execution.stages import Stage
-
 from detergent_pdc.execution.adapters import pdc_import, pdc_preparation
 
 # The coarse-grained parameters a pdc topology has to carry, from the published Martini 3 lipid set: the bead types
@@ -847,7 +846,6 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     mapping_tail_beads = []
     if mapping is not None:
         from dashboard.models.mappings import store
-
         from detergent_pdc.models.molecules import detergent_cg
         # A saved candidate arrives by name, not by path: the panel offers the names the store lists, and the run's
         # own record keeps that name, so it is resolved here rather than demanded as a path.
@@ -981,7 +979,6 @@ def readiness(protein=None, template=None, project_root=None, **kwargs):
     choice the caller states, so a missing protein is reported as an absence rather than a blocker when it is one.
     """
     from dashboard.execution.environment import probe_tool
-
     from micelle import registry
 
     checks, blockers = [], []

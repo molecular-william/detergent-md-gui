@@ -15,6 +15,9 @@ target-version = "py312"
 # the E501 signal meaningful instead of drowning every other finding.
 line-length = 160
 exclude = [".venv", "dashboard/.venv", "archive", "references", "resources", "tools", "workspace"]
+# The engine and the features are src-layout distributions, so the source roots must be named or ruff resolves a
+# module like `dashboard.execution.environment` as importable and `dashboard` itself as third-party.
+src = ["packages/core/src", "packages/validation/src", "packages/pdc/src"]
 
 [tool.ruff.lint]
 # The default selection is the *gate*: rules whose findings are defects or mechanical
@@ -29,6 +32,13 @@ exclude = [".venv", "dashboard/.venv", "archive", "references", "resources", "to
 #   dashboard/.venv/bin/python -m ruff check dashboard tests --select E,W
 # See docs/decisions/2026-09-24-architecture-decisions.md for why this split was chosen.
 select = ["F", "E9", "I"]
+
+[tool.ruff.lint.isort]
+# The engine, the features and `micelle` sort inside the third-party block: that is how every existing file groups
+# them (alphabetically with flask/pytest), and the gate is about one deterministic order rather than provenance. The
+# test tree keeps its own trailing section, which is the blank line every test file already has before `tests.` imports.
+known-third-party = ["dashboard", "detergent_validation", "detergent_pdc", "micelle"]
+known-local-folder = ["tests"]
 # The meta distribution. Installing `detergent-md-gui` installs the engine; the extras add a feature distribution.
 # Local installs resolve the features from built wheels (`pip wheel packages/* -w dist --no-deps` then
 # `pip install --find-links dist "detergent-md-gui[det]"`), because they are not published to an index.

@@ -20,9 +20,8 @@ from dashboard.models import mappings
 from dashboard.models.mappings import context as mapping_context
 from dashboard.models.molecules import aa as aa_molecules
 from dashboard.web.routes.common import coordinator, json_object
-from flask import Blueprint, abort, jsonify, request
-
 from detergent_validation.execution.adapters import osmotic, osmotic_box, osmotic_mdp
+from flask import Blueprint, abort, jsonify, request
 
 blueprint = Blueprint('osmotic', __name__)
 

@@ -29,8 +29,8 @@ import pytest
 from dashboard.execution import tools
 from detergent_pdc.execution.adapters import pdc, pdc_preparation
 from detergent_pdc.execution.scripts import pdc_build, pdc_prepare
-
 from micelle.frame import stated_half_thickness_nm
+
 from tests.dashboard.pdc_fixtures import inputs_dir, molecule_tree, prepared_run, script_of, system_stage
 
 STAGE = 'Protein preparation'
