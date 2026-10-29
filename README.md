@@ -52,13 +52,17 @@ process after changing Python code — routes and models are loaded at start, `s
 
 ## Repository layout
 
-* `dashboard/` — application source: `execution/` (adapters, coordination, stages), `models/` (mappings, bonded
-  parameterizations, compositions, molecules), `analysis/`, `web/` (routes, templates, static JS).
+* `packages/core/` — the engine (`detergent-core`): `execution/` (coordination, stages), `models/` (mappings, bonded
+  parameterizations, compositions, molecules), `analysis/`, `web/` (routes, templates, static JS). Import it as `dashboard`.
+* `packages/validation/` — the detergent-validation feature (`detergent-validation`): the bonded, osmotic and
+  refinement panel APIs and the osmotic series. `packages/pdc/` — the protein-detergent feature (`detergent-pdc`):
+  the ten-stage pipeline, its adapter and scripts. The meta distribution at the root installs the engine and names
+  both as the `det`/`prot`/`all` extras.
 * `tests/dashboard/` — unit, integration and browser tiers with isolated stores; never the developer's workspace.
 * `molecules/`, `references/`, `resources/` — canonical scientific inputs; the CG force field is installed per
   workspace at `workspace/dashboard/martini3` from `references/M3-Lipid-Parameters/ITPs`, never from a copy in the tree.
 * `tools/cg2at/` — CG2AT2, vendored, used by the `pdc` back-map stage with the `martini_3-0_charmm36` fragment DB.
-* `config/` — workspace selection and declared tools (`config/tools.json`, resolved by `dashboard/execution/tools.py`;
+* `config/` — workspace selection and declared tools (`config/tools.json`, resolved by `dashboard.execution.tools`;
   GROMACS here is `/usr/local/gromacs/2026.3/bin/gmx`, an MPI-only build, so `-ntomp` is the thread knob).
 * `reports/dashboard/`, `reports/validation/` — scientific reports and acceptance evidence.
 * `workspace/dashboard/` — runtime state: SQLite job store, runs, saved mappings, parameterizations, compositions.

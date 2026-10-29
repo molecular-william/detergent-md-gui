@@ -9,10 +9,10 @@ Read [DDM calibration](DDM_CALIBRATION.md) for scientific results and bonded-wor
 From the repository root:
 
 ```bash
-dashboard/.venv/bin/python -m dashboard
+.venv/bin/python -m dashboard
 ```
 
-Open http://127.0.0.1:5000. Run one coordinator per workspace. The historical dashboard/.venv/bin/python dashboard/app.py command remains supported.
+Open http://127.0.0.1:5000. Run one coordinator per workspace. The historical .venv/bin/python packages/core/src/dashboard/app.py command remains supported.
 
 Check active simulation and analysis jobs and worker leases before restarting. Stored process IDs must never be signalled as if owned by a new coordinator.
 
@@ -50,13 +50,13 @@ keys remain stable through the source reorganization.
 The source-ownership list above is the maintained map; `dashboard/README.md` carries only dashboard-local setup notes.
 
 ## Environment
-The interpreter lives in dashboard/.venv/. Existing virtual environments cannot be moved because launchers include absolute paths. Scientific resources and the local Fast_Forward package live under resources/. Fresh setup, from the repository root:
+The interpreter lives in .venv/ at the checkout root. Existing virtual environments cannot be moved because launchers include absolute paths. Scientific resources and the local Fast_Forward package live under resources/. Fresh setup, from the repository root:
 
 ```bash
-python -m venv --system-site-packages dashboard/.venv
+python -m venv --system-site-packages .venv
 git clone --depth 1 https://github.com/Martini-Force-Field-Initiative/fast_forward resources/parameterizers/fast_forward
 git -C resources/parameterizers/fast_forward apply "$PWD/resources/patches/fast_forward-dihedral-membership.patch"
-dashboard/.venv/bin/python -m pip install --no-build-isolation --no-deps ./resources/parameterizers/fast_forward
+.venv/bin/python -m pip install --no-build-isolation --no-deps ./resources/parameterizers/fast_forward
 ```
 
 Fast_Forward also needs lmfit, cgsmiles, matplotlib, MDAnalysis, numba, pbr, pysmiles, tqdm and vermouth; `--no-deps` installs the package alone, so add any that are missing (`pip install lmfit cgsmiles` pulls asteval, dill and uncertainties with lmfit).
@@ -204,8 +204,8 @@ The CPU levers are `mdrun_ntomp` (OpenMP threads per rank) and `mdrun_ranks` (MP
 Set up the isolated tool installation once from the repository root:
 
 ```bash
-python -m venv --system-site-packages dashboard/.venv
-dashboard/.venv/bin/python -m pip install --no-build-isolation --no-deps ./resources/parameterizers/fast_forward
+python -m venv --system-site-packages .venv
+.venv/bin/python -m pip install --no-build-isolation --no-deps ./resources/parameterizers/fast_forward
 ```
 
 Readiness invokes each tool's help to check imports as well as executable discovery. Run manifests record resolved tool paths, versions, and input/script hashes. Missing dependencies block execution rather than triggering installation inside a simulation.
@@ -394,7 +394,7 @@ config/dashboard.json controls concurrency, disk headroom, storage reservations,
 SQLite is authoritative. Back up the database with SQLite's backup facility while the coordinator is stopped, and back up model stores and run directories with it. Old generated state is not migrated into a fresh workspace.
 
 ```bash
-dashboard/.venv/bin/python -m dashboard.cli.reset_workspace --workspace /absolute/path --confirm
+.venv/bin/python -m dashboard.cli.reset_workspace --workspace /absolute/path --confirm
 ```
 
 The reset command removes only its explicit generated-state list, recreates empty runtime directories, and writes reset-record.json. It refuses active service leases, symbolic-link roots, and missing confirmation. Never switch workspace roots while jobs are active.
@@ -422,9 +422,9 @@ Canonical tier commands live in `AGENTS.md` (`## Verify`); `pytest.ini` owns wor
 tiers in use:
 
 ```bash
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q
-dashboard/.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal
-dashboard/.venv/bin/python -m pytest -m slow -q -n 0
+.venv/bin/python -m pytest -m 'not browser and not slow' -q
+.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal
+.venv/bin/python -m pytest -m slow -q -n 0
 ```
 
 Tests live under tests/dashboard/{unit,integration,browser}. Shared fixtures redirect every writable store; tests generate their own mapping candidates. The suite checks commands, lifecycle and recovery, quota and dependency guards, parsing, API contracts, and browser interactions without long simulations. Browser tests use installed Playwright and Chrome, temporary databases, and loopback servers.
@@ -434,7 +434,7 @@ Tiers answer "how expensive", areas answer "what about": `tests/dashboard/areas.
 Optional process parallelism is provided by `requirements-dashboard-tests.txt`. That file also carries the test-only imports `playwright` (browser tests), `vermouth` (sugar topology) and `mdtraj` (pdc secondary structure; see below), so install it before running the full suite:
 
 ```bash
-dashboard/.venv/bin/python -m pip install -r requirements-dashboard-tests.txt
+.venv/bin/python -m pip install -r requirements-dashboard-tests.txt
 ```
 
 Use the commands above; do not re-state worker counts here. Threaded execution is unsafe because tests patch shared dashboard module state.
@@ -474,7 +474,7 @@ Two more tools enter through `requirements-dashboard-tests.txt` (`mdtraj`, `pdb2
 
 ## Focused validation
 ```bash
-dashboard/.venv/bin/python -m pytest \
+.venv/bin/python -m pytest \
   tests/dashboard/unit/test_bonded.py \
   tests/dashboard/unit/test_bonded_parameterization.py \
   tests/dashboard/integration/test_mapping_exports.py \
@@ -485,7 +485,7 @@ node --check dashboard/web/static/js/main.js
 Browser acceptance uses installed Playwright and Chrome:
 
 ```bash
-dashboard/.venv/bin/python -m pytest tests/dashboard/browser -v
+.venv/bin/python -m pytest tests/dashboard/browser -v
 ```
 
 The suite exercises polling without state loss, mapping edits and draft persistence, console pause/follow/copy/download, and mobile layout using isolated test jobs. Worker tests cancel an actual short-lived subprocess without running MD.

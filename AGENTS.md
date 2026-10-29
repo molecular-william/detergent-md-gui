@@ -20,8 +20,7 @@ with a Flask dashboard over persisted manifests and logs. Reproducible; outputs 
   is `micelle/`. Osmotic series: `osmotic.py` with `osmotic_box.py`/`osmotic_mdp.py`.
 - Tools resolve through `config/tools.json` and `execution/tools.py`: a declared path is verified or resolves to
   nothing, never to a substitute, and every manifest records the resolved version and path.
-- `resources/` and `dashboard/` are the maintained trees. Code map, routes and ownership: `PROJECT_GUIDE.md`
-  section *Source ownership*.
+- `resources/` and `packages/` are the maintained trees: `packages/core` is the engine (`detergent-core`, import `dashboard`), `packages/validation`/`packages/pdc` are features (`detergent_validation`/`detergent_pdc`) that self-register through `dashboard/features.py`; the engine never imports one. Code map, routes and ownership: `PROJECT_GUIDE.md` *Source ownership*.
 
 ## Run contract
 - Four run types: `aa_only`, `aa_cg`, `pdc`, `osmotic`; each adapter's `STAGES` is the order, `pdc`'s ten are
@@ -71,7 +70,7 @@ with a Flask dashboard over persisted manifests and logs. Reproducible; outputs 
   records `environment.devices` and each stage `resource_usage.gpu`; the index is the CUDA ordinal, with the NVML
   row and PCI bus id beside it. An index the host lacks is refused at prepare, a host reporting none is not.
 - Provenance is the `inputs.json` record and `stage_scripts` digests, not a copy: the one Martini 3 set lives at
-  `workspace/dashboard/martini3` (`dashboard/martini3.py`), every run reads it in place, and `references/` is upstream.
+  `workspace/dashboard/martini3` (`dashboard.martini3`), every run reads it in place, and `references/` is upstream.
 
 ## Engineering rules
 - Test against fixtures, never the developer's workspace; build the record through the route the UI uses.
@@ -108,12 +107,12 @@ with a Flask dashboard over persisted manifests and logs. Reproducible; outputs 
 
 ## Verify
 ```
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast tier, private MPLCONFIGDIR
-dashboard/.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser tier
-dashboard/.venv/bin/python -m pytest -m slow -q -n 0                       # slow tier, serial
-dashboard/.venv/bin/ruff check dashboard tests                             # F, E9, I must exit 0
+.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast tier, private MPLCONFIGDIR
+.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser tier
+.venv/bin/python -m pytest -m slow -q -n 0                       # slow tier, serial
+.venv/bin/ruff check packages tests                             # F, E9, I must exit 0
 scripts/gate_commit.sh <message-file> <paths...>                           # fast tier + ruff over named paths
-dashboard/.venv/bin/python scripts/mutation_check.py                       # 11 mutants: 10 caught, 1 survived
+.venv/bin/python scripts/mutation_check.py                       # 11 mutants: 10 caught, 1 survived
 ```
 Eleven areas in `tests/dashboard/areas.py` cover the suite (`test_test_areas.py` fails on an unnamed module): pdc,
 runs, bonded, analysis, infra, osmotic, mapping, carbohydrate, web, molecules, aa. Compose an area with a tier, e.g.

@@ -4,6 +4,23 @@ State and open items for this repository. Rules live in `AGENTS.md`; subsystem b
 `docs/PROJECT_GUIDE.md`; scoring science in `docs/DDM_CALIBRATION.md`. Read this before touching the DDM CG chain,
 the protein-detergent pipeline or the coordinator. This file keeps only what is current and the evidence behind it.
 
+## Right now (2026-10-29): the dashboard is three distributions
+
+- The engine is `detergent-core` (`packages/core`, import `dashboard`), and the two features are
+  `detergent-validation` (`packages/validation`) and `detergent-pdc` (`packages/pdc`); the root `detergent-md-gui`
+  names them as the `det`/`prot`/`all` extras. A feature is present when its distribution is importable
+  (`dashboard/features.py`), and core never imports one: blueprints, run types, analysis kinds, workspaces,
+  admission rules and the prepare/readiness/series hooks all arrive through the feature record.
+- The data root is `DASHBOARD_ROOT` (falling back to the checkout), and the interpreter is `.venv/` at the
+  checkout root. `detergent-dashboard` is the console entry point; `python -m dashboard` still runs the checkout.
+- Runs prepared before the package move keep verifying: recorded code spells `dashboard/...` and
+  `run_scripts.code_path` resolves it through the distribution that took the file over.
+- Still in core and worth moving when the panels are lifted: the pdc stage tables/roles in `analysis/runs/layout.py`,
+  the pdc segmenter in `analysis/runs/segments.py`, `views.planned_skips`, the micelle build route in
+  `web/routes/runs.py`, and the pdc panel markup/JS in the shell template.
+- A validation-only deployment lives at `/mnt/data/wee/detergent-gui-mini` (`run.sh`, port 5001, `DASHBOARD_TABS`
+  six panels) installed from `pip wheel packages/* -w dist`; `detergent-import-run` ports a run between workspaces.
+
 ## Right now (2026-10-27)
 
 - **Snapshots are retired (2026-10-28):** the `snapshots` analysis kind, PDC's stage snapshot writer and
