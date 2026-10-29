@@ -27,49 +27,20 @@ from pathlib import Path
 
 from . import layout
 
-#: A protein-detergent run's own stages, in order: `(human name, layout stage key, structure path inside the stage,
-#: trajectory paths inside the stage, note)`. The stage key is looked up through `layout.PDC_STAGE_DIRECTORIES`, so
-#: the numbered directories (`06_assessment`, `07_micelle_assessment`, `08_extension`, `09_final_assessment`,
-#: `10_backmap`) and the legacy spellings (`2_assessment`, `3_assessment`, `4_extension`, `5_assessment`,
-#: `6_backmap`) both resolve to the band below. `structure` always names the stage's own output, so a picture and a
-#: trajectory come from the same system; a stage with no trajectory still has its structure, which is the dry build.
-PDC_STAGES = (
-    ('System preparation', 'system', 'system.gro', None, 'the built system, before solvation'),
-    ('Energy minimisation', 'minimisation', 'system.gro', ('system.xtc',), None),
-    ('NVT equilibration', 'nvt', 'system.gro', ('system.xtc',), None),
-    ('NPT equilibration', 'npt', 'system.gro', ('system.xtc',), None),
-    ('CG assessment MD', 'assessment', 'prod/run.gro',
-     ('prod/whole.xtc', 'prod/run.xtc'), 'PBC made whole where the stage wrote one'),
-    # The micelle assessment judges the phase's end state and writes the system it would keep; it has no
-    # trajectory of its own, so it is a band with a structure and nothing to play.
-    ('Micelle assessment', 'micelle_assessment', 'kept.gro', None,
-     'the system the assessment would keep; no trajectory of its own'),
-    ('CG extension MD', 'extension', 'prod/run.gro',
-     ('prod/whole.xtc', 'prod/run.xtc'), 'the system rebuilt after the removal path'),
-    # The final assessment reads the extension's own trajectory rather than writing a second one; it is listed so the
-    # duplicate rule reports that fact instead of a reader discovering it as a film that plays the same frames twice.
-    ('Final assessment', 'final_assessment', 'prod/run.gro',
-     ('prod/whole.xtc', 'prod/run.xtc'), None),
-    # The back-map converts the coarse-grained complex back to an atomistic one; it holds a structure and no
-    # trajectory, so it is a band with nothing to play rather than a stage that went missing.
-    ('Back-mapping (CG2AT2)', 'backmap',
-     ('FINAL/FINAL/final_cg2at_neutral.pdb', 'FINAL/FINAL/final_cg2at_de_novo.pdb'), None,
-     'the atomistic complex converted back from the CG one'),
-)
+#: `{run type: (root) -> [segment dicts]}` and the directories that mark a run of that type on disk, registered by a
+#: feature. The engine answers a single-molecule run itself.
+_SEGMENTERS: dict[str, object] = {}
+_MARKERS: list[tuple[str, tuple[str, ...]]] = []
 
-#: The stages the Run view's one timed reel covers, in order: the equilibration legs then the two production stages.
-#: The final assessment is excluded because it re-declares the extension's trajectory. The producer samples every
-#: stage that actually holds a trajectory and skips the rest (this pipeline's minimisation writes none), so the
-#: timeline's span is the run's own rather than a second list copied into another module.
-PDC_TIMELINE_STAGES = ('Energy minimisation', 'NVT equilibration', 'NPT equilibration',
-                       'CG assessment MD', 'CG extension MD')
+
+def register(segmenters=None, markers=()):
+    """Add a feature's segmenter and the directories that identify its runs when the record names no type."""
+    _SEGMENTERS.update(segmenters or {})
+    for run_type, names in markers:
+        _MARKERS.append((run_type, tuple(names)))
+
 
 SNIFF = 65536
-#: The files that mark a run as protein-detergent rather than single-molecule: the numbered layout, then the legacy
-#: one. `04_nvt` alone is not a marker -- an AA-only run's numbered stages include `04_nvt` too -- so the markers are
-#: directories only a pdc run writes.
-PDC_MARKERS = ('08_extension', '06_assessment', '02_system', '03_minimisation', '07_micelle_assessment',
-               '09_final_assessment', '10_backmap', '4_extension', '2_assessment', '3_nvt', '1_system')
 
 
 def atoms(structure: Path) -> int | None:
@@ -108,13 +79,7 @@ def present(root: Path, relative: str) -> Path | None:
     return None
 
 
-def is_pdc(root: Path) -> bool:
-    """Whether a run keeps its stages the protein-detergent way, in either spelling a reader may be handed."""
-    root = Path(root)
-    return any((base / name).is_dir() for base in (root, root / layout.STAGES) for name in PDC_MARKERS)
-
-
-def _relative(root: Path, path: Path) -> str:
+def relative(root: Path, path: Path) -> str:
     """The run-relative spelling of a resolved path, which is what the artifact route takes.
 
     `stages/` is tried first: a run on disk keeps its stages under it, and a path under `stages/` would otherwise be
@@ -156,88 +121,32 @@ def skipped_stages(root: Path) -> dict:
     return {str(name): str(reason) for name, reason in skipped.items()} if isinstance(skipped, dict) else {}
 
 
-def _stage_path(root: Path, stage: str, names):
-    """One file inside a pdc stage, trying every spelling of the stage directory and each candidate name."""
-    for name in ((names,) if isinstance(names, str) else names or ()):
-        found = layout.stage_path(root, stage, name)
-        if found is not None:
-            return found
-    return None
-
-
-def pdc_segments(root: Path) -> list[dict]:
-    """The protein-detergent chain's trajectories, in stage order, with duplicates and merges made explicit.
-
-    A stage is looked up through `layout.PDC_STAGE_DIRECTORIES`, so a numbered `07_extension/` and a legacy
-    `4_extension/` are the same band. A stage the manifest records as skipped is listed with its reason instead of
-    being dropped: it has no directory, and "the run decided not to run this" is not the same as "it is missing".
-    """
-    root = Path(root)
-    skipped = skipped_stages(root)
-    seen: dict[str, str] = {}
-    group, previous_atoms = 0, None
-    segments = []
-    for name, stage, structure_name, trajectory_names, note in PDC_STAGES:
-        structure = _stage_path(root, stage, structure_name)
-        reason = skipped.get(name)
-        if structure is None:
-            if reason is not None:
-                segments.append({'name': name, 'structure': None, 'atoms': None, 'trajectory': None,
-                                 'role': 'pdc', 'group': None, 'skipped': reason,
-                                 'note': f'skipped: {reason}'})
-            continue
-        count = atoms(structure)
-        trajectory = _stage_path(root, stage, trajectory_names)
-        entry = {'name': name, 'structure': _relative(root, structure), 'atoms': count,
-                 'trajectory': None, 'role': 'pdc', 'group': None}
-        if note:
-            entry['note'] = note
-        if reason is not None:
-            entry['skipped'] = reason
-        if trajectory is not None:
-            # Every candidate this stage holds is registered, not only the one chosen to play: the final assessment
-            # re-declares the extension's raw `run.xtc` while the extension itself plays its `whole.xtc`, so a rule
-            # that compared chosen files would call that pair different and play the same frames twice.
-            keys = {}
-            for name_option in trajectory_names or ():
-                candidate = layout.stage_path(root, stage, name_option)
-                if candidate is not None:
-                    keys[identity(candidate)] = candidate
-            duplicate = next((seen[key] for key in keys if key in seen), None)
-            if duplicate is not None:
-                entry.update({'duplicate_of': duplicate, 'trajectory': _relative(root, trajectory)})
-                entry['note'] = f'not a segment: the same trajectory as {duplicate}'
-                segments.append(entry)
-                continue
-            for key in keys:
-                seen.setdefault(key, name)
-            # A merge unit is the run of stages whose systems hold the same atoms: a player can concatenate inside one
-            # and must switch structure and trajectory at a boundary.
-            if count != previous_atoms:
-                group += 1
-            entry['trajectory'] = _relative(root, trajectory)
-            entry['group'] = group
-        segments.append(entry)
-        previous_atoms = count if trajectory is not None else previous_atoms
-    return segments
-
-
 def single(root: Path) -> list[dict]:
     """A single-molecule run's one trajectory, in the same shape so a panel has one reader."""
     try:
         trajectory, structure, role = layout.frame_source(root)
     except layout.NoTrajectory:
         return []
-    return [{'name': role, 'role': role, 'structure': _relative(Path(root), structure),
-             'trajectory': _relative(Path(root), trajectory), 'atoms': atoms(structure), 'group': 1}]
+    return [{'name': role, 'role': role, 'structure': relative(Path(root), structure),
+             'trajectory': relative(Path(root), trajectory), 'atoms': atoms(structure), 'group': 1}]
 
 
 def segments(root: Path, run_type: str | None = None) -> dict:
     """What a run offers to play: `{'run_type', 'segments', 'why'}`, with `why` stating an absence rather than raising."""
+    from ... import features
+
+    features.ensure()
     root = Path(root)
-    pdc = run_type == 'pdc' or is_pdc(root)
-    found = pdc_segments(root) if pdc else single(root)
-    answer = {'run_type': 'pdc' if pdc else (run_type or 'unknown'), 'segments': found}
+    segmenter, kind = None, run_type
+    if run_type in _SEGMENTERS:
+        segmenter = _SEGMENTERS[run_type]
+    else:
+        for candidate, names in _MARKERS:
+            if any((base / name).is_dir() for base in (root, root / layout.STAGES) for name in names):
+                segmenter, kind = _SEGMENTERS[candidate], candidate
+                break
+    found = segmenter(root) if segmenter is not None else single(root)
+    answer = {'run_type': kind or 'unknown', 'segments': found}
     playable = [entry for entry in found if entry.get('trajectory') and 'duplicate_of' not in entry]
     if not playable:
         answer['why'] = ('this run offers no trajectory to play: its stages hold no .xtc'

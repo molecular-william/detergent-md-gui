@@ -9,6 +9,7 @@ is a boundary, and a duplicate says which segment it repeats.
 from pathlib import Path
 
 from dashboard.analysis.runs import layout, segments
+from detergent_pdc import segments as pdc_segments
 
 GRO = 'system {count}\n{count:5d}\n    1DDM      S1A     1   0.100   0.200   0.300\n   8.00000   8.00000   8.00000\n'
 
@@ -123,7 +124,7 @@ def test_a_run_in_the_analysis_work_spelling_is_read_the_same_way(tmp_path):
     """An analysis subprocess is handed the same files at the work directory's root, not under `stages/`."""
     root = pdc_run(tmp_path / 'work')
 
-    assert segments.is_pdc(root)
+    assert segments.segments(root)['run_type'] == 'pdc'
     assert len([entry for entry in segments.segments(root, None)['segments'] if entry['group']]) == 4
 
 
@@ -142,10 +143,10 @@ def test_the_timeline_names_exactly_the_two_production_stages_in_order():
     It is one tuple, read by the producer, so the timeline's order is a property of the run's stages rather than a
     second list a caller keeps in step.
     """
-    assert isinstance(segments.PDC_TIMELINE_STAGES, tuple)
-    assert segments.PDC_TIMELINE_STAGES == ('Energy minimisation', 'NVT equilibration', 'NPT equilibration',
+    assert isinstance(pdc_segments.TIMELINE_STAGES, tuple)
+    assert pdc_segments.TIMELINE_STAGES == ('Energy minimisation', 'NVT equilibration', 'NPT equilibration',
                                             'CG assessment MD', 'CG extension MD')
-    order = [name for name, *_ in segments.PDC_STAGES]
-    positions = [order.index(name) for name in segments.PDC_TIMELINE_STAGES]
+    order = [name for name, *_ in pdc_segments.STAGES]
+    positions = [order.index(name) for name in pdc_segments.TIMELINE_STAGES]
     assert positions == sorted(positions), 'the timeline is not in the run\'s stage order'
-    assert 'Final assessment' not in segments.PDC_TIMELINE_STAGES
+    assert 'Final assessment' not in pdc_segments.TIMELINE_STAGES
