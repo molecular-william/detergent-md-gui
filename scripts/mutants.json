@@ -7,7 +7,7 @@
       "file": "packages/validation/src/detergent_validation/analysis/runs/transferability.py",
       "old": "        circular = section == 'dihedrals'",
       "new": "        circular = False",
-      "tests": "tests/dashboard/unit/test_transferability_reader.py",
+      "tests": "packages/validation/tests/unit/test_transferability_reader.py",
       "expect": "caught"
     },
     {
@@ -16,7 +16,7 @@
       "file": "packages/validation/src/detergent_validation/analysis/runs/transferability.py",
       "old": "'pairs_match': len(named_edges) == 1",
       "new": "'pairs_match': len(named_edges) >= 1",
-      "tests": "tests/dashboard/unit/test_transferability_reader.py",
+      "tests": "packages/validation/tests/unit/test_transferability_reader.py",
       "expect": "caught"
     },
     {
@@ -25,7 +25,7 @@
       "file": "packages/validation/src/detergent_validation/analysis/runs/transferability.py",
       "old": "record['edges'].add(tuple(sorted(bead for _, bead in row['pair'])))",
       "new": "record['edges'].add(())",
-      "tests": "tests/dashboard/unit/test_transferability_reader.py",
+      "tests": "packages/validation/tests/unit/test_transferability_reader.py",
       "expect": "caught"
     },
     {
@@ -34,7 +34,7 @@
       "file": "packages/validation/src/detergent_validation/analysis/runs/transferability.py",
       "old": "            spread = 100.0 * (max(atomistic_means) - min(atomistic_means)) / average",
       "new": "            spread = 100.0 * (min(atomistic_means) - max(atomistic_means)) / average",
-      "tests": "tests/dashboard/unit/test_transferability_reader.py",
+      "tests": "packages/validation/tests/unit/test_transferability_reader.py",
       "expect": "caught"
     },
     {
@@ -43,7 +43,7 @@
       "file": "packages/validation/src/detergent_validation/analysis/runs/transferability.py",
       "old": "        if len(atomistic_means) > 1:",
       "new": "        if len(atomistic_means) > 0:",
-      "tests": "tests/dashboard/unit/test_transferability_reader.py",
+      "tests": "packages/validation/tests/unit/test_transferability_reader.py",
       "expect": "caught"
     },
     {
@@ -52,7 +52,7 @@
       "file": "packages/validation/src/detergent_validation/analysis/runs/transferability.py",
       "old": "            if len(atoms) < 2:",
       "new": "            if len(atoms) < 3:",
-      "tests": "tests/dashboard/unit/test_transferability_reader.py",
+      "tests": "packages/validation/tests/unit/test_transferability_reader.py",
       "expect": "caught"
     },
     {
@@ -61,7 +61,7 @@
       "file": "packages/validation/src/detergent_validation/analysis/runs/consistency.py",
       "old": "        row['inside_range'] = bool(row['aa']['min'] <= row['cg']['mean'] <= row['aa']['max'])",
       "new": "        row['inside_range'] = bool(row['aa']['min'] < row['cg']['mean'] < row['aa']['max'])",
-      "tests": "tests/dashboard/unit/test_consistency_report.py",
+      "tests": "packages/validation/tests/unit/test_consistency_report.py",
       "expect": "caught"
     },
     {
@@ -70,7 +70,7 @@
       "file": "packages/core/src/dashboard/execution/adapters/cg.py",
       "old": "    if folder == aa_dir:",
       "new": "    if folder != aa_dir:",
-      "tests": "tests/dashboard/unit/test_cg_adapter_molecule_scoped.py",
+      "tests": "packages/core/tests/unit/test_cg_adapter_molecule_scoped.py",
       "expect": "caught"
     },
     {
@@ -79,7 +79,7 @@
       "file": "packages/core/src/dashboard/execution/scripts/fit_topology.sh",
       "old": "FIT_TEMPERATURE=$(printf '%.0f' \"${RUN_SETTING_TEMPERATURE_K:-300}\")",
       "new": "FIT_TEMPERATURE=$(printf '%.0f' \"${RUN_SETTING_TEMPERATURE_K:-301}\")",
-      "tests": "tests/dashboard/unit/test_cg_adapter_molecule_scoped.py",
+      "tests": "packages/core/tests/unit/test_cg_adapter_molecule_scoped.py",
       "expect": "caught"
     },
     {
@@ -88,7 +88,7 @@
       "file": "packages/pdc/src/detergent_pdc/execution/adapters/pdc.py",
       "old": "script='dashboard/execution/scripts/pdc_system.sh'",
       "new": "script='dashboard/execution/scripts/system.sh'",
-      "tests": "tests/dashboard/unit/test_pdc_own_scripts.py",
+      "tests": "packages/pdc/tests/unit/test_pdc_own_scripts.py",
       "expect": "caught"
     },
     {
@@ -97,7 +97,7 @@
       "file": "packages/validation/src/detergent_validation/analysis/runs/transferability.py",
       "old": "        circular = section == 'dihedrals'",
       "new": "        circular = section == 'dihedrals'",
-      "tests": "tests/dashboard/unit/test_transferability_reader.py",
+      "tests": "packages/validation/tests/unit/test_transferability_reader.py",
       "expect": "survived"
     }
   ]

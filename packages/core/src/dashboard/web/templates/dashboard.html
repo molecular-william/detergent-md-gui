@@ -87,7 +87,7 @@
    figures, and draws a run's CG chain as segments (`/api/jobs/<id>/trajectory`: which legs share one system,
    and where the system is rebuilt), with the stage chain itself supplied by whichever feature owns that run type.
    Every id below is read by `run-view.js` and styled by `run-view.css`;
-   `tests/dashboard/integration/test_dom_ids.py` fails if an id is rendered and read by nothing. #}
+   `packages/core/tests/integration/test_dom_ids.py` fails if an id is rendered and read by nothing. #}
 <section id="runview" class="panel" role="tabpanel" aria-labelledby="tab-runview"{% if panel != 'run-view' %} hidden{% endif %}>
   <div class="section-heading">
     <div><h2>Run view</h2><p>Two runs side by side, each drawn from what its own run wrote — a coarse-grained run and

@@ -159,7 +159,7 @@
     {# The system preview: the build's own placement step, derived on demand by `GET /api/pdc/preview/placement`.
        It is the picture the build would write, and every statement around it is there to keep that from being read
        as a prediction of the whole run. Every hook here is
-       a class, because `tests/dashboard/integration/test_dom_ids.py` requires an id a module names in a selector to be
+       a class, because `packages/core/tests/integration/test_dom_ids.py` requires an id a module names in a selector to be
        rendered on the single-molecule page too, and this fieldset is not rendered there. #}
     <section class="card new-pdc-preview" aria-labelledby="new-preview-title">
       <span class="eyebrow">SYSTEM PREVIEW</span>

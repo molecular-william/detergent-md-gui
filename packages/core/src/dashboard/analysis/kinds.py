@@ -190,7 +190,7 @@ def for_every_run() -> tuple[str, ...]:
 #:
 #: This is a declaration, not a derivation, because the route states its contract as inline `abort`s rather than as
 #: data the analysis layer could read (the route is also the layer above this one, so importing it here would invert
-#: the dependency). `tests/dashboard/unit/test_kinds_published.py` parses the route and fails if the two answer
+#: the dependency). `packages/core/tests/unit/test_kinds_published.py` parses the route and fails if the two answer
 #: differently, so the mapping cannot drift from the route it names.
 def published() -> list[dict]:
     """The whole table as JSON-safe dicts, one per kind, in table order.

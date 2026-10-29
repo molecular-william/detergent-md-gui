@@ -1,7 +1,7 @@
 """Every test gets isolated job, mapping, registry and bonded-state storage.
 
 Loaded from the repository's root `conftest.py` through `pytest_plugins`, so the fixtures reach every test tree
-(`tests/dashboard` today, `packages/<module>/tests` later) without each directory repeating them.
+(the three `packages/<module>/tests` trees) without each directory repeating them.
 """
 import atexit
 import os
@@ -29,8 +29,7 @@ import pytest
 from dashboard import paths
 from dashboard.app import default_coordinator
 
-from tests.dashboard import areas, modules
-from tests.harness import factory
+from tests.harness import areas, factory, modules
 from tests.harness.support import PROJECT_ROOT
 
 
@@ -73,13 +72,13 @@ def pytest_collection_modifyitems(items):
         # "*_browser*" unit test into the tier that needs Playwright and Chrome.
         if 'browser' in Path(item.path).parts:
             item.add_marker(pytest.mark.browser)
-        # The area is a second axis, from the table in `tests/dashboard/areas.py`: `-m pdc` runs the protein-detergent
+        # The area is a second axis, from the table in `tests/harness/areas.py`: `-m pdc` runs the protein-detergent
         # tests, `-m 'mapping and not browser'` the mapping ones without a browser. A module the table does not name is
         # a failure in `test_test_areas.py`, not a silently uncategorised file.
         area = areas.area_of(item.path)
         if area:
             item.add_marker(getattr(pytest.mark, area))
-        # The ownership axis, from `tests/dashboard/modules.py`: `-m core|validation|pdc` is one distribution's
+        # The ownership axis, from `tests/harness/modules.py`: `-m core|validation|pdc` is one distribution's
         # tests. A module the table does not name is core, so a new engine test needs no entry; a new feature test
         # is assigned in the pass that adds it, and `test_test_modules.py` checks the table.
         item.add_marker(getattr(pytest.mark, modules.module_of(item.path)))

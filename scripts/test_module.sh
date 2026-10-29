@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Run one distribution's tests. Usage: scripts/test_module.sh <core|validation|pdc|all> [fast|browser|slow]
 #
-# The module comes from `tests/dashboard/modules.py` (collection marks), so this selects ownership, not subject:
-# `core` is the engine's own tests, `validation`/`pdc` the tests of the panels, analyses and pipelines each feature
-# ships. The install still contains every feature -- these are selections, not isolated environments.
+# The module is the tree: `packages/<module>/tests`. `core` is the engine's own tests, `validation`/`pdc` the tests
+# of the panels, analyses and pipelines each feature ships. The install still contains every feature -- these are
+# selections, not isolated environments, and the `-m <module>` markers remain as the alias for the same selection.
 set -euo pipefail
 usage() { echo "usage: $0 <core|validation|pdc|all> [fast|browser|slow]" >&2; exit 2; }
 [ $# -ge 1 ] || usage
@@ -18,5 +18,7 @@ esac
 expression="$selection"
 if [ "$module" != all ]; then expression="$module and $selection"; fi
 export MPLCONFIGDIR="${MPLCONFIGDIR:-$(mktemp -d)}"
-echo "pytest -m '$expression' ${parallel[*]}" >&2
-exec .venv/bin/python -m pytest -m "$expression" -q -p no:cacheprovider "${parallel[@]}"
+target=()
+if [ "$module" != all ]; then target=("packages/$module/tests"); fi
+echo "pytest ${target[*]} -m '$expression' ${parallel[*]}" >&2
+exec .venv/bin/python -m pytest "${target[@]}" -m "$expression" -q -p no:cacheprovider "${parallel[@]}"

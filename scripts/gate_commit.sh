@@ -45,7 +45,7 @@ for p in "${PATHS[@]}"; do
     *.py)
       if [ -f "$p" ]; then PY_PATHS+=("$p"); else SKIPPED+=("$p"); fi
       ;;
-    *.js|*.css|*.html|*.jinja|tests/dashboard/browser/*) FRONT_END=1 ;;
+    *.js|*.css|*.html|*.jinja|packages/*/tests/browser/*) FRONT_END=1 ;;
   esac
 done
 

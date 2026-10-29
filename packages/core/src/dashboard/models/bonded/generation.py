@@ -8,7 +8,7 @@ Two private functions are exceptions, deliberately. `_reference_version` and `_s
 reference describes a term -- and the tests pin those rules directly rather than through `generate`, because
 driving `generate` to reach one rule would be slower and would not say which rule moved when it failed. So they
 are private by name and depended upon by name: renaming or inlining either one must move
-`tests/dashboard/unit/test_bonded_reference_versions.py`, `test_fitted_reference.py` and `test_named_defaults.py`
+`packages/core/tests/unit/test_bonded_reference_versions.py`, `test_fitted_reference.py` and `test_named_defaults.py`
 with it. That is a cost accepted here, not an oversight.
 """
 

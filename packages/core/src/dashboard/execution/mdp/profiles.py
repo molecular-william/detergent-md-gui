@@ -20,7 +20,7 @@ Sources, in the order a reader needs them:
   paper's z-only coupling and the PLUMED flat-bottomed confinement.
 
 Changing a value here is changing physics for every future run, and is exactly what the parity gate in
-`tests/dashboard/unit/test_mdp_writer.py` is written to make visible: every profile must render the key/value map the
+`packages/core/tests/unit/test_mdp_writer.py` is written to make visible: every profile must render the key/value map the
 current code produces.
 """
 from .writer import Profile

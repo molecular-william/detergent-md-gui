@@ -8,7 +8,7 @@ Source ownership, paths, run storage, backup/reset and recovery live in
 
 Dashboard-local setup only:
 
-- Tests live under `tests/dashboard/`; shared fixtures isolate every writable store. Tier commands, worker split and
+- Tests live in each package's `tests/` tree (core, validation, pdc); shared fixtures isolate every writable store. Tier commands, worker split and
   the process-not-threads rule are in `AGENTS.md` (`## Verify`).
 - Browser tests need the installed Python Playwright package and Google Chrome.
 - Do not move an existing `.venv/`; its launchers contain absolute paths.

@@ -12,7 +12,7 @@ import { registerNewRunExtension, writeReadiness } from '/static/js/new-run.js';
 // reads is a name `execution/adapters/pdc.py` accepts -- its `validate_payload` and `SETTING_SPECS` are the authority
 // for the spelling, and a control whose value no stage consumes is a control that lies.
 //
-// One house rule shapes how it reaches the DOM. The id contract (`tests/dashboard/integration/test_dom_ids.py`)
+// One house rule shapes how it reaches the DOM. The id contract (`packages/core/tests/integration/test_dom_ids.py`)
 // requires every id a module names in a selector to be rendered on the detergent-validation page too, and this
 // fieldset is not rendered there -- so the panel's own controls are read through `form.elements` and its status
 // lines through `new-pdc-` class hooks, and the only ids it names are the ones both variants carry (`#run-form`,

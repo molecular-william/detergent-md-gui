@@ -35,7 +35,7 @@ export function registerNewRunExtension(extension) {
  *
  * That host is shell DOM: both New run panels report into it, on their own page. Its single writer is the engine's
  * panel module, so a feature's panel calls this rather than binding the host itself -- two modules that write one
- * rendered host is what `tests/dashboard/integration/test_rendered_hosts.py` fails on.
+ * rendered host is what `packages/core/tests/integration/test_rendered_hosts.py` fails on.
  */
 export function writeReadiness(checks, blockers) {
   const panel = $('#readiness');

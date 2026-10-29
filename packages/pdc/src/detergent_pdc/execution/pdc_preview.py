@@ -109,7 +109,7 @@ def _refusal(step, reasons, basis, cost, *, subject=None):
 #: classes the panel colours from, the summary the card prints and the unit tests all read it, so a helix cannot be
 #: red here and coil there. vermouth's own `SS_CG` -- which `pdc_build.martini_classes` counts with, because that is
 #: what martinize2 runs over the same letters -- is the same partition under martinize2's names, its `extended` being
-#: this `sheet`; `tests/dashboard/unit/test_pdc_preview.py` pins the two against each other on the DSSP alphabet.
+#: this `sheet`; `packages/pdc/tests/unit/test_pdc_preview.py` pins the two against each other on the DSSP alphabet.
 SECONDARY_CLASSES = {'H': 'helix', 'G': 'helix', 'I': 'helix', 'E': 'sheet', 'B': 'sheet'}
 #: Every letter the table does not name -- DSSP's `T`, `S` and `C` -- is a coil. It is a rule rather than an entry
 #: per letter because the table's whole claim is "three classes", and a letter added to either source's alphabet is
