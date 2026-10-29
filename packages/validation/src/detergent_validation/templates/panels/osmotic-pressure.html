@@ -1,0 +1,135 @@
+{# The osmotic series set-up door. The validation workspace's seventh panel: it collects the settings
+   `execution/adapters/osmotic.py` reads -- the solute, the concentrations, the duration, the temperature and what
+   the series does when a condition ends failed -- and reads the series as it stands from the route that already
+   reported it. Controls are reached through `form.elements` and class hooks rather than panel-only ids, the same
+   way the protein-detergent fieldset is, because the DOM-id guard renders this page's ids in both directions.
+   Their `name`s carry an `osmotic_` prefix on purpose: `temperature_k` and `mapping_candidate` are already used
+   by the single-molecule form in this same document, and a second `[name=temperature_k]` turns every
+   `page.locator('[name=temperature_k]')` in the browser tier into a strict-mode violation. The wire keys are
+   built in `osmotic.js`, where `osmotic_temperature_k` becomes `temperature_k` on the request. #}
+<section id="osmotic-pressure" class="panel" role="tabpanel" aria-labelledby="tab-osmotic-pressure"{% if panel != 'osmotic-pressure' %} hidden{% endif %}>
+  <div class="section-heading"><div><h2>Osmotic Series</h2><p>Set up a concentration series for one carbohydrate: one confined box per molality, run one at a time, and the wall force divided by the box's xy area to give an osmotic pressure.</p></div></div>
+  <form class="osmotic-layout" novalidate>
+    <div class="osmotic-inputs">
+
+      <section class="card">
+        <span class="eyebrow">THE SUGAR</span><h3>Which carbohydrate this series is for</h3>
+        <p class="hint">The solute is one mapped molecule. The box is sized from the mapping's own beads
+        (<code>osmotic.solute_bead_radii</code> reads <code>RADII_NM</code> for every non-virtual bead), so a
+        carbohydrate with no saved CG mapping has no box to build and is not offered a run.</p>
+        <label>Sugar<select name="osmotic_sugar" class="osmotic-sugar"><option value="">Reading the carbohydrate catalogue…</option></select></label>
+        <label>CG mapping<select name="osmotic_mapping_candidate" class="osmotic-mapping"></select></label>
+        <p class="hint">This is what <code>mapping_candidate</code> carries; <code>create_job</code> resolves it to
+        the mapping snapshot the build sizes the box from.</p>
+        <p class="hint">Temperature of the experimental dataset
+        <span class="setting-control"><input name="osmotic_temperature_k" type="number" step="0.01" min="200" max="400" value="308.15"></span> K.
+        It is <code>temperature_k</code> (200–400 K); 308.15 K is maltose's, from Ebrahimi &amp; Sadeghi 2016. A
+        series is compared against the dataset it matches, so this is not a default to leave alone.</p>
+        <div class="osmotic-sugar-status bad" role="status"><strong>Reading the catalogue…</strong></div>
+      </section>
+
+      <section class="card">
+        <span class="eyebrow">THE SERIES</span><h3>How many conditions, at which concentrations</h3>
+        <p class="hint"><strong>One run owns the whole series.</strong> The concentrations below are its
+        conditions: it runs them one at a time, each in its own directory with its own checkpoint, so a condition
+        that dies resumes where it stopped and the ones that finished are not repeated. The default is the
+        <strong>five measured points</strong> at 308.15 K — <code>0.5, 1.0, 1.5, 2.0, 2.5</code> molal. The
+        <strong>0.0 control is skipped</strong>: it is the same for every sugar, so it is not this series'
+        business to run it — and <em>Add a concentration</em> puts it back for a run that wants it. Molality is
+        confined to the paper's 0.0–2.5 range (<code>osmotic_box.MOLALITY_RANGE</code>); the route's own fallback
+        <code>PAPER_MOLALITIES</code> still names all six, but this panel always sends its set.</p>
+        <ul class="osmotic-concentrations"></ul>
+        <div class="osmotic-conc-actions">
+          <button type="button" class="secondary osmotic-add-conc">+ Add a concentration</button>
+          <button type="button" class="secondary osmotic-reset-conc">Reset to the five measured points</button>
+        </div>
+        <label class="osmotic-duration">Duration per condition
+          <span class="setting-control"><input name="osmotic_duration_ns" type="number" min="1" step="1" value="500"> ns</span>
+        </label>
+        <p class="hint">Sent as <code>osmotic_production_ps</code> (500 ns = 500000 ps). 500 ns is the paper's own
+        bar (Methods 5.3) and what every measured condition in the completed series ran. Equilibration is the
+        paper's 10 ns (<code>osmotic_equilibration_ps</code> = 10000) and the trajectory interval is 10 ps
+        (<code>osmotic_output_interval_ps</code>) — both standing, not on this panel.</p>
+        <div class="osmotic-tally" aria-live="polite">
+          <strong class="osmotic-count-line">5 runs · 2,500 ns</strong>
+          <div class="hint osmotic-count-detail"></div>
+        </div>
+        <div class="osmotic-range-warning" hidden role="status"></div>
+      </section>
+
+      <details class="osmotic-setup" open>
+        <summary>The physical setup the run will use</summary>
+        <section class="card">
+          <p class="hint">Read-only, and shown rather than offered: every one of these is fixed by the method or
+          the pipeline, and a control for a value nobody would change from run to run is a control that lies.</p>
+          <table class="osmotic-setup-table"><tbody class="osmotic-setup-rows"></tbody></table>
+        </section>
+      </details>
+    </div>
+
+    <aside class="osmotic-settings">
+      <section class="card">
+        <span class="eyebrow">SERIES BEHAVIOUR</span><h3>How the series runs</h3>
+        <p><strong>One condition at a time.</strong> <code>config/dashboard.json</code> sets
+        <code>max_concurrent_runs: 1</code> and the coordinator refuses a second run while one is busy. That is a
+        measurement and not a preference: four conditions at once measured ~4.6× slower in aggregate (~291 ns/day
+        each) against ~2400 ns/day for one run alone, and no thread placement recovered it.</p>
+        <p class="osmotic-retry-note"></p>
+        <p>Then, if a condition still ends failed, the series does one of two things — and carrying on is the
+        default. The queue route creates every condition up front and refuses before creating anything if any is
+        wrong, so once the series exists a failed condition does not cancel its siblings unless the series asked it
+        to, and the reader reports the gap rather than drawing a curve through it.</p>
+        <div class="osmotic-onfail-group" role="radiogroup" aria-label="What the series does when a condition ends failed">
+          <label class="osmotic-onfail-option"><input type="radio" name="osmotic_series_on_failure" value="carry_on" class="osmotic-onfail-carryon" checked><span>Carry on — the remaining conditions run; a gap is reported</span></label>
+          <label class="osmotic-onfail-option"><input type="radio" name="osmotic_series_on_failure" value="stop" class="osmotic-onfail-stop"><span>Stop the series on the first failed condition — the conditions after it are not run</span></label>
+        </div>
+        <p class="hint osmotic-stop-reason" role="status"></p>
+        <p class="hint">Starting a series does not start anything until Start series is pressed, and this panel never
+        queues without that.</p>
+      </section>
+
+      <section class="card osmotic-review">
+        <div class="review-heading"><h3>Review before launch</h3>
+          <span class="osmotic-review-status" role="status">Reading the catalogue…</span></div>
+        <dl class="osmotic-review-grid">
+          <dt>Sugar</dt><dd class="osmotic-summary-sugar">—</dd>
+          <dt>Mapping</dt><dd class="osmotic-summary-mapping">—</dd>
+          <dt>Solute files</dt><dd class="osmotic-summary-solute">—</dd>
+          <dt>Conditions</dt><dd class="osmotic-summary-count">—</dd>
+          <dt>Concentrations</dt><dd class="osmotic-summary-conc">—</dd>
+          <dt>Duration</dt><dd class="osmotic-summary-duration">—</dd>
+          <dt>On failure</dt><dd class="osmotic-summary-onfail">—</dd>
+          <dt>Temperature</dt><dd class="osmotic-summary-temp">308.15 K</dd>
+          <dt>Series id</dt><dd><code>assigned at queue time</code></dd>
+        </dl>
+        <p class="hint">Execution success does not establish scientific validation. A completed series proves the
+        calculation ran; agreement with the paper's points is evidence about the model and the mapping at once.</p>
+        <p class="hint osmotic-review-note" role="status"></p>
+        <button type="submit" class="primary osmotic-start" disabled>Start series</button>
+      </section>
+
+      <section class="card osmotic-reader">
+        <span class="eyebrow">THE SERIES AS IT STANDS</span><h3 class="osmotic-reader-title">Measured</h3>
+        <p class="hint">Read from <code>GET /api/osmotic/conditions</code> — the existing reader, rendered and not
+        recomputed. The control has no measurement by construction: no solute, so no wall to push against.</p>
+        <table class="osmotic-series-table">
+          <thead><tr><th>molal</th><th>molecules</th><th>measured</th><th>paper</th><th>ratio</th></tr></thead>
+          <tbody class="osmotic-series-rows"></tbody>
+        </table>
+        <p class="hint osmotic-reader-note">Reading the series…</p>
+      </section>
+
+      <section class="card osmotic-runs">
+        <span class="eyebrow">THE SERIES' RUNS</span><h3>Runs of this run type</h3>
+        <p class="hint">Read from <code>GET /api/jobs?run_type=osmotic</code> — the run-type filter on the run list,
+        so this panel asks for the series and not for every run in the workspace. One run owns every concentration
+        of a series; its <em>conditions</em> are the rows above, which are files of that run.</p>
+        <table class="osmotic-series-table osmotic-runs-table">
+          <thead><tr><th>run</th><th>label</th><th>status</th><th>conditions</th></tr></thead>
+          <tbody class="osmotic-run-rows"></tbody>
+        </table>
+        <p class="hint osmotic-runs-note" role="status">Reading the runs…</p>
+      </section>
+    </aside>
+  </form>
+</section>

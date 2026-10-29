@@ -30,8 +30,12 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
   on the validation blueprint, and `analysis/runs/statistics.py` (the block summary core and validation both report).
 - Still in core by decision: the bonded/dihedral analyses (`bonded-cross-check`, `dihedral-fit`, `bartender-fit`), the
   micelle adapter and its science, the mapping editor, the molecules panel, and `analysis/validation/
-  carbohydrate_targets.py` (a mapping route and the validation analyses both read it). Still to lift: the panels'
-  markup and browser code in `templates/dashboard.html` and `static/js`.
+  carbohydrate_targets.py` (a mapping route and the validation analyses both read it).
+- Feature panels own their browser surface now: the shell loop includes each registered `panels/<id>.html` from the
+  feature's template package, links its `styles`, and boots its `panel_modules` (mapping-validation + osmotic from
+  detergent_validation, the Complexes panel from detergent_pdc); a deployment without a feature fetches neither its
+  markup nor its JS. Still shared shell: the New run form and the Run view keep the protein-detergent detail blocks
+  (`new-run.js`, `run-view-*.js`, the pdc blocks inside the `new` and `runview` sections).
 - The validation-only endpoints (`mapping-consistency`, `distance-diagnostics`, `carbohydrate-validation`,
   `/api/runs/transferability`) and the cross-molecule reader are the validation feature's now. `/api/compare`,
   `/api/mappings/validation-targets`, `/api/mappings/ring-site/preview` and `/api/evidence/evaluate` look

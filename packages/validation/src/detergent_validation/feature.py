@@ -9,6 +9,8 @@ from .execution.adapters import osmotic as osmotic_adapter
 from .web.routes import analyses as analyses_routes
 from .web.routes import bonded, osmotic, refinement, targets
 
+PACKAGE = Path(__file__).resolve().parent
+
 
 def _osmotic_protocol():
     """The osmotic adapter, imported when the registry asks for it rather than while this record is built."""
@@ -123,5 +125,11 @@ FEATURE = features.Feature(
     readiness={'osmotic': _readiness},
     admission={'osmotic': _admission},
     priority=10,
+    # This feature's own browser surface: the Mapping Validation and Osmotic Series panels' markup, sheet and modules.
+    templates=PACKAGE / 'templates',
+    static=PACKAGE / 'static',
+    styles=('osmotic.css',),
+    panel_modules={'validation': ('js/mapping-validation.js', 'createMappingValidation'),
+                   'osmotic-pressure': ('js/osmotic.js', 'createOsmoticSeries')},
     on_run_failed=_on_run_failed,
 )

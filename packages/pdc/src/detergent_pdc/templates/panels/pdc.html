@@ -1,0 +1,30 @@
+<section id="pdc" class="panel" role="tabpanel" aria-labelledby="tab-pdc"{% if panel != 'complexes' %} hidden{% endif %}>
+  <div class="section-heading"><div><h2>Protein-Detergent Complex Simulations</h2><p>Place a membrane protein in a box, build a detergent belt around it, sample it, and assess whether a micelle formed.</p></div></div>
+  <div class="pdc-workspace">
+    <section class="card pdc-setup" aria-labelledby="pdc-setup-title">
+      <h3 id="pdc-setup-title">Build a complex</h3>
+      <label>Protein<select id="pdc-protein"></select></label>
+      <label>Import a structure from OPM<input id="pdc-protein-id" type="text" maxlength="4" placeholder="1qj8"
+        autocomplete="off" spellcheck="false" aria-describedby="pdc-import-status"></label>
+      <button id="pdc-import" type="button" class="secondary">Import</button>
+      <p id="pdc-import-status" class="hint" role="status"></p>
+      <label>Detergent template<select id="pdc-template"></select></label>
+      <label>Detergent mapping<select id="pdc-mapping"></select></label>
+      <p id="pdc-template-limitation" class="hint pdc-limitation"></p>
+      <button id="pdc-queue" type="button">Queue the build</button>
+      <p id="pdc-panel-status" class="hint" role="status"></p>
+    </section>
+    <section class="card pdc-view" aria-labelledby="pdc-view-title">
+      <h3 id="pdc-view-title">System view</h3>
+      <label>Run<select id="pdc-run"></select></label>
+      <div id="pdc-viewer" class="pdc-viewer" role="img" aria-label="Coarse-grained system as set up"></div>
+      <div class="bead-legend" data-bead-legend
+           aria-label="Bead colour by Martini 3 polarity family"></div>
+      <p id="pdc-view-basis" class="hint">The built system appears here once setup produces one.</p>
+    </section>
+    <section class="card pdc-status" aria-labelledby="pdc-status-title">
+      <h3 id="pdc-status-title">Status</h3>
+      <div class="pdc-diagnostics" aria-live="polite">No build yet.</div>
+    </section>
+  </div>
+</section>

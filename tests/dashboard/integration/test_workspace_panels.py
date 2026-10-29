@@ -10,25 +10,34 @@ the tab lists rather than given empty sections, because a panel nobody has built
 import re
 
 import pytest
+from dashboard import features
 from dashboard.web.sections import SECTIONS, TAB_IDS
 
 from tests.dashboard.support import PACKAGE
 
 
 def panel_sections_in_template():
-    """The `id` of every panel section the template renders.
+    """The `id` of every panel section the templates render: the shell's, and each installed feature's.
 
     Matched on `panel` being one of the section's classes rather than on the attribute equalling `class="panel"`:
     a workspace-specific class beside it (`class="panel bonded-workspace"`) is still a panel, and the stricter
     pattern reported a panel missing that the page renders -- a false red on a change that only added a class.
+    A feature panel is its own partial under `templates/panels/`, so both sources are read.
     """
-    html = (PACKAGE / 'web/templates/dashboard.html').read_text()
+    sources = [(PACKAGE / 'web/templates/dashboard.html').read_text()]
+    for feature in features.ensure():
+        if feature.templates and (feature.templates / 'panels').is_dir():
+            sources.extend(path.read_text() for path in sorted((feature.templates / 'panels').glob('*.html')))
     found = set()
-    for match in re.finditer(r'<section id="([a-z-]+)"([^>]*)>', html):
-        classes = re.search(r'class="([^"]*)"', match.group(2))
-        if classes and 'panel' in classes.group(1).split():
-            found.add(match.group(1))
+    for html in sources:
+        for match in re.finditer(r'<section id="([a-z-]+)"([^>]*)>', html):
+            classes = re.search(r'class="([^"]*)"', match.group(2))
+            if classes and 'panel' in classes.group(1).split():
+                found.add(match.group(1))
     return found
+
+
+features.ensure()
 
 
 @pytest.mark.parametrize('name', sorted(SECTIONS))

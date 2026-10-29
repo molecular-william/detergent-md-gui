@@ -5,8 +5,8 @@
 // claims on this page are our own data and are badged (`inside the AA range`, `inside the AA spread`); the
 // reference entry's values are printed as context with no verdict attached, and the two cards with nothing
 // behind them say why instead of showing a substitute number.
-import { $, api } from './shared.js';
-import { ensurePlotly } from './plotly-loader.js';
+import { $, api } from '/static/js/shared.js';
+import { ensurePlotly } from '/static/js/plotly-loader.js';
 
 const number = (value) => {
   const parsed = Number(value);

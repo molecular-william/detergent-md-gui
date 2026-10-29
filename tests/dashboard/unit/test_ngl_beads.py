@@ -296,6 +296,8 @@ def test_the_scale_knob_defaults_to_the_models_own_radius():
 #: the same beads as the run's own viewer, at the one scale the reader asked both for (0.3).
 BEAD_VIEWS = ('compositions.js', 'mapping-ngl.js', 'run-view-monitor.js', 'bonded-plot.js', 'new-run.js')
 JS_DIR = SOURCE.parent
+#: The Complexes panel's module ships with the pdc feature, not the engine.
+PDC_JS = PROJECT_ROOT / 'packages/pdc/src/detergent_pdc/static/js'
 
 
 def test_every_bead_view_reads_the_one_table_and_keeps_no_copy_of_it():
@@ -340,9 +342,10 @@ def test_each_panel_states_its_own_scale_at_the_call():
 #: The four bead views that draw the pdc system files -- the mock, the preview card, the Complexes panel and the run
 #: view -- and where each adds the module's colour parameters to its representation. One table, one set of parameters,
 #: so the same bead type is one colour in all four.
-FAMILY_VIEWS = {'pdc.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend'],
-                'new-run.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend'],
-                'run-view-monitor.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend']}
+#: The Complexes panel's module now lives in the pdc feature; the other two are the engine's.
+FAMILY_VIEWS = {PDC_JS / 'pdc.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend'],
+                JS_DIR / 'new-run.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend'],
+                JS_DIR / 'run-view-monitor.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend']}
 
 
 def test_every_bead_view_colours_from_the_one_family_table():
@@ -354,12 +357,12 @@ def test_every_bead_view_colours_from_the_one_family_table():
     module = SOURCE.read_text()
     assert 'export const BEAD_FAMILY_PARAMETERS' in module
     assert 'export function renderBeadLegend' in module
-    for name, markers in FAMILY_VIEWS.items():
-        text = (JS_DIR / name).read_text()
-        assert "from './ngl-beads.js'" in text, f'{name} does not read the one module'
+    for path, markers in FAMILY_VIEWS.items():
+        text = path.read_text()
+        assert re.search(r"from '(?:/static/js/|\./)ngl-beads\.js'", text), f'{path.name} does not read the one module'
         for marker in markers:
-            assert marker in text, f'{name} does not use {marker}'
-        assert '...BEAD_FAMILY_PARAMETERS' in text, f'{name} draws beads without the family colour parameters'
-        assert not re.search(r'BEAD_FAMILY_COLOURS\s*=\s*\{', text), f'{name} keeps a family palette of its own'
+            assert marker in text, f'{path.name} does not use {marker}'
+        assert '...BEAD_FAMILY_PARAMETERS' in text, f'{path.name} draws beads without the family colour parameters'
+        assert not re.search(r'BEAD_FAMILY_COLOURS\s*=\s*\{', text), f'{path.name} keeps a family palette of its own'
     draft = DRAFT.read_text()
     assert '...BEAD_FAMILY_PARAMETERS' in draft and 'renderLegend()' in draft

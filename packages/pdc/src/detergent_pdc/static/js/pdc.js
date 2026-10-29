@@ -1,5 +1,5 @@
-import { $, cachedApi, invalidateResource, panelIds } from './shared.js';
-import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, applyBeadRadii, renderBeadLegend } from './ngl-beads.js';
+import { $, cachedApi, invalidateResource, panelIds } from '/static/js/shared.js';
+import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, applyBeadRadii, renderBeadLegend } from '/static/js/ngl-beads.js';
 
 export function createPdc() {
   const template = $('#pdc-template'), protein = $('#pdc-protein');

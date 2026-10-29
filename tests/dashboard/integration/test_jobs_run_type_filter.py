@@ -6,8 +6,8 @@ in the browser, which would also make `total` a count of rows the caller did not
 
 Three properties, and the third is the one worth the file:
 
-* **absent `run_type` changes nothing.** The three existing callers (`runs.js`'s refresh, `mapping-validation.js`
-  and `pdc.js`, each at `?limit=100`) send no such parameter and must get byte-identical answers. That is asserted
+* **absent `run_type` changes nothing.** The three existing callers (`runs.js`'s refresh, the validation panel modules
+  and and the pdc panel module, each at `?limit=100`) send no such parameter and must get byte-identical answers. That is asserted
   against the store's own `page`, which is the thing they used to go through.
 * **a named run type narrows the whole list, not the fetched page.** `total`, `page` and `limit` describe the
   narrowed list, so paging walks the filtered sequence.

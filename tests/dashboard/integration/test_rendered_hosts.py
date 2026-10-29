@@ -49,8 +49,21 @@ def writers_of(sources):
     return writers
 
 
+def _static_roots():
+    """The engine's browser modules and the installed features' own: the one-writer invariant spans both trees."""
+    from dashboard import features
+
+    roots = [STATIC]
+    for directory in features.static_dirs().values():
+        scripts = directory / 'js'
+        if scripts.is_dir():
+            roots.append(scripts)
+    return roots
+
+
 def module_sources():
-    return {path.relative_to(REPO).as_posix(): path.read_text() for path in sorted(STATIC.rglob('*.js'))}
+    return {path.relative_to(REPO).as_posix(): path.read_text()
+            for root in _static_roots() for path in sorted(root.rglob('*.js'))}
 
 
 def test_the_scanner_reports_a_host_two_modules_write():
@@ -90,7 +103,7 @@ def test_the_window_handles_are_read_by_no_module():
     starts reading `window.refreshJobs` has quietly made a test hook part of the application, and the hook can no
     longer be moved without breaking the page.
     """
-    published = re.search(r"""Object\.assign\(window,\s*\{(.*?)\}\)""", (STATIC / 'main.js').read_text(), re.S)
+    published = re.search(r"""const hooks = \{(.*?)\n  \};""", (STATIC / 'main.js').read_text(), re.S)
     assert published, 'the window handles are no longer published as one object; update this test'
     names = re.findall(r"""(?:^|,)\s*(\w+)\s*:""", published.group(1))
     assert names, 'no handles parsed out of main.js'

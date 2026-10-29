@@ -84,6 +84,15 @@ class Feature:
     kind_payload: Mapping[str, Callable] = field(default_factory=dict)
     #: Registration order: the shell opens on the first workspace registered, so lower runs first; ties break by name.
     priority: int = 100
+    #: The feature's browser assets. `templates` joins the Jinja search path (so `panels/<id>.html` can live here),
+    #: `static` is served at `/feature-assets/<name>/...` (`url_for('feature_asset', ...)`), and `styles` are the sheets the shell links before its own
+    #: panel sheets. A feature with no browser code leaves all three empty.
+    templates: Path | None = None
+    static: Path | None = None
+    styles: tuple = ()
+    #: `{panel DOM id: (path under static, factory export)}` -- the panels the shell mounts from this feature's own ES
+    #: modules. The shell emits the map to the browser and the boot code imports exactly what is installed.
+    panel_modules: Mapping[str, tuple[str, str]] = field(default_factory=dict)
 
 
 _features: list[Feature] | None = None
@@ -151,6 +160,30 @@ def ensure() -> list[Feature]:
                 sections.register(feature.section, panels=feature.panels, blurbs=feature.blurbs,
                                   tab_ids=feature.tab_ids)
     return _features
+
+
+def template_dirs():
+    """The installed features' template directories, in registration order."""
+    return [feature.templates for feature in ensure() if feature.templates is not None]
+
+
+def static_dirs():
+    """The installed features' browser-asset directories, by feature name."""
+    return {feature.name: feature.static for feature in ensure() if feature.static is not None}
+
+
+def browser_panels():
+    """`{panel DOM id: (feature name, path under its static, factory export)}` for every installed panel module."""
+    found = {}
+    for feature in ensure():
+        for panel, (path, factory) in feature.panel_modules.items():
+            found[panel] = (feature.name, path, factory)
+    return found
+
+
+def browser_styles():
+    """`[(feature name, stylesheet under its static)]` the shell links, in registration order."""
+    return [(feature.name, name) for feature in ensure() for name in feature.styles]
 
 
 def admission_for(run_type):

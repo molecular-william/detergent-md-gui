@@ -11,7 +11,7 @@
 // Controls are reached through `form.elements` and class hooks, never through panel-only ids: the DOM-id guard
 // renders this page's ids in both directions, and an id nothing addresses fails it.
 
-import { $, $$, setText, notice, api, cachedApi, post } from './shared.js';
+import { $, $$, setText, notice, api, cachedApi, post } from '/static/js/shared.js';
 
 //: The panel's default series: the five measured points Ebrahimi & Sadeghi report for maltose at 308.15 K. The
 //: 0.0 control is skipped on purpose -- it is the same for every sugar, so it is not this series' business to

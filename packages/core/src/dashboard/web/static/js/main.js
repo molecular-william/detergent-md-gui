@@ -4,51 +4,74 @@ import { createRuns } from './runs.js';
 import { createNewRun } from './new-run.js';
 import { createMappings } from './mappings.js';
 import { createCompositions } from './compositions.js';
-import { createPdc } from './pdc.js';
-import { createMappingValidation } from './mapping-validation.js';
-import { createOsmoticSeries } from './osmotic.js';
 import { createRunView } from './run-view.js';
 
-const runs = createRuns({
-  onClone: source => newRun.cloneRun(source),
-  onDeleted: id => newRun.clearDeletedClone(id),
-  onValidate: id => { selectTab('validation'); return validation.open(id); },
-});
-const newRun = createNewRun({
-  selectTab,
-  refreshJobs: runs.refreshJobs,
-  refreshStorage: runs.refreshStorage,
-});
-const compositions = createCompositions({
-  selectTab,
-  openBondedModel: model => { selectTab('bonded'); return mappings.openBondedModel(model); },
-  openCompositionRun: model => newRun.openComposition(model.id),
-});
-const pdc = createPdc();
-const validation = createMappingValidation();
-const osmotic = createOsmoticSeries();
-const runView = createRunView();
-const mappings=createMappings();
-document.addEventListener('dashboard:tab', event=>{
-  const id=event.detail.id;
-  const panels=panelIds();
-  const loading=id===panels.runs?runs.mount():id===panels['run-view']?runView.mount():id===panels['new-run']?newRun.mount():id===panels.combinations?compositions.mount():id===panels.complexes?pdc.mount():id===panels['mapping-validation']?validation.mount():id===panels['osmotic-pressure']?osmotic.mount():mappings.mount(id);
-  Promise.resolve(loading).catch(error=>{
-    const target=document.querySelector(id===panels['new-run']?'#launch-blocker':'#notice');
-    target.textContent=error.message;target.hidden=false;
-  });
-});
-initializeTabs();
+//: Mount the engine's panels, then the installed features'. `specs` is `{panel DOM id: {url, factory}}`, emitted by
+//: the shell from `dashboard.features.browser_panels()`, so a feature's module is fetched only when its distribution
+//: is installed -- a `[det]` deployment never downloads the protein-detergent panel.
+export async function boot(specs = {}) {
+  const panels = panelIds();
+  const pending = {};
+  for (const [panel, spec] of Object.entries(specs)) pending[panel] = import(spec.url);
 
-// Test hooks. These are published for the browser tier and for a person at a console, and nothing in the application
-// reads them back -- the panels import what they need. `test_rendered_hosts.py` fails if that stops being true,
-// because a module that reads one has quietly made a test hook part of the page, and the hook can then no longer be
-// moved without breaking it. Mutable form, card and mapping state stays private to its owning module, which is why
-// only these five are here.
-Object.assign(window, {
-  refreshJobs: runs.refreshJobs,          // re-poll the run list without waiting for the timer
-  refreshConsole: runs.refreshConsole,    // refresh the console pane without a visibility change
-  setCloneSource: newRun.setCloneSource,  // open the clone form on a chosen run
-  selectTab,                              // move to a panel by its DOM id
-  pdcSetRun: pdc.setRun,                  // point the complex panel at a run
-});
+  // The engine's panels are built from static imports, so everything below this line runs synchronously before the
+  // first await. That matters for the console hooks: a module script's top-level `await` does NOT defer the page's
+  // `load` event, so a hook published after an await is missing when a browser test (or a person at a console) calls
+  // it from `load`. The feature panels are created after the imports resolve; `pdcSetRun` is promise-backed until then
+  // and is replaced by the instance's own method once that instance exists, so both callers see one panel.
+  const pdcReady = pending[panels.complexes]
+    ? pending[panels.complexes].then(module => module.createPdc())
+    : null;
+  let validation = null;
+  let osmotic = null;
+  const runs = createRuns({
+    onClone: source => newRun.cloneRun(source),
+    onDeleted: id => newRun.clearDeletedClone(id),
+    onValidate: id => { if (!validation) return; selectTab('validation'); return validation.open(id); },
+  });
+  const newRun = createNewRun({
+    selectTab,
+    refreshJobs: runs.refreshJobs,
+    refreshStorage: runs.refreshStorage,
+  });
+  const compositions = createCompositions({
+    selectTab,
+    openBondedModel: model => { selectTab('bonded'); return mappings.openBondedModel(model); },
+    openCompositionRun: model => newRun.openComposition(model.id),
+  });
+  const runView = createRunView();
+  const mappings = createMappings();
+  const hooks = {
+    refreshJobs: runs.refreshJobs,          // re-poll the run list without waiting for the timer
+    refreshConsole: runs.refreshConsole,    // refresh the console pane without a visibility change
+    setCloneSource: newRun.setCloneSource,  // open the clone form on a chosen run
+    selectTab,                              // move to a panel by its DOM id
+    pdcSetRun: pdcReady ? ((...args) => pdcReady.then(panel => panel.setRun(...args))) : undefined,
+  };
+  Object.assign(window, hooks);
+
+  const modules = {};
+  for (const [panel, promise] of Object.entries(pending)) modules[panel] = await promise;
+  const pdc = pdcReady ? await pdcReady : null;
+  validation = modules[panels['mapping-validation']] ? modules[panels['mapping-validation']].createMappingValidation() : null;
+  osmotic = modules[panels['osmotic-pressure']] ? modules[panels['osmotic-pressure']].createOsmoticSeries() : null;
+  if (pdc) window.pdcSetRun = pdc.setRun;
+
+  document.addEventListener('dashboard:tab', event => {
+    const id = event.detail.id;
+    const current = panelIds();
+    const loading = id===current.runs?runs.mount()
+      : id===current['run-view']?runView.mount()
+      : id===current['new-run']?newRun.mount()
+      : id===current.combinations?compositions.mount()
+      : id===current.complexes&&pdc?pdc.mount()
+      : id===current['mapping-validation']&&validation?validation.mount()
+      : id===current['osmotic-pressure']&&osmotic?osmotic.mount()
+      : mappings.mount(id);
+    Promise.resolve(loading).catch(error=>{
+      const target=document.querySelector(id===current['new-run']?'#launch-blocker':'#notice');
+      target.textContent=error.message;target.hidden=false;
+    });
+  });
+  initializeTabs();
+}

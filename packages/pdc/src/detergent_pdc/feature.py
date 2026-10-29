@@ -1,4 +1,6 @@
 """Protein-detergent simulations: the pdc run type, its panel API and the code paths it took over."""
+from pathlib import Path
+
 from dashboard import features
 from dashboard.execution import protocol
 
@@ -8,6 +10,8 @@ from . import topologies as pdc_topologies
 from . import view as pdc_view
 from .execution.adapters import pdc
 from .web.routes import pdc as pdc_routes
+
+PACKAGE = Path(__file__).resolve().parent
 
 
 def _prepare(job, root):
@@ -48,6 +52,11 @@ FEATURE = features.Feature(
     readiness={'pdc': _readiness},
     layout=(pdc_layout.register, pdc_segments.register),
     priority=20,
+    # This feature's own browser surface: the Complexes panel's markup, sheet and module.
+    templates=PACKAGE / 'templates',
+    static=PACKAGE / 'static',
+    styles=('pdc.css',),
+    panel_modules={'pdc': ('js/pdc.js', 'createPdc')},
     planned_skips=pdc_view.planned_skips,
     protein_topologies=pdc_topologies.read_protein_topologies,
     section=('simulations', {

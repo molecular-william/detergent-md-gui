@@ -24,7 +24,8 @@ imports a feature; a feature imports the engine and registers through `dashboard
 The engine (`packages/core/src/dashboard/`):
 * app.py constructs the application. features.py discovers a feature and registers its blueprints, run types, analysis
   kinds, workspace and hooks (admission, prepare, create_settings, readiness, run_failed, layout, planned_skips,
-  protein_topologies, kind_payload, priority); web/sections.py owns the section order and the `DASHBOARD_TABS` filter.
+  protein_topologies, kind_payload, priority, templates, static, panel_modules, styles); web/sections.py owns the
+section order and the `DASHBOARD_TABS` filter.
 A feature distribution advertises itself with the `detergent_md.features` entry point, so installing a wheel is
 how a dashboard gains a workspace; the engine never imports one.
 * execution/ owns coordination and stage execution: adapters/cg.py (generic CG stage pipeline), aa.py (AA-only),
@@ -75,8 +76,11 @@ and the hooks its run type needs (admission, prepare, create_settings, readiness
 protein_topologies, kind_payload). `Feature.priority` decides registration order, because the shell opens on the first
 workspace registered. Discovery reads installed metadata; `KNOWN` in `features.py` is only the fallback for an
 editable checkout whose metadata predates the entry point, and a broken entry point fails at start-up rather than
-disappearing. The panels' markup and browser code are still shell-owned, so a new distribution contributes API and a
-workspace today and its own front-end once the split lands.
+disappearing. A feature's browser surface is its own too: `templates` joins the Jinja search path, `static` is served
+under `url_for('feature_asset', ...)`, `styles` are linked before the shell's panel sheets, and `panel_modules` maps a
+panel's DOM id to an ES module and its factory. The shell includes every registered `panels/<id>.html` and boots the
+modules it was handed, so an install without a feature downloads neither its markup nor its scripts. Two surfaces are
+still shared shell today: the New run form and the Run view carry the protein-detergent detail blocks in the engine.
 
 The source-ownership list above is the maintained map; `dashboard/README.md` carries only dashboard-local setup notes.
 

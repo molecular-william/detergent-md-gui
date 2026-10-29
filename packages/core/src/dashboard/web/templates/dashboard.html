@@ -8,9 +8,8 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='new-run.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='mappings.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='compositions.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='pdc.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='osmotic.css') }}">
-  {# The Run view panel's own sheet. It goes after the other per-panel sheets and *before* `layout.css`,
+  {% for sheet in feature_styles %}<link rel="stylesheet" href="{{ sheet }}">
+  {% endfor %}{# The Run view panel's own sheet. It goes after the other per-panel sheets and *before* `layout.css`,
      which is deliberate and load-bearing: this sheet states the panel's own two-column grid, and
      `layout.css` states the twelve-column measure the two columns are hung on. At equal specificity the
      later rule wins, so the measure is last and the panel's own rule loses to it -- the same order
@@ -20,7 +19,20 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='workspaces.css') }}">
   <meta name="plotly-src" content="{{ url_for('catalog.plotly_asset') }}">
   <script src="{{ url_for('static', filename='vendor/ngl.js') }}"></script>
-  <script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
+  {# The boot module publishes its console hooks before its first await (a module script's top-level await does not
+     defer `load`), so this await only orders boot's own completion and turns a failed feature import into a notice
+     instead of an unhandled module error: a feature with a broken module says so in the page rather than leaving a
+     dead workspace. #}
+  <script type="module">
+    import { boot } from "{{ url_for('static', filename='js/main.js') }}";
+    try {
+      await boot({{ panel_modules | tojson }});
+    } catch (error) {
+      const target = document.querySelector('#notice');
+      if (target) { target.textContent = `Could not load the dashboard modules: ${error.message}`; target.hidden = false; }
+      throw error;
+    }
+  </script>
 </head>
 <body>
 <header><div><span class="eyebrow">LOCAL SIMULATION WORKSPACE</span><h1>Detergent MD</h1><p>Run, inspect, and refine molecular models.</p></div><span id="connection" role="status">Connecting…</span></header>
@@ -517,105 +529,11 @@
     </div>
   </section>
 </section>
-<section id="validation" class="panel" role="tabpanel" aria-labelledby="tab-validation"{% if panel != 'mapping-validation' %} hidden{% endif %}>
-  <div class="section-heading"><div><h2>Mapping Validation</h2><p>Does the model we simulate reproduce the atomistic structure it was built from? Every number here compares our model with our own atomistic reference; the reference entry's values are context and set no verdict.</p></div></div>
-  <section class="card validation-selectors" aria-labelledby="validation-selectors-title">
-    <h3 id="validation-selectors-title">Which comparison</h3>
-    <div class="toolbar">
-      <label>CG consumer run<select id="validation-run" aria-label="Coarse-grained consumer run"></select></label>
-      <button type="button" class="secondary" id="validation-refresh">Refresh runs</button>
-    </div>
-    <p id="validation-identity" class="hint" role="status">Choose a completed CG run.</p>
-    <p id="validation-message" class="notice" role="status" hidden></p>
-  </section>
-  <section class="card" aria-labelledby="validation-pairs-title">
-    <div class="validation-card-heading">
-      <h3 id="validation-pairs-title">1 · Ring and constraint geometry</h3>
-      <span class="badge validation-comparison">AA vs CG</span>
-      <span class="badge validation-claim" id="validation-pairs-badge" hidden></span>
-    </div>
-    <p class="hint">Distances between the beads the generated topology constrains, measured on the run's atomistic reference and on its coarse-grained trajectory. The bead reading <code>(2,A)</code> is the reference entry's language, kept so a row can be found in the entry.</p>
-    <div class="table-scroll"><table><caption>Ring and constraint pairs · nanometres</caption>
-      <thead><tr><th>Pair</th><th>AA mean ± stderr</th><th>CG mean ± stderr</th><th>Δ (AA→CG)</th><th>Reference entry</th><th>This run's AA range</th></tr></thead>
-      <tbody id="validation-pair-rows"><tr><td colspan="6">No comparison loaded.</td></tr></tbody></table></div>
-    <p class="hint">These constraints are fitted from the atomistic reference they are compared against here, so agreement is a check that the mapping, the mapped trajectory and the simulated trajectory are one assignment. It is not a statement about the model's physics, and it is not evidence from experiment.</p>
-  </section>
-  <section class="card" aria-labelledby="validation-terms-title">
-    <div class="validation-card-heading">
-      <h3 id="validation-terms-title">2 · Bonded terms</h3>
-      <span class="badge validation-comparison">AA-mapped vs CG-simulated</span>
-    </div>
-    <p class="hint">Each bonded term the model carries, as it appears in the mapped atomistic trajectory and in the simulated coarse-grained one. <b>Overlap</b> is the shared area of the two histograms: 1 is identical, 0 is no overlap. Δ is the mean difference in the term's own unit (nm or degrees).</p>
-    <div class="table-scroll"><table><caption>Bonded terms</caption>
-      <thead><tr><th>Section</th><th>Beads</th><th>AA mean ± std</th><th>CG mean ± std</th><th>Δ</th><th>Overlap</th><th>Reading</th></tr></thead>
-      <tbody id="validation-term-rows"><tr><td colspan="7">No comparison loaded.</td></tr></tbody></table></div>
-  </section>
-  <section class="card" aria-labelledby="validation-shape-title">
-    <div class="validation-card-heading">
-      <h3 id="validation-shape-title">3 · Shape and volume</h3>
-      <span class="badge validation-comparison">AA vs CG</span>
-    </div>
-    <p class="hint" id="validation-shape-detail">The run's shape analysis has not been published.</p>
-    <div id="validation-shape-plot" class="validation-plot" role="img" aria-label="Per-bead displacement after a rigid-body fit, in picometres"></div>
-    <h4>Solvent-accessible envelope</h4>
-    <p class="hint" id="validation-surface-note">No envelope analysis loaded.</p>
-    <div class="table-scroll"><table><caption>Mean SASA per model · probe 0.191 nm · nanometres squared</caption>
-      <thead><tr><th>Model</th><th>Frames</th><th>Duration</th><th>Mean SASA</th><th>SD</th></tr></thead>
-      <tbody id="validation-surface-rows"><tr><td colspan="5">No envelope analysis loaded.</td></tr></tbody></table></div>
-    <div id="validation-surface-figure"></div>
-    <h4>Bead overlap</h4>
-    <p class="hint" id="validation-overlap-note">No bead-overlap analysis loaded.</p>
-    <p class="hint" id="validation-overlap-detail"></p>
-    <div id="validation-overlap-figure"></div>
-    <h4>Bonded terms · our fit against the estimate</h4>
-    <p class="hint" id="validation-crosscheck-note">No bonded cross-check loaded.</p>
-    <div class="table-scroll"><table>
-      <caption id="validation-crosscheck-caption">Terms the run's topology declares, each against an independent estimate from the same frames</caption>
-      <thead><tr><th>Pair</th><th>Ours</th><th>Our k</th><th>Estimate</th><th>Estimate k</th><th>Δ length</th><th>Verdicts</th></tr></thead>
-      <tbody id="validation-crosscheck-rows"><tr><td colspan="7">No bonded cross-check loaded.</td></tr></tbody></table></div>
-    <p class="hint" id="validation-crosscheck-limits"></p>
-    <h4>Dihedral terms · a criterion against the tool default</h4>
-    <p class="hint" id="validation-dihedral-note">No dihedral fit loaded.</p>
-    <div class="table-scroll"><table>
-      <caption>Proper dihedrals the run's topology declares, against an AIC/BIC-chosen fit from the same frames</caption>
-      <thead><tr><th>Beads</th><th>Our φ</th><th>Our k</th><th>n</th><th>Fit keeps</th><th>Fit's n</th><th>Residual</th><th>Verdicts</th></tr></thead>
-      <tbody id="validation-dihedral-rows"><tr><td colspan="8">No dihedral fit loaded.</td></tr></tbody></table></div>
-    <p class="hint" id="validation-dihedral-limits"></p>
-  </section>
-  <section class="card" aria-labelledby="validation-solution-title">
-    <div class="validation-card-heading">
-      <h3 id="validation-solution-title">4 · Solution behaviour</h3>
-      <span class="badge validation-comparison">blocked</span>
-    </div>
-    <p class="hint">Osmotic pressure and transfer free energy need a concentration-series system builder and a second solvent leg; neither exists yet, so this card stays empty rather than showing a substitute number. The checks are specified in <code>docs/superpowers/specs/2026-09-29-sugar-consistency-validation-design.md</code> (E4, E5).</p>
-  </section>
-  <section class="card" aria-labelledby="validation-across-title">
-    <div class="validation-card-heading">
-      <h3 id="validation-across-title">5 · Across molecules</h3>
-      <span class="badge validation-comparison">our model vs our model</span>
-    </div>
-    <p class="hint">The same bead-type pair in every molecule that has a published comparison, read from those
-      comparisons and nothing else. Each run agrees with its own reference by construction (card 1), so what moves
-      here is the <b>spread between molecules</b> — a spread near zero is what makes a bead type a shared library
-      rather than a per-molecule fit. A row whose molecules name different ring edges is not a comparison of one
-      bead type at all, and says so. This is our model against itself, never against experiment.</p>
-    <div class="table-scroll"><table><caption>Bead-type pairs across molecules · nanometres</caption>
-      <thead><tr id="validation-across-head"><th>Bead types</th><th>Where</th><th>Spread</th><th>Reading</th></tr></thead>
-      <tbody id="validation-across-rows"><tr><td colspan="4">No comparison loaded.</td></tr></tbody></table></div>
-    <p class="hint" id="validation-across-sources"></p>
-    <h4>The linkage: what joins the two rings</h4>
-    <p class="hint">Every row above is a constrained distance <em>inside</em> one ring, so the interaction that
-      differs most between disaccharides — the bond, the four angles and the dihedral that span the two rings — is
-      not in it at all. It is here, and it is where the same bead types stop agreeing. Each cell is the molecule's
-      own atomistic mean with its coarse-grained mean after the arrow, and the beads it was measured over. A
-      dihedral's published mean is a wrapped quantity, so its spread is withheld rather than shown as a number that
-      invites a wrong reading.</p>
-    <div class="table-scroll"><table><caption>Linkage terms across molecules · nm for bonds, degrees for angles</caption>
-      <thead><tr id="validation-linkage-head"><th>Term</th><th>Types</th><th>Spread</th></tr></thead>
-      <tbody id="validation-linkage-rows"><tr><td colspan="3">No comparison loaded.</td></tr></tbody></table></div>
-  </section>
-  <p id="validation-interpretation" class="hint">Every comparison here is against our own atomistic reference.</p>
-</section>
+{# A feature's panels come from its own distribution: the loop is the registry, so this file never names a
+   feature, and a panel a feature did not ship simply does not exist. A feature with no template for a
+   registered panel is skipped rather than an error, because a panel may be mounted from a module that reuses
+   the shell's cards. #}
+{% for panel_id in panel_modules %}{% include 'panels/' ~ panel_id ~ '.html' ignore missing %}{% endfor %}
 <section id="compositions" class="panel" role="tabpanel" aria-labelledby="tab-compositions"{% if panel != 'combinations' %} hidden{% endif %}>
   <div class="section-heading"><div><h2>Molecule Combination</h2><p>Attach a reference-backed mapped headgroup to a deterministic Martini carbon tail.</p></div></div>
   <div class="composition-workspace">
@@ -648,36 +566,6 @@
       <div id="composition-plot-joined" class="composition-plot composition-plot-joined" role="img" aria-label="Joined CG beads with the linkage highlighted"></div>
       <p id="composition-geometry-basis" class="hint"></p>
       <div id="composition-diagnostics" class="composition-diagnostics" aria-live="polite">Choose the fragments and preview the candidate.</div>
-    </section>
-  </div>
-</section>
-<section id="pdc" class="panel" role="tabpanel" aria-labelledby="tab-pdc"{% if panel != 'complexes' %} hidden{% endif %}>
-  <div class="section-heading"><div><h2>Protein-Detergent Complex Simulations</h2><p>Place a membrane protein in a box, build a detergent belt around it, sample it, and assess whether a micelle formed.</p></div></div>
-  <div class="pdc-workspace">
-    <section class="card pdc-setup" aria-labelledby="pdc-setup-title">
-      <h3 id="pdc-setup-title">Build a complex</h3>
-      <label>Protein<select id="pdc-protein"></select></label>
-      <label>Import a structure from OPM<input id="pdc-protein-id" type="text" maxlength="4" placeholder="1qj8"
-        autocomplete="off" spellcheck="false" aria-describedby="pdc-import-status"></label>
-      <button id="pdc-import" type="button" class="secondary">Import</button>
-      <p id="pdc-import-status" class="hint" role="status"></p>
-      <label>Detergent template<select id="pdc-template"></select></label>
-      <label>Detergent mapping<select id="pdc-mapping"></select></label>
-      <p id="pdc-template-limitation" class="hint pdc-limitation"></p>
-      <button id="pdc-queue" type="button">Queue the build</button>
-      <p id="pdc-panel-status" class="hint" role="status"></p>
-    </section>
-    <section class="card pdc-view" aria-labelledby="pdc-view-title">
-      <h3 id="pdc-view-title">System view</h3>
-      <label>Run<select id="pdc-run"></select></label>
-      <div id="pdc-viewer" class="pdc-viewer" role="img" aria-label="Coarse-grained system as set up"></div>
-      <div class="bead-legend" data-bead-legend
-           aria-label="Bead colour by Martini 3 polarity family"></div>
-      <p id="pdc-view-basis" class="hint">The built system appears here once setup produces one.</p>
-    </section>
-    <section class="card pdc-status" aria-labelledby="pdc-status-title">
-      <h3 id="pdc-status-title">Status</h3>
-      <div class="pdc-diagnostics" aria-live="polite">No build yet.</div>
     </section>
   </div>
 </section>
@@ -788,141 +676,6 @@
   </section>
 
   <p class="bonded-panel-message hint" role="status"></p>
-</section>
-{# The osmotic series set-up door. The validation workspace's seventh panel: it collects the settings
-   `execution/adapters/osmotic.py` reads -- the solute, the concentrations, the duration, the temperature and what
-   the series does when a condition ends failed -- and reads the series as it stands from the route that already
-   reported it. Controls are reached through `form.elements` and class hooks rather than panel-only ids, the same
-   way the protein-detergent fieldset is, because the DOM-id guard renders this page's ids in both directions.
-   Their `name`s carry an `osmotic_` prefix on purpose: `temperature_k` and `mapping_candidate` are already used
-   by the single-molecule form in this same document, and a second `[name=temperature_k]` turns every
-   `page.locator('[name=temperature_k]')` in the browser tier into a strict-mode violation. The wire keys are
-   built in `osmotic.js`, where `osmotic_temperature_k` becomes `temperature_k` on the request. #}
-<section id="osmotic-pressure" class="panel" role="tabpanel" aria-labelledby="tab-osmotic-pressure"{% if panel != 'osmotic-pressure' %} hidden{% endif %}>
-  <div class="section-heading"><div><h2>Osmotic Series</h2><p>Set up a concentration series for one carbohydrate: one confined box per molality, run one at a time, and the wall force divided by the box's xy area to give an osmotic pressure.</p></div></div>
-  <form class="osmotic-layout" novalidate>
-    <div class="osmotic-inputs">
-
-      <section class="card">
-        <span class="eyebrow">THE SUGAR</span><h3>Which carbohydrate this series is for</h3>
-        <p class="hint">The solute is one mapped molecule. The box is sized from the mapping's own beads
-        (<code>osmotic.solute_bead_radii</code> reads <code>RADII_NM</code> for every non-virtual bead), so a
-        carbohydrate with no saved CG mapping has no box to build and is not offered a run.</p>
-        <label>Sugar<select name="osmotic_sugar" class="osmotic-sugar"><option value="">Reading the carbohydrate catalogue…</option></select></label>
-        <label>CG mapping<select name="osmotic_mapping_candidate" class="osmotic-mapping"></select></label>
-        <p class="hint">This is what <code>mapping_candidate</code> carries; <code>create_job</code> resolves it to
-        the mapping snapshot the build sizes the box from.</p>
-        <p class="hint">Temperature of the experimental dataset
-        <span class="setting-control"><input name="osmotic_temperature_k" type="number" step="0.01" min="200" max="400" value="308.15"></span> K.
-        It is <code>temperature_k</code> (200–400 K); 308.15 K is maltose's, from Ebrahimi &amp; Sadeghi 2016. A
-        series is compared against the dataset it matches, so this is not a default to leave alone.</p>
-        <div class="osmotic-sugar-status bad" role="status"><strong>Reading the catalogue…</strong></div>
-      </section>
-
-      <section class="card">
-        <span class="eyebrow">THE SERIES</span><h3>How many conditions, at which concentrations</h3>
-        <p class="hint"><strong>One run owns the whole series.</strong> The concentrations below are its
-        conditions: it runs them one at a time, each in its own directory with its own checkpoint, so a condition
-        that dies resumes where it stopped and the ones that finished are not repeated. The default is the
-        <strong>five measured points</strong> at 308.15 K — <code>0.5, 1.0, 1.5, 2.0, 2.5</code> molal. The
-        <strong>0.0 control is skipped</strong>: it is the same for every sugar, so it is not this series'
-        business to run it — and <em>Add a concentration</em> puts it back for a run that wants it. Molality is
-        confined to the paper's 0.0–2.5 range (<code>osmotic_box.MOLALITY_RANGE</code>); the route's own fallback
-        <code>PAPER_MOLALITIES</code> still names all six, but this panel always sends its set.</p>
-        <ul class="osmotic-concentrations"></ul>
-        <div class="osmotic-conc-actions">
-          <button type="button" class="secondary osmotic-add-conc">+ Add a concentration</button>
-          <button type="button" class="secondary osmotic-reset-conc">Reset to the five measured points</button>
-        </div>
-        <label class="osmotic-duration">Duration per condition
-          <span class="setting-control"><input name="osmotic_duration_ns" type="number" min="1" step="1" value="500"> ns</span>
-        </label>
-        <p class="hint">Sent as <code>osmotic_production_ps</code> (500 ns = 500000 ps). 500 ns is the paper's own
-        bar (Methods 5.3) and what every measured condition in the completed series ran. Equilibration is the
-        paper's 10 ns (<code>osmotic_equilibration_ps</code> = 10000) and the trajectory interval is 10 ps
-        (<code>osmotic_output_interval_ps</code>) — both standing, not on this panel.</p>
-        <div class="osmotic-tally" aria-live="polite">
-          <strong class="osmotic-count-line">5 runs · 2,500 ns</strong>
-          <div class="hint osmotic-count-detail"></div>
-        </div>
-        <div class="osmotic-range-warning" hidden role="status"></div>
-      </section>
-
-      <details class="osmotic-setup" open>
-        <summary>The physical setup the run will use</summary>
-        <section class="card">
-          <p class="hint">Read-only, and shown rather than offered: every one of these is fixed by the method or
-          the pipeline, and a control for a value nobody would change from run to run is a control that lies.</p>
-          <table class="osmotic-setup-table"><tbody class="osmotic-setup-rows"></tbody></table>
-        </section>
-      </details>
-    </div>
-
-    <aside class="osmotic-settings">
-      <section class="card">
-        <span class="eyebrow">SERIES BEHAVIOUR</span><h3>How the series runs</h3>
-        <p><strong>One condition at a time.</strong> <code>config/dashboard.json</code> sets
-        <code>max_concurrent_runs: 1</code> and the coordinator refuses a second run while one is busy. That is a
-        measurement and not a preference: four conditions at once measured ~4.6× slower in aggregate (~291 ns/day
-        each) against ~2400 ns/day for one run alone, and no thread placement recovered it.</p>
-        <p class="osmotic-retry-note"></p>
-        <p>Then, if a condition still ends failed, the series does one of two things — and carrying on is the
-        default. The queue route creates every condition up front and refuses before creating anything if any is
-        wrong, so once the series exists a failed condition does not cancel its siblings unless the series asked it
-        to, and the reader reports the gap rather than drawing a curve through it.</p>
-        <div class="osmotic-onfail-group" role="radiogroup" aria-label="What the series does when a condition ends failed">
-          <label class="osmotic-onfail-option"><input type="radio" name="osmotic_series_on_failure" value="carry_on" class="osmotic-onfail-carryon" checked><span>Carry on — the remaining conditions run; a gap is reported</span></label>
-          <label class="osmotic-onfail-option"><input type="radio" name="osmotic_series_on_failure" value="stop" class="osmotic-onfail-stop"><span>Stop the series on the first failed condition — the conditions after it are not run</span></label>
-        </div>
-        <p class="hint osmotic-stop-reason" role="status"></p>
-        <p class="hint">Starting a series does not start anything until Start series is pressed, and this panel never
-        queues without that.</p>
-      </section>
-
-      <section class="card osmotic-review">
-        <div class="review-heading"><h3>Review before launch</h3>
-          <span class="osmotic-review-status" role="status">Reading the catalogue…</span></div>
-        <dl class="osmotic-review-grid">
-          <dt>Sugar</dt><dd class="osmotic-summary-sugar">—</dd>
-          <dt>Mapping</dt><dd class="osmotic-summary-mapping">—</dd>
-          <dt>Solute files</dt><dd class="osmotic-summary-solute">—</dd>
-          <dt>Conditions</dt><dd class="osmotic-summary-count">—</dd>
-          <dt>Concentrations</dt><dd class="osmotic-summary-conc">—</dd>
-          <dt>Duration</dt><dd class="osmotic-summary-duration">—</dd>
-          <dt>On failure</dt><dd class="osmotic-summary-onfail">—</dd>
-          <dt>Temperature</dt><dd class="osmotic-summary-temp">308.15 K</dd>
-          <dt>Series id</dt><dd><code>assigned at queue time</code></dd>
-        </dl>
-        <p class="hint">Execution success does not establish scientific validation. A completed series proves the
-        calculation ran; agreement with the paper's points is evidence about the model and the mapping at once.</p>
-        <p class="hint osmotic-review-note" role="status"></p>
-        <button type="submit" class="primary osmotic-start" disabled>Start series</button>
-      </section>
-
-      <section class="card osmotic-reader">
-        <span class="eyebrow">THE SERIES AS IT STANDS</span><h3 class="osmotic-reader-title">Measured</h3>
-        <p class="hint">Read from <code>GET /api/osmotic/conditions</code> — the existing reader, rendered and not
-        recomputed. The control has no measurement by construction: no solute, so no wall to push against.</p>
-        <table class="osmotic-series-table">
-          <thead><tr><th>molal</th><th>molecules</th><th>measured</th><th>paper</th><th>ratio</th></tr></thead>
-          <tbody class="osmotic-series-rows"></tbody>
-        </table>
-        <p class="hint osmotic-reader-note">Reading the series…</p>
-      </section>
-
-      <section class="card osmotic-runs">
-        <span class="eyebrow">THE SERIES' RUNS</span><h3>Runs of this run type</h3>
-        <p class="hint">Read from <code>GET /api/jobs?run_type=osmotic</code> — the run-type filter on the run list,
-        so this panel asks for the series and not for every run in the workspace. One run owns every concentration
-        of a series; its <em>conditions</em> are the rows above, which are files of that run.</p>
-        <table class="osmotic-series-table osmotic-runs-table">
-          <thead><tr><th>run</th><th>label</th><th>status</th><th>conditions</th></tr></thead>
-          <tbody class="osmotic-run-rows"></tbody>
-        </table>
-        <p class="hint osmotic-runs-note" role="status">Reading the runs…</p>
-      </section>
-    </aside>
-  </form>
 </section>
 </div>
 </div>

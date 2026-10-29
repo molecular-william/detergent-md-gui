@@ -27,6 +27,7 @@ import re
 from html.parser import HTMLParser
 from pathlib import Path
 
+from dashboard import features
 from dashboard.web import sections
 
 from tests.dashboard.support import PACKAGE
@@ -88,17 +89,23 @@ def rendered(dashboard):
     return page
 
 
+def asset_roots():
+    """The engine's browser tree and the installed features' own: the id contract spans both."""
+    return [STATIC, *[directory for directory in features.static_dirs().values() if directory is not None]]
+
+
 def module_lookups():
     """Every id a module names in a selector, and every prefix it builds one from."""
     named, prefixes = set(), set()
-    for path in sorted(STATIC.rglob('*.js')):
-        text = path.read_text()
-        for pattern in LOOKUP_CALLS:
-            for selector in pattern.findall(text):
-                named.update(ids_in(selector))
-        named.update(BY_ID_CALLS.findall(text))
-        for literal, interpolated in BUILT_SELECTOR.findall(text):
-            prefixes.add(literal or interpolated)
+    for root in asset_roots():
+        for path in sorted(root.rglob('*.js')):
+            text = path.read_text()
+            for pattern in LOOKUP_CALLS:
+                for selector in pattern.findall(text):
+                    named.update(ids_in(selector))
+            named.update(BY_ID_CALLS.findall(text))
+            for literal, interpolated in BUILT_SELECTOR.findall(text):
+                prefixes.add(literal or interpolated)
     return named, prefixes
 
 
@@ -123,7 +130,7 @@ def test_every_rendered_id_is_addressed_by_something(dashboard):
     """The other direction: an id nothing reads is decoration, and this is what says so by name."""
     page = rendered(dashboard)
     named, _ = module_lookups()
-    styled = {name for path in STATIC.rglob('*.css')
+    styled = {name for root in asset_roots() for path in root.rglob('*.css')
               for name in re.findall(r"""#([A-Za-z][A-Za-z0-9_-]*)""", path.read_text())}
     addressed = named | styled | browser_selectors() | page.references | set(sections.TAB_IDS.values())
     unaddressed = sorted(page.ids - addressed)

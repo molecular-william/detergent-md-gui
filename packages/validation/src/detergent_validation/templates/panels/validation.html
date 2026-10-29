@@ -1,0 +1,99 @@
+<section id="validation" class="panel" role="tabpanel" aria-labelledby="tab-validation"{% if panel != 'mapping-validation' %} hidden{% endif %}>
+  <div class="section-heading"><div><h2>Mapping Validation</h2><p>Does the model we simulate reproduce the atomistic structure it was built from? Every number here compares our model with our own atomistic reference; the reference entry's values are context and set no verdict.</p></div></div>
+  <section class="card validation-selectors" aria-labelledby="validation-selectors-title">
+    <h3 id="validation-selectors-title">Which comparison</h3>
+    <div class="toolbar">
+      <label>CG consumer run<select id="validation-run" aria-label="Coarse-grained consumer run"></select></label>
+      <button type="button" class="secondary" id="validation-refresh">Refresh runs</button>
+    </div>
+    <p id="validation-identity" class="hint" role="status">Choose a completed CG run.</p>
+    <p id="validation-message" class="notice" role="status" hidden></p>
+  </section>
+  <section class="card" aria-labelledby="validation-pairs-title">
+    <div class="validation-card-heading">
+      <h3 id="validation-pairs-title">1 · Ring and constraint geometry</h3>
+      <span class="badge validation-comparison">AA vs CG</span>
+      <span class="badge validation-claim" id="validation-pairs-badge" hidden></span>
+    </div>
+    <p class="hint">Distances between the beads the generated topology constrains, measured on the run's atomistic reference and on its coarse-grained trajectory. The bead reading <code>(2,A)</code> is the reference entry's language, kept so a row can be found in the entry.</p>
+    <div class="table-scroll"><table><caption>Ring and constraint pairs · nanometres</caption>
+      <thead><tr><th>Pair</th><th>AA mean ± stderr</th><th>CG mean ± stderr</th><th>Δ (AA→CG)</th><th>Reference entry</th><th>This run's AA range</th></tr></thead>
+      <tbody id="validation-pair-rows"><tr><td colspan="6">No comparison loaded.</td></tr></tbody></table></div>
+    <p class="hint">These constraints are fitted from the atomistic reference they are compared against here, so agreement is a check that the mapping, the mapped trajectory and the simulated trajectory are one assignment. It is not a statement about the model's physics, and it is not evidence from experiment.</p>
+  </section>
+  <section class="card" aria-labelledby="validation-terms-title">
+    <div class="validation-card-heading">
+      <h3 id="validation-terms-title">2 · Bonded terms</h3>
+      <span class="badge validation-comparison">AA-mapped vs CG-simulated</span>
+    </div>
+    <p class="hint">Each bonded term the model carries, as it appears in the mapped atomistic trajectory and in the simulated coarse-grained one. <b>Overlap</b> is the shared area of the two histograms: 1 is identical, 0 is no overlap. Δ is the mean difference in the term's own unit (nm or degrees).</p>
+    <div class="table-scroll"><table><caption>Bonded terms</caption>
+      <thead><tr><th>Section</th><th>Beads</th><th>AA mean ± std</th><th>CG mean ± std</th><th>Δ</th><th>Overlap</th><th>Reading</th></tr></thead>
+      <tbody id="validation-term-rows"><tr><td colspan="7">No comparison loaded.</td></tr></tbody></table></div>
+  </section>
+  <section class="card" aria-labelledby="validation-shape-title">
+    <div class="validation-card-heading">
+      <h3 id="validation-shape-title">3 · Shape and volume</h3>
+      <span class="badge validation-comparison">AA vs CG</span>
+    </div>
+    <p class="hint" id="validation-shape-detail">The run's shape analysis has not been published.</p>
+    <div id="validation-shape-plot" class="validation-plot" role="img" aria-label="Per-bead displacement after a rigid-body fit, in picometres"></div>
+    <h4>Solvent-accessible envelope</h4>
+    <p class="hint" id="validation-surface-note">No envelope analysis loaded.</p>
+    <div class="table-scroll"><table><caption>Mean SASA per model · probe 0.191 nm · nanometres squared</caption>
+      <thead><tr><th>Model</th><th>Frames</th><th>Duration</th><th>Mean SASA</th><th>SD</th></tr></thead>
+      <tbody id="validation-surface-rows"><tr><td colspan="5">No envelope analysis loaded.</td></tr></tbody></table></div>
+    <div id="validation-surface-figure"></div>
+    <h4>Bead overlap</h4>
+    <p class="hint" id="validation-overlap-note">No bead-overlap analysis loaded.</p>
+    <p class="hint" id="validation-overlap-detail"></p>
+    <div id="validation-overlap-figure"></div>
+    <h4>Bonded terms · our fit against the estimate</h4>
+    <p class="hint" id="validation-crosscheck-note">No bonded cross-check loaded.</p>
+    <div class="table-scroll"><table>
+      <caption id="validation-crosscheck-caption">Terms the run's topology declares, each against an independent estimate from the same frames</caption>
+      <thead><tr><th>Pair</th><th>Ours</th><th>Our k</th><th>Estimate</th><th>Estimate k</th><th>Δ length</th><th>Verdicts</th></tr></thead>
+      <tbody id="validation-crosscheck-rows"><tr><td colspan="7">No bonded cross-check loaded.</td></tr></tbody></table></div>
+    <p class="hint" id="validation-crosscheck-limits"></p>
+    <h4>Dihedral terms · a criterion against the tool default</h4>
+    <p class="hint" id="validation-dihedral-note">No dihedral fit loaded.</p>
+    <div class="table-scroll"><table>
+      <caption>Proper dihedrals the run's topology declares, against an AIC/BIC-chosen fit from the same frames</caption>
+      <thead><tr><th>Beads</th><th>Our φ</th><th>Our k</th><th>n</th><th>Fit keeps</th><th>Fit's n</th><th>Residual</th><th>Verdicts</th></tr></thead>
+      <tbody id="validation-dihedral-rows"><tr><td colspan="8">No dihedral fit loaded.</td></tr></tbody></table></div>
+    <p class="hint" id="validation-dihedral-limits"></p>
+  </section>
+  <section class="card" aria-labelledby="validation-solution-title">
+    <div class="validation-card-heading">
+      <h3 id="validation-solution-title">4 · Solution behaviour</h3>
+      <span class="badge validation-comparison">blocked</span>
+    </div>
+    <p class="hint">Osmotic pressure and transfer free energy need a concentration-series system builder and a second solvent leg; neither exists yet, so this card stays empty rather than showing a substitute number. The checks are specified in <code>docs/superpowers/specs/2026-09-29-sugar-consistency-validation-design.md</code> (E4, E5).</p>
+  </section>
+  <section class="card" aria-labelledby="validation-across-title">
+    <div class="validation-card-heading">
+      <h3 id="validation-across-title">5 · Across molecules</h3>
+      <span class="badge validation-comparison">our model vs our model</span>
+    </div>
+    <p class="hint">The same bead-type pair in every molecule that has a published comparison, read from those
+      comparisons and nothing else. Each run agrees with its own reference by construction (card 1), so what moves
+      here is the <b>spread between molecules</b> — a spread near zero is what makes a bead type a shared library
+      rather than a per-molecule fit. A row whose molecules name different ring edges is not a comparison of one
+      bead type at all, and says so. This is our model against itself, never against experiment.</p>
+    <div class="table-scroll"><table><caption>Bead-type pairs across molecules · nanometres</caption>
+      <thead><tr id="validation-across-head"><th>Bead types</th><th>Where</th><th>Spread</th><th>Reading</th></tr></thead>
+      <tbody id="validation-across-rows"><tr><td colspan="4">No comparison loaded.</td></tr></tbody></table></div>
+    <p class="hint" id="validation-across-sources"></p>
+    <h4>The linkage: what joins the two rings</h4>
+    <p class="hint">Every row above is a constrained distance <em>inside</em> one ring, so the interaction that
+      differs most between disaccharides — the bond, the four angles and the dihedral that span the two rings — is
+      not in it at all. It is here, and it is where the same bead types stop agreeing. Each cell is the molecule's
+      own atomistic mean with its coarse-grained mean after the arrow, and the beads it was measured over. A
+      dihedral's published mean is a wrapped quantity, so its spread is withheld rather than shown as a number that
+      invites a wrong reading.</p>
+    <div class="table-scroll"><table><caption>Linkage terms across molecules · nm for bonds, degrees for angles</caption>
+      <thead><tr id="validation-linkage-head"><th>Term</th><th>Types</th><th>Spread</th></tr></thead>
+      <tbody id="validation-linkage-rows"><tr><td colspan="3">No comparison loaded.</td></tr></tbody></table></div>
+  </section>
+  <p id="validation-interpretation" class="hint">Every comparison here is against our own atomistic reference.</p>
+</section>

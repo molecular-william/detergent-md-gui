@@ -94,5 +94,7 @@ def test_the_panels_own_sheet_is_linked_after_the_other_panels_and_before_the_me
     `new-run.css` sits in.
     """
     html = TEMPLATE.read_text()
-    order = [name for name in ('pdc.css', 'run-view.css', 'layout.css') if f"filename='{name}'" in html]
-    assert order == ['pdc.css', 'run-view.css', 'layout.css'], html[:2000]
+    order = [name for name in ('run-view.css', 'layout.css') if f"filename='{name}'" in html]
+    assert order == ['run-view.css', 'layout.css'], html[:2000]
+    # A feature's own sheets (osmotic, pdc) are linked by the registry loop, and that loop sits before this sheet.
+    assert html.index('feature_styles') < html.index("filename='run-view.css'"), html[:2000]
