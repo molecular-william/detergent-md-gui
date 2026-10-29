@@ -479,6 +479,10 @@ scripts/test_module.sh core|validation|pdc [fast|browser|slow]
 
 The selection is ownership, not isolation: every run uses the checkout's install with all three distributions present. Isolating a module's tests into an environment without the other features would be a different (and much larger) harness change. The suite checks commands, lifecycle and recovery, quota and dependency guards, parsing, API contracts, and browser interactions without long simulations. Browser tests use installed Playwright and Chrome, temporary databases, and loopback servers.
 
+The physical half is the next task: move each module's tests into `packages/<module>/tests/` so a feature can be
+tested from its own package, with the shared harness at `tests/harness/`. It is specified in
+`docs/plans/2026-10-29-modular-test-packages.md` (target layout, inventory, phases, hazards, acceptance); this
+section describes the state before that move.
 Tiers answer "how expensive", areas answer "what about": `tests/dashboard/areas.py` holds one table of module patterns per area, applied as markers by `pytest_collection_modifyitems`, so `-m pdc` is the protein-detergent work, `-m 'mapping and not browser'` the bead editor without a browser, and `-m 'pdc and not browser and not slow'` that area's tool-free part. The areas are pdc, runs, bonded, analysis, infra, osmotic, mapping, carbohydrate, web, molecules and aa; they partition the suite exactly, which `unit/test_test_areas.py` enforces -- an unnamed module, a module two areas claim, or an area with no module fails that test. Order in the table decides an ambiguous name (a mapping test named `test_cg_mapping_script.py` is `mapping`, not `runs`), so a new file goes where its subject is, with the pattern that names it. Tier and area counts are measured in `pytest.ini`.
 
 Optional process parallelism is provided by `requirements-dashboard-tests.txt`. That file also carries the test-only imports `playwright` (browser tests), `vermouth` (sugar topology) and `mdtraj` (pdc secondary structure; see below), so install it before running the full suite:

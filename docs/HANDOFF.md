@@ -17,6 +17,11 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
   `validation`, `pdc`) from `tests/dashboard/modules.py`, enforced by `unit/test_test_modules.py`. `-m <module>` or
   `scripts/test_module.sh <module> [fast|browser|slow]` runs one module's tests; the groups partition the suite and
   every run still uses the full install.
+- **Open next task — physical test packages.** The selection axis exists, but every test still lives under
+  `tests/dashboard/`. Moving each module's tests to `packages/<module>/tests/` (with the fixtures/plugins in
+  `tests/harness/`) is specified end to end in `docs/plans/2026-10-29-modular-test-packages.md`: target tree,
+  inventory, decisions, phases, hazards and acceptance. Do not start from a blank sheet; the plan carries the
+  current counts and the migration script.
 - `DASHBOARD_TABS` is validated when the app is constructed: every named slug must exist in every installed
   workspace, so a typo is a start-up failure rather than a 400 on the first page.
 - The data root is `DASHBOARD_ROOT` (falling back to the checkout), and the interpreter is `.venv/` at the
