@@ -221,5 +221,5 @@ one commit.
   selection tables; `modules.py` derives ownership from `packages/<module>/tests`.
 - Each package carries a dev-only `test` extra; all three wheels contain zero `/tests/` paths.
 - Acceptance: fast 2,187 + 1 xfailed, slow 17, mutation 11/10 caught/1 survived/0 stale, ruff clean, DoD grep clean.
-- Residual, recorded in `docs/HANDOFF.md`: the mapping editor's overlay can load an empty bead file under load
-  (`atoms: [35, 0]`, about one browser run in eight); every failed test passes alone.
+- The one flake seen during acceptance was traced after the plan closed to a stale molecule load in the bead editor
+  and fixed in `0738b49`, with a delayed-fetch browser test that fails on the previous code.

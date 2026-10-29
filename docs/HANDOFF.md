@@ -18,10 +18,10 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
   `__init__.py`. The two selection axes remain: subject (`-m <area>`, table in `tests/harness/areas.py`) and owner
   (`-m core|validation|pdc`, derived from the tree); `scripts/test_module.sh <module> [tier]` runs one tree.
 - **The test-package split landed 2026-10-29** (plan and record: `docs/plans/2026-10-29-modular-test-packages.md`):
-  191/29/69 files and 1466/312/662 tests in core/validation/pdc, 2,440 collected. Each package's `pyproject.toml`
-  carries a dev-only `test` extra, and a built wheel carries no tests (`packages.find` scans `src/` only). One residual
-  is open: the mapping editor's overlay occasionally loads an empty bead file under load; every failed test passes
-  alone. See the open-items row.
+  191/29/69 files and 1466/312/662 tests in core/validation/pdc, 2,441 collected. Each package's `pyproject.toml`
+  carries a dev-only `test` extra, and a built wheel carries no tests (`packages.find` scans `src/` only). The
+  browser-tier flake it inherited was traced and fixed on 2026-10-29 (`0738b49`): a stale molecule load could replace
+  a newer selection in the bead editor, which the overlay then drew as the default molecule with an empty bead file.
 - `DASHBOARD_TABS` is validated when the app is constructed: every named slug must exist in every installed
   workspace, so a typo is a start-up failure rather than a 400 on the first page.
 - The data root is `DASHBOARD_ROOT` (falling back to the checkout), and the interpreter is `.venv/` at the
@@ -117,7 +117,6 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 | cloud vs rough belt | open measurement, not a task | one protein, one seed, two 100 ns legs; compare removal fraction/aggregation/belt thickness before adopting a belt criterion |
 | `pytest-socket` | not installed; no test enforces the no-outbound-HTTPS audit | add with `--allow-hosts=127.0.0.1,localhost` |
 | known test flake | `test_pdc_preview.py::test_the_cached_step_is_not_run_again...` has failed in one full fast run and passed alone | capture a failing order with `-p no:cacheprovider` |
-| browser-tier flake | the mapping editor's overlay can load an empty bead file under load (`atoms: [35, 0]`), about one browser run in eight; every failed test passes alone | capture with `--tb=line`; suspect the editor's initial candidate selection |
 | DDM CG Task 2.4 | written off by the user 2026-10-15; six arms failed with stochastic onset, causes eliminated | do not rebuild the arms or cron schedule |
 | Phase 4 sucrose/maltose | deferred; targets remain `availability: metadata_only` | separate decision |
 | native micelle builder | paused; `micelle/` is a partial, unvalidated skeleton | do not present it as a model |
@@ -159,12 +158,15 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 - `936b74bd3fa8`: empty micelle, 120 DDM, no removal; the 1,000 ns leg after NVT/NPT was configured at
   50,000,000 steps and did not finish: the run failed in `CG assessment MD` at the per-run storage limit.
 - `bbda8d632309`: failed at input before stages; no stage directories.
-- Tests (measured 2026-10-29, after the split): 2,440 collected; fast **2,187 passed, 1 xfailed**; browser **235
+- Tests (measured 2026-10-29, after the split): 2,441 collected; fast **2,187 passed, 1 xfailed**; browser **236
   passed**; slow **17 passed**; `ruff check packages tests conftest.py` clean. `pytest.ini` owns tier counts; do not
   copy moving counts into this file.
 
 ## Landed slices, newest first
 
+- **2026-10-29 browser-tier flake**: a stale molecule load could replace a newer selection in the bead editor, so the
+  overlay drew the default molecule with an empty bead file; `loadMoleculeEditor` now checks its generation after
+  every await, and a delayed-fetch browser test requires the reader's choice to win. 14 consecutive runs green.
 - **2026-10-29 test-package split**: every test moved into its package (191/29/69 files; 1466/312/662 tests), shared
   fixtures and the selection tables at `tests/harness/`, a root `conftest.py`, `--import-mode=importlib`;
   `scripts/test_module.sh` selects a tree and `scripts/mutants.json` follows it.
