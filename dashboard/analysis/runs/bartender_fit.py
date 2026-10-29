@@ -31,6 +31,7 @@ from pathlib import Path
 import MDAnalysis as mda
 import numpy as np
 
+from ... import itp
 from . import layout
 
 REPORT = 'bartender-fit.json'
@@ -74,46 +75,40 @@ def physical_topology(topology_text: str, beads: list[dict]) -> tuple[str, list[
     virtual = {index for index, bead in enumerate(beads, 1) if bead.get('virtual_site')}
     kept = [index for index in range(1, len(beads) + 1) if index not in virtual]
     renumber = {old: new for new, old in enumerate(kept, 1)}
-    out, section = [], None
-    for line in topology_text.splitlines():
-        body = line.split(';', 1)[0].strip()
-        if body.startswith('['):
-            section = body.strip('[] ').strip().lower()
-            if section != 'virtual_sitesn':
-                out.append(line)
-            continue
+    out = []
+    for section, rows in itp.sections(topology_text):
         if section == 'virtual_sitesn':
             continue
-        if not body:
-            out.append(line)
-            continue
-        if section == 'atoms':
-            index = int(body.split()[0])
-            if index in virtual:
+        if section:
+            out.append(f'[ {section} ]')
+        for _number, body in rows:
+            if section == 'atoms':
+                index = int(body.split()[0])
+                if index in virtual:
+                    continue
+                fields = body.split()
+                fields[0] = str(renumber[index])
+                fields[5] = str(renumber[index])
+                out.append(' '.join(fields))
                 continue
-            fields = body.split()
-            fields[0] = str(renumber[index])
-            fields[5] = str(renumber[index])
-            out.append(' '.join(fields))
-            continue
-        if section == 'exclusions':
-            # Every field is an atom number. A row that names a dropped virtual site goes, and a row that does not is
-            # renumbered -- an `[ exclusions ]` row naming a bead that no longer exists is not a valid topology.
-            fields = line.split()
-            indices = [int(field) for field in fields]
-            if any(index in virtual for index in indices):
+            if section == 'exclusions':
+                # Every field is an atom number. A row that names a dropped virtual site goes, and a row that does
+                # not is renumbered -- an `[ exclusions ]` row naming a bead that no longer exists is not a valid
+                # topology.
+                indices = [int(field) for field in body.split()]
+                if any(index in virtual for index in indices):
+                    continue
+                out.append(' '.join(str(renumber[index]) for index in indices))
                 continue
-            out.append(' '.join(str(renumber[index]) for index in indices))
-            continue
-        width = {'constraints': 2, 'bonds': 2, 'angles': 3, 'dihedrals': 4}.get(section, 0)
-        if width:
-            fields = line.split()
-            head = [int(value) for value in fields[:width]]
-            if any(index in virtual for index in head):
+            width = ARITY.get(section, 0)
+            if width:
+                fields = body.split()
+                head = [int(value) for value in fields[:width]]
+                if any(index in virtual for index in head):
+                    continue
+                out.append(' '.join([str(renumber[index]) for index in head] + fields[width:]))
                 continue
-            out.append(' '.join([str(renumber[index]) for index in head] + fields[width:]))
-            continue
-        out.append(line)
+            out.append(body)
     names = [bead['name'] for index, bead in enumerate(beads, 1) if index in renumber]
     return '\n'.join(out) + '\n', names
 
@@ -124,17 +119,10 @@ def fitted_terms(text: str) -> dict:
     The second `[ angles ]` holds commented alternatives, so a parser that resets on a repeated header throws the
     fitted angles away -- which is what a first attempt did, and the run then went ahead without them.
     """
-    sections, current = {}, None
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith('['):
-            current = stripped.strip('[] ').strip('[').strip(']').lower()
-            sections.setdefault(current, [])
-            continue
-        if not stripped or stripped.startswith(';') or current is None:
-            continue
-        sections[current].append(stripped.split(';')[0].strip())
-    return {section: [row for row in sections.get(section, []) if row] for section in SECTIONS}
+    sections = {}
+    for section, rows in itp.sections(text):
+        sections.setdefault(section, []).extend(line for _number, line in rows)
+    return {section: sections.get(section, []) for section in SECTIONS}
 
 
 def model_topology(candidates: list[Path]) -> Path | None:

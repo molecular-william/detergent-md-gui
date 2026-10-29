@@ -3,9 +3,8 @@
 Option (b) of the plan's three honest answers, and the only one that is a picture of *this* build rather than of a
 schematic: `pdc_build` leaves a **dry** system -- `system.gro` holds the protein and the detergents, and solvation is
 the first equilibration leg's opening act -- so "protein and detergents in a box, no solvent" is not a reduced view
-of the system, it *is* the artifact the build writes. It is also the frame the run records as its own first snapshot
-(`pdc_snapshot.write_snapshot(stage, 'placement', ...)` -> `1_system/snapshots/placement.pdb`), so the preview is the
-picture the run will show, derived before the run exists.
+of the system, it *is* the artifact the build writes. The preview derives the same frame before the run exists, so
+the picture and the built `system.gro` are one claim rather than two.
 
 The pipeline is the build's own, in the build's own order, and every step is a call to the function the stage calls:
 
@@ -73,8 +72,8 @@ from .adapters.pdc import DETERGENT_TOPOLOGY
 from .scripts import pdc_build
 
 #: Where the coarse-grained proteins are kept, relative to the workspace. Deliberately not a directory any stage
-#: reads or writes: a run re-derives its own `1_system/snapshots/placement.pdb` in its own stage, which is the whole
-#: point of the snapshot design, so the preview's cache can never be mistaken for a run's input.
+#: reads or writes: the preview derives its own frame and keeps only the coarse-grained protein, so its cache can
+#: never be mistaken for a run's input.
 CACHE_DIRECTORY = 'preview/cg'
 #: Bumped when the shape of what an entry holds changes, so an entry written by an older version is never read as if
 #: it were this one's. It is part of every key, which is what makes that true of entries on disk as well. Format 2:

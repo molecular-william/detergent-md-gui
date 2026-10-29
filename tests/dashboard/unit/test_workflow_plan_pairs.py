@@ -60,3 +60,24 @@ def test_a_cg_prepared_manifest_records_pairs_so_the_shape_cannot_come_back():
     source = inspect.getsource(cg)
     assert 'stage_plan=[name for name, _ in stage_plan]' not in source, (
         'the CG adapter must record (name, relative) pairs, not bare names')
+
+def test_a_skipped_stage_is_never_a_resume_start_but_stays_in_the_prefix():
+    """The Resume-from box lists the stages a run can be resumed *into*, and a prepare-time skip has no directory.
+
+    The stage is still a completed part of the prefix -- stopping there would make every later stage unreachable -- so
+    a stage after it is offered, the failed stage itself is offered (re-running it is the ordinary resume), and the
+    stage after the failure is not. `b920391735dd` is the case: it skipped five of its ten stages, and picking one of
+    them as the resume point could only fail.
+    """
+    from dashboard.execution import workflow
+
+    names = [name for name, _ in stage_definitions({'run_type': 'pdc'})[0]]
+    metadata = {'run_type': 'pdc', 'stages': [
+        {'name': names[0], 'status': 'skipped'},
+        {'name': names[1], 'status': 'completed'},
+        {'name': names[2], 'status': 'skipped'},
+        {'name': names[3], 'status': 'completed'},
+        {'name': names[4], 'status': 'failed'},
+    ]}
+
+    assert workflow.resumable_stages(None, metadata) == [names[1], names[3], names[4]]

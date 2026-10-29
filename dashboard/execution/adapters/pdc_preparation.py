@@ -1,6 +1,6 @@
 """The prepare step's rules: PDB2PQR rebuilds the residues a deposited structure left incomplete, and protonates it.
 
-The plan's step 1 (`docs/superpowers/plans/2026-10-12-pdc-new-run-panel.md`) and MemProtMD's own Energy Minimise
+The plan's step 1 (`docs/plans/2026-10-12-pdc-new-run-panel.md`) and MemProtMD's own Energy Minimise
 route, which is `PDB -> PDB2PQR -> minimisation`. What this module runs is the first half of that route, and the
 half the coarse-grained path actually needs.
 

@@ -114,7 +114,8 @@ def test_an_unclassified_diagnostic_artifact_says_so(dashboard, live_page):
            'method': 'fast_forward', 'status': 'completed', 'stage': 'complete',
            'created': dashboard.coordinator.now()}
     dashboard.coordinator.database().replace([job])
-    assessment = workflow.execution_root(runs / job['id']) / '5_assessment'; assessment.mkdir(parents=True)
+    (runs / job['id'] / 'stages').mkdir(parents=True, exist_ok=True)
+    assessment = workflow.stage_root(runs / job['id']) / '5_assessment'; assessment.mkdir(parents=True)
     (assessment / 'distance_diagnostics.json').write_text(json.dumps({'pairs': [
         {'beads': ['B01', 'B02'], 'wasserstein_nm': {'raw_AA': 0.2, 'ring_expanded_AA': 0.3}}]}))
     page, errors = live_page

@@ -1,11 +1,11 @@
 """The complex panel's own door to a run: its list arms the viewer, not only the test hook.
 
-D4 of the audit: `setRun` had no production caller, so the system viewer and the snapshot strip were reachable only
-through `window.pdcSetRun` -- a hook that exists for tests. A panel a reader cannot arm is not a panel, and the
-difference between the defect and its fix is exactly which control this test uses: the list the panel fills itself.
+D4 of the audit: `setRun` had no production caller, so the system viewer was reachable only through
+`window.pdcSetRun` -- a hook that exists for tests. A panel a reader cannot arm is not a panel, and the difference
+between the defect and its fix is exactly which control this test uses: the list the panel fills itself.
 
-The list is also asked to be the right list. The endpoint carries every run type, and a sugar run's snapshots are not
-a complex's, so a panel that offered them would be offering the wrong thing under the right heading.
+The list is also asked to be the right list. The endpoint carries every run type, and a sugar run is not a complex's,
+so a panel that offered it would be offering the wrong thing under the right heading.
 """
 import re
 
@@ -18,14 +18,6 @@ PDB = ('REMARK 950 TEST\n'
        'HETATM    2 DD0  DET A   1       1.000   0.000   0.000  1.00  0.00           C\n'
        'END\n')
 
-INDEX = {
-    'job_id': 'pdcfixture',
-    'snapshots': [
-        {'name': 'placement', 'time_ps': None, 'pdb': 'snapshots/placement.pdb', 'stage': '1_system',
-         'atoms': 2, 'verdict': None},
-    ],
-}
-
 # One complex and one molecule-only run, because the filter is half of what the control has to get right.
 JOBS = {'jobs': [
     {'id': 'pdcfixture', 'run_type': 'pdc', 'molecule_id': 'DDM', 'status': 'completed'},
@@ -37,8 +29,6 @@ def serve(page, jobs=None):
     """Answer the list and the two endpoints behind it, so the panel is armed by something real."""
     # The three structure routes are Playwright globs and stay globs; only the JSON answer goes through the fixture.
     panels.serve_json(page, re.compile(r'/api/jobs'), JOBS if jobs is None else jobs)
-    page.route('**/api/pdc/*/snapshots', lambda route: route.fulfill(json=INDEX))
-    page.route('**/api/pdc/*/snapshots/**', lambda route: route.fulfill(body=PDB, content_type='text/plain'))
     page.route('**/api/pdc/*/system.pdb', lambda route: route.fulfill(body=PDB, content_type='text/plain'))
 
 
@@ -57,14 +47,12 @@ def test_the_panel_lists_its_own_runs_and_the_list_arms_the_viewer(dashboard, li
     # The panel's own control, not `window.pdcSetRun`: this is the line D4 was about.
     select.select_option('pdcfixture')
 
-    expect(page.locator('#pdc-snapshots button')).to_have_count(1, timeout=30000)
-    expect(page.locator('#pdc-snapshot-basis')).to_contain_text('1 snapshots recorded')
-    expect(page.locator('#pdc-view-basis')).to_contain_text('beads from the built system')
+    expect(page.locator('#pdc-view-basis')).to_contain_text('beads from the built system', timeout=30000)
     assert errors == []
 
 
 def test_choosing_no_run_returns_the_panel_to_its_empty_state(dashboard, live_page):
-    """The empty state is a state, not a blank: the panel says what would appear and the strip is cleared."""
+    """The empty state is a state, not a blank: the viewer says what would appear there."""
     page, errors = live_page
     serve(page)
     page.goto(f'{live_page.base_url}/protein-detergent/complexes')
@@ -72,12 +60,9 @@ def test_choosing_no_run_returns_the_panel_to_its_empty_state(dashboard, live_pa
     select = page.locator('#pdc-run')
     expect(select.locator('option')).to_have_count(2, timeout=30000)
     select.select_option('pdcfixture')
-    expect(page.locator('#pdc-snapshots button')).to_have_count(1, timeout=30000)
+    expect(page.locator('#pdc-view-basis')).to_contain_text('beads from the built system', timeout=30000)
 
     select.select_option('')
-
-    expect(page.locator('#pdc-snapshots button')).to_have_count(0)
-    expect(page.locator('#pdc-snapshot-basis')).to_contain_text('Snapshots appear here as a run records them')
     expect(page.locator('#pdc-view-basis')).to_contain_text('appears here once a build has run')
     assert errors == []
 

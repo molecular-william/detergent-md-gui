@@ -1,5 +1,9 @@
-import json, numpy as np
+import json
 from pathlib import Path
+
+import numpy as np
+
+
 def validate_positions(centers,aggregation_number,min_distance=.25):
  c=np.asarray(centers); issues=[]
  if not np.isfinite(c).all(): issues.append('nonfinite coordinates')

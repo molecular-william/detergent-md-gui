@@ -15,6 +15,7 @@ from pathlib import Path
 
 from flask import Blueprint, abort, jsonify, request
 
+from ...analysis.runs import layout
 from ...execution import protocol
 from ...execution.adapters import osmotic, osmotic_box, osmotic_mdp
 from ...execution.coordination import admission
@@ -176,12 +177,13 @@ def conditions_for(run_dir):
     """Every condition a run directory holds, in whichever of the two layouts it was built in.
 
     **Both are real and both are read.** The series layout this run type owns now is one run with one directory per
-    concentration under `01_simulate/conditions/`; the layout every run made before it has is a run whose
-    `01_simulate/` *is* its one condition. The completed six-condition series on this workspace's disk is the
-    second, and a reader that stopped reading it would drop the record this panel exists to show.
+    concentration under `stages/01_simulate/conditions/`; the layout every run made before it has is a run whose
+    `01_simulate/` *is* its one condition, at the run root. The completed six-condition series on this workspace's
+    disk is the second, and a reader that stopped reading it would drop the record this panel exists to show.
     """
     run_dir = Path(run_dir)
-    stage = run_dir / '01_simulate'
+    # `stages/` when the run has it, the run root for a legacy run -- the same answer every analysis reader uses.
+    stage = layout.stage_root(run_dir) / '01_simulate'
     conditions = []
     series = stage / osmotic.CONDITIONS_DIRECTORY
     if series.is_dir():

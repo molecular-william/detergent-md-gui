@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>New run · other run options and CUDA devices · draft for review</title>
+<link rel="stylesheet" href="../../../dashboard/web/static/dashboard.css">
+<link rel="stylesheet" href="../../../dashboard/web/static/runs.css">
+<link rel="stylesheet" href="../../../dashboard/web/static/new-run.css">
+<link rel="stylesheet" href="../../../dashboard/web/static/mappings.css">
+<link rel="stylesheet" href="../../../dashboard/web/static/compositions.css">
+<link rel="stylesheet" href="../../../dashboard/web/static/pdc.css">
+<link rel="stylesheet" href="../../../dashboard/web/static/osmotic.css">
+<link rel="stylesheet" href="../../../dashboard/web/static/run-view.css">
+<link rel="stylesheet" href="../../../dashboard/web/static/layout.css">
+<link rel="stylesheet" href="../../../dashboard/web/static/workspaces.css">
+<style>
+  body { padding: 24px; }
+  main { max-width: 1280px; margin: 0 auto; }
+  .draft-banner { background: #fffbe6; border: 1px solid #e6d78a; border-radius: 10px; padding: 14px 16px; margin: 0 0 20px; }
+  .draft-banner h2 { margin: 0 0 6px; font-size: 17px; }
+  .draft-banner p, .draft-banner li { font-size: 13px; line-height: 1.55; }
+  .draft-banner ul { margin: 8px 0 0; padding-left: 20px; }
+  .draft-tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--accent); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; margin: 0 0 10px; }
+  .draft-preview-image { display: block; width: 100%; height: 100%; object-fit: contain; background: #f7f9fc; border-radius: 8px; }
+  .draft-preview-viewer { height: 340px; min-height: 280px; border: 1px solid var(--line); border-radius: 8px;
+    background: #f7f9fc; overflow: hidden; }
+  .draft-group { margin: 16px 0 0; }
+  .draft-group h4 { margin: 0 0 2px; font-size: 13px; letter-spacing: .02em; }
+  .draft-group .hint { margin: 0 0 8px; }
+  .draft-group + .draft-group { border-top: 1px solid var(--line); padding-top: 14px; }
+  .draft-note { background: #f7fafd; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+    font-size: 12px; color: var(--muted); margin: 10px 0 0; }
+  .draft-note strong { color: var(--ink); }
+  .draft-cuda { font-family: ui-monospace, monospace; font-size: 12px; }
+  #run-form .draft-gpu .setting-control select { max-width: 100%; }
+  .draft-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin: 12px 0 0; }
+  .draft-facts span { padding: 8px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; }
+  .draft-facts b { display: block; font-size: 15px; margin-top: 2px; }
+  .new-run-layout { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+  @media (max-width: 1050px) { .new-run-layout { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div><span class="eyebrow">LOCAL SIMULATION WORKSPACE</span><h1>Detergent MD</h1>
+    <p>Run, inspect, and refine molecular models.</p></div>
+  <span id="connection" role="status">Draft · opened from disk</span>
+</header>
+
+<div class="draft-banner">
+  <h2>Draft — New run: “Other run options”, no snapshots, CUDA device order</h2>
+  <p>This is the panel shape to judge. It is <b>not built</b>.</p>
+  <ul>
+    <li><b>Snapshots are out.</b> The <code>Snapshot interval</code> and <code>Snapshots per stage</code> inputs are
+      gone, and with them the snapshot stage and analysis this draft assumes retired. Nothing in the panel promises a
+      frame series; the placement picture stays a build artifact.</li>
+    <li><b>“Salt, seed and box” becomes “Other run options”.</b> The collapsed block keeps salt, seed, box, contact and
+      removal threshold, and now also carries output cadence, neighbour search, thermostat/barostat and mdrun
+      execution. The card itself stays about the belt and the two CG legs.</li>
+    <li><b>Output cadence is a run setting.</b> <code>nstlog</code>, <code>nstenergy</code>, the compressed trajectory
+      stride (<code>nstxtcout</code>, also spelled <code>nstxout-compressed</code>) and <code>xtc-precision</code> are
+      shown in steps, not ps. The time step stays the reviewed profile’s (20 fs production, 5 fs equilibration) and is
+      not exposed here.</li>
+    <li><b>The GPU list follows the CUDA ordinal, not the nvidia-smi/NVML index.</b> On this host
+      <code>/proc/driver/nvidia/gpus</code> lists four cards in PCI order: <code>18:00.0</code>,
+      <code>3b:00.0</code>, <code>86:00.0</code> and <code>af:00.0</code>. The last is the
+      <b>NVIDIA RTX 5000 Ada Generation</b>. CUDA’s fastest-first order makes it <b>device 0</b>; NVML numbers it 3.
+      Every option also prints its PCI address so the mapping can be checked.</li>
+    <li><b>Implementation notes:</b> make the cadence keys run-supplied (<code>None</code>) in the pdc MDP profiles so
+      the writer accepts them; add specs and manifest/last-used storage for the new numbers; remove
+      <code>snapshot_interval_ns</code> and <code>snapshot_cap</code> from <code>pdc.SETTING_SPECS</code> and the
+      payload; order the device list by CUDA ordinal in <code>devices.detect()</code>, carrying the PCI bus ID and
+      UUID for the record.</li>
+  </ul>
+</div>
+
+<span class="draft-tag">Protein-detergent simulations · New run · empty micelle shown</span>
+<section id="new" class="panel" aria-label="New run, protein-detergent">
+  <div class="section-heading">
+    <div><h2>Protein-Detergent Simulations</h2>
+      <p>Self-assemble a detergent belt around a membrane protein, judge whether a micelle formed, and back-map the result.</p></div>
+  </div>
+
+  <form id="run-form" class="new-run-layout">
+    <div class="new-run-inputs">
+
+      <section class="card" aria-labelledby="new-detergent-title">
+        <span class="eyebrow">DETERGENT</span><h3 id="new-detergent-title">Choose a detergent</h3>
+        <p class="hint">Detergents only, filtered by the registry in <code>detergents.json</code>: a molecule that registry does not name cannot be chosen here, because the belt is built from the detergent's own beads.</p>
+        <div class="new-pdc-pair new-pdc-detergent-pair">
+          <label>Detergent<select><option selected>DDM</option></select></label>
+          <label>Detergent template<select><option selected>DDM:DDM</option></select></label>
+        </div>
+        <p class="hint new-pdc-detergent" role="status">n-Dodecyl-β-D-maltoside · 11 beads · mapping draft · fitted</p>
+        <p class="hint new-pdc-limitation">skeleton placeholder template, not a fitted detergent model</p>
+        <label>Model<select><option selected>DDM draft · 11 beads · derived terms</option><option>No model · centres only</option></select></label>
+      </section>
+
+      <section class="card" aria-labelledby="new-protein-title">
+        <span class="eyebrow">MEMBRANE PROTEIN</span><h3 id="new-protein-title">Choose or download a structure</h3>
+        <div class="new-pdc-pair new-pdc-protein-pair">
+          <label>Protein<select><option selected>No protein · empty micelle</option><option>1at9 · imported · half-thickness 1.48 nm</option><option>4iar · imported · half-thickness 1.68 nm</option></select></label>
+          <div class="new-pdc-download">
+            <label class="new-pdc-opm" for="new-protein-id">Download from OPM</label>
+            <div class="new-pdc-opm-row">
+              <input id="new-protein-id" type="text" maxlength="4" placeholder="1qj8" autocomplete="off" spellcheck="false">
+              <button type="button" class="secondary new-pdc-import-button">Download</button>
+            </div>
+          </div>
+        </div>
+        <p class="hint new-pdc-import-status" role="status"></p>
+        <p class="hint new-pdc-subunits-note" role="status"></p>
+        <p class="hint new-pdc-prepare-note" role="status" hidden><strong>Prepare the protein (PDB2PQR): always on.</strong>
+          pdb2pqr rebuilds the residues the deposited file left incomplete and adds the hydrogens its protonation states
+          need, and the prepared structure is what martinize2 reads.</p>
+      </section>
+
+      <section class="card" aria-labelledby="new-config-title">
+        <span class="eyebrow">RUN CONFIGURATION</span><h3 id="new-config-title" class="new-pdc-config-title">Micelle and sampling</h3>
+        <div class="new-pdc-pair new-pdc-config-pair">
+          <label>Initialisation style<select><option selected>Pre-assembled micelle · CHARMM-GUI</option><option>Self-assembly · MemProtMD</option></select></label>
+          <label><span class="new-pdc-count-label">Detergents in the micelle</span>
+            <span class="setting-control"><input type="number" value="120" min="1" max="1000" step="1"></span>
+          </label>
+        </div>
+        <div class="new-pdc-empty-block">
+          <table class="new-pdc-estimate"><tbody>
+            <tr><td>Experimental aggregation number</td><td><strong>— not recorded yet</strong></td></tr>
+            <tr><td>Requested above</td><td><strong>120</strong></td></tr>
+          </tbody></table>
+        </div>
+        <div class="new-pdc-pair new-pdc-legs">
+          <div class="leg">
+            <label>CG assessment leg (ns)<input type="number" value="100" min="1" max="100000" step="1"></label>
+            <span class="hint">The first CG leg, and it is named for what happens to it: its end state is judged. Detergents not in the micelle are removed, and losing more than 10% of the requested count re-runs this leg from scratch with new velocities, up to three attempts.</span>
+          </div>
+          <div class="leg">
+            <label>CG extension leg (ns)<input type="number" value="900" min="1" max="1000000" step="1"></label>
+            <span class="hint">Continues the system that survived, from its checkpoint (<code>gmx convert-tpr -extend</code>), so the total CG sampling is the two legs together. The assessment re-runs at the end, and this is the state that gets back-mapped.</span>
+          </div>
+        </div>
+        <label class="new-pdc-backmap">Remove out-of-micelle detergents<input type="checkbox" checked></label>
+        <label class="new-pdc-backmap">Back-map to atomistic (CG2AT2)<input type="checkbox" checked></label>
+
+        <details id="new-advanced" open>
+          <summary>Other run options</summary>
+          <p class="hint">Every field starts as the reviewed profile's own number. Changing one overrides it for this
+            run only and the manifest records what was used; an untouched field keeps the profile's value and the run
+            records the profile name.</p>
+
+          <div class="draft-group">
+            <h4>Output cadence</h4>
+            <p class="hint">GROMACS writes these in steps. One value applies to every MD stage; the equilibration
+              profiles keep their own tighter cadences unless overridden.</p>
+            <div class="settings-grid">
+              <label>Log interval (steps) <span class="setting-control"><input type="number" name="nstlog" value="100" min="1" step="1"></span></label>
+              <label>Energy interval (steps) <span class="setting-control"><input type="number" name="nstenergy" value="100" min="1" step="1"></span></label>
+              <label>Trajectory interval (steps) <span class="setting-control"><input type="number" name="nstxtcout" value="100" min="1" step="1"></span></label>
+              <label>Trajectory precision <span class="setting-control"><input type="number" name="xtc_precision" value="1000" min="1" step="100"></span></label>
+              <label>Centre-of-mass removal (steps) <span class="setting-control"><input type="number" name="nstcomm" value="100" min="1" step="1"></span></label>
+            </div>
+            <p class="hint"><code>nstxtcout</code> is the compressed-trajectory stride; newer profiles spell the same
+              option <code>nstxout-compressed</code>. Full-precision <code>nstxout</code>, <code>nstvout</code> and
+              <code>nstfout</code> stay off, as the profiles state.</p>
+          </div>
+
+          <div class="draft-group">
+            <h4>Neighbour search and cutoffs</h4>
+            <p class="hint">Reaction-field electrostatics, Verlet neighbour search: the coarse-grained profile's own
+              scheme. The cutoffs are the numbers most often varied for a different box or bead set.</p>
+            <div class="settings-grid">
+              <label>Neighbour list rebuild (steps) <span class="setting-control"><input type="number" name="nstlist" value="40" min="1" step="1"></span></label>
+              <label>Verlet buffer tolerance <span class="setting-control"><input type="number" name="verlet_buffer_tolerance" value="0.005" min="0" step="0.001"></span></label>
+              <label>Neighbour cut-off (nm) <span class="setting-control"><input type="number" name="rlist" value="1.35" min="0.1" step="0.05"></span></label>
+              <label>Coulomb cut-off (nm) <span class="setting-control"><input type="number" name="rcoulomb" value="1.1" min="0.1" step="0.05"></span></label>
+              <label>van der Waals cut-off (nm) <span class="setting-control"><input type="number" name="rvdw" value="1.1" min="0.1" step="0.05"></span></label>
+            </div>
+          </div>
+
+          <div class="draft-group">
+            <h4>Thermostat and barostat</h4>
+            <p class="hint">The ensemble targets. Production uses Parrinello–Rahman at 1 bar; the NPT equilibration
+              leg keeps its own c-rescale barostat unless these values are changed for the whole run.</p>
+            <div class="settings-grid">
+              <label>Temperature (K) <span class="setting-control"><input type="number" name="ref_t" value="300" min="200" max="500" step="0.01"></span></label>
+              <label>Thermostat coupling (ps) <span class="setting-control"><input type="number" name="tau_t" value="1.0" min="0.01" step="0.1"></span></label>
+              <label>Pressure (bar) <span class="setting-control"><input type="number" name="ref_p" value="1.0" min="0.1" max="100" step="0.1"></span></label>
+              <label>Barostat coupling (ps) <span class="setting-control"><input type="number" name="tau_p" value="12.0" min="0.1" step="0.1"></span></label>
+              <label>Compressibility (bar⁻¹) <span class="setting-control"><input type="number" name="compressibility" value="4.5e-5" min="0" step="1e-6"></span></label>
+            </div>
+          </div>
+
+          <div class="draft-group">
+            <h4>Salt, seed and box</h4>
+            <div class="settings-grid">
+              <label>Salt concentration (M) <span class="setting-control"><input type="number" name="salt_molar" value="0.15" min="0" max="5" step="0.01"></span></label>
+              <label>Random seed <span class="setting-control"><input type="number" name="pdc_seed" value="20261013" min="1" max="2147483646" step="1"></span></label>
+              <label>Box margin (nm) <span class="setting-control"><input type="number" name="box_margin_nm" value="2.0" min="0.5" max="10" step="0.1"></span></label>
+              <label>Initial z box (nm) <span class="setting-control"><input type="number" name="initial_z_nm" value="6.0" min="1" max="50" step="0.1"></span></label>
+              <label>Micelle contact distance (nm) <span class="setting-control"><input type="number" name="contact_nm" value="0.6" min="0.1" max="2" step="0.1"></span></label>
+              <label>Removal threshold (fraction) <span class="setting-control"><input type="number" name="selection_threshold_fraction" value="0.1" min="0" max="1" step="0.01"></span></label>
+            </div>
+            <p class="hint">The seed defaults to today's date (YYYYMMDD). Clearing it stops the run rather than letting
+              one be chosen for it.</p>
+          </div>
+
+          <div class="draft-group">
+            <h4>Execution</h4>
+            <div class="settings-grid">
+              <label class="draft-gpu">GPU device (CUDA id)
+                <span class="setting-control">
+                  <select name="mdrun_gpu">
+                    <option selected>0 · RTX 5000 Ada · 32 GB</option>
+                    <option>1 · RTX 2080 Ti · 11 GB</option>
+                    <option>2 · RTX 2080 Ti · 11 GB</option>
+                    <option>3 · RTX 2080 Ti · 11 GB</option>
+                  </select>
+                </span>
+              </label>
+              <label>mdrun threads <span class="setting-control"><input type="number" name="mdrun_ntomp" value="8" min="1" max="72" step="1"></span></label>
+              <label>mdrun ranks <span class="setting-control"><input type="number" name="mdrun_ranks" value="1" min="1" max="72" step="1"></span></label>
+              <label>Nonbonded scheme <span class="setting-control"><select name="mdrun_nb"><option selected>gpu · profile</option><option>cpu</option></select></span></label>
+            </div>
+            <p class="hint draft-cuda">CUDA order, not nvidia-smi order. On this host
+              <code>CUDA_VISIBLE_DEVICES</code> is unset and CUDA enumerates fastest first: 0 is the RTX 5000 Ada
+              (<code>af:00.0</code>, 32 760 MiB), despite NVML/nvidia-smi's PCI-order index putting that card last.
+              The three 2080 Ti cards follow at <code>18:00.0</code>, <code>3b:00.0</code> and <code>86:00.0</code>;
+              their exact CUDA order is read from the same probe at implementation time. The full name, memory, PCI
+              address and UUID stay in the option's tooltip and the run record, so the short label above is not the
+              only place the choice is stated.</p>
+          </div>
+
+          <p class="draft-note"><strong>Not here on purpose:</strong> the integration time step is the reviewed
+            profile's (20 fs CG production, 5 fs CG equilibration), as are the reaction-field scheme and the
+            velocity-generation seed. Exposing them would make the panel a second physics profile.</p>
+        </details>
+
+        <label>Run label <input type="text" maxlength="160" placeholder="Optional label for this run"></label>
+      </section>
+    </div>
+
+    <aside class="new-run-settings">
+      <section class="card new-pdc-preview" aria-labelledby="new-preview-title">
+        <span class="eyebrow">SYSTEM PREVIEW</span>
+        <h3 id="new-preview-title">What these inputs would build</h3>
+        <div class="draft-preview-viewer">
+          <img class="draft-preview-image" src="2026-10-26-new-run-empty-micelle-preview.png"
+               alt="Empty DDM micelle: 120 detergent molecules arranged radially on a sphere, heads outside and tails inward">
+        </div>
+        <div class="new-pdc-preview-actions">
+          <button type="button" class="secondary new-pdc-preview-derive">Derive the preview</button>
+          <label class="new-pdc-preview-bonds"><input type="checkbox" disabled> Bonds</label>
+          <label class="new-pdc-preview-ribbon"><input type="checkbox" disabled> Ribbon</label>
+          <span class="hint new-pdc-preview-state" role="status">Drawn from the placement preview · 1,320 beads</span>
+        </div>
+        <dl class="review-grid new-pdc-preview-facts">
+          <dt>Derived from</dt><dd>DDM · 120 · pre-assembled</dd>
+          <dt>Beads</dt><dd>1,320</dd>
+          <dt>Box</dt><dd>9.93 × 9.95 × 9.95 nm</dd>
+          <dt>Cost</dt><dd>placement only · no coarse-graining</dd>
+        </dl>
+        <p class="hint">The placement is a build artifact, not a snapshot or a prediction of the run:</p>
+        <details class="new-pdc-preview-limits">
+          <summary>It is the placement, and nothing after it: what it does not show</summary>
+          <ul class="hint new-pdc-preview-nots">
+            <li><strong>No solvent and no ions.</strong> Water and salt are added by the first equilibration leg.</li>
+            <li><strong>Not the box you will simulate.</strong> The NPT leg changes it.</li>
+            <li><strong>Not a verdict on the micelle.</strong> The run's own assessment decides that.</li>
+          </ul>
+        </details>
+      </section>
+
+      <section class="card run-review" aria-labelledby="new-checks-title">
+        <div class="review-heading"><h3 id="new-checks-title">Review before launch</h3><span id="review-status" class="review-status" role="status">Checking readiness…</span></div>
+        <dl id="new-input-summary" class="review-grid">
+          <dt>Detergent</dt><dd>DDM</dd>
+          <dt>Mapping</dt><dd>DDM draft · 11 beads · derived terms</dd>
+          <dt>Protein</dt><dd>none · empty micelle</dd>
+          <dt>Initialisation</dt><dd>Pre-assembled micelle · CHARMM-GUI</dd>
+          <dt>Detergents</dt><dd>120</dd>
+          <dt>Estimate</dt><dd>experimental aggregation number — not recorded yet</dd>
+          <dt>Sampling</dt><dd>100 ns assessment · 900 ns extension</dd>
+          <dt>Output</dt><dd>log 100 · energy 100 · trajectory 100 steps</dd>
+          <dt>Ensemble</dt><dd>300 K · 1 bar</dd>
+          <dt>GPU</dt><dd>0 · RTX 5000 Ada Generation</dd>
+          <dt>Seed</dt><dd>20261013</dd>
+          <dt>Removal</dt><dd>on · CG assessment, removal and checkpoint extension</dd>
+          <dt>Back-map</dt><dd>CG2AT2 to atomistic</dd>
+        </dl>
+        <p class="hint review-note">Execution success does not establish scientific validation.</p>
+        <p id="launch-blocker" class="hint" role="status"></p>
+        <details id="new-provenance"><summary>View detailed provenance and stages</summary><h4>Readiness details</h4><div id="readiness" aria-live="polite">Checking requirements…</div></details>
+        <button type="submit" id="start-run" disabled>Start run</button>
+      </section>
+    </aside>
+  </form>
+</section>
+</main>
+</body>
+</html>

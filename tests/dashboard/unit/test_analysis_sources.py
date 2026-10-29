@@ -58,7 +58,7 @@ def test_bartender_fit_is_handed_the_shared_references_own_trajectory(tmp_path):
     reference, expected = _reference_run(tmp_path)
     consumer = _consumer_run(tmp_path, expected)
 
-    entries = worker.source_entries(workflow.execution_root(consumer), 'bartender-fit')
+    entries = worker.source_entries(workflow.stage_root(consumer), 'bartender-fit')
 
     assert entries['1_AA-reference/prod/lig.gro'] == reference / 'stages/07_reference/lig.gro'
     assert entries['1_AA-reference/prod/lig.xtc'] == reference / 'stages/07_reference/lig.xtc'
@@ -73,7 +73,7 @@ def test_without_a_shared_reference_the_declared_aa_pair_resolves_to_nothing(tmp
     """The same run, minus the attachment: the two names are supplied by the substitution and by nothing else."""
     consumer = _consumer_run(tmp_path)
 
-    entries = worker.source_entries(workflow.execution_root(consumer), 'bartender-fit')
+    entries = worker.source_entries(workflow.stage_root(consumer), 'bartender-fit')
 
     assert '1_AA-reference/prod/lig.gro' not in entries
     assert '1_AA-reference/prod/lig.xtc' not in entries

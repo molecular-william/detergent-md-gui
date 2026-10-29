@@ -149,7 +149,7 @@ def test_module_level_path_constants_point_at_real_locations():
 
 
 def test_run_preparation_scripts_are_present():
-    """cg.py copies these into each run directory; the adapter owns the list.
+    """The shared CG stage scripts and the helpers they run as modules live in the repository.
 
     `finalize_mapping.py` is not among them any more: it existed to check and re-time bundled `ff_map` output, and
     the one mapper that has ever run here writes its own times and records its own check.
@@ -159,24 +159,12 @@ def test_run_preparation_scripts_are_present():
 
     assert cg.SCRIPTS.is_dir(), f'{cg.SCRIPTS} is not a directory'
     assert cg.SCRIPTS == Path(environment.ROOT / 'dashboard/execution/scripts')
-    copied = ('refine_bonded.py', 'sugar_mapping.py',
-              'prepare_ring_constraints.py', 'validate_run.py', 'distance_diagnostics.py')
-    assert [name for name in copied if not (cg.SCRIPTS / name).is_file()] == []
-
-
-def test_the_run_local_bonded_library_stays_standalone():
-    """cg.py copies this one file into a run directory as bonded.py.
-
-    The copy has no package beside it, so it must import nothing from the
-    dashboard package: a relative import or a dashboard import would break
-    every CG run at the point the copied file is first executed.
-    """
-    from dashboard.models import bonded
-
-    source = pathlib.Path(bonded.__file__).read_text()
-    offenders = [line for line in source.splitlines()
-                 if line.startswith(('from .', 'import dashboard', 'from dashboard'))]
-    assert not offenders, 'The copied bonded library imports the package: ' + '; '.join(offenders)
+    modules = ('refine_bonded.py', 'sugar_mapping.py', 'prepare_ring_constraints.py', 'use_parameterization.py',
+               'validate_run.py', 'distance_diagnostics.py')
+    assert [name for name in modules if not (cg.SCRIPTS / name).is_file()] == []
+    scripts = ('aa_reference.sh', 'map_trajectory.sh', 'fit_topology.sh', 'use_parameterization.sh',
+               'cg_simulation.sh', 'assess.sh', 'sasa.sh')
+    assert [name for name in scripts if not (cg.SCRIPTS / name).is_file()] == []
 
 
 def test_no_module_imports_a_retired_path():

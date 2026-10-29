@@ -1,8 +1,8 @@
 """One row per analysis kind: its name, the sources it is handed, how it runs, and how it reads.
 
-Four lists described the same fourteen kinds and nothing compared them -- the names in `worker.KINDS`, the source
+Four lists described the same kinds and nothing compared them -- the names in `worker.KINDS`, the source
 patterns in `worker.PATTERNS`, the dispatch chain in `worker.execute`, and `metadata.DESCRIPTIONS`. They agreed about
-the names and the sources. The descriptions did not: seventeen entries for fourteen kinds, because three of them name
+the names and the sources. The descriptions did not: seventeen entries for the kinds, because three of them name
 the evidence sections of the carbohydrate-validation report rather than analyses, and a kind missing from any one list
 failed silently -- unreachable, or handed no inputs, or described under a title the code invented by replacing hyphens
 with spaces, which reads exactly like a registered one.
@@ -24,21 +24,6 @@ def _sources_only(function: Callable) -> Callable:
     return lambda work, payload=None: function(work)
 
 
-def _snapshots(work, payload=None):
-    """The snapshots producer, which is the one row whose payload changes what it writes.
-
-    Three settings reach it: `interval_ns` (nanoseconds per frame), `samples` (the even spread used when no cadence
-    is asked for) and `align` (whether every model is superposed on the first). All three are checked at the route,
-    so a producer that receives one has already been told it is usable -- and all three have to be *forwarded* here:
-    a setting the route accepts and this row drops is a switch that does nothing, which is how the fit was queued
-    and never applied.
-    """
-    payload = payload or {}
-    return observability.generate(work, samples=int(payload.get('samples', observability.SERIES_SAMPLES)),
-                                  interval_ns=payload.get('interval_ns'), align=bool(payload.get('align')),
-                                  align_on=payload.get('align_on'))
-
-
 @dataclass(frozen=True)
 class Kind:
     """Everything one kind is. `run` is called as `run(work, payload)` for every kind, without exception."""
@@ -58,9 +43,7 @@ class Kind:
     records_gmx_version: bool = False
     #: The kind's request may name dependencies: already-published reports it is scored against.
     takes_dependencies: bool = False
-    #: The kind runs for a run because the run can answer it, without anyone asking. Only the frames are registered
-    #: so: looking at a trajectory is what every completed run owes its reader, and a run with nothing to sample is
-    #: not an error -- the producer refuses it in its own words and the attempt is recorded as a skip.
+    #: The kind runs for a run without anyone asking, because the run itself owes it rather than a person.
     runs_for_every_run: bool = False
     #: The run types that get this kind without anyone asking, because the run type itself owes it rather than a
     #: person. `aa_cg` fits its own bonded parameters before it simulates anything, so the two analyses that
@@ -222,38 +205,6 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         "Mismatch metrics are lower-is-better; 0 means identical distributions where the scorer defines that range.",
         "native metric units",
         takes_dependencies=True),
-    # Both trajectories are staged: an AA-only run's published reference, and a CG consumer's own coarse-grained
-    # output. `layout.frame_source` reads whichever the run holds and prefers the coarse-grained one, so the kind
-    # does not have to know which run type asked for it. The legacy pair is where a run wrote its reference before
-    # the reference/consumer split.
-    Kind(
-        'snapshots',
-        ("1_AA-reference/prod/lig.gro", "1_AA-reference/prod/lig.xtc",
-         "4_CG_sim/prod/lig_CG.gro", "4_CG_sim/prod/lig_CG.xtc",
-         "4_CG_sim/md.gro", "4_CG_sim/md.xtc",
-         "4_CG_sim/eq.gro", "4_CG_sim/eq.xtc",
-         # A protein-detergent run's CG production: its stages keep their own names, and the whole-box trajectory is
-         # what the layout prefers. Copied for the same reason as the others -- the subprocess reads a work directory
-         # holding only what its kind declares, so a role the layout can resolve is useless if nothing copies it.
-         "4_extension/prod/run.gro", "4_extension/prod/whole.xtc", "4_extension/prod/run.xtc",
-         # The detergent's own topology, which states the beads' bonds and families exactly as `3_initial_CG/*.itp`
-         # does for a single-molecule build. Read by `layout.pdc_topology`, so a pdc series carries CONECT and
-         # family codes instead of being written as a bondless all-atom-style file.
-         "1_system/*.itp",
-         # The run's own mapping, which is what says which beads make up which fragment: a reader fitting on one
-         # ring of a sugar is asking about a grouping only this document states, and the file carries it too.
-         "2_mapping/model.json",
-         # The moleculetype the frames are drawn with. A series must carry the model's own bonds and each bead's
-         # Martini 3 family or the panel can only draw grey spheres -- measured on the first series published -- and
-         # both of those live in the run's `3_initial_CG/` moleculetype, so it is a source like any other rather than
-         # something the producer hunts for outside the tree it was handed.
-         "3_initial_CG/*.itp"),
-        _snapshots,
-        "Trajectory snapshots",
-        "Snapshots provide visual inspection and are not a distributional validation.",
-        "coordinates",
-        reads_aa_reference=True, legacy_sources=('1_AA-reference/3-run.xtc', '1_AA-reference/3-run.tpr'),
-        runs_for_every_run=True),
     Kind(
         'stability',
         ("*.log", "*.xtc"),
@@ -297,11 +248,10 @@ def for_every_run() -> tuple[str, ...]:
 
 
 #: The body keys each kind's queue route validates, read off `web/routes/analyses.py`'s `queue_analysis` rather than
-#: from what a producer would like to receive. Only two kinds have a body contract: `carbohydrate-validation` aborts
-#: without a tier, a representation mode, a mapping snapshot, a molecule id and a target dataset, and `snapshots`
-#: validates a sampling cadence, an align flag and the fragment to align on. Every other kind's route hands the body
-#: to the worker untouched -- any object, or none at all -- so it is absent from this mapping and `published()`
-#: reports `payload: None`, which is what lets the control offer a bare button for it.
+#: from what a producer would like to receive. Only `carbohydrate-validation` has a body contract: it aborts without
+#: a tier, a representation mode, a mapping snapshot, a molecule id and a target dataset. Every other kind's route
+#: hands the body to the worker untouched -- any object, or none at all -- so it is absent from this mapping and
+#: `published()` reports `payload: None`, which is what lets the control offer a bare button for it.
 #:
 #: This is a declaration, not a derivation, because the route states its contract as inline `abort`s rather than as
 #: data the analysis layer could read (the route is also the layer above this one, so importing it here would invert
@@ -309,7 +259,6 @@ def for_every_run() -> tuple[str, ...]:
 #: differently, so the mapping cannot drift from the route it names.
 _PAYLOAD: dict[str, tuple[str, ...]] = {
     'carbohydrate-validation': ('tier', 'representation_mode', 'mapping_snapshot', 'molecule_id', 'target_dataset_id'),
-    'snapshots': ('interval_ns', 'align', 'align_on'),
 }
 
 

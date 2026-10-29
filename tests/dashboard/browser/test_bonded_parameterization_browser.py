@@ -525,7 +525,8 @@ def test_the_default_cadence_polls_a_few_seconds_apart_and_stops_when_the_job_en
     page.wait_for_function(
         "() => document.querySelector('#bonded-job-status')?.textContent === 'completed'", timeout=25000)
     settled = len(polls)
-    page.wait_for_timeout(4000)
+    # The seam is 150 ms; four cadences are enough to catch a poll that kept running after the terminal answer.
+    page.wait_for_timeout(600)
     assert len(polls) == settled, 'the box kept polling a finished job'
     expect(page.locator('#bonded-result')).to_be_visible()
     expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · current')

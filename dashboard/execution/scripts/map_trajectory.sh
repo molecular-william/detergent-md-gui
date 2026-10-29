@@ -1,6 +1,11 @@
 #!/bin/bash
 AA_REFERENCE_DIR="${AA_REFERENCE_DIR:-../1_AA-reference/prod}"
 set -euxo pipefail
+# The interpreter the application runs under, and the checkout it imports from: the mapper is a repository module
+# reached through `-m`, not a file beside the script.
+PYTHON="${PYTHON:-python}"
+REPO_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 # GRO supplies ligand atom order/residue names; TPR 138 is unsupported by MDAnalysis 2.10.
 # XTC positions are molecule-whole from GROMACS. ITP supplies interaction connectivity.
 #
@@ -10,4 +15,4 @@ set -euxo pipefail
 #
 # The `ff_map` branch this replaces never executed. Across all 18 CG runs in this workspace `sugar_mapping.py` was
 # present, so the test that used to select a branch always took this side, and no run ever wrote `mapped_raw.xtc`.
-python sugar_mapping.py
+"$PYTHON" -m dashboard.execution.scripts.sugar_mapping

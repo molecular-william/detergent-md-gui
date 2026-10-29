@@ -15,6 +15,16 @@ and its tests keep calling `open_panel(page, live_page.base_url)` unchanged.
 """
 from __future__ import annotations
 
+#: What the bead legend calls each Martini 3 polarity family, keyed by the family code in the DOM. The legend is a
+#: contract of its own -- a reader reads these words -- so the expected labels live here once rather than in each test.
+BEAD_FAMILY_LABELS = {
+    'unstated': 'family not stated',
+    'C': 'apolar (C)',
+    'N': 'nonpolar (N)',
+    'P': 'polar (P)',
+    'Q': 'charged (Q)',
+}
+
 
 def open_panel(page, base_url, path, *, tab=None, ready=None):
     """Navigate to `path`, optionally click a tab, then wait for the panel's own mount signal.
@@ -71,4 +81,25 @@ def open_pdc_new_run(page, base_url, *, protein=None, chains=False):
                                    timeout=30000)
 
     return open_panel(page, base_url, '/protein-detergent/new-run', tab='New run', ready=ready)
+
+
+def assert_side_by_side(page, left_selector, right_selector):
+    """Assert the two boxes do not overlap: the right one starts at or after the left one ends.
+
+    Measured, not merely present: a stacked layout renders every control too, so presence would pass on the failure
+    this exists to catch.
+    """
+    left = page.locator(left_selector).bounding_box()
+    right = page.locator(right_selector).bounding_box()
+    assert left and right, (left_selector, left, right_selector, right)
+    assert right['x'] >= left['x'] + left['width'] - 1, (
+        f'{right_selector} overlaps {left_selector}: they are not side by side: {left} {right}')
+
+
+def assert_no_horizontal_scroll(page):
+    """Assert the document does not widen past the viewport at the current width."""
+    measured = page.evaluate(
+        '() => ({content: document.documentElement.scrollWidth, viewport: innerWidth})')
+    assert measured['content'] <= measured['viewport'], (
+        f'the page scrolls sideways: {measured["content"]}px of content in a {measured["viewport"]}px viewport')
 

@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 from dashboard.execution.adapters import pdc
-from tests.dashboard.pdc_fixtures import prepared_run
+from tests.dashboard.pdc_fixtures import inputs_dir, prepared_run, script_of
 
 TEMPLATE = {
     'name': 'DDM',
@@ -19,11 +19,15 @@ TEMPLATE = {
     'topology': 'results/MMFF/lig1.itp',
     'beads': [{'name': 'TAIL1', 'type': 'C1', 'role': 'tail'}],
 }
-EXTENSION = Path(pdc.stage_by_name('CG extension MD').relative).parent
+EXTENSION = 'CG extension MD'
 
 
 def prepared(tmp_path: Path, **settings):
-    return prepared_run(tmp_path, settings={'assessment_ns': 100, 'extension_ns': 900} | settings, suffix=EXTENSION)
+    return prepared_run(tmp_path, settings={'assessment_ns': 100, 'extension_ns': 900} | settings)
+
+
+def extension_inputs(run: Path) -> Path:
+    return inputs_dir(run)
 
 
 def mdp_numbers(path: Path) -> dict:
@@ -37,52 +41,52 @@ def mdp_numbers(path: Path) -> dict:
 
 
 def test_the_extension_continues_instead_of_starting_again(tmp_path):
-    numbers = mdp_numbers(prepared(tmp_path) / 'extension.mdp')
+    numbers = mdp_numbers(extension_inputs(prepared(tmp_path)) / 'extension.mdp')
 
     assert numbers['gen-vel'] == 'no', 'a continued trajectory does not regenerate velocities'
     assert 'gen-seed' in numbers
 
 
 def test_the_extension_length_is_the_runs_setting_in_the_units_convert_tpr_takes(tmp_path):
-    stage = prepared(tmp_path, extension_ns=900)
-
-    assert (stage / 'extension.ps').read_text().strip() == '900000'
-    assert (prepared(tmp_path / 'short', extension_ns=25) / 'extension.ps').read_text().strip() == '25000'
+    assert (extension_inputs(prepared(tmp_path, extension_ns=900)) / 'extension.ps').read_text().strip() == '900000'
+    assert (extension_inputs(prepared(tmp_path / 'short', extension_ns=25)) / 'extension.ps').read_text().strip() == \
+        '25000'
 
 
 def test_the_script_hands_both_paths_to_the_helper(tmp_path):
-    stage = prepared(tmp_path)
-    script = (stage / Path(pdc.stage_by_name('CG extension MD').relative).name).read_text()
+    script = script_of(EXTENSION).read_text()
     executed = '\n'.join(line for line in script.splitlines() if not line.strip().startswith('#'))
 
-    assert 'python pdc_extension.py' in executed and '--assessment ../3_assessment' in executed
+    assert 'dashboard.execution.scripts.pdc_extension' in executed
+    assert '--assessment ../07_micelle_assessment' in executed
+    assert '--assessment-stage ../06_assessment' in executed
     assert 'convert-tpr' not in executed and '-cpi' not in executed, 'both are the helper\'s decisions, not the script\'s'
-    assert (stage / 'pdc_extension.py').is_file() and (stage / 'pdc_solvate.py').is_file()
-    assert 'python pdc_snapshot.py' in executed and '--phase extension' in executed
-    assert (stage / 'pdc_snapshot.py').is_file()
+    assert 'pdc_snapshot' not in executed, 'the extension no longer samples a snapshot series'
+    prepared(tmp_path), 'the run prepares'
 
 
-def test_the_stage_passes_no_ntmpi_and_leaves_the_budget_to_the_helper(tmp_path):
-    stage = prepared(tmp_path)
-    script = (stage / Path(pdc.stage_by_name('CG extension MD').relative).name).read_text()
+def test_the_stage_passes_no_ntmpi_and_leaves_the_budget_to_the_helper():
+    script = script_of(EXTENSION).read_text()
     executed = '\n'.join(line for line in script.splitlines() if not line.strip().startswith('#'))
-    helper = (stage / 'pdc_extension.py').read_text()
+    helper = Path(pdc.__file__).resolve().parents[1] / 'scripts' / 'pdc_extension.py'
 
     assert '-ntmpi' not in executed, 'gmx here is an MPI-only build: -ntmpi aborts mdrun before the first step'
-    assert 'MDRUN_FLAGS' in helper and 'MDRUN_LAUNCHER' in helper, 'the budget comes from the environment, in Python'
+    assert 'MDRUN_FLAGS' in helper.read_text() and 'MDRUN_LAUNCHER' in helper.read_text(), \
+        'the budget comes from the environment, in Python'
 
 
 def test_the_extension_stage_declares_the_inputs_it_reads(tmp_path):
-    stage = prepared(tmp_path)
+    run = prepared(tmp_path)
 
-    assert (stage / 'extension.mdp').is_file() and (stage / 'extension.ps').is_file()
-    for name in pdc.stage_by_name('CG extension MD').inputs:
-        if not name.startswith('../'):
-            assert (stage / name).is_file(), f'{name} is declared an input of this stage'
+    assert (extension_inputs(run) / 'extension.mdp').is_file()
+    assert (extension_inputs(run) / 'extension.ps').is_file()
+    for name in pdc.stage_by_name(EXTENSION).inputs:
+        if str(name).startswith('../../inputs/'):
+            assert (extension_inputs(run) / str(name)[len('../../inputs/'):]).is_file(), name
 
 
 def test_the_run_records_both_durations_it_will_spend(tmp_path):
-    manifest = json.loads((prepared(tmp_path).parent / 'manifest.json').read_text())
+    manifest = json.loads((prepared(tmp_path) / 'manifest.json').read_text())
 
     assert manifest['extension_ps'] == 900000
     assert manifest['assessment_steps'] > 0

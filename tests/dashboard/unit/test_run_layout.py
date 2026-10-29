@@ -167,7 +167,17 @@ def test_the_detergent_topology_name_is_the_adapters_own():
     from dashboard.execution.adapters import pdc
 
     assert layout.PDC_TOPOLOGY_NAME == pdc.DETERGENT_TOPOLOGY == 'detergent_CG.itp'
-    assert layout.PDC_TOPOLOGY_DIR == Path(pdc.stage_by_name('System preparation').relative).parent.as_posix()
+    system = Path(pdc.stage_by_name('System preparation').relative).parent.as_posix()
+    assert system in layout.PDC_TOPOLOGY_DIRS, 'the build stage\'s directory must be a spelling the reader knows'
+
+
+def test_the_pdc_stage_table_names_the_adapters_own_directories():
+    """The layout table is the only copy of the stage->directory rule; the adapter must not drift from it."""
+    from dashboard.execution.adapters import pdc
+
+    adapter = {Path(stage.relative).parent.name for stage in pdc.STAGES}
+    assert adapter <= set(layout.PDC_STAGE_KEYS), 'the adapter writes a stage directory the readers do not know'
+    assert len(adapter) == len(layout.PDC_STAGE_DIRECTORIES), 'one numbered directory per pdc stage'
 
 
 def test_the_frame_source_prefers_the_extracted_solute_over_the_stage_output(tmp_path):
@@ -231,3 +241,26 @@ def test_an_ambiguous_role_is_refused_rather_than_stepped_over(tmp_path):
 
     with pytest.raises(ValueError, match='more than one aa_trajectory'):
         layout.frame_source(tmp_path)
+
+
+def test_an_osmotic_stage_resolves_under_stages_and_at_the_legacy_run_root(tmp_path):
+    """The osmotic stage moved to `stages/01_simulate`; two runs in this workspace keep it at the run root."""
+    write(tmp_path, 'stages/01_simulate/conditions/00_1molal/osmotic_condition.json')
+    assert layout.stage_root(tmp_path) == tmp_path / 'stages'
+
+    legacy = tmp_path / 'legacy'
+    write(legacy, '01_simulate/osmotic_condition.json')
+    assert layout.stage_root(legacy) == legacy
+
+
+def test_the_osmotic_kind_stages_a_condition_now_that_the_stage_is_under_stages(tmp_path):
+    """The kind's patterns are relative to the stage root, so `stages/01_simulate/...` is the same declaration."""
+    from dashboard.analysis import worker
+
+    write(tmp_path, 'stages/01_simulate/osmotic_condition.json', 'stages/01_simulate/plumed.dat',
+          'stages/01_simulate/solvated.gro', 'stages/01_simulate/prod/md_whole.xtc')
+
+    entries = worker.source_entries(layout.stage_root(tmp_path), 'osmotic-pressure')
+
+    assert set(entries) == {'01_simulate/osmotic_condition.json', '01_simulate/plumed.dat',
+                            '01_simulate/solvated.gro', '01_simulate/prod/md_whole.xtc'}

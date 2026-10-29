@@ -243,7 +243,7 @@ def test_cancelled_source_cancels_waiting_consumer(dashboard, service):
     assert not dashboard.coordinator.WORKERS
 
 
-def test_snapshot_analysis_resolves_aa_only_and_shared_source(dashboard, service):
+def test_analysis_sources_resolve_aa_only_and_shared_reference(dashboard, service):
     from dashboard.analysis import worker as analysis
     source = reference_fixture(dashboard)
     root = dashboard.coordinator.RUNS/source['id']
@@ -261,9 +261,9 @@ def test_snapshot_analysis_resolves_aa_only_and_shared_source(dashboard, service
             'source_run_id': source['id'], 'sha256': verified['sha256']}})
     expected = {f'1_AA-reference/prod/{name}': root/'stages/07_reference'/name
                 for name in ('lig.gro', 'lig.xtc')}
-    assert analysis.source_entries(root/'stages', 'snapshots') == expected
-    assert analysis.source_entries(consumer/'stages', 'snapshots') == expected
+    assert analysis.source_entries(root/'stages', 'bartender-fit') == expected
+    assert analysis.source_entries(consumer/'stages', 'bartender-fit') == expected
     assert not list((consumer/'stages').rglob('*.xtc'))
     (root/'stages/07_reference/lig.xtc').unlink()
     with pytest.raises((OSError, ValueError)):
-        analysis.source_entries(consumer/'stages', 'snapshots')
+        analysis.source_entries(consumer/'stages', 'bartender-fit')

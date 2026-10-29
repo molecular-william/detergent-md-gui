@@ -4,7 +4,7 @@ Measured: the route served `1_system/system.gro` through `pdc_view.system_pdb` w
 gave every detergent molecule its own residue, but the file carried no CONECT records -- so NGL, which switches its
 distance-based guess off only when a file has them (`inferBonds` defaults to `'all'`), drew 90 bonds on a frame the
 model bonds 60 ways, head beads onto tail beads among them. The route now resolves the run's moleculetype the way
-the snapshot writer does (`pdc_snapshot.topology_path`: beside the stage, or in the stage that wrote it) and hands
+the route does (beside the stage, or in the stage that wrote it) and hands
 it to the same writer.
 
 This is the HTTP half of the fix; `test_pdc_bonds_browser.py` holds the panel's half.

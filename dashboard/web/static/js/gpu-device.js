@@ -9,7 +9,8 @@
 //
 // The option text is `index - name - memory MiB`, because the index is what the run records and the name is
 // what a reader recognises; a device whose memory the driver does not report (a MIG slice) states no memory
-// rather than a zero.
+// rather than a zero. The index is the CUDA ordinal, which is what `-gpu_id` names; the title carries the PCI bus
+// address and the nvidia-smi row so the two enumerations can be checked against each other.
 import { api, setText } from './shared.js';
 
 export function createGpuDevice({ select, note, ranks = () => 1, saved = () => undefined }) {
@@ -38,22 +39,30 @@ export function createGpuDevice({ select, note, ranks = () => 1, saved = () => u
   function fill(wanted) {
     const indices = state.devices.map(device => String(device.index));
     if (state.devices.length) {
-      select.replaceChildren(...state.devices.map(device => new Option(
-        [device.index, device.name, device.memory_mib == null ? '' : `${device.memory_mib} MiB`]
-          .filter(part => part !== '' && part != null).join(' - '),
-        String(device.index))));
+      select.replaceChildren(...state.devices.map(device => {
+        const option = new Option(
+          [device.index, device.name, device.memory_mib == null ? '' : `${device.memory_mib} MiB`]
+            .filter(part => part !== '' && part != null).join(' - '),
+          String(device.index));
+        option.title = `CUDA ${device.index} · ${device.name}`
+          + (device.bus_id ? ` · PCI ${device.bus_id}` : '')
+          + (device.nvml_index != null && device.nvml_index !== device.index
+              ? ` · nvidia-smi row ${device.nvml_index}` : '');
+        return option;
+      }));
     } else {
       // Two different facts, two different options. "No GPU detected" is an answer; a failed read is not, and an
       // option that claims a device is absent when nobody asked the host is a lie the note underneath then contradicts.
+      // The value stays 0 either way: it is the device the command already names, so the control always has a default
+      // and the run record can still say which index it carried.
       select.replaceChildren(new Option(
-        state.failed ? 'Device 0 (devices could not be read)' : 'No GPU detected',
-        state.failed ? '0' : ''));
+        state.failed ? 'Device 0 (devices could not be read)' : 'No GPU detected', '0'));
     }
     // A failed read keeps the control usable with device 0, because the command keeps it anyway -- disabling it
     // would drop `mdrun_gpu` from the form and leave a run whose device nobody can see.
     select.disabled = !state.devices.length && !state.failed;
     const keep = String(wanted ?? '');
-    select.value = indices.includes(keep) ? keep : (indices[0] || (state.failed ? '0' : ''));
+    select.value = indices.includes(keep) ? keep : (indices[0] || '0');
     paint();
   }
 

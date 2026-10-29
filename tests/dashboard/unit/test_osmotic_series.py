@@ -25,10 +25,6 @@ import pytest
 
 from dashboard.execution.adapters import osmotic
 
-# On the slow tier: the series runner drives one subprocess per condition, which is what the marker renders.
-pytestmark = pytest.mark.slow
-
-
 MAPPING = {'beads': [{'name': 'S1A', 'type': 'SP1r', 'atoms': [1, 2, 3]},
                      {'name': 'S1B', 'type': 'SP4r', 'atoms': [4, 5, 6]},
                      {'name': 'S1C', 'type': 'SP1r', 'atoms': [7, 8, 9]},
@@ -211,6 +207,7 @@ def test_prepare_refuses_a_non_sugar_rather_than_building_it(tmp_path):
 
 # --- the build: one directory per concentration ---------------------------------------------------------------
 
+@pytest.mark.slow
 def test_prepare_writes_one_directory_per_concentration_each_able_to_carry_its_own_checkpoint(tmp_path):
     """The substance of "checkpoints for each concentration": every condition owns its own files on disk.
 
@@ -222,19 +219,27 @@ def test_prepare_writes_one_directory_per_concentration_each_able_to_carry_its_o
     assert [condition['molality_achieved'] for condition in record['conditions']] == \
            pytest.approx([0.5, 1.5], rel=0.01)
 
+    stage = tmp_path / 'stages' / '01_simulate'
     for directory in ('00_0.5molal', '01_1.5molal'):
-        condition = tmp_path / '01_simulate' / 'conditions' / directory
+        condition = stage / 'conditions' / directory
         for name in ('minimization.mdp', 'eq.mdp', 'md.mdp', 'reference.itp', 'osmotic_condition.json'):
             assert (condition / name).is_file(), name
-        # The runner reads all four of these from the condition directory it is working in.
-        for name in osmotic.SOLUTE_FILES:
-            assert (condition / 'solute' / name).is_file(), name
-        assert (condition / 'martini_v3.0.0.itp').is_file()
-        # And the manifest the analysis divides with is this condition's own: its molality, not the series'.
+        # The molecule is referenced, never copied into the run: its absolute path is in the condition's own record,
+        # and there is no `solute/` directory or force-field copy beside it for the runner to read instead.
+        assert not (condition / 'solute').exists()
+        assert not (condition / 'martini_v3.0.0.itp').exists()
         written = json.loads((condition / 'osmotic_condition.json').read_text())
         assert written['molality_requested'] == pytest.approx({'00_0.5molal': 0.5, '01_1.5molal': 1.5}[directory])
+        # Each referenced file's absolute path is written down, so the driver reads what the manifest hashed.
+        for name in osmotic.SOLUTE_FILES:
+            assert Path(written['paths'][name]).is_absolute()
+            assert Path(written['paths'][name]).is_file(), name
+        assert Path(written['paths']['force_field']).is_file()
+        # And the run's generated data lives in `inputs/`, where the manifest record is written from.
+        for name in osmotic.CONDITION_FILES:
+            assert (tmp_path / 'inputs' / 'conditions' / directory / name).is_file(), name
 
-    manifest = json.loads((tmp_path / '01_simulate' / 'conditions.json').read_text())
+    manifest = json.loads((stage / 'conditions.json').read_text())
     assert [condition['directory'] for condition in manifest['conditions']] == ['00_0.5molal', '01_1.5molal']
     assert manifest['attempts_max'] == osmotic.DEFAULTS['osmotic_attempts_max']
     assert manifest['series_on_failure'] == 'carry_on'
@@ -242,7 +247,7 @@ def test_prepare_writes_one_directory_per_concentration_each_able_to_carry_its_o
     # The executor checks the stage's declared inputs before it runs the stage, and every one of them is a glob
     # over the conditions the build wrote. Nothing else would catch a declaration that names one directory.
     for declared in osmotic.STAGE_DEFS[0].inputs:
-        assert list((tmp_path / '01_simulate').glob(declared)), declared
+        assert list(stage.glob(declared)), declared
 
 
 def test_the_stage_declares_the_outputs_the_runner_writes_per_condition(tmp_path):
@@ -254,14 +259,17 @@ def test_the_stage_declares_the_outputs_the_runner_writes_per_condition(tmp_path
     assert [name for name, _ in osmotic.STAGES] == ['Osmotic series']
 
 
-def test_the_checkpoint_ceiling_is_written_into_the_runner_and_not_left_at_its_default(tmp_path):
-    """The runner is a file read at prepare time, so a per-run ceiling is written into it there."""
+def test_the_checkpoint_ceiling_travels_in_the_series_record_not_a_stamped_script(tmp_path):
+    """The runner is a repository script now, so a per-run ceiling travels as data, not as a rewritten file."""
     osmotic.prepare(tmp_path, metadata(tmp_path, molalities=[1.0],
                                        settings={'molalities': [1.0], 'osmotic_attempts_max': 5}))
 
-    runner = (tmp_path / '01_simulate' / 'run.sh').read_text()
-    assert 'OSMOTIC_ATTEMPTS_MAX="5"' in runner
-    assert 'OSMOTIC_ATTEMPTS_MAX="${OSMOTIC_ATTEMPTS_MAX:-3}"' not in runner
+    stage = tmp_path / 'stages' / '01_simulate'
+    series = json.loads((stage / 'conditions.json').read_text())
+    assert series['attempts_max'] == 5
+    assert not (stage / 'run.sh').exists(), 'the driver is the repository script, not a copy in the run'
+    manifest = json.loads((tmp_path / 'manifest.json').read_text())
+    assert manifest['stage_scripts']['Osmotic series']['path'] == osmotic.OSMOTIC_SCRIPT
 
 
 def test_the_series_policy_travels_into_the_run_the_runner_reads(tmp_path):
@@ -269,7 +277,7 @@ def test_the_series_policy_travels_into_the_run_the_runner_reads(tmp_path):
     osmotic.prepare(tmp_path, metadata(tmp_path, molalities=[0.5, 1.0],
                                        settings={'molalities': [0.5, 1.0], 'series_on_failure': 'stop'}))
 
-    manifest = json.loads((tmp_path / '01_simulate' / 'conditions.json').read_text())
+    manifest = json.loads((tmp_path / 'stages' / '01_simulate' / 'conditions.json').read_text())
     assert manifest['series_on_failure'] == 'stop'
     # The runner reads the policy from that file by name, so the name is part of the contract.
     assert osmotic.CONDITIONS_MANIFEST == 'conditions.json'
@@ -294,7 +302,7 @@ def test_the_stage_declares_the_given_files_as_inputs_and_the_conditions_as_outp
     inputs = osmotic.STAGE_DEFS[0].inputs
     outputs = osmotic.STAGE_DEFS[0].outputs
 
-    assert inputs and all(pattern.startswith('../inputs/') for pattern in inputs), inputs
+    assert inputs and all(pattern.startswith('../../inputs/') for pattern in inputs), inputs
     assert not [pattern for pattern in inputs if pattern.startswith('conditions/')], inputs
     assert outputs and all(pattern.startswith('conditions/') for pattern in outputs), outputs
     assert 'conditions/*/prod/md_whole.xtc' in outputs, 'the trajectory is the producer\'s output, not its input'
@@ -322,7 +330,7 @@ def test_resuming_the_run_keeps_every_conditions_checkpoint_on_disk(tmp_path):
     from dashboard.execution import workflow
 
     osmotic.prepare(tmp_path, metadata(tmp_path, molalities=[0.5, 1.0]))
-    condition = tmp_path / '01_simulate' / 'conditions' / '00_0.5molal'
+    condition = tmp_path / 'stages' / '01_simulate' / 'conditions' / '00_0.5molal'
     # What a condition that died mid-production leaves behind.
     (condition / 'md.cpt').write_text('the checkpoint the failure wrote')
     (condition / 'condition.json').write_text(json.dumps({'directory': '00_0.5molal', 'status': 'failed'}))
@@ -338,7 +346,7 @@ def test_resuming_the_run_keeps_every_conditions_checkpoint_on_disk(tmp_path):
     assert resumed['stages'] == [], 'the failed stage is entered again, not skipped'
     assert (condition / 'md.cpt').read_text() == 'the checkpoint the failure wrote'
     assert json.loads((condition / 'condition.json').read_text())['status'] == 'failed'
-    assert (tmp_path / '01_simulate' / 'conditions' / '01_1molal').is_dir(), 'the series is untouched'
+    assert (tmp_path / 'stages' / '01_simulate' / 'conditions' / '01_1molal').is_dir(), 'the series is untouched'
 
 
 # --- the executor's half: the record follows the declaration, not the stage directory ----------------------------
@@ -351,23 +359,29 @@ CONDITION_BYTES = 4 * 1024 * 1024
 
 
 def series_run(root):
-    """A one-stage series laid out the way `prepare` writes one: the declaration in `inputs/`, the work in the stage.
+    """A one-stage series laid out the way `prepare` writes one: the generated data in `inputs/`, the work in the stage.
 
-    `execution_root` is the run directory itself for this run type -- the osmotic stage stands at the run root as
-    `01_simulate/` -- so a declared `../inputs/...` pattern resolves to the `inputs/` tree the build wrote. Everything
-    one condition *produces* (its trajectory, its built system, the per-condition force-field copy the runner stages
-    beside it) is written inside the stage directory, which is exactly why its contents are the wrong thing to hash.
+    The stage stands at `stages/01_simulate`, so a declared `../../inputs/...` pattern resolves to the run's `inputs/`
+    tree. Everything one condition *produces* (its trajectory, its built system) is written inside the stage
+    directory, which is exactly why its contents are the wrong thing to hash. The driver is a repository script named
+    in the manifest's `stage_scripts`, so the run holds no launcher of its own.
     """
-    inputs, stage = root / 'inputs', root / '01_simulate'
+    from dashboard import files
+
+    inputs, stage = root / 'inputs', root / 'stages' / '01_simulate'
     (root / 'logs').mkdir(parents=True, exist_ok=True)
     stage.mkdir(parents=True)
-    (stage / 'run.sh').write_text('#!/bin/bash\ntrue\n')
+    script = REPOSITORY / osmotic.OSMOTIC_SCRIPT
+    (root / 'manifest.json').write_text(json.dumps({
+        'run_type': 'osmotic', 'layout_version': 3, 'stages': [],
+        'stage_scripts': {'Osmotic series': {'path': osmotic.OSMOTIC_SCRIPT,
+                                             'sha256': files.sha256(script)}}}))
     (inputs / 'conditions').mkdir(parents=True)
     (inputs / 'conditions.json').write_text('{}')
     for condition in CONDITIONS:
         given = inputs / 'conditions' / condition
         given.mkdir()
-        for name in osmotic.CONDITION_FILES + osmotic.SOLUTE_FILES:
+        for name in osmotic.CONDITION_FILES:
             (given / name).write_text('kilobytes\n')
         work = stage / 'conditions' / condition
         (work / 'prod').mkdir(parents=True)
@@ -378,13 +392,15 @@ def series_run(root):
     return stage
 
 
-def test_entering_and_resuming_a_series_reads_its_declaration_and_not_its_own_output(tmp_path, monkeypatch):
+@pytest.mark.slow
+def test_entering_and_resuming_a_series_reads_the_run_record_and_not_its_own_output(tmp_path, monkeypatch):
     """The executor's half of the invariant: the entry records what the stage is *given*.
 
-    The stage directory is where the series works, so it holds each condition's trajectory and the force-field copy
-    staged beside it. Recording the entry by hashing that directory -- which an in-place resume re-enters and does
-    again every time -- reads the run's own output back to write its own provenance. Measured here on the bytes the
-    entry actually reads by the time the stage's own command is about to run: the declaration, kilobytes in all.
+    The stage directory is where the series works, so it holds each condition's trajectory and its built system.
+    Recording the entry by hashing that directory -- which an in-place resume re-enters and does again every time --
+    reads the run's own output back to write its own provenance. The declared inputs are the run's `inputs/` record,
+    one level above `stages/`, and the executor records only stage-root-relative files (the pdc convention), so the
+    stage's entry carries no generated output: what the stage was given is the manifest's `inputs` record.
     """
     from dashboard import files
     from dashboard.execution import workflow
@@ -417,19 +433,19 @@ def test_entering_and_resuming_a_series_reads_its_declaration_and_not_its_own_ou
     monkeypatch.setattr(files, 'sha256', counting_sha256)
     workflow.run(tmp_path, tmp_path / 'logs' / 'console.log', execute=measure)
 
-    expected = {'../inputs/conditions.json'} | {f'../inputs/conditions/{condition}/{name}'
-                                               for condition in CONDITIONS
-                                               for name in osmotic.CONDITION_FILES + osmotic.SOLUTE_FILES}
     entry = json.loads((tmp_path / 'manifest.json').read_text())['stages'][0]
     assert entry['status'] == 'completed'
-    assert set(entry['inputs_sha256']) == expected, 'the entry records the files the stage was given'
+    assert entry['inputs'] == list(osmotic.STAGE_DEFS[0].inputs), 'the entry names the declaration it was given'
+    # Nothing under the stage is a declared input, so the entry records no staged bytes at all. The run's own
+    # provenance is the manifest's `inputs` record, written from `inputs/` at prepare time.
+    assert entry['inputs_sha256'] == {}
     present = sum(path.stat().st_size for path in stage.rglob('*') if path.is_file())
     assert present > 8 * 1024 * 1024, 'the fixture stands in for a stage directory holding gigabytes'
-    assert at_command['bytes'] < 64 * 1024, (
+    # The repository script is what the executor verified and ran; it is the only thing it reads. A 256 KB ceiling
+    # still catches the multi-megabyte output this fixture writes while leaving room for the driver's own digest.
+    assert at_command['bytes'] < 256 * 1024, (
         f'the entry read {at_command["bytes"]} bytes of the stage directory\'s {present}: a resume re-hashes its own output')
     assert not [path for path in at_command['paths'] if path.suffix == '.xtc'], \
         'the entry re-hashed the condition trajectories'
     assert not [path for path in at_command['paths'] if path.name == 'martini_v3.0.0.itp'], \
         'the entry re-hashed the per-condition force-field copies'
-    assert not [path for path in at_command['paths'] if path.name == 'run.sh'], \
-        'the entry read a launcher, which no stage is given as an input'

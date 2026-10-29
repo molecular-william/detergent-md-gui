@@ -727,7 +727,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // The adapter's own names, so a field left empty is omitted and the adapter's default stands rather than a 0.
   const NUMBERS = ['aggregation_number', 'pdc_assessment_ns', 'pdc_extension_ns', 'pdc_seed', 'salt_molar',
                    'box_margin_nm', 'initial_z_nm', 'contact_nm', 'selection_threshold_fraction',
-                   'snapshot_interval_ns', 'snapshot_cap', 'mdrun_gpu'];
+                   'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
+                   'nstlist', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
+                   'ref_t', 'tau_t', 'ref_p', 'tau_p', 'compressibility',
+                   'mdrun_gpu', 'mdrun_ntomp', 'mdrun_ranks'];
   // The catalogue publishes the settings under the builders' names; the panel's controls carry the pipeline's.
   const DEFAULT_ALIASES = {assessment_ns: 'pdc_assessment_ns', extension_ns: 'pdc_extension_ns',
                            placement_mode: 'pdc_placement_mode'};
@@ -773,11 +776,14 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   const chainBoxes = () => [...form.elements].filter(el => el.name === 'protein_chains');
   const selectedChains = () => chainBoxes().filter(el => el.checked).map(el => el.value);
   const backmapping = () => !!field('backmap')?.checked;
-  // The plan's step 1 is unconditional now: pdb2pqr rebuilds and protonates the protein before martinize2 reads it,
-  // and the stage itself records `skipped` when the tool is not resolvable, so the panel has nothing to ask. The
-  // payload still states the choice (`prepare_protein: true`) rather than omitting it, so a run never looks like it
-  // prepared something it did not.
-  const preparing = () => true;
+  // The removal/assessment pipeline is a choice, not an assumption. On is the regular assessment + removal +
+  // checkpoint chain; off is one plain CG MD leg. The adapter owns the stage consequences; this panel makes the
+  // choice visible and sends it.
+  const removeOutside = () => !!field('remove_out_of_micelle')?.checked;
+  // The plan's step 1 is a step about a protein: pdb2pqr rebuilds and protonates the structure before martinize2
+  // reads it. An empty micelle has no structure, so the adapter records the stage skipped; the panel must not send
+  // prepare_protein=true for it either, because the preview and prepare both refuse what does not exist.
+  const preparing = () => Boolean(field('protein').value);
   // The select's option value is the catalogue entry's id (`DDM:DDM`), which is what the Complexes panel's own picker
   // carries; what a run is *prepared* with is the template file, and `pdc.prepare`/`pdc.readiness` resolve that path
   // against the project root. So the path travels from the entry, never from the option's value.
@@ -944,6 +950,114 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     describeChains();
   }
 
+  // The workflow diagram is a render of the choices above, not a second copy of the pipeline. The static SVG used to
+  // draw all ten stages whether or not they would run; an empty micelle has no prepare/coarse-grain, and removing the
+  // removal pipeline removes judge, extend and final assessment. The active path is drawn, and a caption names what
+  // was left out and why. Coordinates are the existing five-column, two-row vocabulary; the bottom row runs right to
+  // left, the way the old diagram's return path did.
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const FLOW_COLUMNS = [6, 214, 422, 630, 838];
+  const FLOW_WIDTHS = [176, 176, 176, 176, 136];
+  function flowNode(label, sub, key, cls = '') {
+    return {label, sub, key, cls};
+  }
+  function workflowStages() {
+    const hasProtein = !!field('protein').value;
+    const pre = preassembled();
+    const count = field('aggregation_number').value || '—';
+    const assessment = field('pdc_assessment_ns').value || '—';
+    const extension = field('pdc_extension_ns').value || '—';
+    const assessmentNs = Number(field('pdc_assessment_ns').value);
+    const extensionNs = Number(field('pdc_extension_ns').value);
+    const total = Number.isFinite(assessmentNs) && Number.isFinite(extensionNs) ? `${assessmentNs + extensionNs} ns` : '—';
+    const stages = [];
+    if (hasProtein) {
+      stages.push(flowNode('Prepare', 'PDB2PQR · skipped if unavailable', 'prepare'));
+      stages.push(flowNode('Coarse-grain', 'martinize2 · Martini 3 · elastic', 'coarse-grain'));
+    }
+    stages.push(flowNode(hasProtein ? (pre ? 'Place the belt' : 'Self-assemble')
+                                    : (pre ? 'Build the micelle' : 'Self-assemble'),
+                         pre ? `${count} detergents · pre-assembled`
+                             : `${count} detergents · random start`,
+                         'build', 'new-pdc-placed-node'));
+    stages.push(flowNode('Equilibrate', 'minimise · NVT · NPT', 'equilibrate'));
+    if (removeOutside()) {
+      stages.push(flowNode('Sample', `CG assessment MD · ${assessment} ns`, 'sample'));
+      stages.push(flowNode('Judge', 'micelle assessment · removal', 'judge'));
+      stages.push(flowNode('Extend', `checkpoint · ${extension} ns`, 'extend'));
+      stages.push(flowNode('Final assessment', 'finished CG system', 'final-assessment'));
+    } else {
+      stages.push(flowNode('CG MD', `${total} · one leg, no removal`, 'sample'));
+    }
+    if (hasProtein && backmapping()) stages.push(flowNode('Back-map', 'CG2AT2 · atoms, then neutralise', 'back-map', 'new-pdc-backmap-node'));
+    stages.push(flowNode('Result', hasProtein && backmapping() ? 'atomistic complex + records' : 'CG system + records', 'result'));
+    return stages.map((stage, index) => ({...stage, label: `${index + 1} · ${stage.label}`}));
+  }
+  function renderWorkflowDiagram() {
+    const host = pdcNode('.new-pdc-flow');
+    if (!host) return;
+    const stages = workflowStages();
+    host.replaceChildren();
+    const addNode = (stage, x, y, width) => {
+      const group = document.createElementNS(SVG_NS, 'g');
+      group.setAttribute('class', `new-pdc-flow-node ${stage.cls}`.trim());
+      group.dataset.stage = stage.key;
+      const rect = document.createElementNS(SVG_NS, 'rect');
+      rect.setAttribute('x', x); rect.setAttribute('y', y);
+      rect.setAttribute('width', width); rect.setAttribute('height', 52); rect.setAttribute('rx', 7);
+      const title = document.createElementNS(SVG_NS, 'text');
+      title.setAttribute('class', 'title');
+      title.setAttribute('x', x + width / 2); title.setAttribute('y', y + 21);
+      title.textContent = stage.label;
+      const sub = document.createElementNS(SVG_NS, 'text');
+      sub.setAttribute('class', 'sub'); sub.setAttribute('x', x + width / 2); sub.setAttribute('y', y + 39);
+      sub.textContent = stage.sub;
+      group.append(rect, title, sub);
+      host.append(group);
+    };
+    const addLink = points => {
+      const path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('class', 'new-pdc-flow-link');
+      path.setAttribute('d', points);
+      path.setAttribute('marker-end', 'url(#new-pdc-arrow)');
+      host.append(path);
+    };
+    const top = stages.slice(0, 5), bottom = stages.slice(5);
+    top.forEach((stage, index) => addNode(stage, FLOW_COLUMNS[index], 24, FLOW_WIDTHS[index]));
+    if (bottom.length) {
+      bottom.forEach((stage, index) => {
+        const column = FLOW_COLUMNS.length - 1 - index;
+        addNode(stage, FLOW_COLUMNS[column], 118, FLOW_WIDTHS[column]);
+      });
+      const lastTop = FLOW_COLUMNS[top.length - 1];
+      const firstBottom = FLOW_COLUMNS[FLOW_COLUMNS.length - 1];
+      if (lastTop === firstBottom) addLink(`M${lastTop + FLOW_WIDTHS[top.length - 1] / 2},76 V118`);
+      else addLink(`M${lastTop + FLOW_WIDTHS[top.length - 1] / 2},76 V97 H${firstBottom + FLOW_WIDTHS[4] / 2} V118`);
+    }
+    for (let index = 0; index < top.length - 1; index++) {
+      const from = FLOW_COLUMNS[index] + FLOW_WIDTHS[index];
+      const to = FLOW_COLUMNS[index + 1];
+      addLink(`M${from},50 H${to}`);
+    }
+    for (let index = 0; index < bottom.length - 1; index++) {
+      const from = FLOW_COLUMNS[FLOW_COLUMNS.length - 1 - index];
+      const to = FLOW_COLUMNS[FLOW_COLUMNS.length - 2 - index] + FLOW_WIDTHS[FLOW_COLUMNS.length - 2 - index];
+      addLink(`M${from},144 H${to}`);
+    }
+    const svg = host.ownerSVGElement;
+    const title = svg?.querySelector('title');
+    const desc = svg?.querySelector('desc');
+    const words = stages.map(stage => stage.label.replace(/^\d+ · /, '')).join(' → ');
+    if (title) title.textContent = `The stages this run will take: ${words}`;
+    if (desc) desc.textContent = `Active stages: ${words}.`;
+    if (svg) svg.setAttribute('aria-label', title?.textContent || 'The stages this run will take');
+    const skipped = [];
+    if (!field('protein').value) skipped.push('protein preparation and coarse-graining: empty micelle');
+    if (!removeOutside()) skipped.push('micelle assessment, removal, extension and final assessment: removal is off');
+    if (!field('protein').value || !backmapping()) skipped.push('back-map: no atomistic structure is produced');
+    say('.new-pdc-flow-skipped', skipped.length ? `Skipped — ${skipped.join(' · ')}.` : '');
+  }
+
   // The count is an input in both modes -- it is the belt's size with a protein and the micelle's without -- and
   // what changes with the protein choice is what is worth reading beside it. The estimate is the server's to size
   // and the experimental number is the registry's own; neither is computed here.
@@ -961,8 +1075,14 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       : chains.length ? `${chosen.length}/${chains.length} · ${chosen.join(', ') || 'none'}`
       : 'whole structure');
     setText(summary('count'), String(count));
-    setText(summary('sampling'), `${field('pdc_assessment_ns').value || '—'} ns assessment · `
-      + `${field('pdc_extension_ns').value || '—'} ns extension`);
+    const assessmentNs = Number(field('pdc_assessment_ns').value);
+    const extensionNs = Number(field('pdc_extension_ns').value);
+    const totalNs = Number.isFinite(assessmentNs) && Number.isFinite(extensionNs)
+      ? assessmentNs + extensionNs : null;
+    setText(summary('sampling'), removeOutside()
+      ? `${field('pdc_assessment_ns').value || '—'} ns assessment · `
+        + `${field('pdc_extension_ns').value || '—'} ns extension`
+      : `${totalNs == null ? '—' : `${totalNs} ns`} CG MD · one leg, no removal pipeline`);
     const belt = pdcNode('.new-pdc-belt-block'), empty = pdcNode('.new-pdc-empty-block');
     if (belt) belt.hidden = !hasProtein;
     if (empty) empty.hidden = hasProtein;
@@ -973,60 +1093,33 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       ? "With a protein, steps 3 and 5 use the protein's hydrophobic surface."
       : "Empty micelle: step 3 is the micelle on its own, and step 5's protein clause does not apply.");
 
-    // The choice has to mean something on the screen, so the strip, the count's own note and the review all say
-    // which style is in force. A pre-assembled belt is the count asked for; a self-assembled one starts there.
+    // The choice has to mean something on the screen, so the strip and the review both say which style is in force.
     const pre = preassembled();
-    say('.new-pdc-placement-note', pre
-      ? 'Pre-assembled micelle (CHARMM-GUI style): the detergents are initialised in a micelle structure, so the '
-        + (hasProtein ? 'belt is exactly the count you ask for.' : 'micelle is exactly the count you ask for.')
-      : 'Self-assembly (MemProtMD): the detergents start at random and CG MD settles the '
-        + (hasProtein ? 'belt, so the count is where the belt starts rather than where it ends.'
-                      : 'micelle, so the count is where the micelle starts rather than where it ends.'));
-    // The diagram carries the choice: step 3 is the one node whose words depend on it, and a diagram that drew one
-    // style while the run took the other would be the sort of picture this panel exists not to draw.
-    const step = pdcNode('.new-pdc-placed-node');
-    if (step) {
-      step.querySelector('text.title').textContent = pre ? (hasProtein ? '3 · Place the belt' : '3 · Build the micelle')
-                                                         : '3 · Self-assemble';
-      // A diagram node holds one line, so the sub-label says the same thing in the space it has; the sentence that
-      // spelled it out belongs to the note beside the count, which the reader is looking at when they choose.
-      step.querySelector('text.sub').textContent = pre
-        ? (hasProtein ? 'pre-assembled micelle · the count as asked' : 'pre-assembled · the count as asked')
-        : (hasProtein ? 'random start · CG MD settles the belt' : 'random start · CG MD settles the micelle');
-    }
-    say('.new-pdc-estimate-note', pre
-      ? (hasProtein
-          ? `Pre-assembled micelle: the belt is exactly the ${count} detergents you ask for. The coverage number is `
-            + "a flat-area sizing of that input; the run's own assessment, not this panel, decides whether a micelle formed."
-          : `Pre-assembled micelle: the micelle is initialised with exactly the ${count} detergents you ask for.`)
-      : (hasProtein
-          ? `Self-assembly: the belt starts from ${count} detergents placed at random and CG MD settles it, so the `
-            + "final belt size is the MD's to decide. The coverage number sizes the starting count."
-          : `Self-assembly: the ${count} detergents start at random and CG MD settles the micelle.`));
     setText(summary('placement'), pre ? 'Pre-assembled micelle · CHARMM-GUI' : 'Self-assembly · MemProtMD');
     setText(summary('seed'), field('pdc_seed').value || 'not set — the run cannot start');
     // What the run will and will not produce, stated in the review so a reader cannot mistake a run without
     // back-mapping for one with it. The workflow strip's own step says the same.
-    const backmap = backmapping();
+    const backmap = backmapping() && hasProtein;
     setText(summary('backmap'), backmap
       ? 'CG2AT2 to atomistic (−o align)'
-      : 'off — the run stops coarse-grained, with no atomistic structure produced');
+      : (hasProtein
+          ? 'off — the run stops coarse-grained, with no atomistic structure produced'
+          : 'skipped · empty micelle has no protein to align'));
     say('.new-pdc-backmap-note', backmap
-      ? 'On: the extended CG state is converted to atomistic with CG2AT2 (-o align).'
-      : 'Off: the back-map stage records skipped and the run stops coarse-grained, with no atomistic structure produced.');
-    // The diagram's last stage, in the two states the toggle has: a node that drew a conversion the run will not do
-    // would be the sort of picture this panel exists not to draw.
-    const backStep = pdcNode('.new-pdc-backmap-node');
-    if (backStep) {
-      backStep.querySelector('text.title').textContent = backmap ? '9 · Back-map' : '9 · Back-map (off)';
-      backStep.querySelector('text.sub').textContent = backmap
-        ? 'CG2AT2 · atoms, then neutralise'
-        : 'skipped · the run stops coarse-grained';
-    }
-    // The plan's step 1 has no control any more: it always runs, and the stage records `skipped` when pdb2pqr is not
-    // resolvable. What the review row says is therefore the same sentence every time -- and it is the sentence the
-    // placement's refusal is answered by, so it stays a statement rather than a value.
-    setText(summary('prepare'), 'PDB2PQR: always on — rebuild the missing atoms, then protonate (skipped if the tool is absent)');
+      ? 'On: the final CG state is converted to atomistic with CG2AT2 (-o align).'
+      : (hasProtein
+          ? 'Off: the back-map stage records skipped and the run stops coarse-grained, with no atomistic structure produced.'
+          : 'Skipped: an empty micelle has no protein to align, so no atomistic structure is produced.'));
+    // The plan's step 1 is about a protein. An empty micelle records it skipped, so the review says that instead of
+    // promising a rebuild the run cannot do, and the protein card's statement of the step is not shown at all.
+    setText(summary('prepare'), hasProtein
+      ? 'PDB2PQR: always on — rebuild the missing atoms, then protonate (skipped if the tool is absent)'
+      : 'skipped · empty micelle has no protein to prepare');
+    const prepareNote = pdcNode('.new-pdc-prepare-note');
+    if (prepareNote) prepareNote.hidden = !hasProtein;
+    setText(summary('removal'), removeOutside()
+      ? 'on · CG assessment, removal and checkpoint extension'
+      : 'off · one plain CG MD leg, no assessment/removal/extension/final assessment');
     const number = item && item.aggregation_number != null ? String(item.aggregation_number) : null;
     // The estimate is the server's: the review shows the answer the route gave (or its refusal), and with no
     // protein there is no slab to size, so the detergent's own measured micelle size stands instead.
@@ -1035,13 +1128,14 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       : `experimental aggregation number ${number ?? 'not recorded yet'}`);
     say('.new-pdc-empty-number', number ?? '— not recorded yet');
     say('.new-pdc-empty-count', String(count));
+    syncPreviewControls();
+    renderWorkflowDiagram();
   }
 
   // The coverage estimate the plan asks for, rendered from the route's answer rather than computed here: the
   // numbers, the method the route states and its caveat, or -- when the route refuses -- the route's own reason.
   // No arithmetic of the panel's own reaches the screen: `fraction`, `needed` and the areas are the server's, and
-  // all this does is format them. The two initialisation styles keep their own sentences (`.new-pdc-estimate-note`,
-  // set in `syncSummary`), so a pre-assembled belt still *is* the count and a self-assembled one still starts there.
+  // all this does is format them.
   function renderEstimate() {
     const verdict = pdcNode('.new-pdc-verdict'), table = pdcNode('.new-pdc-estimate-table');
     const state = estimateState;
@@ -1153,6 +1247,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   }
 
   async function checkReadiness() {
+    // A check already scheduled by the debounced `input` is superseded by this one; letting it fire after this
+    // request settles would disable the launch button again for no new information.
+    clearTimeout(readinessTimer);
     const mine = ++generation;
     $('#start-run').disabled = true;
     syncSummary();
@@ -1259,6 +1356,37 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // The stage lives on the host element, the way `pdc.js` keeps its own (`viewer.pdcStage`): one owner, and a test
   // or a console can reach the thing that is drawn without a hook this module would have to publish.
   const previewStage = () => previewNode('.new-pdc-preview-viewer')?.previewStage || null;
+
+  // The two view switches are about the protein. With an empty micelle there is no protein representation to make
+  // licorice and no all-atom structure to draw under the beads, so both are disabled with a reason rather than
+  // left clickable and silently doing nothing. The ribbon's previous state is kept while it is unavailable, so
+  // choosing a protein again restores the reader's choice instead of resetting it.
+  function syncPreviewControls() {
+    const hasProtein = !!field('protein').value;
+    const bonds = previewNode('.new-pdc-preview-bonds input');
+    const ribbon = previewNode('.new-pdc-preview-ribbon input');
+    for (const [input, why] of [[bonds, 'an empty micelle has no protein'], [ribbon, 'an empty micelle has no all-atom protein ribbon']]) {
+      if (!input) continue;
+      const label = input.closest('label');
+      if (hasProtein) {
+        input.disabled = false;
+        if (label) label.title = input === bonds
+          ? "Draw the protein as licorice sticks so the model's own bonds are visible"
+          : 'Draw the all-atom structure the beads were coarse-grained from, as a ribbon under the beads';
+      } else {
+        input.disabled = true;
+        if (label) label.title = `Disabled · ${why}`;
+      }
+    }
+    if (!ribbon) return;
+    if (!hasProtein) {
+      if (ribbon.dataset.savedChecked === undefined) ribbon.dataset.savedChecked = String(ribbon.checked);
+      ribbon.checked = false;
+    } else if (ribbon.dataset.savedChecked !== undefined) {
+      ribbon.checked = ribbon.dataset.savedChecked !== 'false';
+      delete ribbon.dataset.savedChecked;
+    }
+  }
 
   function previewInputs() {
     return {protein: field('protein').value || '', chains: selectedChains(),
@@ -1820,6 +1948,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   field('aggregation_number').addEventListener('input', loadEstimate);
   field('pdc_placement_mode')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); previewMoved(); });
   field('backmap')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
+  field('remove_out_of_micelle')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
   // The prepare step changes what martinize2 reads, so it is one of the expensive inputs: the frame on screen is no
   // longer this form's once it moves, and the card says so rather than quietly drawing the old one.
   pdcNode('.new-pdc-import-button')?.addEventListener('click', importStructure);
@@ -1881,6 +2010,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       const chains = selectedChains();
       if (field('protein').value && chains.length) payload.protein_chains = chains;
       payload.backmap = backmapping();
+      payload.remove_out_of_micelle = removeOutside();
       // The plan's step 1, sent always: the adapter's default is off, and a run whose preparation was asked for must
       // not be readable as one that was not. A protein-free run cannot ask for it -- there is nothing to prepare --
       // so it is stated only where the run has a structure, exactly as the chain selection is.
@@ -1892,6 +2022,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
         const value = field(key)?.value;
         if (value !== '' && value != null) payload[key] = Number(value);
       }
+      if (field('mdrun_nb')?.value) payload.mdrun_nb = field('mdrun_nb').value;
       await post('/', payload);
       notice('Run queued.');
       selectTab(panelIds().runs);
@@ -1924,6 +2055,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
         }
       }
       fillDefaults();
+      if (remembered.mdrun_nb && field('mdrun_nb')) field('mdrun_nb').value = remembered.mdrun_nb;
       // The seed defaults to today's date: the adapter requires one, the control sits in a collapsed block, and a
       // build with no seed cannot be compared with another. Cleared by hand it stays empty and the gate names it.
       const seedInput = field('pdc_seed');

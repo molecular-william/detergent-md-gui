@@ -1,6 +1,12 @@
 #!/bin/bash
 AA_REFERENCE_DIR="${AA_REFERENCE_DIR:-../1_AA-reference/prod}"
 set -euxo pipefail
+# The interpreter the application runs under, and the checkout it imports from; the water box below is a published
+# file read where it lives, so nothing has to be linked or copied into the stage.
+PYTHON="${PYTHON:-python}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"
+export PYTHONPATH="$PROJECT_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+WATER_BOX="$PROJECT_ROOT/resources/templates/small_mols_fast_forward/4_CG_sim/inputs/water.gro"
 # The mdrun budget, the device and the scheme choices arrive as environment, because these stages are scripts
 # rather than commands the adapter generates: MDRUN_LAUNCHER is an mpirun prefix or empty, MDRUN_FLAGS the
 # flags. The default below is the case with no executor and no device named -- threads only -- because the
@@ -13,11 +19,12 @@ cp ../3_initial_CG/$FINAL_ITP $FINAL_ITP
 # ff_inter can fit numerically extreme bond force constants that make the
 # short draft system unstable. Cap only pathological fitted bonds before the
 # exploratory CG run; the original fitted topology remains preserved upstream.
-python - <<'PY'
+"$PYTHON" - "$FINAL_ITP" <<'PY'
 from pathlib import Path
+import sys
 if Path('../2_mapping/ring_targets.json').is_file():
     raise SystemExit(0)  # paper topology retains fitted link constants; no silent capping
-p = Path('$FINAL_ITP')
+p = Path(sys.argv[1])
 lines = p.read_text().splitlines()
 in_bonds = False
 for i, line in enumerate(lines):
@@ -38,7 +45,7 @@ cp system_EMPTY.top system.top
 CG_START=../2_mapping/mapped.gro
 if [ -f ../2_mapping/mapped_scaled.gro ]; then CG_START=../2_mapping/mapped_scaled.gro; fi
 gmx editconf -f "$CG_START" -c -d 1.5 -bt dodecahedron -o boxed.gro
-gmx solvate -cp boxed.gro -cs inputs/water.gro -p system.top -radius 0.21 -o solvated.gro
+gmx solvate -cp boxed.gro -cs "$WATER_BOX" -p system.top -radius 0.21 -o solvated.gro
 gmx grompp -f inputs/minimization.mdp -p system.top -c solvated.gro -o min.tpr
 ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm min ${MDRUN_FLAGS:--ntomp 8} -v
 gmx grompp -f inputs/eq.mdp -p system.top -c min.gro -o eq.tpr -maxwarn 1

@@ -339,11 +339,16 @@ def test_the_control_is_a_row_and_not_a_missing_one(dashboard, tmp_path):
 # workspace's disk were queued by hand, one run each, and a reader that stopped reading that shape would drop the
 # record this panel exists to show.
 
-def _series_condition_on_disk(runs, run_id, directory, molality, *, measured=None, state=None):
-    """One condition of a series run, laid out as `prepare` and the runner lay it out."""
+def _series_condition_on_disk(runs, run_id, directory, molality, *, measured=None, state=None, staged=False):
+    """One condition of a series run, laid out as `prepare` and the runner lay it out.
+
+    `staged` puts the run's `01_simulate/` under `stages/`, which is the layout every current run writes; the default
+    keeps the run-root spelling of the runs on this workspace's disk.
+    """
     import json
 
-    stage = runs / run_id / '01_simulate' / 'conditions' / directory
+    run_root = runs / run_id / 'stages' if staged else runs / run_id
+    stage = run_root / '01_simulate' / 'conditions' / directory
     stage.mkdir(parents=True)
     (stage / 'osmotic_condition.json').write_text(json.dumps(
         {'molality_requested': molality, 'molality_achieved': molality, 'solute_molecules': 70,
@@ -354,6 +359,20 @@ def _series_condition_on_disk(runs, run_id, directory, molality, *, measured=Non
     if measured is not None:
         (stage / 'osmotic-pressure.json').write_text(json.dumps(measured))
     return stage
+
+
+def test_a_series_under_the_stages_layout_is_read_too(dashboard, tmp_path):
+    """The current layout keeps the stage under `stages/`; a reader that only knew the run root would show nothing."""
+    database, runs = _stores(dashboard, tmp_path)
+    with database, runs:
+        _series_condition_on_disk(tmp_path / 'runs', 'stagedseries1', '00_1molal', 1.0,
+                                  measured=_measurement(26.54), staged=True)
+        with dashboard.client as c:
+            body = c.get('/api/osmotic/conditions').get_json()
+
+    assert body['total'] == 1
+    assert body['conditions'][0]['run_id'] == 'stagedseries1'
+    assert body['conditions'][0]['measured']['pressure_bar'] == 26.54
 
 
 def test_a_series_runs_conditions_are_read_from_its_own_directories(dashboard, tmp_path):

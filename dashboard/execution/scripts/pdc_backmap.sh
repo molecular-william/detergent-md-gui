@@ -15,31 +15,17 @@
 # run's mapping writes one (`cg2at_fragment.py`) and the conversion tree carries the molecule's types
 # (`extend_forcefield`) -- both measured to work, neither wired into this script yet. Until then the tool stops at
 # "DDM is not in the fragment database!" on a complex whose CG input still carries the detergent.
+#
+# Back-mapping is a toggle, and the run's settings decide it at prepare time: a run that switched it off -- or has no
+# protein to align -- gets no stage directory at all, and the manifest records the skip. There is no skip branch here.
 set -euxo pipefail
 
-# Back-mapping is a toggle now, on by default. A run that switched it off records the contract's fourth outcome --
-# `skipped` (exit 4) with its reason in `skip.json` beside the script -- and the run still terminates `complete`,
-# because nothing was attempted and nothing is owed. The setting arrives in the same settings file this stage already
-# reads for the protein; the interpreter is the one the pdc adapter stamps into this line at prepare time, so a bare
-# `python` never appears in a copied stage script.
-BACKMAP=$(python -c "import json;print(json.load(open('../1_system/pdc-settings.json')).get('backmap', True))")
-if [ "$BACKMAP" != "True" ]; then
-  echo '{"skipped": true, "reason": "the run switched back-mapping off, so this stage has nothing to do"}' > skip.json
-  echo "skipped: the run switched back-mapping off, so this stage has nothing to do" >&2
-  exit 4
-fi
-
-# A protein-free complex run has nothing to align: this stage exists to put the protein's atoms back, and there are
-# none. That is not a failure and not a blocked run -- nothing was attempted -- so the stage skips, says why, and the
-# run carries on. The contract's fourth outcome, `skipped` (exit 4).
-python -c "import json;print(json.load(open('../1_system/pdc-settings.json')).get('protein') or '')" > protein.txt
-PROTEIN=$(cat protein.txt)
-rm -f protein.txt
-if [ -z "$PROTEIN" ]; then
-  echo '{"skipped": true, "reason": "the run has no protein, so there is nothing to align"}' > skip.json
-  echo "skipped: the run has no protein, so there is nothing to align" >&2
-  exit 4
-fi
+# The interpreter the application runs under, and the repository it imports from. `python` on the stage PATH is this
+# workspace's virtualenv (`tools.search_path` puts it first); a caller that exports PYTHON/PROJECT_ROOT wins.
+PYTHON="${PYTHON:-python}"
+REPO_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+export PROJECT_ROOT="$REPO_ROOT"
 
 CG2AT="${CG2AT:-$PROJECT_ROOT/tools/cg2at/cg2at}"
 if [ ! -e "$CG2AT" ]; then
@@ -53,22 +39,27 @@ fi
 # the previous, already-neutralised one. So the stage clears its own conversion before it starts.
 rm -rf FINAL
 
-# The atomistic reference the conversion aligns to. The prepared protein when the run built one: `1_system/protein.pdb`
+# The atomistic reference the conversion aligns to. The prepared protein when the run built one: the deposited file
 # carries heavy atoms only, and CG2AT2 runs pdb2gmx on what it is handed -- measured, that answers "the supplied protein
-# structure contains incorrectly named or missing atoms", while the protonated `0_prepare/protein_prepared.pdb` completes.
-ATOMISTIC=../0_prepare/protein_prepared.pdb
-[ -f "$ATOMISTIC" ] || ATOMISTIC=../1_system/protein.pdb
+# structure contains incorrectly named or missing atoms", while the protonated `01_prepare/protein_prepared.pdb`
+# completes. The run's protein is referenced in place, so it is resolved from the settings the way `pdc_build` does.
+ATOMISTIC=../01_prepare/protein_prepared.pdb
+if [ ! -f "$ATOMISTIC" ]; then
+  ATOMISTIC=$("$PYTHON" -c 'import json,pathlib
+settings = json.load(open("../../inputs/pdc-settings.json"))
+path = pathlib.Path(settings["protein"])
+print(path if path.is_absolute() else pathlib.Path(settings["project_root"]) / path)')
+fi
 cp -f "$ATOMISTIC" cg2at_atomistic.pdb
 
 # The conversion's own inputs, from the run's own mapping: the detergent's fragment, a force-field directory carrying the
 # molecule's atom types, a mirror of the fragment library that holds them, and the CG structure with bead names short
 # enough to survive the tool's PDB round trip. Built inside the stage -- the vendored database is not written to. A run
 # whose detergent has no mapping cannot be converted, and the helper says so and exits 3.
-python "$PROJECT_ROOT/dashboard/execution/scripts/pdc_backmap.py" --stage . --project-root "$PROJECT_ROOT" \
-  2>&1 | tee backmap_inputs.log
+"$PYTHON" -m dashboard.execution.scripts.pdc_backmap --stage . --project-root "$PROJECT_ROOT" 2>&1 | tee backmap_inputs.log
 test -f backmap_inputs.json
-FRAGMENTS=$(python -c "import json;print(json.load(open('backmap_inputs.json'))['library'])")
-FORCEFIELD=$(python -c "import json;print(json.load(open('backmap_inputs.json'))['force_field'])")
+FRAGMENTS=$("$PYTHON" -c "import json;print(json.load(open('backmap_inputs.json'))['library'])")
+FORCEFIELD=$("$PYTHON" -c "import json;print(json.load(open('backmap_inputs.json'))['force_field'])")
 # `-c` takes the renamed **gro**, not a pdb from `gmx editconf`: the tool rewrites whatever it is handed to PDB, and the
 # shortening is lost the moment it does. The gro carries its own box line, so no `-box` is needed either.
 STRUCTURE=cg2at_input.gro
@@ -93,7 +84,7 @@ STRUCTURE=cg2at_input.gro
 # build is missing whenever its steering leg gives up -- while the de-novo complex it did convert sits on disk. So the
 # status is tolerated and the files are what decide (measured: a whole 113,724-atom complex, exit 1).
 set +e
-python "$CG2AT" -c "$STRUCTURE" -a cg2at_atomistic.pdb -o align -fg "$FRAGMENTS" -ff "$FORCEFIELD" -w tip3p \
+"$PYTHON" "$CG2AT" -c "$STRUCTURE" -a cg2at_atomistic.pdb -o align -fg "$FRAGMENTS" -ff "$FORCEFIELD" -w tip3p \
   -silent -loc FINAL < /dev/null 2>&1 | tee backmap.log
 CG2AT_EXIT=$?
 set -e
@@ -119,4 +110,4 @@ fi
 # the 4iar/DDM complex: -5. Neutralising it here is what lets a later atomistic leg (and CG2AT2's own steering) run in a
 # box GROMACS will simulate without warning about Ewald background charge. `neutralisation.json` records the sum before and
 # after and the ions it took, so a converted system that is still charged is visible rather than assumed fixed.
-python "$PROJECT_ROOT/dashboard/execution/scripts/pdc_neutralise.py" --system FINAL/FINAL --stage . 2>&1 | tee neutralise.log
+"$PYTHON" -m dashboard.execution.scripts.pdc_neutralise --system FINAL/FINAL --stage . 2>&1 | tee neutralise.log

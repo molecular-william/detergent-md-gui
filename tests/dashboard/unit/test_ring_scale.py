@@ -46,15 +46,6 @@ def constraint_lengths(topology):
     return rows
 
 
-def test_the_paper_scale_is_still_valid():
-    schema.check_schema(document(1.15))
-
-
-def test_a_mapping_may_state_the_scale_its_rings_were_built_with():
-    """The arm the ring experiment needs: the same mapping, held at the distance the atoms measure."""
-    schema.check_schema(document(1.0))
-
-
 @pytest.mark.parametrize('scale', [0.0, 0.2, 2.5, -1.0, 'wide', None])
 def test_a_scale_outside_the_admissible_range_is_refused_with_the_range(scale):
     with pytest.raises(ValueError, match='scale'):

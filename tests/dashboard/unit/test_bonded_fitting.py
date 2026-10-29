@@ -23,6 +23,8 @@ import MDAnalysis as mda
 import numpy as np
 import pytest
 
+from dashboard import martini3
+from dashboard.execution.adapters import cg
 from dashboard.models import mappings
 from dashboard.models.bonded import fitting, parameterization
 from dashboard.models.mappings.context import as_structure, build_context
@@ -87,7 +89,7 @@ class Recorder:
             Path(log).parent.mkdir(parents=True, exist_ok=True)
             with Path(log).open('a') as fp:
                 fp.write(' '.join(str(part) for part in command) + '\n')
-        if 'sugar_mapping.py' in ' '.join(str(part) for part in command):
+        if 'scripts.sugar_mapping' in ' '.join(str(part) for part in command):
             model = json.loads((cwd / 'model.json').read_text())
             write_frames(cwd, model['beads'], self.frames)
         elif 'fit_topology.sh' in ' '.join(str(part) for part in command):
@@ -103,7 +105,7 @@ class Recorder:
 
     @property
     def mappers(self):
-        return [call for call in self.calls if 'sugar_mapping.py' in ' '.join(call['command'])]
+        return [call for call in self.calls if 'scripts.sugar_mapping' in ' '.join(call['command'])]
 
     @property
     def fitters(self):
@@ -144,20 +146,31 @@ def test_a_fit_stores_a_revision_with_the_provenance_a_run_side_reading_needs(ca
 
 
 def test_the_job_prepares_the_same_stage_three_directory_a_run_prepares(candidate):
-    """One definition of the invocation: the job runs the run's own stage script, stamped with this
-    fit's temperature, in a directory holding what stage 3 reads."""
+    """One definition of the invocation: the job runs the repository stage script with this fit's temperature, in a
+    directory holding what stage 3 reads -- and, like a run, it carries no copy of the code."""
     recorder = Recorder()
     record = run_job(candidate, recorder)
     stage = Path(record['work']) / '3_initial_CG'
 
-    assert (stage / 'fit_topology.sh').is_file()
-    assert '-temperature 300' in (stage / 'fit_topology.sh').read_text()
-    assert '-constraints 10000' in (stage / 'fit_topology.sh').read_text()
-    for name in ('bonded.py', 'refine_bonded.py', 'prepare_ring_constraints.py', 'DDM_initial.itp',
-                 'topol.top', 'initial.mdp', 'martini_v3.0.0.itp'):
+    assert not (stage / 'fit_topology.sh').exists()
+    for name in ('bonded.py', 'refine_bonded.py', 'prepare_ring_constraints.py'):
+        assert not (stage / name).exists(), f'{name} belongs to the repository, not to the fit'
+    for name in ('DDM_initial.itp', 'topol.top', 'initial.mdp'):
         assert (stage / name).is_file(), name
-    assert (stage.parent / '2_mapping' / 'sugar_mapping.py').is_file()
+    fit = recorder.fitters[0]
+    assert fit['command'] == ['bash', '-e', '-o', 'pipefail',
+                              str(cg.SCRIPTS / 'fit_topology.sh')]
+    assert fit['env']['RUN_SETTING_TEMPERATURE_K'] == '300.0', 'the run numbers travel as environment'
+    assert fit['env']['PYTHON'] and fit['env']['PYTHONPATH']
+    # The Martini force field is installed once in the workspace and read where it lives: the topology names it by a
+    # path relative to this scratch tree, so neither the tree nor a prepared run carries a copy of it.
+    assert not (stage / 'martini_v3.0.0.itp').exists()
+    include = martini3.include(cg.MARTINI_FF, stage)
+    assert f'#include "{include}"' in (stage / 'topol.top').read_text()
+    assert not Path(include).is_absolute() and (stage / include).is_file()
+    assert not (stage.parent / '2_mapping' / 'sugar_mapping.py').exists()
     assert (stage.parent / '2_mapping' / 'mapped.xtc').is_file()
+    assert recorder.mappers[0]['command'][1:3] == ['-m', 'dashboard.execution.scripts.sugar_mapping']
 
 
 def test_the_mapped_frames_are_built_once_for_a_pair_and_reused_afterwards(candidate):

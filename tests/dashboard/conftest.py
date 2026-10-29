@@ -1,5 +1,25 @@
 """Every test gets isolated job, mapping, registry and bonded-state storage."""
+import atexit
+import os
+import shutil
+import tempfile
 from pathlib import Path
+
+# Matplotlib writes its font cache under MPLCONFIGDIR. Four distance-plot tests race when every xdist worker shares
+# the process default; a private per-process directory removes the race and the 20–45 s rerun it costs.
+if 'MPLCONFIGDIR' not in os.environ:
+    _mpl = tempfile.mkdtemp(prefix='dashboard-mpl-')
+    os.environ['MPLCONFIGDIR'] = _mpl
+    atexit.register(shutil.rmtree, _mpl, ignore_errors=True)
+
+# The Martini 3 set is installed once per test session, not once per temporary workspace: it is 18 MB, and a test that
+# prepares a run would otherwise copy it for every `tmp_path`. The variable is the same override an operator uses, and
+# it also keeps the suite from ever writing into the checkout's live workspace. A test that needs a fresh or a broken
+# install points it somewhere else with `monkeypatch.setenv`.
+if 'DASHBOARD_MARTINI3' not in os.environ:
+    _martini3 = tempfile.mkdtemp(prefix='dashboard-martini3-')
+    os.environ['DASHBOARD_MARTINI3'] = _martini3
+    atexit.register(shutil.rmtree, _martini3, ignore_errors=True)
 
 import pytest
 

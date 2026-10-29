@@ -30,10 +30,23 @@ def source_paths(root, kind):
     return list(source_entries(root,kind).values())
 
 
+def _stage_alias(relative):
+    """A pdc stage-relative path with its stage directory replaced by the stage's own key.
+
+    The kinds declare a pdc source by one spelling (`4_extension/prod/whole.xtc`, `1_system/*.itp`), while a current
+    run writes the numbered directory (`07_extension/…`, `02_system/…`). Normalising both the declared pattern and
+    the file's path to the stage key lets one declaration match either layout, without a second list of patterns.
+    """
+    parts = str(relative).split('/')
+    stage = layout.pdc_stage_key(parts[0]) if parts else None
+    return '/'.join([stage, *parts[1:]]) if stage else str(relative)
+
+
 def source_entries(root,kind):
     patterns = list(PATTERNS[kind])
     run=root.parent if root.name=='stages' else root
     metadata=json.loads((run/'manifest.json').read_text()) if (run/'manifest.json').is_file() else {}
+    pdc = metadata.get('run_type') == 'pdc'
     shared=metadata.get('shared_reference');aa_source=None
     if TABLE[kind].reads_aa_reference:
         if shared:aa_source,_=aa_references.resolve(run.parent,shared['source_run_id'],shared['sha256'])
@@ -48,7 +61,13 @@ def source_entries(root,kind):
     legacy = tuple(name for name in TABLE[kind].legacy_sources if (root / name).is_file())
     if legacy and not aa_source and not (root/'1_AA-reference/prod/lig.xtc').is_file():
         patterns = list(legacy)
-    entries={str(p.relative_to(root)):p for p in files.safe_files(root) if str(p.relative_to(root)).split('/')[0] not in ('analysis','analyses','analysis_plots','snapshots','inputs','logs') and any(fnmatch.fnmatch(str(p.relative_to(root)),pattern) for pattern in patterns)}
+    def matches(relative):
+        if any(fnmatch.fnmatch(relative, pattern) for pattern in patterns):
+            return True
+        # Both layouts name the same stage: the numbered directories and the legacy spellings are aliases of one
+        # pattern, so a current pdc run's sources are staged exactly as a legacy run's are.
+        return pdc and any(fnmatch.fnmatch(_stage_alias(relative), _stage_alias(pattern)) for pattern in patterns)
+    entries={str(p.relative_to(root)):p for p in files.safe_files(root) if str(p.relative_to(root)).split('/')[0] not in ('analysis','analyses','analysis_plots','snapshots','inputs','logs') and matches(str(p.relative_to(root)))}
     if aa_source:entries.update({f'1_AA-reference/prod/{name}':aa_source/name for name in ('lig.gro','lig.xtc')})
     return entries
 
@@ -56,7 +75,7 @@ def execute(request_path):
     request_path = Path(request_path)
     request = json.loads(request_path.read_text())
     run = Path(request['run']); attempt = request_path.parent
-    kind = request['kind']; root = workflow.execution_root(run)
+    kind = request['kind']; root = layout.stage_root(run)
     if kind not in KINDS: raise ValueError('Unknown analysis')
     def progress(phase):
         files.atomic_json(attempt/'progress.json', {'phase': phase})

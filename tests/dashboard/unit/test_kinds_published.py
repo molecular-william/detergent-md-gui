@@ -26,7 +26,7 @@ SEAM_KEYS = {'name', 'label', 'inputs', 'payload', 'runs_for_every_run', 'defaul
 def _payload_keys_read(node):
     """Every body key `node` reads from a `payload` object: `payload.get(k)`, `payload[k]`, `k in payload`.
 
-    Deliberately narrow. A dict *literal* that writes into a new payload (`{**payload, 'interval_ns': float(...)}`)
+    Deliberately narrow. A dict *literal* that writes into a new payload (`{**payload, 'molecule_id': ...}`)
     is a key the route produces, not one it demands, so it is not collected -- only reads are.
     """
     keys = set()
@@ -112,9 +112,9 @@ def test_every_published_payload_is_the_payload_its_queue_route_validates():
     assert set(route_keys) == {name for name, payload in published.items() if payload is not None}
 
 
-def test_the_two_kinds_with_a_payload_are_the_validation_report_and_the_snapshots():
-    """Measured, not guessed: only these two branches read the body at all; everything else takes any object."""
-    assert set(_route_payload_keys()) == {'carbohydrate-validation', 'snapshots'}
+def test_the_only_kind_with_a_payload_is_the_validation_report():
+    """Measured, not guessed: only this branch reads the body at all; everything else takes any object."""
+    assert set(_route_payload_keys()) == {'carbohydrate-validation'}
 
 
 def test_default_for_aa_cg_is_the_two_checks_that_re_derive_the_fit():

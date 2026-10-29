@@ -1,5 +1,7 @@
+import shutil
+import subprocess
 from pathlib import Path
-import shutil,subprocess
+
 
 def grompp(topology,coordinate,mdp,workdir,timeout=120):
  gmx=shutil.which('gmx')

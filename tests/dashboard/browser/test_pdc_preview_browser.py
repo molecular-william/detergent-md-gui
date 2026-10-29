@@ -57,7 +57,7 @@ CATALOG = {'templates': [{'id': 'DDM:DDM', 'name': 'DDM skeleton', 'molecule': '
            'proteins': [PROTEIN],
            'defaults': {'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900, 'salt_molar': 0.15,
                         'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
-                        'selection_threshold_fraction': 0.1, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20}}
+                        'selection_threshold_fraction': 0.1}}
 MAPPING_FILE = 'mapping_candidate_fixture.json'
 #: The model the panel's picker is served, in the shape `/api/pdc/models` answers with: a saved mapping, the fit it
 #: carries, and the sentence the picker shows. `fitted` is what a run consumes; the label is the server's, so this
@@ -249,7 +249,7 @@ def test_the_card_is_first_in_the_right_column_and_the_layout_is_unchanged(dashb
     form = page.locator('#run-form').bounding_box()
     inputs = page.locator('.new-run-inputs').bounding_box()
     settings = page.locator('.new-run-settings').bounding_box()
-    assert settings['x'] >= inputs['x'] + inputs['width'] - 1, 'the halves overlap: they are not side by side'
+    panels.assert_side_by_side(page, '.new-run-inputs', '.new-run-settings')
     assert abs(inputs['width'] - form['width'] / 2) <= 20 and abs(settings['width'] - form['width'] / 2) <= 20
 
     # The pairing the panel already had is untouched: the first paired row still shares a y to the pixel.
@@ -594,8 +594,7 @@ def test_the_beads_are_coloured_by_type_family_and_the_legend_says_which(dashboa
         assert entry['declared'] == FAMILY_COLOURS[entry['family']], entry
         assert entry['swatch'] == rgb(FAMILY_COLOURS[entry['family']]), entry
     labels = {entry['family']: entry['label'] for entry in measured['entries']}
-    assert labels == {'unstated': 'family not stated', 'C': 'apolar (C)', 'N': 'nonpolar (N)', 'P': 'polar (P)',
-                      'Q': 'charged (Q)'}, labels
+    assert labels == panels.BEAD_FAMILY_LABELS, labels
     assert errors == [], errors
 
 
@@ -681,8 +680,7 @@ def test_the_empty_micelle_preview_is_the_detergents_own_mapping_and_carries_its
     legend = {entry['family']: entry['swatch'] for entry in measured['entries']}
     assert legend['P'] == rgb(FAMILY_COLOURS['P']) and legend['C'] == rgb(FAMILY_COLOURS['C']), legend
     labels = {entry['family']: entry['label'] for entry in measured['entries']}
-    assert labels == {'unstated': 'family not stated', 'C': 'apolar (C)', 'N': 'nonpolar (N)', 'P': 'polar (P)',
-                      'Q': 'charged (Q)'}, labels
+    assert labels == panels.BEAD_FAMILY_LABELS, labels
     assert errors == [], errors
 
 

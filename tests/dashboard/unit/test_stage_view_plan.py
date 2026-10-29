@@ -48,3 +48,30 @@ def test_a_plan_of_plain_names_is_left_alone():
     manifest = {'stage_plan': ['AA reference', 'trajectory mapping']}
 
     assert views.stage_view(job, manifest)[1] == ['AA reference', 'trajectory mapping']
+
+
+def test_the_run_card_predicts_the_settings_skips_before_the_stage_records_them():
+    """The timeline is drawn from the static plan, so a queued no-removal or empty-micelle run used to show stages
+    as pending that the settings already say will not run. These are previews only; the stage's own skip record wins."""
+    from dashboard.web import views
+
+    empty = {'run_type': 'pdc', 'protein': None,
+             'settings': {'prepare_protein': False, 'remove_out_of_micelle': False, 'backmap': True,
+                          'minimisation_steps': 200000, 'nvt_ps': 500, 'npt_ps': 4500}}
+    skips = views.planned_skips(empty)
+    assert skips['Protein preparation'].startswith('empty micelle')
+    assert set(skips) >= {'Micelle assessment', 'CG extension MD', 'Final assessment'}
+    assert 'backmap' not in skips['Back-mapping (CG2AT2)']
+    assert 'Back-mapping (CG2AT2)' in skips
+
+    removal = {'run_type': 'pdc', 'protein': 'molecules/1qj8/1qj8.pdb',
+               'settings': {'prepare_protein': True, 'remove_out_of_micelle': False, 'backmap': False,
+                            'minimisation_steps': 0, 'nvt_ps': 0, 'npt_ps': 4500}}
+    skips = views.planned_skips(removal)
+    assert 'Protein preparation' not in skips and 'Micelle assessment' in skips
+    assert 'Energy minimisation' in skips and 'NVT equilibration' in skips
+    assert 'Back-mapping (CG2AT2)' in skips
+
+
+def test_a_non_pdc_job_has_no_predicted_skips():
+    assert views.planned_skips({'run_type': 'aa_cg', 'settings': {'remove_out_of_micelle': False}}) == {}

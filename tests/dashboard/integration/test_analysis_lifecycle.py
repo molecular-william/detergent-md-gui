@@ -32,7 +32,7 @@ class CancellingWorker(FailingWorker):
 def seed(dashboard, jid, aid='000000000001'):
     job = {'id': jid, 'label': 'Analysis run', 'detergent': 'DDM', 'method': 'fast_forward',
            'status': 'completed', 'stage': 'complete', 'created': dashboard.coordinator.now(),
-           'analyses': [{'id': aid, 'kind': 'snapshots', 'payload': {}, 'signature': 'sig',
+           'analyses': [{'id': aid, 'kind': 'stability', 'payload': {}, 'signature': 'sig',
                          'directory': 'analysis/' + aid, 'status': 'queued'}]}
     coordinator = dashboard.coordinator
     coordinator.database().replace([job])

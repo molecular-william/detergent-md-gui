@@ -41,7 +41,7 @@ DETERGENT_RESIDUE = 'DET'
 CHAIN_UNSTATED = 'A'
 #: Where a bead's fragment letter is read from, named in the file so the claim can be checked against the run.
 SUBUNIT_SOURCE = 'stages/2_mapping/model.json'
-WATER_RESIDUES = ('W', 'SW', 'PW', 'NA', 'CL')
+WATER_RESIDUES = ('W', 'SW', 'PW', 'NA', 'CL', 'ION')
 #: The stand-in element each size class' beads are written with. `models/compositions/topology.py` chooses the same
 #: three, whose van der Waals radii divide by one factor into 0.264 / 0.230 / 0.191 nm, so one radius scale serves
 #: every class and a viewer's per-element radii are the model's proportion.
@@ -179,7 +179,7 @@ def read_moleculetype(path) -> dict:
     return read_moleculetype_text(path.read_text(), source=str(path))
 
 
-def read_moleculetype_text(text: str, *, source: str = '<text>') -> dict:
+def read_moleculetype_text(text: str, *, source: str = '<text>', defines=()) -> dict:
     """One moleculetype read out of text, for a caller that derived it and has no file to point at.
 
     The system preview derives a detergent's topology from its mapping and can draw it in the same request:
@@ -194,10 +194,40 @@ def read_moleculetype_text(text: str, *, source: str = '<text>') -> dict:
     spelled (`size_class`). The rest -- residue number, charge, mass -- say nothing this writer draws.
     """
     atoms, types, pairs = [], [], {section: [] for section in BONDED_SECTIONS}
+    elastic = []
     section = None
+    defined = set(defines or ())
+    # A moleculetype is preprocessed by grompp: martinize2 writes one bond family under `#ifdef FLEXIBLE` and the
+    # other under `#ifndef FLEXIBLE`, and a reader that strips the `#` lines draws both. This run defines no
+    # `FLEXIBLE` (`mdout.mdp`: `define =`), so the active topology is the `#ifndef` branch alone -- the number of
+    # bonds a simulation actually had, not the sum of two alternatives. The stack is `(parent_active, branch,
+    # saw_else)`; a directive is read before the comment strip, because `#` is the directive and `;` is a comment.
+    active = True
+    stack = []
     for line in str(text).splitlines():
-        # A moleculetype's comments are `;`; a `#include` or a preprocessor line names no bond either.
-        content = line.split(';', 1)[0].split('#', 1)[0].strip()
+        raw = line.split(';', 1)[0].strip()
+        if raw.startswith('#'):
+            fields = raw[1:].split()
+            directive = fields[0].lower() if fields else ''
+            argument = fields[1] if len(fields) > 1 else ''
+            if directive in ('ifdef', 'ifndef'):
+                branch = (argument in defined) == (directive == 'ifdef')
+                stack.append((active, branch, False))
+                active = active and branch
+            elif directive == 'else' and stack:
+                parent, branch, _ = stack[-1]
+                stack[-1] = (parent, not branch, True)
+                active = parent and not branch
+            elif directive == 'endif' and stack:
+                active = stack.pop()[0]
+            elif directive == 'define' and active and argument:
+                defined.add(argument)
+            elif directive == 'undef' and active and argument:
+                defined.discard(argument)
+            continue
+        if not active:
+            continue
+        content = raw
         if not content:
             continue
         if content.startswith('['):
@@ -213,13 +243,28 @@ def read_moleculetype_text(text: str, *, source: str = '<text>') -> dict:
             if len(fields) < 2:
                 raise ValueError(f'{source} has a {section} line without a pair: {line!r}')
             try:
-                pairs[section].append((int(fields[0]), int(fields[1])))
+                first, second = int(fields[0]), int(fields[1])
             except ValueError as exc:
                 raise ValueError(f'{source} has an unreadable {section} pair: {line!r}') from exc
+            # martinize2's `-elastic` network connects backbone beads within a cutoff with force 1,000; it is a
+            # restraint that keeps the fold, not a chemical bond. The viewer's job is the molecule's own
+            # connectivity, so those pairs are recorded separately and never drawn. A backbone bond the model
+            # actually declares carries 4,000 (or another chemical force), not 1,000.
+            if (section == 'bonds' and len(fields) >= 5
+                    and 0 < first <= len(atoms) and 0 < second <= len(atoms)
+                    and str(atoms[first - 1]).upper() == 'BB' and str(atoms[second - 1]).upper() == 'BB'):
+                try:
+                    force = float(fields[4])
+                except ValueError:
+                    force = None
+                if force is not None and abs(force - 1000.0) < 1e-6:
+                    elastic.append((first, second))
+                    continue
+            pairs[section].append((first, second))
     if not atoms:
         raise ValueError(f'{source} declares no atoms: there is no molecule to draw bonds for')
     return {'atoms': atoms, 'types': types, 'bonds': pairs['bonds'], 'constraints': pairs['constraints'],
-            'path': str(source)}
+            'elastic': elastic, 'path': str(source)}
 
 
 def topology_residue(atoms, topology: dict | None, fallback: str) -> str:
@@ -268,7 +313,53 @@ def read_subunits(run_dir) -> dict[str, str]:
     return {}
 
 
-def structure_pdb(path, *, topology: dict | None = None, title: str | None = None, subunits=None) -> str:
+def read_protein_topologies(run_dir) -> list[dict]:
+    """The protein's own Martini moleculetypes, sorted, from wherever the run keeps its CG build.
+
+    A protein-detergent build writes one `molecule_N.itp` per protein chain under the build stage's `cg/`
+    directory (martinize2 emits one molecule per chain), and the protein's beads are the leading atoms of every
+    trajectory that follows. The build stage is `02_system/` in the numbered layout and `1_system/` before it; a
+    staged analysis work directory keeps the same files at its root, so the layout's resolver reads all three. No
+    directory is a protein-free build, which is a state rather than an error: `[]` means there is no protein
+    molecule to bond.
+    """
+    from ...analysis.runs import layout
+
+    root = Path(run_dir)
+    directory = layout.pdc_stage_dir(root, 'system')
+    if directory is None or not (directory / 'cg').is_dir():
+        # A staged work directory holds the files at its own root, under either stage spelling; the resolver
+        # above already answered that case, and the `cg/` subdirectory is the one this reader needs.
+        return []
+
+    def order(path):
+        # Chain order is the trajectory's leading-atom order, so `molecule_10` follows `molecule_9`; a plain
+        # name sort would put it before `molecule_2` and bond the wrong block.
+        suffix = path.stem.rsplit('_', 1)[-1]
+        return (0, int(suffix), path.name) if suffix.isdigit() else (1, 0, path.name)
+
+    cg = directory / 'cg'
+    paths = sorted(cg.glob('molecule_*.itp'), key=order)
+    return [read_moleculetype(path) for path in paths] if paths else []
+
+
+def _detergent_residue(atoms, topology, protein_topologies):
+    """The residue the detergent beads carry: the first bead after the protein chains' leading atoms.
+
+    A protein-detergent trajectory puts the protein first and the detergent next, so when the protein's moleculetypes
+    say how many leading atoms it owns, the next atom's residue is the detergent. That is also the answer for a
+    detergent whose bead count does not match its moleculetype -- it is still the detergent, and must not be read
+    as protein merely because no topology describes it. Without protein topologies it is the moleculetype's own
+    residue, found in the coordinates as before.
+    """
+    protein_atoms = sum(len(protein['atoms']) for protein in protein_topologies or ())
+    if protein_topologies and protein_atoms < len(atoms):
+        return str(atoms[protein_atoms]['residue'])
+    return topology_residue(atoms, topology, str(atoms[0]['residue']))
+
+
+def structure_pdb(path, *, topology: dict | None = None, title: str | None = None, subunits=None,
+                  protein_topologies=None) -> str:
     """A run's own structure file as a PDB, with the model's own bonds where a topology is given.
 
     `subunits` is `read_subunits(run_dir)` when the caller has it: it puts each bead's fragment in the chain
@@ -293,8 +384,8 @@ def structure_pdb(path, *, topology: dict | None = None, title: str | None = Non
     atoms = read_gro(path)
     if not atoms:
         raise ValueError(f'{path} holds no atoms')
-    return system_pdb(atoms, subunits=subunits,
-                      detergent_residue=topology_residue(atoms, topology, atoms[0]['residue']),
+    return system_pdb(atoms, subunits=subunits, protein_topologies=protein_topologies,
+                      detergent_residue=_detergent_residue(atoms, topology, protein_topologies),
                       topology=topology, title=title or f'{path.name} - a run structure')
 
 
@@ -319,7 +410,7 @@ def molecule_bonds(topology: dict | None, beads, serials) -> list[tuple[int, int
 
 
 def system_pdb(atoms, *, detergent_residue='DDM', include_water=False, title='PDC system', topology=None,
-               subunits=None):
+               subunits=None, protein_topologies=None, conect_kind='chemical'):
     """A PDB for the viewer: one HETATM per bead, protein as PRO, detergent as DET, water and ions dropped.
 
     The detergent is identified by the residue the template declares, so the caller names it rather than this module
@@ -327,7 +418,8 @@ def system_pdb(atoms, *, detergent_residue='DDM', include_water=False, title='PD
 
     Every molecule gets its own residue number, in the order the coordinates first show it, and `topology` -- the
     detergent's moleculetype, when the caller has it -- adds that moleculetype's own bonds as CONECT records, once
-    per detergent molecule. Without a topology the file carries no bonds at all and says so, which is the one
+    per detergent molecule. `protein_topologies` does the same for the protein's own chains, whose beads are the
+    leading atoms; without either topology the file carries no bonds for that molecule and says so, which is the one
     answer a viewer cannot turn into invented chemistry.
 
     The element column is the stand-in for each detergent bead's own size class (`bead_elements`), because that is
@@ -341,19 +433,26 @@ def system_pdb(atoms, *, detergent_residue='DDM', include_water=False, title='PD
     protein bead, or any bead when there is no topology -- is written the code for `unstated`.
     """
     records, conect, counts = structure_records(atoms, detergent_residue=detergent_residue,
-                                               include_water=include_water, topology=topology, subunits=subunits)
+                                               include_water=include_water, topology=topology, subunits=subunits,
+                                               protein_topologies=protein_topologies, conect_kind=conect_kind)
     lines = structure_remarks(title, topology, counts, subunits=subunits)
     lines += records + conect + ['END']
     return '\n'.join(lines) + '\n'
 
 
-def structure_records(atoms, *, detergent_residue, include_water=False, topology=None, subunits=None):
+def structure_records(atoms, *, detergent_residue, include_water=False, topology=None, subunits=None,
+                      protein_topologies=None, conect_kind='chemical'):
     """One structure's `HETATM` records, its `CONECT` records, and the counts a REMARK needs to report.
 
     Split out of `system_pdb` because a sampled frame series writes the same three conventions once per model --
     the element stand-in by size class, the Martini 3 family code in the b-factor column, and the moleculetype's
     own bonds as `CONECT` -- and a second writer for them would be a second set of conventions. The counts come
     back so the caller's REMARKs can say what it could and could not bond.
+
+    `protein_topologies` are the protein chains' own moleculetypes, in trajectory order (`read_protein_topologies`).
+    Their beads are the *leading* atoms, so each molecule's bonds are written with the serial offset of its own
+    block; a block whose names are not that moleculetype's `[ atoms ]` is left unbonded and counted, never bonded to
+    a neighbour or to the detergent.
 
     `subunits` maps a bead's name to the fragment the run's own mapping puts it in (`{'B01': 'A', ...}`), and is
     written into the chain column: the chain is unreserved in a file of ours -- the residue number already tells
@@ -397,7 +496,30 @@ def structure_records(atoms, *, detergent_residue, include_water=False, topology
             unbonded.append(index)
             continue
         conect += [f'CONECT{first:5d}{second:5d}' for first, second in bonds]
-    return records, conect, {'detergent_molecules': len(detergents), 'unbonded': len(unbonded)}
+    protein_molecules, unbonded_protein, elastic_bonds = 0, 0, 0
+    elastic_conect = []
+    if protein_topologies:
+        # The protein is the leading atoms of every trajectory this writer draws, and each chain's moleculetype
+        # states its own bead names; a block that does not match is not the molecule the topology describes.
+        offset = 0
+        for protein in protein_topologies:
+            size = len(protein['atoms'])
+            block = kept[offset:offset + size]
+            block_serials = list(range(offset + 1, offset + 1 + size))
+            bonds = molecule_bonds(protein, block, block_serials)
+            if bonds is None:
+                unbonded_protein += 1
+            else:
+                conect += [f'CONECT{first:5d}{second:5d}' for first, second in bonds]
+            for first, second in protein.get('elastic') or []:
+                elastic_conect.append(f'CONECT{block_serials[first - 1]:5d}{block_serials[second - 1]:5d}')
+            elastic_bonds += len(protein.get('elastic') or [])
+            offset += size
+        protein_molecules = len(protein_topologies)
+    drawn = elastic_conect if conect_kind == 'elastic' else conect
+    return records, drawn, {'detergent_molecules': len(detergents), 'unbonded': len(unbonded),
+                            'protein_molecules': protein_molecules, 'unbonded_protein': unbonded_protein,
+                            'protein_elastic': elastic_bonds, 'conect_kind': conect_kind}
 
 
 def structure_remarks(title, topology, counts, *, extra=(), subunits=None,
@@ -436,15 +558,32 @@ def structure_remarks(title, topology, counts, *, extra=(), subunits=None,
         lines.append(f"REMARK 950 BONDS ARE THE MODEL'S OWN, NOT GUESSED: {len(topology['bonds'])} [ bonds ] + "
                      f"{len(topology['constraints'])} [ constraints ] of {Path(topology['path']).name}, replicated "
                      f'per detergent molecule')
-    if counts['unbonded']:
+    if counts.get('unbonded'):
         lines.append(f"REMARK 950 NO BONDS RECORDED FOR {counts['unbonded']} OF {counts['detergent_molecules']} "
                      "DETERGENT MOLECULES: their beads are not the moleculetype's beads, as it declares them in "
                      '[ atoms ]')
+    if counts.get('protein_molecules'):
+        lines.append(f"REMARK 950 PROTEIN BONDS ARE THE MODEL'S OWN, NOT GUESSED: the protein's "
+                     f"{counts['protein_molecules']} moleculetype(s) under the build stage's cg/, replicated per "
+                     'protein molecule from its leading beads')
+    if counts.get('unbonded_protein'):
+        lines.append(f"REMARK 950 NO BONDS RECORDED FOR {counts['unbonded_protein']} OF "
+                     f"{counts['protein_molecules']} PROTEIN MOLECULES: their leading beads are not the "
+                     "moleculetype's beads, as it declares them in [ atoms ]")
+    if counts.get('protein_elastic') and counts.get('conect_kind') == 'elastic':
+        lines.append(f"REMARK 950 ELASTIC-NETWORK BONDS: {counts['protein_elastic']} backbone pairs from martinize2's "
+                     '-elastic network (force 1,000) are a fold restraint, not chemical connectivity; this file '
+                     'draws only those restraints, for the optional overlay')
+    elif counts.get('protein_elastic'):
+        lines.append(f"REMARK 950 ELASTIC-NETWORK BONDS NOT DRAWN: {counts['protein_elastic']} backbone pairs "
+                     'from martinize2\'s -elastic network (force 1,000) are a fold restraint, not the molecule\'s '
+                     'chemical connectivity; the picture draws the remaining [ bonds ] and [ constraints ]')
     return lines + list(extra)
 
 
 def series_pdb(frames, *, topology=None, detergent_residue=None, title='frame series', note=None, fit=None,
-               subunits=None, include_water=False):
+               subunits=None, include_water=False, times_ns=None, protein_topologies=None, assembled=False,
+               conect_kind='chemical'):
     """A run's sampled frames as one multi-model PDB, written with the conventions the run's own structure uses.
 
     `frames` is one atom list per sampled moment, each `read_gro`-shaped: `name`, `residue`, `residue_id` and
@@ -457,13 +596,29 @@ def series_pdb(frames, *, topology=None, detergent_residue=None, title='frame se
     the run view drew uncoloured, unbonded spheres beside the same run's own structure, which carries both. The
     residue is the moleculetype's, found in the coordinates rather than assumed, and a caller with no topology gets
     a file that says it carries no bonds rather than one a viewer will guess at.
+
+    `times_ns` is one local simulation time per model, in nanoseconds, when the caller measured them: it is written
+    inside each `MODEL` block as `REMARK 950 MODEL <n> TIME <t> NS` so a reader holding only the file can recover the
+    timeline. A caller with no times writes the file as before; a list of the wrong length is refused rather than
+    letting the times and the models drift apart.
+
+    `protein_topologies` are the protein chains' own moleculetypes (`read_protein_topologies`), written as CONECT
+    per protein molecule beside the detergent's. `assembled` states that the caller moved the coordinates by whole
+    periodic images and centred the protein for display; the file says so, because that makes it a view of the
+    trajectory rather than the trajectory's own frame.
     """
+    if times_ns is not None and len(times_ns) != len(frames):
+        raise ValueError(f'{len(frames)} frames but {len(times_ns)} model times: a series states one time per model')
     if detergent_residue is None and frames:
-        detergent_residue = topology_residue(frames[0], topology, str(frames[0][0]['residue']))
+        detergent_residue = _detergent_residue(frames[0], topology, protein_topologies)
     built = [structure_records(atoms, detergent_residue=detergent_residue, subunits=subunits,
-                              include_water=include_water,
-                               topology=topology) for atoms in frames]
+                              include_water=include_water, protein_topologies=protein_topologies,
+                               topology=topology, conect_kind=conect_kind) for atoms in frames]
     extra = [f'REMARK 950 SAMPLED SERIES: {len(frames)} models' + (f', {note}' if note else '')]
+    if assembled:
+        extra.append('REMARK 950 COORDINATES ARE PERIODIC-IMAGE ASSEMBLED AND CENTRED FOR DISPLAY, NOT A FITTED '
+                     'OR ALIGNED TRAJECTORY: each molecule was moved by whole box vectors so the chains sit '
+                     'together and the protein is at the origin')
     if fit:
         # A fitted series is a *derived* view of the trajectory, so the file has to say so: every model superposed
         # on one of them means the molecule's own translation and rotation are gone, and a reader who took the
@@ -479,6 +634,9 @@ def series_pdb(frames, *, topology=None, detergent_residue=None, title='frame se
     counts = built[0][2] if built else {'detergent_molecules': 0, 'unbonded': 0}
     lines = structure_remarks(title, topology, counts, extra=extra, subunits=subunits)
     for index, (records, conect, _) in enumerate(built, start=1):
-        lines += [f'MODEL     {index:4d}'] + records + conect + ['ENDMDL']
+        block = [f'MODEL     {index:4d}']
+        if times_ns is not None:
+            block.append(f'REMARK 950 MODEL {index} TIME {float(times_ns[index - 1]):.6f} NS')
+        lines += block + records + conect + ['ENDMDL']
     lines.append('END')
     return '\n'.join(lines) + '\n'

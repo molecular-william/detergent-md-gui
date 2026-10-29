@@ -1,5 +1,7 @@
+import shutil
+import subprocess
 from pathlib import Path
-import shutil,subprocess
+
 
 def martinize2(atomistic,output,extra=()):
  exe=shutil.which('martinize2') or shutil.which('martinize.py')

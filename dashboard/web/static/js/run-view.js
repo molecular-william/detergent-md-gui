@@ -3,16 +3,16 @@
 // Scoped, never duplicated. The workspace the panel was mounted in decides which run types it offers -- the scope
 // arrives in the page (`#run-view-scope`, written from `web/sections.py`'s per-workspace `run_types`) -- and this
 // host asks `/api/jobs` for each of those types *by name* rather than paging every run on disk. A `pdc` run is drawn
-// here like any other: the monitor plays its CG chain's film from the snapshots analysis and lists the chain's own
-// segments under the frames, because `/api/jobs/<id>/trajectory` answers from the run's stage files.
+// here like any other: the monitor draws its structure and lists the chain's own segments under it, because
+// `/api/jobs/<id>/trajectory` answers from the run's stage files.
 //
 // Two runs at once is the point: a coarse-grained run and the atomistic reference it consumed read side by side, so
 // a reader can see what a mapping was measured against. `run-view-monitor.js` holds one monitor's work -- its
-// structure, its frames, its figures, its generate controls -- and every element id in it is suffixed by side, so
-// two of them in one page cannot reach into each other.
+// structure, its segments, its figures -- and every element id in it is suffixed by side, so two of them in one page
+// cannot reach into each other.
 //
-// What the host owns: the run list (completed runs only), the two combos, the pair preset, the time link and the
-// remembered pair. Nothing here draws anything.
+// What the host owns: the run list (completed runs only), the two combos, and the remembered pair. Nothing here draws
+// anything.
 //
 // A monitor's readout reports what the *renderer* resolved -- atom count and bond count read back off the loaded
 // structure -- never what the panel intended to send. A guard asserted only on the request is a guard that cannot
@@ -34,21 +34,17 @@ export function createRunView() {
   const section = () => $('#' + panelIds()['run-view']);
   const grid = $('#run-view-monitors');
   const note = $('#run-view-note');
-  const linkInput = $('#run-view-link');
-  const pairButton = $('#run-view-pair');
   const swapButton = $('#run-view-swap');
 
   let scope = {slug: '', types: []};
   let runs = [];              // completed runs in this workspace, newest first; mutated in place, never replaced
   let monitors = [];
   let loaded = false;
-  let linking = true;         // the time link is on until a reader turns it off
 
   function remember() {
     try {
       const state = JSON.parse(localStorage.getItem(STATE_KEY) || '{}') || {};
       state.pair = monitors.map(monitor => (monitor.run() || {}).id || '');
-      state.link = linking;
       state.collapsed = {};
       monitors.forEach(monitor => [...monitor.root.querySelectorAll('details')].forEach((details, index) => {
         state.collapsed[monitor.side + '.' + index] = !details.open;
@@ -105,12 +101,10 @@ export function createRunView() {
   }
 
   function build() {
-    // Built once: two monitors, each with its own combo, canvas, transport and three collapsed panels. The
+    // Built once: two monitors, each with its own combo, canvas, segments table and three collapsed panels. The
     // remembered collapse state is applied before the first run is chosen, so a reader's own layout does not flash.
     grid.replaceChildren();
     const state = recalled();
-    linking = state.link !== false;
-    if (linkInput) linkInput.checked = linking;
     monitors = SIDES.map(side => {
       const root = document.createElement('div');
       root.className = 'monitor-host';
@@ -118,7 +112,6 @@ export function createRunView() {
       const monitor = createMonitor({
         root, side, runs,
         onPick: job => { open(monitor, job).catch(() => {}); },
-        onFrame: frame => follow(monitor, frame),
       });
       [...monitor.root.querySelectorAll('details')].forEach((details, index) => {
         details.open = (state.collapsed || {})[side + '.' + index] === false;
@@ -128,14 +121,13 @@ export function createRunView() {
     });
   }
 
-  // ----------------------------------------------------------------------------------------------- the pair and the link
+  // ----------------------------------------------------------------------------------------------- the pair
 
-  async function open(monitor, job, {refresh = false} = {}) {
-    // Every run type plays here now, a protein-detergent run included. It used to be handed to Complexes on the
-    // grounds that that panel already drew its built system and its snapshot series; what made this panel unable to
-    // draw it was that the run's CG trajectory matched no role in `analysis/runs/layout.py`, so the snapshots
-    // analysis skipped it. Both are answered: the layout resolves a pdc run's production trajectory, and the segments
-    // (which legs merge, and where the system is rebuilt) come from `/api/jobs/<id>/trajectory`.
+  async function open(monitor, job) {
+    // Every run type is drawn here now, a protein-detergent run included. What once made this panel unable to draw
+    // one was that the run's CG trajectory matched no role in `analysis/runs/layout.py`; the layout resolves a pdc
+    // run's production trajectory, and the segments (which legs merge, and where the system is rebuilt) come from
+    // `/api/jobs/<id>/trajectory`.
     await monitor.loadRun(job);
     remember();
   }
@@ -147,39 +139,11 @@ export function createRunView() {
     return runs.find(candidate => candidate.id === String(wanted || '')) || null;
   }
 
-  async function pair() {
-    // The comparison this panel exists for: a coarse-grained run beside the atomistic reference it consumed.
-    const [first, second] = monitors;
-    const held = first.run();
-    const reference = referenceOf(held) || referenceOf(second.run());
-    if (reference) {
-      await open(second, reference);
-      return;
-    }
-    const other = runs.find(job => !held || job.id !== held.id);
-    if (other) await open(second, other);
-    else note.textContent = 'This workspace holds one completed run, so there is nothing to pair it with.';
-  }
-
   async function swap() {
     const [first, second] = monitors;
     const left = first.run(), right = second.run();
     if (right) await open(first, right);
     if (left) await open(second, left);
-  }
-
-  function follow(source, frame) {
-    // The link is by *time*, not by frame index: two series rarely share a cadence, so frame 40 on one side is not
-    // the same moment as frame 40 on the other, while 40 ns is 40 ns. A monitor whose record states no cadence
-    // cannot be followed, and is left where it is rather than moved to a moment nobody asked for.
-    if (!linking || !source) return;
-    const nanoseconds = source.nanosecondOf(frame);
-    if (nanoseconds === null || nanoseconds === undefined) return;
-    const other = monitors.find(monitor => monitor !== source);
-    if (!other) return;
-    const target = other.frameFor(nanoseconds);
-    if (target === null) return;
-    if (target !== Number(other.slider.value)) other.seek(target);
   }
 
   async function pickInitial() {
@@ -215,8 +179,6 @@ export function createRunView() {
         await loadRuns();
       }
       await pickInitial();
-      if (linkInput) linkInput.addEventListener('change', () => { linking = linkInput.checked; remember(); });
-      if (pairButton) pairButton.addEventListener('click', () => { pair().catch(() => {}); });
       if (swapButton) swapButton.addEventListener('click', () => { swap().catch(() => {}); });
       return section();
     },

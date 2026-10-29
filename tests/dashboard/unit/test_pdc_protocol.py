@@ -95,13 +95,15 @@ def test_a_setting_supplied_under_either_spelling_reaches_the_builder_the_same_w
     assert long_form['npt_ps'] == adapter.stage_defaults()['npt_ps']
 
 
-def test_a_snapshot_interval_longer_than_a_stage_is_not_a_refusal():
-    """Unlike the AA half's output interval, this one is not a requirement: a stage that publishes no frame is fine."""
+def test_the_production_output_cadence_is_a_run_setting():
+    """The production legs take their cadences from the run; the retired snapshot cadence is no longer a setting."""
     adapter = protocol.adapter_for('pdc')
 
-    numbers = adapter.normalize_settings({'snapshot_interval_ns': 500, 'pdc_assessment_ns': 10})
+    numbers = adapter.normalize_settings({'nstlog': 250, 'nstenergy': 50, 'nstxtcout': 500})
 
-    assert numbers['snapshot_interval_ns'] == 500 and numbers['assessment_ns'] == 10
+    assert (numbers['nstlog'], numbers['nstenergy'], numbers['nstxtcout']) == (250, 50, 500)
+    with pytest.raises(ValueError, match='Unknown PDC setting'):
+        adapter.normalize_settings({'snapshot_interval_ns': 500})
 
 
 def test_a_build_handed_the_whole_record_ignores_what_is_not_a_setting():
@@ -147,17 +149,23 @@ def test_a_pdc_job_is_prepared_by_the_pdc_builder(tmp_path):
     manifest = json.loads((run / 'manifest.json').read_text())
     assert manifest['run_type'] == 'pdc'
     assert manifest['stage_plan'] == [[stage.name, stage.relative] for stage in pdc.STAGES]
-    # The pdc build writes its stages at the run root rather than under `stages/`, which is why the analysis layout
-    # resolves both spellings. This is the layout a real completed build has -- checked against `8a73fe6448f2`.
-    assert (run / '1_system' / 'prepare_system.sh').is_file()
-    assert (run / '1_system' / pdc.SETTINGS_NAME).is_file()
-    # This test used to run through `workflow.prepare_run`, which copied the stages to `inputs/` and wrote an
-    # `input_snapshot_sha256` from them. No pdc run has either: the coordinator has always prepared a pdc build
-    # through this protocol, so the copy was a property of a path the application never takes for this run type.
-    # What that costs is real and recorded rather than fixed here -- `prepare_resume` verifies a resumed run's
-    # `inputs/` against that hash, so a pdc run cannot be resumed. It is a pre-existing gap in the pdc adapter, not
-    # something this change introduced, and it is not the CG path this work is about.
-    assert not (run / 'inputs').exists(), 'if this starts existing, pdc gained a snapshot and resume can be fixed'
-    assert 'input_snapshot_sha256' not in manifest
+    # One layout: `stages/` holds one directory per running stage, `inputs/` the data prepare synthesized and the
+    # record of what the run reads. There is no stage directory at the run root any more.
+    assert manifest['layout_version'] == 3
+    assert (run / 'stages' / '02_system').is_dir()
+    assert (run / 'inputs' / pdc.SETTINGS_NAME).is_file()
+    assert (run / 'inputs' / 'inputs.json').is_file()
+    assert manifest['input_snapshot_sha256']
+    assert not (run / '1_system').exists(), 'the old run-root stage directory is gone'
     assert set(manifest['tools']) == {'gmx', 'martinize2', 'pdb2pqr'}, \
         'the preparer the optional prepare step runs is recorded with the tools the run always resolves'
+
+
+def test_removal_is_a_choice_with_a_true_default_and_a_strict_boolean():
+    adapter = protocol.adapter_for('pdc')
+
+    assert adapter.stage_defaults()['remove_out_of_micelle'] is True
+    assert adapter.normalize_settings({})['remove_out_of_micelle'] is True
+    assert adapter.normalize_settings({'remove_out_of_micelle': False})['remove_out_of_micelle'] is False
+    with pytest.raises(ValueError, match='remove_out_of_micelle must be one of True, False'):
+        adapter.normalize_settings({'remove_out_of_micelle': 'no'})

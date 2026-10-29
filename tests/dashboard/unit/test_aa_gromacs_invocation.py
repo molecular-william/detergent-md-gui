@@ -31,8 +31,12 @@ def gromacs_text():
 
 @pytest.fixture(scope='module')
 def flavour(gromacs_text):
-    """What the adapter makes of the build the probe above found: the adapter's own classifier, once."""
-    return aa.gromacs_flavour()
+    """What the adapter makes of the build the probe above found, without a second probe.
+
+    The classifier is the adapter's own; only the subprocess is removed. A test that called the public probe again
+    would pay another ~0.7 s for a report this module already holds.
+    """
+    return aa.gromacs_flavour(report=gromacs_text['text'])
 
 
 def test_no_mdrun_command_in_the_project_passes_a_thread_mpi_only_flag():

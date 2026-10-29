@@ -130,3 +130,8 @@
    own Start run button, which two existing browser tests then could not click -- so the preview scrolls with the
    column and the review keeps the sticky position it had. The plan's decision 3 is reversed on that measurement. */
 @media(max-width:700px){#run-form .new-pdc-pair{grid-template-columns:1fr}}
+/* "Other run options": one collapsed block, several groups of numbers. The group heading is quieter than the card's
+   h3 and separated by the same rule the settings rows already use, so the block reads as a list of groups rather than
+   a wall of fields. */
+#run-form .new-pdc-option-title{margin:14px 0 4px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+#run-form .new-pdc-option-title:first-of-type{margin-top:10px}

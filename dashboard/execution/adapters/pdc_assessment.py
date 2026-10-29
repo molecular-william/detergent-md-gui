@@ -1,8 +1,8 @@
 """Whether the detergents have formed the micelle a run asked for, as one function.
 
 The project's design spec §7 decides this, so it is implemented once here and called at every time point — the
-assessment report, the removal decision and every snapshot read the same numbers from the same code, which is what
-stops a gallery of pictures from disagreeing with a verdict.
+assessment report, the removal decision and the final report read the same numbers from the same code, which is what
+stops one stage's verdict from disagreeing with another's.
 
 The rule, as the spec states it: a detergent is *in the micelle* when its **tail beads** are within `contact_nm`
 of another detergent's tail beads, and the resulting contact graph's largest connected cluster holds at least the

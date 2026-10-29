@@ -1,4 +1,4 @@
-# SDD ledger — plan: docs/superpowers/plans/2026-09-18-dashboard-performance.md
+# SDD ledger — plan: docs/plans/2026-09-18-dashboard-performance.md
 Approved design: preceding chat recommendation; user requested implementation.
 No Git metadata: preserve rollback source in /tmp; isolated test stores only.
 

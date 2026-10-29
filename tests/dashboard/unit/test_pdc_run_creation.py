@@ -23,6 +23,8 @@ def test_a_pdc_payload_keeps_its_run_type_and_plan(tmp_path):
     assert job['run_type'] == 'pdc'
     assert job['stage_plan'] == [stage.name for stage in PDC_STAGES]
     assert job['template'] == 'molecules/DDM/micelle_template.json'
+    assert job['settings']['prepare_protein'] is False, \
+        'an empty-micelle job must not carry the protein-only preparation default'
 
 
 def test_the_panel_can_read_what_a_complex_build_needs_before_it_queues_one(tmp_path):

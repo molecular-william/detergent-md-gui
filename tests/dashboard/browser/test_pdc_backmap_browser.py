@@ -21,7 +21,7 @@ CATALOG = {
                   'source': 'packaged', 'half_thickness_nm': 1.35}],
     'defaults': {'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900, 'salt_molar': 0.15,
                  'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
-                 'selection_threshold_fraction': 0.1, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20},
+                 'selection_threshold_fraction': 0.1},
 }
 
 
@@ -68,8 +68,9 @@ def test_switching_it_off_says_the_run_stops_coarse_grained(dashboard, live_page
     off_text = summary.inner_text()
     assert 'coarse-grained' in off_text, off_text
     assert on_text != off_text
-    expect(page.locator('.new-pdc-backmap-node text.title')).to_have_text('9 · Back-map (off)')
-    expect(page.locator('.new-pdc-backmap-node text.sub')).to_contain_text('coarse-grained')
+    # The active path omits a stage that will not run; the result says what the run actually produces.
+    assert page.locator('.new-pdc-backmap-node').count() == 0, 'a skipped back-map is not drawn as a stage'
+    expect(page.locator('.new-pdc-flow [data-stage=result]')).to_contain_text('CG system + records')
     expect(page.locator('.new-pdc-backmap-note')).to_contain_text('skipped')
 
     # And back on: the atomistic sentence returns, so the review tracks the toggle rather than a stale render.

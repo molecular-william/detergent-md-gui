@@ -24,16 +24,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 MOLECULES = PROJECT_ROOT / 'molecules'
 REFERENCE = {'source_run_id': '111111111111', 'sha256': {}}
 
-#: What every AA-to-CG run stages, whichever profile it was handed: the mapping export, the one mapper, and the
-#: three scripts stage 3 drives. `prepare_ring_constraints.py` is staged for a mapping with no rings too -- the
-#: stage script calls it unconditionally, so it has to be there and inert rather than absent.
+#: What every AA-to-CG run stages, whichever profile it was handed: the mapping export, the generated data stage 3
+#: reads, and the MDP the CG simulation runs. The helpers are repository modules now, so no `.py` is staged for a
+#: mapping with rings or without one.
 STAGED = ('2_mapping/model.json', '2_mapping/mapping.map', '2_mapping/mapping.ndx', '2_mapping/README.txt',
-          '2_mapping/draft-source.json', '2_mapping/sugar_mapping.py',
-          '3_initial_CG/bonded.py', '3_initial_CG/refine_bonded.py', '3_initial_CG/prepare_ring_constraints.py',
+          '2_mapping/draft-source.json',
           '3_initial_CG/DDM_initial.itp', '3_initial_CG/topol.top', '3_initial_CG/initial.mdp',
           '4_CG_sim/inputs/md.mdp', '6_SASA/CG/vdwradii.dat')
 
-#: The stage script's executable lines: the comments above a line name the old value and why it went, so a
+#: The stage scripts' executable lines: the comments above a line name the old value and why it went, so a
 #: presence check over the executable lines is the one that cannot be fooled by the explanation.
 EXECUTABLE = tuple(line for line in (cg.SCRIPTS / 'fit_topology.sh').read_text().splitlines()
                    if not line.lstrip().startswith('#'))
@@ -106,16 +105,40 @@ def test_no_run_can_be_handed_a_pre_fitted_bonded_state(prepared):
         assert retired not in inspect.signature(cg.prepare).parameters
 
 
-def test_the_stage_script_calls_both_helpers_without_probing_for_them():
-    """D4: both scripts are staged always, so `[ -f ... ]` has nothing left to decide.
+def test_the_stage_script_calls_both_helpers_as_repository_modules():
+    """D4: both helpers are always run, and now they are repository modules rather than files staged beside a script.
 
     The pre-fitted path is gone with the profile gate: no executable line reads `BOND_STATE.itp` any more, because
     no run can be handed one.
     """
-    assert 'python prepare_ring_constraints.py' in EXECUTABLE
-    assert 'python refine_bonded.py' in EXECUTABLE
+    assert '"$PYTHON" -m dashboard.execution.scripts.prepare_ring_constraints' in EXECUTABLE
+    assert '"$PYTHON" -m dashboard.execution.scripts.refine_bonded' in EXECUTABLE
     assert [line for line in EXECUTABLE if '[ -f' in line] == []
     assert [line for line in EXECUTABLE if 'BOND_STATE' in line] == []
+
+
+def test_a_prepared_run_holds_no_code_of_its_own(prepared):
+    """The phase's rule: a run names the repository script it executes, it does not carry a copy of one.
+
+    Both the stage tree and the `inputs/` mirror are checked, because a script in either is a second copy of code
+    the manifest is supposed to pin by digest.
+    """
+    for tree in ('stages', 'inputs'):
+        copied = sorted(path.relative_to(prepared).as_posix()
+                        for path in (prepared / tree).rglob('*')
+                        if path.suffix in ('.py', '.sh'))
+        assert copied == [], f'{tree}/ holds code that belongs to the repository: {copied}'
+
+
+def test_every_stage_declares_the_repository_script_it_runs():
+    """One declaration per stage, both shapes of stage 3 included, each naming a file in this checkout."""
+    scripts = {stage.name: stage.script for stage in cg.stage_definitions(parameterized=True)}
+
+    assert all(script.startswith('dashboard/execution/scripts/') for script in scripts.values())
+    assert [name for name, script in scripts.items() if not (PROJECT_ROOT / script).is_file()] == []
+    assert scripts['CG parameterization'] == 'dashboard/execution/scripts/use_parameterization.sh'
+    assert {stage.name: stage.script for stage in cg.stage_definitions()}['CG parameterization'] == \
+        'dashboard/execution/scripts/fit_topology.sh'
 
 
 def test_stage_three_is_named_for_what_it_does():

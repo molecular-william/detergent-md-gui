@@ -83,7 +83,8 @@ def prepared(tmp_path: Path, candidate: dict = CANDIDATE) -> Path:
 
 
 def system(run: Path) -> Path:
-    return run / Path(pdc.stage_by_name('System preparation').relative).parent
+    """Where `prepare` wrote the detergent's generated model: the run's `inputs/`."""
+    return run / pdc.INPUTS_DIRECTORY
 
 
 def model(run: Path) -> dict:

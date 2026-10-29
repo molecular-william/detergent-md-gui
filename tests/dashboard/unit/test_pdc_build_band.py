@@ -19,6 +19,7 @@ import pytest
 from dashboard.execution.adapters import pdc, pdc_placement, pdc_view
 from dashboard.execution.adapters.pdc_placement import MIN_CLEARANCE_NM
 from dashboard.execution.scripts import pdc_build
+from tests.dashboard.pdc_fixtures import system_stage
 
 TEMPLATE = {
     'name': 'DDM',
@@ -88,7 +89,7 @@ def prepared(tmp_path: Path, *, remark: bool = True):
 
 
 def stage_directory(run: Path) -> Path:
-    return run / Path(pdc.stage_by_name('System preparation').relative).parent
+    return system_stage(run)
 
 
 def report_of(stage: Path) -> dict:

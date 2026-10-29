@@ -28,7 +28,7 @@ CATALOG = {
                   'source': 'packaged', 'half_thickness_nm': 1.35}],
     'defaults': {'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900, 'salt_molar': 0.15,
                  'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
-                 'selection_threshold_fraction': 0.1, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20},
+                 'selection_threshold_fraction': 0.1},
 }
 PROTEIN = 'molecules/1qj8/1qj8.pdb'
 # A deposited assembly, so the chain ticks are on the row: 1qj8 (the packaged fixture) declares no chains, and the
@@ -185,7 +185,7 @@ def test_the_two_columns_are_still_side_by_side_at_the_wide_viewport(dashboard, 
     form = page.locator('#run-form').bounding_box()
     inputs = page.locator('.new-run-inputs').bounding_box()
     settings = page.locator('.new-run-settings').bounding_box()
-    assert settings['x'] >= inputs['x'] + inputs['width'] - 1, 'the halves overlap: they are not side by side'
+    panels.assert_side_by_side(page, '.new-run-inputs', '.new-run-settings')
     assert abs(inputs['width'] - form['width'] / 2) <= 20, (inputs['width'], form['width'])
     assert abs(settings['width'] - form['width'] / 2) <= 20, (settings['width'], form['width'])
     assert errors == [], errors

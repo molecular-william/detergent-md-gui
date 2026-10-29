@@ -13,6 +13,7 @@ from pathlib import Path
 
 from dashboard import files, paths
 from dashboard.analysis import worker as analysis
+from dashboard.analysis.runs import layout
 
 #: The packages whose content decides an analysis result: the analysis code itself and the model code it reads.
 CODE_ROOTS = ('analysis', 'models')
@@ -52,7 +53,8 @@ class AnalysisCoordinator:
         coordinator's `finish_job` writes the terminal status and releases its lease -- and `queue` refuses a run
         that is still held, on purpose, for a request that arrives from outside. So the queueing is handed to a
         short-lived thread that waits for the run to be free and then goes through that same door: no guard is
-        weakened for it, and a run whose worker never lets go simply gets no frames, which is where it started.
+        weakened for it, and a run whose worker never lets go simply gets none of its own analyses, which is where
+        it started.
 
         A notification naming a run of another store is not this coordinator's business -- the coordinator that owns
         it was notified too -- and is answered with nothing rather than an error.
@@ -87,15 +89,22 @@ class AnalysisCoordinator:
         or a record that names no layout this kind reads. Nothing is invented for those: a person asking for the
         kind by name still gets the resolver's own refusal, which names every path it looked for.
         """
-        return self.drain(jid)['queued']
+        return self.drain(jid, automatic=True)['queued']
 
-    def drain(self, jid):
+    def drain(self, jid, automatic=False):
         """Queue the owed kinds the run does not already hold, and say which are still waiting.
+
+        `automatic` marks the completion/chain path rather than a person's Recompute. Automatic queueing must not
+        replace a manual payload with the kind's default one: a hand-chosen payload has a different signature, so a
+        signature-only queue would mint a second attempt beside it and the newer one would win. An automatic pass
+        therefore treats any completed or skipped task of the kind as current. A person's Recompute still goes
+        through the signature check, so changed sources or code can be re-run on request.
+        
 
         `queue` takes one analysis at a time for a run: it refuses a second with `RunBusy` while the first holds the
         worker, which is what keeps a person's cancel meaningful. Asking for the whole list at once therefore queued
-        exactly one kind and silently dropped the rest -- an `aa_cg` run that owes `snapshots`, `bonded-cross-check`
-        and `dihedral-fit` published its frames and nothing else, and `HANDOFF` recorded the analysis as "queued by
+        exactly one kind and silently dropped the rest -- an `aa_cg` run owing `bonded-cross-check` and
+        `dihedral-fit` queued the first and never reached the second, and `HANDOFF` recorded the other as "queued by
         nobody" when it was queued and immediately refused.
 
         So draining stops at the first refusal and is called again when an analysis finishes, which is how the list
@@ -109,7 +118,7 @@ class AnalysisCoordinator:
         # queued by nobody.
         for kind in self.owner.automatic_analyses(jid):
             try:
-                task, status = self.queue(jid, kind, {})
+                task, status = self.queue(jid, kind, {}, automatic=automatic)
             except RunBusy:
                 # One is active. The rest follow when it finishes, from `finish` below.
                 owed.append(kind)
@@ -139,7 +148,7 @@ class AnalysisCoordinator:
         settled = next((task['status'] for task in self.owner.lookup(jid).get('analyses', [])
                         if task['id'] == aid), None)
         if settled in ('completed', 'skipped'):
-            return self.drain(jid)
+            return self.drain(jid, automatic=True)
         return {'queued': [], 'owed': []}
 
 
@@ -176,7 +185,7 @@ class AnalysisCoordinator:
             worker.cancel.set()
         return task
 
-    def queue(self, jid, kind, payload):
+    def queue(self, jid, kind, payload, *, automatic=False):
         owner = self.owner
         if kind not in analysis.KINDS:
             raise RunNotFound('Unknown analysis')
@@ -186,7 +195,7 @@ class AnalysisCoordinator:
             job = owner.lookup(jid)
             if job['status'] not in ('completed', 'failed', 'cancelled') or jid in owner.WORKERS:
                 raise RunBusy('Analysis requires a stopped run')
-            source_root = workflow.execution_root(owner.run_path(job))
+            source_root = layout.stage_root(owner.run_path(job))
             source_entries = analysis.source_entries(source_root, kind)
             fingerprint = [(relative, files.sha256(path)) for relative, path in source_entries.items()]
             code_files = code_fingerprint_files()
@@ -197,8 +206,17 @@ class AnalysisCoordinator:
                 sort_keys=True).encode()).hexdigest()
             tasks = job.get('analyses', [])
             for task in reversed(tasks):
-                if task.get('signature') == signature and task['status'] in ('queued', 'running', 'completed'):
-                    return task, 200 if task['status'] == 'completed' else 202
+                if automatic and task.get('kind') == kind and task['status'] in ('queued', 'running', 'completed',
+                                                                                 'skipped'):
+                    return task, 200 if task['status'] in ('completed', 'skipped') else 202
+                if task.get('signature') == signature and task['status'] in ('queued', 'running', 'completed',
+                                                                            'skipped'):
+                    # A skip is an answer, not an absence: the same sources and code will skip again. Reusing it is
+                    # what stops a run whose producer cannot succeed from re-queueing itself every twenty seconds
+                    # forever. A changed source or code file changes the signature, so a later attempt is still
+                    # allowed; a person's Recompute asks through the same door and gets the same answer while nothing
+                    # has changed.
+                    return task, 200 if task['status'] in ('completed', 'skipped') else 202
             if any(key[0] == jid for key in list(owner.ANALYSIS_WORKERS)):
                 raise RunBusy('An analysis is already active for this run')
             if len(owner.ANALYSIS_WORKERS) + sum(owner.externally_busy(item) for item in owner.database().all()) >= owner.limits()['max_concurrent_analyses']:

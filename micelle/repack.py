@@ -1,7 +1,10 @@
 import numpy as np
+
 from .geometry import candidate_score
+
+
 def repack(points, directions, protein, radius, aggregation_number, seed, axis=(0,0,1), span=(-1,1)):
- rng=np.random.default_rng(seed); p=np.asarray(protein,float); center=p.mean(0) if len(p) else np.zeros(3)
+ p=np.asarray(protein,float); center=p.mean(0) if len(p) else np.zeros(3)
  chosen=[]
  for d in directions:
   c=center+radius*d; s=candidate_score(c,p,axis,span,.25)

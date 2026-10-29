@@ -77,23 +77,16 @@ def test_the_timestep_is_stamped_on_the_atomistic_half_only(tmp_path):
         'the coarse-grained half keeps its template timestep'
 
 
-def test_the_template_still_carries_the_anchor_the_rewrite_needs():
-    """The stage script ships a placeholder temperature; the adapter rewrites it from the run's settings.
+def test_the_temperature_is_the_runs_setting_and_is_rounded_for_ff_inter():
+    """`ff_inter` declares `-temperature` an int, so a fractional run temperature would make it exit before fitting
+    anything. The script rounds for that one argument and reads the number from the run's environment: nothing is
+    stamped into a per-run copy."""
+    script = (PROJECT_ROOT / 'dashboard/execution/scripts/fit_topology.sh').read_text()
+    executable = [line for line in script.splitlines() if not line.lstrip().startswith('#')]
 
-    If the template's anchor changes, the rewrite silently stops happening and every run fits at whatever
-    the template says. This test is the thing that fails instead.
-    """
-    template = (PROJECT_ROOT / 'dashboard/execution/scripts/fit_topology.sh').read_text()
-    assert '-temperature 300' in template
-
-
-def test_a_fractional_run_temperature_is_rounded_for_ff_inter():
-    """`ff_inter` declares `-temperature` as an int: 303.15 makes it exit before fitting anything."""
-    template = (PROJECT_ROOT / 'dashboard/execution/scripts/fit_topology.sh').read_text()
-    written = cg.fit_temperature(template, 303.15)
-    assert '-temperature 303 ' in written
-    assert '303.15' not in written
-    assert '-temperature 300' not in written
+    assert 'FIT_TEMPERATURE=$(printf \'%.0f\' "${RUN_SETTING_TEMPERATURE_K:-300}")' in executable
+    assert any(line.startswith('ff_inter ') and '-temperature "$FIT_TEMPERATURE"' in line for line in executable)
+    assert '-temperature 300' not in '\n'.join(executable)
 
 
 def test_the_topology_stage_lets_fast_forward_constrain_its_stiffest_bonds():
@@ -176,11 +169,6 @@ def test_neither_cg_template_has_its_timestep_stamped_by_the_adapter():
 
     assert 'dt' not in changes, 'the CG half keeps its template dt; only the atomistic half is stamped'
     assert cg.mdp_integration(Path('/run/1_AA-reference'), Path('/run/1_AA-reference'), 1000)['dt'] == 0.002
-
-
-def test_an_integral_temperature_is_passed_unchanged():
-    template = (PROJECT_ROOT / 'dashboard/execution/scripts/fit_topology.sh').read_text()
-    assert '-temperature 310 ' in cg.fit_temperature(template, 310)
 
 
 def test_maltose_mapping_validation_uses_its_bound_molecule():

@@ -1,4 +1,4 @@
-# SDD ledger — plan: docs/superpowers/plans/2026-09-18-cg-bead-assignment.md
+# SDD ledger — plan: docs/plans/2026-09-18-cg-bead-assignment.md
 
 ## Workspace ruling
 

@@ -23,14 +23,13 @@ from pathlib import Path
 import MDAnalysis as mda
 import numpy as np
 
-from . import layout
+from ... import itp
+from . import DEFAULT_TEMPERATURE, R_GAS, layout
 
-R_GAS = 8.314462618  # J / mol / K
 DEFAULT_BINS = 60
 DEFAULT_WINDOW = 9
 DEFAULT_ORDER = 3
 DEFAULT_MAX_TERMS = 6
-DEFAULT_TEMPERATURE = 303.15
 REPORT = 'dihedral-fit.json'
 CRITERIA = ('aic', 'bic')
 
@@ -216,44 +215,38 @@ def read_declared_dihedrals(path):
     with different fields, and reading its numbers as a phase and a force constant would put a meaningless pair beside
     a real one -- and this reader's whole output is a comparison, so a meaningless half of it is not a small error.
     """
-    section = None
     entries = {}
-    for number, raw in enumerate(Path(path).read_text().splitlines(), start=1):
-        line = raw.split(';', 1)[0].strip()
-        if not line:
-            continue
-        if line.startswith('['):
-            section = line.strip('[] \t').split()[0]
-            continue
+    for section, rows in itp.sections(Path(path).read_text()):
         if section != DIHEDRAL_SECTION:
             continue
-        fields = line.split()
-        if len(fields) < 5 + TRIPLET:
-            raise ValueError(f'{path}:{number}: a proper dihedral needs 8 fields, found {len(fields)}')
-        funct = fields[4]
-        if funct not in PROPER_FUNCTS:
-            raise ValueError(f'{path}:{number}: funct {funct} is not a proper dihedral, and this reader has '
-                             'nothing to say about it')
-        trailing = fields[5:]
-        if funct == '1' and len(trailing) != TRIPLET:
-            raise ValueError(f'{path}:{number}: funct 1 carries exactly {TRIPLET} numbers after it, found '
-                             f'{len(trailing)}')
-        if len(trailing) % TRIPLET:
-            raise ValueError(f'{path}:{number}: funct 9 takes phase, force constant and multiplicity in threes, '
-                             f'found {len(trailing)}')
-        try:
-            atoms = tuple(int(index) for index in fields[:4])
-            triplets = [(float(phase), float(constant), int(float(multiplicity)))
-                        for phase, constant, multiplicity
-                        in (trailing[offset:offset + TRIPLET] for offset in range(0, len(trailing), TRIPLET))]
-        except ValueError as error:
-            raise ValueError(f'{path}:{number}: {error}') from error
-        entry = entries.setdefault(atoms, {'atoms': atoms, 'funct': funct, 'terms': [], 'line': number})
-        if entry['funct'] != funct:
-            raise ValueError(f'{path}:{number}: atoms {" ".join(str(index) for index in atoms)} are declared with '
-                             f'funct {entry["funct"]} and funct {funct}; one dihedral cannot be both')
-        entry['terms'] += [{'phase_deg': phase, 'force_constant': constant, 'multiplicity': multiplicity,
-                            'line': number} for phase, constant, multiplicity in triplets]
+        for number, line in rows:
+            fields = line.split()
+            if len(fields) < 5 + TRIPLET:
+                raise ValueError(f'{path}:{number}: a proper dihedral needs 8 fields, found {len(fields)}')
+            funct = fields[4]
+            if funct not in PROPER_FUNCTS:
+                raise ValueError(f'{path}:{number}: funct {funct} is not a proper dihedral, and this reader has '
+                                 'nothing to say about it')
+            trailing = fields[5:]
+            if funct == '1' and len(trailing) != TRIPLET:
+                raise ValueError(f'{path}:{number}: funct 1 carries exactly {TRIPLET} numbers after it, found '
+                                 f'{len(trailing)}')
+            if len(trailing) % TRIPLET:
+                raise ValueError(f'{path}:{number}: funct 9 takes phase, force constant and multiplicity in threes, '
+                                 f'found {len(trailing)}')
+            try:
+                atoms = tuple(int(index) for index in fields[:4])
+                triplets = [(float(phase), float(constant), int(float(multiplicity)))
+                            for phase, constant, multiplicity
+                            in (trailing[offset:offset + TRIPLET] for offset in range(0, len(trailing), TRIPLET))]
+            except ValueError as error:
+                raise ValueError(f'{path}:{number}: {error}') from error
+            entry = entries.setdefault(atoms, {'atoms': atoms, 'funct': funct, 'terms': [], 'line': number})
+            if entry['funct'] != funct:
+                raise ValueError(f'{path}:{number}: atoms {" ".join(str(index) for index in atoms)} are declared '
+                                 f'with funct {entry["funct"]} and funct {funct}; one dihedral cannot be both')
+            entry['terms'] += [{'phase_deg': phase, 'force_constant': constant, 'multiplicity': multiplicity,
+                                'line': number} for phase, constant, multiplicity in triplets]
     for entry in entries.values():
         dominant = max(entry['terms'], key=lambda term: abs(term['force_constant']))
         entry.update({'phase_deg': dominant['phase_deg'], 'force_constant': dominant['force_constant'],

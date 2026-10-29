@@ -13,7 +13,7 @@ where the tool reads them -- inside the stage, never in the vendored tree:
 * the fragment library is mirrored the same way, because `-fg` takes a *path* and the molecule's fragment has to sit
   inside a library directory: the mirror holds symlinks to every vendored fragment and one real directory for this run's.
 
-    python pdc_backmap.py --stage . [--project-root /path]
+    python -m dashboard.execution.scripts.pdc_backmap --stage . [--project-root /path]
 
 Writes `backmap_inputs.json` beside the stage: what was built, from which mapping, and the two paths the invocation
 needs. A run with no mapping records why and exits 3 -- a complex whose detergent cannot be converted is a stage that
@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -45,7 +46,7 @@ SKIPPED, REFUSED = 4, 3
 
 def settings(stage: Path) -> dict:
     """The run's own decisions, from the one file every pdc stage reads them from."""
-    path = stage.parent / '1_system' / SETTINGS_NAME
+    path = stage.parent.parent / 'inputs' / SETTINGS_NAME
     if not path.is_file():
         raise SystemExit(f'{path} is missing: this stage reads the run\'s decisions from it')
     return json.loads(path.read_text())
@@ -106,9 +107,12 @@ def stage_inputs(stage: Path, project_root: Path) -> dict:
     force_field = fragment.extend_forcefield(project_root / DATABASE / 'forcefields' / FORCE_FIELD,
                                              written['atomtypes'], base / FORCE_FIELD, written['pairtypes'])
 
-    run_gro = stage.parent / '4_extension' / 'prod' / 'run.gro'
+    run_gro = stage.parent / '08_extension' / 'prod' / 'run.gro'
     if not run_gro.is_file():
-        raise SystemExit(f'{run_gro} is missing: this stage converts the extension\'s own structure')
+        # Without removal there is no extension stage; the production phase is the only structure.
+        run_gro = stage.parent / '06_assessment' / 'prod' / 'run.gro'
+    if not run_gro.is_file():
+        raise SystemExit(f'{run_gro} is missing: this stage converts the run\'s final CG structure')
     mapping = json.loads(mapping_path.read_text())
     names = fragment.safe_names([bead['name'] for bead in mapping['beads']])
     structure = stage / 'cg2at_input.gro'
@@ -130,7 +134,12 @@ def main(argv=None) -> int:
     parser.add_argument('--project-root', default=None)
     args = parser.parse_args(argv)
     stage = Path(args.stage).resolve()
-    project_root = Path(args.project_root).resolve() if args.project_root else stage.parents[3]
+    if args.project_root:
+        project_root = Path(args.project_root).resolve()
+    else:
+        # The stage script hands the repository over; a caller running this by hand can name it or export PROJECT_ROOT.
+        named = os.environ.get('PROJECT_ROOT')
+        project_root = Path(named).resolve() if named else stage.parents[4]
     try:
         record = stage_inputs(stage, project_root)
     except SystemExit as exc:

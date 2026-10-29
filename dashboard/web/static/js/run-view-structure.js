@@ -105,22 +105,33 @@ export function structureRank(path) {
   if (text.includes('3_initial_CG/')) return 2;
   if (text.includes('4_CG_sim/')) return 3;
   // A protein-detergent run keeps its stages under names of their own, and the system it publishes is the
-  // extension's: the legs before it are the boxes the run passed through, which is why they rank after it.
-  if (text.includes('4_extension/prod/run.gro')) return 0;
-  if (text.includes('5_assessment/prod/run.gro')) return 1;
-  if (text.includes('2_assessment/prod/run.gro')) return 2;
-  if (text.includes('4_npt/system.gro')) return 3;
-  if (text.includes('1_system/system.gro')) return 4;
+  // extension's: the legs before it are the boxes the run passed through, which is why they rank after it. A run
+  // written in the numbered layout spells the same stages `08_extension`, `09_final_assessment`, `06_assessment`,
+  // `05_npt` and `02_system`; both spellings are listed because two legacy runs are still live.
+  if (text.includes('08_extension/prod/run.gro') || text.includes('4_extension/prod/run.gro')) return 0;
+  if (text.includes('09_final_assessment/prod/run.gro') || text.includes('5_assessment/prod/run.gro')) return 1;
+  if (text.includes('06_assessment/prod/run.gro') || text.includes('2_assessment/prod/run.gro')) return 2;
+  if (text.includes('05_npt/system.gro') || text.includes('4_npt/system.gro')) return 3;
+  if (text.includes('04_nvt/system.gro') || text.includes('03_minimisation/system.gro')) return 4;
+  if (text.includes('02_system/system.gro') || text.includes('1_system/system.gro')) return 4;
+  // The micelle assessment's kept system and the back-map's atomistic product are not a system the run simulated;
+  // they rank after the boxes it passed through.
   return 5;
 }
 
-//: The directories a run's own stages live in: `stages/` for a run written in the current layout, and the stage names
-//: their own scripts use for a protein-detergent run written before it. Measured on `00b9ae6db23f`: that run's
-//: directory holds `1_system/`, `4_extension/` and no `stages/` at all, so `/api/jobs/<id>/artifacts` answers
-//: `1_system/system.gro` and the entries after `stages/` are what make its structures reachable.
+//: The directories a run's own stages live in: `stages/` for a run written in the current layout, the numbered pdc
+//: stage names (`01_prepare/` …) or -- for a protein-detergent run written before the numbering -- the stage names
+//: its own scripts use. Measured on `00b9ae6db23f`: that run's directory holds `1_system/`, `4_extension/` and no
+//: `stages/` at all, so `/api/jobs/<id>/artifacts` answers `1_system/system.gro` and the entries after `stages/` are
+//: what make its structures reachable.
 // An array, not a parenthesised list: `('a/', 'b/')` is a comma expression that evaluates to the last string, so
 // `.some()` on it throws and every caller of `inStage` dies where it is called.
-export const STAGE_DIRECTORIES = ['stages/', '0_prepare/', '1_system/', '2_minimisation/', '3_nvt/', '4_npt/',
+export const STAGE_DIRECTORIES = ['stages/',
+                                  // The numbered pdc layout: one directory per stage, in execution order.
+                                  '01_prepare/', '02_system/', '03_minimisation/', '04_nvt/', '05_npt/', '06_assessment/',
+                                  '07_micelle_assessment/', '08_extension/', '09_final_assessment/', '10_backmap/',
+                                  // The legacy pdc spelling, kept for the runs written before the numbering.
+                                  '0_prepare/', '1_system/', '2_minimisation/', '3_nvt/', '4_npt/',
                                   '2_assessment/', '3_assessment/', '4_extension/', '5_assessment/', '6_backmap/'];
 
 export function inStage(path) {

@@ -45,11 +45,12 @@ from pathlib import Path
 from typing import Callable
 
 from .. import files
-from . import devices
+from . import devices, run_inputs, run_scripts
 from .stages import Stage
 
 
-def write_prepared_manifest(run_dir, metadata, *, tools, plan, environment=None):
+def write_prepared_manifest(run_dir, metadata, *, tools, plan, environment=None, references=None,
+                            scripts=None, skipped=None, modules=None):
     """Write the manifest every prepared run carries, so all three run types agree.
 
     Four modules used to emit this document and they disagreed: the AA adapter and the CG
@@ -66,9 +67,30 @@ def write_prepared_manifest(run_dir, metadata, *, tools, plan, environment=None)
     records none -- that rule is the oldest one here and a run type that records none is saying so.
     """
     document = dict(metadata)
-    document.update(layout_version=2, stage_plan=list(plan), stages=[], tools=tools,
-                    input_snapshot_sha256=files.hashes(Path(run_dir) / 'inputs'),
-                    prepared_at=datetime.now(timezone.utc).isoformat())
+    if references is None:
+        # A run type that still mirrors its whole stage tree into `inputs/`: layout 2, the old directory digest.
+        document.update(layout_version=2, stage_plan=list(plan), stages=[], tools=tools,
+                        input_snapshot_sha256=files.hashes(Path(run_dir) / 'inputs'),
+                        prepared_at=datetime.now(timezone.utc).isoformat())
+    else:
+        # The new record: shared inputs named by path and digest, generated data in `inputs/`, one digest over it.
+        entries = run_inputs.write(run_dir, references)
+        document.update(layout_version=3, stage_plan=list(plan), stages=[], tools=tools, inputs=entries,
+                        input_snapshot_sha256=run_inputs.digest(entries),
+                        prepared_at=datetime.now(timezone.utc).isoformat())
+    if modules is not None:
+        # The Python modules a stage executes: the same path+digest record as a script, kept apart because these are
+        # imported into an interpreter rather than executed as a file.
+        from .environment import ROOT
+        document['python_modules'] = run_scripts.record(modules, root=ROOT)
+    if skipped is not None:
+        # Stages the run's own prepare decided will not run. They get no directory and no script; the executor records
+        # them skipped with the reason this mapping states.
+        document['skipped_stages'] = dict(skipped)
+    if scripts is not None:
+        # One record of the code this run executes: a repository path and a digest per stage, checked before it runs.
+        from .environment import ROOT
+        document['stage_scripts'] = run_scripts.record(scripts, root=ROOT)
     if environment is not None:
         document['environment'] = devices.environment_record(environment)
     files.atomic_json(Path(run_dir) / 'manifest.json', document)
@@ -132,7 +154,8 @@ def plan_pairs(metadata) -> list[list[str]]:
     return pairs
 
 
-def finish_prepared_run(run_dir, stages, *, metadata, tools, plan, environment=None, discard=('manifest.json',)):
+def finish_prepared_run(run_dir, stages, *, metadata, tools, plan, environment=None,
+                        discard=('manifest.json',), references=None, scripts=None, skipped=None, modules=None):
     """Turn a filled stage directory into a prepared run: `inputs/` beside it, and the manifest at the root.
 
     The choreography every run type performs and only one of them used to own: a type fills `stages/`, and this copies
@@ -147,7 +170,8 @@ def finish_prepared_run(run_dir, stages, *, metadata, tools, plan, environment=N
     for name in discard:
         (stages / name).unlink(missing_ok=True)
     shutil.copytree(stages, run_dir / 'inputs')
-    return write_prepared_manifest(run_dir, metadata, tools=tools, plan=plan, environment=environment)
+    return write_prepared_manifest(run_dir, metadata, tools=tools, plan=plan, environment=environment,
+                                   references=references, scripts=scripts, skipped=skipped, modules=modules)
 
 
 def no_choice_specs() -> Mapping:

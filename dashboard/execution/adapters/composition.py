@@ -10,23 +10,30 @@ alone.
 """
 from __future__ import annotations
 
-import shutil
 import sys
 from pathlib import Path
 
-from ... import files
+from ... import files, paths
 from ...models import compositions
-from .. import protocol
+from .. import protocol, run_inputs
 from ..environment import recorded_environment
 from ..stages import Stage, stage_tables
 
+ARTIFACTS = ('composition.gro', 'composition.itp', 'mapping.json', 'bonded-state.json')
+
+#: The three stages run repository scripts, recorded in the manifest's `stage_scripts` by path and digest. Nothing
+#: executable is written into the run any more: the screening stubs are this repository's code, and the artifact they
+#: copy is resolved from the run's own input record rather than stamped into a generated script.
 STAGE_DEFS = (
     Stage('CG simulation', '1_CG-simulation/cg_simulation.sh',
-          ('../composition.gro', '../composition.itp'), ('cg.gro', 'screening.json')),
+          ('../../inputs/inputs.json',), ('cg.gro', 'screening.json'),
+          script='dashboard/execution/scripts/composition_simulation.sh'),
     Stage('CG assessment', '2_CG-assessment/assess.sh',
-          ('../1_CG-simulation/cg.gro', '../composition.itp'), ('validation.json',)),
+          ('../1_CG-simulation/cg.gro',), ('validation.json',),
+          script='dashboard/execution/scripts/composition_assessment.sh'),
     Stage('CG SASA', '3_CG-SASA/sasa.sh',
-          ('../1_CG-simulation/cg.gro',), ('sasa.json',)),
+          ('../1_CG-simulation/cg.gro',), ('sasa.json',),
+          script='dashboard/execution/scripts/composition_sasa.sh'),
 )
 STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS = stage_tables(STAGE_DEFS)
 VERSION = 'cg-composition-v1'
@@ -52,39 +59,34 @@ def prepare_run(run_dir: Path, composition_id: str, settings=None) -> None:
     artifact_root = Path(record['artifact_root']).resolve()
     if artifact_root.is_symlink() or not artifact_root.is_dir():
         raise ValueError('Composition artifact directory is unavailable')
+    workspace = paths.current().workspace.resolve()
+    try:
+        relative_root = artifact_root.relative_to(workspace).as_posix()
+    except ValueError:
+        references = [run_inputs.absolute('composition_artifact', artifact_root / name, label=name)
+                      for name in ARTIFACTS]
+    else:
+        references = [run_inputs.store('composition_artifact', f'{relative_root}/{name}', label=name,
+                                       workspace_root=workspace)
+                      for name in ARTIFACTS]
+    # The stage directories are where each stage works; the scripts themselves are repository files, named in the
+    # manifest and run with the stage directory as their working directory. A run holds no `.sh` and no `.py`.
     stages = Path(run_dir) / 'stages'
-    stages.mkdir(parents=True, exist_ok=True)
-    for name, relative in ((stage.name, stage.relative) for stage in STAGE_DEFS):
-        script = stages / relative
-        script.parent.mkdir(parents=True, exist_ok=True)
-        if name == 'CG simulation':
-            script.write_text('#!/usr/bin/env bash\nset -euo pipefail\n'
-                              '# Screening stub: the prepared geometry is copied and nothing integrates it.\n'
-                              'cp ../composition.gro cg.gro\n'
-                              'printf \'{"stage":"CG simulation","executed":false,"execution_kind":"screening-stub"}\\n\' > screening.json\n')
-        elif name == 'CG assessment':
-            script.write_text('#!/usr/bin/env bash\nset -euo pipefail\n'
-                              'printf \'{"status":"screened","executed":false,"execution_kind":"screening-stub","scientifically_validated":false}\\n\' > validation.json\n')
-        else:
-            script.write_text('#!/usr/bin/env bash\nset -euo pipefail\n'
-                              'printf \'{"stage":"CG SASA","executed":false,"execution_kind":"screening-stub"}\\n\' > sasa.json\n')
-        script.chmod(0o755)
-    for name in ('composition.gro', 'composition.itp', 'mapping.json', 'bonded-state.json'):
-        shutil.copy2(artifact_root / name, stages / name)
+    for stage in STAGE_DEFS:
+        (stages / stage.relative).parent.mkdir(parents=True, exist_ok=True)
     inputs = Path(run_dir) / 'inputs'
     inputs.mkdir(parents=True, exist_ok=True)
-    for name in ('composition.gro', 'composition.itp', 'mapping.json', 'bonded-state.json'):
-        shutil.copy2(artifact_root / name, inputs / name)
     metadata = {'run_type': 'cg_composition', 'workflow_version': VERSION,
                 'execution_kind': 'screening-stub',
-                'limitations': ['Composition screening is a stub: the prepared scripts copy the '
-                                'composition geometry and write declaration files. No GROMACS MD, '
-                                'assessment or SASA was executed, and no trajectory or plot exists.'],
+                'limitations': ['Composition screening is a stub: the stage scripts copy the composition '
+                                'geometry and write declaration files. No GROMACS MD, assessment or SASA was '
+                                'executed, and no trajectory or plot exists.'],
                 'composition_id': composition_id, 'composition_snapshot_sha256': record['snapshot_hash'],
                 'composition_identity': record['identity'], 'scientifically_validated': False,
                 'settings': settings or {}}
     protocol.write_prepared_manifest(Path(run_dir), metadata, tools={}, plan=[name for name, _ in STAGES],
-                                     environment=recorded_environment())
+                                     environment=recorded_environment(), references=references,
+                                     scripts={stage.name: stage.script for stage in STAGE_DEFS})
 
 
 SETTING_SPECS: dict = {}

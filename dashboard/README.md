@@ -1,83 +1,20 @@
 # Dashboard development
 
-Start at the repository root:
+Start from the repository root; `python dashboard/app.py` remains a compatibility entry point.
 
-```bash
-dashboard/.venv/bin/python -m dashboard
-```
+Source ownership, paths, run storage, backup/reset and recovery live in
+[the project guide](../docs/PROJECT_GUIDE.md). Scientific status and limits live in
+[DDM calibration](../docs/DDM_CALIBRATION.md).
 
-The dashboard binds to http://127.0.0.1:5000. Run one coordinator per workspace.
-`python dashboard/app.py` remains a supported compatibility entry point.
+Dashboard-local setup only:
 
-Application source is grouped by responsibility:
+- Tests live under `tests/dashboard/`; shared fixtures isolate every writable store. Tier commands, worker split and
+  the process-not-threads rule are in `AGENTS.md` (`## Verify`).
+- Browser tests need the installed Python Playwright package and Google Chrome.
+- Do not move an existing `.venv/`; its launchers contain absolute paths.
+- `requirements-dashboard-tests.txt` carries the test-only imports (`pytest-xdist`, `playwright`, `vermouth`).
 
-- `app.py`, `paths.py`: application construction and path configuration.
-- `execution/`: job coordination, stage execution, AA/CG preparation, tools and limits.
-- `models/`: molecule inputs, mappings, bonded states, fragments and evidence gates.
-- `models/compositions/` and `models/sugars/`: reference-backed sugar/tail assembly
-  and immutable Molecule Combination snapshots, over the ring-recognition and
-  constrained-topology library.
-- `analysis/`: isolated derived analyses and AA reference publication/verification.
-- `web/`: HTTP routes, templates, native JavaScript modules and CSS.
-- `cli/`: screening and bounded fresh-workspace reset.
-- `store.py`, `files.py`: transactional persistence and safe filesystem operations.
-
-Each of these is a few packages deep and has its own README-level ownership note in
-the project guide: `execution/adapters/` and `execution/coordination/`,
-`models/{mappings,bonded,sugars,compositions,molecules}/`,
-`analysis/{validation,runs}/`, and one route module per concept in `web/routes/`.
-
-Tests live in `tests/dashboard/`; shared fixtures isolate all writable stores.
-For a fast edit loop, omit rendered-browser and subprocess/GROMACS checks. Run
-the full suite or a focused group when the change crosses those boundaries:
-
-```bash
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q
-dashboard/.venv/bin/python -m pytest -q
-dashboard/.venv/bin/python -m pytest tests/dashboard/unit -q
-dashboard/.venv/bin/python -m pytest tests/dashboard/integration -q
-dashboard/.venv/bin/python -m pytest -m browser -q
-```
-
-Browser tests require the installed Python Playwright package and Google Chrome.
-The environment under `.venv/` includes the locally installed scientific tools;
-do not relocate an existing virtual environment because launchers contain paths.
-
-Process parallelism is optional. Install the test dependencies once:
-
-```bash
-dashboard/.venv/bin/python -m pip install -r requirements-dashboard-tests.txt
-```
-
-That file carries `pytest-xdist` (four workers for the fast suite, two for
-browser tests, one for resource-heavy checks) plus `playwright` and `vermouth`,
-which the browser and sugar-topology tests import directly.
-
-Then use four workers for the fast suite, two for browser tests, and one for
-resource-heavy checks:
-
-```bash
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -n 4 -q
-dashboard/.venv/bin/python -m pytest -m browser -n 2 -q
-dashboard/.venv/bin/python -m pytest -m slow -n 1 -q
-```
-
-The default serial commands above remain supported. Tests use process workers;
-threaded test execution would race the module-level dashboard patches and worker
-registries. Keep GROMACS and long-lived worker tests at one process unless the
-machine has sufficient CPU, memory, and simulation-tool capacity.
-
-See [the project guide](../docs/PROJECT_GUIDE.md) for operation, data locations,
-backup, reset, and recovery. See [DDM calibration](../docs/DDM_CALIBRATION.md)
-for scientific status and limits. Historical reports live under `reports/`, and
-UI prototypes under `docs/design/prototypes/`.
-
-Carbohydrate validation is queued through the API for a completed source run
-(`POST /api/jobs/<id>/carbohydrate-validation`); the dashboard controls that used
-to launch it from CG Bead Assignment were removed. The server derives either the
-TC4 mapping or the physical-only
-ring-constrained mapping, then publishes an immutable analysis attempt. Geometry,
-water-to-octanol transfer free energy, and concentration-dependent osmotic
-pressure are reported independently. A setup check is diagnostic-only; an
-evidence-complete report requires cited targets and the sampling minimums in the
+Carbohydrate validation is queued through `POST /api/jobs/<id>/carbohydrate-validation` for a completed source run;
+the controls that used to launch it from CG Bead Assignment were removed. Attempts are immutable analyses. A setup
+check is diagnostic-only; an evidence-complete report needs cited targets and the sampling minimums in the
 carbohydrate validation design.

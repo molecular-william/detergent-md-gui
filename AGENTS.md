@@ -1,40 +1,39 @@
 # Project guidance for coding agents
 
-Rules and facts for working here. State, measurements and open items are in `docs/HANDOFF.md`; repo layout,
-persistence, migration and testing in `docs/PROJECT_GUIDE.md`; scoring and calibration in `docs/DDM_CALIBRATION.md`.
-Read `HANDOFF.md` before touching the DDM CG chain or the coordinator.
+Rules and facts for working here. State and open items are in `HANDOFF.md`; repo layout, persistence, migration and
+testing in `PROJECT_GUIDE.md`; scoring in `DDM_CALIBRATION.md`. Read `HANDOFF.md` before the DDM CG chain or coordinator.
 
 ## What belongs in this file
 A line earns its place only if an agent could damage the project by not knowing it before opening any other file: a
-rule, an invariant, a decision not to re-litigate, or a command. Everything else goes to its home -- how a subsystem
-works and what a run records to `PROJECT_GUIDE.md`, state and incidents with dates to `HANDOFF.md`, scoring science to
-`DDM_CALIBRATION.md` -- and this file keeps one line and a pointer.
-`tests/dashboard/unit/test_agents_contract.py` enforces the budget, the heading set, and that every invariant names
-code or a pointer. It cannot judge whether a line is worth keeping; that stays a decision.
+rule, an invariant, a decision not to re-litigate, or a command. How a subsystem works belongs in `PROJECT_GUIDE.md`,
+state and incidents in `HANDOFF.md`, scoring science in `DDM_CALIBRATION.md`.
+`tests/dashboard/unit/test_agents_contract.py` enforces the budget and headings, and that every invariant names code.
 
 ## Goal
-One local Python service orchestrating resumable GROMACS/Martini jobs -- AA to CG, protein-detergent, osmotic series
--- with a Flask dashboard over persisted manifests and logs. Reproducible; outputs immutable; analyses derived from
-them.
+One local Python service orchestrating resumable GROMACS/Martini jobs -- AA to CG, protein-detergent, osmotic series --
+with a Flask dashboard over persisted manifests and logs. Reproducible; outputs immutable; analyses derived from them.
 
 ## Where things are
 - AA to CG: `execution/adapters/aa.py` then `cg.py` (the only CG stage pipeline), then Fast_Forward, then GROMACS; any
   molecule with a compatible AA topology runs it, and packaged `molecules/DDM` is the reference example.
-- Protein-detergent: `pdc.py` owns the stages and runs its own `pdc_*.sh` scripts; the placement science is `micelle/`.
-  Osmotic series: `osmotic.py` with `osmotic_box.py`/`osmotic_mdp.py`.
+- Protein-detergent: `pdc.py` owns the ten numbered stages, each running a repository `pdc_*.sh`; the placement science
+  is `micelle/`. Osmotic series: `osmotic.py` with `osmotic_box.py`/`osmotic_mdp.py`.
 - Tools resolve through `config/tools.json` and `execution/tools.py`: a declared path is verified or resolves to
   nothing, never to a substitute, and every manifest records the resolved version and path.
 - `resources/` and `dashboard/` are the maintained trees. Code map, routes and ownership: `PROJECT_GUIDE.md`
   section *Source ownership*.
 
 ## Run contract
-- Four run types: `aa_only`, `aa_cg`, `pdc`, `osmotic`. Each adapter's `STAGES` is the order, and `pdc.LEGS` /
-  `pdc.stage_by_name` name a leg or a stage rather than a caller counting them.
+- Four run types: `aa_only`, `aa_cg`, `pdc`, `osmotic`; each adapter's `STAGES` is the order, `pdc`'s ten are
+  `01_prepare` … `10_backmap`, and `pdc.LEGS`/`stage_by_name` name a leg or stage rather than a caller counting.
+- A prepared run reads shared inputs in place: `inputs/inputs.json` names each by role/label/kind/root/path/sha256,
+  `input_snapshot_sha256` digests that record, and every stage verifies it. No `.py` or copied `.sh` lives in a run:
+  `stage_scripts`/`python_modules` pin repository code, and `mdp_profiles` names each MDP's reviewed profile.
 - Every stage records start/end, command, environment, inputs, outputs, exit code and log path.
-- A stage with nothing to do records `skipped` (exit 4) with its reason in `skip.json`, and the run carries on.
+- A stage with nothing to do records `skipped` (exit 4) with `skip.json`; a stage `prepare` rules out gets no directory
+  and is recorded `skipped` from `skipped_stages`. A legacy tree is migrated by `cli/migrate_run_layout.py`.
 - Runs end `complete`, `failed`, `cancelled` or `blocked`.
-- Stage lists and per-type settings: `PROJECT_GUIDE.md` sections *AA-only and shared-reference protocol* and
-  *Dashboard workspace*.
+- Stage lists and settings: `PROJECT_GUIDE.md` (*AA-only and shared-reference protocol*, *Dashboard workspace*).
 
 ## Invariants
 - One content identity is one saved mapping: `save_draft` refuses a second (`DuplicateMapping`; the route answers 409
@@ -55,8 +54,8 @@ them.
 - A pdc belt is a torus when the protein states a membrane (`radius_nm` is then a floor under the measured
   centre-line) and a sphere when it does not; on either shape a detergent's body must clear the protein, not only its
   head site.
-- `snapshots` runs for every run with a trajectory, and one resolver (`coordinator.automatic_analyses`) decides what
-  else a run type owes -- never a second list.
+- `coordinator.automatic_analyses` is the one resolver for a run type's default analyses; `kinds.for_every_run()`
+  is empty because the snapshot analysis is retired, and an `aa_cg` run still owes `dihedral-fit`/`bonded-cross-check`.
 - A run's progress counts mdrun legs from the stage log and its ETA is GROMACS' own text; `percent` is `null` until a
   leg prints.
 - `GET /api/jobs/<id>/structure?path=` writes the run's own bonds and constraints as CONECT and refuses a `.pdb`; a file
@@ -69,8 +68,10 @@ them.
   never validity, and checked-in targets are citation metadata until molecule-specific measurements exist.
 - `mdrun_gpu`, `mdrun_ntomp` and `mdrun_ranks` are the run's, not its reference's: `cg.run_settings` keeps them and
   `aa.mdrun_command_flags` is the only builder; a stage script states neither a device nor an offload scheme. A run
-  records `environment.devices` and each stage `resource_usage.gpu`; an index the host lacks is refused at prepare, a
-  host reporting none is not.
+  records `environment.devices` and each stage `resource_usage.gpu`; the index is the CUDA ordinal, with the NVML
+  row and PCI bus id beside it. An index the host lacks is refused at prepare, a host reporting none is not.
+- Provenance is the `inputs.json` record and `stage_scripts` digests, not a copy: the one Martini 3 set lives at
+  `workspace/dashboard/martini3` (`dashboard/martini3.py`), every run reads it in place, and `references/` is upstream.
 
 ## Engineering rules
 - Test against fixtures, never the developer's workspace; build the record through the route the UI uses.
@@ -94,7 +95,7 @@ them.
 - **The two fitting engines keep separate analyses** (2026-10-20, the user's decision): `ff_assess` for Fast-Forward,
   its own graphs for BARTENDER, because its analysis is its own. Unifying them is postponed, not planned, and a
   bartender model runs with stage 5 `skipped` and its reason -- do not route it through the Fast-Forward baseline.
-- CG production 20 fs, CG equilibration 5 fs, AA half 2 fs; the CG timestep is the templates' own, read back per file.
+- CG production 20 fs, CG equilibration 5 fs, AA half 2 fs; each MDP is its reviewed `mdp.PROFILES` entry's own.
 - This GROMACS is an MPI-only build: `-ntomp` is the knob, `-ntmpi` is invalid. In use:
   `/usr/local/gromacs/2026.3/bin/gmx`.
 - Internal consistency is the primary evidence; the reference's own numbers are context, not a pass mark.
@@ -107,17 +108,16 @@ them.
 
 ## Verify
 ```
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast: 2,071, ~21 s with a private MPLCONFIGDIR
-dashboard/.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser: 252, ~50 s
-dashboard/.venv/bin/python -m pytest -m slow -q -n 0                       # slow: 67, ~61 s serial
+dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast tier, private MPLCONFIGDIR
+dashboard/.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser tier
+dashboard/.venv/bin/python -m pytest -m slow -q -n 0                       # slow tier, serial
 dashboard/.venv/bin/ruff check dashboard tests                             # F, E9, I must exit 0
 scripts/gate_commit.sh <message-file> <paths...>                           # fast tier + ruff over named paths
 dashboard/.venv/bin/python scripts/mutation_check.py                       # 11 mutants: 10 caught, 1 survived
 ```
-Eleven areas in `tests/dashboard/areas.py`, the whole suite between them (`test_test_areas.py` fails on an unnamed module):
-`-m pdc` 584, `runs` 264, `bonded` 254, `analysis` 225, `infra` 203, `osmotic` 159, `mapping` 157, `carbohydrate` 130, `web` 130,
-`molecules` 113, `aa` 104. Compose with a tier: `-m 'pdc and not browser and not slow'` = 501, 10.6 s. Suite 2,390 (2,071 +
-252 + 67). Private `MPLCONFIGDIR`, or four distance tests race. Lint your own paths (repo-wide is 19 `micelle/`).
+Eleven areas in `tests/dashboard/areas.py` cover the suite (`test_test_areas.py` fails on an unnamed module): pdc,
+runs, bonded, analysis, infra, osmotic, mapping, carbohydrate, web, molecules, aa. Compose an area with a tier, e.g.
+`-m 'pdc and not browser and not slow'`; counts are in `pytest.ini`. Private `MPLCONFIGDIR`; lint your own paths.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

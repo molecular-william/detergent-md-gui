@@ -19,7 +19,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from .. import paths
+from .. import files, paths
 
 # Tool identity in config/tools.json -> the commands that identity answers for.
 IDENTITIES = {'gmx': 'gromacs', 'ff_map': 'fast_forward', 'ff_inter': 'fast_forward',
@@ -27,7 +27,7 @@ IDENTITIES = {'gmx': 'gromacs', 'ff_map': 'fast_forward', 'ff_inter': 'fast_forw
 # Declarations that name a tool the run types resolve, in the order they are reported.
 # Other keys in the same file describe where a tool came from and which revision it
 # should be at -- provenance, not something to resolve or put on PATH.
-TOOL_KEYS = ('gromacs', 'fast_forward', 'bartender', 'xtb', 'acpype', 'antechamber', 'plumed')
+TOOL_KEYS = ('gromacs', 'fast_forward', 'bartender', 'xtb', 'plumed')
 # Declarations that answer for more than one command: the declared entry point
 # locates the others, which sit beside it in the same install. A one-to-one
 # identity (gromacs, whose command is gmx) is not a family.
@@ -186,6 +186,30 @@ def plumed_environment(config=None, environ=None) -> dict:
     libs = [str(Path(kernel).parent)]
     return {'PLUMED_KERNEL': kernel,
             'LD_LIBRARY_PATH': os.pathsep.join(libs + ([inherited] if inherited else []))}
+
+
+def record_versions(*commands, env=None, missing=None, version=True):
+    """Resolve each command and record its path and digest, plus `--version` output when asked.
+
+    `commands` entries are a command name or a `(name, args)` pair. A tool that cannot be resolved raises
+    `missing(name)` when a caller supplies one, and `FileNotFoundError` otherwise.
+    """
+    recorded = {}
+    for entry in commands:
+        name, args = entry if isinstance(entry, tuple) else (entry, ('--version',))
+        executable = tool_path(name)
+        if not executable:
+            if missing is not None:
+                raise missing(name)
+            raise FileNotFoundError(f'Missing tool: {name}')
+        if version:
+            result = subprocess.run([executable, *args], env=env, capture_output=True, text=True,
+                                    check=True, timeout=30)
+            recorded[name] = {'path': executable, 'version_output': result.stdout,
+                              'sha256': files.sha256(executable)}
+        else:
+            recorded[name] = {'path': executable, 'sha256': files.sha256(executable)}
+    return recorded
 
 
 def declared_tool_checks(config=None):

@@ -3,8 +3,8 @@
 Every run here is a fixture this test builds in its own workspace -- nothing reads the developer's `workspace/`,
 which holds surviving runs as evidence rather than as a fixture. The structures are the *shape* a live run has
 (the plans' own layout: `stages/07_reference/lig.gro` for an AA run, `stages/2_mapping/mapped.gro` plus a bead PDB
-for a CG one, `snapshots/CG-frames.pdb` for a published frame series), and every number asserted is read back off
-the component the viewer loaded rather than off the parameters the panel asked for.
+for a CG one), and every number asserted is read back off the component the viewer loaded rather than off the
+parameters the panel asked for.
 
 Two of the four traps the plan measured are proved here, on real NGL objects:
 
@@ -16,8 +16,6 @@ Two of the four traps the plan measured are proved here, on real NGL objects:
    `ngl-beads.js` holds, not at their stand-in element's. The radii are read back off the loaded structure, the way
    `test_pdc_bead_radii_browser.py` reads them, and held to the model's own table times this panel's own display
    scale -- both numbers asserted, so neither the table nor the read can drift.
-
-The third and fourth traps belong with the transport row and are proved in `test_run_view_transport_browser.py`.
 """
 import re
 
@@ -27,7 +25,6 @@ from . import panels
 
 AA_RUN = 'aa00aa000001'
 CG_RUN = 'cc00cc000002'
-FRAMES_RUN = 'ff00ff000003'
 PDC_RUN = 'dd00dd000004'
 OSMOTIC_RUN = 'ee00ee000005'
 #: A second protein-detergent run, for the tests that need the monitor to hold one run and then another.
@@ -39,15 +36,6 @@ ONE_TRAJECTORY_RUN = 'aa00aa00000a'
 #: A coarse-grained run that holds no moleculetype: the state the structure route has to report rather than guess
 #: bonds for. Planted by its own test, because the chooser's tests count the runs in the shared seed.
 NO_TOPOLOGY_RUN = 'aa00aa000007'
-#: A run that has published more attempts than the artifact route pages at once. The index is walked in *directory*
-#: order rather than by age, so an attempt whose directory sorts last lands on a later page while still being the
-#: newest by `modified_at` -- and the newest `result.json` is what names the frame series.
-MANY_RUN = 'bb00bb000006'
-#: The routes' own page size (`web/routes/common.py`: `limit` is capped at 100), written out so this file fails if it
-#: drifts rather than quietly testing a fixture that fits in one page.
-PAGE_CAP = 100
-#: One file per earlier attempt, so the newest attempt's five files land past the first page.
-EARLIER_ATTEMPTS = 120
 
 BEADS = ('B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08')
 #: The Martini 3 polarity family code the fixture's own moleculetype states: every bead is an `SP1r`, which is polar,
@@ -129,65 +117,6 @@ def bead_record(serial, name, xyz, element, *, residue='DET', family=FAMILY_CODE
             f'{1.0:6.2f}{float(family):6.2f}          {element:>2s}')
 
 
-def frames_pdb(count=5):
-    """The multi-model PDB the `snapshots` analysis writes: one `MODEL` per sampled frame, `ENDMDL` between them.
-
-    It carries what the producer writes (`pdc_view.series_pdb`): the family code in the b-factor column and the
-    model's own bonds as `CONECT`, per model. A fixture with neither is a fixture the panel can only draw as grey,
-    unbonded spheres -- which is exactly the defect that reached a published series once.
-    """
-    lines = []
-    for model in range(count):
-        lines.append(f'MODEL     {model + 1:4d}')
-        for index, (name, (x, y, z)) in enumerate(zip(BEADS, MAPPED_NM), 1):
-            lines.append(bead_record(index, name, ((x + model * 0.05) * 10, y * 10, z * 10),
-                                     ELEMENTS[SIZES[name]]))
-        lines += [f'CONECT{first:5d}{second:5d}' for first, second in MODEL_BONDS]
-        lines.append('ENDMDL')
-    return '\n'.join(lines + ['END']) + '\n'
-
-
-#: Where the `snapshots` analysis publishes: inside its own content-addressed attempt, never at the run root
-#: (`references/published-analysis-addressing.md`, and `dashboard/analysis/worker.py`'s write of `result.json`).
-SNAPSHOT_ATTEMPT = 'analyses/snapshots/1a2b3c4d/5e6f7a8b'
-SNAPSHOT_OUTPUT = 'output/9c0d1e2f'
-
-
-def published_snapshots(files):
-    """The files a `snapshots` attempt publishes, plus the `result.json` a reader resolves them through.
-
-    `files` maps a bare snapshot file name to its text. The record's `outputs_sha256` names every published file
-    relative to `output_directory`, which is the join the panel has to make.
-    """
-    root = f'{SNAPSHOT_ATTEMPT}/{SNAPSHOT_OUTPUT}'
-    contents = {f'{root}/snapshots/{name}': text for name, text in files.items()}
-    contents[f'{SNAPSHOT_ATTEMPT}/result.json'] = json_text({
-        'result': {'frames': 40, 'files': list(files), 'role': 'cg_trajectory',
-                   'trajectory': 'stages/4_CG_sim/md.xtc',
-                   'series': {'file': 'CG-frames.pdb', 'stride': 7, 'sampled': 5}},
-        'output_directory': SNAPSHOT_OUTPUT,
-        'outputs_sha256': {f'snapshots/{name}': 'a' * 64 for name in files},
-    })
-    return contents
-
-
-def many_attempts():
-    """A run's artifact tree once it has published more attempts than one page of the index holds.
-
-    Earlier attempts each contribute one file under a signature that sorts *before* the newest attempt's own
-    (`00000000` against `1a2b3c4d`), and the newest attempt is published last so its `modified_at` is the newest. Its
-    `result.json` therefore sits on a later page while still being the record a reader has to resolve.
-    """
-    contents = {f'analyses/snapshots/00000000/attempt-{index:03d}/output/frame-{index:03d}.txt':
-                "an earlier attempt's output, and not a resolvable record\n"
-                for index in range(EARLIER_ATTEMPTS)}
-    contents |= published_snapshots({'CG-frames.pdb': frames_pdb(),
-                                     'CG-first.pdb': bead_pdb(),
-                                     'CG-middle.pdb': bead_pdb(),
-                                     'CG-last.pdb': bead_pdb()})
-    return contents
-
-
 def plant(dashboard, run_id, record, files):
     """Insert one run and write its files, the way `seed` does -- for a run only this test needs.
 
@@ -221,13 +150,6 @@ def seed(dashboard):
                   'stages/3_initial_CG/LIG1.pdb': bead_pdb(),
                   'stages/4_CG_sim/md.gro': mapped_gro(),
                   'stages/5_assessment/score_matrix_LIG1.png': 'not really a png, but the figures route lists it'}),
-        FRAMES_RUN: (job(FRAMES_RUN, 'aa_cg', 'Sorbitol CG, frames published', '2026-10-03T10:00:00+00:00'),
-                     {'stages/2_mapping/mapped.gro': mapped_gro(),
-                      'stages/2_mapping/model.json': json_text(MODEL_JSON),
-                      } | published_snapshots({'CG-frames.pdb': frames_pdb(),
-                                              'CG-first.pdb': bead_pdb(),
-                                              'CG-middle.pdb': bead_pdb(),
-                                              'CG-last.pdb': bead_pdb()})),
         PDC_RUN: (job(PDC_RUN, 'pdc', 'Complex build 1', '2026-10-04T10:00:00+00:00'),
                   {'stages/1_system/system.gro': mapped_gro()}),
         OSMOTIC_RUN: (job(OSMOTIC_RUN, 'osmotic', 'Osmotic series', '2026-10-05T10:00:00+00:00'), {}),
@@ -295,13 +217,9 @@ MEASURE = """
     const second = store.atomIndex2[index] + 1;
     pairs.push(first < second ? [first, second] : [second, first]);
   }
-  const element = component.trajList && component.trajList[0];
   return {
     atoms: structure.atomCount, radii: radii, bonds: store.count, pairs: pairs,
-    frames: element ? element.trajectory.frameCount : 0,
-    models: structure.frames ? structure.frames.length : 0,
     readout: document.querySelector('#run-view-readout-A').textContent,
-    note: document.querySelector('#run-view-transport-note-A').textContent,
     // The caption is the panel's own statement of which file this component is (`<run> · <path> · <kind>`), so an
     // assertion on it says the structure just read belongs to that path rather than to whatever was drawn before.
     caption: document.querySelector('#run-view-what-A').textContent,
@@ -317,7 +235,7 @@ def open_panel(page, live_page, workspace='detergent-validation', run=None):
         expect(page.locator('#runview')).to_be_visible()
         # The three sub-panels below each canvas sit collapsed -- that is the layout's own claim, and a reader opens the
         # one they want. A test that reads or clicks inside one opens it first, through the same `<details>` element.
-        for panel in ('holds-details', 'frames-details', 'figures-details'):
+        for panel in ('holds-details', 'segments-details', 'figures-details'):
             page.locator(f'#run-view-{panel}-A').evaluate('el => { el.open = true; }')
 
     return panels.open_panel(page, live_page.base_url, f'/{workspace}/run-view{query}', ready=ready)
@@ -327,7 +245,7 @@ def mark_stage(page):
     """Mark the component on the stage, so the *next* render can be told from the one already drawn.
 
     Call it after `open_panel` has settled and *before* the row is clicked. `draw()`
-    (`dashboard/web/static/js/run-view-monitor.js:833`) clears the stage with `removeAllComponents()` and then builds
+    (`dashboard/web/static/js/run-view-monitor.js`) clears the stage with `removeAllComponents()` and then builds
     the next component with `loadFile`, so a mark put on the current component cannot survive a real redraw, and the
     window between the clear and the load has no `compList[0]` at all. That is the per-*draw* discriminator.
 
@@ -440,7 +358,7 @@ def test_the_chooser_asks_for_this_workspaces_run_types_and_lists_none_of_the_ot
     # The list belongs to each monitor's own combo and is drawn when a reader reaches for it, so the count is taken
     # after focusing the input -- which is what a reader does before reading the list.
     page.locator('#run-view-choose-A').click()
-    expect(page.locator('#run-view-list-A button')).to_have_count(4)
+    expect(page.locator('#run-view-list-A button')).to_have_count(3)
 
     jobs = [url.split('run_type=')[1].split('&')[0] for url in asked if '/api/jobs?' in url and 'run_type=' in url]
     assert sorted(set(jobs)) == ['aa_cg', 'aa_only', 'cg_composition', 'osmotic'], jobs
@@ -465,14 +383,16 @@ def test_picking_a_run_opens_it_once(dashboard, live_page):
     open_panel(page, live_page)
 
     page.locator('#run-view-choose-A').click()
-    expect(page.locator('#run-view-list-A button')).to_have_count(4)
-    page.locator(f'#run-view-list-A button[data-id="{CG_RUN}"]').click()
+    expect(page.locator('#run-view-list-A button')).to_have_count(3)
+    # AA_RUN is the one run no monitor holds on mount (A opens the newest CG run, B its pair), so a request for it
+    # can only come from this pick -- two monitors deliberately holding one run would look like a double load.
+    page.locator(f'#run-view-list-A button[data-id="{AA_RUN}"]').click()
     # The input carries the chosen run's id, which is also the wait: the loads below follow the pick.
     # The input is what says the pick landed: it is empty until a run is chosen.
     expect(page.locator('#run-view-choose-A')).not_to_have_value('')
-    assert CG_RUN in page.locator('#run-view-choose-A').input_value()
+    assert AA_RUN in page.locator('#run-view-choose-A').input_value()
 
-    mine = [url for url in asked if f'/api/jobs/{CG_RUN}' in url and '/analyses' not in url]
+    mine = [url for url in asked if f'/api/jobs/{AA_RUN}' in url and '/analyses' not in url]
     duplicated = sorted({url for url in mine if mine.count(url) > 1})
     assert duplicated == [], f'the pick loaded the same thing twice: {duplicated}'
     assert mine, 'the pick loaded nothing at all'
@@ -491,7 +411,7 @@ def test_the_chooser_narrows_as_the_reader_types(dashboard, live_page):
     open_panel(page, live_page)
     field = page.locator('#run-view-choose-A')
     field.click()
-    expect(page.locator('#run-view-list-A button')).to_have_count(4)
+    expect(page.locator('#run-view-list-A button')).to_have_count(3)
 
     field.fill(AA_RUN)
     field.dispatch_event('input')
@@ -539,7 +459,6 @@ def test_an_aa_runs_gro_is_drawn_with_the_guess_that_is_right_about_chemistry(da
     expect(page.locator('#run-view-readout-A')).to_contain_text('bonds the file states')
     expect(page.locator('#run-view-readout-A')).to_contain_text('bonds the viewer resolved')
     expect(page.locator('#run-view-readout-A')).to_contain_text("this viewer's distance guess")
-    expect(page.locator('#run-view-transport-note-A')).to_contain_text('.gro')
     expect(page.locator('#run-view-what-A')).to_contain_text('stages/07_reference/lig.gro')
     assert errors == []
 
@@ -818,14 +737,14 @@ def test_a_run_with_no_figure_says_so_instead_of_showing_an_empty_list(dashboard
     assert errors == []
 
 
-def test_a_complex_run_plays_here_and_its_segments_say_where_it_is_rebuilt(dashboard, live_page):
-    """A protein-detergent run is drawn in this panel now, with the CG chain's segments under the frames.
+def test_a_complex_run_is_drawn_here_and_its_segments_say_where_it_is_rebuilt(dashboard, live_page):
+    """A protein-detergent run is drawn in this panel, with the CG chain's segments in their own sub-panel.
 
     What used to make this panel unable to draw one was that the run's CG trajectory matched no role in the run
-    layout, so the snapshots analysis skipped it. The layout resolves it and `/api/jobs/<id>/trajectory` states which
-    legs are one system and where the system is rebuilt (its own integration test pins that answer, and it is measured
-    on the real run); this test is the panel's half, with the endpoint stubbed so the rendering is what is under test.
-    A run drawn here must also stop saying it is drawn elsewhere, which the caption assertion below holds.
+    layout. The layout resolves it and `/api/jobs/<id>/trajectory` states which legs are one system and where the
+    system is rebuilt (its own integration test pins that answer, and it is measured on the real run); this test is
+    the panel's half, with the endpoint stubbed so the rendering is what is under test. A run drawn here must also
+    stop saying it is drawn elsewhere, which the caption assertion below holds.
     """
     seed(dashboard)
     page, errors = live_page
@@ -990,61 +909,6 @@ def test_a_single_molecule_run_shows_no_stage_table(dashboard, live_page):
     assert errors == []
 
 
-# ----------------------------------------------------------------------------------------------------- the frames
-
-
-def test_the_published_frame_series_is_listed_first_and_is_the_file_the_row_plays(dashboard, live_page):
-    seed(dashboard)
-    page, errors = live_page
-    open_panel(page, live_page, run=FRAMES_RUN)
-    wait_for_component(page, atoms=8)
-
-    first = page.locator('#run-view-holds-A tr').first
-    expect(first).to_contain_text('snapshots/CG-frames.pdb')
-    assert first.get_attribute('aria-selected') == 'true'
-    measured = page.locator('#run-view-viewer-A').evaluate(MEASURE)
-    assert measured['frames'] == 5, 'the multi-model PDB must be a trajectory, not five models drawn at once'
-    # The series carries the model's own bonds, as the producer writes them (`pdc_view.series_pdb`). This asserted
-    # zero until the file was made to carry them: a published series with no CONECT is a picture of grey spheres
-    # with no connectivity, which is the defect a reader reported from the panel.
-    assert measured['bonds'] == len(MODEL_BONDS), \
-        f"the series drew {measured['bonds']} bonds for a model that states {len(MODEL_BONDS)}"
-    expect(page.locator('#run-view-frames-A button')).to_have_count(3)
-    assert errors == []
-
-
-def test_a_multi_model_pdb_without_a_trajectory_is_every_model_drawn_at_once(dashboard, live_page):
-    """Trap 3: `loadFile` alone draws all five models' atoms in one picture and makes no trajectory.
-
-    Measured directly through NGL, because this is the mistake the panel must not make: the same bytes the panel
-    loads correctly, handed to the viewer the naive way.
-    """
-    seed(dashboard)
-    page, errors = live_page
-    open_panel(page, live_page, run=FRAMES_RUN)
-    wait_for_component(page, atoms=8)
-
-    naive = page.locator('#run-view-viewer-A').evaluate("""async (element, text) => {
-      const host = document.createElement('div');
-      host.style.width = '200px'; host.style.height = '200px';
-      document.body.append(host);
-      const stage = new NGL.Stage(host, {backgroundColor: 'white'});
-      const component = await stage.loadFile(new Blob([text], {type: 'text/plain'}),
-                                             {ext: 'pdb', inferBonds: 'none'});
-      return {atoms: component.structure.atomCount,
-              models: component.structure.frames ? component.structure.frames.length : 0,
-              trajectories: component.trajList.length};
-    }""", frames_pdb())
-    assert naive['atoms'] == 8 * 5, 'every model\'s atoms arrive as one structure'
-    assert naive['models'] == 0, 'and no trajectory comes with it'
-    assert naive['trajectories'] == 0, 'loadFile does not attach one'
-
-    drawn = page.locator('#run-view-viewer-A').evaluate(MEASURE)
-    assert drawn['atoms'] == 8, 'the panel draws one frame'
-    assert drawn['frames'] == 5, 'and holds the trajectory the row plays'
-    assert errors == []
-
-
 # ------------------------------------------------------------------------------------- the door from the Runs table
 
 
@@ -1053,7 +917,7 @@ def test_a_runs_table_row_links_to_its_own_run_view(dashboard, live_page):
     seed(dashboard)
     page, errors = live_page
     page.goto(f'{live_page.base_url}/detergent-validation/runs')
-    expect(page.locator('.job')).to_have_count(5)
+    expect(page.locator('.job')).to_have_count(4)
 
     link = page.locator(f'.job[data-id="{AA_RUN}"] .job-view-run')
     expect(link).to_have_count(1)
@@ -1066,35 +930,6 @@ def test_a_runs_table_row_links_to_its_own_run_view(dashboard, live_page):
     page.wait_for_function(
         f"() => (document.querySelector('#run-view-choose-A')?.value || '').includes('{AA_RUN}')", timeout=20000)
     expect(page.locator('#run-view-identity-A')).to_contain_text(AA_RUN)
-    assert errors == []
-
-
-def test_the_newest_published_result_is_resolved_even_when_it_lies_past_the_first_page(dashboard, live_page):
-    """The reader walks the whole artifact index instead of trusting one page of it.
-
-    The route pages the index (`limit` is capped at 100) and the index is ordered by directory, so this run's newest
-    `analyses/snapshots/*/*/result.json` -- the record that names the frame series -- is on the second page. A reader
-    that stopped at the first page resolves no record at all for it and lists no frame series.
-    """
-    planted = {'stages/2_mapping/mapped.gro': mapped_gro()} | many_attempts()
-    assert len(planted) > PAGE_CAP, 'the fixture has to be past one page for this to test anything'
-    plant(dashboard, MANY_RUN, job(MANY_RUN, 'aa_cg', 'Sorbitol series, many attempts', '2026-10-06T10:00:00+00:00'),
-          planted)
-
-    page, errors = live_page
-    asked = []
-    page.on('request', lambda request: asked.append(request.url))
-    open_panel(page, live_page, run=MANY_RUN)
-    wait_for_component(page, atoms=8)
-
-    first = page.locator('#run-view-holds-A tr').first
-    expect(first).to_contain_text('snapshots/CG-frames.pdb')
-    assert first.get_attribute('aria-selected') == 'true'
-    assert page.locator('#run-view-viewer-A').evaluate(MEASURE)['frames'] == 5, \
-        'the newest record names the series, and the row plays it'
-    pages = sorted({int(url.split('page=')[1].split('&')[0])
-                    for url in asked if '/artifacts?' in url and 'page=' in url})
-    assert pages and max(pages) > 1, f'the reader never asked for a page past the first: {pages}'
     assert errors == []
 
 
@@ -1128,9 +963,9 @@ def test_the_run_view_is_two_monitors_each_with_a_combo_and_three_panels_below(d
     """The shape that was asked for, asserted as the page: two monitors, a combo and three panels on each.
 
     Adopted from the draft that was judged and re-pointed at the panel it became. Two canvases side by side, a
-    "choose a run" combo above each, and "what this run holds" / "frames" / "figures" below each one, collapsed --
-    the collapse is the claim, and a reader opens the one they want. Only completed runs are ever offered, which the
-    host's own requests say rather than its intentions.
+    "choose a run" combo above each, and "what this run holds" / "CG chain segments" / "figures" below each one,
+    collapsed -- the collapse is the claim, and a reader opens the one they want. Only completed runs are ever
+    offered, which the host's own requests say rather than its intentions.
     """
     seed(dashboard)
     page, errors = live_page
@@ -1151,10 +986,27 @@ def test_the_run_view_is_two_monitors_each_with_a_combo_and_three_panels_below(d
     assert canvas['A']['x'] < canvas['B']['x'], 'the monitors are side by side, not stacked'
     for side in ('A', 'B'):
         assert page.locator(f'#run-view-choose-{side}').input_value(), f'monitor {side} holds no run'
-        for panel in ('holds', 'frames', 'figures'):
+        for panel in ('holds', 'segments', 'figures'):
             details = page.locator(f'#run-view-{panel}-details-{side}')
             assert details.evaluate('el => el.open') is False, f'{panel}-{side} opened itself'
             assert details.bounding_box()['y'] >= canvas[side]['y'], f'{panel}-{side} is not below the canvas'
     assert asked and all('status=completed' in url for url in asked if '/api/jobs?' in url), \
         'only completed runs are offered'
+    assert errors == []
+
+
+def test_the_figures_button_is_disabled_where_there_are_no_pdc_figures(dashboard, live_page):
+    """The Runs gallery has no protein-detergent plots yet, so the door is drawn closed in that workspace only."""
+    seed(dashboard)
+    page, errors = live_page
+    open_panel(page, live_page, workspace='protein-detergent', run=PDC_RUN)
+
+    button = page.locator('#runview button[data-go="runs"]')
+    expect(button).to_be_disabled()
+    assert 'No protein-detergent analysis figures yet' in (button.get_attribute('title') or '')
+
+    open_panel(page, live_page)
+    validation = page.locator('#runview button[data-go="runs"]')
+    expect(validation).to_be_enabled()
+    assert not (validation.get_attribute('title') or '')
     assert errors == []

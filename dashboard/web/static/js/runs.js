@@ -159,23 +159,27 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
         progressBar.hidden = false;
         const percent = progress.percent;
         const where = `${progress.stage} · ${progress.leg}${progress.steps ? ` ${progress.step ?? 0}/${progress.steps}` : ''}`;
+        // The stage bar is still the stage's own fraction; the plan suffix is what makes the queued run's settings
+        // visible while it runs. A skipped stage is not counted as active.
+        const active = (job.workflow_stages || []).filter(name => !job.workflow_skips?.[name]).length;
+        const plan = job.workflow_skips && active ? ` · ${active} active stages` : '';
         if (percent == null) {
           progressBar.removeAttribute('aria-valuenow');
           progressBar.dataset.indeterminate = 'true';
           $('.job-progress-fill', progressBar).style.width = '100%';
           progressBar.setAttribute('aria-valuetext', `${where} · running`);
-          setText(progressText, `${where} · leg ${progress.leg_index} of ${progress.legs}`);
+          setText(progressText, `${where} · leg ${progress.leg_index} of ${progress.legs}${plan}`);
         } else {
           progressBar.removeAttribute('data-indeterminate');
           progressBar.setAttribute('aria-valuenow', String(percent));
           progressBar.setAttribute('aria-valuetext', `${where} · ${percent}%`);
           $('.job-progress-fill', progressBar).style.width = `${percent}%`;
-          setText(progressText, `${where} · leg ${progress.leg_index} of ${progress.legs} · ${percent}%`);
+          setText(progressText, `${where} · leg ${progress.leg_index} of ${progress.legs} · ${percent}%${plan}`);
         }
       } else {
         progressBar.hidden = true; setText(progressText, '');
       }
-      const stageKey = JSON.stringify([job.stages || [],job.status,job.stage,job.workflow_stages]);
+      const stageKey = JSON.stringify([job.stages || [],job.status,job.stage,job.workflow_stages,job.workflow_skips]);
       if (card.dataset.stages !== stageKey) {
         const stageMap = new Map((job.stages || []).map(stage => [stage.name, stage]));
         const timeline = $('.workflow-timeline', card); timeline.replaceChildren();
@@ -183,14 +187,16 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
         for (const name of names) {
           const step = document.createElement('li'); step.className = 'timeline-step';
           const record = stageMap.get(name);
-          const state = record?.status || (job.stage === name && ['running','failed','cancelled','cancelling'].includes(job.status) ? job.status : 'pending');
+          const planned = !record ? job.workflow_skips?.[name] : null;
+          const state = record?.status || (planned ? 'skipped'
+            : (job.stage === name && ['running','failed','cancelled','cancelling'].includes(job.status) ? job.status : 'pending'));
           step.dataset.status = state; step.tabIndex = 0;
           if (['running', 'cancelling'].includes(state)) step.setAttribute('aria-current', 'step');
           const elapsed = record ? stageDurationSeconds(record.started_at, record.ended_at) : null;
           // A skipped stage's reason is the stage's own words (`skip.json`), carried on the record's error field. Without
           // it the step reads as an unexplained dash -- and "the assessment had nothing to score" is exactly the thing
           // a reader needs to hear when a run completes without a score.
-          const why = state === 'skipped' && record?.error ? ` · ${record.error}` : '';
+          const why = state === 'skipped' ? ` · ${record?.error || planned || ''}` : '';
           const description = `${name}: ${state}${elapsed !== null ? ' · ' + duration(elapsed) : ''}${why}`;
           step.title = description; step.setAttribute('aria-label', description);
           const dot = document.createElement('span'); dot.className = 'timeline-dot'; dot.setAttribute('aria-hidden', 'true');

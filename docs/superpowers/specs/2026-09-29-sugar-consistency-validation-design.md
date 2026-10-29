@@ -3,7 +3,7 @@
 Status: **approved for implementation, 2026-09-29.** The layout draft in
 `docs/design/prototypes/sugar-consistency-20260929.html` was reviewed and accepted, and every decision below
 (D1-D6) stands as written, so nothing in this note changed during review. Implementation has not started; the
-task list is `docs/superpowers/plans/2026-09-29-sugar-consistency-validation.md`.
+task list is `docs/plans/2026-09-29-sugar-consistency-validation.md`.
 
 ## What this is for
 

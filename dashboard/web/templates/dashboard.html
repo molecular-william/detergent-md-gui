@@ -72,24 +72,27 @@
 {# The Run view panel. One section, rendered in both workspaces and hidden unless this workspace opened it;
    the run types it offers arrive from the registry (`run_view_scope`), so the module never has to work out
    which workspace it was mounted in. It draws a run's own stage files through the artifact route, lists its
-   figures, draws a protein-detergent run's CG chain as segments (`/api/jobs/<id>/trajectory`: which legs share one
-   system, and where the system is rebuilt), and plays a run's sampled frames on the transport row below the canvas. Every id below is read by `run-view.js` and styled by `run-view.css`;
+   figures, and draws a protein-detergent run's CG chain as segments (`/api/jobs/<id>/trajectory`: which legs share
+   one system, and where the system is rebuilt). Every id below is read by `run-view.js` and styled by
+   `run-view.css`;
    `tests/dashboard/integration/test_dom_ids.py` fails if an id is rendered and read by nothing. #}
 <section id="runview" class="panel" role="tabpanel" aria-labelledby="tab-runview"{% if panel != 'run-view' %} hidden{% endif %}>
   <div class="section-heading">
     <div><h2>Run view</h2><p>Two runs side by side, each drawn from what its own run wrote — a coarse-grained run and
       the atomistic reference it was measured against, so a mapping can be read next to the thing it was checked
       against.</p></div>
-    <button type="button" class="secondary" data-go="runs">Open the zoomable figures in Runs</button>
+    {# A protein-detergent run has no pdc-specific analysis plots in the Runs gallery yet, so the control is drawn
+       disabled with its reason rather than promising a door to nothing. `data-go` stays: it is what the navigation
+       reads, and enabling this control is then a one-attribute change when such a figure lands. #}
+    <button type="button" class="secondary" data-go="runs"{% if run_view_scope.types == ['pdc'] %} disabled
+            title="No protein-detergent analysis figures yet: the Runs gallery has no pdc plots to open"{% endif %}>Open the zoomable figures in Runs</button>
   </div>
   <script type="application/json" id="run-view-scope">{{ run_view_scope | tojson }}</script>
   {# The host's own controls: the run list is the two combos inside the monitors, so what is left here is what acts
      on the pair. Only completed runs are ever offered, and the combos ask the route for this workspace's run types
      by name. #}
   <div class="toolbar run-view-pairing">
-    <button type="button" id="run-view-pair">Pair each monitor with its reference</button>
     <button type="button" class="secondary" id="run-view-swap">Swap the two monitors</button>
-    <label class="check"><input type="checkbox" id="run-view-link" checked> link playback by time</label>
     <span id="run-view-note" class="hint" role="status">Reading the run list…</span>
   </div>
   <div id="run-view-monitors" class="run-view-monitors"></div>
@@ -114,11 +117,9 @@
       <p id="new-detergent-detail" class="hint new-pdc-detergent" role="status">Reading the detergent registry…</p>
       <p id="new-template-limitation" class="hint new-pdc-limitation"></p>
       <label>Model<select name="mapping_candidate" id="new-mapping"><option value="">Select a saved model</option></select></label>
-      <p class="hint">Only this detergent's saved mappings are offered here, its first one chosen for you, because the belt is built from this detergent's beads: a model's beads and their positions come from the mapping, its bonded terms from the mapping's parameterization when it carries one, and otherwise from the Martini 3 references. Choosing <em>No model</em> records a centres-only build instead — one point per detergent, with no bead model for the preview to draw.</p>
     </section>
     <section class="card" aria-labelledby="new-protein-title">
       <span class="eyebrow">MEMBRANE PROTEIN</span><h3 id="new-protein-title">Choose or download a structure</h3>
-      <p class="hint">OPM structures arrive already oriented in the membrane, which is the step MemProtMD spends Memembed on. Choosing no structure is an empty-micelle build, not a missing input.</p>
       <div class="new-pdc-pair new-pdc-protein-pair">
         <label>Protein<select name="protein" id="new-protein"><option value="">No protein · empty micelle</option></select></label>
         {# One row: the OPM id, its button, then a tick per chain the entry declares. The build, the estimate and the
@@ -135,7 +136,7 @@
           </div>
         </div>
       </div>
-      <p id="new-import-status" class="hint new-pdc-import-status" role="status">An import reports the half-thickness it found, or says plainly that the file states no membrane.</p>
+      <p id="new-import-status" class="hint new-pdc-import-status" role="status"></p>
       <p id="new-subunits-note" class="hint new-pdc-subunits-note" role="status"></p>
       {# The plan's step 1, and the control the refusal this panel shows is answered by: a structure whose deposited
          file is missing side-chain atoms coarse-grains into beads with no position, and the placement refuses the
@@ -149,17 +150,14 @@
     </section>
     <section class="card" aria-labelledby="new-config-title">
       <span class="eyebrow">RUN CONFIGURATION</span><h3 id="new-config-title" class="new-pdc-config-title">Detergent belt and sampling</h3>
-      <p class="hint">This workspace runs protein-detergent systems only, so the panel asks only what that pipeline reads: no AA reference, no mapping screen, no bonded fit. The detergent's own topology file is its parameterisation.</p>
       <div class="new-pdc-pair new-pdc-config-pair">
-        <label>Initialisation style<select name="pdc_placement_mode" id="new-placement" aria-describedby="new-placement-note"><option value="lattice">Pre-assembled micelle · CHARMM-GUI</option><option value="self-assembly">Self-assembly · MemProtMD</option></select></label>
+        <label>Initialisation style<select name="pdc_placement_mode" id="new-placement"><option value="lattice">Pre-assembled micelle · CHARMM-GUI</option><option value="self-assembly">Self-assembly · MemProtMD</option></select></label>
         <label><span class="new-pdc-count-label" id="new-count-label">Detergents in the belt</span>
           <span class="setting-control">
-            <input name="aggregation_number" id="new-count" type="number" min="1" max="1000" step="1" aria-describedby="new-count-help">
+            <input name="aggregation_number" id="new-count" type="number" min="1" max="1000" step="1">
           </span>
         </label>
       </div>
-      <p id="new-placement-note" class="hint new-pdc-placement-note" role="status">Pre-assembled micelle (CHARMM-GUI style): the detergents are initialised in a micelle structure around the protein, so the belt is exactly the count you ask for.</p>
-      <p class="hint" id="new-count-help">This input is here in both modes: around a protein it is the belt's size, with no protein it is the micelle's.</p>
       <div class="new-pdc-belt-block" id="new-belt-block">
         <div class="new-pdc-estimate-card" role="status" aria-live="polite">
           <p class="new-pdc-verdict">Choose a protein and a detergent to size the belt.</p>
@@ -179,14 +177,11 @@
         </div>
       </div>
       <div class="new-pdc-empty-block" id="new-empty-block" hidden>
-        <p class="hint">An empty micelle has no belt to size, so there is no coverage estimate. What is worth knowing beside the count is the detergent's own measured micelle size.</p>
         <table class="new-pdc-estimate"><tbody>
           <tr><td>Experimental aggregation number</td><td><strong class="new-pdc-empty-number">— not recorded yet</strong></td></tr>
           <tr><td>Requested above</td><td><strong class="new-pdc-empty-count">—</strong></td></tr>
         </tbody></table>
-        <p class="hint">The registry carries that number per entry, with the citation that states it; the slot is filled from the entry and never from this panel's arithmetic. An entry without one says so rather than guessing.</p>
       </div>
-      <p class="hint new-pdc-estimate-note" role="status"></p>
       <div class="new-pdc-pair new-pdc-legs">
         <div class="leg">
           <label>CG assessment leg (ns)<input name="pdc_assessment_ns" id="new-assessment-ns" type="number" min="1" max="100000" step="1"></label>
@@ -197,9 +192,45 @@
           <span class="hint">Continues the system that survived, from its checkpoint (<code>gmx convert-tpr -extend</code>), so the total CG sampling is the two legs together — 1 µs by default. The assessment re-runs at the end, and this is the state that gets back-mapped.</span>
         </div>
       </div>
+      <label class="new-pdc-backmap">Remove out-of-micelle detergents<input name="remove_out_of_micelle" type="checkbox" checked></label>
       <label class="new-pdc-backmap">Back-map to atomistic (CG2AT2)<input name="backmap" type="checkbox" checked></label>
       <p class="hint new-pdc-backmap-note" role="status">On: the extended CG state is converted to atomistic with CG2AT2 (<code>-o align</code>). Off: the back-map stage records <code>skipped</code> and the run stops coarse-grained, with no atomistic structure produced.</p>
-      <details id="new-advanced"><summary>Salt, seed and box</summary>
+      <details id="new-advanced"><summary>Other run options</summary>
+        <p class="hint">These are the CG production legs' numbers. Every field starts as the reviewed profile's
+          own; changing one overrides it for this run only and the manifest records what was used. The equilibration
+          and restart profiles keep their own values.</p>
+
+        <h4 class="new-pdc-option-title">Output cadence</h4>
+        <div class="settings-grid">
+          <label>Log interval (steps)<span class="setting-control"><input name="nstlog" type="number" min="1" max="1000000" step="1"></span></label>
+          <label>Energy interval (steps)<span class="setting-control"><input name="nstenergy" type="number" min="1" max="1000000" step="1"></span></label>
+          <label>Trajectory interval (steps)<span class="setting-control"><input name="nstxtcout" type="number" min="1" max="1000000" step="1"></span></label>
+          <label>Trajectory precision<span class="setting-control"><input name="xtc_precision" type="number" min="1" max="1000000" step="any"></span></label>
+          <label>Centre-of-mass removal (steps)<span class="setting-control"><input name="nstcomm" type="number" min="1" max="1000000" step="1"></span></label>
+        </div>
+        <p class="hint"><code>nstxtcout</code> is the compressed-trajectory stride; newer profiles spell the same
+          option <code>nstxout-compressed</code>. Full-precision <code>nstxout</code>, <code>nstvout</code> and
+          <code>nstfout</code> stay off, as the profiles state.</p>
+
+        <h4 class="new-pdc-option-title">Neighbour search and cutoffs</h4>
+        <div class="settings-grid">
+          <label>Neighbour list rebuild (steps)<span class="setting-control"><input name="nstlist" type="number" min="1" max="10000" step="1"></span></label>
+          <label>Verlet buffer tolerance<span class="setting-control"><input name="verlet_buffer_tolerance" type="number" min="0" max="0.1" step="0.001"></span></label>
+          <label>Neighbour cut-off (nm)<span class="setting-control"><input name="rlist" type="number" min="0.1" max="5" step="0.05"></span></label>
+          <label>Coulomb cut-off (nm)<span class="setting-control"><input name="rcoulomb" type="number" min="0.1" max="5" step="0.05"></span></label>
+          <label>van der Waals cut-off (nm)<span class="setting-control"><input name="rvdw" type="number" min="0.1" max="5" step="0.05"></span></label>
+        </div>
+
+        <h4 class="new-pdc-option-title">Thermostat and barostat</h4>
+        <div class="settings-grid">
+          <label>Temperature (K)<span class="setting-control"><input name="ref_t" type="number" min="200" max="500" step="0.01"></span></label>
+          <label>Thermostat coupling (ps)<span class="setting-control"><input name="tau_t" type="number" min="0.01" max="100" step="any"></span></label>
+          <label>Pressure (bar)<span class="setting-control"><input name="ref_p" type="number" min="0.1" max="100" step="0.1"></span></label>
+          <label>Barostat coupling (ps)<span class="setting-control"><input name="tau_p" type="number" min="0.1" max="100" step="0.1"></span></label>
+          <label>Compressibility (bar⁻¹)<span class="setting-control"><input name="compressibility" type="number" min="0" max="1" step="any"></span></label>
+        </div>
+
+        <h4 class="new-pdc-option-title">Salt, seed and box</h4>
         <div class="settings-grid">
           <label>Salt concentration (M)<span class="setting-control"><input name="salt_molar" type="number" min="0" max="5" step="0.01"></span></label>
           <label>Random seed<span class="setting-control"><input name="pdc_seed" type="number" min="1" max="2147483646" step="1" required></span></label>
@@ -207,29 +238,34 @@
           <label>Initial z box (nm)<span class="setting-control"><input name="initial_z_nm" type="number" min="1" max="50" step="0.1"></span></label>
           <label>Micelle contact distance (nm)<span class="setting-control"><input name="contact_nm" type="number" min="0.1" max="2" step="0.1"></span></label>
           <label>Removal threshold (fraction)<span class="setting-control"><input name="selection_threshold_fraction" type="number" min="0" max="1" step="0.01"></span></label>
-          <label>Snapshot interval (ns)<span class="setting-control"><input name="snapshot_interval_ns" type="number" min="0.1" max="1000" step="0.1"></span></label>
-          <label>Snapshots per stage (cap)<span class="setting-control"><input name="snapshot_cap" type="number" min="1" max="200" step="1"></span></label>
-          <label>GPU device<span class="setting-control"><select name="mdrun_gpu" class="new-pdc-gpu-device"></select></span></label>
+        </div>
+        <p class="hint">The seed defaults to today's date (YYYYMMDD). Detergents are placed at random in the
+          self-assembly style, so two builds are comparable only when both record the seed they placed with;
+          clearing it stops the run rather than letting one be chosen for it.</p>
+
+        <h4 class="new-pdc-option-title">Execution</h4>
+        <div class="settings-grid">
+          <label>GPU device (CUDA id)<span class="setting-control"><select name="mdrun_gpu" class="new-pdc-gpu-device"></select></span></label>
+          <label>mdrun threads<span class="setting-control"><input name="mdrun_ntomp" type="number" min="1" max="72" step="1"></span></label>
+          <label>mdrun ranks<span class="setting-control"><input name="mdrun_ranks" type="number" min="1" max="72" step="1"></span></label>
+          <label>Nonbonded scheme<span class="setting-control"><select name="mdrun_nb"><option value="auto">auto · profile decides</option><option value="cpu">CPU</option><option value="gpu">GPU</option></select></span></label>
         </div>
         <p class="hint new-pdc-gpu-note" role="status"></p>
-        <p class="hint">The seed defaults to today's date (YYYYMMDD). Detergents are placed at random in the self-assembly style, so two builds are comparable only when both record the seed they placed with; clearing it stops the run rather than letting one be chosen for it. The rest are the protocol's own numbers, recorded in every run's manifest.</p>
+        <p class="hint">The GPU list follows the CUDA ordinal, not nvidia-smi's index. The bus address stays in the
+          run's record so the chosen device can be checked.</p>
       </details>
       <label>Run label <input name="label" maxlength="160" placeholder="Optional label for this run"></label>
     </section>
     </div>
     <aside class="new-run-settings">
     {# The system preview: the build's own placement step, derived on demand by `GET /api/pdc/preview/placement`.
-       It is the frame the run records as its own first snapshot, so it is the picture the run will show -- and every
-       statement around it is there to keep that from being read as a prediction of the whole run. Every hook here is
+       It is the picture the build would write, and every statement around it is there to keep that from being read
+       as a prediction of the whole run. Every hook here is
        a class, because `tests/dashboard/integration/test_dom_ids.py` requires an id a module names in a selector to be
        rendered on the single-molecule page too, and this fieldset is not rendered there. #}
     <section class="card new-pdc-preview" aria-labelledby="new-preview-title">
       <span class="eyebrow">SYSTEM PREVIEW</span>
       <h3 id="new-preview-title">What these inputs would build</h3>
-      <p class="hint">The build's own placement step, derived for the fields on this form: the selected chains are
-        coarse-grained with <code>martinize2</code>, the detergents are placed with the run's own seed, and the box is
-        measured around them. It is the same frame the run records as its own first snapshot
-        (<code>1_system/snapshots/placement.pdb</code>) — not an illustration of it, and not the last run's system.</p>
 
       <div class="new-pdc-preview-viewer" role="img"
            aria-label="Coarse-grained protein and detergent belt inside the simulation box"></div>
@@ -335,34 +371,16 @@
         <summary>Show the CG-MD chain as a diagram</summary>
         <figure class="new-pdc-diagram-figure">
           <svg class="new-pdc-workflow-svg" viewBox="0 0 980 212" role="img" aria-labelledby="new-pdc-flow-title">
-            <title id="new-pdc-flow-title">The protein-detergent chain: prepare, build, equilibrate, sample, judge, extend,
-              back-map</title>
+            <title id="new-pdc-flow-title">The protein-detergent chain, drawn from the current settings</title>
+            <desc id="new-pdc-flow-desc">The stages this form would run, in order.</desc>
             <defs>
               <marker id="new-pdc-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
                       orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="new-pdc-flow-arrow-head"/></marker>
             </defs>
-            <g class="new-pdc-flow">
-              <g class="new-pdc-flow-node"><rect x="6" y="24" width="176" height="52" rx="7"/><text x="94" y="45">1 · Prepare</text><text class="sub" x="94" y="63">PDB2PQR · skipped if absent</text></g>
-              <path class="new-pdc-flow-link" d="M182,50 H214" marker-end="url(#new-pdc-arrow)"/>
-              <g class="new-pdc-flow-node"><rect x="214" y="24" width="176" height="52" rx="7"/><text x="302" y="45">2 · Coarse-grain</text><text class="sub" x="302" y="63">martinize2 · Martini 3 · elastic</text></g>
-              <path class="new-pdc-flow-link" d="M390,50 H422" marker-end="url(#new-pdc-arrow)"/>
-              <g class="new-pdc-flow-node new-pdc-placed-node"><rect x="422" y="24" width="176" height="52" rx="7"/><text class="title" x="510" y="45">3 · Place the belt</text><text class="sub" x="510" y="63">pre-assembled micelle · the count as asked</text></g>
-              <path class="new-pdc-flow-link" d="M598,50 H630" marker-end="url(#new-pdc-arrow)"/>
-              <g class="new-pdc-flow-node"><rect x="630" y="24" width="176" height="52" rx="7"/><text x="718" y="45">4 · Equilibrate</text><text class="sub" x="718" y="63">minimise · NVT · NPT</text></g>
-              <path class="new-pdc-flow-link" d="M806,50 H838" marker-end="url(#new-pdc-arrow)"/>
-              <g class="new-pdc-flow-node"><rect x="838" y="24" width="136" height="52" rx="7"/><text x="906" y="45">5 · Sample</text><text class="sub" x="906" y="63">CG assessment MD</text></g>
-              <path class="new-pdc-flow-link" d="M906,76 V118" marker-end="url(#new-pdc-arrow)"/>
-              <g class="new-pdc-flow-node"><rect x="838" y="118" width="136" height="52" rx="7"/><text x="906" y="139">6 · Judge</text><text class="sub" x="906" y="157">micelle assessment</text></g>
-              <path class="new-pdc-flow-link" d="M838,144 H806" marker-end="url(#new-pdc-arrow)"/>
-              <g class="new-pdc-flow-node"><rect x="630" y="118" width="176" height="52" rx="7"/><text x="718" y="139">7 · Extend</text><text class="sub" x="718" y="157">continuation from the checkpoint</text></g>
-              <path class="new-pdc-flow-link" d="M630,144 H598" marker-end="url(#new-pdc-arrow)"/>
-              <g class="new-pdc-flow-node"><rect x="422" y="118" width="176" height="52" rx="7"/><text x="510" y="139">8 · Final assessment</text><text class="sub" x="510" y="157">the finished CG system</text></g>
-              <path class="new-pdc-flow-link" d="M422,144 H390" marker-end="url(#new-pdc-arrow)"/>
-              <g class="new-pdc-flow-node new-pdc-backmap-node"><rect x="214" y="118" width="176" height="52" rx="7"/><text class="title" x="302" y="139">9 · Back-map</text><text class="sub" x="302" y="157">CG2AT2 · atoms, then neutralise</text></g>
-              <path class="new-pdc-flow-link" d="M214,144 H182" marker-end="url(#new-pdc-arrow)"/>
-              <g class="new-pdc-flow-node"><rect x="6" y="118" width="176" height="52" rx="7"/><text x="94" y="139">10 · Result</text><text class="sub" x="94" y="157">atomistic complex + records</text></g>
+            <g class="new-pdc-flow" data-new-pdc-flow></g>
             </g>
           </svg>
+          <p class="hint new-pdc-flow-skipped" role="status"></p>
           <figcaption>Memembed is not in the chain, and that is a saving rather than a gap: an OPM structure is already
             oriented in the membrane, which is the step it would do. With a protein, steps 3, 5 and 6 use the protein's
             hydrophobic surface; for an empty micelle step 3 is the micelle on its own and step 6's protein clause does
@@ -384,6 +402,7 @@
       <dt class="new-pdc-estimate-label">Estimate</dt><dd data-new-summary="estimate">—</dd>
       <dt>Sampling</dt><dd data-new-summary="sampling">—</dd>
       <dt>Seed</dt><dd data-new-summary="seed">—</dd>
+      <dt>Removal</dt><dd data-new-summary="removal">—</dd>
       <dt>Back-map</dt><dd data-new-summary="backmap">CG2AT2 to atomistic</dd>
     </dl>
     <p class="hint review-note">Execution success does not establish scientific validation.</p>
@@ -655,8 +674,6 @@
       <div class="bead-legend" data-bead-legend
            aria-label="Bead colour by Martini 3 polarity family"></div>
       <p id="pdc-view-basis" class="hint">The built system appears here once setup produces one.</p>
-      <div id="pdc-snapshots" class="pdc-snapshots" role="group" aria-label="Snapshots through the run"></div>
-      <p id="pdc-snapshot-basis" class="hint">Snapshots appear here as a run records them.</p>
     </section>
     <section class="card pdc-status" aria-labelledby="pdc-status-title">
       <h3 id="pdc-status-title">Status</h3>

@@ -1,6 +1,6 @@
 """The prepare step: the residues a deposited structure left incomplete, rebuilt, and the protein protonated.
 
-The plan's step 1 (`docs/superpowers/plans/2026-10-12-pdc-new-run-panel.md`) is optional and is the whole answer to a
+The plan's step 1 (`docs/plans/2026-10-12-pdc-new-run-panel.md`) is optional and is the whole answer to a
 structure the build refuses for a reason that is not about the placement at all: 4iar's deposited assembly is missing
 side-chain atoms for 6 arginines, 9 lysines and a tryptophan, so 20 of its 928 coarse-grained beads have no position
 and `pdc_placement` refuses the whole build rather than placing a belt against a protein no distance can be measured
@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -30,8 +31,7 @@ from dashboard.execution import tools
 from dashboard.execution.adapters import pdc, pdc_preparation
 from dashboard.execution.scripts import pdc_build, pdc_prepare
 from micelle.frame import stated_half_thickness_nm
-from tests.dashboard.pdc_fixtures import molecule_tree, prepared_run
-from tests.dashboard.support import PROJECT_ROOT
+from tests.dashboard.pdc_fixtures import inputs_dir, molecule_tree, prepared_run, script_of, system_stage
 
 STAGE = 'Protein preparation'
 SYSTEM = 'System preparation'
@@ -68,21 +68,21 @@ def prepared(tmp_path: Path, **settings):
 
 def stage_directory(run: Path, name: str = STAGE) -> Path:
     """A stage's directory, by the stage's own name: the plan's positions moved when this stage landed."""
-    return run / Path(pdc.stage_by_name(name).relative).parent
+    return run / pdc.STAGES_DIRECTORY / Path(pdc.stage_by_name(name).relative).parent
 
 
 def settings_of(run: Path) -> dict:
-    return json.loads((stage_directory(run, SYSTEM) / pdc.SETTINGS_NAME).read_text())
+    return json.loads((inputs_dir(run) / pdc.SETTINGS_NAME).read_text())
 
 
 def stage_environment() -> dict:
-    """The environment a stage runs under, with the repository importable the way a real run's root makes it."""
-    return {**os.environ, 'PYTHONPATH': os.pathsep.join([str(PROJECT_ROOT), os.environ.get('PYTHONPATH', '')])}
+    """The environment a stage runs under, with this application's interpreter handed over the way the executor may."""
+    return {**os.environ, 'PYTHON': sys.executable}
 
 
 def run_stage(run: Path, name: str = STAGE) -> subprocess.CompletedProcess:
     directory = stage_directory(run, name)
-    return subprocess.run(['bash', str(run / pdc.stage_by_name(name).relative)], cwd=directory,
+    return subprocess.run(['bash', str(script_of(name))], cwd=directory,
                           env=stage_environment(), capture_output=True, text=True)
 
 
@@ -134,9 +134,9 @@ def test_the_plan_gains_the_preparation_first_and_no_existing_stage_moves():
     assert plan[1:] == ['System preparation', 'Energy minimisation', 'NVT equilibration', 'NPT equilibration',
                         'CG assessment MD', 'Micelle assessment', 'CG extension MD', 'Final assessment',
                         'Back-mapping (CG2AT2)']
-    assert pdc.stage_by_name(STAGE).relative == '0_prepare/pdc_prepare.sh'
-    assert pdc.stage_by_name(SYSTEM).relative == '1_system/prepare_system.sh', \
-        'the stage that existed keeps its own directory and script'
+    assert pdc.stage_by_name(STAGE).relative == '01_prepare/pdc_prepare.sh'
+    assert pdc.stage_by_name(SYSTEM).relative == '02_system/pdc_system.sh', \
+        'the stage that existed keeps its own script, in the numbered layout'
 
 
 def test_the_preparation_is_a_choice_a_run_states_and_it_is_on_where_there_is_a_protein():
@@ -202,39 +202,27 @@ def test_a_protein_free_run_cannot_ask_for_a_preparation_there_is_nothing_to_pre
 
 # --- the skip path -----------------------------------------------------------------------------------------------
 
-def test_a_run_that_switches_the_preparation_off_records_skipped_with_its_reason(tmp_path):
-    """Off is now a choice a caller makes rather than the default, and a skipped step still writes nothing."""
-    run = prepared(tmp_path, prepare_protein=False)
+def test_a_run_that_switches_the_preparation_off_gets_no_stage_at_all(tmp_path):
+    """Off is a choice a caller makes; prepare decides it, so the stage has no directory and no script.
 
-    result = run_stage(run)
-
-    assert result.returncode == 4, (result.stdout, result.stderr)
-    record = json.loads((stage_directory(run) / 'skip.json').read_text())
-    assert record['skipped'] is True
-    assert 'does not ask' in record['reason'], record['reason']
-    assert not (stage_directory(run) / pdc_preparation.PREPARED_NAME).exists(), \
-        'a skipped step writes no prepared structure'
-    assert not (stage_directory(run) / pdc_preparation.RECORD_NAME).exists(), 'nothing owed, nothing written'
-
-
-def test_a_run_with_no_protein_skips_the_step_and_says_what_it_has_nothing_to_do_with(tmp_path):
-    """The adapter refuses the pair at the door, so this is the backstop: a settings file that says so anyway.
-
-    Nothing is attempted and nothing is owed, which is the house contract's fourth outcome -- not a failure, and not
-    a prepared structure built from a file that holds no coordinates. The stage is entered in process, because the
-    executor's own prelude is what copies the run's protein in, and this case is a run whose protein is no protein.
+    The manifest carries the reason and the executor records the stage skipped from it -- the stage itself never sees
+    a request it should decline, which is what keeps a settings-driven skip out of a script.
     """
-    run = prepared(tmp_path)
-    settings = settings_of(run)
-    directory = stage_directory(run)
-    (directory / pdc_prepare.DECLARED_INPUT).write_text('; no protein: this is an empty-micelle build\n')
-    settings['prepare_protein'] = True
-    (stage_directory(run, SYSTEM) / pdc.SETTINGS_NAME).write_text(json.dumps(settings))
+    run = prepared(tmp_path, prepare_protein=False)
+    record = json.loads((run / 'manifest.json').read_text())
 
-    code = pdc_prepare.main(['--stage', str(directory)])
+    assert not stage_directory(run).exists()
+    assert 'does not ask' in record['skipped_stages'][STAGE], record['skipped_stages']
+    assert not list(run.rglob('skip.json')), 'a prepare-time skip writes no skip.json'
 
-    assert code == 4, code
-    assert 'no protein' in json.loads((directory / 'skip.json').read_text())['reason']
+
+def test_a_run_with_no_protein_gets_no_preparation_stage(tmp_path):
+    """A step *about a protein* cannot exist for a run with none: prepare skips it, with its reason."""
+    run = prepared_run(tmp_path, protein=None)
+    record = json.loads((run / 'manifest.json').read_text())
+
+    assert not stage_directory(run).exists()
+    assert 'no protein' in record['skipped_stages'][STAGE]
 
 
 # --- the refusal path ---------------------------------------------------------------------------------------------
@@ -318,7 +306,7 @@ def test_the_prepared_structure_carries_the_files_own_membrane_statement(tmp_pat
     """
     run = prepared(tmp_path, prepare_protein=True)
     directory = stage_directory(run)
-    (directory / 'protein.pdb').write_text(PROTEIN_TEXT)
+    (tmp_path / 'molecules/DDM/protein.pdb').write_text(PROTEIN_TEXT)
     monkeypatch.setattr(pdc_preparation, 'resolve_tool', lambda: '/usr/bin/pdb2pqr')
     monkeypatch.setattr(pdc_preparation.subprocess, 'run', fake_pdb2pqr())
 
@@ -384,12 +372,12 @@ def test_the_stage_record_carries_the_tool_the_version_its_command_and_its_cost(
 def test_the_build_reads_the_prepared_structure_when_the_stage_left_one(tmp_path, monkeypatch):
     run = prepared(tmp_path, prepare_protein=True)
     directory = stage_directory(run)
-    (directory / 'protein.pdb').write_text(PROTEIN_TEXT)
+    (tmp_path / 'molecules/DDM/protein.pdb').write_text(PROTEIN_TEXT)
     monkeypatch.setattr(pdc_preparation, 'resolve_tool', lambda: '/usr/bin/pdb2pqr')
     monkeypatch.setattr(pdc_preparation.subprocess, 'run', fake_pdb2pqr())
     assert pdc_prepare.main(['--stage', str(directory)]) == 0
 
-    stage = stage_directory(run, SYSTEM)
+    stage = system_stage(run)
     # The CG step's own gate is the file its command names, so the structure it would have written is written here:
     # what is under test is the file it was *handed*, which the command names.
     write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb')
@@ -421,12 +409,12 @@ def test_the_build_finds_the_prepared_structure_through_the_spelling_a_stage_scr
     """
     run = prepared(tmp_path, prepare_protein=True)
     directory = stage_directory(run)
-    (directory / 'protein.pdb').write_text(PROTEIN_TEXT)
+    (tmp_path / 'molecules/DDM/protein.pdb').write_text(PROTEIN_TEXT)
     monkeypatch.setattr(pdc_preparation, 'resolve_tool', lambda: '/usr/bin/pdb2pqr')
     monkeypatch.setattr(pdc_preparation.subprocess, 'run', fake_pdb2pqr())
     assert pdc_prepare.main(['--stage', str(directory)]) == 0
 
-    stage = stage_directory(run, SYSTEM)
+    stage = system_stage(run)
     write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb')
     captured = {}
 
@@ -447,7 +435,7 @@ def test_the_build_finds_the_prepared_structure_through_the_spelling_a_stage_scr
 
 def test_the_build_reads_the_deposited_file_when_the_preparation_did_not_run(tmp_path, monkeypatch):
     run = prepared(tmp_path)
-    stage = stage_directory(run, SYSTEM)
+    stage = system_stage(run)
     write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb')
     captured = {}
 

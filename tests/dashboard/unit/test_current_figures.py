@@ -70,9 +70,20 @@ def test_the_attempt_number_orders_the_sets_and_not_the_file_name():
 
 
 def test_a_run_in_the_older_layout_numbers_its_attempts_by_the_same_rule():
-    """`execution_root` puts the stage directories at the run's root before `layout_version` 2, and attempts go there."""
+    """A run prepared before `stages/` keeps its stage directories at its root; attempt numbering is the same."""
     first = figure('5_assessment/score_matrix_LIG1.png')
     rescored = figure('5_assessment@1/score_matrix_LIG1.png')
+
+    kept, superseded = current_figures([first, rescored])
+
+    assert [entry['path'] for entry in kept] == [rescored['path']]
+    assert superseded == 1
+
+
+def test_a_numbered_pdc_final_assessment_numbers_its_attempts_by_the_same_rule():
+    """A current pdc run's final assessment is `stages/09_final_assessment/`, and a re-score goes beside it."""
+    first = figure('stages/09_final_assessment/assessment.json', '2026-10-01T00:00:00+00:00')
+    rescored = figure('stages/09_final_assessment@1/assessment.json', '2026-10-05T00:00:00+00:00')
 
     kept, superseded = current_figures([first, rescored])
 

@@ -26,30 +26,20 @@ def sphere_area(radius_nm, probe_nm=PROBE):
 
 # --- step 2 and 3: the slab and the apolar mask, on areas handed in --------------------------------------------
 
-def test_only_atoms_in_the_slab_and_in_apolar_residues_are_added():
-    """Known by construction: three atoms, one of each kind the mask is supposed to tell apart.
-
-    z = 0.0 is inside a half-thickness-1 nm slab and apolar (counted); z = 0.9 is inside but polar (not counted);
-    z = 2.0 is apolar but outside the slab (not counted). The answer is the first atom's area and nothing else.
-    """
-    positions = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.9], [0.0, 0.0, 2.0]]
-    areas = [10.0, 20.0, 40.0]
-    apolar = [True, False, True]
-
-    assert encapsulation.slab_area(areas, positions, apolar, centre_nm=0.0, half_thickness_nm=1.0) == 10.0
-
-
-def test_the_slab_is_measured_from_its_own_centre_and_both_edges_are_inside():
-    """A slab centred at 2.0 with half-thickness 0.5 spans 1.5..2.5: the planes are inclusive, so 1.5 counts."""
-    positions = [[0.0, 0.0, 1.5], [0.0, 0.0, 2.5], [0.0, 0.0, 2.6], [0.0, 0.0, 1.4]]
-    areas = [1.0, 2.0, 4.0, 8.0]
-
-    assert encapsulation.slab_area(areas, positions, [True] * 4, centre_nm=2.0, half_thickness_nm=0.5) == 3.0
-
-
-def test_an_empty_slab_has_no_area_rather_than_a_missing_answer():
-    assert encapsulation.slab_area([1.0, 2.0], [[0, 0, 5.0], [0, 0, 6.0]], [True, True],
-                                   centre_nm=0.0, half_thickness_nm=1.0) == 0.0
+@pytest.mark.parametrize(('positions', 'areas', 'apolar', 'centre_nm', 'half_thickness_nm', 'expected'), [
+    pytest.param([[0.0, 0.0, 0.0], [0.0, 0.0, 0.9], [0.0, 0.0, 2.0]], [10.0, 20.0, 40.0], [True, False, True],
+                 0.0, 1.0, 10.0, id='only-in-slab-apolar-atoms-counted'),
+    pytest.param([[0.0, 0.0, 1.5], [0.0, 0.0, 2.5], [0.0, 0.0, 2.6], [0.0, 0.0, 1.4]], [1.0, 2.0, 4.0, 8.0],
+                 [True] * 4, 2.0, 0.5, 3.0, id='edges-measured-from-its-own-centre-and-inclusive'),
+    pytest.param([[0, 0, 5.0], [0, 0, 6.0]], [1.0, 2.0], [True, True], 0.0, 1.0, 0.0,
+                 id='empty-slab-is-zero-rather-than-missing'),
+])
+def test_only_atoms_in_the_slab_and_in_apolar_residues_are_added(positions, areas, apolar, centre_nm,
+                                                                 half_thickness_nm, expected):
+    """Known by construction: the mask tells apart an atom in the slab and apolar (counted), one inside but polar
+    and one apolar outside it (both not counted); the planes are inclusive and an empty slab sums to zero."""
+    assert encapsulation.slab_area(areas, positions, apolar, centre_nm=centre_nm,
+                                   half_thickness_nm=half_thickness_nm) == expected
 
 
 # --- steps 4 and 5: the count and the fraction ----------------------------------------------------------------
@@ -91,17 +81,14 @@ def test_an_isolated_apolar_atom_contributes_its_own_sphere_area():
     assert numbers['apolar_area_nm2'] == pytest.approx(sphere_area(radius), rel=1e-6)
 
 
-def test_a_polar_atom_inside_the_slab_adds_nothing_to_the_apolar_area():
-    """Two isolated atoms, one apolar and one not: the sum is the apolar one's own sphere and only that."""
-    numbers = encapsulation.estimate([[0.0, 0.0, 0.0], [9.0, 0.0, 0.0]], [0.264, 0.264], [True, False],
-                                     centre_nm=0.0, half_thickness_nm=1.0,
-                                     head_radii_nm=[0.230], requested=10, probe_nm=PROBE)
-
-    assert numbers['apolar_area_nm2'] == pytest.approx(sphere_area(0.264), rel=1e-6)
-
-
-def test_an_apolar_atom_outside_the_slab_adds_nothing():
-    numbers = encapsulation.estimate([[0.0, 0.0, 0.0], [0.0, 0.0, 5.0]], [0.264, 0.264], [True, True],
+@pytest.mark.parametrize(('positions', 'apolar'), [
+    pytest.param([[0.0, 0.0, 0.0], [9.0, 0.0, 0.0]], [True, False], id='polar-atom-inside-the-slab'),
+    pytest.param([[0.0, 0.0, 0.0], [0.0, 0.0, 5.0]], [True, True], id='apolar-atom-outside-the-slab'),
+])
+def test_an_atom_the_mask_excludes_adds_nothing_to_the_apolar_area(positions, apolar):
+    """Two isolated atoms, one excluded by the mask -- polar inside the slab, or apolar outside it: the sum is the
+    counted atom's own sphere and only that."""
+    numbers = encapsulation.estimate(positions, [0.264, 0.264], apolar,
                                      centre_nm=0.0, half_thickness_nm=1.0,
                                      head_radii_nm=[0.230], requested=10, probe_nm=PROBE)
 
@@ -209,29 +196,20 @@ def test_every_modified_code_in_the_table_has_an_apolar_parent():
         'MSE', 'FME', 'MED', 'NLE', 'NVA', 'ABA', 'AIB', 'DAL', 'DVA', 'DLE', 'DIL', 'DPN', 'DPR', 'DTR'}
 
 
-def test_a_selenomethionine_and_a_norleucine_inside_the_slab_add_their_area():
-    """The whole point: modified residues with an apolar parent are apolar surface, so inside the slab each adds its
-    own sphere -- where before the fix they were counted as polar and contributed nothing. Two isolated atoms, both
-    inside the slab, both folded in: the sum is both spheres and only those."""
-    residues = ['MSE', 'NLE']
+@pytest.mark.parametrize(('residues', 'spheres'), [
+    pytest.param(['MSE', 'NLE'], 2, id='both-modified-residues-have-apolar-parents'),
+    pytest.param(['MSE', 'SEP'], 1, id='polar-modified-residue-adds-nothing'),
+])
+def test_modified_residues_inside_the_slab_add_the_area_their_parents_earn(residues, spheres):
+    """Modified residues with an apolar parent are apolar surface, so inside the slab each adds its own sphere -- two
+    isolated atoms folded in are both spheres. SEP (phosphoserine) adds a phosphate, so it stays polar and adds
+    nothing even inside the slab."""
     numbers = encapsulation.estimate([[0.0, 0.0, 0.0], [9.0, 0.0, 0.0]], [0.264, 0.264],
                                      encapsulation.apolar_mask(residues),
                                      centre_nm=0.0, half_thickness_nm=1.0,
                                      head_radii_nm=[0.230], requested=10, probe_nm=PROBE)
 
-    assert numbers['apolar_area_nm2'] == pytest.approx(2 * sphere_area(0.264), rel=1e-6)
-
-
-def test_a_polar_modified_residue_inside_the_slab_adds_nothing():
-    """SEP (phosphoserine) adds a phosphate, so it is not apolar surface even inside the slab: the sum is the MSE
-    sphere beside it and nothing of SEP's."""
-    residues = ['MSE', 'SEP']
-    numbers = encapsulation.estimate([[0.0, 0.0, 0.0], [9.0, 0.0, 0.0]], [0.264, 0.264],
-                                     encapsulation.apolar_mask(residues),
-                                     centre_nm=0.0, half_thickness_nm=1.0,
-                                     head_radii_nm=[0.230], requested=10, probe_nm=PROBE)
-
-    assert numbers['apolar_area_nm2'] == pytest.approx(sphere_area(0.264), rel=1e-6)
+    assert numbers['apolar_area_nm2'] == pytest.approx(spheres * sphere_area(0.264), rel=1e-6)
 
 
 def test_the_method_states_that_apolar_parented_modified_residues_are_folded_in():

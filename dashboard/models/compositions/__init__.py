@@ -2,14 +2,11 @@
 import json
 import re
 import uuid
-from pathlib import Path
 
 from ... import files, paths
 from ..molecules import registry as model_registry
 from ..repository import JsonRepository
 from . import topology as composition_topology
-
-ROOT = paths.DEFAULT.project_root
 
 
 def storage_root():
@@ -42,9 +39,7 @@ def get(cid): return _repository().get(cid)
 
 def catalog(project_root=None):
     """Return the immutable choices exposed by Molecule Combination."""
-    root = Path(project_root or ROOT)
-    source = root / 'references' / 'martini_v3.0.0_sugars_v2.itp'
-    sugars = composition_topology.load_sugar_catalog(source)
+    sugars = composition_topology.load_sugar_catalog(composition_topology._sugar_source(project_root))
     return {
         'sugars': [{'id': key, 'name': key, 'source_sha256': value['source_sha256'],
                     'beads': value['bead_names'],
@@ -56,7 +51,7 @@ def catalog(project_root=None):
 
 
 def preview(payload, project_root=None):
-    result = composition_topology.build_preview(payload, Path(project_root or ROOT))
+    result = composition_topology.build_preview(payload, project_root)
     composition_topology.validate_preview(result)
     result['geometry'] = composition_topology.preview_geometry(result)
     # The panel hands this straight to the NGL viewer, so the browser needs no second request and no route of

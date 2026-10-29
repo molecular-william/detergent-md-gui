@@ -1,16 +1,16 @@
 """The prepare stage's entry point: the run's own decision, the tool the machine has, and the record.
 
-Run by `0_prepare/pdc_prepare.sh`, which the pdc adapter writes into every run. Everything the step *does* is
-`execution/adapters/pdc_preparation.py`'s; this module is the stage's half of it -- where the run's settings are
-read, which of the contract's four outcomes applies, and what is written for a reader afterwards.
+Run by `01_prepare/pdc_prepare.sh`, the repository script every pdc run records in `stage_scripts`. Everything the
+step *does* is `execution/adapters/pdc_preparation.py`'s; this module is the stage's half of it -- where the run's
+settings are read, which of the contract's outcomes applies, and what is written for a reader afterwards.
 
-    python pdc_prepare.py --stage .
+    python -m dashboard.execution.scripts.pdc_prepare --stage .
 
-The step is optional, and that is the whole of its first branch: a run that does not ask for it records `skipped`
-(exit 4) with its reason in `skip.json` beside the script, and the run carries on. Exit 2 is a refusal -- the run
-asked for this structure to be prepared and the machine cannot prepare it -- with the reason and the tool's own log
-tail in `prepare_protein.json`, because a run that went on without it would coarse-grain a structure the caller did
-not ask to coarse-grain.
+The step is optional, and the run's settings decide it at prepare time: a run that does not ask for it -- or has no
+protein -- gets no stage directory and the manifest records the skip. A stage that exists answers `skipped` (exit 4)
+with its reason in `skip.json` when the preparer is not resolvable on this machine, and exit 2 is a refusal -- the
+run asked for this structure to be prepared and the machine cannot prepare it -- with the reason and the tool's own
+log tail in `prepare_protein.json`.
 """
 from __future__ import annotations
 
@@ -19,12 +19,8 @@ import json
 import sys
 from pathlib import Path
 
-from dashboard.execution.adapters import pdc, pdc_preparation
+from dashboard.execution.adapters import pdc_preparation
 from dashboard.execution.adapters.pdc import SETTINGS_NAME
-
-#: The adapter's own declaration, so the file this stage reads is the file the build writes and neither has to spell
-#: the input's name twice.
-DECLARED_INPUT = Path(pdc.stage_by_name('Protein preparation').inputs[0]).name
 
 SKIPPED = 4
 REFUSED = 2
@@ -33,27 +29,23 @@ REFUSED = 2
 def read_settings(stage: Path) -> dict:
     """The run's own decisions, from the one stage that owns them.
 
-    `pdc-settings.json` is written into the system-preparation stage's directory by `pdc.prepare`, and every stage
-    that needs a run's numbers reads it there -- this one included, so a value the panel sent and the build reads is
-    the same value this step reads.
+    `pdc-settings.json` is written into the run's `inputs/` by `pdc.prepare`, and every stage that needs a run's
+    numbers reads it there -- this one included, so a value the panel sent and the build reads is the same value this
+    step reads.
     """
-    system = stage.parent / Path(pdc.stage_by_name('System preparation').relative).parent
-    path = system / SETTINGS_NAME
+    path = stage.parent.parent / 'inputs' / SETTINGS_NAME
     if not path.is_file():
         raise SystemExit(f'{path} is missing: this stage reads the run\'s decisions from it')
     return json.loads(path.read_text())
 
 
 def source_protein(stage: Path, settings: dict):
-    """The structure to prepare: the file this stage was handed, else the one the run names.
+    """The structure to prepare, resolved from the run's own record.
 
-    The declaration is the first answer because it is what the stage was *given* -- the adapter emits the copy from
-    the stage's own declaration -- so a stage run by hand outside the executor still resolves the run's own protein
-    rather than refusing with nothing to do.
+    The protein is referenced where it lived at prepare time, so its path travels in `pdc-settings.json` (absolute, or
+    relative to the recorded project root) rather than in a copy inside the run. `None` means the run names none,
+    which is the empty micelle -- a run whose prepare-time skip already kept this stage from existing.
     """
-    declared = stage / DECLARED_INPUT
-    if declared.is_file():
-        return declared
     value = str(settings.get('protein') or '').strip()
     if not value:
         return None
@@ -77,8 +69,6 @@ def main(argv=None) -> int:
     stage = Path(args.stage).resolve()
     settings = read_settings(stage)
 
-    if not settings.get('prepare_protein'):
-        return skip(stage, 'the run does not ask for protein preparation, so this stage has nothing to do')
     # The step is on by default, so it must be able to say "not on this machine" rather than refusing every run: a
     # default no machine is obliged to satisfy would turn a missing optional tool into a blocked pipeline. A tool that
     # *is* resolvable and then fails is still a refusal -- that is a structure this machine was asked to prepare and

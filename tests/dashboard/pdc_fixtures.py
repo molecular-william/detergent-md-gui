@@ -18,9 +18,16 @@ a single default would silently change what four of them build. The files that s
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 from dashboard.execution.adapters import pdc
+
+#: The repository's own scripts: a stage runs one of these from its directory, and the manifest records it by path.
+SCRIPTS = Path(pdc.__file__).resolve().parents[1] / 'scripts'
 
 #: The template eight of the pdc test files use. A file with a different one passes its own to `molecule_tree`.
 TEMPLATE = {
@@ -74,7 +81,56 @@ def prepared_run(tmp_path: Path, *, settings: dict | None = None, suffix=None,
 
 def stage_dir(run: Path, stage_name: str) -> Path:
     """The directory a named stage runs in, resolved through the protocol rather than by counting positions."""
-    return run / Path(pdc.stage_by_name(stage_name).relative).parent
+    return run / pdc.STAGES_DIRECTORY / Path(pdc.stage_by_name(stage_name).relative).parent
+
+
+def script_of(stage_name: str) -> Path:
+    """The repository script a stage runs."""
+    repository = Path(pdc.__file__).resolve().parents[3]
+    return repository / pdc.stage_by_name(stage_name).script
+
+
+def inputs_dir(run: Path) -> Path:
+    """The run's generated data, `inputs/` beside `stages/`."""
+    return run / pdc.INPUTS_DIRECTORY
+
+
+def settings_of(run: Path) -> dict:
+    """The run's own decisions, from the file every stage reads them from."""
+    return json.loads((inputs_dir(run) / pdc.SETTINGS_NAME).read_text())
+
+
+#: The files `pdc_system.sh` copies out of `inputs/` before the build reads them.
+SYSTEM_STAGE_FILES = (pdc.SETTINGS_NAME, pdc.DETERGENT_TOPOLOGY, pdc.DETERGENT_GEOMETRY, 'system_EMPTY.top',
+                      'protein.pdb')
+
+
+def system_stage(run: Path) -> Path:
+    """The system stage's directory as its shared script leaves it, so the build can be called without the shell.
+
+    `prepare` writes generated data into `inputs/`; the stage copies what it reads into its own directory when it
+    starts, exactly as `pdc_system.sh` does. A test that calls `pdc_build.build` directly does the same here.
+    """
+    stage = stage_dir(run, 'System preparation')
+    for name in SYSTEM_STAGE_FILES:
+        source = inputs_dir(run) / name
+        if source.is_file():
+            shutil.copy2(source, stage / name)
+    if not (stage / 'protein.pdb').is_file():
+        settings = settings_of(run)
+        value = str(settings.get('protein') or '')
+        if value:
+            path = Path(value) if Path(value).is_absolute() else Path(settings['project_root']) / value
+            shutil.copy2(path, stage / 'protein.pdb')
+    return stage
+
+
+def run_stage(run: Path, stage_name: str, *, timeout: int = 60):
+    """Run a stage the way the executor does: its repository script, from the stage directory."""
+    stage = stage_dir(run, stage_name)
+    env = {**os.environ, 'PYTHON': sys.executable}
+    return subprocess.run(['bash', str(script_of(stage_name))], cwd=stage, capture_output=True, text=True,
+                          timeout=timeout, env=env)
 
 def gro_line(residue_id, residue, name, serial, xyz) -> str:
     """One fixed-width `gro` atom line: nm, three decimals, the columns GROMACS actually reads."""

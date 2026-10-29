@@ -288,13 +288,12 @@ def test_the_card_fits_a_narrow_window_without_sideways_scroll(dashboard, live_p
     expect(card(page)).to_be_visible()
 
     page.set_viewport_size({'width': 390, 'height': 844})
-    page.wait_for_timeout(200)
     expect(card(page)).to_be_visible()
     # The card's own right edge, against the viewport: a text node that will not break is the usual cause, and
     # `overflow-wrap:anywhere` on `#run-form .hint` is the rule that has to reach these lines.
     box = card(page).bounding_box()
     assert box['x'] >= 0 and box['x'] + box['width'] <= 390, box
-    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    panels.assert_no_horizontal_scroll(page)
     assert errors == []
 
 

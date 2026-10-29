@@ -20,7 +20,7 @@ import pytest
 from dashboard.execution.adapters import pdc, pdc_box, pdc_placement
 from micelle.packing import pack_micelle
 from micelle.registry import load_template
-from tests.dashboard.pdc_fixtures import candidate_file, write_cg_pdb
+from tests.dashboard.pdc_fixtures import candidate_file, settings_of, system_stage, write_cg_pdb
 
 MARGIN_NM = 2.0
 INITIAL_Z_NM = 6.0
@@ -131,7 +131,7 @@ def _prepared_run(tmp_path: Path, *, placement_mode=None, aggregation_number=8):
         settings['placement_mode'] = placement_mode
     pdc.prepare(run, protein='molecules/DDM/protein.pdb', template='molecules/DDM/micelle_template.json',
                 settings=settings, project_root=root, mapping=candidate_file(tmp_path))
-    stage = run / Path(pdc.stage_by_name('System preparation').relative).parent
+    stage = system_stage(run)
     ellipsoid = _protein()
     write_cg_pdb(stage / 'cg' / 'protein_cg.pdb',
                  [(1, 'PRO', f'B{index:02d}', point) for index, point in enumerate(ellipsoid, 1)])
@@ -193,7 +193,7 @@ def test_the_panels_spelling_of_the_mode_reaches_the_builders_own(tmp_path):
                 settings={'seed': 20260930, 'aggregation_number': 4, 'pdc_placement_mode': 'self-assembly'},
                 project_root=root)
 
-    settings = json.loads((run / '1_system' / pdc.SETTINGS_NAME).read_text())
+    settings = settings_of(run)
     assert settings['placement_mode'] == 'self-assembly'
     manifest = json.loads((run / 'manifest.json').read_text())
     assert manifest['settings']['placement_mode'] == 'self-assembly'

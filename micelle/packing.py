@@ -1,5 +1,6 @@
 import numpy as np
 
+
 def golden_angle_directions(count,seed):
  if count<1: return np.empty((0,3))
  rng=np.random.default_rng(seed); phase=float(rng.uniform(0,2*np.pi)); i=np.arange(count)+.5; z=1-2*i/count; a=np.pi*(3-np.sqrt(5))*i+phase

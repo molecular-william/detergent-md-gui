@@ -386,13 +386,21 @@ def test_a_request_the_tube_cannot_hold_fails_the_count_gate_rather_than_being_n
     assert placed['band']['rejected'] >= len(points) - 1, 'every entry the draw offered was refused'
 
 
-def test_a_detergent_whose_own_length_cannot_be_measured_keeps_the_sphere_it_had(tmp_path):
-    """No length, no tube: a molecule nobody measured is not a radius to build one from."""
-    placed = pdc_placement.place_detergents(_asymmetric_protein(), _template(tmp_path, length_nm=None), 8, seed=3,
+@pytest.mark.parametrize(('points', 'length_nm', 'reason'), [
+    pytest.param(_asymmetric_protein(), None, 'length', id='molecule-with-no-measurable-length'),
+    pytest.param(_ring(1.0, 3.0) + _ring(5.0, 3.0), MOLECULE_LENGTH_NM, 'slab holds no atom',
+                 id='protein-outside-the-stated-slab'),
+])
+def test_a_stated_membrane_the_placement_cannot_measure_keeps_the_sphere(tmp_path, points, length_nm, reason):
+    """No length, no tube; no atom in the slab, no centre-line: the sphere is kept and `belt_reason` says which.
+
+    A molecule nobody measured is not a radius to build a tube from, and a guessed centre-line is not one either.
+    """
+    placed = pdc_placement.place_detergents(points, _template(tmp_path, length_nm=length_nm), 8, seed=3,
                                             frame=_frame())
 
     assert placed['placement_shape'] == 'sphere' and placed['band'] is None
-    assert 'length' in placed['belt_reason']
+    assert reason in placed['belt_reason']
 
 
 def test_a_protein_that_states_no_membrane_gets_a_shell_measured_from_it(tmp_path):
@@ -432,15 +440,6 @@ def test_a_sphere_whose_protein_is_smaller_than_the_setting_keeps_the_setting_as
     assert placed['shell']['radius_source'] == 'floor'
     assert placed['shell']['measured_shell_nm'] < 4.0
     assert np.allclose(np.linalg.norm(np.asarray(placed['centers']) - np.asarray(points).mean(axis=0), axis=1), 4.0)
-
-
-
-def test_a_stated_membrane_the_protein_sits_entirely_outside_keeps_the_sphere(tmp_path):
-    """No atom in the slab means no centre-line to measure, and a guessed one is not one: the caller keeps the shell."""
-    placed = pdc_placement.place_detergents(_ring(1.0, 3.0) + _ring(5.0, 3.0), _template(tmp_path), 8, seed=3,
-                                            frame=_frame())
-
-    assert placed['placement_shape'] == 'sphere' and placed['band'] is None
 
 
 def test_an_empty_micelle_is_the_same_sphere_with_a_frame_as_without_one(tmp_path):

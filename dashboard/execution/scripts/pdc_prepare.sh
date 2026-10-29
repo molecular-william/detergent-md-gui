@@ -9,10 +9,10 @@
 # distance can be measured to -- measured on 4iar: 20 of 928 beads, the side chains of 9 lysines, 6 arginines and
 # one tryptophan.
 #
-# The step is optional, and both of its outcomes are recorded rather than implied. A run that does not ask for it
-# records `skipped` (exit 4) with its reason in `skip.json` beside this script, and the run carries on. A run that
-# does ask and cannot be answered -- the tool is not resolvable, or it exited non-zero -- records `prepare_protein.json`
-# naming the tool, its command and its log, and exits 2.
+# The step is optional, and the run's settings decide it at prepare time: a run that does not ask for it -- or has
+# no protein -- gets no stage directory at all, and the manifest records the skip. A stage that exists and cannot be
+# answered records `skipped` (exit 4) with its reason in `skip.json` when the tool is not resolvable, and writes
+# `prepare_protein.json` naming the tool, its command and its log, exiting 2, when the tool ran and failed.
 #
 # The minimisation the plan's step also names is not here: that route is atomistic, where this pipeline is
 # coarse-grained, and the chain already carries a CG `Energy minimisation` leg in front of its assessment leg. The
@@ -20,4 +20,10 @@
 # chain, 1.5 s.
 set -euxo pipefail
 
-python pdc_prepare.py --stage .
+# The interpreter the application runs under, and the repository it imports from. `python` on the stage PATH is this
+# workspace's virtualenv (`tools.search_path` puts it first); a caller that exports PYTHON/PROJECT_ROOT wins.
+PYTHON="${PYTHON:-python}"
+REPO_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+
+"$PYTHON" -m dashboard.execution.scripts.pdc_prepare --stage .

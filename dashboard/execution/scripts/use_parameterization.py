@@ -36,10 +36,10 @@ options = revision.get('options') or {}
 reference = revision.get('aa_reference') or {}
 ensemble = revision.get('ensemble') or {}
 
-# The AA reference's interaction histograms, copied in by the run's prepare. `ff_assess` scores a CG trajectory against
-# these files from its `-d` directory and never computes them, so a run without them simulates for an hour and then
-# reports `Overall Score : nan`. They are checked here, where the run's own stage can still say what is wrong, rather
-# than three stages later in a tool's stdout.
+# The AA reference's interaction histograms, named in place by the run's prepare and verified by the executor with the
+# rest of its input record. `ff_assess` scores a CG trajectory against these files from its `-d` directory and never
+# computes them, so a run without them simulates for an hour and then reports `Overall Score : nan`. They are checked
+# here again, where the run's own stage can still say what is wrong, rather than three stages later in a tool's stdout.
 inventory = Path('distributions.json')
 recorded = []
 pairs = {}

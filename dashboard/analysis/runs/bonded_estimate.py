@@ -19,11 +19,10 @@ from pathlib import Path
 import MDAnalysis as mda
 import numpy as np
 
-from . import layout
+from ... import itp
+from . import DEFAULT_TEMPERATURE, R_GAS, layout
 
-R_GAS = 8.314462618  # J / mol / K
 DEFAULT_CONSTRAINT_THRESHOLD = 10000.0
-DEFAULT_TEMPERATURE = 303.15
 REPORT = 'bonded-cross-check.json'
 
 
@@ -102,31 +101,27 @@ def parse_topology_terms(text, kinds=('bond', 'constraint'), origin='<topology>'
     rather than assumed: a topology that switched to a non-harmonic `funct` would otherwise be read as a harmonic term
     with a meaningless length, and the comparison would report a difference that is really a different question.
     """
-    section = None
     terms = []
-    for number, raw in enumerate(text.splitlines(), start=1):
-        line = raw.split(';', 1)[0].strip()
-        if not line:
-            continue
-        if line.startswith('['):
-            section = TOPOLOGY_SECTIONS.get(line.strip('[] \t').split()[0])
-            continue
+    for name, rows in itp.sections(text):
+        section = TOPOLOGY_SECTIONS.get(name)
         if section not in kinds:
             continue
-        fields = line.split()
         expected = 5 if section == 'bond' else 4
-        if len(fields) < expected:
-            raise ValueError(f'{origin}:{number}: a {section} needs {expected} fields, found {len(fields)}')
-        if fields[2] != '1':
-            raise ValueError(f'{origin}:{number}: funct {fields[2]} is not harmonic, and equipartition reads '
-                             'harmonic terms only')
-        try:
-            atoms = tuple(int(index) for index in fields[:2])
-            value = float(fields[3])
-            constant = float(fields[4]) if section == 'bond' else None
-        except ValueError as error:
-            raise ValueError(f'{origin}:{number}: {error}') from error
-        terms.append({'kind': section, 'atoms': atoms, 'value': value, 'force_constant': constant, 'line': number})
+        for number, line in rows:
+            fields = line.split()
+            if len(fields) < expected:
+                raise ValueError(f'{origin}:{number}: a {section} needs {expected} fields, found {len(fields)}')
+            if fields[2] != '1':
+                raise ValueError(f'{origin}:{number}: funct {fields[2]} is not harmonic, and equipartition reads '
+                                 'harmonic terms only')
+            try:
+                atoms = tuple(int(index) for index in fields[:2])
+                value = float(fields[3])
+                constant = float(fields[4]) if section == 'bond' else None
+            except ValueError as error:
+                raise ValueError(f'{origin}:{number}: {error}') from error
+            terms.append({'kind': section, 'atoms': atoms, 'value': value, 'force_constant': constant,
+                          'line': number})
     return terms
 
 

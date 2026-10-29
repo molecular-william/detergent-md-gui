@@ -1,6 +1,9 @@
 import json
 from pathlib import Path
+
 from .model import DetergentTemplate
+
+
 def load_template(path):
  d=json.loads(Path(path).read_text()); root=Path(path).parent
  for k in ('coordinates','topology'):

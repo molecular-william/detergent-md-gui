@@ -18,7 +18,7 @@ from ...models import compositions, mappings
 from ...models.mappings import context as mapping_context
 from ...models.molecules import aa as aa_molecules
 from ...web import views
-from .. import protocol, workflow
+from .. import protocol, run_inputs, workflow
 from ..adapters import aa, cg
 from . import admission, resources, temporary
 from .analysis_coordinator import AnalysisCoordinator
@@ -395,7 +395,13 @@ class Coordinator:
                     if source_lease: source_lease.close()
                 prepared = json.loads((work/'manifest.json').read_text())
                 if job.get('molecule_snapshot'):
-                    if aa_only:files.verify(workflow.execution_root(work)/'common/molecule',job['molecule_snapshot']['sha256'])
+                    if aa_only:
+                        # A prepared run that names its inputs by reference verifies the record; the legacy layout
+                        # has the molecule copy the digest names.
+                        if prepared.get('inputs') is not None:
+                            run_inputs.verify_manifest(work, prepared)
+                        else:
+                            files.verify(workflow.stage_root(work)/'common/molecule', job['molecule_snapshot']['sha256'])
                     elif job.get('run_type') == 'aa_cg' and not job.get('shared_reference'):
                         # Only a CG run consumes an AA reference. A protein-detergent build names the detergent's
                         # molecule for provenance, and demanding a reference for it refused every pdc job.
@@ -488,6 +494,12 @@ class Coordinator:
         # left to refuse. `models/bonded` keeps the states and their own compatibility checks untouched: they are
         # still fitted, edited and compared in the Bonded workspace.
         settings = protocol.adapter_for(run_type or 'aa_cg').normalize_settings(settings, profile)
+        if (run_type or 'aa_cg') == 'pdc' and not protein:
+            # Generic normalization applies the adapter's defaults before the adapter knows which protein this run
+            # has. `prepare_protein` is a protein-only default, so an empty-micelle job otherwise carries `true` and
+            # `pdc.prepare` refuses the job it just accepted -- the failure measured on `bbda8d632309`. The job
+            # record is what a retry clones, so sanitize it here rather than only at prepare time.
+            settings['prepare_protein'] = False
         reference_snapshot=None
         if reference_run_id and shared:
             try:

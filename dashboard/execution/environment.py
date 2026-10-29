@@ -193,7 +193,3 @@ def update_mdp(path, changes):
     path.write_text('\n'.join(lines) + '\n')
 
 
-def execution_root(run_dir):
-    if run_dir.is_symlink() or (run_dir/'stages').is_symlink():
-        raise ValueError('Execution directories must not be symbolic links')
-    return run_dir / 'stages' if (run_dir / 'stages').is_dir() else run_dir

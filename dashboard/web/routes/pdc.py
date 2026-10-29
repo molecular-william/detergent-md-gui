@@ -6,58 +6,30 @@ from urllib.parse import unquote
 from flask import Blueprint, Response, abort, current_app, jsonify, request
 
 from ... import paths
-from ...execution import workflow
+from ...analysis.runs import layout
 from ...execution.adapters import pdc, pdc_import, pdc_view
 from .common import coordinator
 
 blueprint = Blueprint('pdc', __name__)
 
-SETUP_STAGE = '1_system'
+SETUP_STAGE = 'system'
 SYSTEM_STRUCTURE = 'system.gro'
-SNAPSHOT_INDEX = 'snapshots.json'
 # The centre of the transmembrane slab along z. An OPM structure arrives already oriented, with the bilayer the
 # xy-plane through the origin, so the centre is a property of the coordinate frame rather than a number to measure.
 SLAB_CENTRE_NM = 0.0
 
 
 def setup_root(job_id) -> Path:
-    """The execution root of a run, or a 404 that says which run was unknown."""
+    """A run's stage root -- `stages/` when it exists, the run root for a legacy run -- or a 404.
+
+    The stage root is what every pdc built-system path is relative to, in both layouts: the numbered `02_system/` of a
+    current run and the root-level `1_system/` of the two runs written before the numbering.
+    """
     c = coordinator()
     try:
-        return workflow.execution_root(c.run_path(c.lookup(job_id)))
+        return layout.stage_root(c.run_path(c.lookup(job_id)))
     except (KeyError, OSError):
         abort(404, 'unknown run')
-
-
-def snapshot_entries(root: Path) -> list[dict]:
-    """Every stage's snapshot index, merged into one series, earliest first.
-
-    The snapshots live in the stage that took them, because that is the stage that can re-derive them; a series is
-    what a reader wants, so the merge happens here rather than in each stage's record. The placement has no time and
-    sorts first, which is the order the moments happened in.
-    """
-    entries = []
-    for index_path in sorted(Path(root).glob(f'*/{SNAPSHOT_INDEX}')):
-        try:
-            document = json.loads(index_path.read_text())
-        except (OSError, json.JSONDecodeError):
-            continue
-        for entry in document.get('snapshots') or []:
-            if isinstance(entry, dict) and entry.get('pdb'):
-                entries.append({**entry, 'stage': index_path.parent.name})
-    # `is not None` rather than `is None`: a moment without a time (the placement) is the first moment, and sorting
-    # on the truth of "has a time" would put it last.
-    return sorted(entries, key=lambda entry: (entry.get('time_ps') is not None,
-                                              float(entry.get('time_ps') or 0.0), str(entry.get('name'))))
-
-
-def snapshot_file(root: Path, relative: str) -> Path:
-    """A snapshot inside a run, or a 404: a path that leaves the run is not a snapshot."""
-    root = Path(root).resolve()
-    target = (root / relative).resolve()
-    if root not in target.parents or target.suffix != '.pdb' or not target.is_file():
-        abort(404, 'no such snapshot')
-    return target
 
 
 @blueprint.get('/api/pdc/catalog')
@@ -175,34 +147,19 @@ def pdc_import_structure():
     return jsonify(record), 201
 
 
-@blueprint.get('/api/pdc/<job_id>/snapshots')
-def pdc_snapshots(job_id):
-    """The run's snapshot series: the placement, each phase's end state, and the frames between them.
-
-    Each entry carries the criterion numbers of the moment it was taken at, so a reader compares a picture with the
-    verdict it belongs to rather than with their impression of it.
-    """
-    entries = snapshot_entries(setup_root(job_id))
-    return jsonify({'job_id': job_id, 'snapshots': entries,
-                    'note': 'derived: each snapshot carries the criterion numbers of its own moment'})
-
-
-@blueprint.get('/api/pdc/<job_id>/snapshots/<path:relative>')
-def pdc_snapshot(job_id, relative):
-    return Response(snapshot_file(setup_root(job_id), relative).read_text(), mimetype='text/plain')
-
-
 def detergent_topology(root: Path):
     """The run's detergent moleculetype, read from the stage that holds the system or from the one that wrote it.
 
-    The location is the snapshot writer's own rule (`pdc_snapshot.topology_path`), so the built-system view and a
-    snapshot of the same run draw the same bonds rather than two readings of where a run keeps its topology. A
-    moleculetype that cannot be read is reported as none -- a view with coordinates still has something to show, and
-    the writer then says the file records no bonds instead of leaving NGL to guess them.
+    The location is the build's own rule -- beside the stage, or in the stage that wrote it -- so the built-system
+    view draws the bonds the run simulated. A moleculetype that cannot be read is reported as none; a view with
+    coordinates still has something to show.
     """
-    from ...execution.scripts import pdc_snapshot
-
-    path = pdc_snapshot.topology_path(Path(root) / SETUP_STAGE)
+    directory = layout.pdc_stage_dir(root, SETUP_STAGE)
+    path = None
+    if directory is not None:
+        candidates = [directory / pdc.DETERGENT_TOPOLOGY,
+                      *sorted(directory.resolve().parent.glob(f'*/{pdc.DETERGENT_TOPOLOGY}'))]
+        path = next((candidate for candidate in candidates if candidate.is_file()), None)
     if path is None:
         return None
     try:
@@ -216,16 +173,16 @@ def pdc_system_pdb(job_id):
     """The built system as a viewer file. 404 with a reason until a build has produced one.
 
     The panel shows the system as set up rather than as imagined, so this serves the coordinates a stage wrote,
-    through the same writer the snapshots use: one residue per molecule, and the run's own moleculetype's bonds as
-    CONECT records. Without them the panel falls back to NGL's distance-based guess -- measured at 90 bonds on a
-    frame the model bonds 60 ways. Before that stage has run there is no picture to show, and saying so is better
-    than an empty box.
+    through `pdc_view.system_pdb`: one residue per molecule, and the run's own moleculetype's bonds as CONECT
+    records. Without them the panel falls back to NGL's distance-based guess -- measured at 90 bonds on a frame the
+    model bonds 60 ways. Before that stage has run there is no picture to show, and saying so is better than an
+    empty box.
     """
     root = setup_root(job_id)
-    structure = root / SETUP_STAGE / SYSTEM_STRUCTURE
+    structure = layout.pdc_stage_path(root, SETUP_STAGE, SYSTEM_STRUCTURE)
     try:
         atoms = pdc_view.read_gro(structure)
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, TypeError) as error:
         abort(404, f'no built system to show yet: {error}')
     return Response(pdc_view.system_pdb(atoms, topology=detergent_topology(root)), mimetype='text/plain')
 
@@ -432,8 +389,9 @@ def preview_choices(source):
 def preview_cache_root():
     """Where a preview keeps its coarse-grained protein: the workspace's own scratch area.
 
-    Not a run's directory, and nothing any stage reads: a run re-derives its own placement snapshot in its own stage,
-    so the preview's cache can never be mistaken for a run's input. `Paths` always resolves a workspace (the
+    Not a run's directory, and nothing any stage reads: the preview derives its own frame and keeps only the
+    coarse-grained protein, so its cache can never be mistaken for a run's input. `Paths` always resolves a workspace
+    (the
     configured one, or the repository's own directory), so the missing case is a refusal rather than a fallback to
     somewhere a preview has no business writing.
     """
@@ -478,9 +436,8 @@ def pdc_preview_placement():
     """The frame these inputs would build, derived from the build's own placement step and nothing else.
 
     A GET, because it is a derived read-only answer about the inputs -- the same shape as
-    `GET /api/pdc/proteins/<entry>/encapsulation` beside it. The picture is `pdc_view.system_pdb`'s own output, so it
-    is the same object the run records as its first snapshot: one residue per molecule, the mapping's beads, and the
-    model's own bonds as `CONECT` records.
+    `GET /api/pdc/proteins/<entry>/encapsulation` beside it. The picture is `pdc_view.system_pdb`'s own output: one
+    residue per molecule, the mapping's beads, and the model's own bonds as `CONECT` records.
 
     **A refusal is an answer, not a bad request.** A template the builder's validator refuses, and a placement that
     fails the clearance gate, come back as `200` with `valid: false` and the builder's own sentences -- the panel

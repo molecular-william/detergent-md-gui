@@ -11,8 +11,8 @@ user chose the strict reading, and this is it:
   extension duration runs from there. Every attempt is recorded with the number removed and the seed it used, and the
   loop is bounded by the run's own `attempts_max`.
 
-    python pdc_extension.py --settings ../1_system/pdc-settings.json --stage . \
-        --assessment ../3_assessment --assessment-stage ../2_assessment
+    python -m dashboard.execution.scripts.pdc_extension --settings ../../inputs/pdc-settings.json --stage . \
+        --assessment ../07_micelle_assessment --assessment-stage ../06_assessment
 """
 from __future__ import annotations
 
@@ -102,7 +102,7 @@ def kept_topology(text: str, removed: int, protein: str | None = None,
     return '\n'.join(lines) + '\n'
 
 
-def restart_mdp(text: str, seed: int) -> str:
+def restart_mdp(text: str, seed: int, *, length_ps: float | None = None) -> str:
     """The extension mdp with a fresh velocity seed, ready to restart from a checkpoint.
 
     A restart has to generate new velocities -- that is the whole difference from continuing -- and the template mdp
@@ -116,6 +116,19 @@ def restart_mdp(text: str, seed: int) -> str:
     """
     lines = []
     seeded = False
+    steps = None
+    if length_ps is not None:
+        dt = None
+        for raw in text.splitlines():
+            stripped = raw.split(';', 1)[0].strip()
+            if stripped.startswith('dt'):
+                try:
+                    dt = float(stripped.split('=', 1)[1].split()[0])
+                except (IndexError, ValueError):
+                    dt = None
+        if dt is None or dt <= 0:
+            raise SystemExit('the extension mdp states no usable dt, so its duration cannot be set')
+        steps = int(round(float(length_ps) / dt))
     for line in text.splitlines():
         stripped = line.strip()
         if stripped.startswith('gen-vel'):
@@ -124,9 +137,13 @@ def restart_mdp(text: str, seed: int) -> str:
             line, seeded = f'gen-seed = {seed}', True
         elif stripped.startswith('continuation'):
             line = 'continuation = no'
+        elif steps is not None and stripped.startswith('nsteps'):
+            line = f'nsteps = {steps}'
         lines.append(line)
     if not seeded:
         lines.append(f'gen-seed = {seed}')
+    if steps is not None and not any(raw.strip().startswith('nsteps') for raw in text.splitlines()):
+        lines.append(f'nsteps = {steps}')
     return '\n'.join(lines) + '\n'
 
 
@@ -201,10 +218,10 @@ def restart_plan(launcher: str = '', mdrun_flags: str = DEFAULT_MDRUN_FLAGS) -> 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description='Run the extension phase, removing what the criterion left out.')
-    parser.add_argument('--settings', default='../1_system/pdc-settings.json')
+    parser.add_argument('--settings', default='../../inputs/pdc-settings.json')
     parser.add_argument('--stage', default='.')
-    parser.add_argument('--assessment', default='../3_assessment')
-    parser.add_argument('--assessment-stage', default='../2_assessment')
+    parser.add_argument('--assessment', default='../07_micelle_assessment')
+    parser.add_argument('--assessment-stage', default='../06_assessment')
     args = parser.parse_args(argv)
     stage, assessment, previous = Path(args.stage), Path(args.assessment), Path(args.assessment_stage)
     settings = json.loads(Path(args.settings).read_text())
@@ -250,7 +267,12 @@ def main(argv=None) -> int:
         # New velocities, and only that changes: the seeded system is the same placement, one attempt older. The
         # seed has to differ from the one the phase it replaces used, so the first restart is seed + 1.
         seed = int(settings.get('seed', 1)) + len(history) + 1
-        (stage / RESTART_MDP).write_text(restart_mdp((stage / 'extension.mdp').read_text(), seed))
+        # The removal path rebuilds the system, so it does not inherit the assessment checkpoint. The duration has
+        # to be written here: `extension.mdp` is the assessment's own mdp (100 ns in this pipeline), and leaving its
+        # nsteps in place made a 900 ns request run 100 ns -- the run labelled 1 us was 200 ns in total.
+        extension_ps = float((stage / 'extension.ps').read_text())
+        (stage / RESTART_MDP).write_text(restart_mdp((stage / 'extension.mdp').read_text(), seed,
+                                                     length_ps=extension_ps))
         (stage / RAMP_MDP).write_text(ramp_mdp((stage / RESTART_MDP).read_text()))
         for command in restart_plan(launcher, mdrun_flags):
             run(command)

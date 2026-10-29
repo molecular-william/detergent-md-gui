@@ -6,14 +6,54 @@ from pathlib import Path
 
 from flask import Blueprint, abort, jsonify, request
 
-from dashboard.execution import assessment_rescore, workflow
+from dashboard.execution import assessment_rescore
 from dashboard.models import mappings
 
-from ...analysis.runs import transferability
+from ...analysis.runs import layout, transferability
 from ...analysis.validation import carbohydrate_targets, targets
 from .common import coordinator, json_object
 
 blueprint = Blueprint('analyses', __name__)
+
+
+def newest_published(c, job, kind, artifact, *, figure_key=None, require_figure=False,
+                     tolerate_missing_figure=False, fall_through=True):
+    """The newest attempt of `kind` whose published file still stands. `(attempt, published, path)`, or `None`.
+
+    Every analysis publishes into `analyses/<kind>/<signature>/<attempt>/`: its `result.json` names the
+    content-addressed output directory, and the file a reader wants is relative to that. An attempt whose file is
+    gone is not a published analysis and is skipped for an older one that still stands. `fall_through=False`
+    answers the newest attempt instead, with `published=None`, so a caller can name the attempt that went missing.
+
+    `figure_key` names a field in the published file that holds a figure path; the figure then joins the answer as
+    a fourth element, `None` when that file is gone. `require_figure` skips attempts whose figure is gone and
+    `tolerate_missing_figure` remembers the newest of those, so an analysis that published and lost its figure
+    still answers -- with `None` -- rather than reading as never published.
+    """
+    records = sorted((c.run_path(job) / 'analyses' / kind).glob('*/*/result.json'),
+                     key=lambda path: path.stat().st_mtime, reverse=True)
+    if not records:
+        return None
+    without_figure = None
+    for record_path in records:
+        attempt = record_path.parent
+        output = attempt / str(json.loads(record_path.read_text()).get('output_directory') or '')
+        published_path = output / artifact
+        if not published_path.is_file():
+            if not fall_through:
+                return attempt, None, published_path
+            continue
+        published = json.loads(published_path.read_text())
+        if figure_key is None:
+            return attempt, published, published_path
+        figure = output / str(published.get(figure_key) or '')
+        if figure.is_file():
+            return attempt, published, published_path, figure
+        if not require_figure:
+            return attempt, published, published_path, None
+        if tolerate_missing_figure and without_figure is None:
+            without_figure = (attempt, published, published_path, None)
+    return without_figure
 
 
 def newest_comparison(c, job):
@@ -23,16 +63,14 @@ def newest_comparison(c, job):
     names a file that does not exist" are different answers for a reader, and only the second is worth looking
     into. Both readers of a comparison come through here, so they cannot disagree about which attempt answered.
     """
-    directory = c.run_path(job) / 'analyses/mapping-consistency'
-    records = sorted(directory.glob('*/*/result.json'), key=lambda path: path.stat().st_mtime, reverse=True)
-    if not records:
+    found = newest_published(c, job, 'mapping-consistency', 'analysis/mapping_consistency.json',
+                             fall_through=False)
+    if found is None:
         raise LookupError('No AA vs CG comparison has been published for this run')
-    attempt = records[0].parent
-    record = json.loads(records[0].read_text())
-    artifact = attempt / str(record.get('output_directory') or '') / 'analysis/mapping_consistency.json'
-    if not artifact.is_file():
+    attempt, published, artifact = found
+    if published is None:
         raise LookupError(f'{attempt.name} names no published comparison file')
-    return attempt, record, artifact
+    return attempt, json.loads((attempt / 'result.json').read_text()), artifact
 
 
 def newest_surfaces(c, job):
@@ -43,20 +81,8 @@ def newest_surfaces(c, job):
     statistics and a self-contained figure. Most runs have never had one -- it is queued by hand -- and that is a
     state a card has to be able to say, so this answers `None` rather than raising.
     """
-    records = sorted((c.run_path(job) / 'analyses/surfaces').glob('*/*/result.json'),
-                     key=lambda path: path.stat().st_mtime, reverse=True)
-    for record_path in records:
-        attempt = record_path.parent
-        output = attempt / str(json.loads(record_path.read_text()).get('output_directory') or '')
-        metadata = output / 'analysis/surfaces/metadata.json'
-        if not metadata.is_file():
-            # An attempt that names a file that is no longer there is not a published analysis; an older one
-            # that still stands may be.
-            continue
-        published = json.loads(metadata.read_text())
-        figure = output / str(published.get('comparison_html') or '')
-        return attempt, published, metadata, (figure if figure.is_file() else None)
-    return None
+    return newest_published(c, job, 'surfaces', 'analysis/surfaces/metadata.json',
+                            figure_key='comparison_html')
 
 
 def newest_overlap(c, job):
@@ -66,40 +92,17 @@ def newest_overlap(c, job):
     *unless nothing better exists*, and then it still answers with `figure=None` so the card can report that the
     analysis published and its figure is no longer on disk -- a sentence a run that was never analysed must not get.
     """
-    records = sorted((c.run_path(job) / 'analyses/overlap').glob('*/*/result.json'),
-                     key=lambda path: path.stat().st_mtime, reverse=True)
-    without_figure = None
-    for record_path in records:
-        attempt = record_path.parent
-        output = attempt / str(json.loads(record_path.read_text()).get('output_directory') or '')
-        report = output / 'overlap.json'
-        if not report.is_file():
-            continue
-        published = json.loads(report.read_text())
-        figure = output / str(published.get('figure') or '')
-        if figure.is_file():
-            return attempt, published, report, figure
-        if without_figure is None:
-            without_figure = (attempt, published, report, None)
-    return without_figure
+    return newest_published(c, job, 'overlap', 'overlap.json', figure_key='figure',
+                            require_figure=True, tolerate_missing_figure=True)
 
 
 def newest_cross_check(c, job):
     """A run's newest published bonded cross-check: `(attempt, published, report)`, or `None`.
 
     Unlike the overlap reader, there is no figure to require: this analysis publishes numbers and the list of terms
-    the two sides disagree about, so a report that is on disk is the whole artifact. An attempt whose report is gone
-    is skipped, which is the fall-through the overlap reader has to spell out because it also has a figure to lose.
+    the two sides disagree about, so a report that is on disk is the whole artifact.
     """
-    records = sorted((c.run_path(job) / 'analyses/bonded-cross-check').glob('*/*/result.json'),
-                     key=lambda path: path.stat().st_mtime, reverse=True)
-    for record_path in records:
-        attempt = record_path.parent
-        output = attempt / str(json.loads(record_path.read_text()).get('output_directory') or '')
-        report = output / 'bonded-cross-check.json'
-        if report.is_file():
-            return attempt, json.loads(report.read_text()), report
-    return None
+    return newest_published(c, job, 'bonded-cross-check', 'bonded-cross-check.json')
 
 
 def newest_dihedral_fit(c, job):
@@ -108,15 +111,7 @@ def newest_dihedral_fit(c, job):
     The same shape as `newest_cross_check` and for the same reason: this analysis publishes numbers and a list of
     terms, with no figure to lose, so a report on disk is the whole artifact.
     """
-    records = sorted((c.run_path(job) / 'analyses/dihedral-fit').glob('*/*/result.json'),
-                     key=lambda path: path.stat().st_mtime, reverse=True)
-    for record_path in records:
-        attempt = record_path.parent
-        output = attempt / str(json.loads(record_path.read_text()).get('output_directory') or '')
-        report = output / 'dihedral-fit.json'
-        if report.is_file():
-            return attempt, json.loads(report.read_text()), report
-    return None
+    return newest_published(c, job, 'dihedral-fit', 'dihedral-fit.json')
 
 
 @blueprint.post('/api/jobs/<jid>/<kind>')
@@ -140,21 +135,6 @@ def queue_analysis(jid, kind):
         except (ValueError, OSError) as exc:
             abort(400, str(exc))
         payload = {**payload, 'molecule_id': molecule_id, 'target_dataset': dataset}
-    if kind == 'snapshots':
-        # The one payload that changes what an analysis *writes*. Checked here so a cadence that means nothing is a
-        # 400 the reader can act on rather than a failure inside the worker they have to go and read.
-        if 'interval_ns' in payload and payload['interval_ns'] is not None:
-            try:
-                interval = float(payload['interval_ns'])
-            except (TypeError, ValueError):
-                abort(400, 'The sampling cadence must be a number of nanoseconds per frame')
-            if not 0 < interval <= 1000:
-                abort(400, 'The sampling cadence must be between 0 and 1000 ns per frame')
-            payload = {**payload, 'interval_ns': interval}
-        if 'align' in payload and not isinstance(payload['align'], bool):
-            abort(400, 'Aligning the frames is a yes or no')
-        if 'align_on' in payload and not isinstance(payload['align_on'], str):
-            abort(400, 'The fragment to fit on is named as a string')
     task, status = coordinator().analysis_coordinator.queue(jid, kind, payload)
     return jsonify(task), status
 
@@ -388,26 +368,38 @@ def analyses_api(jid):
 def targets_get(jid):
     c = coordinator()
     job = c.lookup(jid); path = c.analysis_coordinator.dependencies(job).get('experimental_targets.json')
-    return jsonify(json.loads((c.run_path(job)/path).read_text()) if path else targets.read(workflow.execution_root(c.run_path(job))))
+    return jsonify(json.loads((c.run_path(job)/path).read_text()) if path else targets.read(layout.stage_root(c.run_path(job))))
 
 
 def assessment_directories(root):
-    """Every attempt of a run's stage-5 assessment, newest first: `(attempt, directory)`.
+    """Every attempt of a run's assessment, newest first: `(attempt, directory)`.
 
-    `5_assessment` is the first attempt, numbered 0, and `5_assessment@<n>` is a re-score's. The number is what
+    `5_assessment` is a CG run's first attempt, numbered 0, and `5_assessment@<n>` is a re-score's; a numbered pdc
+    run's final assessment is `09_final_assessment` (and its re-score would be `09_final_assessment@<n>`). Both
+    prefixes are read, so a run of either type -- or of the older pdc layout -- is answered. The number is what
     orders them, because a lexicographic order puts attempt 10 before attempt 9; anything else in the directory that
     merely starts with the same name is not an attempt and is not read.
     """
     attempts = []
-    for path in Path(root).glob('5_assessment*'):
-        if not path.is_dir():
-            continue
-        suffix = path.name[len('5_assessment'):]
-        if suffix == '':
-            attempts.append((0, path))
-        elif suffix.startswith('@') and suffix[1:].isdigit():
-            attempts.append((int(suffix[1:]), path))
+    for prefix in layout.ASSESSMENT_DIRECTORIES:
+        for path in Path(root).glob(f'{prefix}*'):
+            if not path.is_dir():
+                continue
+            suffix = path.name[len(prefix):]
+            if suffix == '':
+                attempts.append((0, path))
+            elif suffix.startswith('@') and suffix[1:].isdigit():
+                attempts.append((int(suffix[1:]), path))
     return sorted(attempts, reverse=True)
+
+
+def assessment_directory(root):
+    """The assessment stage directory a run wrote, newest layout first, or its CG spelling when neither is there."""
+    for name in layout.ASSESSMENT_DIRECTORIES:
+        path = Path(root) / name
+        if path.is_dir():
+            return path
+    return Path(root) / layout.ASSESSMENT_DIRECTORIES[-1]
 
 
 @blueprint.get('/api/jobs/<jid>/distance-diagnostics')
@@ -421,7 +413,7 @@ def distance_diagnostics_api(jid):
     """
     c = coordinator()
     job = c.lookup(jid)
-    root = workflow.execution_root(c.run_path(job))
+    root = layout.stage_root(c.run_path(job))
     found = None
     for attempt, assessment in assessment_directories(root):
         strat = assessment / 'distance_diagnostics_stratified.json'
@@ -452,9 +444,9 @@ def compare_api():
     if not 2 <= len(ids) <= 4 or len(set(ids)) != len(ids): abort(400, 'Choose 2–4 different runs')
     comparisons = []
     for jid in ids:
-        job = c.lookup(jid); root = workflow.execution_root(c.run_path(job)); reports = {}
+        job = c.lookup(jid); root = layout.stage_root(c.run_path(job)); reports = {}
         for name in ('validation.json','numerical_stability.json','refinement_score.json','experimental_targets.json'):
-            candidates = [root/('5_assessment' if name == 'validation.json' else 'analysis')/name]
+            candidates = [(assessment_directory(root) if name == 'validation.json' else root/'analysis')/name]
             candidates += [c.run_path(job)/p for t in job.get('analyses',[]) if t['status']=='completed' for p in t.get('outputs',[]) if Path(p).name==name]
             for path in reversed(candidates):
                 if path.is_file():

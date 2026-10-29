@@ -21,10 +21,6 @@ from dashboard import files
 from dashboard.execution import protocol, workflow
 from dashboard.execution.adapters import osmotic
 
-# On the slow tier: a series stop spans runner subprocesses, which is what the marker renders.
-pytestmark = pytest.mark.slow
-
-
 SERIES = 'series0stop01'
 FAILED = 'fa11ed000001'
 FIRST = 'ca11ed000001'
@@ -159,6 +155,7 @@ def test_a_failure_in_a_different_series_does_not_touch_this_one(dashboard, monk
     assert _status(owner, FIRST) == 'queued'
 
 
+@pytest.mark.slow
 def test_a_failed_run_of_another_type_cannot_stop_an_osmotic_series(dashboard, monkeypatch):
     """Only a condition of this run type stops a series; a failure elsewhere that happens to carry a series id and
     the `stop` choice leaves the conditions alone."""

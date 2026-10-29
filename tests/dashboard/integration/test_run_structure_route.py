@@ -123,6 +123,45 @@ def test_a_protein_detergent_runs_structure_carries_the_detergents_bonds(dashboa
     assert 'DDM.itp' in text, 'the file does not say which topology its bonds came from'
 
 
+def _protein_moleculetype(name):
+    return (f'[ moleculetype ]\n{name} 1\n\n[ atoms ]\n'
+            '1 Q5 1 PRO BB 1 1\n2 TC4 1 PRO SC1 2 1\n\n[ bonds ]\n1 2 1 0.35 1000\n')
+
+
+def test_a_protein_detergent_runs_structure_bonds_the_protein_chains_too(dashboard):
+    """The route serves the protein's leading beads bonded by their own `1_system/cg/` moleculetypes.
+
+    The protein beads are the leading atoms and their chains' topologies are the files that state their bonds; the
+    detergent keeps its own CONECT beside them, and the protein block is checked against its `[ atoms ]` before any
+    bond is drawn.
+    """
+    root = dashboard.coordinator.RUNS / PDC_JOB
+    structure = root / PDC_STRUCTURE
+    structure.parent.mkdir(parents=True)
+    lines = ['protein-detergent system', f'{2 + len(DDM_BEADS):5d}']
+    lines.append(gro_atom_line(1, 'PRO', 'BB', 1, (0.0, 0.0, 0.0)))
+    lines.append(gro_atom_line(1, 'PRO', 'SC1', 2, (0.3, 0.0, 0.0)))
+    for serial, bead in enumerate(DDM_BEADS, start=3):
+        lines.append(gro_atom_line(2, 'DDM', bead, serial, (serial * 0.3, 1.0, 0.0)))
+    lines.append('   8.00000   8.00000   8.00000')
+    structure.write_text('\n'.join(lines) + '\n')
+    topology = root / PDC_TOPOLOGY
+    topology.parent.mkdir(parents=True)
+    topology.write_text(ddm_moleculetype())
+    (root / 'stages/1_system/cg').mkdir(parents=True)
+    (root / 'stages/1_system/cg/molecule_0.itp').write_text(_protein_moleculetype('molecule_0'))
+    dashboard.coordinator.database().insert({'id': PDC_JOB, 'run_type': 'pdc', 'status': 'completed',
+                                             'stage': 'CG assessment MD', 'molecule_id': 'DDM',
+                                             'created': '2026-10-22T19:00:00+00:00'})
+
+    text = dashboard.client.get(f'/api/jobs/{PDC_JOB}/structure?path={PDC_STRUCTURE}').get_data(as_text=True)
+    pairs = conect_pairs(text.splitlines())
+
+    assert (1, 2) in pairs, 'the protein chain was served unbonded'
+    assert len(pairs) == 1 + len(DDM_BONDS) + len(DDM_CONSTRAINTS), f'the wrong bond set: {pairs}'
+    assert "PROTEIN BONDS ARE THE MODEL'S OWN, NOT GUESSED" in text
+
+
 def test_a_path_that_leaves_the_run_is_a_404(dashboard):
     """A path is run-relative and nothing else: no other directory is reachable through this route."""
     coarse_run(dashboard)

@@ -8,8 +8,8 @@ ran. So a second attempt is staged beside the first, and the first is left exact
 
 Three things are pinned here, and the third is the one that keeps history honest:
 
-* the attempt stages the revision's own references, writes `attempt.json`, and runs the copied script with the run's
-  stage 3 for its ITP and the attempt's references for `-d`;
+* the attempt stages the revision's own references, writes `attempt.json`, and runs the repository script with the
+  run's stage 3 for its ITP and the attempt's references for `-d`;
 * exactly one `assessment_attempts` entry is appended, and the manifest's `stages` list is byte-for-byte what it was;
 * the first assessment's directory is untouched, and a non-zero exit is recorded as a failed attempt rather than
   raised -- the run finished before anybody asked for this and stays `completed`.
@@ -127,21 +127,27 @@ def test_a_rescore_stages_the_revisions_references_and_appends_one_attempt(dashb
     directory = run / 'stages/5_assessment@1'
     staged = sorted(path.name for path in (directory / 'references').glob('*.dat'))
     assert staged == sorted(PAIRS + BONDED), 'the revision\'s own histograms, not the first attempt\'s'
-    assert (directory / 'assess.sh').is_file() and (directory / 'validate_run.py').is_file(), \
-        'the script and the two it calls are staged with it'
+    for name in ('assess.sh', 'validate_run.py', 'distance_diagnostics.py'):
+        assert not (directory / name).exists(), f'{name} belongs to the repository, not to the attempt'
     written = json.loads((directory / 'attempt.json').read_text())
     assert written['attempt'] == 1 and written['revision']['revision'] == 1
     assert written['references']['files'] == 5 and written['references']['pairs'] == {'files': 3, 'expected': 3}
     assert [entry['name'] for entry in written['references']['inventory']] == sorted(PAIRS + BONDED)
     assert written['trajectory']['sha256'] == files.sha256(run / 'stages/4_CG_sim/prod/lig_CG.xtc')
     assert written['mapping']['mapping_hash'] == parameterization.identities(mapping())['mapping_hash']
+    assert set(written['scripts']) == {'dashboard/execution/scripts/assess.sh',
+                                       'dashboard/execution/scripts/validate_run.py',
+                                       'dashboard/execution/scripts/distance_diagnostics.py'}
 
-    # The script ran in its own directory, with the run's stage 3 for the ITP and the attempt's references for `-d`.
+    # The repository script ran in the attempt's directory, with the run's stage 3 for the ITP and the attempt's
+    # references for `-d`; its helpers are modules found through `PYTHONPATH`.
     assert calls[0]['cwd'] == str(directory)
+    assert calls[0]['command'][-1] == str(assessment_rescore.environment.ROOT / 'dashboard/execution/scripts/assess.sh')
     assert calls[0]['env']['INITIAL_DIR'] == str(run / 'stages/3_initial_CG')
     assert calls[0]['env']['REFERENCES'] == str((directory / 'references').resolve())
     assert calls[0]['env']['INITIAL_ITP'] == 'DDM_initial.itp'
     assert calls[0]['env']['MOLECULE_TYPE'] == 'DDM'
+    assert calls[0]['env']['PYTHON'] and calls[0]['env']['PYTHONPATH']
     assert (directory / 'console.log').read_text().startswith('$ bash -e -o pipefail')
 
     recorded = manifest(run)

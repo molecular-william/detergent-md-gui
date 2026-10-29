@@ -17,7 +17,7 @@ import pytest
 
 from dashboard.execution.adapters import pdc, pdc_import
 from dashboard.execution.scripts import pdc_build
-from tests.dashboard.pdc_fixtures import molecule_tree, prepared_run
+from tests.dashboard.pdc_fixtures import molecule_tree, prepared_run, settings_of, system_stage
 
 TEMPLATE = {
     'name': 'DDM', 'residue': 'DDM', 'coordinates': 'results/MMFF/lig1.pdb',
@@ -35,11 +35,7 @@ def prepared(tmp_path: Path, settings: dict | None = None):
 
 
 def stage_directory(run: Path) -> Path:
-    return run / Path(pdc.stage_by_name('System preparation').relative).parent
-
-
-def settings_of(run: Path) -> dict:
-    return json.loads((stage_directory(run) / pdc.SETTINGS_NAME).read_text())
+    return system_stage(run)
 
 
 def gro_text(atoms, box=(8.0, 8.0, 8.0)) -> str:

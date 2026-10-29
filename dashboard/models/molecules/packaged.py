@@ -9,7 +9,7 @@ import re
 from copy import deepcopy
 from functools import lru_cache
 
-from ... import paths
+from ... import martini3, paths
 
 ROOT = paths.DEFAULT.project_root
 SOURCE = ROOT / 'molecules' / 'DDM'
@@ -53,8 +53,8 @@ def _molecule(topology_text, coordinate_text):
 
 
 def bead_types():
-    """Catalog of Martini 3.0.0 atom types plus sugar-fragment annotations."""
-    path = ROOT/'resources/templates/small_mols_fast_forward/3_initial_CG/martini_v3.0.0.itp'
+    """Catalog of Martini 3.0.0 atom types plus sugar-fragment annotations, from the installed set."""
+    path = martini3.path('martini_v3.0.0.itp')
     stat = path.stat()
     return deepcopy(_bead_types(path, stat.st_mtime_ns, stat.st_size))
 

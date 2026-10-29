@@ -65,7 +65,7 @@ def engine(mapping_dir, beads, frames=5):
 
 def runner(command, cwd, *, env=None, timeout=None, job_id=None, log=None):
     cwd = Path(cwd)
-    if 'sugar_mapping.py' in ' '.join(str(part) for part in command):
+    if 'scripts.sugar_mapping' in ' '.join(str(part) for part in command):
         engine(cwd, json.loads((cwd / 'model.json').read_text())['beads'])
     elif 'fit_topology.sh' in ' '.join(str(part) for part in command):
         (cwd / env['FINAL_ITP']).write_text(TOPOLOGY)

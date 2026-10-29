@@ -1,6 +1,6 @@
 """Generic coarse-grained workflow adapter, with packaged DDM defaults.
 
-Stages, MDP rewrites and readiness are molecule-agnostic. When a molecule
+Stages, MDP profiles and readiness are molecule-agnostic. When a molecule
 snapshot is supplied, the CG residue name and topology filenames derive from
 that snapshot via CGNames.for_snapshot and the AA stage is consumed from a
 coordinator-attached shared reference. The packaged SwissParam source under
@@ -9,29 +9,56 @@ snapshot (historical smoke-test paths).
 """
 import hashlib
 import json
-import shutil
-import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
-from ... import files
-from ...models import bonded, mappings
+from ... import files, martini3
+from ...models import mappings
 from ...models.bonded import parameterization as parameterizations
 from ...models.molecules import aa as aa_molecules
 from ...models.molecules import draft as draft_model
-from .. import devices, protocol, tools
-from ..environment import AA_TEMPLATE, FORCE_FIELD, ROOT, TUTORIAL_TEMPLATE, environment, probe_tool, recorded_environment, update_mdp
+from .. import devices, protocol, run_inputs, tools
+from ..environment import AA_TEMPLATE, FORCE_FIELD, ROOT, TUTORIAL_TEMPLATE, environment, probe_tool, recorded_environment
+from ..mdp import PROFILES, write_mdp
+from ..settings import normalize
 from ..stages import Stage, stage_tables
 from . import aa
 from .cg_names import CGNames
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 # What this module offers to the rest of the application: PROTOCOL (the run-type
-# surface at the end of this file), stage_contract() for a naming context, and
-# SCRIPTS for run preparation. The stage tables, settings bounds and tool report
-# in between are read through those three; a name is not part of the interface
-# merely because it is importable.
+# surface at the end of this file), stage_contract() for a naming context, and the
+# repository script directory the stages run from. The stage tables, settings bounds
+# and tool report in between are read through those; a name is not part of the
+# interface merely because it is importable.
+
+#: The CG half's shared inputs, read where they live and named by path and digest in the run's `inputs` record. The
+#: Martini names are files of the installed set (`dashboard.martini3`), never repository paths: every run reads the one
+#: installed copy, and each topology names it by a path relative to where the topology is written. `water.gro` is the
+#: box `gmx solvate` replicates and `cg_simulation.sh` opens in place; `vdwradii_AA.dat` is kept for the convention it
+#: is (the CG radii beside it are generated from bead sizes).
+TEMPLATE_MDPS = TUTORIAL_TEMPLATE / '4_CG_sim/inputs'
+MARTINI_FF = martini3.REQUIRED[0]
+MARTINI_SOLVENTS = martini3.REQUIRED[1]
+MARTINI_IONS = martini3.REQUIRED[2]
+WATER_BOX = TEMPLATE_MDPS / 'water.gro'
+SASA_RADII_AA = TUTORIAL_TEMPLATE / '5_SASA/vdwradii_AA.dat'
+SUGAR_REFERENCE = martini3.SUGARS[0]
+SUGAR_PROVENANCE = martini3.SUGARS[1]
+
+#: The repository modules the stage scripts execute, recorded by path and digest beside the scripts. The helpers are
+#: reached as package modules (`"$PYTHON" -m dashboard.execution.scripts.<name>`) so nothing is copied into a run; the
+#: executor re-hashes each one before a stage starts and refuses a stage whose code changed since prepare.
+MODULES = {
+    'dashboard.execution.scripts.sugar_mapping': 'dashboard/execution/scripts/sugar_mapping.py',
+    'dashboard.execution.scripts.refine_bonded': 'dashboard/execution/scripts/refine_bonded.py',
+    'dashboard.execution.scripts.prepare_ring_constraints': 'dashboard/execution/scripts/prepare_ring_constraints.py',
+    'dashboard.execution.scripts.use_parameterization': 'dashboard/execution/scripts/use_parameterization.py',
+    'dashboard.execution.scripts.validate_run': 'dashboard/execution/scripts/validate_run.py',
+    'dashboard.execution.scripts.distance_diagnostics': 'dashboard/execution/scripts/distance_diagnostics.py',
+    'dashboard.models.bonded': 'dashboard/models/bonded/__init__.py',
+}
 
 #: The profile an AA-to-CG run is stamped with. Fitting is a property of this run type rather than a per-run
 #: choice (D1/D2): the run always fits its own bonded parameters from a full-length AA reference, and a CG run
@@ -40,23 +67,34 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 #: available to `aa_only`, the only run type that has ever used it.
 AA_CG_PROFILE = 'draft-smoke-reference'
 
+#: Every stage runs the repository's own script (`dashboard/execution/scripts/`) with its stage directory as the
+#: working directory; the run records that path and its digest instead of carrying a copy. `relative` still names the
+#: stage directory and the entry point a legacy run used, so the stage plan a reader resolves does not move -- the
+#: file it names no longer has to exist.
 STAGE_DEFS = (
     Stage('AA reference', '1_AA-reference/aa_reference.sh',
           ('molecule.pdb', 'system_EMPTY.top', 'em.mdp', 'eq.mdp', 'run.mdp'),
-          ('prod/lig.gro', 'prod/lig.tpr', 'prod/lig.xtc', '3-run.xtc')),
+          ('prod/lig.gro', 'prod/lig.tpr', 'prod/lig.xtc', '3-run.xtc'),
+          script='dashboard/execution/scripts/aa_reference.sh'),
     Stage('trajectory mapping', '2_mapping/map_trajectory.sh',
           ('../1_AA-reference/prod/lig.xtc', '../1_AA-reference/prod/lig.tpr',
            '../1_AA-reference/prod/lig.gro', 'mapping.map'),
-          ('mapped.xtc', 'mapped.gro', 'mapping_validation.json')),
+          ('mapped.xtc', 'mapped.gro', 'mapping_validation.json'),
+          script='dashboard/execution/scripts/map_trajectory.sh'),
     Stage('CG parameterization', '3_initial_CG/fit_topology.sh',
           ('../2_mapping/mapped.xtc', '../2_mapping/mapped.gro', 'initial.mdp',
            'topol.top', '{initial_itp}'),
           ('mapped.tpr', '{final_itp}', '*_bonds_distr.dat',
-           '*_angles_distr.dat', '*_distances_distr.dat')),
-    Stage('CG simulation', '4_CG_sim/cg_simulation.sh',
+           '*_angles_distr.dat', '*_distances_distr.dat'),
+          script='dashboard/execution/scripts/fit_topology.sh'),
+    # The water box and the template MDPs are named here, not linked into `inputs/`: the script reads the published
+    # box from the repository and the MDPs the run generated. `relative` keeps the stage's old entry-point name -- the
+    # file a legacy run's own copy still is -- while `script` names the repository file this stage executes.
+    Stage('CG simulation', '4_CG_sim/cg_simulation_run.sh',
           ('../2_mapping/mapped.gro', '../3_initial_CG/{final_itp}',
            'system_EMPTY.top', 'inputs/md.mdp'),
-          ('prod/lig_CG.gro', 'prod/lig_CG.tpr', 'prod/lig_CG.xtc')),
+          ('prod/lig_CG.gro', 'prod/lig_CG.tpr', 'prod/lig_CG.xtc'),
+          script='dashboard/execution/scripts/cg_simulation.sh'),
     Stage('CG assessment (ff_assess)', '5_assessment/assess.sh',
           ('../4_CG_sim/prod/lig_CG.xtc', '../4_CG_sim/prod/lig_CG.tpr',
            '../4_CG_sim/prod/lig_CG.gro', '../3_initial_CG/{initial_itp}',
@@ -64,11 +102,13 @@ STAGE_DEFS = (
            '../3_initial_CG/*_distances_distr.dat'),
           ('report_interactions.out', 'report_distances.out', 'validation.json',
            'distance_diagnostics_stratified.json',
-           'distance_matrix_stratified_{residue_name}.png')),
+           'distance_matrix_stratified_{residue_name}.png'),
+          script='dashboard/execution/scripts/assess.sh'),
     Stage('SASA analysis', '6_SASA/sasa.sh',
           ('../1_AA-reference/prod/lig.xtc', '../4_CG_sim/prod/lig_CG.xtc',
-           'AA/vdwradii.dat', 'CG/vdwradii.dat'),
-          ('AA/SASA-AA.xvg', 'CG/SASA-CG.xvg')),
+           'CG/vdwradii.dat'),
+          ('AA/SASA-AA.xvg', 'CG/SASA-CG.xvg'),
+          script='dashboard/execution/scripts/sasa.sh'),
 )
 
 _DEFAULT_NAMES = CGNames.ddm_defaults()
@@ -93,8 +133,15 @@ PARAMETERIZED = {
         'inputs': ('../2_mapping/mapped.xtc', '../2_mapping/mapped.gro', 'initial.mdp',
                    'topol.top', '{initial_itp}', 'parameterization.json'),
         'outputs': ('mapped.tpr', '{final_itp}', 'parameterization_used.json'),
+        'script': 'dashboard/execution/scripts/use_parameterization.sh',
     },
     'CG assessment (ff_assess)': {
+        # The revision's histograms stay in the parameterization store and are named in the run's `inputs` record;
+        # stage 5 reads them through the `references.txt` the run's prepare writes. So the stage keeps `assess.sh` and
+        # only its declared inputs differ: an atomistic reference distribution is a fit's output, and this run made
+        # none. `relative` keeps the old generated entry's name so a legacy run's own copy is still the fallback the
+        # executor reaches for; the repository script it names is the one declaration above.
+        'relative': '5_assessment/assess_parameterization.sh',
         'inputs': ('../4_CG_sim/prod/lig_CG.xtc', '../4_CG_sim/prod/lig_CG.tpr',
                    '../4_CG_sim/prod/lig_CG.gro', '../3_initial_CG/{initial_itp}'),
     },
@@ -164,16 +211,10 @@ def stage_defaults(profile='standard'):
 
 
 def _normalize_cg_settings(settings=None, profile='standard'):
-    if settings is not None and not isinstance(settings,dict): raise ValueError('Run settings must be an object')
-    values = dict(stage_defaults(profile)['values'])
-    for key, value in (settings or {}).items():
-        if key not in SETTING_SPECS: raise ValueError(f'Unknown run setting: {key}')
-        try: number = float(value)
-        except (TypeError, ValueError) as exc: raise ValueError(f'{SETTING_SPECS[key][0]} must be numeric') from exc
-        if not SETTING_SPECS[key][1] <= number <= SETTING_SPECS[key][2]: raise ValueError(f'{SETTING_SPECS[key][0]} must be between {SETTING_SPECS[key][1]} and {SETTING_SPECS[key][2]}')
-        values[key] = number
-    if int(values['cg_seed']) != values['cg_seed']: raise ValueError('CG random seed must be an integer')
-    values['cg_seed'] = int(values['cg_seed'])
+    values = normalize(
+        settings, stage_defaults(profile)['values'], specs=SETTING_SPECS,
+        object_message='Run settings must be an object', unknown_prefix='Unknown run setting: ',
+        label_messages=True, integrals={'cg_seed': 'CG random seed must be an integer'})
     if values['output_interval_ps'] > min(values['aa_production_ps'], values['cg_production_ps']):
         raise ValueError('Trajectory interval must not exceed either production duration')
     return values
@@ -209,17 +250,26 @@ def mdp_integration(folder, aa_dir, steps):
     return changes
 
 
-def fit_temperature(text, temperature_k):
-    """Rewrite the CG topology stage's `ff_inter -temperature` anchor to the run's temperature.
+#: The reviewed profile each MDP this run writes uses, keyed by its path relative to `stages/` -- the path the stage
+#: scripts already read.
+MDP_PROFILES = {'3_initial_CG/initial.mdp': 'cg-initial-v1',
+                '4_CG_sim/inputs/minimization.mdp': 'cg-minimization-v1',
+                '4_CG_sim/inputs/eq.mdp': 'cg-equilibration-v1',
+                '4_CG_sim/inputs/md.mdp': 'cg-production-v1'}
 
-    `ff_inter` declares `-temperature` as an `int` and feeds it to a Boltzmann inversion, so a fractional
-    run temperature (303.15 K) is rounded for that one argument — passing it through as written makes the
-    tool exit with `ff_inter: error: argument -temperature: invalid int value: '303.15'`, and the whole CG
-    topology stage fails with it. The run's own temperature stays fractional in the manifest and in the
-    MDPs. This is a function rather than an inline `replace` so that a template which no longer carries the
-    anchor fails a test instead of silently fitting at the template's own temperature.
+
+def mdp_values(settings, profile):
+    """The numbers one CG dynamics profile leaves to the run, at the profile's own timestep.
+
+    The step count and the output stride are the arithmetic `cg.prepare` has always used; only the timestep moved,
+    from a template read back after patching to the reviewed profile the file is rendered from.
     """
-    return text.replace('-temperature 300', f'-temperature {round(float(temperature_k))}')
+    dt = PROFILES[profile].settings['dt']
+    duration = settings['cg_equil_ps' if profile == 'cg-equilibration-v1' else 'cg_production_ps']
+    return {'nsteps': round(duration / dt),
+            'nstxtcout': max(1, round(settings['output_interval_ps'] / dt)),
+            'ref-t': settings['temperature_k'], 'gen-temp': settings['temperature_k'],
+            'gen-seed': settings['cg_seed'], 'ld-seed': settings['cg_seed']}
 
 
 def normalize_settings(settings=None, profile='standard'):
@@ -250,14 +300,14 @@ def stage_mapping(directory: Path, data, *, names) -> None:
 
     One definition for the two callers that need it -- a run's `prepare` and the panel's fit job --
     because a fit whose frames were mapped by a different exporter than the run's would be fitting a
-    trajectory the run cannot reproduce.
+    trajectory the run cannot reproduce. The mapper itself stays in the repository: both callers run
+    `dashboard.execution.scripts.sugar_mapping` as a package module.
     """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     exports = mappings.export_files(data)
     for filename in ('mapping.map', 'mapping.ndx', 'model.json', 'README.txt'):
         (directory / filename).write_text(exports[filename])
-    shutil.copy2(SCRIPTS / 'sugar_mapping.py', directory / 'sugar_mapping.py')
 
 
 def stage_parameterization(directory: Path, data, *, names, molecule_root=None) -> None:
@@ -267,37 +317,70 @@ def stage_parameterization(directory: Path, data, *, names, molecule_root=None) 
     reads are the same files whether this stage goes on to fit or goes on to write the model's own
     terms; only the driver and its outputs differ. Staged together for that reason, and shared with
     the panel's fit job so a fit produced there is produced by the files a run would have used.
+
+    What it does **not** write is code or a copy of anything the repository already publishes: the
+    helpers are package modules the shared script runs from the checkout, and `topol.top` includes the
+    installed Martini force field by a path relative to this directory, so the tree is read where it
+    lives and the include resolves here, from a stage directory, or from the fit job's scratch tree.
     """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(Path(bonded.__file__), directory / 'bonded.py')
-    shutil.copy2(SCRIPTS / 'refine_bonded.py', directory / 'refine_bonded.py')
-    # The ring-constraint pass is staged for every mapping, because the stage script calls it
-    # unconditionally: it reads `2_mapping/ring_targets.json` and returns when there is none, so a
-    # mapping without rings needs the script present and inert rather than absent.
-    shutil.copy2(SCRIPTS / 'prepare_ring_constraints.py', directory / 'prepare_ring_constraints.py')
     (directory / names.initial_itp).write_text(
         draft_model.initial_topology(data, molecule_root=molecule_root, residue_name=names.residue_name))
-    if data.get('rings'):
-        # Only the ring pass reads the sugar reference, so it is staged where a ring pass will run.
-        for suffix in ('.itp', '.source.json'):
-            shutil.copy2(ROOT / 'references' / ('martini_v3.0.0_sugars_v2' + suffix),
-                         directory / ('reference_sugars_v2' + suffix))
-    shutil.copy2(TUTORIAL_TEMPLATE / '3_initial_CG/martini_v3.0.0.itp', directory / 'martini_v3.0.0.itp')
-    shutil.copy2(TUTORIAL_TEMPLATE / '3_initial_CG/initial.mdp', directory / 'initial.mdp')
-    update_mdp(directory / 'initial.mdp', {'nsteps': 0})
+    write_mdp('cg-initial-v1', directory / 'initial.mdp')
     (directory / 'topol.top').write_text(
-        f'#include "martini_v3.0.0.itp"\n#include "{names.initial_itp}"\n'
+        f'#include "{martini3.include(MARTINI_FF, directory)}"\n#include "{names.initial_itp}"\n'
         f'[ system ]\n{names.residue_name} draft\n[ molecules ]\n{names.residue_name} 1\n')
 
 
-def stage_distributions(directory, mapping_candidate=None, beads=None):
-    """Stage the model's reference histograms into stage 3, where stage 5's `-d` reads them; or say there are none.
+def _recorded_histograms(mapping_candidate=None, beads=None, recorded=None):
+    """The revision's recorded reference histograms as `(inventory, [(absolute path, name, digest)])`.
 
-    `ff_assess` does not measure the reference: it reads `<group>_<type>_distr.dat` files from its `-d` directory and
-    scores the CG trajectory against them. A run that *fits* in-run leaves them in `3_initial_CG` as a by-product of
+    Read, never written: the files stay in the parameterization store, which is immutable per revision and
+    hashed by the run's `inputs` record. Returns no files, with the reason, when the revision records none.
+    """
+    if recorded is None:
+        recorded = parameterizations.distributions(mapping_candidate)
+    if not recorded:
+        engine = (parameterizations.current(mapping_candidate) or {}).get('engine')
+        if engine == 'bartender':
+            return _inventory([], [], beads, "BARTENDER measured no reference histograms when this model was fitted, "
+                              "and its own analysis is not built yet (D6a of "
+                              'docs/design/2026-10-16-parameterization-and-new-run.md), so the CG '
+                              'assessment has nothing to score this run against.'), []
+        return _inventory([], [], beads, 'This model records no AA reference histograms -- it predates them being '
+                          'recorded -- so the CG assessment has nothing to score this run against. A re-fit (Fit this '
+                          'model) records them.'), []
+    listing, files = [], []
+    for entry in recorded['files']:
+        path = recorded['directory'] / entry['name']
+        data = path.read_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != entry['sha256']:
+            raise ValueError(f'The recorded reference distribution {entry["name"]} does not match its digest; '
+                             'the parameterization store has been changed under it')
+        listing.append({'name': entry['name'], 'sha256': digest})
+        files.append((path, entry['name'], digest))
+    pairs = [entry for entry in listing if parameterizations.PAIR_DISTRIBUTION.match(entry['name'])]
+    reason = None
+    if not pairs:
+        reason = (f'This model records {len(listing)} AA reference histogram(s) for its bonded terms and none of the '
+                  'pairwise distance histograms the CG assessment scores ('
+                  f'{_pair_count(beads)} expected, one `<resid>_<a>_<resid>_<b>_distances_distr.dat` per bead pair), '
+                  'so it has nothing to score this run against: `ff_assess` skips a pair with no reference file and '
+                  'leaves its cell at 0.00, which reads identical. A re-fit (Fit this model) records them.')
+    return _inventory(listing, pairs, beads, reason), files
+
+
+def reference_distributions(mapping_candidate=None, beads=None):
+    """The revision's histograms named in place, as `(inventory, store entries, [(path, name, digest)])`.
+
+    `ff_assess` does not measure the reference: it reads `<group>_<type>_<distr>.dat` files from its `-d` directory and
+    scores the CG trajectory against them. A run that *fits* in-house leaves them in `3_initial_CG` as a by-product of
     fitting -- `ff_inter -dists -dist-matrix` measures both families on the tool's own bins -- and a run that *consumes*
-    a parameterization copies only the topology, so without this its assessment finds nothing.
+    a parameterization reads them from the revision that recorded them. What it does not do is copy them: the store's
+    revision directory is immutable and already hashed, so the run names each file by path and digest, and the stage
+    that scores against them is handed that directory.
 
     A revision that records none is **not** a reason to refuse the run. It is a reason to say, in the stage that has
     nothing to do, that it had nothing to do: the simulation is still worth running (D6a keeps BARTENDER's analysis
@@ -307,43 +390,26 @@ def stage_distributions(directory, mapping_candidate=None, beads=None):
     the score matrix is built from (`parameterization.PAIR_DISTRIBUTION`), one histogram per bead pair, with the count a
     molecule of `beads` atoms needs beside it; `interactions` is bonds, angles and dihedrals. A revision carrying only
     the second family is *not* scorable and does not say so: `ff_assess` skips a pair whose reference is missing and
-    leaves that cell at 0.00, so the run would print a perfect matrix for a comparison that never happened. That is the
-    state this inventory exists to make impossible to mistake, so it is recorded with its own reason here rather than
-    discovered in the stage's log.
-
-    Returns the run's inventory: `files` (every staged histogram with its digest), `pairs`, `interactions` and `reason`
-    (why stage 5 has nothing to score, `None` when it does). A recorded file whose digest no longer matches is still an
-    error -- that is a store changed under the model, not a model without evidence.
+    leaves that cell at 0.00, so the run would print a perfect matrix for a comparison that never happened.
     """
     recorded = parameterizations.distributions(mapping_candidate)
-    if not recorded:
-        engine = (parameterizations.current(mapping_candidate) or {}).get('engine')
-        if engine == 'bartender':
-            return _inventory([], [], beads, "BARTENDER measured no reference histograms when this model was fitted, "
-                              "and its own analysis is not built yet (D6a of "
-                              'docs/design/2026-10-16-parameterization-and-new-run.md), so the CG '
-                              'assessment has nothing to score this run against.')
-        return _inventory([], [], beads, 'This model records no AA reference histograms -- it predates them being '
-                          'recorded -- so the CG assessment has nothing to score this run against. A re-fit (Fit this '
-                          'model) records them.')
-    listing = []
-    for entry in recorded['files']:
-        data = (recorded['directory'] / entry['name']).read_bytes()
-        digest = hashlib.sha256(data).hexdigest()
-        if digest != entry['sha256']:
-            raise ValueError(f'The recorded reference distribution {entry["name"]} does not match its digest; '
-                             'the parameterization store has been changed under it')
-        (directory / entry['name']).write_bytes(data)
-        listing.append({'name': entry['name'], 'sha256': digest})
-    pairs = [entry for entry in listing if parameterizations.PAIR_DISTRIBUTION.match(entry['name'])]
-    reason = None
-    if not pairs:
-        reason = (f'This model records {len(listing)} AA reference histogram(s) for its bonded terms and none of the '
-                  'pairwise distance histograms the CG assessment scores ('
-                  f'{_pair_count(beads)} expected, one `<resid>_<a>_<resid>_<b>_distances_distr.dat` per bead pair), '
-                  'so it has nothing to score this run against: `ff_assess` skips a pair with no reference file and '
-                  'leaves its cell at 0.00, which reads identical. A re-fit (Fit this model) records them.')
-    return _inventory(listing, pairs, beads, reason)
+    inventory, files = _recorded_histograms(mapping_candidate, beads, recorded=recorded)
+    entries = [run_inputs.store('reference_distribution', path, label=name) for path, name, _ in files]
+    return inventory, entries, files
+
+
+def stage_distributions(directory, mapping_candidate=None, beads=None):
+    """Copy the revision's histograms into `directory`, for the one caller that stages its own attempt.
+
+    A re-score (`assessment_rescore`) is not a run being prepared: it makes a new attempt directory beside the first
+    assessment and hands `assess.sh` that directory as `-d`. That directory is the attempt's own, so the files are
+    copied into it; a prepared run references them instead.
+    """
+    inventory, files = _recorded_histograms(mapping_candidate, beads)
+    directory = Path(directory)
+    for path, name, _ in files:
+        (directory / name).write_bytes(path.read_bytes())
+    return inventory
 
 
 def _pair_count(beads):
@@ -357,11 +423,43 @@ def _pair_count(beads):
 
 
 def _inventory(listing, pairs, beads, reason):
-    """The staged-file record `distributions.json` carries, and the shape a reader can count from."""
+    """The run's reference-histogram record, and the shape a reader can count from."""
     return {'files': listing,
             'pairs': {'files': len(pairs), 'expected': _pair_count(beads)},
             'interactions': {'files': len(listing) - len(pairs)},
             'reason': reason}
+
+
+def _published(role, path, label):
+    """One repository file this run names in its `inputs` record instead of copying into the run."""
+    path = Path(path)
+    return run_inputs.published(role, path.relative_to(ROOT), label=label, repo_root=ROOT)
+
+
+def shared_inputs(*, data):
+    """What this run reads in place: the installed Martini set, the water box, the radii convention, and a ringed model's
+    sugar reference. Named by path and digest rather than copied -- the atomistic force field tree is absent on purpose:
+    its own `topol.top` is only read by the atomistic reference stage, which this run type always reuses."""
+    references = [
+        run_inputs.installed('martini_force_field', martini3.path(MARTINI_FF),
+                             label='Martini 3 force field (martini_v3.0.0.itp)'),
+        run_inputs.installed('martini_solvents', martini3.path(MARTINI_SOLVENTS),
+                             label='Martini 3 solvents (martini_v3.0.0_solvents_v1.itp)'),
+        run_inputs.installed('martini_ions', martini3.path(MARTINI_IONS),
+                             label='Martini 3 ions (martini_v3.0.0_ions_v1.itp)'),
+        _published('martini_water', WATER_BOX, 'Martini 3 water box (water.gro)'),
+        _published('sasa_radii_aa', SASA_RADII_AA, 'AA SASA radii (Fast_Forward vdwradii_AA.dat)'),
+    ]
+    if data.get('rings'):
+        # The mapping's ring constraints were derived from this reference; the run records it as the convention its
+        # seeds came from. No stage opens it, so it is named and left where it lives.
+        references += [
+            run_inputs.installed('sugar_reference', martini3.path(SUGAR_REFERENCE),
+                                 label='Martini 3 sugar reference (martini_v3.0.0_sugars_v2.itp)'),
+            run_inputs.installed('sugar_reference_provenance', martini3.path(SUGAR_PROVENANCE),
+                                 label='Martini 3 sugar reference provenance'),
+        ]
+    return references
 
 
 def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM', profile=AA_CG_PROFILE, settings=None, mapping_candidate=None, shared_reference=None, reference_root=None, molecule_snapshot=None, molecule_root=None):
@@ -395,87 +493,90 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     from ...analysis.runs import references as aa_references
     aa_references.resolve(reference_root, shared_reference['source_run_id'], shared_reference['sha256'])
 
-    shutil.copytree(FORCE_FIELD, run_dir / FORCE_FIELD.name)
-    inline_aa = False
-
-    for name, relative in stage_plan:
-        path = run_dir / relative
-        path.parent.mkdir(exist_ok=True)
-        shutil.copy2(SCRIPTS / path.name, path)
+    # The stage directories exist before anything is staged into them; nothing executable is written: each stage runs
+    # the repository's own script, recorded in the manifest by path and digest.
+    for _, relative in stage_plan:
+        (run_dir / relative).parent.mkdir(parents=True, exist_ok=True)
 
     # Everything below is what an AA-to-CG run stages, and none of it is a per-run choice: the run
     # type takes its bonded terms from the model it was handed, fitting them itself only when the
     # model carries none (D1/D5). It used to sit inside `if profile in ('draft-smoke', ...)`, which
     # made "is a mapping staged at all" a property of a duration preset.
     data = draft_model.load(mapping_candidate, molecule_root=molecule_root)
+    # What already existed when prepare ran is named, by path and digest, and read where it lives: the installed Martini
+    # set, the water box, the radii convention and a ringed model's sugar reference (the atomistic force-field tree is
+    # not among them -- see `shared_inputs`). The generated topologies below include these by a path relative to
+    # themselves.
+    references = shared_inputs(data=data)
     stage_mapping(run_dir / '2_mapping', data, names=names)
     (run_dir / '2_mapping/draft-source.json').write_text(json.dumps(data, indent=2))
     cg = run_dir / '3_initial_CG'
     stage_parameterization(cg, data, names=names, molecule_root=molecule_root)
     recorded, unscored = None, None
     inventory = None
+    # Where stage 5's `-d` directory is. A run that fits leaves its histograms in stage 3, which the script defaults
+    # to; a run that consumes a model reads them from the revision that recorded them. Both answers are data the run
+    # writes down (`references.txt`), never a script: the shared `assess.sh` reads the directory it is told.
+    reference_directory = '../3_initial_CG'
     if revision is not None:
-        # The model's own terms, and the driver that writes them instead of fitting. `bonded.py` is
-        # staged either way; the refinement is not, because nothing in this stage reads it.
-        # The revision's reference histograms are staged with it: `ff_assess` scores a CG trajectory against
-        # pre-computed `<group>_<type>_distr.dat` files in its `-d` directory and never makes them, and a run that
-        # consumes a model copies no such files from anywhere else -- which is how a run reaches stage 5 with nothing
-        # to score and reports `Overall Score : nan`. The staged copy is the run's own, so the baseline survives the
-        # parameterization being deleted.
-        inventory = stage_distributions(cg, mapping_candidate, beads=len(data['beads']))
+        # The model's own terms, and the driver that writes them instead of fitting. The revision's reference
+        # histograms are *named*, not staged: `ff_assess` scores a CG trajectory against pre-computed
+        # `<group>_<type>_distr.dat` files in its `-d` directory and never makes them, and a run that consumes a model
+        # reads them from the revision that recorded them. A run that reaches stage 5 with nothing to score records
+        # `skipped`, with the reason in the inventory below, rather than a matrix of zeros.
+        inventory, histogram_entries, histograms = reference_distributions(mapping_candidate, beads=len(data['beads']))
+        references += histogram_entries
         recorded, unscored = inventory['files'], inventory['reason']
-        # The run's own inventory of what it copied, beside -- not inside -- the revision: the staged revision stays
-        # byte-for-byte the store's, so the digest the run records is the digest the store computes. The two counts say
-        # which families it brought, and a `reason` says in the run's own words why stage 5 cannot score -- either none
-        # at all or, the quiet case, none of the pairwise family the score matrix is built from.
+        # The run's own inventory: the store files it reads in place, by absolute path, so the consuming stage checks
+        # their digests where they live rather than beside itself. The two counts say which families it has, and a
+        # `reason` says in the run's own words why stage 5 cannot score -- either none at all or, the quiet case, none
+        # of the pairwise family the score matrix is built from.
+        absolute = [{'name': str(path), 'sha256': digest} for path, _, digest in histograms]
         (cg / 'distributions.json').write_text(
-            json.dumps({'directory': '.', **inventory, 'source':
+            json.dumps({'directory': '.', **{**inventory, 'files': absolute}, 'source':
                         f"revision {(revision or {}).get('revision')} of this mapping's parameterization"},
                        indent=2, sort_keys=True) + '\n')
         (cg / 'parameterization.json').write_text(json.dumps(revision, indent=2, sort_keys=True) + '\n')
-        shutil.copy2(SCRIPTS / 'use_parameterization.py', cg / 'use_parameterization.py')
+        recorded_distributions = parameterizations.distributions(mapping_candidate)
+        if recorded_distributions is not None and (inventory.get('pairs') or {}).get('files'):
+            # The store's revision directory holds the histograms and is immutable (its files are named in the run's
+            # `inputs` record), so stage 5 is pointed at it instead of at a farm of links inside the run. A revision
+            # with none of the pairwise family is left pointing at stage 3, where the run's own inventory carries the
+            # reason stage 5 will record when it skips.
+            reference_directory = str(recorded_distributions['directory'])
+    (run_dir / '5_assessment/references.txt').write_text(reference_directory + '\n')
     sim = run_dir / '4_CG_sim'
-    shutil.copytree(TUTORIAL_TEMPLATE / '4_CG_sim/inputs', sim / 'inputs')
-    (sim / 'system_EMPTY.top').write_text(f'#include "inputs/martini_v3.0.0.itp"\n#include "inputs/martini_v3.0.0_solvents_v1.itp"\n#include "{names.final_itp}"\n[ system ]\n{names.residue_name} draft in pure water\n[ molecules ]\n{names.residue_name} 1\n')
-    for folder, mdp_names in ((aa_dir, ('em.mdp','eq.mdp','run.mdp')), (sim / 'inputs', ('minimization.mdp','eq.mdp','md.mdp'))):
-        if folder == aa_dir and not inline_aa: continue
-        update_mdp(folder / mdp_names[0], {'nsteps': 20000, 'define': ''})
-        for filename, steps in zip(mdp_names[1:], (5000, 25000)):
-            update_mdp(folder / filename, mdp_integration(folder, aa_dir, steps))
-    shutil.copy2(SCRIPTS / 'validate_run.py', run_dir / '5_assessment/validate_run.py')
-    shutil.copy2(SCRIPTS / 'distance_diagnostics.py', run_dir / '5_assessment/distance_diagnostics.py')
+    (sim / 'inputs').mkdir(parents=True, exist_ok=True)
+    # The MDPs are rendered from reviewed profiles at the run's own numbers; the installed Martini ITPs and the water box
+    # are not copied at all: the topology includes the ITPs by a path relative to itself, and `cg_simulation.sh` reads
+    # the published water box where it lives.
+    write_mdp('cg-minimization-v1', sim / 'inputs/minimization.mdp')
+    (sim / 'system_EMPTY.top').write_text(
+        f'#include "{martini3.include(MARTINI_FF, sim)}"\n'
+        f'#include "{martini3.include(MARTINI_SOLVENTS, sim)}"\n'
+        f'#include "{names.final_itp}"\n[ system ]\n{names.residue_name} draft in pure water\n'
+        f'[ molecules ]\n{names.residue_name} 1\n')
     sasa = run_dir / '6_SASA'
     (sasa / 'AA').mkdir(); (sasa / 'CG').mkdir()
-    shutil.copy2(TUTORIAL_TEMPLATE / '5_SASA/vdwradii_AA.dat', sasa / 'AA/vdwradii.dat')
     (sasa / 'CG/vdwradii.dat').write_text(''.join(f'{names.residue_name} B{i:02d} { {"R":0.264,"S":0.230,"T":0.191}[b["size"]]}\n' for i,b in enumerate(data['beads'],1)))
 
     settings = normalize_settings(settings, profile)
     # The device this run names has to be one this host reports: refused at prepare, rather than by mdrun three
     # stages in. A host that reports no devices is not a refusal (`devices.require`).
     devices.require(settings['mdrun_gpu'])
-    if inline_aa:
-        aa_dt_eq = _mdp_value(aa_dir / 'eq.mdp', 'dt'); aa_dt_prod = _mdp_value(aa_dir / 'run.mdp', 'dt')
-        update_mdp(aa_dir / 'eq.mdp', {'nsteps': round(settings['aa_equil_ps'] / aa_dt_eq), 'ref_t': settings['temperature_k'], 'nstxout-compressed': max(1, round(settings['output_interval_ps'] / aa_dt_eq))})
-        update_mdp(aa_dir / 'run.mdp', {'nsteps': round(settings['aa_production_ps'] / aa_dt_prod), 'ref_t': settings['temperature_k'], 'nstxout-compressed': max(1, round(settings['output_interval_ps'] / aa_dt_prod))})
-    if (run_dir / '4_CG_sim/inputs/eq.mdp').is_file():
-        cg_eq = run_dir / '4_CG_sim/inputs/eq.mdp'; cg_md = run_dir / '4_CG_sim/inputs/md.mdp'
-        eq_dt = _mdp_value(cg_eq, 'dt'); md_dt = _mdp_value(cg_md, 'dt')
-        for path in (cg_eq, cg_md):
-            update_mdp(path, {'gen-seed': settings['cg_seed'], 'ld-seed': settings['cg_seed'], 'gen-temp': settings['temperature_k']})
-        update_mdp(cg_eq, {'nsteps': round(settings['cg_equil_ps'] / eq_dt), 'ref_t': settings['temperature_k'], 'nstxtcout': max(1, round(settings['output_interval_ps'] / eq_dt))})
-        update_mdp(cg_md, {'nsteps': round(settings['cg_production_ps'] / md_dt), 'ref_t': settings['temperature_k'], 'nstxtcout': max(1, round(settings['output_interval_ps'] / md_dt))})
-    fit_script = run_dir / '3_initial_CG/fit_topology.sh'
-    if fit_script.is_file():
-        fit_script.write_text(fit_temperature(fit_script.read_text(), settings['temperature_k']))
-    sasa_script = run_dir / '6_SASA/sasa.sh'
-    if sasa_script.is_file(): sasa_script.write_text('SASA_PROBE=' + f'{settings["sasa_probe_nm"]:.6g}\n' + sasa_script.read_text())
+    write_mdp('cg-equilibration-v1', sim / 'inputs/eq.mdp', mdp_values(settings, 'cg-equilibration-v1'))
+    write_mdp('cg-production-v1', sim / 'inputs/md.mdp', mdp_values(settings, 'cg-production-v1'))
+    # The run's numbers travel as data and as `RUN_SETTING_*` environment variables, so the repository scripts are one
+    # file for every run: stage 3 reads `RUN_SETTING_TEMPERATURE_K`, stage 5 reads `references.txt`, and stage 6 reads
+    # `RUN_SETTING_SASA_PROBE_NM`. Nothing is stamped into a copy.
 
     manifest = run_dir / 'manifest.json'
     metadata = json.loads(manifest.read_text()) if manifest.exists() else {'stages': []}
     if mapping_candidate is not None:
         metadata['mapping_candidate'] = mapping_candidate
         metadata['mapping_sha256'] = hashlib.sha256(json.dumps(mapping_candidate, sort_keys=True).encode()).hexdigest()
-    metadata.update(profile=profile, scientifically_validated=False, settings=settings, stage_plan=[[name, relative] for name, relative in stage_plan])
+    metadata.update(profile=profile, scientifically_validated=False, settings=settings, stage_plan=[[name, relative] for name, relative in stage_plan],
+                    mdp_profiles=dict(MDP_PROFILES))
     metadata['cg_names'] = {'residue_name': names.residue_name, 'initial_itp': names.initial_itp, 'final_itp': names.final_itp}
     # Which of the two stage-3 shapes this run has, recorded as one fact the stage contract and every
     # later reader resolve the run's own plan from (D5). `fitted` is the run type's old behaviour and
@@ -489,8 +590,8 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
         'terms': parameterizations.total_terms(revision) if revision else None,
         'revision_sha256': parameterizations.revision_sha256(revision) if revision else None,
         'aa_reference': (revision or {}).get('aa_reference'),
-        # The baseline stage 5 scores against, copied into stage 3 from the revision: named here so a reader can see
-        # which histograms a run's numbers were measured against without opening the store.
+        # The baseline stage 5 scores against, read from the revision's record: named here so a reader can see which
+        # histograms a run's numbers were measured against without opening the store.
         'reference_distributions': [entry['name'] for entry in (recorded or [])],
         # Of those, the pairwise family the score matrix is built from: one file per bead pair, beside the count a
         # molecule of this many beads needs. The count is what says whether stage 5 can score at all, so it is recorded
@@ -509,8 +610,14 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     }
     if shared_reference:
         metadata.update(shared_reference=shared_reference, reference_reused=True, reference_run_id=shared_reference['source_run_id'])
-    metadata['force_field'] = {'name': FORCE_FIELD.name, 'source': str(FORCE_FIELD.relative_to(ROOT)), 'staged_path': FORCE_FIELD.name,
+    # The force field is the *atomistic* half's and is not copied into this run: the AA reference stage is always
+    # reused from the run that built it, so nothing here reads this tree. It is still recorded -- the version a run
+    # was prepared under is provenance -- and the CG half's installed files are named in `input_references` below.
+    metadata['force_field'] = {'name': FORCE_FIELD.name, 'source': str(FORCE_FIELD.relative_to(ROOT)),
         'sha256': {str(p.relative_to(FORCE_FIELD)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(FORCE_FIELD.rglob('*')) if p.is_file()}}
+    # The inputs that already existed when prepare ran, for `finish_prepared_run` to write as the manifest's `inputs`
+    # record. It is a channel between the two halves of prepare, not a manifest key: `_protocol_prepare` pops it.
+    metadata['input_references'] = references
     metadata['inputs_sha256'] = {str(p.relative_to(run_dir)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(run_dir.rglob('*')) if p.is_file() and p != manifest}
     metadata['environment'] = recorded_environment()
     # What this run is, recorded for every AA-to-CG run rather than only the `draft-smoke` profile: the mapping and
@@ -524,7 +631,7 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
         # it will score against came from the revision's record, and the run says how many or says there are none.
         # Stated here rather than discovered as a stage that failed or, worse, as a matrix of 0.00 that reads perfect.
         pairs = ((inventory or {}).get('pairs') or {})
-        staged = (f"its record carries {pairs.get('files')} pairwise distance histograms, staged beside it"
+        staged = (f"its record carries {pairs.get('files')} pairwise distance histograms, read from the store"
                   if pairs.get('files') else
                   'its record carries no pairwise distance histograms, so the assessment stage has no atomistic '
                   'reference to score against and records `skipped`')
@@ -542,13 +649,8 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
 
 
 def tool_metadata():
-    result = {}
-    commands = [('gmx',['--version']), ('python',['-c', 'import fast_forward,MDAnalysis,hashlib,pathlib; import fast_forward.interaction_fit as fitter; print("Fast_Forward",fast_forward.__version__); print("MDAnalysis",MDAnalysis.__version__); print("Fitter",fitter.__file__,hashlib.sha256(pathlib.Path(fitter.__file__).read_bytes()).hexdigest())'])]
-    for exe,args in commands:
-        executable = tools.tool_path(exe)
-        if not executable: raise FileNotFoundError(f'Missing tool: {exe}')
-        proc = subprocess.run([executable,*args],env=environment(),capture_output=True,text=True,check=True,timeout=30)
-        result[exe] = {'path':executable,'version_output':proc.stdout,'sha256':files.sha256(executable)}
+    probe = ['-c', 'import fast_forward,MDAnalysis,hashlib,pathlib; import fast_forward.interaction_fit as fitter; print("Fast_Forward",fast_forward.__version__); print("MDAnalysis",MDAnalysis.__version__); print("Fitter",fitter.__file__,hashlib.sha256(pathlib.Path(fitter.__file__).read_bytes()).hexdigest())']
+    result = tools.record_versions('gmx', ('python', probe), env=environment())
     for exe in ('ff_inter','ff_assess'):
         executable = tools.tool_path(exe)
         if executable: result[exe] = {'path':executable,'sha256':files.sha256(executable)}
@@ -615,7 +717,7 @@ def readiness(molecule_id, method, profile='standard', mapping_candidate=None, m
     checks.append({'label': 'Force field used by workflow',
                    'path': str(FORCE_FIELD.relative_to(ROOT)),
                    'ready': (FORCE_FIELD / 'forcefield.itp').is_file(),
-                   'detail': 'Copied into each run with checksums'})
+                   'detail': 'Referenced from the repository by path and digest'})
     for tool, (executable, ok, detail) in zip(READINESS_TOOLS, _probe_tools(READINESS_TOOLS)):
         checks.append({'label': tool, 'path': executable or tool, 'ready': ok, 'detail': detail})
     if profile in ('draft-smoke','draft-smoke-reference'):
@@ -761,11 +863,20 @@ def _protocol_prepare(run_dir, metadata):
     stages.mkdir(parents=True, exist_ok=True)
     prepare(stages, **values)
     # `prepare` leaves its record beside the stages, including the tool versions it used; the run's manifest is written
-    # from that record, and the record itself is not a stage input.
+    # from that record, and the record itself is not a stage input. The inputs that already existed are named there for
+    # this call: `finish_prepared_run` writes them as the manifest's `inputs` record and mirrors the generated data into
+    # `inputs/`, which is what makes the run layout-3.
     record = json.loads((stages / 'manifest.json').read_text())
+    references = record.pop('input_references', None)
+    # The code this run executes, in one record: the repository script of every stage, and every project module those
+    # scripts import. The executor re-hashes each file before its stage starts, so a helper changed under a prepared
+    # run refuses the stage instead of silently running code the run did not record.
+    scripts = {stage.name: stage.script
+               for stage in stage_definitions(consumes_parameterization(record)) if stage.script}
     return protocol.finish_prepared_run(run_dir, stages, metadata=record, tools=record.get('tools', {}),
                                         plan=protocol.plan_pairs(record),
-                                        environment=record.get('environment'))
+                                        environment=record.get('environment'), references=references,
+                                        scripts=scripts, modules=MODULES)
 
 
 def protocol_settings_specs():

@@ -1,6 +1,7 @@
-from pathlib import Path
 import json
-from .geometry import box_for
+from pathlib import Path
+
+
 def write_gro(path, atoms, title='Micelle', box=None):
  path=Path(path); atoms=list(atoms); lines=[title,str(len(atoms))]
  for i,a in enumerate(atoms,1):

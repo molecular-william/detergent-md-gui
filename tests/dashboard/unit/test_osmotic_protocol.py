@@ -5,15 +5,14 @@ only checked the dataclass would pass while the run was unbuildable.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
 from dashboard.execution import protocol
 from dashboard.execution.adapters import osmotic
 
-# On the slow tier: prepare writes a run whose executor starts subprocesses, which is what the marker renders.
-pytestmark = pytest.mark.slow
-
+REPOSITORY = Path(osmotic.__file__).resolve().parents[3]
 
 MAPPING = {'beads': [{'name': 'S1A', 'type': 'SP1r', 'atoms': [1, 2, 3]},
                      {'name': 'S1B', 'type': 'SP4r', 'atoms': [4, 5, 6]},
@@ -101,18 +100,57 @@ def test_a_series_carries_on_by_default_and_may_be_told_to_stop():
         osmotic.normalize_settings({'molalities': [1.0], 'series_on_failure': 'abandon'})
 
 
-def test_prepare_bakes_the_retry_ceiling_into_the_runner(tmp_path):
-    """The runner is a shell script and gets the ceiling the way it gets `REPO_ROOT` -- written in at prepare time.
+def test_the_retry_ceiling_reaches_the_runner_as_data_and_never_as_a_stamped_script(tmp_path):
+    """The runner is a repository script now, so a per-run ceiling has to arrive as data.
 
-    A default in `DEFAULTS` alone would be advertised and then never reach the process that retries.
+    It travels twice, deliberately: the manifest's `settings` is what the executor exports as
+    `RUN_SETTING_OSMOTIC_ATTEMPTS_MAX`, and the generated `conditions.json` states it for a run entered again from its
+    own directory. A default in `DEFAULTS` alone would be advertised and then never reach the process that retries.
     """
     osmotic.prepare(tmp_path, {'molecule_id': 'Maltose', 'solute_root': str(solute_root(tmp_path)),
                                'mapping_snapshot': MAPPING,
                                'settings': {'molalities': [1.0], 'osmotic_attempts_max': 5}})
 
-    runner = (tmp_path / '01_simulate' / 'run.sh').read_text()
-    assert 'OSMOTIC_ATTEMPTS_MAX="5"' in runner
-    assert 'OSMOTIC_ATTEMPTS_MAX="${OSMOTIC_ATTEMPTS_MAX:-3}"' not in runner
+    stage = tmp_path / 'stages' / '01_simulate'
+    manifest = json.loads((tmp_path / 'manifest.json').read_text())
+    assert manifest['settings']['osmotic_attempts_max'] == 5
+    assert json.loads((stage / 'conditions.json').read_text())['attempts_max'] == 5
+    script = (REPOSITORY / osmotic.OSMOTIC_SCRIPT).read_text()
+    assert 'RUN_SETTING_OSMOTIC_ATTEMPTS_MAX' in script
+    assert 'OSMOTIC_ATTEMPTS_MAX="5"' not in script, 'a per-run value is never stamped into the repository script'
+    assert not (stage / 'run.sh').exists(), 'the driver is the repository file, not a copy in the run'
+
+
+def test_the_solute_files_under_the_workspace_are_recorded_relative_to_it(tmp_path):
+    """`store` when a file sits under the workspace root, and `published` for the installed Martini 3 set.
+
+    The record is how the resume path verifies what the run reads; a store file gets a path the workspace root
+    resolves, and the condition record names the absolute file the driver reads. The Martini file is the workspace's
+    install: `workspace`-rooted when it is the run's own workspace, `absolute` when the suite points the install
+    somewhere else (`DASHBOARD_MARTINI3`), which is what a test process does.
+    """
+    from dashboard import paths
+
+    workspace = tmp_path / 'workspace'
+    solute = workspace / 'osmotic' / 'maltose'
+    solute.mkdir(parents=True)
+    for name in osmotic.SOLUTE_FILES:
+        (solute / name).write_text('placeholder\n')
+    run = tmp_path / 'run'
+    with paths.use(paths.Paths(project_root=REPOSITORY, workspace=workspace)):
+        osmotic.prepare(run, {'molecule_id': 'Maltose', 'solute_root': str(solute),
+                              'mapping_snapshot': MAPPING, 'settings': {'molalities': [1.0]}})
+
+    entries = {entry['label']: entry
+               for entry in json.loads((run / 'inputs' / 'inputs.json').read_text())['inputs']}
+    assert entries['solute.gro']['root'] == 'workspace'
+    assert entries['solute.gro']['path'] == 'osmotic/maltose/solute.gro'
+    assert entries['martini_v3.0.0.itp']['root'] in ('workspace', 'absolute')
+    assert entries['martini_v3.0.0.itp']['kind'] == 'published'
+    assert entries['martini_v3.0.0_solvents_v1.itp']['role'] == 'martini_solvents'
+    condition = json.loads((run / 'stages' / '01_simulate' / 'conditions' / '00_1molal'
+                            / 'osmotic_condition.json').read_text())
+    assert Path(condition['paths']['solute.gro']).resolve() == (solute / 'solute.gro').resolve()
 
 
 def test_readiness_names_the_blocker_rather_than_saying_no(tmp_path):
@@ -148,21 +186,25 @@ def test_prepare_builds_a_run_the_executor_could_start(tmp_path):
 
     assert [condition['molality_achieved'] for condition in record['conditions']] == \
            [pytest.approx(1.0, rel=0.01)]
-    condition = tmp_path / '01_simulate' / 'conditions' / '00_1molal'
+    stage = tmp_path / 'stages' / '01_simulate'
+    condition = stage / 'conditions' / '00_1molal'
     for name in osmotic.CONDITION_FILES:
         assert (tmp_path / 'inputs' / 'conditions' / '00_1molal' / name).is_file(), name
         assert (condition / name).is_file(), name
-    assert (tmp_path / '01_simulate' / 'run.sh').is_file()
-    assert (tmp_path / '01_simulate' / 'conditions.json').is_file()
-    # The runner's own documented layout: the molecule in `solute/` beside the condition, which is the directory the
-    # runner works in -- a single shared `solute/` at the stage root is what a series cannot use.
-    assert (condition / 'solute' / 'solute.gro').is_file()
-    assert (condition / 'martini_v3.0.0.itp').is_file()
+    assert (stage / 'conditions.json').is_file()
+    # No code and no referenced molecule inside the run: the driver is a repository script recorded in the manifest,
+    # and the solute files and force field are named by the run's input record.
+    assert not list(tmp_path.rglob('*.sh')) and not list(tmp_path.rglob('*.py'))
+    assert not (condition / 'solute').exists()
+    assert not (condition / 'martini_v3.0.0.itp').exists()
+    written = json.loads((condition / 'osmotic_condition.json').read_text())
+    assert all(Path(written['paths'][name]).is_file() for name in osmotic.SOLUTE_FILES)
+    assert Path(written['paths']['force_field']).is_file()
     # **Every input the stage declares must resolve from the stage directory.** The executor checks exactly this,
     # and a declaration that does not resolve stops the run before GROMACS is reached. The patterns are globs over
     # the conditions the build wrote, because how many of them there are is the caller's answer, not this module's.
     for declared in osmotic.STAGE_DEFS[0].inputs:
-        assert list((tmp_path / '01_simulate').glob(declared)), declared
+        assert list(stage.glob(declared)), declared
     # `[ atomtypes ]` must come before the moleculetype that uses it, or GROMACS reports "Atomtype REF not found" with
     # the type visible in the same file. Asserting the file *contains* REF passes either way -- which is what the
     # first version of this assertion did, while the run was failing on grompp.
@@ -172,10 +214,18 @@ def test_prepare_builds_a_run_the_executor_could_start(tmp_path):
     # run type has one and that it names itself, because the resume path verifies runs against it.
     manifests = list(tmp_path.rglob('manifest.json'))
     assert manifests, 'a prepared run carries a manifest'
-    document = manifests[0].read_text()
-    assert 'osmotic' in document and 'input_snapshot_sha256' in document
+    document = json.loads(manifests[0].read_text())
+    assert 'osmotic' in manifests[0].read_text() and 'input_snapshot_sha256' in document
+    # The shared prepared-run record: layout 3, the referenced inputs by path and digest, and the repository script
+    # the one stage runs -- not a copy of it.
+    assert document['layout_version'] == 3
+    assert document['stage_scripts']['Osmotic series']['path'] == osmotic.OSMOTIC_SCRIPT
+    kinds = {entry['label']: entry for entry in document['inputs']}
+    assert set(osmotic.SOLUTE_FILES) <= set(kinds)
+    assert kinds['martini_v3.0.0.itp']['kind'] == 'published'
+    assert document['input_snapshot_sha256']
     # And the series itself, which is what the runner reads: the ordered conditions and the policy on a failed one.
-    series = json.loads((tmp_path / '01_simulate' / 'conditions.json').read_text())
+    series = json.loads((stage / 'conditions.json').read_text())
     assert [item['molality'] for item in series['conditions']] == [1.0]
     assert series['series_on_failure'] == 'carry_on'
 
@@ -251,6 +301,7 @@ def test_an_output_interval_that_is_not_a_whole_number_of_steps_is_refused():
                                  equilibration_ps=1000.0, output_interval_ps=0.017)
 
 
+@pytest.mark.slow
 def test_the_placement_writes_a_gro_file_gromacs_can_read(tmp_path):
     """The script's placement half, run for real. It writes what `gmx solvate` reads first, and .gro is fixed format.
 
@@ -279,15 +330,16 @@ def test_the_placement_writes_a_gro_file_gromacs_can_read(tmp_path):
 
     record = osmotic.prepare(tmp_path, {'molecule_id': 'Maltose', 'solute_root': str(solute),
                                         'mapping_snapshot': MAPPING, 'settings': {'molalities': [1.0]}})
-    stage = tmp_path / '01_simulate'
+    stage = tmp_path / 'stages' / '01_simulate'
     condition = stage / 'conditions' / '00_1molal'
     stub = tmp_path / 'gmx'
     stub.write_text('#!/bin/sh\nexit 0\n')
     stub.chmod(0o755)
     # A stubbed `gmx` that produces nothing stops the script at the step after the placement; the placement is step 1,
     # so its outputs are on disk. The return code is not what this test is about, the file it wrote is. The condition
-    # is entered the way the series driver enters it: `OSMOTIC_CONDITION` set to the directory it works in.
-    subprocess.run(['bash', str(stage / 'run.sh')], cwd=stage, capture_output=True, check=False,
+    # is entered the way the series driver enters it: `OSMOTIC_CONDITION` set to the directory it works in. The stage
+    # runs the repository script, as the executor does, with the stage directory as its working directory.
+    subprocess.run(['bash', str(REPOSITORY / osmotic.OSMOTIC_SCRIPT)], cwd=stage, capture_output=True, check=False,
                    env={**os.environ, 'GROMACS': str(stub), 'OSMOTIC_CONDITION': str(condition)})
 
     lines = (condition / 'system.gro').read_text().splitlines()

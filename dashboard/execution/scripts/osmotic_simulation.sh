@@ -29,25 +29,35 @@
 #   * the index file is written HERE and not by the adapter: the pull's groups are atom indices, and the indices are
 #     not known until the molecules have been placed.
 #
+# This is the repository's own file (`dashboard/execution/scripts/osmotic_simulation.sh`), recorded in the run's
+# `stage_scripts` by path and digest and run with the stage directory as its working directory. Nothing is stamped
+# into a copy at prepare time.
+#
 # Inputs, in the stage directory:
-#   run.sh conditions.json        this driver, and the series it drives
-#   conditions/<n>_<m>molal/      one per concentration: minimization.mdp eq.mdp md.mdp reference.itp
-#                                 osmotic_condition.json, solute/ (one molecule + its includes),
-#                                 martini_v3.0.0.itp
+#   conditions.json               the series this driver drives
+#   conditions/<n>_<m>molal/      one per concentration: minimization.mdp eq.mdp md.mdp reference.itp,
+#                                 osmotic_condition.json -- whose `paths` names the referenced solute files and the
+#                                 installed Martini force field and solvents. Those live in the run's `inputs/` or
+#                                 outside the repository, are never copied into the run, and are read from that record.
 # Environment:
-#   SOLUTE_DIR, MDRUN_LAUNCHER, MDRUN_FLAGS, GROMACS, OSMOTIC_CONDITION -- as cg_simulation.sh, plus the last,
-#   which the driver sets to the condition directory it is entering.
+#   PYTHON, PROJECT_ROOT, MDRUN_LAUNCHER, MDRUN_FLAGS, GROMACS, RUN_SETTING_OSMOTIC_ATTEMPTS_MAX, OSMOTIC_CONDITION
+#   -- the last is what the driver sets to the condition directory it is entering.
 GROMACS="${GROMACS:-/usr/local/gromacs/2026.3/bin/gmx}"
-SOLUTE_DIR="${SOLUTE_DIR:-solute}"
 CONDITIONS_MANIFEST="${CONDITIONS_MANIFEST:-conditions.json}"
 CONDITIONS_DIRECTORY="${CONDITIONS_DIRECTORY:-conditions}"
 export PATH="$(dirname "$GROMACS"):$PATH"
 set -euxo pipefail
 
+# The interpreter the application runs under, and the checkout it imports. The executor sets both; a caller that
+# runs this repository file by hand gets the script's own location as the root, which is the same checkout.
+PYTHON="${PYTHON:-python}"
+REPO_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+
 # One attempt's record, appended per attempt rather than written at the end, so it survives the condition being
 # killed. Read back with `python -c "import json;print(json.load(open('attempts.json')))"`.
 record_attempt() {
-    python - "$1" "$2" "$3" "$4" <<'PY'
+    "$PYTHON" - "$1" "$2" "$3" "$4" <<'PY'
 import json
 import os
 import sys
@@ -90,10 +100,16 @@ run_stage() {
     return 1
 }
 
-# The retry ceiling reaches this script the way `REPO_ROOT` does: a stage script is a file read at prepare time, so
-# a per-run value is written into it there. The default is for a script run by hand, and it is the house ceiling
-# (`attempts_max = 3` in `pdc.DEFAULTS` and the loop bound in `pdc_extension.py`).
+# The retry ceiling, read rather than stamped into the script: the executor exports the run's setting as
+# `RUN_SETTING_OSMOTIC_ATTEMPTS_MAX`, and the generated `conditions.json` records it too -- so a run entered again
+# from its own directory keeps the ceiling it was prepared with. `3` is the house ceiling (`attempts_max = 3` in
+# `pdc.DEFAULTS` and the loop bound in `pdc_extension.py`), kept for a script run by hand.
+OSMOTIC_ATTEMPTS_MAX="${OSMOTIC_ATTEMPTS_MAX:-${RUN_SETTING_OSMOTIC_ATTEMPTS_MAX:-}}"
+if [ -z "$OSMOTIC_ATTEMPTS_MAX" ] && [ -f "$CONDITIONS_MANIFEST" ]; then
+    OSMOTIC_ATTEMPTS_MAX="$("$PYTHON" -c "import json;print(json.load(open('$CONDITIONS_MANIFEST'))['attempts_max'])")"
+fi
 OSMOTIC_ATTEMPTS_MAX="${OSMOTIC_ATTEMPTS_MAX:-3}"
+export OSMOTIC_ATTEMPTS_MAX
 
 # -----------------------------------------------------------------------------------------------------------------
 # One condition, or the series.
@@ -103,22 +119,25 @@ cd "$OSMOTIC_CONDITION"
 
 # 1. The box the paper states, and the molecules placed in the slab it implies. The manifest's counts are used as
 #    written: the analysis divides by the area in that file, so a second derivation here would be a second opinion.
-python - "$SOLUTE_DIR" "$PWD" <<'PY'
+"$PYTHON" - "$PWD" <<'PY'
 import json
 import random
 import sys
 from pathlib import Path
 
-solute_dir, workdir = Path(sys.argv[1]), Path(sys.argv[2])
+workdir = Path(sys.argv[1])
 manifest = json.loads((workdir / 'osmotic_condition.json').read_text())
+# The molecule is *referenced*, not copied: the generated record names the absolute file the run's input record
+# hashed. Reading `solute/solute.gro` here would be a second answer to where the molecule is.
+solute_gro = Path(manifest['paths']['solute.gro'])
 box = manifest['box_nm']
 count = int(manifest['solute_molecules'])
 half = manifest['confinement_nm'] - 0.5          # a margin, so no bead is asked to sit in a wall
 
-molecule = (solute_dir / 'solute.gro').read_text().splitlines()
+molecule = solute_gro.read_text().splitlines()
 header, atoms = molecule[0], [line for line in molecule[2:-1] if line.strip()]
 if not atoms:
-    raise SystemExit(f'{solute_dir / "solute.gro"} has no atoms')
+    raise SystemExit(f'{solute_gro} has no atoms')
 
 # The molecule's own shape, as offsets from its centroid. A .gro atom line is a 15-character (residue, residue name,
 # atom name) prefix, the 5-character atom serial, then x, y and z at 8.3 each -- so the coordinates start at column 20.
@@ -176,26 +195,24 @@ print('placement:', record['solute_molecules_placed'], 'molecules, closest', rec
 PY
 
 # 2. The index file, now that the indices exist. Written with the adapter's own function rather than by hand, so the
-#    groups the pull reads are the groups it validates. REPO_ROOT is where `dashboard` can be imported from; the
-#    adapter that runs this script passes it, and the default assumes the executor's working directory is the repo.
-REPO_ROOT="${REPO_ROOT:-.}"
-# Exported once, for every `python` block below: the executor runs a stage with the *stage directory* as its working
-# directory, so `import dashboard` from `.` fails unless the root is on the path for all of them, not just the first.
-export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
-python - "$PWD" "$SOLUTE_DIR" <<'PY'
+#    groups the pull reads are the groups it validates. `PYTHONPATH` is already this checkout, set at the top of the
+#    script, because the executor runs the stage with the *stage directory* as its working directory.
+"$PYTHON" - "$PWD" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 from dashboard.execution.adapters import osmotic
 
-workdir, solute_dir = Path(sys.argv[1]), sys.argv[2]
+workdir = Path(sys.argv[1])
 placement = json.loads((workdir / 'placement.json').read_text())
+condition = json.loads((workdir / 'osmotic_condition.json').read_text())
+solute_itp = Path(condition['paths']['solute.itp'])
 
 # The moleculetype the topology declares, which is what `[ molecules ]` has to name it by. It is the molecule's own
 # name -- LIG1 for the maltose mapping -- and not something this pipeline chooses: writing `SOL` there is what
 # grompp answers with "No such moleculetype SOL".
-lines = (workdir / solute_dir / 'solute.itp').read_text().splitlines()
+lines = solute_itp.read_text().splitlines()
 header = next(n for n, line in enumerate(lines) if line.strip().startswith('[ moleculetype'))
 name = lines[header + 1].split()[0]
 (workdir / 'solute_molecule.txt').write_text(name + '\n')
@@ -211,14 +228,19 @@ PY
 #    expanded as the heredoc is read, and when it goes wrong bash executes the substituted text: the run that first
 #    carried the PLUMED step reported "line 135: LIG1: command not found" and the script then stopped before
 #    plumed.dat was ever written. A writer that cannot be re-parsed removes the class, not the instance.
-python - "$PWD" "$SOLUTE_DIR" <<'PY'
+"$PYTHON" - "$PWD" <<'PY'
 import json
+import os
 import sys
 from pathlib import Path
 
-workdir, solute_dir = Path(sys.argv[1]), sys.argv[2]
+workdir = Path(sys.argv[1])
 count = json.loads((workdir / 'placement.json').read_text())['solute_molecules_placed']
 name = (workdir / 'solute_molecule.txt').read_text().strip()
+input_paths = json.loads((workdir / 'osmotic_condition.json').read_text())['paths']
+# GROMACS resolves `#include` from the working directory, so the shared files are named relative to it: the record
+# holds absolute paths because it is verified where the files live, and this is the one place they become an include.
+include = {key: os.path.relpath(value, workdir) for key, value in input_paths.items()}
 # **A zero count is not written, and this is not tidiness.** `LIG1  0` in [ molecules ] makes grompp *segfault* --
 # not refuse, crash -- because a moleculetype with bonded interactions and no copies has no edges to build. The
 # pure-solvent control is exactly that case, so the entry is omitted and the file says why it is absent. The water
@@ -226,10 +248,13 @@ name = (workdir / 'solute_molecule.txt').read_text().strip()
 entries = [f'{name}  {count}'] if count else ['; no solute in this condition: the pure-solvent control']
 entries.append('REFC  1')
 (workdir / 'system.top').write_text('\n'.join([
-    '#include "martini_v3.0.0.itp"',
+    # The force field, the solvents and the solute's own include are named relative to this working directory, so the
+    # topology resolves them where the run references them and stays relocatable; only the reference bead, which
+    # prepare generated, is beside the topology.
+    f'#include "{include["force_field"]}"',
     '#include "reference.itp"',
-    f'#include "{solute_dir}/solute.itp"',
-    f'#include "{solute_dir}/martini_v3.0.0_solvents_v1.itp"',
+    f'#include "{include["solute.itp"]}"',
+    f'#include "{include["martini_v3.0.0_solvents_v1.itp"]}"',
     '',
     '[ system ]',
     'osmotic condition',
@@ -249,18 +274,20 @@ PY
 #    `insert-molecules` packs to a target instead, rejecting overlaps, so it fills the free volume at the tile's own
 #    density and reports how many it managed. The target is the box's own capacity from the condition record; the
 #    overlap rejection is what keeps it from over-filling around the solute.
-python - "$SOLUTE_DIR" <<'PY'
-import pathlib, sys
+"$PYTHON" - "$PWD" <<'PY'
+import json, pathlib, sys
 # One bead, from the tile: insert-molecules inserts the whole configuration it is given, and the tile is 400 beads.
-lines = (pathlib.Path(sys.argv[1]) / 'water.gro').read_text().splitlines()
+# The tile is referenced in the condition's generated record rather than copied into the run.
+paths = json.loads((pathlib.Path(sys.argv[1]) / 'osmotic_condition.json').read_text())['paths']
+lines = pathlib.Path(paths['water.gro']).read_text().splitlines()
 pathlib.Path('water_one.gro').write_text(
     '\n'.join([lines[0], '    1', lines[2], '   1.00000   1.00000   1.00000']) + '\n')
 PY
-WATER_TARGET="$(python -c "import json;print(json.load(open('osmotic_condition.json'))['water_beads'])")"
+WATER_TARGET="$("$PYTHON" -c "import json;print(json.load(open('osmotic_condition.json'))['water_beads'])")"
 gmx insert-molecules -f system.gro -ci water_one.gro -nmol "$WATER_TARGET" -radius 0.05 -try 200 \
     -o solvated.gro > insert.log 2>&1 || { cat insert.log; exit 1; }
 grep -E "Added|Could only" insert.log
-WATER_ADDED="$(python -c "
+WATER_ADDED="$("$PYTHON" -c "
 import json, pathlib
 total = int(pathlib.Path('solvated.gro').read_text().splitlines()[1])
 placement = json.loads(pathlib.Path('placement.json').read_text())
@@ -276,7 +303,7 @@ echo "water: $WATER_ADDED beads inserted, target $WATER_TARGET"
 #     **One group per solute molecule**, named MOL<i> to match the per-molecule coordinates the adapter wrote into the
 #     mdps. The adapter used the *planned* count and this uses the *placed* count; if those ever diverge the index
 #     cannot name a group the mdp asks for, and grompp says so rather than the run confining something unintended.
-python - "$PWD" "$SOLUTE_DIR" <<'PY'
+"$PYTHON" - "$PWD" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -304,7 +331,7 @@ PY
 #     image flips, a flat-bottom pushes *away*. PLUMED evaluates each wall on an absolute coordinate, referenced to
 #     the solvent's centre of mass -- which is the box centre by symmetry, follows the box, and being ~2000 beads
 #     absorbs the wall's reaction force as 1/2000 of itself per bead. The pull's origin was a single atom.
-python - "$PWD" "$SOLUTE_DIR" <<'PY'
+"$PYTHON" - "$PWD" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -336,7 +363,7 @@ if [ -f plumed.dat ]; then PLUMED="-plumed plumed.dat"; else PLUMED=""; fi
 #     which is this repository's rule everywhere: the run then fails in mdrun saying exactly what is missing.
 #     Written to a file and sourced rather than `eval`-ed from a command substitution, because a heredoc nested in
 #     `$(...)` is precisely the construct that ran `LIG1` as a command two commits ago.
-python - <<'PY'
+"$PYTHON" - <<'PY'
 import shlex
 from pathlib import Path
 
@@ -360,7 +387,7 @@ PY
 #    `-pin on` is therefore restored, because serial with it is the only placement this machine has *measured* at
 #    2400 ns/day. That measurement is also why **the conditions run one at a time inside this one run**: the same
 #    number, read as an instruction rather than as an observation. See
-#    `docs/superpowers/plans/2026-10-06-osmotic-concentration-series.md` for the three-way comparison.
+#    `docs/plans/2026-10-06-osmotic-concentration-series.md` for the three-way comparison.
 #    **The mdrun flags, measured rather than assumed.** Eight configurations on this system's own `md.tpr`, 0.5 ns
 #    each: `-nb gpu` beat `-nb cpu` by 1.6x to 7x, and `-ntomp 4` beat every other thread count -- so `-nb gpu` was
 #    right and the GPU is not idle because the flags are wrong. Then the same comparison with the confinement
@@ -414,7 +441,7 @@ run_stage md
 #    reported as achieved rather than requested.
 mkdir -p prod
 printf 'System\n' | gmx trjconv -f md.xtc -s md.tpr -pbc mol -o prod/md_whole.xtc
-python - <<'PY'
+"$PYTHON" - <<'PY'
 import json
 import re
 from pathlib import Path
@@ -447,7 +474,7 @@ fi
 # finished condition from one that never ran -- and so the reader has the outcome beside the condition's own files
 # rather than only in this run's manifest.
 record_condition() {
-    python - "$1" "$2" <<'PY'
+    "$PYTHON" - "$1" "$2" <<'PY'
 import datetime
 import json
 import sys
@@ -471,7 +498,7 @@ PY
 }
 
 condition_status() {
-    python - "$1" <<'PY'
+    "$PYTHON" - "$1" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -484,13 +511,13 @@ except (OSError, ValueError):
 PY
 }
 
-SERIES_POLICY="$(python -c "
+SERIES_POLICY="$("$PYTHON" -c "
 import json
 print(json.load(open('$CONDITIONS_MANIFEST')).get('series_on_failure') or 'carry_on')")"
 echo "series: policy on a failed condition is $SERIES_POLICY, ceiling $OSMOTIC_ATTEMPTS_MAX attempts per condition"
 
 failed=0
-CONDITIONS="$(python -c "
+CONDITIONS="$("$PYTHON" -c "
 import json
 print(' '.join(condition['directory'] for condition in
                json.load(open('$CONDITIONS_MANIFEST'))['conditions']))")"

@@ -11,9 +11,9 @@ So this module stages a second attempt instead of rewriting the first:
 
 * `prepare` resolves the run's mapping to its **current** parameterization revision, stages that revision's
   histograms into `<run>/stages/5_assessment@<n>/references/` (through `cg.stage_distributions`, so the copy rule and
-  the digest check are the run-prepare rule, not a second one), copies the stage's script beside them, and writes
-  `attempt.json` naming what it read.
-* `run` executes the copied script with `cwd` in that directory, `INITIAL_DIR` pointing at the run's own
+  the digest check are the run-prepare rule, not a second one), names the repository `assess.sh` it will run, and
+  writes `attempt.json` naming what it read.
+* `run` executes that repository script with `cwd` in the attempt directory, `INITIAL_DIR` pointing at the run's own
   `3_initial_CG` and `REFERENCES` at the staged references, and appends the attempt to the manifest under
   `assessment_attempts`. A non-zero exit is recorded as a failed attempt, never raised: the run stays `completed`,
   because a second attempt at its assessment is not a new run.
@@ -31,10 +31,12 @@ import json
 import shlex
 import shutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
 from .. import files
+from ..analysis.runs import layout
 from ..models.bonded import parameterization
 from . import environment
 from .adapters import cg
@@ -48,10 +50,14 @@ STAGE = 'CG assessment (ff_assess)'
 #: numbered prefix so the first attempt keeps the name every reader and the stage contract already use.
 ATTEMPT_PREFIX = '5_assessment@'
 
-#: What `assess.sh` needs beside it. `validate_run.py` is called unconditionally by the script and
-#: `distance_diagnostics.py` when it is there, so an attempt that copied only the script would fail in its last two
-#: lines for a reason that has nothing to do with what it was re-scoring.
-SCRIPTS = ('assess.sh', 'validate_run.py', 'distance_diagnostics.py')
+#: The repository code the attempt runs, recorded by path and digest: the shared stage script and the two helpers it
+#: calls as repository modules. Nothing is copied into the attempt directory.
+SCRIPTS = ('dashboard/execution/scripts/assess.sh',
+           'dashboard/execution/scripts/validate_run.py',
+           'dashboard/execution/scripts/distance_diagnostics.py')
+
+#: The script this module executes, named once.
+ASSESS_SCRIPT = 'dashboard/execution/scripts/assess.sh'
 
 #: The runs with an attempt in flight in this process. One attempt per run at a time -- two at once would both stage
 #: references and both append to the same list -- and this is process-local for the same reason the analysis workers
@@ -125,7 +131,7 @@ def _prepare(coordinator, jid):
     job = coordinator.lookup(jid)
     run_dir = Path(coordinator.run_path(job))
     manifest = _manifest(run_dir)
-    stages_root = environment.execution_root(run_dir)
+    stages_root = layout.stage_root(run_dir)
 
     _require_assessment_stage(jid, manifest)
     _require_completed(jid, manifest, job)
@@ -161,8 +167,6 @@ def _prepare(coordinator, jid):
                              f'{jid}: this model records no pairwise distance histograms, so there is nothing to score '
                              'this run against')
 
-    for name in SCRIPTS:
-        shutil.copy2(cg.SCRIPTS / name, directory / name)
     aa_reference = _shared_reference_path(manifest, run_dir)
     staged = Path(references).resolve()
     attempt = {
@@ -188,7 +192,9 @@ def _prepare(coordinator, jid):
                        'interactions': inventory.get('interactions'),
                        'inventory': inventory.get('files') or [],
                        'source': (f"revision {revision.get('revision')} of this run's mapping parameterization")},
-        'scripts': {name: files.sha256(directory / name) for name in SCRIPTS},
+        # The repository code the attempt runs, named by path and digest instead of copied into the attempt
+        # directory: the executor's own rule, applied to a stage that is re-entered rather than prepared.
+        'scripts': {relative: files.sha256(environment.ROOT / relative) for relative in SCRIPTS},
     }
     files.atomic_json(directory / 'attempt.json', attempt)
     return attempt
@@ -241,12 +247,12 @@ def _execute(coordinator, jid, attempt):
 
 def _execute_script(directory, log, env):
     """`(exit_code, error)`: the stage script's exit status, and why it could not be started when it could not."""
-    command = ['bash', '-e', '-o', 'pipefail', str(Path(directory) / 'assess.sh')]
+    command = ['bash', '-e', '-o', 'pipefail', str(environment.ROOT / ASSESS_SCRIPT)]
     with Path(log).open('a') as output:
         output.write(f'$ {shlex.join(command)}\n')
         output.write(json.dumps({'environment': {key: env.get(key) for key in
                                                  ('INITIAL_DIR', 'REFERENCES', 'INITIAL_ITP', 'MOLECULE_TYPE',
-                                                  'AA_REFERENCE_DIR')}}, indent=2) + '\n')
+                                                  'AA_REFERENCE_DIR', 'PYTHON', 'PYTHONPATH')}}, indent=2) + '\n')
         output.flush()
         try:
             result = subprocess.run(command, cwd=str(directory), env=env, stdout=output, stderr=subprocess.STDOUT)
@@ -263,20 +269,23 @@ def _status(exit_code):
 
 
 def _environment(manifest, run_dir, attempt):
-    """What the copied script is given: the two directories it reads, and the run's own naming context.
+    """What the repository script is given: the two directories it reads, and the run's own naming context.
 
     `INITIAL_DIR` is the run's own stage 3, so the ITP the score is measured with is the one this run simulated;
     `REFERENCES` is the attempt's staged revision. The rest is the environment every stage runs in, plus the
     variables the workflow hands a stage from the run's recorded `cg_names` -- `assess.sh` reads `$INITIAL_ITP` under
     `set -u`, and `validate_run.py` and `distance_diagnostics.py` read the molecule type -- and the run's shared AA
-    reference, which `validate_run.py` re-reads to check the mapping it is scoring.
+    reference, which `validate_run.py` re-reads to check the mapping it is scoring. `PYTHON`/`PYTHONPATH` are the
+    executor's own two variables: the script's helpers are repository modules, not files beside it.
     """
     names = _cg_names(manifest)
     env = environment.environment()
     env.update(INITIAL_DIR=str(attempt['initial']['directory']),
                REFERENCES=str(attempt['references_directory']),
                INITIAL_ITP=names['initial_itp'],
-               MOLECULE_TYPE=names['residue_name'])
+               MOLECULE_TYPE=names['residue_name'],
+               PYTHON=sys.executable,
+               PYTHONPATH=str(environment.ROOT))
     reference = attempt.get('aa_reference') or _shared_reference_path(manifest, run_dir)
     if reference:
         env['AA_REFERENCE_DIR'] = str(reference)

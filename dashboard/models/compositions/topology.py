@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import math
-import re
 from pathlib import Path
 
+from ... import itp, martini3
 from ..mappings.identity import canonical_sha256
 
 SUGAR_RESIDUES = (
@@ -46,23 +46,7 @@ def _sha256(path: Path) -> str:
 
 
 def _section_blocks(text: str) -> list[tuple[str, list[str]]]:
-    blocks: list[tuple[str, list[str]]] = []
-    current = None
-    rows: list[str] = []
-    for raw in text.splitlines():
-        line = raw.split(";", 1)[0].strip()
-        if not line:
-            continue
-        match = re.fullmatch(r"\[\s*([^]]+)\s*\]", line)
-        if match:
-            if current is not None:
-                blocks.append((current.strip(), rows))
-            current, rows = match.group(1).lower(), []
-        elif current is not None:
-            rows.append(line)
-    if current is not None:
-        blocks.append((current.strip(), rows))
-    return blocks
+    return [(name, [line for _number, line in rows]) for name, rows in itp.sections(text)]
 
 
 def _tokens(rows: list[str], width: int | None = None) -> list[list[str]]:
@@ -194,11 +178,18 @@ def _profile(profile_id: str) -> dict:
     raise ValueError(f"Unknown linkage profile: {profile_id}")
 
 
-def _sugar_source(project_root: Path) -> Path:
+def _sugar_source(project_root: Path | None) -> Path:
+    """The sugar reference: this workspace's installed set unless a caller names its own project root.
+
+    A caller-supplied root keeps the `references/` spelling on purpose -- the composition tests build a scratch
+    tree there -- while None means the shared install, which is the same bytes every run simulates with.
+    """
+    if not project_root:
+        return martini3.path("martini_v3.0.0_sugars_v2.itp")
     return Path(project_root) / "references" / "martini_v3.0.0_sugars_v2.itp"
 
 
-def build_preview(payload: dict, project_root: Path) -> dict:
+def build_preview(payload: dict, project_root: Path | None = None) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("Composition payload must be an object")
     head_id = str(payload.get("head_fragment_id", ""))

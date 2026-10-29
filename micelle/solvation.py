@@ -1,4 +1,6 @@
 import numpy as np
+
+
 def add_solvent(solute, box, spacing=.47, seed=0, ions=0):
  sol=np.asarray(solute,float); box=np.asarray(box,float); rng=np.random.default_rng(seed)
  grid=np.stack(np.meshgrid(*[np.arange(spacing/2,x,spacing) for x in box],indexing='ij'),-1).reshape(-1,3)

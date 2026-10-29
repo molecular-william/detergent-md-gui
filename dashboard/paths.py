@@ -30,6 +30,8 @@ class Paths:
     @property
     def runs(self): return self.workspace/'runs'
     @property
+    def martini3(self): return self.workspace/'martini3'
+    @property
     def uploads(self): return self.workspace/'uploads'
     @property
     def proteins(self): return self.workspace/'proteins'

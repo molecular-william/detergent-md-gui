@@ -22,30 +22,54 @@ viewer already has them.
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 from . import layout
 
-#: A protein-detergent run's own stages, in order. `structure` always names the stage's own output, so a picture and a
+#: A protein-detergent run's own stages, in order: `(human name, layout stage key, structure path inside the stage,
+#: trajectory paths inside the stage, note)`. The stage key is looked up through `layout.PDC_STAGE_DIRECTORIES`, so
+#: the numbered directories (`06_assessment`, `07_micelle_assessment`, `08_extension`, `09_final_assessment`,
+#: `10_backmap`) and the legacy spellings (`2_assessment`, `3_assessment`, `4_extension`, `5_assessment`,
+#: `6_backmap`) both resolve to the band below. `structure` always names the stage's own output, so a picture and a
 #: trajectory come from the same system; a stage with no trajectory still has its structure, which is the dry build.
 PDC_STAGES = (
-    ('System preparation', '1_system/system.gro', None, 'the built system, before solvation'),
-    ('Energy minimisation', '2_minimisation/system.gro', ('2_minimisation/system.xtc',), None),
-    ('NVT equilibration', '3_nvt/system.gro', ('3_nvt/system.xtc',), None),
-    ('NPT equilibration', '4_npt/system.gro', ('4_npt/system.xtc',), None),
-    ('CG assessment MD', '2_assessment/prod/run.gro',
-     ('2_assessment/prod/whole.xtc', '2_assessment/prod/run.xtc'), 'PBC made whole where the stage wrote one'),
-    ('CG extension MD', '4_extension/prod/run.gro',
-     ('4_extension/prod/whole.xtc', '4_extension/prod/run.xtc'), 'the system rebuilt after the removal path'),
+    ('System preparation', 'system', 'system.gro', None, 'the built system, before solvation'),
+    ('Energy minimisation', 'minimisation', 'system.gro', ('system.xtc',), None),
+    ('NVT equilibration', 'nvt', 'system.gro', ('system.xtc',), None),
+    ('NPT equilibration', 'npt', 'system.gro', ('system.xtc',), None),
+    ('CG assessment MD', 'assessment', 'prod/run.gro',
+     ('prod/whole.xtc', 'prod/run.xtc'), 'PBC made whole where the stage wrote one'),
+    # The micelle assessment judges the phase's end state and writes the system it would keep; it has no
+    # trajectory of its own, so it is a band with a structure and nothing to play.
+    ('Micelle assessment', 'micelle_assessment', 'kept.gro', None,
+     'the system the assessment would keep; no trajectory of its own'),
+    ('CG extension MD', 'extension', 'prod/run.gro',
+     ('prod/whole.xtc', 'prod/run.xtc'), 'the system rebuilt after the removal path'),
     # The final assessment reads the extension's own trajectory rather than writing a second one; it is listed so the
     # duplicate rule reports that fact instead of a reader discovering it as a film that plays the same frames twice.
-    ('Final assessment', '5_assessment/prod/run.gro',
-     ('5_assessment/prod/whole.xtc', '5_assessment/prod/run.xtc'), None),
+    ('Final assessment', 'final_assessment', 'prod/run.gro',
+     ('prod/whole.xtc', 'prod/run.xtc'), None),
+    # The back-map converts the coarse-grained complex back to an atomistic one; it holds a structure and no
+    # trajectory, so it is a band with nothing to play rather than a stage that went missing.
+    ('Back-mapping (CG2AT2)', 'backmap',
+     ('FINAL/FINAL/final_cg2at_neutral.pdb', 'FINAL/FINAL/final_cg2at_de_novo.pdb'), None,
+     'the atomistic complex converted back from the CG one'),
 )
 
+#: The stages the Run view's one timed reel covers, in order: the equilibration legs then the two production stages.
+#: The final assessment is excluded because it re-declares the extension's trajectory. The producer samples every
+#: stage that actually holds a trajectory and skips the rest (this pipeline's minimisation writes none), so the
+#: timeline's span is the run's own rather than a second list copied into another module.
+PDC_TIMELINE_STAGES = ('Energy minimisation', 'NVT equilibration', 'NPT equilibration',
+                       'CG assessment MD', 'CG extension MD')
+
 SNIFF = 65536
-#: The files that mark a run as protein-detergent rather than single-molecule.
-PDC_MARKERS = ('4_extension', '2_assessment', '3_nvt')
+#: The files that mark a run as protein-detergent rather than single-molecule: the numbered layout, then the legacy
+#: one. `04_nvt` alone is not a marker -- an AA-only run's numbered stages include `04_nvt` too -- so the markers are
+#: directories only a pdc run writes.
+PDC_MARKERS = ('08_extension', '06_assessment', '02_system', '03_minimisation', '07_micelle_assessment',
+               '09_final_assessment', '10_backmap', '4_extension', '2_assessment', '3_nvt', '1_system')
 
 
 def atoms(structure: Path) -> int | None:
@@ -84,14 +108,6 @@ def present(root: Path, relative: str) -> Path | None:
     return None
 
 
-def first(root: Path, names) -> Path | None:
-    for name in names or ():
-        found = present(root, name)
-        if found is not None:
-            return found
-    return None
-
-
 def is_pdc(root: Path) -> bool:
     """Whether a run keeps its stages the protein-detergent way, in either spelling a reader may be handed."""
     root = Path(root)
@@ -113,29 +129,78 @@ def _relative(root: Path, path: Path) -> str:
     return path.as_posix()
 
 
-def pdc_segments(root: Path) -> list[dict]:
-    """The protein-detergent chain's trajectories, in stage order, with duplicates and merges made explicit."""
+def _manifest(root: Path) -> dict:
+    """The run's manifest, from the directory a reader was handed or from the run above its `stages/`."""
     root = Path(root)
+    candidates = [root / 'manifest.json']
+    if root.name == layout.STAGES:
+        candidates.append(root.parent / 'manifest.json')
+    for path in candidates:
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict):
+            return data
+    return {}
+
+
+def skipped_stages(root: Path) -> dict:
+    """The stages the run's own prepare decided will not run, as `{stage name: reason}`.
+
+    A skipped stage writes no directory and no `skip.json`, so the manifest's `skipped_stages` is the only place it
+    is recorded. A reader that ignored it would show the stage as missing -- which is a different fact from "the
+    run decided not to do this, because ...".
+    """
+    skipped = _manifest(root).get('skipped_stages')
+    return {str(name): str(reason) for name, reason in skipped.items()} if isinstance(skipped, dict) else {}
+
+
+def _stage_path(root: Path, stage: str, names):
+    """One file inside a pdc stage, trying every spelling of the stage directory and each candidate name."""
+    for name in ((names,) if isinstance(names, str) else names or ()):
+        found = layout.pdc_stage_path(root, stage, name)
+        if found is not None:
+            return found
+    return None
+
+
+def pdc_segments(root: Path) -> list[dict]:
+    """The protein-detergent chain's trajectories, in stage order, with duplicates and merges made explicit.
+
+    A stage is looked up through `layout.PDC_STAGE_DIRECTORIES`, so a numbered `07_extension/` and a legacy
+    `4_extension/` are the same band. A stage the manifest records as skipped is listed with its reason instead of
+    being dropped: it has no directory, and "the run decided not to run this" is not the same as "it is missing".
+    """
+    root = Path(root)
+    skipped = skipped_stages(root)
     seen: dict[str, str] = {}
     group, previous_atoms = 0, None
     segments = []
-    for name, structure_name, trajectory_names, note in PDC_STAGES:
-        structure = present(root, structure_name)
+    for name, stage, structure_name, trajectory_names, note in PDC_STAGES:
+        structure = _stage_path(root, stage, structure_name)
+        reason = skipped.get(name)
         if structure is None:
+            if reason is not None:
+                segments.append({'name': name, 'structure': None, 'atoms': None, 'trajectory': None,
+                                 'role': 'pdc', 'group': None, 'skipped': reason,
+                                 'note': f'skipped: {reason}'})
             continue
         count = atoms(structure)
-        trajectory = first(root, trajectory_names)
+        trajectory = _stage_path(root, stage, trajectory_names)
         entry = {'name': name, 'structure': _relative(root, structure), 'atoms': count,
                  'trajectory': None, 'role': 'pdc', 'group': None}
         if note:
             entry['note'] = note
+        if reason is not None:
+            entry['skipped'] = reason
         if trajectory is not None:
             # Every candidate this stage holds is registered, not only the one chosen to play: the final assessment
             # re-declares the extension's raw `run.xtc` while the extension itself plays its `whole.xtc`, so a rule
             # that compared chosen files would call that pair different and play the same frames twice.
             keys = {}
             for name_option in trajectory_names or ():
-                candidate = present(root, name_option)
+                candidate = layout.pdc_stage_path(root, stage, name_option)
                 if candidate is not None:
                     keys[identity(candidate)] = candidate
             duplicate = next((seen[key] for key in keys if key in seen), None)

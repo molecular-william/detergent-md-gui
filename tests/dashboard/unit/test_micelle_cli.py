@@ -1,7 +1,8 @@
 """The builder's own entry point: what a structure that states its membrane changes, and what it leaves alone.
 
-Only the two decisions are pinned here. A build writes a micelle, and that is what `test_micelle_job.py` and the pdc
-path exercise; this is about the lines that turn a statement into a frame and a frame into an orientation report.
+The decisions are pinned here. A build writes a micelle, and that is what `test_micelle_job.py` and the pdc path
+exercise; this is about the lines that turn a statement into a frame, a frame into an orientation report, and a
+requested grompp into a verdict the report can hold.
 """
 import argparse
 import json
@@ -16,9 +17,9 @@ PROTEIN = [[0.0, 0.0, -1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 3.0]]
 TEMPLATE = Path('molecules/DDM/micelle_template.json')
 
 
-def _arguments(structure, output, aggregation_number=4):
+def _arguments(structure, output, aggregation_number=4, mdp=None):
     return argparse.Namespace(template=str(TEMPLATE), protein=str(structure), aggregation_number=aggregation_number,
-                              seed=7, output=str(output), radius=3.0, margin=2.0, box_shape='cubic', ions=0, mdp=None)
+                              seed=7, output=str(output), radius=3.0, margin=2.0, box_shape='cubic', ions=0, mdp=mdp)
 
 
 def test_the_heuristic_path_is_preserved_when_a_structure_states_nothing():
@@ -63,3 +64,18 @@ def test_a_structure_that_states_nothing_builds_exactly_as_before(tmp_path):
     assert report['membrane'] is None
     assert report['orientation']['method'] == 'heuristic'
     assert report['orientation']['span'] == [-1.0, 1.0]
+
+
+def test_a_build_that_asks_for_grompp_reports_a_missing_gmx_rather_than_raising(tmp_path, monkeypatch):
+    """`gmx` absent is a status the report carries, not an exception that costs a build its own report."""
+    structure = tmp_path / 'plain.pdb'
+    structure.write_text('ATOM      1  N   ALA A   1       0.000   0.000  -1.000  1.00  0.00           N\n'
+                         'ATOM      2  N   ALA A   1       0.000   0.000   1.000  1.00  0.00           N\n')
+    mdp = tmp_path / 'run.mdp'
+    mdp.write_text('')
+    output = tmp_path / 'built'
+    monkeypatch.setenv('PATH', '')                # no `gmx` for the requested validation step to find
+
+    assert cli.build(_arguments(structure, output, mdp=str(mdp))) == 0
+    report = json.loads((output / 'validation' / 'validation.json').read_text())
+    assert report['grompp'] == {'status': 'unavailable', 'error': 'gmx executable not found'}

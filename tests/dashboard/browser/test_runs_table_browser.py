@@ -3,6 +3,8 @@ from playwright.sync_api import expect
 
 from dashboard import files
 
+from . import panels
+
 
 def test_a_run_recorded_under_the_old_stage_name_keeps_its_short_label(dashboard, live_page):
     """21 runs say `trajectory mapping (ff_map)` -- the name this stage had when it called that tool.
@@ -108,7 +110,6 @@ def test_runs_views_checkpoints_and_inline_console(dashboard, live_page):
         for button in page.locator('[data-run-view]').all():
             expect(button).to_be_visible()
             assert button.evaluate('(el)=>getComputedStyle(el).color!==getComputedStyle(el).backgroundColor')
-        page.screenshot(path=f'/tmp/detergent-runs-{view}.png', full_page=True)
     page.locator('[data-run-view=table]').click()
     complete.locator('.job-artifacts > summary').click()
     expect(complete.locator('.artifact-list')).to_contain_text('result.svg')
@@ -137,7 +138,6 @@ def test_runs_views_checkpoints_and_inline_console(dashboard, live_page):
     page.locator('[data-run-view=dense]').click(); page.reload()
     expect(page.locator('#runs')).to_have_attribute('data-view', 'dense')
     expect(active.locator('#console-output')).to_contain_text('Active screening line 99')
-    page.screenshot(path='/tmp/detergent-runs-expanded.png', full_page=True)
     # Filtering the current console out must park the viewer, not destroy it.
     page.locator('#run-search').fill('Completed control')
     expect(page.locator('.job')).to_have_count(1)
@@ -149,8 +149,7 @@ def test_runs_views_checkpoints_and_inline_console(dashboard, live_page):
     page.set_viewport_size({'width':390, 'height':844})
     for view in ('table','dense','grouped'):
         page.locator(f'[data-run-view={view}]').click()
-        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
-    page.screenshot(path='/tmp/detergent-runs-mobile.png', full_page=True)
+        panels.assert_no_horizontal_scroll(page)
     assert not errors, errors
 
 

@@ -6,6 +6,8 @@ from playwright.sync_api import expect
 from dashboard.execution.adapters import cg
 from tests.dashboard.support import PROJECT_ROOT
 
+from . import panels
+
 #: The tier's own budget for an answer the server has to produce (`browser/conftest.py`): Playwright's default
 #: expectation timeout is 5 s, which a loaded box outruns.
 SERVER_WAIT = 30000
@@ -41,8 +43,7 @@ def test_the_force_field_selector_is_the_registry(dashboard, live_page):
         assert f'{entry.temperature_k} K' in text, f'{value} is offered without its temperature'
         assert entry.water_file[: -len('.itp')].upper() in text.upper()
     page.locator('#force-field').select_option('charmm36-jul2022')
-    page.wait_for_timeout(300)
-    assert page.evaluate("document.querySelector('[name=temperature_k]').value") == '303.15'
+    expect(page.locator('[name=temperature_k]')).to_have_value('303.15')
     assert page.evaluate("document.querySelector('#run-form').checkValidity()") is True
     assert errors == []
 
@@ -119,11 +120,9 @@ def test_directory_selection_supports_generic_aa_and_ddm_cg_pair(dashboard, live
     source=page.locator('#molecule-panel').bounding_box()
     settings=page.locator('.run-settings').bounding_box()
     assert settings['x'] > source['x']+source['width']
-    page.screenshot(path='/tmp/new-run-directory-desktop.png',full_page=True)
     page.set_viewport_size({'width':390,'height':844})
-    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    panels.assert_no_horizontal_scroll(page)
     expect(page.locator('#molecule-directory')).to_be_visible()
-    page.screenshot(path='/tmp/new-run-directory-mobile.png',full_page=True)
     with page.expect_response(lambda r: r.request.method=='POST' and r.url.endswith('/')) as response:
         page.locator('#start-run').click()
     assert response.value.status==201, response.value.text()

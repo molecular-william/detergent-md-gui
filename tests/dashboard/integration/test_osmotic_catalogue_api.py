@@ -15,7 +15,8 @@ from dashboard.execution.adapters import osmotic
 from dashboard.models.mappings import context as mapping_context
 
 CATALOGUE = '/api/osmotic/catalogue'
-SOLUTE_FILES = ('solute.gro', 'solute.itp', 'water.gro', 'martini_v3.0.0_solvents_v1.itp')
+# The solute bundle's own files: the Martini solvents file is the workspace install's now, not a bundle file.
+SOLUTE_FILES = osmotic.SOLUTE_FILES
 
 
 def _catalogue(dashboard):
@@ -78,7 +79,7 @@ def test_a_missing_solute_file_is_named_and_the_sugar_is_not_ready(dashboard):
     root = _solute_files(dashboard, 'trehalose')
     (root / 'water.gro').unlink()
     trehalose = _sugar(_catalogue(dashboard), 'Trehalose')
-    assert trehalose['solute_files_present'] == 3
+    assert trehalose['solute_files_present'] == len(SOLUTE_FILES) - 1
     assert trehalose['solute_files_missing'] == ['water.gro']
     assert trehalose['ready'] is False
 

@@ -69,8 +69,10 @@ def browser():
 @pytest.fixture
 def live_server(dashboard):
     """The test's application on a real port, served from a thread, torn down afterwards."""
-    server = make_server('127.0.0.1', 0, dashboard.app, request_handler=QuietHandler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server = make_server('127.0.0.1', 0, dashboard.app, request_handler=QuietHandler, threaded=True)
+    # Werkzeug's default poll interval is 0.5 s, and `shutdown()` waits for one poll: every test paid up to half a
+    # second after its last assertion. The server is per test, so this is the cheapest teardown win in the tier.
+    thread = threading.Thread(target=lambda: server.serve_forever(poll_interval=0.02), daemon=True)
     thread.start()
     try:
         yield f'http://127.0.0.1:{server.server_port}'

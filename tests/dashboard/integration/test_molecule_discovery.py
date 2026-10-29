@@ -7,6 +7,7 @@ import pytest
 
 from dashboard import files
 from dashboard.analysis.runs import references as aa_references
+from dashboard.execution import forcefields, run_inputs
 from dashboard.execution.adapters import aa
 from dashboard.models.molecules import aa as aa_molecules
 from tests.dashboard.support import PROJECT_ROOT
@@ -90,11 +91,19 @@ def test_pdb_preparation_hashes_source_and_conversion_without_mutating_source(so
     assert files.hashes(source) == before
     assert not (source/'molecule.gro').exists()
     assert (prepared/'molecule.gro').read_text() == aa_molecules.pdb_gro((source/'results/MMFF/lig1.pdb').read_text())
-    assert (prepared/'molecule.itp').read_text() == '#include "results/MMFF/lig1.itp"\n'
-    files.verify(prepared, selected['sha256'])
+    assert (prepared/'molecule.itp').read_text() == f'#include "{(source/"results/MMFF/lig1.itp").resolve()}"\n'
+    files.verify(source, selected['sha256'])
     manifest = json.loads((run/'manifest.json').read_text())
     assert manifest['input_preparation']['coordinate_conversion']['method'] == 'aa_molecules.pdb_gro'
-    files.verify(run/'inputs', manifest['input_snapshot_sha256'])
+    assert manifest['layout_version'] == 3
+    # The store is named, not copied: no published file is in `inputs/`, and nothing of the tree is in `stages/`.
+    assert not (prepared/'results').exists()
+    assert not (run/'stages/common'/forcefields.entry().directory).exists()
+    molecule_entries = [entry for entry in manifest['inputs'] if entry['role'] == 'molecule']
+    assert {entry['path'] for entry in molecule_entries} == {
+        f'molecules/Example/{relative}' for relative in selected['sha256']}
+    for entry in molecule_entries:
+        run_inputs.verify_entry(entry, repo_root=tmp_path)
     legacy = dict(selected, sha256={'molecule.itp': files.sha256(source/'results/MMFF/lig1.itp'),
                                   'molecule.gro': files.sha256(prepared/'molecule.gro')})
     legacy.pop('reference_sha256')

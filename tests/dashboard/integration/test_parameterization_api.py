@@ -94,7 +94,7 @@ def engine(command, cwd, *, env=None, timeout=None, job_id=None, log=None):
     """The stand-in for the two tools: each writes the artefact the job's own guard looks for."""
     cwd = Path(cwd)
     joined = ' '.join(str(part) for part in command)
-    if 'sugar_mapping.py' in joined:
+    if 'scripts.sugar_mapping' in joined:
         write_frames(cwd, json.loads((cwd / 'model.json').read_text())['beads'])
     elif 'fit_topology.sh' in joined:
         (cwd / env['FINAL_ITP']).write_text(TOPOLOGY)

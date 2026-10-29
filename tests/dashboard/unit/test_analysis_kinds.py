@@ -1,8 +1,8 @@
 """One row per analysis kind, and every reader of that vocabulary derives from it.
 
-Phase 3 of the audit's plan. Four lists described the same fourteen kinds and nothing compared them: the names in
+Phase 3 of the audit's plan. Four lists described the same thirteen kinds and nothing compared them: the names in
 `worker.KINDS`, the source patterns in `worker.PATTERNS`, the dispatch chain in `worker.execute` (nine `elif`s and a
-five-entry mapping), and `metadata.DESCRIPTIONS` -- which held seventeen entries for fourteen kinds, because three of
+five-entry mapping), and `metadata.DESCRIPTIONS` -- which held seventeen entries for thirteen kinds, because three of
 them name the evidence sections of the carbohydrate-validation report rather than analyses at all. A kind missing from
 one of the lists failed silently: unreachable, or handed no inputs, or rendered under a title the code invented by
 replacing hyphens with spaces.
@@ -63,23 +63,22 @@ def test_every_kind_is_described_by_its_own_row():
         assert described['units_or_direction'] == row.units_or_direction, name
 
 
-def test_the_kinds_a_run_runs_for_itself_are_the_frames():
-    """One kind is registered as running for a run without anyone asking: the frames a reader looks at.
+def test_no_kind_is_registered_to_run_for_every_run():
+    """The registration is a facet of the row rather than a fifth list of kinds.
 
-    The registration is a facet of the row rather than a fifth list of kinds, so the readers of the vocabulary
-    (`worker.KINDS`, `worker.PATTERNS`, the dispatch and `metadata.describe`) cannot disagree with it about which
-    analyses a run owes its reader.
+    Nothing is registered today: every remaining kind is either queued by hand or defaulted by a run type. The
+    reader still derives from the one table (rather than a bespoke list) so a future registration enters through the
+    same door, and the other readers of the vocabulary cannot disagree with it.
     """
     from dashboard.analysis.kinds import TABLE, for_every_run
-    assert for_every_run() == ('snapshots',)
-    assert TABLE['snapshots'].runs_for_every_run
-    assert [name for name, row in TABLE.items() if row.runs_for_every_run] == ['snapshots']
+    assert for_every_run() == ()
+    assert [name for name, row in TABLE.items() if row.runs_for_every_run] == []
 
 
 def test_the_evidence_section_descriptions_are_not_analysis_kinds():
     """Three descriptions name the carbohydrate report's evidence sections, not analyses.
 
-    They were in the same mapping as the kinds, which is why it held seventeen entries for fourteen kinds and why
+    They were in the same mapping as the kinds, which is why it held seventeen entries for thirteen kinds and why
     nothing noticed. They are a different vocabulary -- the sections `evidence.PROFILES['carbohydrate']` requires --
     so they live in their own mapping, checked against that profile rather than floating among the kinds.
     """

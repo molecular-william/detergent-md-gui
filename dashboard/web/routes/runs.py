@@ -403,15 +403,7 @@ def run_topology(run_dir, manifest=None, run_type=None) -> Path | None:
     """
     from ...analysis.runs import layout
 
-    name = None
-    for stage in (manifest or {}).get('stages') or []:
-        name = (stage.get('environment') or {}).get('FINAL_ITP')
-        if name:
-            break
-    try:
-        return layout.coarse_topology(run_dir, run_type, name)
-    except ValueError:
-        return None
+    return layout.recorded_topology(run_dir, run_type, manifest)
 
 
 @blueprint.get('/api/jobs/<jid>/trajectory')
@@ -476,8 +468,11 @@ def run_structure_api(jid):
             moleculetype = None
     try:
         # The same fragments the frames carry: a reader who fits a series on one ring sees the same letters on the
-        # single structure it came from, because both are written from the run's own mapping.
+        # single structure it came from, because both are written from the run's own mapping. The protein chains'
+        # own moleculetypes are passed too, so the protein is drawn bonded here exactly as it is in a series; a
+        # run without them (every single-molecule run) gets the same file it always did.
         text = pdc_view.structure_pdb(path, topology=moleculetype, subunits=pdc_view.read_subunits(run_dir),
+                                      protein_topologies=pdc_view.read_protein_topologies(run_dir),
                                       title=f'{path.name} (run {jid})')
     except (OSError, ValueError) as error:
         abort(400, f'{path.name} could not be read for the viewer: {error}')

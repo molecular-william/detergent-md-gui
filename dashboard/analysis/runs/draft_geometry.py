@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ... import itp
+
 #: How the constrained pair was matched to the mapped structure's rows.
 BY_NAME = 'name'
 BY_ORDER = 'order'
@@ -31,29 +33,26 @@ def constraints(topology_text):
     the seventh bead of the mapping that built it: indices travel between the two files, names do not.
     """
     names, rows = {}, []
-    section = ''
-    for line in topology_text.splitlines():
-        body = line.split(';', 1)[0].strip()
-        if body.startswith('['):
-            section = body.strip('[] ').strip().lower()
+    for section, lines in itp.sections(topology_text):
+        if section not in ('atoms', 'constraints'):
             continue
-        if not body or section not in ('atoms', 'constraints'):
-            continue
-        fields = body.split()
-        if section == 'atoms':
-            if len(fields) >= 5:
-                names[int(fields[0])] = fields[4]
-            continue
-        if len(fields) < 3:
-            continue
-        try:
-            first, second, function = (int(fields[0]), int(fields[1]), int(fields[2]))
-            length = float(fields[3])
-        except (IndexError, ValueError):
-            raise ValueError(f'Invalid constraint row: {body}') from None
-        if function != 1:
-            raise ValueError(f'Only constraint function 1 is a length; {body} asks for function {function}')
-        rows.append({'indices': (first, second), 'beads': (names.get(first), names.get(second)), 'length_nm': length})
+        for _number, body in lines:
+            fields = body.split()
+            if section == 'atoms':
+                if len(fields) >= 5:
+                    names[int(fields[0])] = fields[4]
+                continue
+            if len(fields) < 3:
+                continue
+            try:
+                first, second, function = (int(fields[0]), int(fields[1]), int(fields[2]))
+                length = float(fields[3])
+            except (IndexError, ValueError):
+                raise ValueError(f'Invalid constraint row: {body}') from None
+            if function != 1:
+                raise ValueError(f'Only constraint function 1 is a length; {body} asks for function {function}')
+            rows.append({'indices': (first, second), 'beads': (names.get(first), names.get(second)),
+                         'length_nm': length})
     return rows
 
 

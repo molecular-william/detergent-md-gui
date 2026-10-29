@@ -14,7 +14,7 @@ import pytest
 
 from dashboard.execution.adapters import pdc
 from dashboard.execution.scripts import pdc_build
-from tests.dashboard.pdc_fixtures import candidate_file, write_cg_pdb
+from tests.dashboard.pdc_fixtures import candidate_file, system_stage, write_cg_pdb
 
 MOLECULE_ROOT = Path(__file__).resolve().parents[3] / 'molecules'
 TEMPLATE = {
@@ -97,8 +97,9 @@ def test_a_mapping_that_marks_no_hydrophobic_core_is_refused():
 def test_the_topology_names_its_molecules_exactly_as_the_tool_listed_them(tmp_path):
     """martinize2 writes one `.itp` per molecule type, named after it, and lists each with its count.
 
-    The fixture reproduces that shape -- the itps in `cg/`, beside the tool's own `protein.top` -- because the include
-    this stage writes has to name the file where the tool left it.
+    The fixture reproduces that shape -- the itps in `cg/`, beside the tool's own `protein.top`. The include this
+    stage writes names the file from the build stage that holds it (`../<stage>/cg/<name>.itp`), because a sibling
+    leg reads the copied `system.top` from its own directory and a bare `cg/<name>.itp` would not resolve there.
     """
     cg = tmp_path / 'cg'
     cg.mkdir()
@@ -113,7 +114,10 @@ def test_the_topology_names_its_molecules_exactly_as_the_tool_listed_them(tmp_pa
     whole = (tmp_path / 'system.top').read_text()
     assert written == {'protein_molecule': 'PROT', 'protein_molecules': ['PROT'],
                        'detergent_molecule': 'DDM', 'detergents': 3}
-    assert '#include "cg/PROT.itp"' in whole and '#include "detergent_CG.itp"' in whole
+    protein_include = f'../{tmp_path.name}/{pdc.PROTEIN_TOPOLOGY_DIRECTORY}/PROT.itp'
+    assert f'#include "{protein_include}"' in whole, 'the include names the build stage tree, not this directory'
+    detergent_include = f'../../{pdc.INPUTS_DIRECTORY}/{pdc.DETERGENT_TOPOLOGY}'
+    assert f'#include "{detergent_include}"' in whole, "the detergent is the run's generated original in inputs/"
     assert 'PROT\t1' in whole and 'DDM\t3' in whole
     assert 'martini.itp' not in whole, "the tool's own force field is not this system's"
     assert 'DDM\t' not in (tmp_path / 'system_EMPTY.top').read_text(), 'the empty topology is the protein alone'
@@ -150,7 +154,7 @@ def test_the_stage_completes_when_the_run_was_prepared_with_a_detergent_mapping(
     pdc.prepare(run, protein='molecules/DDM/protein.pdb', template='molecules/DDM/micelle_template.json',
                 settings={'seed': 20260930, 'aggregation_number': 2}, project_root=root,
                 mapping=candidate_file(tmp_path))
-    stage = run / Path(pdc.stage_by_name('System preparation').relative).parent
+    stage = system_stage(run)
     write_cg_pdb(stage / 'cg' / 'protein_cg.pdb', [(1, 'PRO', 'B01', (0.0, 0.0, 0.0)),
                                                   (1, 'PRO', 'B02', (1.0, 0.0, 0.0)),
                                                   (1, 'PRO', 'B03', (0.0, 1.0, 0.0))])
@@ -173,5 +177,7 @@ def test_the_stage_completes_when_the_run_was_prepared_with_a_detergent_mapping(
     assert beads == protein + 2 * per_detergent, 'the atoms present are what [ molecules ] claims'
     topology = (stage / 'system.top').read_text()
     assert 'DDM\t2' in topology and 'PROT\t1' in topology
-    assert '#include "cg/PROT.itp"' in topology, 'the topology includes the protein itp where the tool left it'
-    assert (stage / 'snapshots' / 'placement.pdb').is_file()
+    protein_include = f'../{stage.name}/{pdc.PROTEIN_TOPOLOGY_DIRECTORY}/PROT.itp'
+    assert f'#include "{protein_include}"' in topology, \
+        'the topology names the protein itp in the build stage tree, where every sibling leg resolves it'
+    assert not (stage / 'snapshots').exists(), 'the build no longer records a placement snapshot'

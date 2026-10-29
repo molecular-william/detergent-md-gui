@@ -20,6 +20,8 @@ import math
 
 import numpy as np
 
+from ... import itp
+
 #: section -> how many atoms a term names, and whether its atom order is sorted (a bond has no direction).
 SECTIONS = {'bonds': (2, True), 'angles': (3, False), 'dihedrals': (4, False), 'proper-dihedrals': (4, False)}
 
@@ -32,31 +34,27 @@ def read_terms(text):
     keeping two parsers that drift apart.
     """
     terms = {section: [] for section in SECTIONS}
-    section = None
-    for line in text.splitlines():
-        body = line.split(';', 1)[0].strip()
-        if body.startswith('['):
-            section = body.strip('[] ').strip()
-            continue
-        if not body or body.startswith('#'):
-            continue
+    for section, rows in itp.sections(text):
         if section not in SECTIONS:
             continue
         count, sorted_atoms = SECTIONS[section]
-        fields = body.split()
-        try:
-            atoms = tuple(int(field) - 1 for field in fields[:count])
-            if len(atoms) != count or min(atoms) < 0:
-                raise ValueError
-        except ValueError as error:
-            raise ValueError(f'Invalid {section} atom indices') from error
-        try:
-            function = int(fields[count])
-            parameters = tuple(float(field) for field in fields[count + 1:])
-        except (IndexError, ValueError):
-            function, parameters = None, ()
-        terms[section].append({'atoms': tuple(sorted(atoms)) if sorted_atoms else atoms,
-                               'function': function, 'parameters': parameters})
+        for _number, body in rows:
+            if body.startswith('#'):
+                continue
+            fields = body.split()
+            try:
+                atoms = tuple(int(field) - 1 for field in fields[:count])
+                if len(atoms) != count or min(atoms) < 0:
+                    raise ValueError
+            except ValueError as error:
+                raise ValueError(f'Invalid {section} atom indices') from error
+            try:
+                function = int(fields[count])
+                parameters = tuple(float(field) for field in fields[count + 1:])
+            except (IndexError, ValueError):
+                function, parameters = None, ()
+            terms[section].append({'atoms': tuple(sorted(atoms)) if sorted_atoms else atoms,
+                                   'function': function, 'parameters': parameters})
     return terms
 
 

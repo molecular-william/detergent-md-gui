@@ -1,38 +1,61 @@
-"""Modules copied into a run directory must keep the names that run uses.
+"""An AA run executes the repository's helper modules; it carries no Python of its own.
 
-Both failures this guards are silent until a real run reaches the stage, and
-neither shows up in an import check or a unit test of the adapter:
-
-- The adapter copied each helper under `Path(module.__file__).name`. After the
-  layout move those names became `references.py` and `aa.py`, while the
-  generated stage scripts invoke `../common/aa_references.py` and the copied
-  publication helper imports `aa_molecules`. The AA neutralization and
-  reference-publication stages would have failed on a missing file.
-- A copied helper has no package beside it, so every package import it makes
-  has to sit inside its own ImportError fallback.
+The run used to copy three modules into `stages/common/` and the generated stage scripts invoked
+`../common/aa_references.py`. A copy drifts from the module it was made from, and the run could not say which code it
+had actually run. The modules now run as package modules through the application interpreter
+(`"$PYTHON" -m dashboard...`), and the manifest records each one's repository path and digest, so a changed helper
+refuses the stage instead of silently running other code.
 """
-import re
-import shutil
-import subprocess
-import sys
-from pathlib import Path
+import json
 
+import pytest
+
+from dashboard import files
+from dashboard.execution import run_scripts
 from dashboard.execution.adapters import aa
+from dashboard.models.molecules import aa as aa_molecules
+from tests.dashboard.support import PROJECT_ROOT
+
+#: The code an AA stage executes, by the name the manifest gives it. Pinned here rather than read from the adapter,
+#: because these paths are the run contract: a helper that moves without this list changing is a run that cannot say
+#: what ran.
+MODULES = {'aa_references': 'dashboard/analysis/runs/references.py',
+           'aa_molecules': 'dashboard/models/molecules/aa.py',
+           'files': 'dashboard/files.py'}
 
 
-def test_every_helper_the_stage_scripts_invoke_is_copied_under_that_name():
-    invoked = set(re.findall(r'common/([A-Za-z_][A-Za-z0-9_]*\.py)', Path(aa.__file__).read_text()))
-    copied = {name for name, _ in aa.RUN_HELPERS}
-    assert invoked, 'the stage scripts must invoke at least one run-local helper'
-    missing = sorted(invoked - copied)
-    assert not missing, f'the stage scripts invoke helpers the run directory never gets: {missing}'
+@pytest.fixture
+def prepared(tmp_path, monkeypatch):
+    monkeypatch.setattr(aa, 'tool_metadata', lambda: {})
+    monkeypatch.setattr(aa, 'gromacs_flavour', lambda *arguments, **keywords: 'mpi')
+    molecules = PROJECT_ROOT/'molecules'
+    selected = aa_molecules.selection(molecules, 'DDM', run_type='aa_only')
+    aa.prepare_run(tmp_path, molecules, selected,
+                   {'aa_nvt_ps': 1, 'aa_npt_ps': 1, 'aa_production_ps': 2, 'output_interval_ps': 1, 'box_nm': 4.0})
+    return tmp_path
 
 
-def test_copied_helpers_import_standalone(tmp_path):
-    """The run directory has no package, so the copies must not need one."""
-    for name, module in aa.RUN_HELPERS:
-        shutil.copy2(module.__file__, tmp_path / name)
-    imports = '; '.join(f'import {name[:-3]}' for name, _ in aa.RUN_HELPERS)
-    result = subprocess.run([sys.executable, '-c', imports], cwd=tmp_path,
-                            capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
+def test_a_prepared_run_holds_no_python_and_names_the_modules_it_executes(prepared):
+    for tree in ('stages', 'inputs'):
+        assert not [path for path in (prepared/tree).rglob('*.py')], f'{tree}/ carries a Python file'
+    manifest = json.loads((prepared/'manifest.json').read_text())
+    recorded = manifest['python_modules']
+    assert {name: entry['path'] for name, entry in recorded.items()} == MODULES
+    for name, entry in recorded.items():
+        assert entry['sha256'] == files.sha256(PROJECT_ROOT/entry['path'])
+        assert run_scripts.verify_one(name, entry, root=PROJECT_ROOT) == PROJECT_ROOT/entry['path']
+    # The generated stage scripts execute the module where it lives rather than a copy beside them.
+    text = '\n'.join(path.read_text() for path in (prepared/'stages').rglob('run.sh'))
+    assert ' -m dashboard.analysis.runs.references ' in text
+    assert 'common/aa_references.py' not in text
+
+
+def test_a_module_changed_after_prepare_refuses_the_stage(tmp_path):
+    module = tmp_path/'helper.py'
+    module.write_text('x = 1\n')
+    declared = {'path': 'helper.py', 'sha256': files.sha256(module)}
+    assert run_scripts.verify_one('files', declared, root=tmp_path) == module
+
+    module.write_text('x = 2\n')
+    with pytest.raises(ValueError, match='the stage script for files changed since this run was prepared'):
+        run_scripts.verify_one('files', declared, root=tmp_path)

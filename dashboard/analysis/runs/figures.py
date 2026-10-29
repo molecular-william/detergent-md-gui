@@ -11,17 +11,19 @@ currently shows, and every earlier set stays on disk, reachable through the arti
 A figure outside `analyses/` -- one a stage wrote as it ran -- belongs to no analysis attempt and is otherwise always
 shown, with one exception that is the same rule applied to a stage: an assessment a run re-scored leaves
 `stages/5_assessment@1/` beside the first `stages/5_assessment/`, and both hold a score matrix, a distance
-distribution and a diagnostic matrix. Only the newest attempt's are what the run currently shows; the earlier ones
-stay on disk and are counted, because a reader comparing a re-score with what it replaced needs to reach the old
-pictures rather than have them disappear.
+distribution and a diagnostic matrix. A numbered pdc run's final assessment is `09_final_assessment`, re-scored as
+`09_final_assessment@<n>`. Only the newest attempt's are what the run currently shows; the earlier ones stay on disk
+and are counted, because a reader comparing a re-score with what it replaced needs to reach the old pictures rather
+than have them disappear.
 """
 
 import re
 
-#: A figure one assessment attempt wrote: the stage's own directory, or a re-score's `5_assessment@<n>`. The `stages/`
-#: prefix is optional because `execution_root` puts the stage directories at the run's root in the layout written before
-#: `layout_version` 2, and an attempt directory is created where the stage root is.
-ASSESSMENT_ATTEMPT = re.compile(r'^(?:stages/)?5_assessment(?:@(\d+))?/')
+#: A figure one assessment attempt wrote: a CG run's `5_assessment` or a numbered pdc run's `09_final_assessment`,
+#: and a re-score's `@<n>` beside either. The `stages/` prefix is optional because the layout written before
+#: `layout_version` 2 kept the stage directories at the run's root, and an attempt directory is created where the
+#: stage root is.
+ASSESSMENT_ATTEMPT = re.compile(r'^(?:stages/)?(?:09_final_assessment|5_assessment)(?:@(\d+))?/')
 
 
 def current_figures(entries):
@@ -29,7 +31,7 @@ def current_figures(entries):
 
     A "set" is one signature's figures: `analyses/<kind>/<signature>/...`. Two signatures of one kind are two
     different analyses (different settings, different payloads), and the newer of them is the one the run currently
-    shows -- the same choice `snapshots` makes when it plays the newest frame series, and the older ones are counted
+    shows -- the newest series in the index, and the older ones are counted
     rather than dropped in silence so a reader can go and look.
 
     An assessment attempt is a set by the same reading: `stages/5_assessment` is attempt 0 and `stages/5_assessment@n`

@@ -14,9 +14,9 @@ reads the radii here reads the drawn bonds, so a regression that let the guess b
 
 The frame is a fixture rather than a run: the eleven beads of one DDM molecule are the coordinates the run's
 `1_system/system.gro` held, repeated `MOLECULES` times, three nanometres apart so no two beads in different
-molecules are near enough for a distance-based guess. It is written by `pdc_view.system_pdb` -- the writer the route
-serves a run's own snapshot through -- so the element column this test resolves the classes from is the writer's own
-output and not a second copy of its convention. No test reads the developer's workspace.
+molecules are near enough for a distance-based guess. It is written by `pdc_view.system_pdb` -- the writer the
+built-system route serves -- so the element column this test resolves the classes from is the writer's own output
+and not a second copy of its convention. No test reads the developer's workspace.
 """
 import re
 from pathlib import Path
@@ -33,14 +33,6 @@ SPACING_NM = 3.0
 #: here so the test fails if the panel's table and the model's ever disagree.
 RADII_NM = {'R': 0.264, 'S': 0.230, 'T': 0.191}
 NANOMETRE_TO_ANGSTROM = 10.0
-
-INDEX = {
-    'job_id': 'pdcbeads',
-    'snapshots': [
-        {'name': 'placement', 'time_ps': None, 'pdb': 'snapshots/placement.pdb', 'stage': '1_system',
-         'atoms': len(DDM_PLACEMENT) * MOLECULES, 'verdict': None},
-    ],
-}
 
 #: What the panel's viewer holds after the picture is loaded: every atom's resolved radius in angstroms, and the
 #: drawn bond count with its pairs, read off the loaded structure (`compList[0].structure`, the seam this repo's
@@ -96,15 +88,11 @@ def beads_in_order():
 
 
 def open_panel(page, live_page):
-    """Drive the panel to the placement frame the way a reader does, and measure the loaded structure."""
-    page.route('**/api/pdc/*/snapshots', lambda route: route.fulfill(json=INDEX))
-    page.route('**/api/pdc/*/snapshots/**',
+    """Drive the panel to the built system frame, and measure the loaded structure."""
+    page.route('**/api/pdc/*/system.pdb',
                lambda route: route.fulfill(body=placement_pdb(), content_type='text/plain'))
     panels.open_panel(page, live_page.base_url, '/protein-detergent/complexes', tab='Complexes')
     page.evaluate("window.pdcSetRun('pdcbeads')")
-    button = page.locator('#pdc-snapshots button').first
-    button.wait_for(timeout=30000)
-    button.click()
     page.wait_for_function(
         "() => document.querySelector('#pdc-viewer').pdcStage?.compList[0]?.structure?.atomCount === "
         f'{len(DDM_PLACEMENT) * MOLECULES}', timeout=30000)
@@ -324,6 +312,5 @@ def test_the_complexes_view_colours_each_bead_by_its_type_family(dashboard, live
         assert entry['declared'] == FAMILY_COLOURS[entry['family']], entry
         assert entry['swatch'] == rgb(FAMILY_COLOURS[entry['family']]), entry
     labels = {entry['family']: entry['label'] for entry in measured['entries']}
-    assert labels == {'unstated': 'family not stated', 'C': 'apolar (C)', 'N': 'nonpolar (N)', 'P': 'polar (P)',
-                      'Q': 'charged (Q)'}, labels
+    assert labels == panels.BEAD_FAMILY_LABELS, labels
     assert errors == []

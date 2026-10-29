@@ -25,7 +25,7 @@ Each carries this credit in its module docstring, so it travels with the number 
 **The validation, because a credit is not evidence.** `bonded_estimate` was measured against shaker's own output on
 the DDM 200 ns reference, on the same 20,001 frames at the same temperature: worst length disagreement 3.9 pm, worst
 force-constant ratio 1.182, and every constraint verdict the same on both sides. The comparison and its limitations
-are recorded under Task 3.2 of `docs/superpowers/plans/2026-10-05-cross-check-analyses.md`.
+are recorded under Task 3.2 of `docs/plans/2026-10-05-cross-check-analyses.md`.
 
 **What was not taken** -- their mapper, topology writer, measurer, virtual-site solver and renderers -- each for a
 reason recorded in the assessment note's area-by-area table. Two are worth repeating here: our mapper is a superset of

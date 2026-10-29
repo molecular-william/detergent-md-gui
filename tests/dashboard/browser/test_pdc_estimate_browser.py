@@ -27,7 +27,7 @@ CATALOG = {'templates': [{'id': 'DDM:DDM', 'name': 'DDM skeleton', 'molecule': '
            'proteins': [PROTEIN],
            'defaults': {'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900, 'salt_molar': 0.15,
                         'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
-                        'selection_threshold_fraction': 0.1, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20}}
+                        'selection_threshold_fraction': 0.1}}
 MAPPING_FILE = 'mapping_candidate_fixture.json'
 #: One model, as `/api/pdc/models` answers: a saved mapping and what it carries. The server has already joined the
 #: parameterization and written the label, so a stub without a label offers nothing to choose.
@@ -169,20 +169,18 @@ def test_the_empty_micelle_keeps_the_experimental_number_and_asks_the_route_noth
     assert errors == [], errors
 
 
-def test_each_initialisation_style_keeps_its_own_sentence_beside_the_servers_answer(dashboard, live_page):
+def test_the_servers_answer_stands_for_either_initialisation_style(dashboard, live_page):
     page, errors = live_page
     serve(page, lambda route: route.fulfill(json=estimate_body()))
     open_panel(page, live_page.base_url)
 
-    # Pre-assembled: the count *is* the belt, and the server's number sits beside that sentence rather than
-    # replacing it.
-    expect(page.locator('.new-pdc-estimate-note')).to_contain_text('belt is exactly the 150 detergents')
     expect(page.locator('.new-pdc-verdict')).to_contain_text('150 detergents cover about 80%')
+    expect(page.locator('.new-pdc-estimate-table')).to_be_visible()
 
-    # Self-assembly: the count is where the belt starts, and the server's answer still stands.
+    # Changing the style redraws the review without discarding the route's answer.
     page.locator('#new-placement').select_option('self-assembly')
-    expect(page.locator('.new-pdc-estimate-note')).to_contain_text('belt starts from 150 detergents')
     expect(page.locator('.new-pdc-verdict')).to_contain_text('150 detergents cover about 80%')
+    expect(page.locator('.new-pdc-estimate-table')).to_be_visible()
     assert errors == [], errors
 
 

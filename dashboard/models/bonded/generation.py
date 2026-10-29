@@ -79,8 +79,10 @@ def _source_rank(path):
 # excluding it would silently drop parameters. A sidecar (`<file>.source.json`) may state `martini_version`.
 # `references/M3-Lipid-Parameters/` is the published Martini 3 lipid set (DOI 10.1021/acscentsci.5c00755): stating
 # its generation is what keeps it out of a Martini 2 mapping's lookup, rather than relying on its version reading as
-# unknown -- which is treated as usable, deliberately, for files that genuinely do not say.
-_KNOWN_VERSIONS = {'martini-ddm': 2, 'references/mad database/': 2, 'm3-lipid-parameters': 3}
+# unknown -- which is treated as usable, deliberately, for files that genuinely do not say. The same applies to the
+# installed set: `martini3/<name>` is how `dashboard.martini3` spells a file of the shared install, and it is Martini 3
+# even though the installed sugar reference carries its `.source.json` sidecar beside it.
+_KNOWN_VERSIONS = {'martini-ddm': 2, 'references/mad database/': 2, 'm3-lipid-parameters': 3, 'martini3/': 3}
 
 
 def _reference_version(relative: str, path=None) -> int | None:
@@ -242,7 +244,11 @@ def _parse_named_defaults(path: Path, root: Path, diagnostics: list[str]) -> dic
 
 
 def _reference_paths(root):
-    """Every reference ITP the bonded index reads; AA directories are excluded."""
+    """Every reference ITP the bonded index reads; AA directories are excluded.
+
+    Deliberately the vendored upstream under `references/`, not the `martini3/` install: the install is
+    digest-verified against this tree, so indexing it would read the same bytes twice under a second name.
+    """
     reference_root = root / 'references'
     if not reference_root.is_dir() or reference_root.is_symlink():
         return []

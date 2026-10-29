@@ -67,23 +67,24 @@ process after changing Python code — routes and models are loaded at start, `s
 
 * [AGENTS.md](AGENTS.md) — engineering rules, workflow contract, standing decisions, and the "do not" list.
 * [docs/PROJECT_GUIDE.md](docs/PROJECT_GUIDE.md) — dashboard operation, paths, persistence, migration, testing.
-* [docs/HANDOFF.md](docs/HANDOFF.md) — what was measured, what landed and when, and the open items.
+* [docs/HANDOFF.md](docs/HANDOFF.md) — current state, open items and recent slices.
 * [docs/DDM_CALIBRATION.md](docs/DDM_CALIBRATION.md) — DDM scientific status, scoring contract, known gaps.
 * [docs/design/](docs/design/) — dated design records: intent at their date, not the current rules.
-* [docs/superpowers/specs/](docs/superpowers/specs/), [docs/superpowers/plans/](docs/superpowers/plans/) — the
-  protein-detergent panel design and the plans with their execution records.
+* [docs/plans/](docs/plans/) — every implementation plan: scope, tasks and execution records.
+* [docs/superpowers/specs/](docs/superpowers/specs/) — the protein-detergent panel specification.
 * [docs/research/](docs/research/) — carbohydrate mapping and validation operations.
 
 ## Verification
 
 ```bash
-dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast: 1,828, ~19 s
-dashboard/.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser: 236, ~45 s
-dashboard/.venv/bin/python -m pytest -m slow -q -n 0                       # slow: 66, serial
+dashboard/.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast tier
+dashboard/.venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser tier
+dashboard/.venv/bin/python -m pytest -m slow -q -n 0                       # slow tier, serial
 dashboard/.venv/bin/ruff check dashboard tests                             # must exit 0
 ```
 
-The suite is 2,130 tests. Export a private `MPLCONFIGDIR` before running a tier: four distance-diagnostic tests race on a
+Tier counts and timings are measured in `pytest.ini`; for the current total, quote
+`pytest --collect-only -q`. Export a private `MPLCONFIGDIR` before running a tier: four distance-diagnostic tests race on a
 shared matplotlib cache. `scripts/gate_commit.sh <message-file> <paths...>` runs the fast tier and ruff over the named
 paths and commits only when both are clean.
 
@@ -102,8 +103,8 @@ workflow it was meant to serve is implemented through `pdc`.
 the decision it supported) and the scheduled cron drivers (2026-10-15). The routes and the `refinement-score` analysis
 that already existed stay.
 
-**Planned, not built** (2026-10-21, with HTML drafts in `docs/design/drafts/`): the CG Bond Interactions two-column
-layout (`docs/superpowers/plans/2026-10-21-bond-panel-layout.md`), a choosable mdrun GPU recorded by name
+**Landed after the 2026-10-21 drafts** (HTML drafts in `docs/design/drafts/`): the CG Bond Interactions two-column
+layout (`docs/plans/2026-10-21-bond-panel-layout.md`), a choosable mdrun GPU recorded by name
 (`2026-10-21-mdrun-gpu-device.md`), and body-aware, subunit-sized detergent placement
 (`2026-10-21-pdc-detergent-placement.md`).
 

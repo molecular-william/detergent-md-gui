@@ -19,16 +19,18 @@ to; recording it at build time means the two are the same number by construction
 import json
 import math
 import shutil
-import subprocess
 from pathlib import Path
 
-from ... import files
-from .. import devices, protocol, tools
-from ..environment import ROOT, TUTORIAL_TEMPLATE, recorded_environment
+from ... import martini3, paths
+from .. import devices, protocol, run_inputs, tools
+from ..environment import ROOT, recorded_environment
+from ..settings import coerce_integers, normalize
 from ..stages import Stage, stage_tables
 from . import osmotic_box, osmotic_mdp
 
-SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts'
+#: The repository file the one stage runs. Recorded in the manifest's `stage_scripts` by path and digest; the stage's
+#: directory stays its working directory, and the driver reaches its own condition directories from there.
+OSMOTIC_SCRIPT = 'dashboard/execution/scripts/osmotic_simulation.sh'
 
 REFERENCE_TYPE = 'REF'
 REFERENCE_MASS = 72.0          # a real mass, because a massless bead has no defined force; it is restrained anyway
@@ -115,11 +117,14 @@ def index_groups(*, solute_atoms, reference_atom, solute_molecules, solvent_atom
 def build(destination, *, plan, temperature, production_ps=osmotic_mdp.DEFAULT_PRODUCTION_PS,
           equilibration_ps=osmotic_mdp.DEFAULT_EQUILIBRATION_PS,
           output_interval_ps=osmotic_mdp.DEFAULT_OUTPUT_INTERVAL_PS,
-          solute_atoms=(), reference_atom=None, solvent_atoms=()):
+          solute_atoms=(), reference_atom=None, solvent_atoms=(), input_paths=None):
     """Write one condition's mdp set, reference bead and index file, and return the record to manifest.
 
     `plan` is `osmotic_box.plan_condition`'s result -- the counts this build is for. The record returned is what the
-    manifest and the analysis both read, so the area a force is divided by is the area this build made.
+    manifest and the analysis both read, so the area a force is divided by is the area this build made. `input_paths` is the
+    runner's own input record -- the absolute path of every referenced solute file, of the installed Martini force
+    field and of its solvents -- and is written into the condition record so the driver reads the files the manifest
+    hashed rather than a copy.
     """
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
@@ -172,6 +177,11 @@ def build(destination, *, plan, temperature, production_ps=osmotic_mdp.DEFAULT_P
         'note': 'the analysis recomputes the force from the trajectory and divides by dividing_area_nm2 above; it '
                 'must not recompute that area, or the two would be different numbers',
     }
+    if input_paths is not None:
+        # Every file the runner reads that it did not itself write: the four solute_root files and the Martini ITP.
+        # They are *referenced*, so the driver must be told where they are; this generated record is that answer, and
+        # it is written beside the numbers for the same reason -- the runner reads one file, not a second convention.
+        record['paths'] = {str(name): str(path) for name, path in dict(input_paths).items()}
     (destination / MANIFEST).write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')
     return record
 
@@ -193,14 +203,16 @@ VERSION = 'osmotic-v1'
 #: the paper's 500 ns under a profile named for smoke-testing would be a series nobody meant to launch.
 PROFILES = ('standard', 'draft-smoke')
 #: The files one molecule's solver needs, in each condition's own `solute/`. Named rather than discovered, so a
-#: missing one is a blocker with its name in it instead of a failure halfway through a build. The last is the
-#: Martini solvent definitions the runner's topology includes, staged beside the molecule.
-SOLUTE_FILES = ('solute.gro', 'solute.itp', 'water.gro', 'martini_v3.0.0_solvents_v1.itp')
+#: missing one is a blocker with its name in it instead of a failure halfway through a build. The Martini solvent
+#: definitions the runner's topology includes are *not* here: they come from the installed set (`dashboard.martini3`),
+#: which every run reads where it lies.
+SOLUTE_FILES = ('solute.gro', 'solute.itp', 'water.gro')
 
 #: **The build's own files, one set per concentration.** A series owns N conditions and each one is built in its
 #: own directory: its own mdps (the solute count depends on the molality), its own reference bead, and its own
-#: `osmotic_condition.json` -- which is the record the analysis divides a force by. `prepare` writes them under
-#: `inputs/conditions/<directory>/` and the same files beside the runner, in the stage.
+#: `osmotic_condition.json` -- which is the record the analysis divides a force by and the runner reads its input
+#: paths from. `prepare` writes them under `inputs/conditions/<directory>/` -- the run's immutable generated data --
+#: and copies them beside the runner, in the stage, because that is the directory the runner works in.
 CONDITION_FILES = ('minimization.mdp', 'eq.mdp', 'md.mdp', 'reference.itp', 'osmotic_condition.json')
 
 #: **One stage, and it is the series.** Two things are deliberate here and each has a reason:
@@ -215,14 +227,16 @@ CONDITION_FILES = ('minimization.mdp', 'eq.mdp', 'md.mdp', 'reference.itp', 'osm
 #:   same reason `cg_simulation.sh` keeps its three: a stage boundary copies the placed system between them.
 #:
 #: The patterns are globs over the conditions the build wrote, because how many of them there are is the caller's
-#: answer rather than this module's. The molecule's files are *not* declared here -- they come from `solute_root`
-#: into each condition's own `solute/`, which is the layout the runner reads.
+#: answer rather than this module's. The declared inputs are the run's own `inputs/` record -- the series manifest,
+#: the mdps, the reference bead and the generated condition records -- one level above the run's `stages/` root. The
+#: molecule's files are *not* copied into either tree: they are referenced in the input record and their absolute
+#: paths travel in each condition's own record, which is what the driver reads.
 STAGE_DEFS = (
     Stage('Osmotic series', '01_simulate/run.sh',
-          ('../inputs/conditions.json',)
-          + tuple(f'../inputs/conditions/*/{name}' for name in CONDITION_FILES)
-          + tuple(f'../inputs/conditions/*/{name}' for name in SOLUTE_FILES),
-          tuple(f'conditions/*/{name}' for name in ('built.json', 'system.top', 'prod/md_whole.xtc'))),
+          ('../../inputs/conditions.json',)
+          + tuple(f'../../inputs/conditions/*/{name}' for name in CONDITION_FILES),
+          tuple(f'conditions/*/{name}' for name in ('built.json', 'system.top', 'prod/md_whole.xtc')),
+          script=OSMOTIC_SCRIPT),
 )
 STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS = stage_tables(STAGE_DEFS)
 
@@ -461,7 +475,6 @@ def stage_defaults(profile='standard'):
 def normalize_settings(settings=None, profile='standard'):
     if settings is not None and not isinstance(settings, dict):
         raise ValueError('osmotic settings must be an object')
-    result = dict(stage_defaults(profile)['values'])
     requested = dict(settings or {})
     # **The shape, before anything else.** A payload that names no concentrations is refused here rather than
     # completed with a default -- and refused before the vocabulary loop, so the reason is the shape's rather than
@@ -473,35 +486,21 @@ def normalize_settings(settings=None, profile='standard'):
     # place in the published vocabulary -- a bounded scalar or one of an enumerated set -- so the loop below
     # would answer it with "Unknown osmotic setting" rather than with anything about the values in it.
     molalities = requested.pop(SERIES_KEY, None)
-    for key, value in requested.items():
-        if key in CHOICE_SPECS:
-            label, allowed = CHOICE_SPECS[key]
-            text = str(value)
-            if allowed and text not in allowed:
-                raise ValueError(f'{key} must be one of ' + ', '.join(allowed))
-            result[key] = text
-            continue
-        if key not in SETTING_SPECS:
-            raise ValueError('Unknown osmotic setting: ' + key)
-        try:
-            value = float(value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(key + ' must be numeric') from exc
-        label, low, high = SETTING_SPECS[key]
-        if not math.isfinite(value) or not low <= value <= high:
-            raise ValueError(f'{key} must be between {low} and {high}')
-        result[key] = value
+    result = normalize(
+        requested, stage_defaults(profile)['values'], specs=SETTING_SPECS, choices=CHOICE_SPECS,
+        unknown_prefix='Unknown osmotic setting: ', choice_text=True)
     # The series, in the caller's order: the run type's own check, so a value outside the box's range is refused
     # with the bound named and a record that names no series is refused with the shape named.
     result[SERIES_KEY] = _molalities(molalities)
-    # An attempt count is a count. `2.5` is refused rather than floored: three-and-a-half attempts is not a thing a
-    # reader can reconcile with the `attempts.json` the runner writes.
-    if result['osmotic_attempts_max'] != int(result['osmotic_attempts_max']):
-        raise ValueError('osmotic_attempts_max must be a whole number of attempts')
-    # A device index is an index: 1.5 is not a device, and flooring it would run on one nobody chose.
-    if result['mdrun_gpu'] != int(result['mdrun_gpu']):
-        raise ValueError('mdrun_gpu must be a whole device index')
-    for key in ('mdrun_ntomp', 'mdrun_ranks', 'mdrun_gpu', 'osmotic_attempts_max'):
+    # An attempt count and a device index are counts: 2.5 of either is refused rather than floored, because
+    # three-and-a-half attempts is not a thing a reader can reconcile with `attempts.json`, and a floored device
+    # index would run on one nobody chose. Checked after the series, so a ragged series is refused first -- the
+    # order these checks have always had.
+    coerce_integers(result, {'osmotic_attempts_max': 'osmotic_attempts_max must be a whole number of attempts',
+                             'mdrun_gpu': 'mdrun_gpu must be a whole device index'})
+    # Threads and ranks are counts too, but they have always been floored rather than refused; only the attempt
+    # ceiling and the device index carry a message.
+    for key in ('mdrun_ntomp', 'mdrun_ranks'):
         result[key] = int(result[key])
     # The mdps refuse a duration that is not a whole number of output intervals, and so does this: two conditions with
     # different averaging windows are not comparable, and the earlier the refusal the cheaper it is.
@@ -512,11 +511,7 @@ def normalize_settings(settings=None, profile='standard'):
 
 
 def tool_metadata():
-    executable = tools.tool_path('gmx')
-    if not executable:
-        raise ValueError('GROMACS executable is unavailable')
-    result = subprocess.run([executable, '--version'], capture_output=True, text=True, check=True, timeout=30)
-    return {'gmx': {'path': executable, 'version_output': result.stdout, 'sha256': files.sha256(executable)}}
+    return tools.record_versions('gmx', missing=lambda name: ValueError('GROMACS executable is unavailable'))
 
 
 def solute_bead_radii(mapping_snapshot):
@@ -618,7 +613,7 @@ def readiness(metadata):
     else:
         missing = [name for name in SOLUTE_FILES if not (Path(str(solute_root)) / name).is_file()]
         checks.append({'label': 'Solute', 'path': str(solute_root), 'ready': not missing,
-                       'detail': ('One molecule with its topology, the water tile and the solvent itp.'
+                       'detail': ('One molecule with its topology and the water tile.'
                                   if not missing else 'Missing: ' + ', '.join(missing))})
         if missing:
             blockers.append('solute_root is missing ' + ', '.join(missing))
@@ -636,9 +631,15 @@ def prepare(run_dir, metadata):
     """Write the series: one directory per concentration, and the runner that drives them in order.
 
     **One stage, N condition directories.** Each concentration gets its own everything -- its mdps (the solute
-    count is the molality's), its reference bead, its `osmotic_condition.json`, its copy of the molecule, and the
-    directory its `min/eq/md.{cpt,...}` and `attempts.json` will be written into. That directory is what a retry
-    of that condition continues from, and it is why a second entry into the series resumes rather than restarts.
+    count is the molality's), its reference bead, its `osmotic_condition.json`, and the directory its
+    `min/eq/md.{cpt,...}` and `attempts.json` will be written into. That directory is what a retry of that condition
+    continues from, and it is why a second entry into the series resumes rather than restarts.
+
+    **The layout is every other run type's**: the stages under `stages/` and the generated data under `inputs/`.
+    What the run *reads* -- the molecule's three files and the installed Martini force field and solvents -- already
+    existed when prepare ran, so it is recorded by path and digest and never copied into the run. Each condition's
+    `osmotic_condition.json` carries the absolute path of every referenced file, which is what the driver reads; a copy
+    in the stage would be a second answer to where the file is.
 
     `solute_atoms` and `reference_atom` are left empty on purpose: the pull's groups are atom indices, and those
     do not exist until the runner has placed the molecules. The runner writes the real index file from these mdps.
@@ -655,6 +656,25 @@ def prepare(run_dir, metadata):
     if refused:
         raise ValueError(refused)
 
+    # The molecule's files, checked once and recorded where they already are. A missing one is a refusal here, where
+    # its name is known, rather than a failure inside GROMACS.
+    root = _solute_root(metadata)
+    if not root:
+        raise ValueError('solute_root is required: a directory holding ' + ', '.join(SOLUTE_FILES))
+    references, solute_paths = _solute_references(Path(root), SOLUTE_FILES)
+    force_field = martini3.path('martini_v3.0.0.itp')
+    force_field_entry = run_inputs.installed('force_field', force_field, label=force_field.name)
+    references.append(force_field_entry)
+    solvents = martini3.path('martini_v3.0.0_solvents_v1.itp')
+    solvents_entry = run_inputs.installed('martini_solvents', solvents, label=solvents.name)
+    references.append(solvents_entry)
+    # The runner reads these absolute paths rather than a copy: the molecule's own files come from `solute_root`, and the
+    # force field and solvent definitions from the installed Martini set; all of them are named by the run's own input
+    # record. The solvents key keeps the name the stage script has always read.
+    input_paths = {**solute_paths,
+                   'force_field': str(run_inputs.resolve(force_field_entry)),
+                   'martini_v3.0.0_solvents_v1.itp': str(run_inputs.resolve(solvents_entry))}
+
     conditions = series_conditions(settings[SERIES_KEY])
     mapping_snapshot = metadata.get('mapping_snapshot') or {}
     bead_radii = solute_bead_radii(mapping_snapshot)
@@ -662,7 +682,7 @@ def prepare(run_dir, metadata):
                               if isinstance(bead, dict) and bead.get('atoms')]) or None
 
     inputs = run_dir / 'inputs'
-    stage = run_dir / '01_simulate'
+    stage = run_dir / 'stages' / '01_simulate'
     records = []
     for condition in conditions:
         directory = condition['directory']
@@ -672,7 +692,7 @@ def prepare(run_dir, metadata):
         record = build(destination, plan=plan, temperature=settings['temperature_k'],
                        production_ps=settings['osmotic_production_ps'],
                        equilibration_ps=settings['osmotic_equilibration_ps'],
-                       output_interval_ps=settings['osmotic_output_interval_ps'])
+                       output_interval_ps=settings['osmotic_output_interval_ps'], input_paths=input_paths)
         records.append(dict(record, directory=directory, molality=condition['molality']))
         if record['solute_molecules'] == 0:
             # A zero-molality condition is a legitimate control and is stated as one, per condition, rather than
@@ -691,55 +711,51 @@ def prepare(run_dir, metadata):
     inputs.mkdir(parents=True, exist_ok=True)
     (inputs / CONDITIONS_MANIFEST).write_text(json.dumps(series, indent=2, sort_keys=True) + '\n')
 
-    # **The stage's working directory is the stage directory**, so a script that imports this repository's own
-    # modules cannot find them from `.`. The root is written in, the way the CG templates get theirs, rather than
-    # assumed from the environment, which does not set it: the first real run placed its molecules and then died
-    # with `ModuleNotFoundError: No module named 'dashboard'` on the very next line.
-    script = (SCRIPTS / 'osmotic_simulation.sh').read_text()
-    # The retry ceiling reaches the runner the way `REPO_ROOT` does: a stage script is a file read at prepare
-    # time, so a per-run value is written into it here. The runner keeps its own `${OSMOTIC_ATTEMPTS_MAX:-3}` for
-    # a script run by hand; this replaces the whole assignment so the run's own setting is the one it uses.
-    script = script.replace('OSMOTIC_ATTEMPTS_MAX="${OSMOTIC_ATTEMPTS_MAX:-3}"',
-                            f'OSMOTIC_ATTEMPTS_MAX="{int(settings["osmotic_attempts_max"])}"')
-    (stage / CONDITIONS_DIRECTORY).mkdir(parents=True, exist_ok=True)
-    (stage / 'run.sh').write_text(script.replace('REPO_ROOT="${REPO_ROOT:-.}"', f'REPO_ROOT="{ROOT}"'))
-    (stage / CONDITIONS_MANIFEST).write_text((inputs / CONDITIONS_MANIFEST).read_text())
-
-    force_field = TUTORIAL_TEMPLATE / '3_initial_CG' / 'martini_v3.0.0.itp'
-    if not force_field.is_file():
-        raise ValueError(f'the Martini force field is missing: {force_field}')
-    # The molecule's files go to **both** places, and each has a reason: `inputs/` is what the prepared manifest
-    # hashes, so the run's own record covers which molecule was simulated; `solute/` inside the condition's own
-    # directory is the layout the runner documents and reads, because a condition runs with *it* as the working
-    # directory. A missing molecule file is a refusal here, where the name is known, rather than a failure inside
-    # GROMACS -- and it is checked once, before the first condition is written, rather than per condition.
-    root = _solute_root(metadata)
-    if root:
-        for name in SOLUTE_FILES:
-            if not (Path(root) / name).is_file():
-                raise ValueError(f'solute_root is missing {name}: {root}')
+    # The runner works *in* the stage directory, so the generated per-condition data is copied beside it -- the mdps,
+    # the reference bead and the record with the input paths. Only generated bytes are staged: the molecule files and
+    # the force field stay where the input record names them, so the run holds no copy of a pre-existing store file.
+    stage.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(inputs / CONDITIONS_MANIFEST, stage / CONDITIONS_MANIFEST)
     for condition in conditions:
         directory = condition['directory']
-        source_inputs = inputs / CONDITIONS_DIRECTORY / directory
+        source = inputs / CONDITIONS_DIRECTORY / directory
         target = stage / CONDITIONS_DIRECTORY / directory
-        (target / 'solute').mkdir(parents=True, exist_ok=True)
-        for name in CONDITION_FILES:
-            shutil.copy2(source_inputs / name, target / name)
-        if root:
-            for name in SOLUTE_FILES:
-                shutil.copy2(Path(root) / name, source_inputs / name)
-                shutil.copy2(Path(root) / name, target / 'solute' / name)
-        # The force field the topology includes at its top level, from the source the CG path copies it from. It
-        # is not a molecule file and did not come from `solute_root`, so it is staged per condition -- grompp's
-        # refusal to find it is what a run looks like when it is missing, one step before minimization.
-        shutil.copy2(force_field, target / 'martini_v3.0.0.itp')
+        target.mkdir(parents=True, exist_ok=True)
+        for name in (*CONDITION_FILES, 'control.json'):
+            if (source / name).is_file():
+                shutil.copy2(source / name, target / name)
 
     protocol.write_prepared_manifest(
-        run_dir, {'molecule_id': molecule_id, 'settings': dict(metadata.get('settings') or {}),
+        run_dir, {'molecule_id': molecule_id, 'settings': dict(settings),
                   'run_type': 'osmotic', 'workflow_version': VERSION, 'series': series},
-        tools=tool_metadata(), plan=[name for name, _ in STAGES], environment=recorded_environment())
+        tools=tool_metadata(), plan=[name for name, _ in STAGES], environment=recorded_environment(),
+        references=references, scripts={'Osmotic series': OSMOTIC_SCRIPT},
+        modules={'osmotic': 'dashboard/execution/adapters/osmotic.py',
+                 'osmotic_mdp': 'dashboard/execution/adapters/osmotic_mdp.py',
+                 'tools': 'dashboard/execution/tools.py'})
     return {'series_id': settings.get('series_id'), 'molalities': list(settings[SERIES_KEY]),
             'conditions': records}
+
+
+def _solute_references(root, names):
+    """The molecule's files, recorded by where they already live and resolved to the paths the runner reads.
+
+    Under the workspace a file is spelled relative to it (`store`); outside every configured root it is recorded
+    absolutely. The absolute path goes into the condition record because the runner executes with a stage directory
+    as its working directory and a relative spelling would be read from the wrong place.
+    """
+    workspace = paths.current().workspace.resolve()
+    references, resolved = [], {}
+    for name in names:
+        source = Path(root) / name
+        if not source.is_file():
+            raise ValueError(f'solute_root is missing {name}: {root}')
+        source = source.resolve()
+        entry = (run_inputs.store('solute', source, label=name, workspace_root=workspace)
+                 if source.is_relative_to(workspace) else run_inputs.absolute('solute', source, label=name))
+        references.append(entry)
+        resolved[name] = str(run_inputs.resolve(entry))
+    return references, resolved
 
 
 PROTOCOL = protocol.Protocol(

@@ -16,7 +16,9 @@ blueprint = Blueprint('catalog', __name__)
 @blueprint.get('/api/compositions/catalog')
 def composition_catalog_api():
     try:
-        return jsonify(compositions.catalog(coordinator().ROOT))
+        # No project root: the models resolve the sugar reference from the workspace's installed Martini 3 set, the
+        # same bytes a run will simulate with.
+        return jsonify(compositions.catalog())
     except (ValueError, OSError) as exc:
         abort(500, str(exc))
 
@@ -24,7 +26,7 @@ def composition_catalog_api():
 @blueprint.post('/api/compositions/preview')
 def composition_preview_api():
     try:
-        return jsonify(compositions.preview(json_object(), coordinator().ROOT))
+        return jsonify(compositions.preview(json_object()))
     except ValueError as exc:
         status = 409 if 'stale' in str(exc).lower() else 400
         abort(status, str(exc))
@@ -33,7 +35,7 @@ def composition_preview_api():
 @blueprint.post('/api/compositions')
 def composition_create_api():
     try:
-        return jsonify(compositions.create_composition(json_object(), coordinator().ROOT)), 201
+        return jsonify(compositions.create_composition(json_object())), 201
     except ValueError as exc:
         status = 409 if ('stale' in str(exc).lower() or 'already exists' in str(exc).lower()) else 400
         abort(status, str(exc))
@@ -42,7 +44,7 @@ def composition_create_api():
 @blueprint.get('/api/compositions/<composition_id>')
 def composition_detail_api(composition_id):
     try:
-        return jsonify(compositions.composition_detail(composition_id, coordinator().ROOT))
+        return jsonify(compositions.composition_detail(composition_id))
     except (ValueError, KeyError, OSError, FileNotFoundError) as exc:
         abort(404, str(exc))
 

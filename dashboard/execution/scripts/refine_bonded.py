@@ -2,15 +2,14 @@
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 
-import bonded
+from dashboard.models import bonded
 
 model_path = Path('../2_mapping/model.json')
 model = json.loads(model_path.read_text())
 # Read the temperature passed to ff_inter, recorded in its generated ITP header.
-import re
-
 path = Path(os.environ.get('FINAL_ITP', 'DDM.itp'))
 original = path.read_text()
 match = re.search(r'-temperature\s+([\d.]+)', original)

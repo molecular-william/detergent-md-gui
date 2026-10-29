@@ -13,6 +13,7 @@ import pytest
 
 from dashboard.execution.adapters import pdc
 from dashboard.execution.scripts import pdc_assess
+from tests.dashboard.pdc_fixtures import inputs_dir, script_of, settings_of
 
 TEMPLATE = {
     'name': 'DDM',
@@ -49,7 +50,7 @@ def protein(count: int = 3, at=(0.0, -2.0, 0.0)):
     return [(99, 'PRO', f'B{index + 1:02d}', (at[0] + index * 0.3, at[1], at[2])) for index in range(count)]
 
 
-def staged(tmp_path: Path, atoms, **settings):
+def staged(tmp_path: Path, atoms, *, write_structure: bool = True, **settings):
     """A prepared run's stage 3, with the given structure in place."""
     molecule = tmp_path / 'molecules' / 'DDM'
     molecule.mkdir(parents=True)
@@ -62,14 +63,15 @@ def staged(tmp_path: Path, atoms, **settings):
     run.mkdir()
     pdc.prepare(run, protein='molecules/DDM/protein.pdb', template='molecules/DDM/micelle_template.json',
                 settings={'seed': 20260930, 'aggregation_number': 2, **settings}, project_root=tmp_path)
-    stage = run / Path(pdc.stage_by_name('Micelle assessment').relative).parent
-    gro(stage / 'prod' / 'run.gro', atoms)
+    stage = run / pdc.STAGES_DIRECTORY / Path(pdc.stage_by_name('Micelle assessment').relative).parent
+    if write_structure:
+        gro(stage / 'prod' / 'run.gro', atoms)
     return run, stage
 
 
 def assess(stage: Path, run: Path, *extra):
     return pdc_assess.main(['--stage', str(stage), '--structure', 'prod/run.gro',
-                            '--settings', str(run / '1_system' / pdc.SETTINGS_NAME), *extra])
+                            '--settings', str(inputs_dir(run) / pdc.SETTINGS_NAME), *extra])
 
 
 def test_the_reader_tells_the_detergents_apart_by_residue_number(tmp_path):
@@ -112,11 +114,7 @@ def test_a_micelle_is_judged_and_what_survives_is_written(tmp_path):
     assert removed['removed'] == [{'name': 'DDM3', 'residue_id': 3, 'beads': 3, 'tail_beads': 2}]
     assert removed['fraction_removed'] == pytest.approx(1 / 3, abs=1e-6)
     assert removed['kept'] == ['DDM1', 'DDM2']
-    # The gallery's numbers are the verdict's numbers, because both came from the same call.
-    from dashboard.execution.scripts import pdc_snapshot
-    index = json.loads((stage / pdc_snapshot.INDEX_NAME).read_text())
-    assert index['snapshots'][0]['verdict']['largest_cluster'] == record['largest_cluster']
-    assert index['snapshots'][0]['verdict']['verdict'] == record['verdict']
+    assert not (stage / 'snapshots.json').exists(), 'a run no longer records stage snapshots'
 
 
 def test_a_micelle_away_from_the_protein_is_not_judged_to_hold_it(tmp_path):
@@ -147,7 +145,7 @@ def test_the_kept_structure_keeps_the_molecules_residues_and_the_box(tmp_path):
 
 def test_the_criterion_refuses_a_run_that_never_named_its_tail_beads(tmp_path):
     run, stage = staged(tmp_path, protein() + detergent(1, 0.0) + detergent(2, 0.2))
-    settings_path = run / '1_system' / pdc.SETTINGS_NAME
+    settings_path = inputs_dir(run) / pdc.SETTINGS_NAME
     settings = json.loads(settings_path.read_text())
     settings['tail_beads'] = []
     settings_path.write_text(json.dumps(settings))
@@ -164,21 +162,25 @@ def test_a_structure_without_detergents_refuses_rather_than_judging_nothing(tmp_
 
 
 def test_the_template_declares_the_tail_beads_the_run_records(tmp_path):
-    _, stage = staged(tmp_path, protein() + detergent(1, 0.0) + detergent(2, 0.2))
-    settings = json.loads((stage.parent / '1_system' / pdc.SETTINGS_NAME).read_text())
+    run, stage = staged(tmp_path, protein() + detergent(1, 0.0) + detergent(2, 0.2))
+    settings = settings_of(run)
 
     assert settings['tail_beads'] == ['TAIL1', 'TAIL2'], 'the role on the bead decides, not the name'
 
 
-def test_both_assessment_stages_carry_the_same_script(tmp_path):
+def test_both_assessment_stages_run_the_same_shared_script(tmp_path):
     run, _ = staged(tmp_path, protein() + detergent(1, 0.0) + detergent(2, 0.2))
 
-    for stage in (pdc.stage_by_name('Micelle assessment'), pdc.stage_by_name('Final assessment')):
-        script = (run / stage.relative).read_text()
-        executed = '\n'.join(line for line in script.splitlines() if not line.strip().startswith('#'))
-        assert 'python pdc_assess.py' in executed
+    scripts = set()
+    for name in ('Micelle assessment', 'Final assessment'):
+        stage = pdc.stage_by_name(name)
+        scripts.add(stage.script)
+        executed = '\n'.join(line for line in script_of(name).read_text().splitlines()
+                             if not line.strip().startswith('#'))
+        assert 'dashboard.execution.scripts.pdc_assess' in executed
         assert 'pdc_assessment' not in executed, 'the criterion is not restated in the stage script'
-        assert (run / Path(stage.relative).parent / 'pdc_assess.py').is_file()
+        assert not (run / pdc.STAGES_DIRECTORY / Path(stage.relative).parent / 'pdc_assess.py').exists()
+    assert scripts == {'dashboard/execution/scripts/pdc_assess.sh'}
 
 
 def test_the_kept_structure_is_dry_because_the_restart_solvates_again(tmp_path):
@@ -199,3 +201,13 @@ def test_the_kept_structure_is_dry_because_the_restart_solvates_again(tmp_path):
     assert 'W' not in names and 'ION' not in names, 'the restart adds the solvent back itself'
     assert 'DDM' in names, 'the detergents that stay are the point of the file'
     assert '99' in {line[0:5].strip() for line in body}, 'and the protein stays, because the micelle is judged on it'
+
+
+def test_removal_off_gets_no_assessment_stage_at_all(tmp_path):
+    """The decision is prepare-time: there is no removal to assess, so the stage has no directory and no script."""
+    atoms = protein() + detergent(1, 0.0) + detergent(2, 0.3)
+    run, stage = staged(tmp_path, atoms, write_structure=False, remove_out_of_micelle=False)
+
+    assert not stage.exists()
+    skipped = json.loads((run / 'manifest.json').read_text())['skipped_stages']
+    assert 'Micelle assessment' in skipped and 'removal' in skipped['Micelle assessment']

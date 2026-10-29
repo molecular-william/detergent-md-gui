@@ -517,8 +517,8 @@ def _frames(job_id, loaded, reference, engine, record, call) -> bool:
     """Stage the pair's working directory, and build the mapped trajectory if it has none.
 
     The frame builder is `sugar_mapping.py`, the one mapper, run with the reference as its
-    `AA_REFERENCE_DIR`: the same script stage 2 of a run runs, so a panel fit and a run map their
-    frames identically. It refuses to overwrite an earlier mapping, which is what makes "if it has
+    `AA_REFERENCE_DIR`: the same repository module stage 2 of a run runs, so a panel fit and a run map
+    their frames identically. It refuses to overwrite an earlier mapping, which is what makes "if it has
     none" a fact about the directory rather than a flag somebody has to keep.
     """
     from ...execution.adapters import cg
@@ -538,8 +538,9 @@ def _frames(job_id, loaded, reference, engine, record, call) -> bool:
         raise ValueError('This engine fits to an ensemble; no AA reference directory was resolved')
     built = False
     if not (mapping_dir / 'mapped.xtc').is_file():
-        call([sys.executable, 'sugar_mapping.py'], mapping_dir,
-             env={'AA_REFERENCE_DIR': directory, 'MOLECULE_TYPE': names.residue_name})
+        call([sys.executable, '-m', 'dashboard.execution.scripts.sugar_mapping'], mapping_dir,
+             env={'AA_REFERENCE_DIR': directory, 'MOLECULE_TYPE': names.residue_name,
+                  'PYTHONPATH': str(paths.current().project_root)})
         built = True
     missing = [name for name in ('mapped.gro', 'mapped.xtc') if not (mapping_dir / name).is_file()]
     if missing:
@@ -569,20 +570,22 @@ def _fit(engine, loaded, reference, record, options, call, timeout) -> dict:
 def _fast_forward(loaded, names, record, options, call, timeout) -> dict:
     """`ff_inter` on the mapped AA trajectory, through the same stage script a run runs.
 
-    The script is `3_initial_CG/fit_topology.sh`, stamped with this fit's temperature exactly as a
-    run's `prepare` stamps it -- one definition of the invocation, so a panel fit and a run's stage 3
-    cannot drift apart. `refine_bonded.py` then replaces the declared torsions with the circular
-    model when the mapping asks for one, and writes `bonded_fit.json` either way.
+    The script is the repository's `dashboard/execution/scripts/fit_topology.sh`, run in this fit's
+    stage directory with the fit's temperature in `RUN_SETTING_TEMPERATURE_K` exactly as a run's
+    executor hands a stage its settings -- one definition of the invocation, so a panel fit and a
+    run's stage 3 cannot drift apart. `refine_bonded.py` then replaces the declared torsions with the
+    circular model when the mapping asks for one, and writes `bonded_fit.json` either way.
     """
     from ...execution.adapters import cg
 
     work = Path(record['work'])
     stage = work / '3_initial_CG'
-    script = stage / 'fit_topology.sh'
-    script.write_text(cg.fit_temperature((cg.SCRIPTS / 'fit_topology.sh').read_text(), options['temperature_k']))
-    command = ['bash', '-e', '-o', 'pipefail', str(script)]
+    command = ['bash', '-e', '-o', 'pipefail', str(cg.SCRIPTS / 'fit_topology.sh')]
     call(command, stage, env={'MOLECULE_TYPE': names.residue_name, 'INITIAL_ITP': names.initial_itp,
-                              'FINAL_ITP': names.final_itp}, limit=timeout)
+                              'FINAL_ITP': names.final_itp,
+                              'RUN_SETTING_TEMPERATURE_K': str(options['temperature_k']),
+                              'PYTHON': sys.executable,
+                              'PYTHONPATH': str(paths.current().project_root)}, limit=timeout)
     final = stage / names.final_itp
     if not final.is_file():
         raise RuntimeError(f'ff_inter did not write {names.final_itp}; there is no fit to store')
@@ -660,8 +663,10 @@ def _ring_constraints(work, names, call) -> bool:
     """
     if not (Path(work) / '2_mapping' / 'ring_targets.json').is_file():
         return False
-    call([sys.executable, 'prepare_ring_constraints.py'], Path(work) / '3_initial_CG',
-         env={'INITIAL_ITP': names.initial_itp, 'MOLECULE_TYPE': names.residue_name})
+    call([sys.executable, '-m', 'dashboard.execution.scripts.prepare_ring_constraints'],
+         Path(work) / '3_initial_CG',
+         env={'INITIAL_ITP': names.initial_itp, 'MOLECULE_TYPE': names.residue_name,
+              'PYTHONPATH': str(paths.current().project_root)})
     return True
 
 

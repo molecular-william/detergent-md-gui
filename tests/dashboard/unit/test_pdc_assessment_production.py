@@ -3,21 +3,19 @@
 Measured before this change: the stage script solvated the built system, minimised it and equilibrated it before its
 100 ns of production -- exactly the work the three legs the plan gained in front of it now do. A pdc run therefore
 equilibrated twice, and the legs' output fed nothing: the phase that was supposed to read it re-derived the system
-from `1_system/` instead.
+from `02_system/` instead.
 
-What is pinned here: the leg runs one `grompp` and one `mdrun` and nothing else, its declared inputs are the NPT
-leg's system, the solvation and equilibration inputs it used to carry are gone, and a run whose legs all skip still
-satisfies the declaration -- the property the legs' prelude keeps by copying the system forward before their own
-`set -e`.
+What is pinned here: the shared script runs one `grompp` and one `mdrun` and nothing else, its declared inputs are the
+NPT leg's system, the solvation and equilibration inputs it used to carry are gone, and a run whose legs all skip is a
+run whose stages have no directories at all -- the manifest, not a stage, records the skip.
 """
 from __future__ import annotations
 
-import subprocess
+import json
 from pathlib import Path
 
-from dashboard.execution import workflow
 from dashboard.execution.adapters import pdc
-from tests.dashboard.pdc_fixtures import prepared_run
+from tests.dashboard.pdc_fixtures import inputs_dir, prepared_run, script_of
 
 TEMPLATE = {
     'name': 'DDM',
@@ -30,15 +28,10 @@ PROTEIN = 'molecules/DDM/protein.pdb'
 TEMPLATE_PATH = 'molecules/DDM/micelle_template.json'
 LEGS = ('Energy minimisation', 'NVT equilibration', 'NPT equilibration')
 ASSESSMENT = 'CG assessment MD'
-SCRIPT = 'pdc_assessment.sh'
 
 
 def prepared(tmp_path: Path, **settings) -> Path:
     return prepared_run(tmp_path, settings=settings)
-
-
-def stage_directory(run: Path, name: str) -> Path:
-    return run / Path(pdc.stage_by_name(name).relative).parent
 
 
 def executed(script: Path) -> str:
@@ -46,8 +39,8 @@ def executed(script: Path) -> str:
     return '\n'.join(line for line in script.read_text().splitlines() if not line.strip().startswith('#'))
 
 
-def test_the_assessment_leg_solvates_minimises_and_equilibrates_nothing(tmp_path):
-    lines = executed(stage_directory(prepared(tmp_path), ASSESSMENT) / SCRIPT)
+def test_the_assessment_leg_solvates_minimises_and_equilibrates_nothing():
+    lines = executed(script_of(ASSESSMENT))
 
     assert 'pdc_solvate' not in lines and 'gmx solvate' not in lines, "solvation is the minimisation leg's"
     assert 'minimisation.mdp' not in lines and 'minimization.mdp' not in lines
@@ -56,73 +49,82 @@ def test_the_assessment_leg_solvates_minimises_and_equilibrates_nothing(tmp_path
     assert 'assessment.mdp' in lines
 
 
-def test_the_assessment_leg_declares_the_system_the_npt_leg_left(tmp_path):
-    run = prepared(tmp_path)
+def test_the_assessment_leg_declares_the_system_the_npt_leg_left():
     declared = {str(entry) for entry in pdc.stage_by_name(ASSESSMENT).inputs}
 
-    assert {'../4_npt/system.gro', '../4_npt/system.top'} <= declared, declared
-    assert f'../4_npt/{pdc.DETERGENT_TOPOLOGY}' in declared
-    for name in pdc.FORCEFIELD_FILES:
-        assert f'../4_npt/{name}' in declared
-    # The declaration is also what puts the system in the stage: the prelude is emitted from it, not restated here.
-    assert 'cp -f ../4_npt/system.gro system.gro' in (stage_directory(run, ASSESSMENT) / SCRIPT).read_text()
+    assert {'../05_npt/system.gro', '../05_npt/system.top'} <= declared, declared
+    assert f'../02_system/{pdc.PROTEIN_TOPOLOGY_DIRECTORY}/' in declared
+    # The detergent's topology is the run's generated `inputs/detergent_CG.itp`, already a recorded input and verified
+    # before every stage -- so this stage declares neither a copy nor a path for it.
+    assert not any(str(entry).endswith(pdc.DETERGENT_TOPOLOGY) for entry in declared)
+    # The stage is handed the NPT system by its own copy, not by a prepare-time prelude.
+    assert 'cp -f ../05_npt/system.gro ../05_npt/system.top' in script_of(ASSESSMENT).read_text()
 
 
-def test_the_assessment_leg_no_longer_re_derives_the_system_from_the_build(tmp_path):
+def test_the_assessment_leg_no_longer_re_derives_the_system_from_the_build():
     declared = {str(entry) for entry in pdc.stage_by_name(ASSESSMENT).inputs}
 
-    assert not any(entry.startswith('../1_system/') for entry in declared), \
-        'the NPT leg is what left the system this stage samples'
+    assert [entry for entry in declared if entry.startswith('../02_system/')] == \
+        [f'../02_system/{pdc.PROTEIN_TOPOLOGY_DIRECTORY}/'], \
+        'only the protein tree is shared from the build; the system itself comes from the NPT leg'
 
 
 def test_the_assessment_stage_carries_no_solvation_or_equilibration_inputs(tmp_path):
-    stage = stage_directory(prepared(tmp_path), ASSESSMENT)
-
-    for name in ('minimization.mdp', 'equilibration.mdp', 'ions.mdp', 'pdc_solvate.py'):
-        assert not (stage / name).exists(), f'{name} was the work the three legs now do'
-    assert not (stage / 'inputs' / 'water.gro').exists()
-    assert (stage / 'assessment.mdp').is_file()
-
-
-def test_the_assessment_leg_takes_the_npt_checkpoint_only_when_the_npt_leg_left_one(tmp_path):
-    """The checkpoint carries the velocities the NPT leg equilibrated; a leg the run asked none of leaves none, so
-    the file is read when it is there rather than declared as an input no skip path could satisfy."""
+    """The restart mdps are the extension's generated data; the assessment stage itself reads only its own mdp."""
     run = prepared(tmp_path)
-    script = (stage_directory(run, ASSESSMENT) / SCRIPT).read_text()
+    stage = run / pdc.STAGES_DIRECTORY / '06_assessment'
     declared = {str(entry) for entry in pdc.stage_by_name(ASSESSMENT).inputs}
 
-    assert 'if [ -f ../4_npt/system.cpt ]' in script
+    assert (inputs_dir(run) / 'assessment.mdp').is_file()
+    assert list(stage.iterdir()) == [], 'the stage directory is filled by the stage, not by prepare'
+    for name in ('minimization.mdp', 'equilibration.mdp', 'ions.mdp', 'water.gro'):
+        assert not any(str(entry).endswith(name) for entry in declared), f'{name} is not this stage\'s input'
+
+
+def test_the_assessment_leg_takes_the_npt_checkpoint_only_when_the_npt_leg_left_one():
+    """The checkpoint carries the velocities the NPT leg equilibrated; a leg the run asked none of leaves none, so
+    the file is read when it is there rather than declared as an input no skip path could satisfy."""
+    script = script_of(ASSESSMENT).read_text()
+    declared = {str(entry) for entry in pdc.stage_by_name(ASSESSMENT).inputs}
+
+    assert 'if [ -f ../05_npt/system.cpt ]' in script
     assert not any(str(entry).endswith('system.cpt') for entry in declared)
 
 
-def test_the_assessment_leg_still_writes_the_series_and_a_molecule_whole_trajectory(tmp_path):
-    script = (stage_directory(prepared(tmp_path), ASSESSMENT) / SCRIPT).read_text()
+def test_the_assessment_leg_still_writes_a_molecule_whole_trajectory():
+    script = script_of(ASSESSMENT).read_text()
 
     assert '-pbc mol -center -o prod/whole.xtc' in script
-    assert 'pdc_snapshot.py' in script and '--phase assessment' in script
+    assert 'pdc_snapshot' not in script, 'the assessment no longer samples a snapshot series'
 
 
-def test_a_run_whose_equilibration_legs_all_skip_still_validates_the_assessment_leg(tmp_path):
-    """The contract's fourth outcome must not break the chain: the executor validates a stage's declared inputs
-    *before* it runs its script, so with every leg skipped the assessment leg still has to find the NPT system."""
+def test_a_run_whose_equilibration_legs_all_skip_writes_no_leg_directory(tmp_path):
+    """The contract's fourth outcome at prepare time: a leg the settings say will not run leaves nothing on disk.
+
+    The stage scripts no longer decide a settings-driven skip, so a run that asks for none of the equilibration has
+    three skipped stages in its manifest, three absent directories, and the same record every other skipped stage gets.
+    """
     run = prepared(tmp_path, minimisation_steps=0, nvt_ps=0, npt_ps=0)
-    build = run / '1_system'
-    (build / 'system.gro').write_text('a built system\n')
-    (build / 'system.top').write_text('[ molecules ]\nDDM  8\n')
-    (build / pdc.DETERGENT_TOPOLOGY).write_text('[ moleculetype ]\nDDM_CG 1\n')
+    record = json.loads((run / 'manifest.json').read_text())
 
+    assert set(record['skipped_stages']) >= set(LEGS)
     for name in LEGS:
         stage = pdc.stage_by_name(name)
-        directory = run / Path(stage.relative).parent
-        result = subprocess.run(['bash', str(run / stage.relative)], cwd=directory, capture_output=True, text=True)
+        assert not (run / pdc.STAGES_DIRECTORY / Path(stage.relative).parent).exists(), name
+        assert record['skipped_stages'][name]
 
-        assert result.returncode == 4, (name, result.stdout, result.stderr)
-        assert (directory / Path(stage.relative).name).is_file()
 
-    # What the executor does before it runs a stage. The legs' preludes copied the system forward past their own
-    # skip paths, so the assessment leg's declaration is satisfied by the run that asked for no equilibration.
-    _, required_inputs, _ = pdc.stage_contract()
-    workflow.validate_stage_inputs(ASSESSMENT, stage_directory(run, ASSESSMENT), required_inputs)
+def test_removal_off_folds_both_requested_durations_into_one_cg_leg(tmp_path):
+    """No removal means no second leg: the assessment stage is the whole CG MD, for both requested times."""
+    run = prepared(tmp_path, remove_out_of_micelle=False, assessment_ns=100, extension_ns=900)
+    mdp = (inputs_dir(run) / 'assessment.mdp').read_text()
+    dt = next(float(line.split('=')[1].split()[0]) for line in mdp.splitlines() if line.strip().startswith('dt'))
+    nsteps = next(int(line.split('=')[1].split()[0]) for line in mdp.splitlines() if line.strip().startswith('nsteps'))
 
-    npt = stage_directory(run, 'NPT equilibration')
-    assert (npt / 'system.gro').is_file() and (npt / 'system.top').is_file()
+    assert dt == 0.02
+    assert nsteps == 50_000_000, '100 + 900 ns at 0.02 ps is one 1 us leg, not two legs'
+    record = json.loads((run / 'manifest.json').read_text())
+    assert {'Micelle assessment', 'CG extension MD', 'Final assessment'} <= set(record['skipped_stages'])
+    for directory in ('07_micelle_assessment', '08_extension', '09_final_assessment'):
+        assert not (run / pdc.STAGES_DIRECTORY / directory).exists(), directory
+    assert (inputs_dir(run) / pdc.SETTINGS_NAME).is_file(), 'the settings still record the removal choice'

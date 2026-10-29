@@ -31,7 +31,11 @@ CATALOG = {
                   'source': 'packaged', 'half_thickness_nm': 1.35}],
     'defaults': {'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900, 'salt_molar': 0.15,
                  'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
-                 'selection_threshold_fraction': 0.1, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20},
+                 'selection_threshold_fraction': 0.1,
+                 'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
+                 'nstlist': 40, 'verlet_buffer_tolerance': 0.005, 'rlist': 1.35, 'rcoulomb': 1.1, 'rvdw': 1.1,
+                 'ref_t': 300, 'tau_t': 1.0, 'ref_p': 1.0, 'tau_p': 12.0, 'compressibility': 4.5e-5,
+                 'mdrun_ntomp': 8, 'mdrun_ranks': 1, 'mdrun_nb': 'auto'},
 }
 
 
@@ -83,8 +87,11 @@ def test_the_panel_asks_for_the_pdc_inputs_and_for_nothing_else(dashboard, live_
     expect(page.locator('#new-extension-ns')).to_be_visible()
     expect(page.locator('#new-advanced')).to_be_visible()
     for name in ('pdc_seed', 'salt_molar', 'box_margin_nm', 'initial_z_nm', 'contact_nm',
-                 'selection_threshold_fraction', 'snapshot_interval_ns', 'snapshot_cap'):
+                 'selection_threshold_fraction', 'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision',
+                 'nstcomm', 'nstlist', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
+                 'ref_t', 'tau_t', 'ref_p', 'tau_p', 'compressibility', 'mdrun_ntomp', 'mdrun_ranks'):
         assert page.locator(f'[name={name}]').count() == 1, f'{name} is not offered, or is offered twice'
+    assert page.locator('[name=snapshot_interval_ns], [name=snapshot_cap]').count() == 0, 'snapshot inputs are retired'
 
     # The system preview is the top of the right column and the workflow strip is the card under it: the picture the
     # inputs would build is read first, then what the run will do. (The preview card is the plan's addition; before it
@@ -93,7 +100,7 @@ def test_the_panel_asks_for_the_pdc_inputs_and_for_nothing_else(dashboard, live_
     expect(preview).to_contain_text('What these inputs would build')
     workflow = page.locator('.new-run-settings .card').nth(1)
     expect(workflow).to_contain_text('What this run will do')
-    expect(workflow.locator('.new-pdc-placed-node text.title')).to_have_text('3 · Build the micelle')
+    expect(workflow.locator('.new-pdc-placed-node text.title')).to_have_text('1 · Build the micelle')
     assert errors == [], errors
 
 
@@ -107,7 +114,7 @@ def test_the_two_halves_sit_side_by_side_and_stack_at_the_breakpoint(dashboard, 
     inputs = page.locator('.new-run-inputs').bounding_box()
     settings = page.locator('.new-run-settings').bounding_box()
     assert inputs['x'] < settings['x'], (inputs, settings)
-    assert settings['x'] >= inputs['x'] + inputs['width'] - 1, 'the halves overlap: they are not side by side'
+    panels.assert_side_by_side(page, '.new-run-inputs', '.new-run-settings')
     assert settings['x'] + settings['width'] <= form['x'] + form['width'] + 1, 'the right half leaves the form'
     half = form['width'] / 2
     assert abs(inputs['width'] - half) <= 20, (inputs['width'], half)
@@ -203,6 +210,23 @@ def test_the_seed_defaults_to_today_and_the_gate_still_names_it_when_cleared(das
     assert errors == [], errors
 
 
+def test_every_other_run_option_has_a_default(dashboard, live_page):
+    """Nothing in the collapsed block is blank on first load, even on a host whose device probe answers nothing."""
+    page, errors = live_page
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    page.route('**/api/run/devices', lambda route: route.fulfill(json={'devices': [], 'in_use': {}}))
+    open_panel(page, live_page.base_url)
+    page.locator('#new-advanced').evaluate('(el) => el.open = true')
+
+    values = page.evaluate("""() => Object.fromEntries(
+        [...document.querySelectorAll('#new-advanced [name]')].map(el => [el.name, el.value]))""")
+    assert values, 'the block renders no inputs'
+    assert {name: value for name, value in values.items() if value in ('', None)} == {}, values
+    assert values['mdrun_gpu'] == '0', "a host that reports no device still offers the command's default"
+    assert values['mdrun_nb'] == 'auto'
+    assert errors == [], errors
+
+
 def test_the_initialisation_style_is_offered_with_the_pre_assembled_micelle_as_default(dashboard, live_page):
     """Two styles, named for the papers behind them: CHARMM-GUI's pre-assembled micelle (the default, the builder's
     tested path) and MemProtMD's self-assembly."""
@@ -215,44 +239,41 @@ def test_the_initialisation_style_is_offered_with_the_pre_assembled_micelle_as_d
     assert style.input_value() == 'lattice', 'the builder’s established lattice path is the default'
     options = page.evaluate("Array.from(document.querySelectorAll('#new-placement option')).map(o => o.value)")
     assert options == ['lattice', 'self-assembly'], options
-    expect(page.locator('.new-pdc-placement-note')).to_contain_text('CHARMM-GUI')
+    expect(page.locator('[data-new-summary=placement]')).to_have_text('Pre-assembled micelle · CHARMM-GUI')
     assert errors == [], errors
 
 
 def test_the_style_decides_whether_the_belt_is_the_count_or_settles_from_it(dashboard, live_page):
     """With a protein the pre-assembled belt *is* the count asked for; self-assembly starts from it and lets MD
-    settle it. Both the estimate note and the review summary say which is in force."""
+    settle it. The review summary and the chain's own step say which is in force."""
     page, errors = live_page
     serve_catalogue(page, proteins=CATALOG['proteins'])
     open_panel(page, live_page.base_url)
     page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
 
     expect(page.locator('[data-new-summary=placement]')).to_have_text('Pre-assembled micelle · CHARMM-GUI')
-    expect(page.locator('.new-pdc-estimate-note')).to_contain_text('exactly the 150 detergents')
     expect(page.locator('.new-pdc-placed-node text.title')).to_have_text('3 · Place the belt')
 
     page.locator('#new-placement').select_option('self-assembly')
     expect(page.locator('[data-new-summary=placement]')).to_have_text('Self-assembly · MemProtMD')
-    expect(page.locator('.new-pdc-placement-note')).to_contain_text('settles')
-    expect(page.locator('.new-pdc-estimate-note')).to_contain_text('placed at random')
     expect(page.locator('.new-pdc-placed-node text.title')).to_have_text('3 · Self-assemble')
     assert errors == [], errors
 
 
 def test_the_empty_micelle_branch_works_in_both_styles(dashboard, live_page):
-    """No protein stays a valid build for either style: the empty branch is shown, and the style sentence adapts."""
+    """No protein stays a valid build for either style: the empty branch is shown, and the review names the style.
+    The protein-preparation statement is not shown, because an empty micelle has nothing to prepare."""
     page, errors = live_page
     serve_catalogue(page, proteins=CATALOG['proteins'])
     open_panel(page, live_page.base_url)
 
     expect(page.locator('#new-empty-block')).to_be_visible()
     expect(page.locator('#new-belt-block')).to_be_hidden()
-    expect(page.locator('.new-pdc-estimate-note')).to_contain_text('exactly the 150 detergents')
+    expect(page.locator('.new-pdc-prepare-note')).to_be_hidden()
 
     page.locator('#new-placement').select_option('self-assembly')
     expect(page.locator('#new-empty-block')).to_be_visible()
     expect(page.locator('#new-belt-block')).to_be_hidden()
-    expect(page.locator('.new-pdc-estimate-note')).to_contain_text('settles the micelle')
     expect(page.locator('[data-new-summary=placement]')).to_have_text('Self-assembly · MemProtMD')
     assert errors == [], errors
 
@@ -327,14 +348,18 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
     assert posted == {
         'run_type': 'pdc', 'molecule_id': 'DDM', 'template': 'molecules/DDM/micelle_template.json',
         'protein': 'molecules/1qj8/1qj8.pdb', 'label': 'pdc panel test', 'pdc_placement_mode': 'lattice',
-        'backmap': True,
+        'backmap': True, 'remove_out_of_micelle': True,
         # The plan's step 1, stated rather than omitted, and on by default: a run that asked for the preparation must not
         # be readable as one that did not -- the same reason the back-map choice is always sent.
         'prepare_protein': True,
         'aggregation_number': 220, 'pdc_assessment_ns': 100, 'pdc_extension_ns': 900, 'pdc_seed': 20260928,
         'salt_molar': 0.15, 'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
-        'selection_threshold_fraction': 0.1, 'snapshot_interval_ns': 20.0, 'snapshot_cap': 20,
-        # The device the run will use, as an ordinary setting: `mdrun_gpu` is the index the panel selected.
+        'selection_threshold_fraction': 0.1,
+        'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
+        'nstlist': 40, 'verlet_buffer_tolerance': 0.005, 'rlist': 1.35, 'rcoulomb': 1.1, 'rvdw': 1.1,
+        'ref_t': 300, 'tau_t': 1.0, 'ref_p': 1.0, 'tau_p': 12.0, 'compressibility': 4.5e-5,
+        'mdrun_ntomp': 8, 'mdrun_ranks': 1, 'mdrun_nb': 'auto',
+        # The device the run will use, as an ordinary setting: `mdrun_gpu` is the CUDA ordinal the panel selected.
         'mdrun_gpu': 0,
     }, posted
     assert errors == [], errors
@@ -403,4 +428,34 @@ def test_the_model_picker_lists_the_servers_models_by_what_they_carry(dashboard,
     assert not [text for text in options if '.json' in text], f'a mapping file is still what the picker shows: {options}'
     labels = page.evaluate("Array.from(document.querySelectorAll('#new-mapping optgroup')).map(g => g.label)")
     assert labels == ['Models (fitted)', 'Mappings with derived terms'], labels
+    assert errors == [], errors
+
+
+def test_the_empty_micelle_disables_the_protein_views_and_the_removal_gate_redraws_the_chain(
+        dashboard, live_page):
+    """The two settings the plan adds are visible where they act: no protein means no Bonds/Ribbon and no
+    prepare/coarse-grain node; removing the removal pipeline leaves one CG MD leg instead of judge/extend/final."""
+    page, errors = live_page
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    open_panel(page, live_page.base_url)
+    page.locator('#new-protein').select_option('')
+
+    expect(page.locator('[data-new-summary=prepare]')).to_contain_text('skipped · empty micelle')
+    expect(page.locator('[data-new-summary=removal]')).to_contain_text('on')
+    assert page.locator('.new-pdc-preview-bonds input').is_disabled()
+    assert page.locator('.new-pdc-preview-ribbon input').is_disabled()
+
+    page.locator('details.new-pdc-diagram summary').click()
+    expect(page.locator('.new-pdc-flow [data-stage=build] text.title')).to_have_text('1 · Build the micelle')
+    assert page.locator('.new-pdc-flow [data-stage=prepare]').count() == 0
+    assert page.locator('.new-pdc-flow [data-stage=coarse-grain]').count() == 0
+    assert page.locator('.new-pdc-flow [data-stage=judge]').count() == 1
+
+    page.locator('[name=remove_out_of_micelle]').uncheck()
+    expect(page.locator('[data-new-summary=removal]')).to_contain_text('off')
+    expect(page.locator('[data-new-summary=sampling]')).to_contain_text('1000 ns CG MD')
+    expect(page.locator('.new-pdc-flow [data-stage=sample] text.title')).to_have_text('3 · CG MD')
+    assert page.locator('.new-pdc-flow [data-stage=judge]').count() == 0
+    assert page.locator('.new-pdc-flow [data-stage=extend]').count() == 0
+    assert page.locator('.new-pdc-flow [data-stage=final-assessment]').count() == 0
     assert errors == [], errors

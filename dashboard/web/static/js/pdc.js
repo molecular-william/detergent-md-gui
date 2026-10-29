@@ -8,7 +8,6 @@ export function createPdc() {
   //: Where the legend goes: the card this panel draws its beads in. The colours are `ngl-beads.js`'s table and this
   //: element is filled from it at mount, so the swatches and the beads cannot be decoded two ways.
   const legend = document.querySelector('.pdc-view .bead-legend');
-  const strip = $('#pdc-snapshots'), stripBasis = $('#pdc-snapshot-basis');
   const runSelect = $('#pdc-run');
   const mapping = $('#pdc-mapping'), queue = $('#pdc-queue');
   const importField = $('#pdc-protein-id'), importButton = $('#pdc-import'), importNote = $('#pdc-import-status');
@@ -98,7 +97,7 @@ export function createPdc() {
   function armRun(id) {
     // One door, whatever opened it: this list, a link, or the hook the browser tests hold.
     currentRun = id ? {id} : null;
-    return Promise.all([loadSnapshots(), loadSystem()]);
+    return loadSystem();
   }
 
   async function importStructure() {
@@ -147,7 +146,7 @@ export function createPdc() {
   // the route reads `protein` and ignores anything else, and a build with no seed never passes admission.
   const SETTING_ALIASES = {assessment_ns: 'pdc_assessment_ns', extension_ns: 'pdc_extension_ns'};
   const NUMBER_KEYS = ['aggregation_number', 'salt_molar', 'box_margin_nm', 'initial_z_nm', 'contact_nm',
-                       'selection_threshold_fraction', 'snapshot_interval_ns', 'snapshot_cap'];
+                       'selection_threshold_fraction'];
 
   function todaySeed() {
     const now = new Date();
@@ -232,8 +231,8 @@ export function createPdc() {
     // NGL invents bonds from interatomic distances unless the file tells it otherwise: `inferBonds` defaults to
     // `'all'`. Every bead here is written as a radius stand-in element, so the guess is generous -- 90 bonds drawn
     // on a placement frame the model bonds 60 ways, head beads onto tail beads among them. Both files this panel
-    // loads carry the model's own bonds as CONECT records (a snapshot, and the built system the route serves out of
-    // `system.gro`), and where they do, the guess is switched off so the reader sees the topology that was
+    // loads carry the model's own bonds as CONECT records (the built system the route serves out of `system.gro`),
+    // and where they do, the guess is switched off so the reader sees the topology that was
     // simulated. A file that carries no records of its own keeps NGL's own bonds rather than drawing none.
     const parameters = {ext: 'pdb'};
     if (/^CONECT/m.test(text)) parameters.inferBonds = 'none';
@@ -254,56 +253,6 @@ export function createPdc() {
     });
   }
 
-  function describeSnapshot(snapshot) {
-    // The picture and its numbers are one record: a reader should never have to guess which verdict a frame belongs
-    // to, and a frame without a verdict (the placement) says so instead of showing a blank.
-    const moment = snapshot.time_ps === null || snapshot.time_ps === undefined
-      ? 'before dynamics' : `${Math.round(snapshot.time_ps)} ps`;
-    const verdict = snapshot.verdict;
-    if (!verdict) return `${snapshot.name} · ${moment} · ${snapshot.atoms} beads · not judged`;
-    const answer = verdict.verdict ? 'micelle formed' : 'micelle not formed';
-    return `${snapshot.name} · ${moment} · ${answer}: largest cluster ${verdict.largest_cluster} of `
-      + `${verdict.aggregation_number} (${Math.round(100 * (verdict.fraction_of_requested || 0))}%), `
-      + `${verdict.protein_contact_count} touching the protein`;
-  }
-
-  async function showSnapshot(button, snapshot) {
-    const response = await fetch(`/api/pdc/${currentRun.id}/snapshots/${snapshot.stage}/${snapshot.pdb}`);
-    if (!response.ok) { if (stripBasis) stripBasis.textContent = 'That snapshot is no longer on disk.'; return; }
-    strip?.querySelectorAll('button').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
-    if (stripBasis) stripBasis.textContent = describeSnapshot(snapshot);
-    await showPdb(await response.text(), null);
-  }
-
-  async function loadSnapshots() {
-    // The series is what makes a run readable: the placement, each phase's end state, and the frames between. It is
-    // served from the stages that took the pictures, so a resumed run shows what it re-derived.
-    if (!strip) return;
-    if (!currentRun) { strip.replaceChildren(); if (stripBasis) stripBasis.textContent = 'Snapshots appear here as a run records them.'; return; }
-    const response = await fetch(`/api/pdc/${currentRun.id}/snapshots`);
-    const payload = response.ok ? await response.json() : {snapshots: []};
-    const snapshots = payload.snapshots || [];
-    if (!snapshots.length) {
-      strip.replaceChildren();
-      if (stripBasis) stripBasis.textContent = 'This run has recorded no snapshots yet.';
-      return;
-    }
-    strip.replaceChildren(...snapshots.map(snapshot => {
-      // Long phases read better in ns; a short frame keeps its ps, because that is the resolution it was taken at.
-      const moment = snapshot.time_ps === null || snapshot.time_ps === undefined ? null : Number(snapshot.time_ps);
-      const label = moment === null ? snapshot.name
-        : (moment >= 1000 ? `${Math.round(moment / 1000)} ns` : `${Math.round(moment)} ps`);
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.textContent = label;
-      button.title = describeSnapshot(snapshot);
-      button.setAttribute('aria-pressed', 'false');
-      button.addEventListener('click', () => showSnapshot(button, snapshot));
-      return button;
-    }));
-    if (stripBasis) stripBasis.textContent = `${snapshots.length} snapshots recorded. Pick one to see it.`;
-  }
-
   async function loadSystem() {
     // The viewer shows the system a stage actually wrote. Until one exists the route says so, and the panel repeats
     // it rather than drawing an empty box.
@@ -321,7 +270,7 @@ export function createPdc() {
              // with is the same five colours the representations resolve.
              renderBeadLegend(legend);
              await Promise.all([load(), loadRuns()]); return $('#'+panelIds().complexes); },
-           loadSystem, loadSnapshots,
+           loadSystem,
            // The same door the panel's own list opens, kept as `window.pdcSetRun` for the tests that arm the viewer
            // without waiting for a run to exist.
            setRun: armRun };

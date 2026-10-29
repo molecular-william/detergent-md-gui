@@ -62,16 +62,13 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('attachment', response.headers['Content-Disposition'])
         response.close()
 
-    def test_artifact_index_and_snapshot_preflight_are_explicit(self):
+    def test_artifact_index_is_explicit(self):
         run_dir = self.dashboard.coordinator.RUNS / self.job['id']; run_dir.mkdir(parents=True)
         (run_dir / 'manifest.json').write_text('{}')
         (run_dir / 'result.gro').write_text('coordinates')
         result = self.client.get('/api/jobs/123456abcdef/artifacts').get_json()
         self.assertEqual([item['path'] for item in result['artifacts']], ['manifest.json', 'result.gro'])
         self.assertEqual(self.client.get('/api/jobs/123456abcdef/artifacts/../jobs.sqlite3').status_code, 404)
-        snapshot = self.client.post('/api/jobs/123456abcdef/snapshots', json={'stage': '1_AA-reference'})
-        self.assertEqual(snapshot.status_code, 409)
-        self.assertIn('stopped run', snapshot.get_json()['error'])
 
     def test_delete_removes_terminal_run_and_artifacts(self):
         run_dir = self.dashboard.coordinator.RUNS / self.job['id']; run_dir.mkdir(parents=True)

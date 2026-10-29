@@ -1,25 +1,15 @@
 """Versioned single-solute CHARMM AA protocol, independent of CG tooling."""
-import math
-import shutil
 import subprocess
 from pathlib import Path
 
 from ... import files
-from ...analysis.runs import references as aa_references
 from ...models.molecules import aa as aa_molecules
-from .. import devices, forcefields, protocol, tools
+from .. import devices, forcefields, protocol, run_inputs, tools
 from ..environment import environment, probe_tool, recorded_environment
+from ..mdp import write_mdp
+from ..settings import normalize
 from ..stages import Stage, stage_tables
 from . import aa_box
-
-# Modules copied into every run's common/ directory. The names are part of the
-# run contract, not a detail: the generated stage scripts invoke
-# ../common/aa_references.py, and the copied publication helper imports
-# aa_molecules by module name. Copying each module under its own __file__ name
-# silently breaks both whenever a module moves.
-RUN_HELPERS = (('aa_references.py', aa_references),
-               ('aa_molecules.py', aa_molecules),
-               ('files.py', files))
 
 # The ruleset, not the force field: which force field a run used is recorded beside it, because two runs at one
 # ruleset with different force fields are exactly the comparison this version keeps straight.
@@ -59,7 +49,7 @@ MDRUN_GPU_NONBONDED_FLAGS=gpu_flags({})
 MDRUN_GPU_PME_FLAGS=f'{MDRUN_GPU_NONBONDED_FLAGS} -pme gpu -pmefft gpu'
 
 
-def gromacs_flavour(binary=None):
+def gromacs_flavour(binary=None, *, report=None):
     """Which mdrun this build is: 'mpi', 'thread-mpi' or 'unknown'.
 
     GROMACS prints its own configuration, so this asks the binary rather than assuming from the host: an MPI
@@ -68,14 +58,16 @@ def gromacs_flavour(binary=None):
     preparation calls it per stage, which is cheap beside grompp.
     """
     import shutil
-    import subprocess
 
-    resolved = binary or shutil.which('gmx') or '/usr/local/gromacs/2026.3/bin/gmx'
-    try:
-        report = subprocess.run([resolved, '--version'], capture_output=True, text=True, timeout=60)
-    except (OSError, subprocess.SubprocessError):
-        return 'unknown'
-    text = report.stdout + report.stderr
+    if report is None:
+        resolved = binary or shutil.which('gmx') or '/usr/local/gromacs/2026.3/bin/gmx'
+        try:
+            report = subprocess.run([resolved, '--version'], capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            return 'unknown'
+        text = report.stdout + report.stderr
+    else:
+        text = str(report)
     # An MPI build links an MPI library and may still mention thread-MPI (as being off), so the library is the
     # discriminator and the mention only breaks a tie the library left open.
     if 'MPI library' in text: return 'mpi'
@@ -228,27 +220,12 @@ def stage_defaults(profile='standard'):
 
 
 def normalize_settings(settings=None, profile='standard'):
-    if settings is not None and not isinstance(settings,dict):raise ValueError('AA settings must be an object')
     supplied=settings or {}
-    result=dict(stage_defaults(profile)['values'])
-    for key,value in supplied.items():
-        if key in CHOICE_SPECS:
-            label,options=CHOICE_SPECS[key]
-            if not isinstance(value,str) or value not in options:
-                raise ValueError(f'{key} must be one of {", ".join(options)}')
-            result[key]=value
-            continue
-        if key not in SETTING_SPECS:raise ValueError('Unknown AA setting: '+key)
-        if isinstance(value,bool):raise ValueError('AA settings must be numeric')
-        try:value=float(value)
-        except (ValueError,TypeError) as exc:raise ValueError(key+' must be numeric') from exc
-        label,lo,hi=SETTING_SPECS[key]
-        if not math.isfinite(value) or not lo<=value<=hi:raise ValueError(f'{key} must be between {lo} and {hi}')
-        result[key]=value
-    if int(result['mdrun_gpu'])!=result['mdrun_gpu']:raise ValueError('mdrun_gpu must be an integer')
-    result['mdrun_gpu']=int(result['mdrun_gpu'])
-    if int(result['aa_seed'])!=result['aa_seed']:raise ValueError('AA seed must be an integer')
-    result['aa_seed']=int(result['aa_seed'])
+    result=normalize(
+        settings, stage_defaults(profile)['values'], specs=SETTING_SPECS, choices=CHOICE_SPECS,
+        object_message='AA settings must be an object', unknown_prefix='Unknown AA setting: ',
+        bool_message='AA settings must be numeric',
+        integrals={'mdrun_gpu':'mdrun_gpu must be an integer', 'aa_seed':'AA seed must be an integer'})
     if result['output_interval_ps']>result['aa_production_ps']:raise ValueError('Output interval exceeds AA production duration')
     # The temperature a run starts from belongs to the force field: each parameterisation assumes one, and the
     # reference protocol this project reproduces runs each force field at its own. A caller who names a
@@ -259,10 +236,8 @@ def normalize_settings(settings=None, profile='standard'):
 
 
 def tool_metadata():
-    executable=tools.tool_path('gmx')
-    if not executable:raise ValueError('GROMACS executable is unavailable')
-    result=subprocess.run([executable,'--version'],capture_output=True,text=True,check=True,timeout=30,env=environment())
-    return {'gmx':{'path':executable,'version_output':result.stdout,'sha256':files.sha256(executable)}}
+    return tools.record_versions('gmx', env=environment(),
+                                 missing=lambda name: ValueError('GROMACS executable is unavailable'))
 
 
 def readiness(molecule_root,molecule_id):
@@ -295,6 +270,10 @@ def readiness(molecule_root,molecule_id):
 
 def mdp(settings,kind,ff=None):
     """One stage's mdp, with the force field's settings read rather than restated.
+
+    A parity oracle, not a production path: `prepare_run` writes its stages through
+    `dashboard.execution.mdp.write_mdp`, and this builder is kept because `test_mdp_writer` compares every reviewed
+    profile against the map it produces.
 
     The registry holds the block GROMACS prescribes for the force field, so a change follows the reference
     instead of a duplicated literal, and the constraints choice is the entry's. What is not the force field's
@@ -334,6 +313,27 @@ def mdp(settings,kind,ff=None):
     return '\n'.join(f'{k} = {v:.12g}' if isinstance(v,float) else f'{k} = {v}' for k,v in common.items())+'\n'
 
 
+#: The reviewed profile each of the first six stages writes, in `STAGES` order: solvation prepares a tpr for genion
+#: with the ions file, the ions stage writes it again after neutralising, and the four dynamics stages follow.
+MDP_PROFILES = ('aa-ions-v1', 'aa-ions-v1', 'aa-em-v1', 'aa-nvt-v1', 'aa-npt-v1', 'aa-production-v1')
+_DURATION_SETTING = {'aa-nvt-v1': 'aa_nvt_ps', 'aa-npt-v1': 'aa_npt_ps', 'aa-production-v1': 'aa_production_ps'}
+
+
+def mdp_values(settings, profile):
+    """The numbers one profile leaves to the run, computed exactly as `mdp()` computes them."""
+    values = {'force_field': settings['force_field']}
+    if profile in ('aa-ions-v1', 'aa-em-v1'):
+        return values
+    interval = max(1, round(settings['output_interval_ps'] / 0.002))
+    values.update({'nsteps': round(settings[_DURATION_SETTING[profile]] / 0.002),
+                   'ref-t': settings['temperature_k'], 'gen-temp': settings['temperature_k'],
+                   'gen-seed': settings['aa_seed'], 'ld-seed': settings['aa_seed'],
+                   'nstxout-compressed': interval, 'nstenergy': min(interval, 500), 'nstlog': min(interval, 500)})
+    if profile != 'aa-nvt-v1':
+        values['ref-p'] = settings['pressure_bar']
+    return values
+
+
 def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
     run_dir=Path(run_dir); settings=normalize_settings(settings)
     # The device is checked against the ones this host reports, before anything is written: a run that named a
@@ -343,26 +343,25 @@ def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
     aa_molecules.verify_selection(molecule_root,molecule_snapshot)
     stages=run_dir/'stages'; stages.mkdir()
     common=stages/'common'; common.mkdir(); molecule=common/'molecule'; molecule.mkdir()
-    source=Path(molecule_root)/molecule_snapshot['id']
-    for relative in molecule_snapshot['sha256']:
-        target=molecule/relative;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source/relative,target)
-    files.verify(molecule,molecule_snapshot['sha256'])
+    # The store is the molecule's own directory: the run names its bytes and reads them where they live instead of
+    # carrying a second copy. Both checks the copy used to make still run, against the store.
+    molecule_root=Path(molecule_root).resolve(); source=molecule_root/molecule_snapshot['id']
+    files.verify(source,molecule_snapshot['sha256'])
     # Preserve original filenames/includes; normalize only the run-local entry points.
     inputs=molecule_snapshot.get('inputs', {'topology':'molecule.itp', 'coordinates':'molecule.gro', 'coordinate_format':'gro'})
     preparation={'source_inputs':inputs, 'coordinate_conversion':None}
-    if inputs['topology'] != 'molecule.itp':
-        if (molecule/'molecule.itp').exists(): raise ValueError('Topology dependency conflicts with prepared molecule.itp')
-        (molecule/'molecule.itp').write_text('#include "'+inputs['topology']+'"\n')
-    if inputs['coordinates'] != 'molecule.gro':
-        if (molecule/'molecule.gro').exists(): raise ValueError('Input dependency conflicts with prepared molecule.gro')
-        original=molecule/inputs['coordinates']
-        if inputs['coordinate_format']=='pdb':
-            (molecule/'molecule.gro').write_text(aa_molecules.pdb_gro(original.read_text()))
-            preparation['coordinate_conversion']={'method':'aa_molecules.pdb_gro', 'version':1,
-                                                  'source':inputs['coordinates'], 'output':'molecule.gro',
-                                                  'units':'angstrom to nm; original atom order'}
-        else:
-            shutil.copy2(original,molecule/'molecule.gro')
+    # `molecule.itp` is a generated shim: one include, spelled absolute because the stored topology is referenced in
+    # place. Its own relative includes resolve against the store, which is where those files are.
+    stored_topology=(source/inputs['topology']).resolve()
+    (molecule/'molecule.itp').write_text('#include "'+str(stored_topology)+'"\n')
+    preparation['topology_include']=str(stored_topology)
+    if inputs['coordinate_format']=='pdb':
+        (molecule/'molecule.gro').write_text(aa_molecules.pdb_gro((source/inputs['coordinates']).read_text()))
+        preparation['coordinate_conversion']={'method':'aa_molecules.pdb_gro', 'version':1,
+                                              'source':inputs['coordinates'], 'output':'molecule.gro',
+                                              'units':'angstrom to nm; original atom order'}
+    else:
+        (molecule/'molecule.gro').write_bytes((source/inputs['coordinates']).read_bytes())
     preparation['prepared_gro_sha256']=files.sha256(molecule/'molecule.gro')
     # A box that cannot hold the solute is refused here, before any stage is written, rather than discovered as a
     # solute interacting with its own periodic image three stages later.
@@ -373,20 +372,34 @@ def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
     aa_box.check_cutoffs(settings['box_nm'], float(forcefields.entry(settings['force_field']).mdp['rlist']))
     ff=forcefields.entry(settings['force_field']); tree=ff.tree()
     if any(p.is_symlink() for p in tree.rglob('*')):raise ValueError('Force-field symlinks are unsupported')
-    shutil.copytree(tree,common/tree.name)
-    for name,module in RUN_HELPERS:
-        shutil.copy2(Path(module.__file__), common/name)
+    # What already existed when prepare ran is named, by path and digest, rather than copied: the force-field tree and
+    # each molecule file. The molecule's repo root is the folder the store folder sits in, so a run prepared from
+    # `molecules/<id>/` records `molecules/<id>/<file>` against the repository.
+    force_field_entry=run_inputs.published_tree('force_field', tree, label=ff.label)
+    force_field_path=run_inputs.resolve(force_field_entry)
+    references=[force_field_entry, *[
+        run_inputs.published('molecule', source/relative, label=f'{molecule_snapshot["id"]}/{relative}',
+                             repo_root=molecule_root.parent)
+        for relative in sorted(molecule_snapshot['sha256'])]]
     caveats=[str(caveat) for caveat in (molecule_snapshot['metadata'].get('caveats') or [])]
     context={'protocol_version':VERSION,'settings':settings,'molecule_snapshot':molecule_snapshot,
              'input_preparation':preparation,'force_field':ff.name,'force_field_directory':tree.name,
              'caveats':caveats,
-             'force_field_sha256':files.hashes(common/tree.name),'scientifically_validated':False}
+             # Where the referenced sources are, so the publication can hash them without a copy in the run. Absolute
+             # because the module that reads them runs with a stage directory as its working directory, so the record
+             # must not depend on the working directory it is read from.
+             'force_field_path':str(force_field_path),
+             'molecule_directory':str(source),
+             'force_field_sha256':files.hashes(tree),'scientifically_validated':False}
     files.atomic_json(common/'context.json',context)
     n=molecule_snapshot['atom_count'];charge=round(molecule_snapshot['metadata']['net_charge'])
     from ...analysis.runs.references import index_group
     (common/'solute.ndx').write_text(index_group('Solute',1,n+1))
-    top=(f'#include "../common/{tree.name}/forcefield.itp"\n#include "../common/molecule/molecule.itp"\n'
-         f'#include "../common/{tree.name}/{ff.water_file}"\n#include "../common/{tree.name}/ions.itp"\n\n'
+    # The force field is referenced, never copied, and every later stage copies this topology forward into its own
+    # directory -- so its includes are absolute. They keep resolving from any stage directory and from the mirrored
+    # copy in `inputs/`. The molecule shim is run-local and stays relative; it is generated data like the rest.
+    top=(f'#include "{force_field_path / "forcefield.itp"}"\n#include "../common/molecule/molecule.itp"\n'
+         f'#include "{force_field_path / ff.water_file}"\n#include "{force_field_path / "ions.itp"}"\n\n'
          f'[ system ]\nSingle solute in water\n[ molecules ]\n{molecule_snapshot["metadata"]["molecule_type"]} 1\n')
     scripts=[f'''gmx editconf -f ../common/molecule/molecule.gro {aa_box.editconf_arguments(settings['box_nm'], settings.get('box_shape', aa_box.DEFAULT_SHAPE))} -o boxed.gro
 gmx grompp -f run.mdp -c boxed.gro -p system.top -o input-check.tpr
@@ -396,11 +409,11 @@ cp ../01_solvation/system.gro system.gro
 gmx grompp -f run.mdp -c system.gro -p system.top -o ions.tpr
 ''']
     if charge:
-        scripts[1]+=f'''python ../common/aa_references.py solvent-index system.gro {n}
+        scripts[1]+=f'''"$PYTHON" -m dashboard.analysis.runs.references solvent-index system.gro {n}
 printf '{ff.water_molecule}\\n' | gmx genion -s ions.tpr -o neutral.gro -p system.top -n solvent.ndx -pname {ff.cation} -nname {ff.anion} -neutral -seed {settings['aa_seed']}
 mv neutral.gro system.gro
 '''
-    scripts[1]+='python ../common/aa_references.py counts system.top ../common/context.json\n'
+    scripts[1]+='"$PYTHON" -m dashboard.analysis.runs.references counts system.top ../common/context.json\n'
     # Asked once for the whole run rather than once per stage: the build flavour is a property of the binary,
     # and on this host `gmx --version` costs 1.3 s, so four per-stage probes were 5.3 s of prepare_run's 5.4 s.
     flavour = gromacs_flavour()
@@ -420,17 +433,28 @@ mv neutral.gro system.gro
 printf 'Solute\\n' | gmx trjconv -f ../06_production/run.xtc -s ../06_production/run.tpr -n ../common/solute.ndx -dump 0 -o lig.gro
 printf 'Solute\\n' | gmx convert-tpr -s ../06_production/run.tpr -n ../common/solute.ndx -o lig.tpr
 printf 'Temperature\\nPressure\\nDensity\\nPotential\\nTotal-Energy\\n0\\n' | gmx energy -f ../06_production/run.edr -o diagnostics.xvg
-python ../common/aa_references.py publish ..
+"$PYTHON" -m dashboard.analysis.runs.references publish ..
 ''')
+    mdp_profiles={}
     for i,((_,relative),script) in enumerate(zip(STAGES,scripts)):
         target=stages/relative;target.parent.mkdir();target.write_text('#!/bin/bash\nset -euxo pipefail\n'+script)
-        if i<6:(target.parent/'run.mdp').write_text(mdp(settings,('ions','ions','em','nvt','npt','production')[i],ff))
+        if i<len(MDP_PROFILES):
+            profile=MDP_PROFILES[i]
+            write_mdp(profile,target.parent/'run.mdp',mdp_values(settings,profile))
+            mdp_profiles[f'{target.parent.relative_to(stages).as_posix()}/run.mdp']=profile
     (stages/'01_solvation/system.top').write_text(top)
-    shutil.copytree(stages,run_dir/'inputs')
-    protocol.write_prepared_manifest(
-        run_dir, dict(context, run_type='aa_only', workflow_version=VERSION), tools=tool_metadata(),
-        plan=[name for name,_ in STAGES],
-        environment=recorded_environment())
+    # `finish_prepared_run` mirrors the generated data into `inputs/` and writes the manifest naming the referenced
+    # sources. What is copied is only what prepare synthesized: the tree and the molecule files stay where they live.
+    # The helper modules are executed from the repository as package modules through `"$PYTHON" -m`, so the run records
+    # their paths and digests instead of carrying a copy that could drift from the tree that supports it.
+    protocol.finish_prepared_run(
+        run_dir, stages, metadata=dict(context, run_type='aa_only', workflow_version=VERSION,
+                                       mdp_profiles=mdp_profiles),
+        tools=tool_metadata(), plan=[name for name,_ in STAGES],
+        environment=recorded_environment(), references=references,
+        modules={'aa_references': 'dashboard/analysis/runs/references.py',
+                 'aa_molecules': 'dashboard/models/molecules/aa.py',
+                 'files': 'dashboard/files.py'})
 
 
 def _protocol_stage_contract(metadata):

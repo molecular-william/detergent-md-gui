@@ -1,13 +1,13 @@
 """Judge the micelle at the end of a phase, and say what would survive if the rest were removed.
 
-Run by `3_assessment/pdc_assess.sh` and `5_assessment/pdc_assess.sh`. The verdict comes from `pdc_assessment`, which is the
-one implementation of the design spec's criterion; this module's job is to read the system the stage produced,
-select each detergent's tail beads, and write the three declared outputs.
+Run by `07_micelle_assessment/pdc_assess.sh` and `09_final_assessment/pdc_assess.sh`. The verdict comes from
+`pdc_assessment`, which is the one implementation of the design spec's criterion; this module's job is to read the
+system the stage produced, select each detergent's tail beads, and write the three declared outputs.
 
-    python pdc_assess.py --settings ../1_system/pdc-settings.json --structure prod/run.gro
+    python -m dashboard.execution.scripts.pdc_assess --settings ../../inputs/pdc-settings.json --structure prod/run.gro
 
 Reads the stage's structure rather than the trajectory, because the verdict is about the state the phase ended in
-and a reader can check it against one file. The series of frames is the snapshot work, not this.
+and a reader can check it against one file.
 """
 from __future__ import annotations
 
@@ -84,7 +84,7 @@ def judge(structure: Path, settings: dict) -> dict:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description='Assess the micelle in a protein-detergent system.')
-    parser.add_argument('--settings', default='../1_system/pdc-settings.json')
+    parser.add_argument('--settings', default='../../inputs/pdc-settings.json')
     parser.add_argument('--structure', default='prod/run.gro')
     parser.add_argument('--stage', default='.')
     args = parser.parse_args(argv)
@@ -101,17 +101,6 @@ def main(argv=None) -> int:
                 'tail_beads': len(detergent['tail'])}
                for detergent, group in zip(judged['detergents'], molecules)
                if detergent['name'] not in kept_names]
-
-    # The picture of the moment, written with the numbers the moment was judged on: a gallery that cannot disagree
-    # with a verdict, because both come from the same call above.
-    from dashboard.execution.scripts import pdc_snapshot
-    pdc_snapshot.write_snapshot(stage, stage.name, structure, detergent_residue=detergent_residue,
-                                title=f'{detergent_residue} system, {stage.name}',
-                                criterion={'verdict': verdict['verdict'], 'largest_cluster': verdict['largest_cluster'],
-                                           'aggregation_number': verdict['aggregation_number'],
-                                           'fraction_of_requested': verdict['fraction_of_requested'],
-                                           'protein_contact_count': verdict['protein_contact_count'],
-                                           'reasons': verdict['reasons']})
 
     (stage / ASSESSMENT_NAME).write_text(json.dumps(
         {**verdict, 'structure': str(structure), 'structure_sha256': digest(structure),

@@ -75,7 +75,7 @@ fi
 BROWSER_LOG="$OUT/gate-browser.txt"
 BROWSER_REPORT='not run (no front-end path named)'
 if [ "$FRONT_END" -eq 1 ]; then
-  "$PY" -m pytest -m browser -q -n 6 -p no:cacheprovider > "$BROWSER_LOG" 2>&1
+  "$PY" -m pytest -m browser -q -n 16 --dist worksteal -p no:cacheprovider > "$BROWSER_LOG" 2>&1
   BROWSER_REPORT="exit $? -- $(tail -n 1 "$BROWSER_LOG")"
 fi
 echo "gate: browser tier (reported, not gating): $BROWSER_REPORT"

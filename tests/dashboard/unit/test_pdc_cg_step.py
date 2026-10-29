@@ -33,7 +33,7 @@ import pytest
 
 from dashboard.execution.adapters import pdc
 from dashboard.execution.scripts import pdc_build
-from tests.dashboard.pdc_fixtures import prepared_run, stage_dir
+from tests.dashboard.pdc_fixtures import prepared_run, system_stage
 
 TEMPLATE = {
     'name': 'DDM', 'residue': 'DDM', 'coordinates': 'results/MMFF/lig1.pdb',
@@ -76,7 +76,7 @@ def prepared(tmp_path: Path, protein: str | None = None):
     """A run whose protein is the one this test is about: the peptide builder's output unless one is passed."""
     run = prepared_run(tmp_path, settings={'seed': 20261014, 'aggregation_number': 4},
                        protein_text=protein if protein is not None else peptide())
-    return run, stage_dir(run, 'System preparation')
+    return run, system_stage(run)
 
 
 def cg_directory(stage: Path) -> Path:

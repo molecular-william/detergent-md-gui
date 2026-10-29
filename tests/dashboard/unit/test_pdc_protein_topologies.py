@@ -11,13 +11,14 @@ number of molecules is the tool's to decide (one per chain), so it is *read* fro
 rather than written down anywhere.
 
 Then the legs: each one runs `grompp` on a copy of `system.top`, and `grompp` resolves an include against the
-directory the topology is in. So each leg declares the protein's whole `cg/` tree as one input and carries it, which
-is the only spelling that works for one molecule and for N.
+directory the topology is in. So each leg declares the build stage's whole `cg/` tree as one input -- one location
+for the whole run -- and reads it there instead of carrying a copy, which is the only spelling that works for one
+molecule and for N.
 """
 from __future__ import annotations
 
 import re
-import subprocess
+import shutil
 from pathlib import Path
 
 from dashboard.execution import workflow
@@ -66,8 +67,20 @@ def includes(topology: Path) -> list[str]:
     return re.findall(r'#include "([^"]+)"', Path(topology).read_text())
 
 
+def build_tree() -> str:
+    """How a leg names the build stage's protein tree: the one directory in the run that holds it."""
+    build = Path(pdc.stage_by_name('System preparation').relative).parent
+    return f'../{build}/{pdc.PROTEIN_TOPOLOGY_DIRECTORY}/'
+
+
+def protein_include(itp: str) -> str:
+    """How a topology written by the build names one of that stage's itps."""
+    return f'{build_tree()}{itp}'
+
+
 def protein_includes(topology: Path) -> list[str]:
-    return [name for name in includes(topology) if name.startswith(pdc.PROTEIN_TOPOLOGY_DIRECTORY + '/')]
+    tree = build_tree()
+    return [name for name in includes(topology) if name.startswith(tree)]
 
 
 def a_two_chain_system(tmp_path: Path) -> Path:
@@ -75,28 +88,44 @@ def a_two_chain_system(tmp_path: Path) -> Path:
     run = prepared_run(tmp_path)
     system = stage_dir(run, 'System preparation')
     protein_top = martinize_output(system, TWO_MOLECULES)
-    (system / pdc.DETERGENT_TOPOLOGY).write_text(DETERGENT_ITP)
-    pdc_build.write_topologies(system, protein_top, system / pdc.DETERGENT_TOPOLOGY, 120)
+    # The detergent topology a mapped build's `prepare` generates lives in the run's `inputs/`, and the topology
+    # names it there from every stage that reads it.
+    detergent = run / pdc.INPUTS_DIRECTORY / pdc.DETERGENT_TOPOLOGY
+    detergent.write_text(DETERGENT_ITP)
+    pdc_build.write_topologies(system, protein_top, detergent, 120)
     # The structure the first leg is handed, and the assessment's own products, which the extension continues from.
     write_gro(system / 'system.gro', [(1, 'MOL', 'BB', (0.0, 0.0, 0.0))])
     prod = stage_dir(run, 'CG assessment MD') / 'prod'
     prod.mkdir(parents=True, exist_ok=True)
     for name in ('run.tpr', 'run.cpt'):
         (prod / name).write_text('; a placeholder, so the extension leg has a phase to continue from\n')
+    # The micelle assessment's own decision, which the extension reads and does not recompute.
+    assessment = stage_dir(run, 'Micelle assessment')
+    assessment.mkdir(parents=True, exist_ok=True)
+    (assessment / 'removed.json').write_text('{"removed": []}\n')
+    (assessment / 'kept.gro').write_text('system\n0\n   1.00000   1.00000   1.00000\n')
     return run
 
 
 def copy_declared(stage: Path, name: str) -> None:
-    """Run the copy prelude the adapter emitted into a leg's script, as the leg itself would run it.
+    """Copy the writable working copies a leg's script copies in: the phase-before `system.gro` and `system.top`.
 
-    Only the emitted copy commands are executed: this test is about whether the files a leg declares arrive in its
-    directory, not about running GROMACS.
+    Everything else is read where it lies. A directory is never copied: the protein tree is declared as the build
+    stage's directory and named by the topology, the Martini set is installed once, and the mdp/json records stay in
+    `inputs/`. This does the plain-file copy without running GROMACS.
     """
-    script = stage / Path(pdc.stage_by_name(name).relative).name
-    lines = [line for line in script.read_text().splitlines()
-             if not line.strip().startswith('#') and line.startswith(('cp ', 'mkdir '))]
-    assert lines, f'{name} copies nothing into its own directory'
-    subprocess.run(['bash', '-euc', '\n'.join(lines)], cwd=stage, check=True, capture_output=True, text=True)
+    copied = 0
+    for entry in pdc.stage_by_name(name).inputs:
+        entry = str(entry)
+        if not entry.startswith('../') or entry.startswith('../../') or entry.endswith('/'):
+            continue
+        if Path(entry).name not in ('system.gro', 'system.top'):
+            continue
+        source = stage / entry
+        assert source.is_file(), f'{name} declares {entry}, which the phase before it did not write'
+        shutil.copy2(source, stage / Path(entry).name)
+        copied += 1
+    assert copied, f'{name} copies nothing into its own directory'
 
 
 # --- the topology the stage writes ------------------------------------------------------------------------------
@@ -105,13 +134,15 @@ def test_every_molecule_the_tool_listed_is_included_from_where_the_tool_wrote_it
     run = prepared_run(tmp_path)
     system = stage_dir(run, 'System preparation')
     protein_top = martinize_output(system, TWO_MOLECULES)
-    (system / pdc.DETERGENT_TOPOLOGY).write_text(DETERGENT_ITP)
+    detergent = run / pdc.INPUTS_DIRECTORY / pdc.DETERGENT_TOPOLOGY
+    detergent.write_text(DETERGENT_ITP)
 
-    info = pdc_build.write_topologies(system, protein_top, system / pdc.DETERGENT_TOPOLOGY, 120)
+    info = pdc_build.write_topologies(system, protein_top, detergent, 120)
 
     whole = (system / 'system.top').read_text()
-    assert '#include "cg/molecule_0.itp"' in whole, 'the include names the file, not the stage root'
-    assert '#include "cg/molecule_1.itp"' in whole, 'the second molecule the tool listed is not left behind'
+    assert protein_includes(system / 'system.top') == [protein_include('molecule_0.itp'),
+                                                       protein_include('molecule_1.itp')], \
+        'every molecule the tool listed is included, from the build stage that holds it'
     assert 'martini.itp' not in whole, "the tool's own force field is not this system's"
     assert rows(system / 'system.top') == [('molecule_0', 1), ('molecule_1', 2), ('DDM', 120)], \
         'every row, with the counts the tool wrote'
@@ -127,19 +158,20 @@ def test_the_empty_topology_carries_the_same_molecules_and_the_itps_for_them(tmp
     pdc_build.write_topologies(system, protein_top, None, 0)
 
     empty = system / 'system_EMPTY.top'
-    assert protein_includes(empty) == ['cg/molecule_0.itp', 'cg/molecule_1.itp']
+    assert protein_includes(empty) == [protein_include('molecule_0.itp'), protein_include('molecule_1.itp')]
     assert rows(empty) == [('molecule_0', 1), ('molecule_1', 2)]
     for include in protein_includes(empty):
-        assert (system / include).is_file(), f'{empty.name} includes {include}, which the stage does not hold'
+        assert (system / include).is_file(), f'{empty.name} includes {include}, which the build stage does not hold'
 
 
 def test_a_protein_the_tool_built_as_one_molecule_still_writes_exactly_one_row(tmp_path):
     run = prepared_run(tmp_path)
     system = stage_dir(run, 'System preparation')
     protein_top = martinize_output(system, ONE_MOLECULE)
-    (system / pdc.DETERGENT_TOPOLOGY).write_text(DETERGENT_ITP)
+    detergent = run / pdc.INPUTS_DIRECTORY / pdc.DETERGENT_TOPOLOGY
+    detergent.write_text(DETERGENT_ITP)
 
-    pdc_build.write_topologies(system, protein_top, system / pdc.DETERGENT_TOPOLOGY, 24)
+    pdc_build.write_topologies(system, protein_top, detergent, 24)
 
     assert rows(system / 'system.top') == [('molecule_0', 1), ('DDM', 24)]
     assert rows(system / 'system_EMPTY.top') == [('molecule_0', 1)]
@@ -147,28 +179,34 @@ def test_a_protein_the_tool_built_as_one_molecule_still_writes_exactly_one_row(t
 
 # --- the legs' declared inputs -----------------------------------------------------------------------------------
 
-def test_each_leg_declares_the_protein_tree_as_a_directory_beside_its_topology():
-    """One entry, spelled as a directory: a list of itp names could not be right for one molecule and for two."""
+def test_each_leg_declares_the_build_stages_protein_tree_as_a_directory():
+    """One entry, spelled as a directory: the build stage's tree, the one location that holds it for the run.
+
+    A list of itp names could not be right for one molecule and for two, and a copy per leg would let two legs read
+    different bytes; so every leg names the same directory, wherever its own `system.top` came from.
+    """
     for name in LEGS_ON_A_TOPOLOGY:
         stage = pdc.stage_by_name(name)
         topologies = [entry for entry in stage.inputs if str(entry).endswith('system.top')]
         trees = [entry for entry in stage.inputs if str(entry).endswith('/')]
         assert len(topologies) == 1, f'{name} declares {topologies}'
         assert len(trees) == 1, f'{name} declares the protein tree as {trees}'
-        assert str(trees[0]) == f'{Path(str(topologies[0])).parent}/{pdc.PROTEIN_TOPOLOGY_DIRECTORY}/', \
-            f'{name} takes its protein itps from a directory other than its topology\'s'
+        assert str(trees[0]) == build_tree(), f'{name} reads the protein itps from somewhere other than the build'
 
 
 def test_every_leg_receives_everything_its_topology_includes(tmp_path):
-    """The chain, leg by leg: after the copies each leg holds each include of the `system.top` it will hand grompp.
+    """The chain, leg by leg: only the writable `system.gro`/`system.top` move forward, and each include resolves.
 
-    This is the shape the first run failed in -- a leg whose `system.top` included a file that was never put beside
-    it -- checked for two molecules over five legs. It also checks the contract's own input check before each copy:
-    an entry spelled as a directory has to satisfy it, or the executor refuses the stage before its script runs.
+    This is the shape the first run failed in -- a leg whose `system.top` included a file that was never beside it --
+    checked for two molecules over five legs. The protein tree, the generated detergent and the installed Martini set
+    are read where they lie, never copied into a leg, so each leg's own directory has to resolve them. It also
+    checks the contract's own input check before the copy: an entry spelled as a directory has to satisfy it, or the
+    executor refuses the stage before its script runs.
     """
     run = a_two_chain_system(tmp_path)
     system = stage_dir(run, 'System preparation')
-    assert protein_includes(system / 'system.top') == ['cg/molecule_0.itp', 'cg/molecule_1.itp'], \
+    assert protein_includes(system / 'system.top') == [protein_include('molecule_0.itp'),
+                                                       protein_include('molecule_1.itp')], \
         'the fixture has to be the failing case'
 
     for name in LEGS_ON_A_TOPOLOGY:
@@ -177,37 +215,38 @@ def test_every_leg_receives_everything_its_topology_includes(tmp_path):
         copy_declared(stage, name)
         for include in includes(stage / 'system.top'):
             assert (stage / include).is_file(), \
-                f'{name} runs grompp on a topology including {include}, which is not in its directory'
-        assert (stage / pdc.PROTEIN_TOPOLOGY_DIRECTORY / 'protein.top').is_file(), \
-            f'{name} carries the tree whole, including the topology that names its itps'
+                f'{name} runs grompp on a topology including {include}, which does not resolve from its directory'
+        assert (stage / protein_include('protein.top')).is_file(), \
+            f'{name} cannot reach the tree that names its protein itps'
 
 
-def test_the_extension_leg_reads_the_tree_from_the_phase_whose_topology_it_runs():
-    """The extension's `system.top` is the assessment phase's, so its itps have to come from there as well.
+def test_the_extension_leg_takes_its_topology_from_the_assessment_and_the_tree_from_the_build():
+    """The extension's `system.top` is the assessment phase's; the itps it includes stay in the build stage.
 
-    Copying them from `1_system` would work by luck -- both trees hold the same files today -- and would stop
-    working the day a stage edited one of them.
+    One location for the whole run: the build stage wrote the tree, and every leg -- the extension included -- names
+    it there. That is what lets a run carry the tree once rather than a copy per phase.
     """
     extension = pdc.stage_by_name('CG extension MD')
+    assessment = Path(pdc.stage_by_name('CG assessment MD').relative).parent
 
-    assert '../2_assessment/system.top' in extension.inputs
-    assert f'../2_assessment/{pdc.PROTEIN_TOPOLOGY_DIRECTORY}/' in extension.inputs
+    assert f'../{assessment}/system.top' in extension.inputs
+    assert build_tree() in extension.inputs
 
 
-def test_the_itps_a_leg_carries_are_recorded_as_its_inputs(tmp_path):
-    """The manifest's `inputs_sha256` is provenance, and a carried tree's files are what the stage was given."""
-    stage = tmp_path / '2_minimisation'
+def test_the_itps_a_leg_declares_are_recorded_as_its_inputs(tmp_path):
+    """The manifest's `inputs_sha256` is provenance, and a declared tree's files are what the stage was given."""
+    stage = tmp_path / '03_minimisation'
     stage.mkdir()
-    tree = tmp_path / '1_system' / pdc.PROTEIN_TOPOLOGY_DIRECTORY
+    tree = tmp_path / '02_system' / pdc.PROTEIN_TOPOLOGY_DIRECTORY
     tree.mkdir(parents=True)
     for name in ('molecule_0.itp', 'molecule_1.itp', 'protein.top'):
         (tree / name).write_text(f'; {name}\n')
-    (tmp_path / '1_system' / 'system.top').write_text('[ molecules ]\n')
+    (tmp_path / '02_system' / 'system.top').write_text('[ molecules ]\n')
 
     carried = {str(path.relative_to(stage))
-               for path in workflow._declared_paths(stage, f'../1_system/{pdc.PROTEIN_TOPOLOGY_DIRECTORY}/')}
+               for path in workflow._declared_paths(stage, f'../02_system/{pdc.PROTEIN_TOPOLOGY_DIRECTORY}/')}
 
-    assert carried == {'../1_system/cg/molecule_0.itp', '../1_system/cg/molecule_1.itp',
-                       '../1_system/cg/protein.top'}
-    assert [path.name for path in workflow._declared_paths(stage, '../1_system/system.top')] == ['system.top'], \
+    assert carried == {'../02_system/cg/molecule_0.itp', '../02_system/cg/molecule_1.itp',
+                       '../02_system/cg/protein.top'}
+    assert [path.name for path in workflow._declared_paths(stage, '../02_system/system.top')] == ['system.top'], \
         'a file input is still one file, not its directory'

@@ -17,6 +17,9 @@ class Stage:
     relative: str
     inputs: tuple[str, ...] = ()
     outputs: tuple[str, ...] = ()
+    #: The repository script the stage runs, when it is not the file at `relative`. A run records this path and its
+    #: digest; the stage's own directory stays the working directory.
+    script: str | None = None
 
     def resolve(self, context: Mapping[str, str] | None = None) -> "Stage":
         """Return this declaration with run-specific placeholders resolved."""
@@ -26,6 +29,7 @@ class Stage:
             relative=self.relative.format_map(values),
             inputs=tuple(value.format_map(values) for value in self.inputs),
             outputs=tuple(value.format_map(values) for value in self.outputs),
+            script=self.script.format_map(values) if self.script else None,
         )
 
 

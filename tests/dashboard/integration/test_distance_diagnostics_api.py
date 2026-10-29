@@ -20,9 +20,9 @@ def seed(dashboard, jid, written):
     job = {'id': jid, 'label': 'Diagnostics run', 'detergent': 'DDM', 'method': 'fast_forward',
            'status': 'completed', 'stage': 'complete', 'created': dashboard.coordinator.now()}
     dashboard.coordinator.database().replace([job])
-    # Where the route looks, asked rather than assumed: execution_root() decides between a run's own
-    # directory and its stages/ directory.
-    assessment = workflow.execution_root(runs / jid) / '5_assessment'; assessment.mkdir(parents=True)
+    # Where the route looks, asked rather than assumed: a run's stage directories live under its `stages/`.
+    (runs / jid / 'stages').mkdir(parents=True, exist_ok=True)
+    assessment = workflow.stage_root(runs / jid) / '5_assessment'; assessment.mkdir(parents=True)
     for name, payload in written.items():
         (assessment / name).write_text(json.dumps(payload))
     return job

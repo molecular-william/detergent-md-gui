@@ -1,4 +1,4 @@
-/* The Run view panel: one run, its structures, its frames and its figures.
+/* The Run view panel: a run's structures, its CG chain segments, and its figures.
  *
  * Linked after the other per-panel sheets and *before* `layout.css`, which is deliberate. This sheet states the
  * panel's own two-column grid -- the same shape `new-run.css` states for `#run-form.new-run-layout` -- and
@@ -6,26 +6,11 @@
  * later rule wins, so the measure is last on purpose and this sheet's `grid-template-columns` yields to it.
  * Reversing the two stacks the columns; the plan's draft measured exactly that.
  *
- * Two rules in here are normalisation rather than style, and both were measured while building the draft:
- *
- *   1. `dashboard.css` sets `label{margin:12px 0;font-weight:600}`, `input{padding:9px}` and
- *      `label>input:not([type=checkbox]){display:block;width:100%;margin-top:5px}`. Un-normalised, the transport
- *      row's label carries a 12 px top *and* bottom margin, which sets the flex line's cross size to 60 px while
- *      the controls are 29-36 px -- a "row" 24 px taller than anything in it, with the buttons 4 px off the
- *      label's top. The `margin:0; width:auto; padding:0` below is the same normalisation `new-run.css` and
- *      `mappings.css` already carry.
- *   2. `dashboard.css` paints `button{background:var(--accent); color:white}`, so every pill this sheet repaints
- *      white must state its own `color`. Without it the run ids and the frame labels are white on white --
- *      invisible on screen and in a still.
+ * `overflow-wrap: anywhere` is inherited, and it is here because everything this panel prints is a path or a
+ * sentence about one: a run-relative artifact path and the readout's own "how the bonds were decided" reason are
+ * longer than a narrow column, and an unbreakable word in a paragraph measures as sideways scroll at a 390 px window.
  */
 
-/* The panel's own two-column grid. `layout.css` overrides it with the twelve-column measure; this rule is what
- * makes the panel a grid before that sheet is reached, and what the head-order check in the plan turns on.
- *
- * `overflow-wrap: anywhere` is inherited, and it is here because everything this panel prints is a path or a
- * sentence about one: a run-relative artifact path (`analyses/snapshots/<signature>/<attempt>/output/<hash>/
- * snapshots/AA-frames.pdb`) and the readout's own "how the bonds were decided" reason are longer than a narrow
- * column, and an unbreakable word in a paragraph is what measured 97 px of sideways scroll at a 390 px window. */
 /* The chooser. A list of buttons rather than a select: the run's id, its label, its molecule and its type are all
  * worth reading at once, and a select shows one line of them. */
 /* What the run holds. Rows are selectable so the canvas follows the reader's pick. */
@@ -38,57 +23,6 @@
 
 .run-view-viewer { height: 420px; min-height: 300px; border: 1px solid var(--line); border-radius: 8px; background: #f7f9fc }
 
-/* D11 -- two play buttons and the frame slider, one line, directly under the canvas. `flex-wrap: nowrap` is the
- * whole point of the rule: the row must not fold into two lines at any width this panel is read at. */
-.run-view-transport { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 0 }
-.run-view-transport button { padding: 2px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff;
-  color: var(--ink); cursor: pointer; font: inherit; line-height: 1.5; min-width: 36px }
-.run-view-transport button[aria-pressed="true"] { background: #1b4b8f; border-color: #1b4b8f; color: #fff }
-.run-view-transport button:disabled { cursor: not-allowed; color: var(--muted); background: #f3f4f6; border-color: var(--line) }
-/* The shared label/input rules bite a label-plus-input row, and the row has to normalise them (see the header). */
-/* D11's three controls, as one flex item of the row: the row wraps between *this* group and the generate group,
-   which is what lets the two of them share a line at 1600 px and stack at 390 px without ever folding the
-   play buttons off the slider's line. Its own `min-width: 0` lets the slider give up width rather than wrap. */
-.run-view-transport .transport-controls { display: flex; align-items: center; flex-wrap: nowrap; gap: 8px;
-  flex: 1 1 auto; min-width: 0 }
-.run-view-transport .transport-frame { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0;
-  margin: 0; font-size: 12px; font-weight: 400; color: var(--muted) }
-.run-view-transport input[type="range"] { flex: 1 1 auto; min-width: 80px; width: auto; margin: 0; padding: 0 }
-.run-view-transport .transport-frame-readout { font-variant-numeric: tabular-nums; white-space: nowrap }
-/* D18: the generate control closes the row, on the right of the slider. It is the only control here that is not a
-   transport, so it is separated by the gap and never grows: the slider keeps the row's spare width. */
-/* D19: the reader's addition to D11 -- the button and the cadence field it uses, as one group at the row's right,
-   the field after the button. The group is `0 0 auto` and never splits, so the row's own wrap moves all of it to a
-   second line rather than folding the three transport controls, and the field is wide enough to read "0.01" and
-   "1000" without clipping the spinner. */
-/* The group shrinks and wraps inside itself before the row moves it: a control that cannot give up width pushes the
-   page sideways at 390 px, which is what a fourth element in this group did. Right-aligned as it wraps, so the row's
-   own right edge stays the edge the controls are read from. */
-.run-view-transport .transport-generate-group { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end;
-  gap: 8px; flex: 0 1 auto; min-width: 0 }
-.run-view-transport .transport-generate { flex: 0 0 auto; white-space: nowrap }
-.run-view-transport .transport-generate:disabled { cursor: not-allowed; color: var(--muted); background: #f3f4f6 }
-.run-view-transport .transport-interval { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; margin: 0;
-  font-size: 12px; font-weight: 400; color: var(--muted); white-space: nowrap }
-.run-view-transport .transport-interval input[type="number"] { width: 12ch; margin: 0; padding: 2px 4px;
-  font: inherit; color: var(--ink) }
-.run-view-transport .transport-interval input[type="checkbox"] { margin: 0 }
-.run-view-transport .transport-interval select { max-width: 11ch; margin: 0; padding: 2px 4px; font: inherit;
-  color: var(--ink) }
-
-/* D19: the prompt that asks before a published series is replaced. Built in `run-view.js` rather than in the
-   template, the way the mapping editor's own prompt is, so the numbers it names come from the record it read. */
-.run-view-dialog { border: 1px solid var(--line); border-radius: 8px; padding: 16px; max-width: 52ch; color: var(--ink) }
-.run-view-dialog h3 { margin: 0 0 8px; font-size: 15px }
-.run-view-dialog p { margin: 0 0 12px; font-size: 13px; line-height: 1.5 }
-.run-view-dialog .toolbar { display: flex; gap: 8px; justify-content: flex-end }
-
-.run-view-frames { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px }
-.run-view-frames button { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: #fff;
-  color: var(--ink); cursor: pointer; font: inherit }
-.run-view-frames button[aria-pressed="true"] { background: #1b4b8f; border-color: #1b4b8f; color: #fff }
-.run-view-frames button:disabled { cursor: not-allowed; color: var(--muted); background: #f3f4f6 }
-
 .run-view-readout { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px;
   margin: 12px 0 0; padding: 10px; background: #f7f9fc; border: 1px solid var(--line); border-radius: 8px;
   font-size: 12px; font-variant-numeric: tabular-nums }
@@ -96,20 +30,19 @@
 .run-view-readout .bad { color: var(--danger) }
 .run-view-readout .ok { color: #286644 }
 
-.run-view-figures { margin: 8px 0 0; padding-left: 20px; font-size: 13px; overflow-wrap: anywhere }
-.run-view-figures li { margin: 4px 0 }
+.run-view-figures { list-style: none; margin: 0; padding: 0; font-size: 13px; overflow-wrap: anywhere }
+.run-view-figures li { margin: 4px 0; padding: 2px 0 }
 
 
 /* ------------------------------------------------------------------ two monitors
    The Run view is two of the same thing side by side. Every monitor's own markup is built in
    `run-view-monitor.js`, so what is here styles the pair and the shape they share: the combo that picks a run, the
-   canvas with its transport and readout, and the three collapsible panels below it. */
+   canvas with its readout, and the three collapsible panels below it. */
 .run-view-monitors { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; margin-top: 14px; }
 @media (max-width: 1080px) { .run-view-monitors { grid-template-columns: 1fr; } }
 .monitor-host { min-width: 0; }
 .monitor { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .monitor .card { padding: 12px; }
-.monitor-label { margin: 0 0 8px; font-weight: 700; color: var(--ink); }
 
 /* The combo: an input with its own filtered listbox, so the list can carry a type, an id and a date. The input is
    the width of the monitor rather than the width of its own label -- it is the control a reader uses most. */
@@ -137,9 +70,6 @@
 .run-view-sub .count { color: var(--muted); font-weight: 400; }
 .run-view-sub table { width: 100%; }
 .run-view-sub td, .run-view-sub th { text-align: left; vertical-align: top; padding: 3px 6px; }
-.run-view-figures { list-style: none; margin: 0; padding: 0; }
-.run-view-figures li { padding: 2px 0; }
-.run-view-generate { flex-wrap: wrap; gap: 10px; }
 
 /* A path is the longest word on this page, and a panel that will not break one scrolls the whole document sideways
    at 390 px -- which is the width the row is measured at. */
@@ -150,9 +80,9 @@
    paragraph widens the document, which is what a 390 px check catches and nothing else does. */
 .monitor p, .monitor td, .monitor summary, .monitor label, .monitor .hint { overflow-wrap: anywhere }
 
-/* The CG chain as segments, inside the frames sub-panel: which legs share one system, and where the system is
- * rebuilt. Two states are drawn because a reader must not have to infer them -- a stage that holds no trajectory
- * (nothing to play) and the stage whose atom count changed (the boundary a player switches files at). */
+/* The CG chain as segments: which legs share one system, and where the system is rebuilt. Two states are drawn
+ * because a reader must not have to infer them -- a stage that holds no trajectory (nothing to play) and the stage
+ * whose atom count changed (the boundary where the system is rebuilt). */
 .run-view-segments{width:100%;border-collapse:collapse;font-size:12px}
 .run-view-segments th,.run-view-segments td{text-align:left;padding:4px 8px 4px 0;border-bottom:1px solid var(--line);vertical-align:top}
 .run-view-segments thead th{font-weight:600;color:var(--muted);border-bottom-width:2px}

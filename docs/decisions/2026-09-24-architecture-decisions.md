@@ -1,6 +1,6 @@
 # Architecture decisions: what was considered and rejected
 
-Companion to `docs/superpowers/plans/2026-09-24-architecture-consolidation.md` (Tasks 8.4 and
+Companion to `docs/plans/2026-09-24-architecture-consolidation.md` (Tasks 8.4 and
 8.2). Each entry is a change that was proposed, examined and deliberately not made, with the
 reason a future reviewer would otherwise have to rediscover — including the ones examined during
 the consolidation itself and the ones re-confirmed while paying down lint findings.

@@ -35,32 +35,34 @@ def test_no_script_a_pdc_stage_names_is_named_by_another_workflow():
     assert shared == [], f'these scripts belong to another workflow as well: {shared}'
 
 
-def test_every_pdc_stage_script_that_is_a_file_carries_the_workflows_own_name():
-    generated = {Path(relative).name for relative in pdc.GENERATED_STAGES}
+def test_every_pdc_stage_script_is_a_repository_file_of_this_workflow():
+    """A stage runs a file under `dashboard/execution/scripts/`, recorded by path and digest -- never a copy.
 
+    The three equilibration legs share one script body, because they are the same commands with the run's own
+    numbers; every other stage has its own. Nothing is generated at prepare time any more, so this is the whole
+    table: ten stages, one directory each, a `pdc_`-named repository script for each.
+    """
+    assert len({stage.relative for stage in pdc.STAGES}) == len(pdc.STAGES), 'one directory per stage'
     for stage in pdc.STAGES:
-        name = Path(stage.relative).name
-        if name in generated:
-            continue
-        assert name.startswith('pdc_'), f'{stage.name} runs {name}, which is not this workflow\'s own script'
-        assert (SCRIPTS / name).is_file(), f'{stage.name} names {name} and there is no such script'
+        script = Path(stage.script)
+        assert script.parent.as_posix() == 'dashboard/execution/scripts', stage.script
+        assert script.name.startswith('pdc_'), f'{stage.name} runs {script.name}, which is not this workflow\'s own'
+        assert (SCRIPTS / script.name).is_file(), f'{stage.name} names {script.name} and there is no such script'
 
 
-def test_the_scripts_the_workflow_used_to_run_under_another_halves_naming_are_gone():
-    """A file named for the CG half's convention, left in the shared directory and run by nothing, is the trap: a
-    change made "for CG" that quietly moves a pdc run. Each of the three became a `pdc_`-prefixed script."""
-    for name in ('assessment.sh', 'extension.sh', 'backmap.sh'):
-        assert not (SCRIPTS / name).is_file(), f'{name} is still there, and no stage runs it'
+def test_the_legs_share_one_script_and_no_stage_reaches_another_workflows_file():
+    shared = {stage.script for stage in pdc.STAGES}
+
+    assert pdc.stage_by_name('Energy minimisation').script == pdc.stage_by_name('NVT equilibration').script
+    assert pdc.stage_by_name('NVT equilibration').script == pdc.stage_by_name('NPT equilibration').script
+    other = other_workflows_scripts()
+    assert not (shared & other), f'pdc runs a script another workflow owns: {sorted(shared & other)}'
+    assert not any(Path(stage.relative).name in other for stage in pdc.STAGES)
 
 
-def test_the_generated_stage_scripts_are_the_one_place_a_stage_is_written_rather_than_copied():
-    """Stage 1's script has to carry the interpreter the run was prepared with, and the legs are the same three
-    commands with the run's own numbers in them. Everything else is a file, and this pins which is which."""
-    generated = {relative for relative in pdc.GENERATED_STAGES}
-
-    assert generated <= {stage.relative for stage in pdc.STAGES}
-    for relative in pdc.STAGES:
-        if relative.relative in generated:
-            assert relative.relative not in pdc._STAGE_SOURCES, f'{relative.name} is generated, not copied'
-        else:
-            assert pdc._STAGE_SOURCES[relative.relative] == Path(relative.relative).name
+def test_no_stage_is_generated_at_prepare_time():
+    """The scripts live in one place; there is no per-run text and no copy inside a run."""
+    assert not hasattr(pdc, 'GENERATED_STAGES')
+    assert not hasattr(pdc, '_STAGE_SOURCES')
+    assert not hasattr(pdc, '_stamp_interpreter')
+    assert not hasattr(pdc, '_stage_declared_inputs')

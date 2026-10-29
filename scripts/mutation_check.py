@@ -53,7 +53,8 @@ def run_selection(selection: str, timeout: float):
     """(verdict, seconds, last line of output) for one test selection."""
     started = time.monotonic()
     try:
-        done = subprocess.run([str(INTERPRETER), '-m', 'pytest', selection, '-q'],
+        done = subprocess.run([str(INTERPRETER), '-m', 'pytest', selection, '-q', '-n', '0',
+                               '-p', 'no:cacheprovider'],
                               cwd=ROOT, capture_output=True, text=True, timeout=timeout, check=False)
     except subprocess.TimeoutExpired:
         return 'error', time.monotonic() - started, f'timed out after {timeout:.0f}s'

@@ -73,11 +73,11 @@ def build_run(tmp_path, *, mapping=True) -> Path:
     """A run directory and a project root shaped like the repository's."""
     root = tmp_path / 'repo'
     run = root / 'workspace/dashboard/runs/abc123'
-    stage = run / '6_backmap'
-    (run / '1_system').mkdir(parents=True)
-    (run / '4_extension/prod').mkdir(parents=True)
+    stage = run / 'stages/10_backmap'
+    (run / 'inputs').mkdir(parents=True)
+    (run / 'stages/08_extension/prod').mkdir(parents=True)
     stage.mkdir()
-    (run / '4_extension/prod/run.gro').write_text(GRO)
+    (run / 'stages/08_extension/prod/run.gro').write_text(GRO)
 
     molecule = root / 'molecules/DDM'
     (molecule / 'results/MMFF').mkdir(parents=True)
@@ -86,7 +86,7 @@ def build_run(tmp_path, *, mapping=True) -> Path:
 
     mapping_path = tmp_path / 'mapping.json'
     mapping_path.write_text(json.dumps(MAPPING))
-    (run / '1_system/pdc-settings.json').write_text(json.dumps({
+    (run / 'inputs/pdc-settings.json').write_text(json.dumps({
         'detergent_model': {'mapping': str(mapping_path) if mapping else '', 'residue': 'DDM'}, 'backmap': True}))
 
     library = root / 'tools/cg2at/database/fragments/martini_3-0_charmm36'
@@ -102,11 +102,15 @@ def build_run(tmp_path, *, mapping=True) -> Path:
     return run
 
 
+def backmap_stage(run: Path) -> Path:
+    return run / 'stages/10_backmap'
+
+
 def test_the_fragment_lands_inside_a_mirrored_library(tmp_path):
     """`-fg` takes a path, and the tool reads `<parent>/<name>/non_protein/...`, so the mirror keeps the library's name."""
     run = build_run(tmp_path)
 
-    record = pdc_backmap.stage_inputs(run / '6_backmap', tmp_path / 'repo')
+    record = pdc_backmap.stage_inputs(backmap_stage(run), tmp_path / 'repo')
 
     library = Path(record['library'])
     assert library.name == 'martini_3-0_charmm36'
@@ -119,7 +123,7 @@ def test_the_fragment_lands_inside_a_mirrored_library(tmp_path):
 def test_the_force_field_the_tool_is_given_carries_the_molecules_types(tmp_path):
     run = build_run(tmp_path)
 
-    record = pdc_backmap.stage_inputs(run / '6_backmap', tmp_path / 'repo')
+    record = pdc_backmap.stage_inputs(backmap_stage(run), tmp_path / 'repo')
 
     written = (Path(record['force_field']) / 'ffnonbonded.itp').read_text()
     types, pairs = written.split('[ pairtypes ]')
@@ -131,7 +135,7 @@ def test_the_structure_handed_over_is_a_gro_with_readable_bead_names(tmp_path):
     """The tool rewrites its input to PDB; a five-character bead name does not survive that, a gro's does."""
     run = build_run(tmp_path)
 
-    record = pdc_backmap.stage_inputs(run / '6_backmap', tmp_path / 'repo')
+    record = pdc_backmap.stage_inputs(backmap_stage(run), tmp_path / 'repo')
 
     structure = Path(record['structure'])
     assert structure.suffix == '.gro'
@@ -145,12 +149,12 @@ def test_the_structure_handed_over_is_a_gro_with_readable_bead_names(tmp_path):
 def test_the_record_says_what_was_built_and_from_what(tmp_path):
     run = build_run(tmp_path)
 
-    record = pdc_backmap.stage_inputs(run / '6_backmap', tmp_path / 'repo')
+    record = pdc_backmap.stage_inputs(backmap_stage(run), tmp_path / 'repo')
 
     assert record['residue'] == 'DDM' and record['atoms'] == 7
     assert record['mapping_sha256'] and record['fragment']['DDM.pdb']
     assert record['box_nm'] == ['8.00000', '8.00000', '8.00000']
-    written = json.loads((run / '6_backmap/pdc_backmap.json'.replace('pdc_backmap', 'backmap_inputs')).read_text())
+    written = json.loads((backmap_stage(run) / pdc_backmap.OUTPUT_NAME).read_text())
     assert written['library'] == record['library'], 'the file the stage reads is the record this call returned'
 
 
@@ -158,7 +162,7 @@ def test_a_run_with_no_mapping_refuses_rather_than_dropping_the_detergent(tmp_pa
     run = build_run(tmp_path, mapping=False)
 
     with pytest.raises(SystemExit, match='no mapping'):
-        pdc_backmap.stage_inputs(run / '6_backmap', tmp_path / 'repo')
+        pdc_backmap.stage_inputs(backmap_stage(run), tmp_path / 'repo')
 
 
 def test_a_molecule_without_its_own_topology_is_refused_by_name(tmp_path):
@@ -166,4 +170,4 @@ def test_a_molecule_without_its_own_topology_is_refused_by_name(tmp_path):
     (tmp_path / 'repo/molecules/DDM/results/MMFF/lig1.itp').unlink()
 
     with pytest.raises(SystemExit, match='lig1.itp'):
-        pdc_backmap.stage_inputs(run / '6_backmap', tmp_path / 'repo')
+        pdc_backmap.stage_inputs(backmap_stage(run), tmp_path / 'repo')

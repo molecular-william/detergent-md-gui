@@ -28,6 +28,13 @@ def test_the_heuristic_report_is_unchanged_apart_from_the_new_field():
     assert report.span == (-1.0, 1.0) and report.origin == (0.0, 0.0, 0.0)
 
 
+def test_opm_metadata_outranks_an_explicit_axis_and_normalises_its_direction():
+    """A measured statement beats an asserted one, and a direction stated as a vector is normalised before use."""
+    report = infer_orientation(PROTEIN, opm={'axis': (0, 0, 2)}, explicit_axis=(1, 0, 0))
+    assert report.method == 'opm'
+    assert report.axis == (0.0, 0.0, 1.0)
+
+
 def test_an_explicit_axis_still_carries_its_own_span():
     report = infer_orientation(PROTEIN, explicit_axis=(0, 0, 1), explicit_span=(-0.5, 0.5))
     assert report.method == 'explicit' and report.confidence == 0.9

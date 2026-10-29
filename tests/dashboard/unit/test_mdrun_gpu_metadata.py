@@ -88,7 +88,8 @@ def test_each_stage_records_the_device_and_what_was_on_it(tmp_path, monkeypatch)
                  stop_after=aa.STAGES[0][0])
     stage = json.loads((tmp_path / 'manifest.json').read_text())['stages'][0]
     assert stage['resource_usage']['gpu'] == {'index': 1, 'name': 'NVIDIA A100-SXM4-40GB',
-                                             'uuid': 'GPU-bbbb', 'compute_processes': 2}
+                                             'uuid': 'GPU-bbbb', 'bus_id': None, 'nvml_index': None,
+                                             'compute_processes': 2}
     # The flags the stage actually ran with name the same device, and both brackets come from the one builder.
     assert '-gpu_id 1 ' in stage['environment']['MDRUN_FLAGS'] + ' '
     assert '-gpu_id 1 ' in stage['environment']['MDRUN_FLAGS_PME'] + ' '

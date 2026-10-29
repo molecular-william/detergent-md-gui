@@ -120,6 +120,7 @@ def test_something_outside_is_deleted_and_the_phase_restarts(tmp_path, monkeypat
 
     restart = (stage / pdc_extension.RESTART_MDP).read_text()
     assert 'gen-vel = yes' in restart and 'gen-seed = 20260931' in restart, 'a retry changes only the velocities'
+    assert 'nsteps = 45000000' in restart, 'the rebuilt extension must run the requested 900 ns at dt 0.02'
     assert not any('convert-tpr' in command for command in fake.commands), 'a deletion cannot continue a checkpoint'
     mdrun = [command for command in fake.commands if 'mdrun' in command]
     assert mdrun[-1][mdrun[-1].index('-deffnm') + 1] == 'prod/run'
@@ -158,23 +159,20 @@ def test_the_removal_reduces_the_detergent_row_and_leaves_the_solvent_alone():
 def test_the_extension_stage_can_re_solvate_after_a_removal(tmp_path):
     """The removal path rebuilds the system, and solvation runs `ions.mdp`: without it the stage dies at grompp.
 
-    The stage writes that mdp itself now. It used to borrow the assessment phase's copy, which was there because
-    that phase solvated -- work the three equilibration legs do, so the phase it borrowed from is production only
-    and carries no solvation input at all.
+    That mdp and the water are generated data now, written into the run's `inputs/` when either the first leg or the
+    extension will run, and copied into the stage by the shared script that uses them.
     """
-    from dashboard.execution.adapters import pdc
+    from tests.dashboard.pdc_fixtures import inputs_dir, prepared_run
 
-    phase = tmp_path / Path(pdc.stage_by_name('CG assessment MD').relative).parent
-    phase.mkdir(parents=True, exist_ok=True)
-    (phase / 'assessment.mdp').write_text('; the assessment phase mdp\n')
+    inputs = inputs_dir(prepared_run(tmp_path))
 
-    pdc._extension_stage(tmp_path, {'extension_ns': 2.0})
-
-    stage = tmp_path / Path(pdc.stage_by_name('CG extension MD').relative).parent
-    for name in ('extension.mdp', 'minimization.mdp', 'equilibration.mdp', 'ions.mdp', 'inputs/water.gro',
-                 'pdc_solvate.py'):
-        assert (stage / name).is_file(), name
-    assert (stage / 'ions.mdp').read_text() == pdc.IONS_MDP, 'the stage writes the fix-up mdp it runs'
+    for name in ('extension.mdp', 'minimization.mdp', 'equilibration.mdp', 'ions.mdp', 'water.gro'):
+        assert (inputs / name).is_file(), name
+    # Each is written from its reviewed profile, which the run's own record names: the fix-up mdp `genion` is fitted
+    # to is `pdc-ions-v1`.
+    assert (inputs / 'ions.mdp').read_text().startswith('; pdc-ions-v1: reviewed physics profile')
+    profiles = json.loads((inputs.parent / 'manifest.json').read_text())['mdp_profiles']
+    assert profiles['ions.mdp'] == 'pdc-ions-v1'
 
 
 def test_the_restart_topology_is_dry_because_the_restart_solvates_again():
@@ -238,3 +236,11 @@ def test_the_restart_says_it_is_not_a_continuation():
     assert 'continuation = no' in written, written
     assert 'continuation = yes' not in written and written.count('continuation') == 1, written
     assert 'gen-vel = yes' in written and written.count('gen-seed') == 1, written
+
+
+def test_the_helper_does_not_decide_a_settings_driven_skip():
+    """A run with removal off has no extension stage at all, so the helper has no skip branch to keep."""
+    source = Path(pdc_extension.__file__).read_text()
+
+    assert "remove_out_of_micelle" not in source
+    assert "skip.json" not in source

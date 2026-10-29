@@ -277,3 +277,144 @@ def test_the_type_column_decides_the_family_on_the_runs_own_moleculetype(tmp_pat
     expected = [pdc_view.bead_family(DDM_TYPES[DDM_CLASSES[name]]) for name in list(DDM_BEADS) * 2]
     assert families == [pdc_view.BEAD_FAMILIES.index(family) for family in expected]
     assert set(expected) == {'P', 'C'}, 'the fixture must state two families for this test to say anything'
+
+
+#: One protein chain's two beads, in the order martinize2 writes `[ atoms ]`: the backbone then a side-chain bead.
+PROTEIN_BEADS = ('BB', 'SC1')
+
+
+def _protein_moleculetype(name):
+    """A Martini protein chain's moleculetype: two beads and the bond that holds them."""
+    atoms = '\n'.join(f'{index} {"Q5" if bead == "BB" else "TC4"} 1 PRO {bead} {index} 1'
+                      for index, bead in enumerate(PROTEIN_BEADS, 1))
+    return f'[ moleculetype ]\n{name} 1\n\n[ atoms ]\n{atoms}\n\n[ bonds ]\n1 2 1 0.35 4000\n'
+
+
+def _protein_chain(residue_id):
+    """One protein chain's two `.gro` beads, in `_system_gro`'s `(residue_id, residue, bead, xyz)` shape."""
+    return [(residue_id, 'PRO', name, (residue_id * 2.0 + index * 0.3, 0.0, 0.0))
+            for index, name in enumerate(PROTEIN_BEADS)]
+
+
+def test_protein_chains_are_bonded_from_their_own_moleculetypes_beside_the_detergent(tmp_path):
+    """The leading protein beads were drawn with no bonds: their chains' moleculetypes state them.
+
+    Two `molecule_*.itp` files, one per chain, each bonded once; the detergent keeps its own CONECT. A protein
+    topology is never applied to the detergent or to a neighbouring chain: each block is checked against its own
+    `[ atoms ]` and gets its own serial offset.
+    """
+    (tmp_path / 'detergent_CG.itp').write_text(ddm_moleculetype())
+    detergent = pdc_view.read_moleculetype(tmp_path / 'detergent_CG.itp')
+    first = pdc_view.read_moleculetype_text(_protein_moleculetype('molecule_0'), source='molecule_0.itp')
+    second = pdc_view.read_moleculetype_text(_protein_moleculetype('molecule_1'), source='molecule_1.itp')
+    atoms = pdc_view.read_gro(_system_gro(tmp_path, _protein_chain(1) + _protein_chain(2)
+                                         + _detergent_beads(molecules=1)))
+
+    text = pdc_view.system_pdb(atoms, topology=detergent, protein_topologies=[first, second])
+    conect = [line for line in text.splitlines() if line.startswith('CONECT')]
+
+    assert 'CONECT    1    2' in conect and 'CONECT    3    4' in conect, 'each protein chain lost its bond'
+    assert 'CONECT    5    6' in conect, 'the detergent lost its own bond beside the protein'
+    assert len(conect) == 2 + len(DDM_BONDS) + len(DDM_CONSTRAINTS), \
+        f'the file carries {len(conect)} CONECT records for two protein and one detergent molecule'
+    assert "PROTEIN BONDS ARE THE MODEL'S OWN, NOT GUESSED" in text
+
+
+def test_a_protein_chain_whose_names_are_not_its_moleculetypes_is_left_unbonded_with_a_remark(tmp_path):
+    (tmp_path / 'detergent_CG.itp').write_text(ddm_moleculetype())
+    detergent = pdc_view.read_moleculetype(tmp_path / 'detergent_CG.itp')
+    protein = pdc_view.read_moleculetype_text(_protein_moleculetype('molecule_0'), source='molecule_0.itp')
+    # The second leading bead is not the name the moleculetype declares, so this is not that molecule.
+    atoms = pdc_view.read_gro(_system_gro(tmp_path, [(1, 'PRO', 'BB', (0.0, 0.0, 0.0)),
+                                                     (1, 'PRO', 'ZZZ', (0.3, 0.0, 0.0))]
+                                         + _detergent_beads(molecules=1)))
+
+    text = pdc_view.system_pdb(atoms, topology=detergent, protein_topologies=[protein])
+    conect = [line for line in text.splitlines() if line.startswith('CONECT')]
+
+    assert 'CONECT    1    2' not in conect, 'a bond drawn between beads the topology does not name is invented'
+    assert 'CONECT    3    4' in conect, 'the detergent still carries its own bonds'
+    assert 'NO BONDS RECORDED FOR 1 OF 1 PROTEIN MOLECULES' in text
+
+
+def test_read_protein_topologies_takes_the_sorted_cg_directory_in_both_spellings(tmp_path):
+    """The run keeps them under `1_system/cg/`; a staged analysis work directory keeps the same files at its root."""
+    cg = tmp_path / '1_system/cg'
+    cg.mkdir(parents=True)
+    (cg / 'molecule_1.itp').write_text(_protein_moleculetype('molecule_1'))
+    (cg / 'molecule_0.itp').write_text(_protein_moleculetype('molecule_0'))
+
+    assert [topology['path'].split('/')[-1] for topology in pdc_view.read_protein_topologies(tmp_path)] == \
+        ['molecule_0.itp', 'molecule_1.itp']
+
+    staged = tmp_path / 'work'
+    (staged / 'stages/1_system/cg').mkdir(parents=True)
+    (staged / 'stages/1_system/cg/molecule_0.itp').write_text(_protein_moleculetype('molecule_0'))
+    assert len(pdc_view.read_protein_topologies(staged)) == 1
+
+
+def test_a_run_without_a_protein_chain_states_no_protein_topology(tmp_path):
+    assert pdc_view.read_protein_topologies(tmp_path) == []
+
+
+def test_the_moleculetype_reader_obeys_its_preprocessor_branches():
+    """martinize2 writes alternative bond families under `#ifdef FLEXIBLE` / `#ifndef FLEXIBLE`.
+
+    This run defines no `FLEXIBLE`, so the `#ifndef` branch is the topology grompp read. A reader that strips the
+    `#` lines draws both alternatives and reports bonds the simulation never had -- measured on `00b9ae6db23f`:
+    3,569 protein bonds instead of the active 3,230.
+    """
+    text = ('[ moleculetype ]\nPRO 1\n\n[ atoms ]\n'
+            '1 BB 1 PRO BB 1 0 72\n2 SC1 1 PRO SC1 2 0 54\n3 SC2 1 PRO SC2 3 0 54\n\n'
+            '[ bonds ]\n1 2 1 0.30 1250\n'
+            '#ifdef FLEXIBLE\n2 3 1 0.30 1000000\n#endif\n'
+            '#ifndef FLEXIBLE\n1 3 1 0.30 1250\n#endif\n')
+
+    active = pdc_view.read_moleculetype_text(text)
+    flexible = pdc_view.read_moleculetype_text(text, defines=('FLEXIBLE',))
+
+    assert active['bonds'] == [(1, 2), (1, 3)]
+    assert flexible['bonds'] == [(1, 2), (2, 3)]
+
+
+def test_the_elastic_network_is_not_drawn_as_chemical_connectivity():
+    """martinize2's `-elastic` BB-BB pairs are restraints, not bonds a molecule has.
+
+    Measured on `00b9ae6db23f`: 2,076 of the 2,935 active protein bond lines are 1,000-force BB-BB elastic pairs;
+    one backbone bead reaches degree 26. Drawing them made the protein look far more connected than Martini
+    chemistry says. They are recorded separately and named in a REMARK, while the 4,000-force backbone bond remains.
+    """
+    text = ('[ moleculetype ]\nPRO 1\n\n[ atoms ]\n'
+            '1 Q5 1 PRO BB 1 0 72\n2 Q5 1 PRO BB 2 0 72\n3 TC4 1 PRO SC1 3 0 54\n\n'
+            '[ bonds ]\n1 2 1 0.35 4000\n1 3 1 0.30 1250\n1 2 1 0.90 1000\n')
+    topology = pdc_view.read_moleculetype_text(text)
+
+    assert topology['bonds'] == [(1, 2), (1, 3)]
+    assert topology['elastic'] == [(1, 2)]
+
+
+def test_an_elastic_only_series_carries_the_restraints_and_not_the_chemical_bonds(tmp_path):
+    """The optional overlay is a separate file: same beads, only the force-1,000 BB-BB pairs as CONECT."""
+    protein = pdc_view.read_moleculetype_text(
+        '[ moleculetype ]\nPRO 1\n\n[ atoms ]\n'
+        '1 Q5 1 PRO BB 1 0 72\n2 Q5 1 PRO BB 2 0 72\n3 TC4 1 PRO SC1 3 0 54\n\n'
+        '[ bonds ]\n1 2 1 0.35 4000\n1 3 1 0.30 1250\n1 2 1 0.90 1000\n')
+    atoms = pdc_view.read_gro(_system_gro(tmp_path, [
+        (1, 'PRO', 'BB', (1.0, 1.0, 1.0)), (1, 'PRO', 'BB', (2.0, 1.0, 1.0)),
+        (1, 'PRO', 'SC1', (3.0, 1.0, 1.0))]))
+
+    chemical = pdc_view.series_pdb([atoms], protein_topologies=[protein])
+    elastic = pdc_view.series_pdb([atoms], protein_topologies=[protein], conect_kind='elastic')
+
+    assert [line for line in chemical.splitlines() if line.startswith('CONECT')] == ['CONECT    1    2',
+                                                                                       'CONECT    1    3']
+    assert [line for line in elastic.splitlines() if line.startswith('CONECT')] == ['CONECT    1    2']
+    assert 'ELASTIC-NETWORK BONDS:' in elastic
+    assert 'ELASTIC-NETWORK BONDS NOT DRAWN' in chemical
+
+
+def test_the_runs_generic_ion_residue_is_omitted_with_water(tmp_path):
+    """`00b9ae6db23f` names its 255 ions `ION`, not `NA`/`CL`; unlisted, they were drawn as 255 unbonded protein beads."""
+    atoms = pdc_view.read_gro(_gro(tmp_path, ATOMS + (('ION', 'NA', (8.0, 1.0, 1.0)),)))
+    pdb = pdc_view.system_pdb(atoms)
+    assert 'ION' not in [line[17:20].strip() for line in pdb.splitlines() if line.startswith('HETATM')]

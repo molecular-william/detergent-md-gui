@@ -1,13 +1,16 @@
 """Choosing a force field: what the choice changes, and that a force field nobody can run is refused.
 
 These drive `prepare_run` on a fixture molecule rather than inspecting the adapter, because the promises that
-matter are in the files a run is actually prepared with: which tree is copied into `common/`, which water and ion
-molecules the topology includes, what the mdp says about constraints, and what the context records.
+matter are in the files a run is actually prepared with: which tree the topology references, which water and ion
+molecules the includes name, what the mdp says about constraints, and what the context records. The tree itself is
+referenced by absolute path and digest, never copied into the run.
 """
 import json
+from pathlib import Path
 
 import pytest
 
+from dashboard import files
 from dashboard.execution import forcefields
 from dashboard.execution.adapters import aa
 from dashboard.models.molecules import aa as aa_molecules
@@ -46,16 +49,20 @@ def test_a_run_defaults_to_the_registrys_force_field(prepare):
     context = json.loads((run / 'stages/common/context.json').read_text())
     assert context['force_field'] == forcefields.DEFAULT
     assert context['force_field_directory'] == 'charmm36-feb2026_cgenff-4.6.ff'
-    assert (run / 'stages/common' / context['force_field_directory'] / 'forcefield.itp').is_file()
-    assert context['force_field_sha256'], 'the tree that ran must be hashed into the context'
+    tree = Path(context['force_field_path'])
+    assert tree == forcefields.entry().tree().resolve()
+    assert context['force_field_sha256'] == files.hashes(tree), 'the tree that ran must be hashed into the context'
+    assert not (run / 'stages/common' / context['force_field_directory']).exists(), \
+        'the tree is referenced, never copied'
 
 
 def test_the_topology_includes_the_tree_that_was_chosen(prepare):
     run = prepare({'force_field': 'charmm36-jul2022'})
     top = (run / 'stages/01_solvation/system.top').read_text()
-    assert '../common/charmm36-jul2022.ff/forcefield.itp' in top
-    assert '../common/charmm36-jul2022.ff/tip3p.itp' in top
-    assert '../common/charmm36-jul2022.ff/ions.itp' in top
+    tree = forcefields.entry('charmm36-jul2022').tree().resolve()
+    assert f'#include "{tree / "forcefield.itp"}"' in top
+    assert f'#include "{tree / "tip3p.itp"}"' in top
+    assert f'#include "{tree / "ions.itp"}"' in top
     assert 'feb2026' not in top, 'the tree of the force field that was not chosen must not appear'
 
 

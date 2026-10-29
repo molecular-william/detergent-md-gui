@@ -111,14 +111,16 @@ def manifest(run):
 
 
 def test_a_model_with_a_parameterization_is_consumed_and_the_run_says_it_did_not_fit(tmp_path, monkeypatch):
-    """D5's first honest state. Stage 3 is a different script, and the stage it replaces is not there
-    for a reader to mistake for what ran."""
+    """D5's first honest state. Stage 3 runs a different repository script, and the stage it replaces is not there
+    for a reader to mistake for what ran -- not even as a copy inside the run."""
     candidate = ddm_mapping()
     fitted(candidate)
     run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
 
-    assert (run / '3_initial_CG/use_parameterization.sh').is_file()
+    assert not (run / '3_initial_CG/use_parameterization.sh').exists()
     assert not (run / '3_initial_CG/fit_topology.sh').exists(), 'a stage named for fitting must not sit there'
+    scripts = {stage.name: stage.script for stage in cg.stage_definitions(parameterized=True)}
+    assert scripts['CG parameterization'] == 'dashboard/execution/scripts/use_parameterization.sh'
     staged = json.loads((run / '3_initial_CG/parameterization.json').read_text())
     record = manifest(run)['bonded']
 
@@ -176,16 +178,20 @@ def test_a_model_with_no_parameterization_is_fitted_by_the_run_and_the_run_recor
     run = prepared(tmp_path, monkeypatch, mapping_candidate=another_mapping())
     record = manifest(run)['bonded']
 
-    assert (run / '3_initial_CG/fit_topology.sh').is_file()
+    assert not (run / '3_initial_CG/fit_topology.sh').exists()
     assert not (run / '3_initial_CG/use_parameterization.sh').exists()
     assert not (run / '3_initial_CG/parameterization.json').exists()
+    assert {stage.name: stage.script for stage in cg.stage_definitions()}['CG parameterization'] == \
+        'dashboard/execution/scripts/fit_topology.sh'
     assert record['consumes_parameterization'] is False and record['fitted'] is True
     assert record['revision'] is None and record['engine'] is None
     assert record['reference_pairs'] is None, 'nothing was staged: stage 3 measures the reference while it fits'
     assert record['source'] == 'fitted by this run, in stage 3, from the AA reference it consumes'
-    # The fit script is stamped with the run's own temperature, as it always was (303.15 K rounds to
-    # 303 for `ff_inter`, which declares `-temperature` an int).
-    assert '-temperature 303' in (run / '3_initial_CG/fit_topology.sh').read_text()
+    # The fit's temperature is the run's own setting, handed to the repository script as environment: nothing is
+    # stamped into a copy, and the same file fits every run.
+    script = (PROJECT_ROOT / 'dashboard/execution/scripts/fit_topology.sh').read_text()
+    assert 'RUN_SETTING_TEMPERATURE_K:-300' in script
+    assert '-temperature "$FIT_TEMPERATURE"' in script
 
 
 def test_a_fit_against_another_reference_is_named_in_the_runs_own_limitations(tmp_path, monkeypatch):
@@ -297,8 +303,8 @@ def test_the_consuming_script_still_locks_the_rings_and_builds_the_same_tpr():
     executable = [line for line in (cg.SCRIPTS / 'use_parameterization.sh').read_text().splitlines()
                   if not line.lstrip().startswith('#')]
 
-    assert 'python use_parameterization.py' in executable
-    assert 'python prepare_ring_constraints.py' in executable
+    assert '"$PYTHON" -m dashboard.execution.scripts.use_parameterization' in executable
+    assert '"$PYTHON" -m dashboard.execution.scripts.prepare_ring_constraints' in executable
     assert any(line.startswith('gmx grompp') and '-c ../2_mapping/mapped.gro' in line for line in executable)
     assert not [line for line in executable if 'ff_inter' in line], 'nothing here fits anything'
 
@@ -341,11 +347,14 @@ def test_deleting_the_mapping_takes_the_recorded_histograms_and_reports_them(tmp
     assert not parameterization.revisions_root(content).exists()
 
 
-def test_the_consuming_run_stages_the_baseline_into_the_stage_the_assessment_reads(tmp_path, monkeypatch):
+def test_the_consuming_run_names_the_baseline_in_place_and_the_assessment_reads_it(tmp_path, monkeypatch):
     """`ff_assess` reads `<group>_<type>_distr.dat` from its `-d` directory and never computes them.
 
-    Stage 5 passes `-d ../3_initial_CG`, so that is where a consuming run's copy has to land -- and the run records
-    which files it staged, so a reader can see what its numbers were measured against.
+    The run no longer copies the revision's histograms into stage 3 or links them into stage 5: the store's revision
+    directory is immutable and already hashed, so the run names each file there by absolute path and digest and writes
+    that directory into `5_assessment/references.txt` -- the data `assess.sh` reads when nothing hands it `REFERENCES`.
+    Nothing of the baseline is staged, so a reader sees the store's own files rather than a second copy that could
+    drift from it.
     """
     candidate = ddm_mapping()
     fitted(candidate)
@@ -353,16 +362,26 @@ def test_the_consuming_run_stages_the_baseline_into_the_stage_the_assessment_rea
 
     staged = run / '3_initial_CG'
     inventory = json.loads((staged / 'distributions.json').read_text())
-    assert [entry['name'] for entry in inventory['files']] == ['1_B01_1_B02_distances_distr.dat',
-                                                               'B01_B02_B05_angles_distr.dat',
-                                                               'B01_B11_bonds_distr.dat']
+    names = [Path(entry['name']).name for entry in inventory['files']]
+    assert names == ['1_B01_1_B02_distances_distr.dat',
+                     'B01_B02_B05_angles_distr.dat',
+                     'B01_B11_bonds_distr.dat']
     for entry in inventory['files']:
-        assert (staged / entry['name']).is_file()
-        assert parameterizations_digest(staged / entry['name']) == entry['sha256']
-    assert manifest(run)['bonded']['reference_distributions'] == ['1_B01_1_B02_distances_distr.dat',
-                                                                 'B01_B02_B05_angles_distr.dat',
-                                                                 'B01_B11_bonds_distr.dat']
+        path = Path(entry['name'])
+        assert path.is_absolute() and path.is_file(), 'the inventory names the store file, not a copy'
+        assert parameterizations_digest(path) == entry['sha256']
+    assert not list(staged.glob('*_distr.dat')), 'no histogram is copied into stage 3'
+    assert manifest(run)['bonded']['reference_distributions'] == names
     assert manifest(run)['bonded']['assessment'] == {'scored': True, 'reason': None}
+
+    # Stage 5 is pointed at those files by `references.txt` and runs the repository's own script.
+    stage = run / '5_assessment'
+    declared = Path((stage / 'references.txt').read_text().strip())
+    assert declared.resolve() == Path(inventory['files'][0]['name']).parent.resolve()
+    done = run_stage(stage)
+    assert done.returncode != 4, 'a run with the pair family is not a run with nothing to score'
+    assert not (stage / 'skip.json').exists()
+    assert not (stage / 'references').exists(), 'nothing is linked into the run: the store is read where it lives'
 
 
 def test_the_run_records_how_many_pair_histograms_it_can_score_with(tmp_path, monkeypatch):
@@ -380,7 +399,10 @@ def test_the_run_records_how_many_pair_histograms_it_can_score_with(tmp_path, mo
     assert inventory['pairs'] == {'files': 55, 'expected': 55}
     assert inventory['interactions'] == {'files': 2}
     assert inventory['reason'] is None
-    assert all((staged / name).is_file() for name in pairs), 'every pair histogram is staged where `-d` reads it'
+    named = {Path(entry['name']).name for entry in inventory['files']}
+    assert set(pairs) <= named, 'every pair histogram is named by the inventory, where `-d` is handed them'
+    assert all(Path(entry['name']).is_file() for entry in inventory['files'])
+    assert not list(staged.glob('*_distr.dat')), 'and none of them is a copy inside the run'
     record = manifest(run)['bonded']
     assert record['reference_pairs'] == {'files': 55, 'expected': 55}
     assert record['assessment'] == {'scored': True, 'reason': None}
@@ -467,15 +489,16 @@ def test_a_revision_that_predates_recorded_baselines_also_runs_and_says_so(tmp_p
 
 
 def assessment_stage(tmp_path, inventory=None, histograms=()):
-    """Stage 5 as `prepare` lays it out: the script in `5_assessment/`, the histograms in `3_initial_CG/`.
+    """Stage 5 as `prepare` lays it out: the reference data in `3_initial_CG/`, and `references.txt` naming it.
 
     The layout is the point. The reference histograms live in stage 3 -- the directory `ff_assess -d` is handed -- and
-    so does the inventory that lists them. A test that put the inventory beside the script would pass while a real run
-    never found it, which is how the skip path this stage documents was unreachable for a run.
+    so does the inventory that lists them; `references.txt` is the data file the run writes so the shared script can be
+    the same file for a run that fits and one that consumes a model. A test that put the inventory beside the script
+    would pass while a real run never found it, which is how the skip path this stage documents was unreachable.
     """
     stage = tmp_path / '5_assessment'
     stage.mkdir(parents=True)
-    (stage / 'assess.sh').write_text((PROJECT_ROOT / 'dashboard/execution/scripts/assess.sh').read_text())
+    (stage / 'references.txt').write_text('../3_initial_CG\n')
     reference = stage.parent / '3_initial_CG'
     reference.mkdir(exist_ok=True)
     for name in histograms:
@@ -486,9 +509,15 @@ def assessment_stage(tmp_path, inventory=None, histograms=()):
 
 
 def run_stage(stage):
-    """Run a stage's own script the way the executor does: bash, in the stage directory, with an interpreter on PATH."""
-    return subprocess.run(['bash', 'assess.sh'], cwd=stage, capture_output=True, text=True,
-                          env={'PATH': f'{Path(sys.executable).parent}:/usr/bin:/bin'})
+    """Run the stage the way the executor does: the repository script, in the stage directory, with its own modules.
+
+    There is no run-local script to pick: `assess.sh` is the repository file recorded in the manifest, and its helpers
+    are package modules reached through `PYTHONPATH`.
+    """
+    return subprocess.run(['bash', str(PROJECT_ROOT / 'dashboard/execution/scripts/assess.sh')],
+                          cwd=stage, capture_output=True, text=True,
+                          env={'PATH': f'{Path(sys.executable).parent}:/usr/bin:/bin',
+                               'PYTHON': sys.executable, 'PYTHONPATH': str(PROJECT_ROOT)})
 
 
 def test_the_assessment_stage_skips_and_says_why_when_the_inventory_is_empty(tmp_path):

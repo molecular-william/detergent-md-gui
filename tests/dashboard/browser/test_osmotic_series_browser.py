@@ -273,7 +273,7 @@ def test_the_two_halves_sit_side_by_side_and_stack_at_the_breakpoint(dashboard, 
     inputs = page.locator('.osmotic-inputs').bounding_box()
     settings = page.locator('.osmotic-settings').bounding_box()
     assert inputs['x'] < settings['x'], (inputs, settings)
-    assert settings['x'] >= inputs['x'] + inputs['width'] - 1, 'the halves overlap: they are not side by side'
+    panels.assert_side_by_side(page, '.osmotic-inputs', '.osmotic-settings')
     assert settings['x'] + settings['width'] <= form['x'] + form['width'] + 1, 'the right half leaves the form'
     half = form['width'] / 2
     assert abs(inputs['width'] - half) <= 20, (inputs['width'], half)

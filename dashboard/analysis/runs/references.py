@@ -52,6 +52,46 @@ def counts(topology,context):
     return payload
 
 
+def referenced_sources(context):
+    """The files this run read rather than wrote: where prepare found them, and the digest it recorded.
+
+    A run no longer carries the force-field tree or the molecule's own files, so a publication hashes them at the
+    absolute paths prepare resolved -- this module runs as a copy inside the run and has no project root to resolve
+    against. The record is also what `verify` re-hashes: a shared input changed after prepare is refused rather than
+    silently published under a digest it no longer has.
+    """
+    sources=[]
+    tree=context.get('force_field_path')
+    if tree:
+        tree=Path(tree);measured=files.hashes(tree)
+        if measured!=context.get('force_field_sha256'):raise ValueError('Force-field tree changed since this run was prepared: '+str(tree))
+        sources.append({'role':'force_field','label':tree.name,'kind':'directory','path':str(tree.resolve()),
+                        'sha256':files.json_sha256(measured),'files':len(measured)})
+    folder=context.get('molecule_directory');snapshot=context.get('molecule_snapshot') or {}
+    if folder:
+        folder=Path(folder)
+        for relative,digest in sorted((snapshot.get('sha256') or {}).items()):
+            path=folder/relative
+            if path.is_symlink() or not path.is_file():raise ValueError('Molecule file is missing: '+str(path))
+            measured=files.sha256(path)
+            if measured!=digest:raise ValueError('Molecule file changed since this run was prepared: '+relative)
+            sources.append({'role':'molecule','label':relative,'kind':'file','path':str(path.resolve()),
+                            'sha256':measured,'bytes':path.stat().st_size})
+    return sources
+
+
+def _verify_referenced(entry):
+    """Re-hash one source `referenced_sources` recorded, refusing a changed or missing one by name."""
+    path=Path(entry.get('path') or '')
+    if entry.get('kind')=='directory':
+        if path.is_symlink() or not path.is_dir():raise ValueError('AA reference source is missing: '+str(path))
+        measured=files.json_sha256(files.hashes(path))
+    else:
+        if path.is_symlink() or not path.is_file():raise ValueError('AA reference source is missing: '+str(path))
+        measured=files.sha256(path)
+    if measured!=entry.get('sha256'):raise ValueError(f'AA reference {entry.get("role")} source changed since publication: {path}')
+
+
 def publish(stages):
     import MDAnalysis as mda
     import numpy as np
@@ -81,20 +121,23 @@ def publish(stages):
     diagnostics={name:{'mean':float(array[:,i+1].mean()),'std':float(array[:,i+1].std()),'unit':units.get(name,'GROMACS units')} for i,name in labels.items() if i+1<array.shape[1]}
     artifacts={name:'stages/07_reference/'+name for name in ('lig.gro','lig.xtc','lig.tpr')}
     hashed={str(p.relative_to(stages.parent)):files.sha256(p) for p in files.safe_files(output) if p.name!='reference.json'}
-    # The force field's tree is named by the run itself, so a publication hashes the tree the run used rather
-    # than the one this code happened to default to. A run published before force fields were recorded carries
-    # no directory, and falls back to the tree it was prepared with. This must stay importable standalone --
-    # the file is copied into a run and executed there -- so the name is read, never resolved through the
-    # registry.
-    directory=context.get('force_field_directory') or 'charmm36-jul2022.ff'
-    for relative in ('common/molecule','common/'+directory):
-        hashed.update({f'stages/{relative}/{key}':value for key,value in files.hashes(stages/relative).items()})
+    # What the run referenced is named by the store it lives in rather than hashed as a copy inside the run; what it
+    # synthesized is hashed here. A run prepared before the input model still holds the copies, so its publication
+    # hashes them exactly as it always did.
+    referenced=referenced_sources(context)
+    if referenced:
+        for relative in ('common/molecule/molecule.gro','common/molecule/molecule.itp'):
+            hashed['stages/'+relative]=files.sha256(stages/relative)
+    else:
+        directory=context.get('force_field_directory') or 'charmm36-jul2022.ff'
+        for relative in ('common/molecule','common/'+directory):
+            hashed.update({f'stages/{relative}/{key}':value for key,value in files.hashes(stages/relative).items()})
     for relative in ('common/context.json','common/solute.ndx','02_ions/composition.json','06_production/run.gro','06_production/run.tpr','06_production/run.xtc','06_production/run.cpt','06_production/run.edr','06_production/run.log','06_production/system.top','06_production/run.mdp'):
         hashed['stages/'+relative]=files.sha256(stages/relative)
     result={'schema_version':1,'reference_eligible':True,'scientifically_validated':False,
             'molecule_identity':identity(snapshot),'molecule_snapshot':snapshot,'protocol_version':context['protocol_version'],
             'settings':context['settings'],'force_field_sha256':context['force_field_sha256'],
-            'artifacts':artifacts,'sha256':hashed,'frames':{'count':len(times),'atoms':len(original),'times_ps':times,'start_ps':times[0],'end_ps':times[-1]},
+            'artifacts':artifacts,'sha256':hashed,'referenced_sources':referenced,'frames':{'count':len(times),'atoms':len(original),'times_ps':times,'start_ps':times[0],'end_ps':times[-1]},
             'composition':json.loads((stages/'02_ions/composition.json').read_text()),'diagnostics':diagnostics,
             'diagnostics_source':'stages/07_reference/diagnostics.xvg',
             'limitations':['Technical eligibility only; convergence and force-field accuracy have not been established',f'Single-solute AA production: {duration:g} ps; no added salt']}
@@ -117,6 +160,7 @@ def verify(run_dir,expected=None,molecule_snapshot=None,settings=None):
         if any(p.is_symlink() for p in (target,*target.parents) if p==run_dir or p.is_relative_to(run_dir)):
             raise ValueError('Reference artifact symlinks are not allowed')
     files.verify(run_dir,hashes)
+    for entry in data.get('referenced_sources') or []:_verify_referenced(entry)
     if molecule_snapshot is not None and identity(molecule_snapshot)!=data['molecule_identity']:raise ValueError('AA reference molecule/topology does not match')
     if settings:
         for key,value in data['settings'].items():

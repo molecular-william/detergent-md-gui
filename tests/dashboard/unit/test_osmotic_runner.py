@@ -25,9 +25,6 @@ import pytest
 
 from dashboard.execution.adapters import osmotic
 
-# On the slow tier: the osmotic runner drives one subprocess per condition, which is what the marker renders.
-pytestmark = pytest.mark.slow
-
 SCRIPTS = Path(osmotic.__file__).resolve().parents[1] / 'scripts'
 MAPPING = {'beads': [{'name': 'S1A', 'type': 'SP1r', 'atoms': [1, 2, 3]},
                      {'name': 'S1B', 'type': 'SP4r', 'atoms': [4, 5, 6]},
@@ -116,12 +113,16 @@ def _prepare(tmp_path, molalities, **settings):
 
 
 def _run(tmp_path, failing=()):
-    """Run the series stage for real, with the stub standing in for GROMACS."""
-    stage = tmp_path / '01_simulate'
-    # The stage runs under the workspace's own virtualenv, which is where the real executor points `python`:
-    # `tools.search_path` puts `dashboard/.venv/bin` first, and this script imports `dashboard`.
+    """Run the series stage for real, with the stub standing in for GROMACS.
+
+    The stage runs the repository script, as the executor does -- `stage_scripts` names it and the stage directory is
+    the working directory. It runs under the workspace's own virtualenv, which is where the real executor points
+    `python` (`tools.search_path` puts `dashboard/.venv/bin` first), and it derives the checkout from its own path.
+    """
+    stage = tmp_path / 'stages' / '01_simulate'
     venv = Path(osmotic.__file__).resolve().parents[2] / '.venv' / 'bin'
-    return subprocess.run(['bash', str(stage / 'run.sh')], cwd=stage, capture_output=True, text=True, check=False,
+    return subprocess.run(['bash', str(SCRIPTS / 'osmotic_simulation.sh')], cwd=stage, capture_output=True,
+                          text=True, check=False,
                           env={**os.environ, 'GROMACS': str(tmp_path / 'gmx'), 'MDRUN_LAUNCHER': '',
                                'STUB_DIR': str(tmp_path), 'STUB_FAIL': ','.join(failing),
                                'PATH': f'{venv}:{os.environ["PATH"]}'})
@@ -133,13 +134,25 @@ def _launches(tmp_path):
 
 
 def _condition(tmp_path, directory):
-    return tmp_path / '01_simulate' / 'conditions' / directory
+    return tmp_path / 'stages' / '01_simulate' / 'conditions' / directory
 
 
 def _status(tmp_path, directory):
     """The condition's own terminal record, which is what a second entry into the series reads."""
     path = _condition(tmp_path, directory) / 'condition.json'
     return json.loads(path.read_text())['status'] if path.is_file() else None
+
+
+def test_the_runner_reads_its_ceiling_and_checkout_from_the_environment_and_the_run_record():
+    """No per-run value is stamped into the repository script: the executor's variables and the run's own record
+    carry them, so the file that runs is the file the manifest recorded."""
+    executed = _executed_lines((SCRIPTS / 'osmotic_simulation.sh').read_text())
+    text = '\n'.join(executed)
+
+    assert 'RUN_SETTING_OSMOTIC_ATTEMPTS_MAX' in text
+    assert 'PYTHON="${PYTHON:-python}"' in executed
+    assert 'PROJECT_ROOT' in text, 'the checkout is read from the executor, not stamped'
+    assert 'REPO_ROOT="."' not in text, 'the old prepare-time stamp must be gone'
 
 
 def test_the_runner_resumes_a_failed_stage_from_its_own_checkpoint():
@@ -160,6 +173,7 @@ def test_the_runner_resumes_a_failed_stage_from_its_own_checkpoint():
     assert 'if no checkpoint file is found' in script
 
 
+@pytest.mark.slow
 def test_the_third_failure_ends_the_condition_and_no_fourth_mdrun_is_launched(tmp_path):
     """The ceiling is the condition's, not the stage's: three launches of the failing stage and no more."""
     _prepare(tmp_path, [1.0])
@@ -182,6 +196,7 @@ def test_the_third_failure_ends_the_condition_and_no_fourth_mdrun_is_launched(tm
     assert _status(tmp_path, '00_1molal') == 'failed'
 
 
+@pytest.mark.slow
 def test_a_series_runs_its_conditions_one_at_a_time_in_order(tmp_path):
     """One at a time is the stage's own loop: each condition's three stages, then the next condition."""
     _prepare(tmp_path, [0.5, 1.0])
@@ -193,6 +208,7 @@ def test_a_series_runs_its_conditions_one_at_a_time_in_order(tmp_path):
     assert [_status(tmp_path, name) for name in ('00_0.5molal', '01_1molal')] == ['complete', 'complete']
 
 
+@pytest.mark.slow
 def test_a_failed_condition_does_not_take_the_conditions_after_it_with_it(tmp_path):
     """`carry_on` is the series' contract, and in one run it is the driver that has to honour it.
 
@@ -207,6 +223,7 @@ def test_a_failed_condition_does_not_take_the_conditions_after_it_with_it(tmp_pa
     assert result.returncode != 0, 'the series ran to its end, and one of its conditions failed'
 
 
+@pytest.mark.slow
 def test_a_series_asked_to_stop_does_not_run_the_conditions_after_the_failure(tmp_path):
     """`stop` is the other choice: the first condition that ends failed ends the series."""
     _prepare(tmp_path, [0.5, 1.0, 1.5], series_on_failure='stop')
@@ -218,6 +235,7 @@ def test_a_series_asked_to_stop_does_not_run_the_conditions_after_the_failure(tm
     assert not [line for line in _launches(tmp_path) if line.startswith('02_1.5molal')], _launches(tmp_path)
 
 
+@pytest.mark.slow
 def test_a_condition_that_already_finished_is_not_run_again_and_a_failed_one_resumes(tmp_path):
     """The whole point of a checkpoint per concentration, in one flow.
 

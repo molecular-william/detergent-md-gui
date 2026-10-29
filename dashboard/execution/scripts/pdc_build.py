@@ -1,6 +1,6 @@
 """System preparation for a protein-detergent complex run: the box, the placement, and the report.
 
-Run by `1_system/prepare_system.sh`, which the pdc adapter generates. Every rule this applies comes from an
+Run by `02_system/pdc_system.sh`, the shared stage script the pdc adapter records. Every rule this applies comes from an
 adapter whose own unit tests cover it -- the box from `pdc_box`, the placement and its gates from
 `pdc_placement`, the CG protein command from `pdc_protein`, the coordinate reader from `pdc_import`, the structure
 the prepare step left from `pdc_preparation` -- so the stage cannot drift from the rules by restating them here.
@@ -41,6 +41,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from dashboard import martini3
 from dashboard.execution.adapters import pdc, pdc_box, pdc_import, pdc_placement, pdc_preparation, pdc_protein
 from dashboard.execution.adapters.pdc import DETERGENT_GEOMETRY, DETERGENT_TOPOLOGY, REPORT_NAME, SETTINGS_NAME
 from micelle import frame as micelle_frame
@@ -232,13 +233,14 @@ def molecule_rows(topology: Path) -> list[tuple[str, int]]:
     return rows
 
 
-def protein_topology(topology: Path) -> tuple[list[tuple[str, int]], str, str]:
+def protein_topology(topology: Path, stage: Path) -> tuple[list[tuple[str, int]], str, str]:
     """The protein's molecules, the `#include`s for them and its `[ molecules ]` rows, all from martinize2's topology.
 
-    The includes name `cg/<name>.itp` -- a path relative to the *stage* directory, which is where `system.top` lives
-    and therefore where `grompp` resolves an include from. The tool's own `protein.top` names the same files by bare
-    name because it was written beside them, which is why the itps stay in `cg/` rather than being collected up: the
-    two topologies then agree about where the files are, and only one of them is the one the legs run.
+    The includes name `../<this stage>/cg/<name>.itp` -- this stage's own directory, reached from any of its siblings
+    under `stages/`. `system.top` is copied forward between those siblings and `grompp` resolves an include from the
+    working directory, so a bare `cg/<name>.itp` would only resolve in the one directory that carries the tree. The
+    tool's own `protein.top` names the same files by bare name because it was written beside them; only one of the two
+    is the topology the legs run.
 
     The tool's header include `martini.itp` is **not** reproduced. That is vermouth's force field; this system's is
     `pdc.FORCEFIELD_FILES`, and copying the header would hand `grompp` a second, incompatible parameter set.
@@ -254,15 +256,22 @@ def protein_topology(topology: Path) -> tuple[list[tuple[str, int]], str, str]:
         if not itp.is_file():
             raise SystemExit(f'{Path(topology).name} lists molecule {name!r}, whose {itp.name} is not beside it in '
                              f'{Path(topology).parent.name}/: the system cannot be assembled')
-        includes.append(f'#include "{CG_DIRECTORY}/{itp.name}"\n')
+        includes.append(f'#include "../{Path(stage).name}/{CG_DIRECTORY}/{itp.name}"\n')
         rows.append(f'{name}\t{count}\n')
     return molecules, ''.join(includes), ''.join(rows)
 
 
-# What every topology this stage writes includes: the published Martini 3 lipid set, which is where the bead types,
-# the water molecule type and the ion molecule types all live. Without them `grompp` refuses the solvated system,
-# because `W` is undefined. The names come from the adapter, so the two cannot drift apart.
-_INCLUDES = ''.join(f'#include "{name}"\n' for name in pdc.FORCEFIELD_FILES)
+def _includes(stage: Path) -> str:
+    """What every topology this stage writes includes: the installed Martini 3 set.
+
+    The bead types, the water molecule type and the ion molecule types all live there, and without them `grompp`
+    refuses the solvated system because `W` is undefined. The names come from the adapter, so the two cannot drift
+    apart, and the paths are relative to the stage directory they are read in, so no run copies the set and a moved
+    workspace still resolves it. The detergent's own topology is the run's generated original in `inputs/`, which is
+    the same path from every sibling stage.
+    """
+    shared = ''.join(f'#include "{martini3.include(name, stage)}"\n' for name in pdc.FORCEFIELD_FILES)
+    return f'{shared}#include "../../inputs/{DETERGENT_TOPOLOGY}"\n'
 
 
 def write_topologies(stage: Path, protein_topology_path: Path | None, detergent_itp: Path | None,
@@ -270,30 +279,31 @@ def write_topologies(stage: Path, protein_topology_path: Path | None, detergent_
     """`system_EMPTY.top` (the protein alone, the stage's declared input) and `system.top` (the whole system).
 
     Both reproduce the protein's molecules **exactly as the tool that built them listed them**: the include lines name
-    `cg/<name>.itp` for every row of martinize2's own `[ molecules ]`, and the rows are copied with the tool's own
-    names and counts. The counts of the detergent are the count of molecules the structure actually holds -- the
-    invariant `grompp` checks, and the one whose violation cost three failed sugar runs.
+    `../02_system/cg/<name>.itp` for every row of martinize2's own `[ molecules ]`, and the rows are copied with the
+    tool's own names and counts. The counts of the detergent are the count of molecules the structure actually holds --
+    the invariant `grompp` checks, and the one whose violation cost three failed sugar runs.
 
     A protein-free build (the empty micelle) writes the same two files with no protein row, so every reader
     downstream sees the shape it expects rather than a special case.
     """
+    includes_text = _includes(stage)
     if protein_topology_path is None:
         (stage / 'system_EMPTY.top').write_text(
             '; the system before the detergent arrives, filled in by the system-preparation stage\n'
-            f'{_INCLUDES}'
+            f'{includes_text}'
             '[ system ]\nempty micelle, no protein\n\n[ molecules ]\n')
         if detergent_itp is None or not detergents:
             return {'protein_molecule': None}
         detergent = molecule_name(detergent_itp.read_text())
         (stage / 'system.top').write_text(
             f'; the whole system, written by the system-preparation stage\n'
-            f'{_INCLUDES}#include "{detergent_itp.name}"\n\n[ system ]\nempty micelle, detergent only\n\n'
+            f'{includes_text}\n[ system ]\nempty micelle, detergent only\n\n'
             f'[ molecules ]\n{detergent}\t{detergents}\n')
         return {'protein_molecule': None, 'detergent_molecule': detergent, 'detergents': detergents}
-    molecules, includes, protein_rows = protein_topology(protein_topology_path)
+    molecules, includes, protein_rows = protein_topology(protein_topology_path, stage)
     record = {'protein_molecule': molecules[0][0], 'protein_molecules': [name for name, _ in molecules]}
     empty = (f'; the system before the detergent arrives, filled in by the system-preparation stage\n'
-             f'{_INCLUDES}{includes}\n[ system ]\nprotein-detergent complex, CG protein\n\n'
+             f'{includes_text}{includes}\n[ system ]\nprotein-detergent complex, CG protein\n\n'
              f'[ molecules ]\n{protein_rows}')
     (stage / 'system_EMPTY.top').write_text(empty)
     if detergent_itp is None or not detergents:
@@ -301,7 +311,7 @@ def write_topologies(stage: Path, protein_topology_path: Path | None, detergent_
     detergent = molecule_name(detergent_itp.read_text())
     (stage / 'system.top').write_text(
         f'; the whole system, written by the system-preparation stage\n'
-        f'{_INCLUDES}{includes}#include "{detergent_itp.name}"\n\n[ system ]\n'
+        f'{includes_text}{includes}\n[ system ]\n'
         f'protein-detergent complex, CG protein and detergent\n\n[ molecules ]\n'
         f'{protein_rows}{detergent}\t{detergents}\n')
     return {**record, 'detergent_molecule': detergent, 'detergents': detergents}
@@ -547,7 +557,7 @@ def prepared_protein(stage: Path) -> Path | None:
 
     Read by name rather than by counting: `pdc.stage_by_name` is where this protocol says which directory a stage
     owns, and the plan's positions have already moved once. The stage directory is resolved first, so the sibling is
-    found whether the caller handed over the run's own `1_system` or the `.` a stage script passes.
+    found whether the caller handed over the run's own `02_system` or the `.` a stage script passes.
     """
     directory = Path(stage).resolve().parent / Path(pdc.stage_by_name('Protein preparation').relative).parent
     path = directory / pdc_preparation.PREPARED_NAME
@@ -674,7 +684,6 @@ def build(stage: Path) -> int:
                        'placed_detergents': len(placement['centers']),
                        'system_top': 'not written: the detergent is one centre per molecule, not a model'})
         write_report(stage, report)
-        _record_placement(stage, template, settings)
         return 3
 
     # The topology martinize2 wrote, by the name its own command was told to use (`pdc_protein.TOPOLOGY_NAME`), rather
@@ -699,7 +708,6 @@ def build(stage: Path) -> int:
                    'molecules': topologies,
                    'system_top': 'system.top'})
     write_report(stage, report)
-    _record_placement(stage, template, settings)
     return 0
 
 
@@ -709,18 +717,6 @@ def _detergent_model(stage: Path) -> dict | None:
     if not path.is_file():
         return None
     return json.loads(path.read_text())
-
-
-def _record_placement(stage: Path, template, settings: dict) -> None:
-    """The state before a single step of dynamics: the frame a reader judges the placement from.
-
-    The title carries the mode, so a picture cannot be mistaken for one the other generator built.
-    """
-    from dashboard.execution.scripts import pdc_snapshot
-    pdc_snapshot.write_snapshot(stage, 'placement', stage / 'system.gro',
-                                title=f'placed system before dynamics ({template.name}, '
-                                      f'AN={settings["aggregation_number"]}, '
-                                      f'mode={settings.get("placement_mode", pdc_placement.DEFAULT_PLACEMENT_MODE)})')
 
 
 def main(argv=None) -> int:
