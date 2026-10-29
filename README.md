@@ -55,8 +55,8 @@ process after changing Python code — routes and models are loaded at start, `s
 * `dashboard/` — application source: `execution/` (adapters, coordination, stages), `models/` (mappings, bonded
   parameterizations, compositions, molecules), `analysis/`, `web/` (routes, templates, static JS).
 * `tests/dashboard/` — unit, integration and browser tiers with isolated stores; never the developer's workspace.
-* `molecules/`, `references/`, `resources/` — canonical scientific inputs; CG force field at
-  `resources/forcefields/martini_v3.itp`.
+* `molecules/`, `references/`, `resources/` — canonical scientific inputs; the CG force field is installed per
+  workspace at `workspace/dashboard/martini3` from `references/M3-Lipid-Parameters/ITPs`, never from a copy in the tree.
 * `tools/cg2at/` — CG2AT2, vendored, used by the `pdc` back-map stage with the `martini_3-0_charmm36` fragment DB.
 * `config/` — workspace selection and declared tools (`config/tools.json`, resolved by `dashboard/execution/tools.py`;
   GROMACS here is `/usr/local/gromacs/2026.3/bin/gmx`, an MPI-only build, so `-ntomp` is the thread knob).

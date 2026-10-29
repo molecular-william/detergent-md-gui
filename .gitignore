@@ -48,3 +48,25 @@ references/
 
 # Worked-example simulation artifacts (ENAP): trajectories and topologies, no code reads them.
 resources/templates/parametrize_new_small_molecule/
+
+# Tutorial-only leftovers inside the Fast_Forward template: the stages run the repository's own scripts and the
+# reviewed MDP profiles, and the CG force field is installed per workspace from `references/`. These are the tutorial
+# steps and the two all-in-one Martini copies beside the files that *are* read (`mdps/`, `4_CG_sim/inputs/{eq,md}.mdp`,
+# `water.gro`, `5_SASA/vdwradii_AA.dat`).
+resources/templates/*.mdp
+resources/templates/small_mols_fast_forward/2_mapping/
+resources/templates/small_mols_fast_forward/3_initial_CG/martini_v3.0.0.itp
+resources/templates/small_mols_fast_forward/3_initial_CG/ENAP_initial.itp
+resources/templates/small_mols_fast_forward/3_initial_CG/topol.top
+resources/templates/small_mols_fast_forward/3_initial_CG/3_initial_CG.sh
+resources/templates/small_mols_fast_forward/4_CG_sim/inputs/martini_v3.0.0.itp
+resources/templates/small_mols_fast_forward/4_CG_sim/run_CG.sh
+resources/templates/small_mols_fast_forward/4_CG_sim/topol.top
+resources/templates/small_mols_fast_forward/5_SASA/5_do_sasa.sh
+resources/templates/small_mols_fast_forward/5_SASA/make_cg_sasa_file.py
+resources/templates/small_mols_fast_forward/1_AA_reference/results.tar.gz
+resources/templates/small_mols_fast_forward/1_AA_reference/topol.top
+resources/templates/small_mols_fast_forward/1_AA_reference/generate_atomistic_reference.sh
+
+# A stale copy of the CG force field; nothing reads it, and the installed set is the one a run records.
+resources/forcefields/
