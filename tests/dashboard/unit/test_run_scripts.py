@@ -1,5 +1,8 @@
 """The recorded code a run executes, and the refusal when it changed."""
+import sys
+
 import pytest
+from dashboard import files
 from dashboard.execution import run_scripts
 
 
@@ -36,3 +39,22 @@ def test_a_run_without_a_record_still_uses_its_own_copy(tmp_path):
     fallback = tmp_path / 'stages' / '01' / 'run.sh'
 
     assert run_scripts.script_for({}, 'Stage', fallback, root=tmp_path) == fallback
+
+
+def test_a_recorded_path_moved_into_a_feature_still_resolves(tmp_path, monkeypatch):
+    """A run records the spelling of its day. When a feature distribution takes the file over, the record keeps
+    verifying: the bytes are the same, only their home moved, and a manifest is never rewritten to say so."""
+    package = tmp_path / 'fake_moved_dist'
+    (package / 'scripts').mkdir(parents=True)
+    (package / '__init__.py').write_text('')
+    script = package / 'scripts' / 'stage.sh'
+    script.write_text('echo hi\n')
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr(run_scripts, '_FEATURE_PREFIXES', [])
+    run_scripts.register_prefixes((('dashboard/execution/scripts/fake_', 'fake_moved_dist', 'scripts/'),))
+
+    recorded = {'path': 'dashboard/execution/scripts/fake_stage.sh', 'sha256': files.sha256(script)}
+
+    assert run_scripts.code_path(recorded['path'], root=tmp_path) == script.resolve()
+    assert run_scripts.verify_one('Stage', recorded, root=tmp_path) == script.resolve()
+    sys.modules.pop('fake_moved_dist', None)

@@ -44,6 +44,9 @@ class Feature:
     panels: tuple = ()
     blurbs: tuple = ()
     tab_ids: tuple = ()
+    #: `(recorded path prefix, distribution, prefix in that package)` for code the feature took over, so a prepared
+    #: run's recorded `dashboard/...` path still resolves to the file's new home.
+    code_prefixes: tuple = ()
 
 
 _features: list[Feature] | None = None
@@ -68,12 +71,13 @@ def ensure() -> list[Feature]:
     global _features
     if _features is None:
         from .analysis import kinds
-        from .execution import protocol
+        from .execution import protocol, run_scripts
         from .web import sections
         _features = installed()
         for feature in _features:
             protocol.register(feature.protocols)
             kinds.register(feature.kinds)
+            run_scripts.register_prefixes(feature.code_prefixes)
             if feature.section:
                 sections.register(feature.section, panels=feature.panels, blurbs=feature.blurbs,
                                   tab_ids=feature.tab_ids)

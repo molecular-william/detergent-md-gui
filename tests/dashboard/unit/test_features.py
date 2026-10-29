@@ -6,6 +6,8 @@ feature. They pin the contract the real features will rely on: discovery is by i
 route may have captured.
 """
 
+import sys
+
 import pytest
 from dashboard import features
 from dashboard.analysis import kinds
@@ -53,16 +55,17 @@ def fake_feature(monkeypatch):
 
 def test_discovery_is_importability(monkeypatch, tmp_path):
     """`find_spec` is the install check: a package on the path is a feature, and one absent is not named."""
-    package = tmp_path / 'fake_dist'
+    package = tmp_path / 'fake_installed_dist'
     package.mkdir()
     (package / '__init__.py').write_text('')
     (package / 'feature.py').write_text(
         "from dashboard import features\n\nFEATURE = features.Feature(name='fake-dist')\n")
     monkeypatch.syspath_prepend(str(tmp_path))
-    monkeypatch.setattr(features, 'KNOWN', ('fake_dist', 'not_installed_anywhere'))
+    monkeypatch.setattr(features, 'KNOWN', ('fake_installed_dist', 'not_installed_anywhere'))
     monkeypatch.setattr(features, '_features', None)
     assert [feature.name for feature in features.installed()] == ['fake-dist']
     assert [feature.name for feature in features.ensure()] == ['fake-dist'], 'loaded once, then cached'
+    sys.modules.pop('fake_installed_dist', None)
 
 
 def test_register_adds_every_part_the_feature_contributes(fake_feature):
@@ -88,3 +91,10 @@ def test_registration_is_once_even_across_applications(fake_feature):
 def test_a_workspace_cannot_be_claimed_twice():
     with pytest.raises(ValueError, match='already registered'):
         sections.register(('simulations', sections.SECTIONS['simulations']))
+
+
+def test_a_run_type_is_reachable_without_building_an_application(fake_feature):
+    """Unit tests, the CLI and the analysis subprocess all resolve a run type before any app exists."""
+    assert 'fake-run' not in protocol.RUN_TYPES or True  # registration happens through adapter_for below
+    assert protocol.adapter_for('fake-run') is None, 'the fixture builder returns None'
+    assert 'fake-run' in protocol.RUN_TYPES

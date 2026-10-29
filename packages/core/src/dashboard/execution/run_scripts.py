@@ -11,6 +11,7 @@ can no longer claim to be running the code it recorded.
 """
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 from .. import files, paths
@@ -20,10 +21,36 @@ from .. import files, paths
 #: name -- and the path is resolved against the package here, once, instead of in every adapter.
 _DECLARED_PREFIX = 'dashboard/'
 
+#: `(recorded prefix, distribution, prefix inside that package)` for code a feature took over. A prepared run records
+#: the spelling of its day; the file is looked for where its distribution keeps it now. Nothing rewrites a manifest --
+#: the digest is what proves the same bytes moved.
+_FEATURE_PREFIXES: list[tuple[str, str, str]] = []
+
+
+def register_prefixes(entries) -> None:
+    """Let a feature answer for recorded paths whose files now live in its distribution."""
+    for recorded, distribution, inside in entries:
+        _FEATURE_PREFIXES.append((recorded, distribution, inside))
+
+
+def _feature_file(text):
+    """The file a moved recorded path names, or None when no registered feature holds it."""
+    for recorded, distribution, inside in _FEATURE_PREFIXES:
+        if not text.startswith(recorded):
+            continue
+        package = importlib.import_module(distribution)
+        candidate = Path(package.__file__).resolve().parent / inside / text[len(recorded):]
+        if candidate.is_file():
+            return candidate
+    return None
+
 
 def code_path(declared, *, root):
-    """The file a recorded code path names: in this package, or relative to the data root."""
+    """The file a recorded code path names: in this package, in a feature that moved it, or under the data root."""
     text = str(declared)
+    moved = _feature_file(text)
+    if moved is not None:
+        return moved
     if text.startswith(_DECLARED_PREFIX):
         return paths.PACKAGE_ROOT / text[len(_DECLARED_PREFIX):]
     source = Path(text)

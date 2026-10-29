@@ -262,7 +262,14 @@ def register(builders: Mapping[str, Callable[[], Protocol]]) -> None:
 
 
 def adapter_for(run_type: str) -> Protocol:
-    """Return the protocol for a run type, or raise ValueError for an unknown one."""
+    """Return the protocol for a run type, or raise ValueError for an unknown one.
+
+    Discovery is forced here because not every caller builds an application: a unit test, a CLI command and the
+    analysis subprocess all reach a run type without `create_app`, and a feature run type missing from the table
+    would otherwise read as an unknown name.
+    """
+    from .. import features
+    features.ensure()
     try:
         return _BUILDERS[run_type]()
     except KeyError as exc:
