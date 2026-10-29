@@ -19,7 +19,7 @@ than have them disappear.
 
 import re
 
-#: A figure one assessment attempt wrote: a CG run's `5_assessment` or a numbered pdc run's `09_final_assessment`,
+#: A figure one assessment attempt wrote: a CG run's `5_assessment` or a numbered run's `09_final_assessment`,
 #: and a re-score's `@<n>` beside either. The `stages/` prefix is optional because the layout written before
 #: `layout_version` 2 kept the stage directories at the run's root, and an attempt directory is created where the
 #: stage root is.

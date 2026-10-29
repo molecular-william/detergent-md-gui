@@ -8,7 +8,7 @@ publishing without anyone noticing.
 Two of these tests are about not being a second copy of a truth that lives elsewhere. The `payload` a kind publishes
 is what its queue route (`web/routes/analyses.py::queue_analysis`) actually validates, and the route is read here --
 its source is parsed -- rather than restated, so the two cannot drift: a branch the route gains, or a body key it
-stops reading, fails this file and points at the declaration in `kinds._PAYLOAD`.
+stops reading, fails this file and points at the declaration in `kinds.Kind.payload`.
 """
 import ast
 import inspect

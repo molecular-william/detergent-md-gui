@@ -33,10 +33,10 @@ def known(kind: str) -> bool:
 
 
 def _stage_alias(relative):
-    """A pdc stage-relative path with its stage directory replaced by the stage's own key.
+    """A stage-relative path with its stage directory replaced by the stage's own registered key.
 
-    The kinds declare a pdc source by one spelling (`4_extension/prod/whole.xtc`, `1_system/*.itp`), while a current
-    run writes the numbered directory (`07_extension/…`, `02_system/…`). Normalising both the declared pattern and
+    The kinds declare a source by one spelling (`4_extension/prod/whole.xtc`, `1_system/*.itp`), while a current
+    run writes the numbered directory (`08_extension/…`, `02_system/…`). Normalising both the declared pattern and
     the file's path to the stage key lets one declaration match either layout, without a second list of patterns.
     """
     parts = str(relative).split('/')
@@ -48,7 +48,6 @@ def source_entries(root,kind):
     patterns = list(TABLE[kind].sources)
     run=root.parent if root.name=='stages' else root
     metadata=json.loads((run/'manifest.json').read_text()) if (run/'manifest.json').is_file() else {}
-    pdc = metadata.get('run_type') == 'pdc'
     shared=metadata.get('shared_reference');aa_source=None
     if TABLE[kind].reads_aa_reference:
         if shared:aa_source,_=aa_references.resolve(run.parent,shared['source_run_id'],shared['sha256'])
@@ -67,8 +66,9 @@ def source_entries(root,kind):
         if any(fnmatch.fnmatch(relative, pattern) for pattern in patterns):
             return True
         # Both layouts name the same stage: the numbered directories and the legacy spellings are aliases of one
-        # pattern, so a current pdc run's sources are staged exactly as a legacy run's are.
-        return pdc and any(fnmatch.fnmatch(_stage_alias(relative), _stage_alias(pattern)) for pattern in patterns)
+        # pattern, so a current run's sources are staged exactly as a legacy run's are. `_stage_alias` is the
+        # identity for any directory `layout.stage_key` does not know, so this cannot widen a non-stage pattern.
+        return any(fnmatch.fnmatch(_stage_alias(relative), _stage_alias(pattern)) for pattern in patterns)
     entries={str(p.relative_to(root)):p for p in files.safe_files(root) if str(p.relative_to(root)).split('/')[0] not in ('analysis','analyses','analysis_plots','snapshots','inputs','logs') and matches(str(p.relative_to(root)))}
     if aa_source:entries.update({f'1_AA-reference/prod/{name}':aa_source/name for name in ('lig.gro','lig.xtc')})
     return entries

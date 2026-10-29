@@ -75,7 +75,7 @@ def register(section, *, panels=(), blurbs=(), tab_ids=()) -> None:
 def home():
     """The workspace the front door renders: the first registered one.
 
-    Registration order is the answer: the engine contributes the shell, then features register in `features.KNOWN`
+    Registration order is the answer: the engine contributes the shell, then features register in `Feature.priority`
     order, so a full install opens on validation and a minimal one opens on its only workspace. Naming a workspace
     here would keep one feature's name in the engine.
     """
@@ -96,8 +96,21 @@ def visible(section):
         return section
     unknown = [slug for slug in wanted if slug not in section['tabs']]
     if unknown:
-        raise ValueError(f'DASHBOARD_TABS names panels {unknown} that {section["label"]} does not have')
+        raise ValueError(f'DASHBOARD_TABS names panels {unknown} that {section["label"]} does not have; '
+                         f'it has {sorted(section["tabs"])}')
     return {**section, 'tabs': tuple(slug for slug in section['tabs'] if slug in wanted)}
+
+
+def validate_tabs():
+    """Refuse a `DASHBOARD_TABS` no registered workspace can honour, at construction rather than on a page.
+
+    `visible()` is the only reader of the setting, and it used to run only while rendering, so a typo in the
+    variable surfaced as a 400 on whichever page was opened first. `create_app` calls this once after every
+    installed feature has registered its workspace, so the check sees the whole registry; the error is
+    `visible`'s own, naming the workspace and the panels it does have. Unset or empty still means every panel.
+    """
+    for section in SECTIONS.values():
+        visible(section)
 
 
 def section_for(name):

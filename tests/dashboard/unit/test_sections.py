@@ -160,3 +160,22 @@ def test_visible_refuses_a_panel_the_workspace_lacks(monkeypatch):
     monkeypatch.setenv('DASHBOARD_TABS', 'runs,not-a-panel')
     with pytest.raises(ValueError, match='not-a-panel'):
         sections.visible(sections.SECTIONS['validation'])
+
+
+def test_create_app_validates_dashboard_tabs_at_construction(tmp_path, monkeypatch):
+    """A bad panel name is a start-up failure, not a 400 on whichever page is opened first.
+
+    `create_app` builds its own application through the factory, so the setting can be changed and read again
+    without touching the module-level `app` built at import.
+    """
+    from tests.dashboard import factory
+
+    monkeypatch.setenv('DASHBOARD_TABS', 'runs,not-a-panel')
+    with pytest.raises(ValueError, match='not-a-panel'):
+        factory.build(tmp_path / 'unknown')
+
+    monkeypatch.setenv('DASHBOARD_TABS', 'runs,new-run')
+    assert factory.build(tmp_path / 'valid').app is not None
+
+    monkeypatch.delenv('DASHBOARD_TABS')
+    assert factory.build(tmp_path / 'unset').app is not None, 'unset still means every panel'

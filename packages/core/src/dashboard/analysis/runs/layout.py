@@ -14,8 +14,8 @@ reader no longer needs `environment.execution_root`: `stages/` when the run has 
 and the directory itself for a work directory.
 
 A protein-detergent run also has two spellings of its own: the numbered directories (`02_system/` … `10_backmap/`)
-a current run writes, and the names it wrote before that (`1_system/` … `6_backmap/`). `PDC_STAGE_DIRECTORIES` is
-the one table that says which directory is which stage, and `pdc_stage_path`/`pdc_stage_dir` read through it.
+a current run writes, and the names it wrote before that (`1_system/` … `6_backmap/`). The stage table a feature
+registers (`STAGE_DIRECTORIES`) says which directory is which stage, and `stage_path`/`stage_dir` read through it.
 
 Nothing here opens a topology file. The roles are paths, and the caller decides whether absence is fatal; the one
 record read is the manifest `recorded_topology` searches for the name a run recorded.

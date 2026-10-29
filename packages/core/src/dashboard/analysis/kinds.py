@@ -185,7 +185,7 @@ def for_every_run() -> tuple[str, ...]:
 #: The body keys each kind's queue route validates, read off `web/routes/analyses.py`'s `queue_analysis` rather than
 #: from what a producer would like to receive. Only `carbohydrate-validation` has a body contract: it aborts without
 #: a tier, a representation mode, a mapping snapshot, a molecule id and a target dataset. Every other kind's route
-#: hands the body to the worker untouched -- any object, or none at all -- so it is absent from this mapping and
+#: hands the body to the worker untouched -- any object, or none at all -- so its row leaves `payload` empty and
 #: `published()` reports `payload: None`, which is what lets the control offer a bare button for it.
 #:
 #: This is a declaration, not a derivation, because the route states its contract as inline `abort`s rather than as

@@ -12,6 +12,7 @@ from werkzeug.exceptions import HTTPException
 from . import paths as path_config
 from .constants import HOST, PORT
 from .execution.coordination.coordinator import Coordinator
+from .web import sections
 from .web.routes import analyses, catalog, common, maintenance, mappings, molecules, runs
 
 
@@ -27,6 +28,9 @@ def create_app(paths=None, config=None):
         app.register_blueprint(module.blueprint)
     from . import features
     features.register(app)
+    # Once, after every installed feature has contributed its workspace: a bad DASHBOARD_TABS fails here with
+    # the workspace and its valid panels, instead of answering 400 on the first page that renders.
+    sections.validate_tabs()
 
     @app.errorhandler(ValueError)
     def invalid_value(error):
