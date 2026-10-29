@@ -25,19 +25,26 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
   `detergent_pdc/topologies.py`, the queued-run skip preview in `detergent_pdc/view.py`, and `/api/micelle/build` on
   the pdc blueprint. The structure writer is engine code (`analysis/runs/structures.py`) because it serves every run.
 - The validation analyses and their seven kind rows moved to `detergent_validation/` (`kinds.py`, `analysis/runs/`,
-  `analysis/validation/`, `sugar_ensemble.py`). The engine seams they needed are `Kind.payload` (a row states its
+  `analysis/validation/`, `sugar_ensemble.py`). The carbohydrate evidence vocabulary moved too:
+  `detergent_validation/evidence.py` owns the three section texts and the `carbohydrate` profile; the engine keeps
+  `alkyl_tail`/`charged_headgroup`/`detergent`, and `molecules/evidence.PROFILES` is a live merged view (a core-only
+  install therefore has no carbohydrate profile, by design). The engine seams they needed are `Kind.payload` (a row states its
   queue body keys), `features.kind_payload_for(kind)` (the feature validates and derives that body), the targets route
   on the validation blueprint, and `analysis/runs/statistics.py` (the block summary core and validation both report).
 - Still in core by decision: the bonded/dihedral analyses (`bonded-cross-check`, `dihedral-fit`, `bartender-fit`), the
   micelle adapter and its science, the mapping editor, the molecules panel, and `analysis/validation/
   carbohydrate_targets.py` (a mapping route and the validation analyses both read it). The remaining engine-held
-  feature vocabulary is `analysis/metadata.py`'s carbohydrate evidence-section titles, `models/molecules/evidence.py`'s
-  `PROFILE`, and `cli/migrate_run_layout.py`'s legacy pdc stage list; each needs a registry seam before it can move.
+  feature vocabulary are now registered too: the carbohydrate evidence sections/profile (2a) and the legacy pdc stage
+  names the migration reads (2b).
 - Feature panels own their browser surface now: the shell loop includes each registered `panels/<id>.html` from the
   feature's template package, links its `styles`, and boots its `panel_modules` (mapping-validation + osmotic from
   detergent_validation, the Complexes panel from detergent_pdc); a deployment without a feature fetches neither its
-  markup nor its JS. Still shared shell: the New run form and the Run view keep the protein-detergent detail blocks
-  (`new-run.js`, `run-view-*.js`, the pdc blocks inside the `new` and `runview` sections).
+  markup nor its JS. The last shared panels follow the same rule through extension hooks: `new-run.js` and the
+  `run-view-*.js` family expose `registerNewRunExtension({workspace, create(context)})` and
+  `registerRunViewExtension({name, serves, structure, runSelected})`, the pdc feature registers both from
+  `js/new-run-pdc.js` / `js/run-view-pdc.js` (`Feature.extension_modules`), and its markup lives in
+  `templates/fragments/` inserted at generic slots. The engine's panel JS, CSS and template name no pdc/protein-detergent
+  vocabulary; the styling followed the markup into `pdc.css`.
 - The validation-only endpoints (`mapping-consistency`, `distance-diagnostics`, `carbohydrate-validation`,
   `/api/runs/transferability`) and the cross-molecule reader are the validation feature's now. `/api/compare`,
   `/api/mappings/validation-targets`, `/api/mappings/ring-site/preview` and `/api/evidence/evaluate` look

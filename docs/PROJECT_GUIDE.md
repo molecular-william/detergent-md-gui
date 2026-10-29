@@ -24,7 +24,8 @@ imports a feature; a feature imports the engine and registers through `dashboard
 The engine (`packages/core/src/dashboard/`):
 * app.py constructs the application. features.py discovers a feature and registers its blueprints, run types, analysis
   kinds, workspace and hooks (admission, prepare, create_settings, readiness, run_failed, layout, planned_skips,
-  protein_topologies, kind_payload, priority, templates, static, panel_modules, styles); web/sections.py owns the
+  protein_topologies, kind_payload, priority, templates, static, styles, panel_modules, extension_modules,
+evidence_sections, molecule_profiles, legacy_stages); web/sections.py owns the
 section order and the `DASHBOARD_TABS` filter.
 A feature distribution advertises itself with the `detergent_md.features` entry point, so installing a wheel is
 how a dashboard gains a workspace; the engine never imports one.
@@ -50,15 +51,16 @@ targets, the analyses payload and the comparison/diagnostics endpoints), executi
 osmotic_box/osmotic_mdp and the series runner,
 analysis/runs/ (mapping_consistency, transferability, overlap, surfaces, refinement, osmotic_pressure, consistency,
 draft_geometry),
-analysis/validation/ (report, targets, osmotic, geometry, transfer), analysis/sugar_ensemble.py, and kinds.py
-(carbohydrate-validation, mapping-consistency, osmotic-pressure, overlap, refinement-score, surfaces, targets).
+analysis/validation/ (report, targets, osmotic, geometry, transfer), analysis/sugar_ensemble.py, evidence.py (the
+carbohydrate evidence sections and profile), and kinds.py (carbohydrate-validation, mapping-consistency,
+osmotic-pressure, overlap, refinement-score, surfaces, targets).
 
 detergent-pdc (`packages/pdc/src/detergent_pdc/`): execution/adapters/ (pdc, pdc_import, pdc_preparation, pdc_protein,
 pdc_placement, pdc_box, pdc_solvation, pdc_assessment), execution/pdc_preview.py, the repository `pdc_*.sh` scripts,
 analysis/runs/encapsulation.py, layout.py (stage directories, roles, review order, detergent topology), segments.py
 (the pdc segmenter and its markers), topologies.py (the protein's moleculetypes), view.py (the queued-run skip
-preview), and web/routes/pdc.py (setup, system, micelle build). The panels' markup and browser code still live in the
-shell (`templates/dashboard.html`, `static/js`); lifting them is the remaining front-end split.
+preview), web/routes/pdc.py (setup, system, micelle build), and its browser surface: `templates/panels/` and
+`templates/fragments/`, `static/pdc.css`, `static/js/{pdc,new-run-pdc,run-view-pdc}.js`.
 
 ### Adding a distribution
 A feature is a distribution that advertises one entry point; installing it is the whole act of adding it to a
@@ -80,7 +82,9 @@ disappearing. A feature's browser surface is its own too: `templates` joins the 
 under `url_for('feature_asset', ...)`, `styles` are linked before the shell's panel sheets, and `panel_modules` maps a
 panel's DOM id to an ES module and its factory. The shell includes every registered `panels/<id>.html` and boots the
 modules it was handed, so an install without a feature downloads neither its markup nor its scripts. Two surfaces are
-still shared shell today: the New run form and the Run view carry the protein-detergent detail blocks in the engine.
+shared panels expose extension hooks instead: `new-run.js` and `run-view-*.js` accept
+`registerNewRunExtension`/`registerRunViewExtension` from a feature's `extension_modules`, and the pdc feature supplies
+its markup through `templates/fragments/` slots, so the engine's panels, CSS and template carry no pdc vocabulary.
 
 The source-ownership list above is the maintained map; `AGENTS.md` holds the rules and commands. Engine module paths
 below are written as they are imported (`dashboard/...`); the files live under `packages/core/src/`, and a feature's
