@@ -131,6 +131,16 @@ def register(section, *, panels=(), blurbs=(), tab_ids=()) -> None:
     TAB_IDS.update(tab_ids)
 
 
+def home():
+    """The workspace the front door renders: the first registered one.
+
+    Registration order is the answer: the engine contributes the shell, then features register in `features.KNOWN`
+    order, so a full install opens on validation and a minimal one opens on its only workspace. Naming a workspace
+    here would keep one feature's name in the engine.
+    """
+    return next(iter(SECTIONS.values()))
+
+
 def section_for(name):
     """The section `name`, or `None`.
 

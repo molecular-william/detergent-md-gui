@@ -16,6 +16,7 @@ from __future__ import annotations
 import importlib
 import importlib.util
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable, Mapping
 
 #: The feature distributions this repository builds. Deliberately closed: a feature is a package shipped from here,
@@ -49,6 +50,9 @@ class Feature:
     code_prefixes: tuple = ()
     #: `{run type: (payload) -> None}` admission rules a feature's run types need; raise ValueError to refuse.
     admission: Mapping[str, Callable] = field(default_factory=dict)
+    #: `(label, package directory)` trees whose content decides an analysis result, so a feature edit mints a new
+    #: attempt instead of reusing a completed one (`analysis_coordinator.code_fingerprint_files`).
+    code_roots: tuple = ()
 
 
 _features: list[Feature] | None = None
@@ -96,6 +100,21 @@ def admission_for(run_type):
         if run_type in feature.admission:
             return feature.admission[run_type]
     return None
+
+
+def code_fingerprint_files():
+    """`(name, path)` for every feature file that decides an analysis result.
+
+    The engine walks its own `analysis/` and `models/`; a feature's code lives outside those, so without this an
+    edit to a feature's metric would change no signature and the panel would keep serving the old numbers.
+    """
+    entries = []
+    for feature in ensure():
+        for label, directory in feature.code_roots:
+            directory = Path(directory)
+            for path in sorted(directory.rglob('*.py')):
+                entries.append((f'{label}/{path.relative_to(directory).as_posix()}', path))
+    return entries
 
 
 def register(app):

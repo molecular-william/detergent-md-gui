@@ -20,7 +20,7 @@ from ...execution.adapters.micelle import run_micelle_job
 from ...execution.coordination import admission
 from ...models.molecules import aa as aa_molecules
 from .. import views
-from ..sections import PANELS, SECTIONS, TAB_IDS, legacy_tab_targets, run_types_for, section_by_slug
+from ..sections import PANELS, SECTIONS, TAB_IDS, home, legacy_tab_targets, run_types_for, section_by_slug
 from .common import coordinator, json_object, pagination
 
 blueprint = Blueprint('runs', __name__)
@@ -74,9 +74,8 @@ def index():
     put a chosen-looking URL in the history when the root is not somewhere anyone chose to be, and it would give
     validation two canonical paths instead of one.
     """
-    return render_template('dashboard.html',
-                           **workspace_context(SECTIONS['validation']['slug'],
-                                               SECTIONS['validation']['tabs'][0]))
+    first = home()
+    return render_template('dashboard.html', **workspace_context(first['slug'], first['tabs'][0]))
 
 
 @blueprint.get('/<section>')

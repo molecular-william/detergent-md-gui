@@ -29,10 +29,12 @@ def code_fingerprint_files():
     from the code it describes, and names each file relative to `dashboard/` because two modules can share a
     basename.
     """
+    from dashboard import features
     root = Path(analysis.__file__).resolve().parent.parent
-    return [(str(path.relative_to(root)), path)
-            for package in CODE_ROOTS
-            for path in sorted((root / package).rglob('*.py'))]
+    entries = [(str(path.relative_to(root)), path)
+               for package in CODE_ROOTS
+               for path in sorted((root / package).rglob('*.py'))]
+    return entries + features.code_fingerprint_files()
 
 from .. import workflow
 from ..environment import recorded_environment
