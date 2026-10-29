@@ -20,7 +20,7 @@ from ...execution.adapters.micelle import run_micelle_job
 from ...execution.coordination import admission
 from ...models.molecules import aa as aa_molecules
 from .. import views
-from ..sections import PANELS, SECTIONS, TAB_IDS, home, legacy_tab_targets, run_types_for, section_by_slug
+from ..sections import PANELS, SECTIONS, TAB_IDS, home, legacy_tab_targets, run_types_for, section_by_slug, visible
 from .common import coordinator, json_object, pagination
 
 blueprint = Blueprint('runs', __name__)
@@ -56,6 +56,7 @@ def workspace_context(section, panel):
     found = section_by_slug(section)
     if found is None:
         raise ValueError(f'no workspace has the slug {section!r}')
+    found = visible(found)
     return dict(section=section, panel=panel, workspace=found, workspaces=SECTIONS,
                 panel_info=PANELS, tab_ids=TAB_IDS, legacy_tabs=legacy_tab_targets(),
                 # The Run view panel's scope, from the registry's own per-workspace `run_types`: the panel asks
@@ -74,7 +75,7 @@ def index():
     put a chosen-looking URL in the history when the root is not somewhere anyone chose to be, and it would give
     validation two canonical paths instead of one.
     """
-    first = home()
+    first = visible(home())
     return render_template('dashboard.html', **workspace_context(first['slug'], first['tabs'][0]))
 
 
@@ -96,7 +97,7 @@ def panel_view(section, panel):
     names a panel is checkable, so it is checked.
     """
     found = section_by_slug(section)
-    if found is None or panel not in found['tabs']:
+    if found is None or panel not in visible(found)['tabs']:
         abort(404)
     return render_template('dashboard.html', **workspace_context(section, panel))
 

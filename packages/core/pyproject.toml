@@ -19,6 +19,9 @@ dependencies = [
   "rdkit",
 ]
 
+[project.scripts]
+detergent-dashboard = "dashboard.cli.serve:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["dashboard*"]

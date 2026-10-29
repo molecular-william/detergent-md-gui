@@ -8,6 +8,7 @@ The registry is also the answer to "where does a new panel go" -- a panel is add
 and giving it a label, and the tests below fail if either half is missing.
 """
 import pytest
+from dashboard.web import sections
 from dashboard.web.sections import PANEL_BLURBS, PANELS, PLANNED, SECTIONS, panel_glyph, panel_label, section_by_slug, section_for, tabs_for
 
 
@@ -144,3 +145,18 @@ def test_a_per_workspace_label_names_a_panel_that_workspace_owns():
         for panel in section.get('panel_labels', {}):
             assert panel in section['tabs'], f'{name} labels {panel}, which is not one of its panels'
             assert panel in PANELS, f'{panel} is labelled per workspace but has no rail label or glyph'
+
+
+def test_visible_honours_dashboard_tabs(monkeypatch):
+    """An instance may show fewer panels than its distribution owns; the registry still names them all."""
+    section = sections.SECTIONS['validation']
+    monkeypatch.setenv('DASHBOARD_TABS', 'runs,new-run')
+    assert sections.visible(section)['tabs'] == ('runs', 'new-run')
+    monkeypatch.delenv('DASHBOARD_TABS')
+    assert sections.visible(section)['tabs'] == section['tabs']
+
+
+def test_visible_refuses_a_panel_the_workspace_lacks(monkeypatch):
+    monkeypatch.setenv('DASHBOARD_TABS', 'runs,not-a-panel')
+    with pytest.raises(ValueError, match='not-a-panel'):
+        sections.visible(sections.SECTIONS['validation'])

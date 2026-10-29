@@ -1,0 +1,2 @@
+[console_scripts]
+detergent-dashboard = dashboard.cli.serve:main

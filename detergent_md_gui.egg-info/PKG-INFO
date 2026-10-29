@@ -1,0 +1,17 @@
+Metadata-Version: 2.1
+Name: detergent-md-gui
+Version: 0.2.0
+Summary: A local GROMACS/Martini dashboard: detergent validation and protein-detergent simulations.
+Requires-Python: >=3.12
+Provides-Extra: det
+Requires-Dist: detergent-validation==0.2.0; extra == "det"
+Provides-Extra: prot
+Requires-Dist: detergent-pdc==0.2.0; extra == "prot"
+Provides-Extra: all
+Requires-Dist: detergent-validation==0.2.0; extra == "all"
+Requires-Dist: detergent-pdc==0.2.0; extra == "all"
+Provides-Extra: test
+Requires-Dist: pytest>=8; extra == "test"
+Requires-Dist: pytest-xdist<4,>=3.6; extra == "test"
+Requires-Dist: hypothesis<7,>=6; extra == "test"
+Requires-Dist: playwright>=1.40; extra == "test"

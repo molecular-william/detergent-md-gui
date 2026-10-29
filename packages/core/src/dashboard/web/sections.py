@@ -82,6 +82,24 @@ def home():
     return next(iter(SECTIONS.values()))
 
 
+def visible(section):
+    """The section with `DASHBOARD_TABS` honoured: the panels this instance shows, in the registry's order.
+
+    A deployment may be narrower than the distribution it installed: the validation-only dashboard shows six of the
+    eight panels its feature owns. The filter is an environment setting rather than a copy of the registry, so the
+    installed feature still describes every panel it can render and a missing name is a start-up error, not a page
+    that silently lost a tab. An unset variable, or an empty one, means every panel.
+    """
+    import os
+    wanted = [slug for slug in (os.environ.get('DASHBOARD_TABS') or '').split(',') if slug.strip()]
+    if not wanted:
+        return section
+    unknown = [slug for slug in wanted if slug not in section['tabs']]
+    if unknown:
+        raise ValueError(f'DASHBOARD_TABS names panels {unknown} that {section["label"]} does not have')
+    return {**section, 'tabs': tuple(slug for slug in section['tabs'] if slug in wanted)}
+
+
 def section_for(name):
     """The section `name`, or `None`.
 

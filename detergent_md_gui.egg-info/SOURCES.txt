@@ -1,0 +1,7 @@
+README.md
+pyproject.toml
+detergent_md_gui.egg-info/PKG-INFO
+detergent_md_gui.egg-info/SOURCES.txt
+detergent_md_gui.egg-info/dependency_links.txt
+detergent_md_gui.egg-info/requires.txt
+detergent_md_gui.egg-info/top_level.txt

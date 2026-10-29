@@ -1,0 +1,16 @@
+
+[all]
+detergent-validation==0.2.0
+detergent-pdc==0.2.0
+
+[det]
+detergent-validation==0.2.0
+
+[prot]
+detergent-pdc==0.2.0
+
+[test]
+pytest>=8
+pytest-xdist<4,>=3.6
+hypothesis<7,>=6
+playwright>=1.40

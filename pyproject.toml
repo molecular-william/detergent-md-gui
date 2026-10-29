@@ -29,3 +29,26 @@ exclude = [".venv", "dashboard/.venv", "archive", "references", "resources", "to
 #   dashboard/.venv/bin/python -m ruff check dashboard tests --select E,W
 # See docs/decisions/2026-09-24-architecture-decisions.md for why this split was chosen.
 select = ["F", "E9", "I"]
+# The meta distribution. Installing `detergent-md-gui` installs the engine; the extras add a feature distribution.
+# Local installs resolve the features from built wheels (`pip wheel packages/* -w dist --no-deps` then
+# `pip install --find-links dist "detergent-md-gui[det]"`), because they are not published to an index.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "detergent-md-gui"
+version = "0.2.0"
+description = "A local GROMACS/Martini dashboard: detergent validation and protein-detergent simulations."
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+det = ["detergent-validation==0.2.0"]
+prot = ["detergent-pdc==0.2.0"]
+all = ["detergent-validation==0.2.0", "detergent-pdc==0.2.0"]
+test = ["pytest>=8", "pytest-xdist>=3.6,<4", "hypothesis>=6,<7", "playwright>=1.40"]
+
+[tool.setuptools]
+# The meta distribution ships no modules: the engine and the features are their own packages.
+packages = []
