@@ -82,7 +82,9 @@ panel's DOM id to an ES module and its factory. The shell includes every registe
 modules it was handed, so an install without a feature downloads neither its markup nor its scripts. Two surfaces are
 still shared shell today: the New run form and the Run view carry the protein-detergent detail blocks in the engine.
 
-The source-ownership list above is the maintained map; `dashboard/README.md` carries only dashboard-local setup notes.
+The source-ownership list above is the maintained map; `AGENTS.md` holds the rules and commands. Engine module paths
+below are written as they are imported (`dashboard/...`); the files live under `packages/core/src/`, and a feature's
+under its own `packages/<feature>/src/` tree.
 
 ## Environment
 The interpreter lives in .venv/ at the checkout root. Existing virtual environments cannot be moved because launchers include absolute paths. Scientific resources and the local Fast_Forward package live under resources/. Fresh setup, from the repository root:

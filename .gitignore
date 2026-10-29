@@ -4,7 +4,6 @@ dashboard/jobs.service.lock
 dashboard/*.log
 dashboard/runs/
 .venv/
-dashboard/.venv/
 workspace/
 dashboard/mapping_drafts/
 dashboard/bonded_states/

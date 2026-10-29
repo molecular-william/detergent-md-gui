@@ -115,11 +115,14 @@ def _run(tmp_path, failing=()):
     """Run the series stage for real, with the stub standing in for GROMACS.
 
     The stage runs the repository script, as the executor does -- `stage_scripts` names it and the stage directory is
-    the working directory. It runs under the workspace's own virtualenv, which is where the real executor points
-    `python` (`tools.search_path` puts `dashboard/.venv/bin` first), and it derives the checkout from its own path.
+    the working directory. It runs under the checkout's virtualenv, which is where the real executor points
+    `python` (`tools.search_path` puts `.venv/bin` first), and the runner derives the checkout from the environment
+    the executor sets or, by hand, from its own location.
     """
+    from dashboard import paths
+
     stage = tmp_path / 'stages' / '01_simulate'
-    venv = Path(osmotic.__file__).resolve().parents[2] / '.venv' / 'bin'
+    venv = paths.PROJECT_ROOT / '.venv' / 'bin'
     return subprocess.run(['bash', str(SCRIPTS / 'osmotic_simulation.sh')], cwd=stage, capture_output=True,
                           text=True, check=False,
                           env={**os.environ, 'GROMACS': str(tmp_path / 'gmx'), 'MDRUN_LAUNCHER': '',

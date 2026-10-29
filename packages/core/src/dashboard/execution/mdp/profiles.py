@@ -16,7 +16,7 @@ Sources, in the order a reader needs them:
   legs' genion fix-up tpr, and the CG production template plus `cg.mdp_integration` for the assessment and
   extension legs. The two `pdc-restart-*` profiles are the raw CG templates; `prepare` writes them from here when
   the run asks for the removal path, for the system it rebuilds.
-* Osmotic (`osmotic-*`): `dashboard/execution/adapters/osmotic_mdp.py:osmotic_mdps` -- the CG templates with the
+* Osmotic (`osmotic-*`): `detergent_validation/execution/adapters/osmotic_mdp.py:osmotic_mdps` -- the CG templates with the
   paper's z-only coupling and the PLUMED flat-bottomed confinement.
 
 Changing a value here is changing physics for every future run, and is exactly what the parity gate in
@@ -474,7 +474,7 @@ PDC_RESTART_PROFILES = (
 # Osmotic pressure series.
 # --------------------------------------------------------------------------------------------------------------------
 
-_OSMOTIC_SOURCE = ('dashboard/execution/adapters/osmotic_mdp.py:osmotic_mdps(), derived from '
+_OSMOTIC_SOURCE = ('detergent_validation/execution/adapters/osmotic_mdp.py:osmotic_mdps(), derived from '
                    f'{_CG_TEMPLATE}/4_CG_sim/inputs and the paper\'s method (z-only coupling, PLUMED confinement)')
 _OSMOTIC_COMMENTS = {
     'nsteps': "the run's own duration in steps, at this file's dt",

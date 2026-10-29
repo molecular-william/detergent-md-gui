@@ -105,7 +105,7 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 | Phase 4 sucrose/maltose | deferred; targets remain `availability: metadata_only` | separate decision |
 | native micelle builder | paused; `micelle/` is a partial, unvalidated skeleton | do not present it as a model |
 | CI / coverage | no `.github/workflows`; `scripts/gate_commit.sh` is the gate; mutation signal is 11 mutants, 10 caught | no CI to add by default |
-| docs beyond this file | HANDOFF, DDM calibration, PROJECT_GUIDE, README and dashboard/README are current; AGENTS carries the new run contract; history archives deleted on request | use code/manifests/run records for superseded evidence |
+| docs beyond this file | HANDOFF, DDM calibration, PROJECT_GUIDE and README are current; AGENTS carries the new run contract; history archives deleted on request | use code/manifests/run records for superseded evidence |
 
 ## Invariants and incidents worth keeping
 

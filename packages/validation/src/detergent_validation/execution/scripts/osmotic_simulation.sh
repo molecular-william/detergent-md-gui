@@ -29,7 +29,7 @@
 #   * the index file is written HERE and not by the adapter: the pull's groups are atom indices, and the indices are
 #     not known until the molecules have been placed.
 #
-# This is the repository's own file (`dashboard/execution/scripts/osmotic_simulation.sh`), recorded in the run's
+# This is the repository's own file (`detergent_validation/execution/scripts/osmotic_simulation.sh`), recorded in the run's
 # `stage_scripts` by path and digest and run with the stage directory as its working directory. Nothing is stamped
 # into a copy at prepare time.
 #
@@ -49,9 +49,16 @@ export PATH="$(dirname "$GROMACS"):$PATH"
 set -euxo pipefail
 
 # The interpreter the application runs under, and the checkout it imports. The executor sets both; a caller that
-# runs this repository file by hand gets the script's own location as the root, which is the same checkout.
+# runs this repository file by hand gets the checkout from its own location (the script lives under
+# packages/validation/src/detergent_validation/execution/scripts/) when the import route below fails.
 PYTHON="${PYTHON:-python}"
-REPO_ROOT="${PROJECT_ROOT:-$("$PYTHON" -c 'from dashboard import paths; print(paths.PROJECT_ROOT)')}"
+if [ -z "${PROJECT_ROOT:-}" ]; then
+  PROJECT_ROOT="$("$PYTHON" -c 'from dashboard import paths; print(paths.PROJECT_ROOT)' 2>/dev/null || true)"
+fi
+if [ -z "${PROJECT_ROOT:-}" ]; then
+  PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../../.." && pwd)"
+fi
+REPO_ROOT="$PROJECT_ROOT"
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 # One attempt's record, appended per attempt rather than written at the end, so it survives the condition being
@@ -202,7 +209,7 @@ import json
 import sys
 from pathlib import Path
 
-from dashboard.execution.adapters import osmotic
+from detergent_validation.execution.adapters import osmotic
 
 workdir = Path(sys.argv[1])
 placement = json.loads((workdir / 'placement.json').read_text())
@@ -308,7 +315,7 @@ import json
 import sys
 from pathlib import Path
 
-from dashboard.execution.adapters import osmotic
+from detergent_validation.execution.adapters import osmotic
 
 workdir = Path(sys.argv[1])
 placement = json.loads((workdir / 'placement.json').read_text())
@@ -336,7 +343,7 @@ import json
 import sys
 from pathlib import Path
 
-from dashboard.execution.adapters import osmotic_mdp
+from detergent_validation.execution.adapters import osmotic_mdp
 
 workdir = Path(sys.argv[1])
 placement = json.loads((workdir / 'placement.json').read_text())
