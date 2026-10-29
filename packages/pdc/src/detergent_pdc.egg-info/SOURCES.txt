@@ -4,6 +4,7 @@ src/detergent_pdc/feature.py
 src/detergent_pdc.egg-info/PKG-INFO
 src/detergent_pdc.egg-info/SOURCES.txt
 src/detergent_pdc.egg-info/dependency_links.txt
+src/detergent_pdc.egg-info/requires.txt
 src/detergent_pdc.egg-info/top_level.txt
 src/detergent_pdc/analysis/__init__.py
 src/detergent_pdc/analysis/runs/__init__.py

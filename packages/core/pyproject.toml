@@ -21,6 +21,12 @@ dependencies = [
 
 [project.scripts]
 detergent-dashboard = "dashboard.cli.serve:main"
+detergent-import-run = "dashboard.cli.import_run:main"
+
+[tool.setuptools.package-data]
+# The shell is data, not modules: the template, the stylesheets, the panel scripts and the vendored NGL bundle are
+# read from the installed package, so a wheel without them starts and then cannot render a page.
+"dashboard.web" = ["templates/*.html", "static/*.css", "static/js/*.js", "static/vendor/*"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

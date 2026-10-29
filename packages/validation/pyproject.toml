@@ -9,7 +9,7 @@ name = "detergent-validation"
 version = "0.2.0"
 description = "Detergent validation panels and the osmotic series for the detergent-md-gui dashboard."
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["detergent-core==0.2.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

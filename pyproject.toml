@@ -41,7 +41,7 @@ name = "detergent-md-gui"
 version = "0.2.0"
 description = "A local GROMACS/Martini dashboard: detergent validation and protein-detergent simulations."
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["detergent-core==0.2.0"]
 
 [project.optional-dependencies]
 det = ["detergent-validation==0.2.0"]

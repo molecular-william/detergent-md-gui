@@ -70,3 +70,6 @@ resources/templates/small_mols_fast_forward/1_AA_reference/generate_atomistic_re
 
 # A stale copy of the CG force field; nothing reads it, and the installed set is the one a run records.
 resources/forcefields/
+
+# Built distributions; `pip wheel packages/* -w dist` recreates them from source.
+dist/

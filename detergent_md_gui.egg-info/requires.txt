@@ -1,3 +1,4 @@
+detergent-core==0.2.0
 
 [all]
 detergent-validation==0.2.0

@@ -1,0 +1,49 @@
+.molecule-mapping-workspace{margin-top:1rem}
+.mapping-editor-layout{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(28rem,1fr);gap:20px;align-items:start}
+.mapping-editor-diagram{min-height:34rem;border:1px solid #d5dee8;border-radius:8px;background:#fbfcfe;overflow:auto}
+.mapping-warning{margin:0 0 10px;padding:8px 10px;border:1px solid #f0d9a8;border-radius:6px;background:#fff8e6;color:#7a4b00;font-size:.86rem}
+/* The selectors and the selection controls live above the diagram, in its own column: choosing a
+   molecule and a candidate is the first thing a reader does, and the diagram is what reacts. */
+/* min-width:0 is what lets this column shrink below its content: without it the bead table's 31rem minimum
+   pushes the whole layout past a narrow viewport, which is how the 390px overflow test caught its absence. */
+.mapping-editor-controls{display:grid;gap:.75rem;min-width:0}
+.mapping-editor-diagram-column{display:grid;gap:.75rem;min-width:0}
+.mapping-selectors{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,16rem),1fr));gap:12px;max-width:44rem}
+.mapping-selection-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;max-width:44rem}
+.mapping-selection-row p{margin:0}
+.mapping-selection-row .toolbar{margin:0}
+.mapping-editor-controls .form-grid{grid-template-columns:1fr}
+.mapping-editor-controls .table-scroll{max-height:34rem;overflow:auto;border:1px solid var(--line);border-radius:8px}
+/* Mapping Validation. Same palette and idiom as the rest; only the heading row and the two badge kinds are
+   new, because a claim our own data supports must not look like a delta against the reference entry. */
+.validation-card-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.validation-card-heading h3{margin:0}
+.validation-comparison{background:var(--line);color:var(--muted);font-weight:600}
+.validation-comparison[data-comparison]{background:#e8eef6;color:var(--muted)}
+.validation-claim{background:#fce9eb;color:var(--danger);font-weight:650}
+.validation-selectors .toolbar{align-items:flex-end}
+.validation-selectors label{min-width:22rem}
+.validation-plot{min-height:16rem}
+/* The envelope figure is the surfaces analysis's own self-contained HTML, served inline through the artifact
+   route. The frame states its own height because its content cannot, and it is a frame rather than a second
+   renderer: the analysis that measured the surfaces is the thing that draws them. */
+.validation-surface-frame{width:100%;height:600px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.mapping-editor-controls table{margin:0;table-layout:fixed;min-width:31rem}
+.mapping-editor-controls caption{padding:10px 12px;margin:0;background:#f3f6fa}
+.mapping-editor-controls td,.mapping-editor-controls th{padding:8px 6px}
+.mapping-editor-controls td input,.mapping-editor-controls td select{min-width:0}
+.mapping-editor-controls th:nth-child(1){width:4.5rem}
+.mapping-editor-controls th:nth-child(2){width:3.5rem}
+.mapping-editor-controls th:nth-child(3){width:5.5rem}
+.mapping-editor-controls th:nth-child(4){width:8rem}
+.mapping-editor-controls th:nth-child(5){width:2.75rem}
+.mapping-editor-controls td input.atoms-input{min-width:0}
+.mapping-primary-actions{justify-content:flex-end;border-top:1px solid var(--line);padding-top:12px}
+.validation{margin:10px 0 0;font-size:13px}
+.validation ul{padding-left:20px;max-height:180px;overflow:auto}
+.validation li{margin:6px 0}
+.invalid-bead{background:#fff2e9}
+.mapping-bead-actions{margin:10px 0 0}
+#mapping-bead-rows tr.selected{background:#eaf1fb;outline:1px solid #bcd2ec}
+@media(max-width:900px){.mapping-editor-layout{grid-template-columns:1fr}.mapping-editor-diagram{min-height:24rem}}
+@media(max-width:520px){.mapping-editor-diagram{min-height:18rem}.mapping-primary-actions{justify-content:stretch}.mapping-primary-actions button{flex:1}}

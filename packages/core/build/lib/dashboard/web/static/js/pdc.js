@@ -1,0 +1,277 @@
+import { $, cachedApi, invalidateResource, panelIds } from './shared.js';
+import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, applyBeadRadii, renderBeadLegend } from './ngl-beads.js';
+
+export function createPdc() {
+  const template = $('#pdc-template'), protein = $('#pdc-protein');
+  const status = $('#pdc-panel-status'), limitation = $('#pdc-template-limitation');
+  const viewer = $('#pdc-viewer'), viewerBasis = $('#pdc-view-basis');
+  //: Where the legend goes: the card this panel draws its beads in. The colours are `ngl-beads.js`'s table and this
+  //: element is filled from it at mount, so the swatches and the beads cannot be decoded two ways.
+  const legend = document.querySelector('.pdc-view .bead-legend');
+  const runSelect = $('#pdc-run');
+  const mapping = $('#pdc-mapping'), queue = $('#pdc-queue');
+  const importField = $('#pdc-protein-id'), importButton = $('#pdc-import'), importNote = $('#pdc-import-status');
+  let catalog = null, currentRun = null;
+
+  function fill(select, values, label) {
+    select.replaceChildren(...values.map(item => new Option(label(item), item.id)));
+  }
+
+  function describe() {
+    // The catalogue reports what a template *is*, not only its name: the shipped one is a skeleton, and a panel
+    // that hid that would be offering a fitted detergent model the repository does not have.
+    const chosen = (catalog?.templates || []).find(item => item.id === template.value);
+    if (limitation) limitation.textContent = chosen ? chosen.limitations.join(' · ') : '';
+    if (status) status.textContent = chosen && !chosen.files_present
+      ? 'This template names files the repository does not have; a build would stop at validation rather than later.'
+      : 'Setup only: this panel lists what can be built; the pipeline stages follow.';
+  }
+
+  async function load() {
+    if (catalog) return;
+    catalog = await cachedApi('/api/pdc/catalog', {maxAge: 60000});
+    fill(template, catalog.templates, item => `${item.name} · ${item.registered_type || 'unregistered'}`);
+    // An empty micelle is in scope, so the protein list leads with the absence of one.
+    fill(protein, [{id: '', name: 'No protein (empty micelle)'}, ...catalog.proteins], item => item.name);
+    describe();
+    // After the catalogue, because the mapping list follows the chosen template's molecule.
+    loadMappings();
+  }
+
+  function chosenTemplate() {
+    return (catalog?.templates || []).find(item => item.id === template.value) || null;
+  }
+
+  async function loadMappings() {
+    // A build is made of a mapping: the beads a candidate saved from the bead-assignment editor. The list follows the
+    // template's molecule, because a mapping is a mapping *of* something, and the panel should not offer another
+    // molecule's beads.
+    if (!mapping) return;
+    const molecule = chosenTemplate()?.molecule || '';
+    mapping.replaceChildren(new Option('Looking for saved mappings…', ''));
+    if (queue) queue.disabled = true;
+    try {
+      const payload = await (await fetch(`/api/mappings?molecule_id=${encodeURIComponent(molecule)}`)).json();
+      // Only a mapping a build can reuse is offered: `validation.can_reuse` is the verdict
+      // `models/molecules/draft.py` refuses a build on, so the panel cannot list a candidate the build would reject at
+      // preparation and the browser does not restate the rule. A candidate with no verdict -- one whose file does not
+      // parse -- is not offered either.
+      const candidates = (payload.candidates || []).filter(item => item.validation?.can_reuse === true);
+      // The label is the candidate's own name; the value is the file the coordinator resolves a build against.
+      mapping.replaceChildren(...(candidates.length ? candidates
+        : [{name: 'No saved mapping this molecule can be built from'}])
+        .map(item => new Option(item.name, item.file || item.name)));
+      if (queue) queue.disabled = !candidates.length;
+    } catch (error) {
+      mapping.replaceChildren(new Option('The mapping list could not be read', ''));
+    }
+  }
+
+  async function loadRuns() {
+    // The panel's own door to a run, and it has to be the panel's: `setRun` used to have no caller but
+    // `window.pdcSetRun`, a hook that exists for tests, so a reader could not reach the viewer or the series at all.
+    if (!runSelect) return;
+    runSelect.replaceChildren(new Option('Looking for complex runs…', ''));
+    runSelect.disabled = true;
+    let jobs = [];
+    try {
+      // Paged at 20 by default, and an older complex is exactly what a reader compares against, so ask for all.
+      const payload = await (await fetch('/api/jobs?limit=100')).json();
+      jobs = (payload.jobs || []).filter(job => job.run_type === 'pdc');
+    } catch (error) {
+      runSelect.replaceChildren(new Option('The run list could not be read', ''));
+      return;
+    }
+    runSelect.replaceChildren(new Option(jobs.length ? 'Choose a run to view' : 'No complex run yet', ''),
+      ...jobs.map(job => new Option(`${job.id} · ${job.molecule_id || 'molecule'} · ${job.status}`, job.id)));
+    runSelect.disabled = !jobs.length;
+    // A link may name the run it wants. Without one the panel opens on the placeholder rather than loading a system
+    // nobody asked for -- an option that reads as chosen while nothing is shown would be the panel lying.
+    const wanted = new URLSearchParams(location.search).get('run') || '';
+    if (wanted && jobs.some(job => job.id === wanted)) {
+      runSelect.value = wanted;
+      armRun(wanted);
+    }
+  }
+
+  function armRun(id) {
+    // One door, whatever opened it: this list, a link, or the hook the browser tests hold.
+    currentRun = id ? {id} : null;
+    return loadSystem();
+  }
+
+  async function importStructure() {
+    // The id becomes a file name on the server, and a structure already there is the answer rather than a second
+    // download -- so a refusal leaves the catalogue exactly as it was.
+    const pdbid = (importField?.value || '').trim();
+    if (!pdbid) return;
+    if (importButton) importButton.disabled = true;
+    if (importNote) importNote.textContent = `Fetching ${pdbid} from OPM…`;
+    let response, body = {};
+    try {
+      response = await fetch('/api/pdc/proteins/import', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                                          body: JSON.stringify({pdbid})});
+      body = await response.json().catch(() => ({}));
+    } catch (error) {
+      if (importButton) importButton.disabled = false;
+      if (importNote) importNote.textContent = 'The import could not be read: the coordinator did not answer.';
+      return;
+    }
+    if (importButton) importButton.disabled = false;
+    if (!response.ok) {
+      if (importNote) importNote.textContent = `That import was refused: ${body.error || response.status}`;
+      return;
+    }
+    // The catalogue is where the protein list comes from, so it is invalidated rather than trusted: a cached copy
+    // would offer every structure except the one just imported.
+    invalidateResource('/api/pdc/catalog');
+    catalog = null;
+    await load();
+    const entry = (catalog.proteins || []).find(item => item.name === body.pdbid);
+    if (entry) {
+      protein.value = entry.id;
+      protein.dispatchEvent(new Event('change'));
+    }
+    if (importField) importField.value = '';
+    if (importNote) importNote.textContent = body.already_present
+      ? `${body.pdbid} was already here; the list now offers it.`
+      : `Imported ${body.pdbid}` + (body.half_thickness_nm
+          ? ` — its file states a ${body.half_thickness_nm} nm half-thickness.`
+          : ' — its file states no membrane, so a build would use the protein-extent box.');
+  }
+
+  // The build's numbers as the route and the pdc adapter read them. The catalogue publishes the builders' names
+  // (`assessment_ns`), the queue route advertises and filters by the panel's `pdc_` spellings, and the adapter
+  // requires a seed -- so today's date supplies one a reader did not have to choose. `protein` is a path or null:
+  // the route reads `protein` and ignores anything else, and a build with no seed never passes admission.
+  const SETTING_ALIASES = {assessment_ns: 'pdc_assessment_ns', extension_ns: 'pdc_extension_ns'};
+  const NUMBER_KEYS = ['aggregation_number', 'salt_molar', 'box_margin_nm', 'initial_z_nm', 'contact_nm',
+                       'selection_threshold_fraction'];
+
+  function todaySeed() {
+    const now = new Date();
+    return Number(`${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`);
+  }
+
+  function buildPayload(entry) {
+    const defaults = catalog?.defaults || {};
+    const payload = {run_type: 'pdc', molecule_id: entry.molecule, method: 'bartender',
+                     template: entry.template, mapping_candidate: mapping.value,
+                     protein: protein?.value || null, pdc_seed: todaySeed()};
+    for (const [from, to] of Object.entries(SETTING_ALIASES)) {
+      if (defaults[from] != null) payload[to] = defaults[from];
+    }
+    for (const key of NUMBER_KEYS) {
+      if (defaults[key] != null) payload[key] = defaults[key];
+    }
+    return payload;
+  }
+
+  async function queueBuild() {
+    // Readiness is read before the POST, so a build that cannot start says why here rather than in a run that dies at
+    // stage one. The settings are the catalogue's own defaults: the same ones the pipeline is prepared with.
+    const chosen = chosenTemplate();
+    if (!chosen || !mapping?.value) return;
+    if (status) status.textContent = 'Reading what this build needs…';
+    const query = new URLSearchParams({run_type: 'pdc', template: chosen.template, protein: protein?.value || ''});
+    let ready = {};
+    try {
+      ready = await (await fetch(`/api/readiness?${query}`)).json();
+    } catch (error) {
+      if (status) status.textContent = 'The readiness check could not be read.';
+      return;
+    }
+    if (!ready.ready) {
+      if (status) status.textContent = `Not ready: ${(ready.blockers || []).join('; ')}`;
+      return;
+    }
+    if (status) status.textContent = 'Queueing the build…';
+    // The route that accepts a queue POST is `/` (`runs.py:queue`). This used to POST `/api/jobs`, which registers
+    // GET only and answers 405, so the button never queued anything.
+    const payload = buildPayload(chosen);
+    let response, body = {};
+    try {
+      response = await fetch('/', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                   body: JSON.stringify(payload)});
+      body = await response.json().catch(() => ({}));
+    } catch (error) {
+      if (status) status.textContent = 'The build could not be queued: the coordinator did not answer.';
+      return;
+    }
+    if (status) status.textContent = response.ok
+      ? `Queued ${body.id || body.job?.id || 'a run'} — it appears in Single Molecule Simulations as it runs.`
+      : `That build was refused: ${body.message || body.error || response.status}`;
+  }
+
+  template?.addEventListener('change', describe);
+  template?.addEventListener('change', loadSystem);
+  template?.addEventListener('change', loadMappings);
+  protein?.addEventListener('change', loadSystem);
+  // The panel's own selection, and the reason D4 exists: this listener is what makes the viewer reachable without a
+  // test hook.
+  runSelect?.addEventListener('change', () => { armRun(runSelect.value || null); });
+  queue?.addEventListener('click', queueBuild);
+  importButton?.addEventListener('click', importStructure);
+  // A four-character id and a button, so Enter in the field is the same request as the click.
+  importField?.addEventListener('keydown', event => {
+    if (event.key === 'Enter') { event.preventDefault(); importStructure(); }
+  });
+
+  function stage() {
+    // Created on first use: NGL sizes itself to its host element, and the host is sized for it in pdc.css.
+    if (!viewer) return null;
+    if (!viewer.pdcStage) viewer.pdcStage = new NGL.Stage(viewer, {backgroundColor: 'white'});
+    return viewer.pdcStage;
+  }
+
+  async function showPdb(text, describe) {
+    const stageRef = stage();
+    if (!stageRef) return;
+    stageRef.removeAllComponents();
+    // NGL invents bonds from interatomic distances unless the file tells it otherwise: `inferBonds` defaults to
+    // `'all'`. Every bead here is written as a radius stand-in element, so the guess is generous -- 90 bonds drawn
+    // on a placement frame the model bonds 60 ways, head beads onto tail beads among them. Both files this panel
+    // loads carry the model's own bonds as CONECT records (the built system the route serves out of `system.gro`),
+    // and where they do, the guess is switched off so the reader sees the topology that was
+    // simulated. A file that carries no records of its own keeps NGL's own bonds rather than drawing none.
+    const parameters = {ext: 'pdb'};
+    if (/^CONECT/m.test(text)) parameters.inferBonds = 'none';
+    const component = stageRef.loadFile(new Blob([text], {type: 'text/plain'}), parameters);
+    component.then(item => {
+      // The beads are drawn at the radius their own size class has in the model -- R 0.264 / S 0.230 / T 0.191 nm --
+      // rather than at the stand-in element's, which gets the ordering right and the proportions wrong. The table
+      // and the scale knob live in `ngl-beads.js` because two other views draw the same beads and neither should
+      // keep its own copy of the numbers. The radii go on the structure first, because that is what a representation
+      // resolves per atom.
+      applyBeadRadii(item.structure);
+      // The ball and the stick carry both of the module's answers: the radius each bead's own class gives it, and the
+      // colour its own type family gives it (`BEAD_FAMILY_PARAMETERS` reads the code the file writes in the b-factor
+      // column). One representation over every atom, so no bond is cut between two families.
+      item.addRepresentation('ball+stick', {...BEAD_RADIUS_PARAMETERS, ...BEAD_FAMILY_PARAMETERS});
+      item.autoView();
+      if (describe && viewerBasis) viewerBasis.textContent = describe(item);
+    });
+  }
+
+  async function loadSystem() {
+    // The viewer shows the system a stage actually wrote. Until one exists the route says so, and the panel repeats
+    // it rather than drawing an empty box.
+    if (!viewer) return;
+    const run = currentRun?.id;
+    if (!run) { if (viewerBasis) viewerBasis.textContent = 'The built system appears here once a build has run.'; return; }
+    const response = await fetch(`/api/pdc/${run}/system.pdb`);
+    if (!response.ok) { if (viewerBasis) viewerBasis.textContent = 'No built system to show yet.'; return; }
+    await showPdb(await response.text(), item => `Showing ${item.structure.atomCount} beads from the built system; `
+      + 'water and ions are omitted.');
+  }
+
+  return { mount: async () => {
+             // The legend is filled from the module's table when the panel mounts, so what a reader decodes the beads
+             // with is the same five colours the representations resolve.
+             renderBeadLegend(legend);
+             await Promise.all([load(), loadRuns()]); return $('#'+panelIds().complexes); },
+           loadSystem,
+           // The same door the panel's own list opens, kept as `window.pdcSetRun` for the tests that arm the viewer
+           // without waiting for a run to exist.
+           setRun: armRun };
+}

@@ -1,0 +1,97 @@
+/* One content measure, one navigation rail.
+ *
+ * Every panel is the same width and every panel places its cards on the same twelve columns of it. It did not
+ * look that way before: Runs widened the page to 1800 px for itself on a `:has()` rule while the other tabs
+ * were capped at 1440, and inside the panels each workspace chose its own sub-columns (a 448 px editor column,
+ * a 340 px sidebar, a 540 px settings grid) with empty space around them. A panel whose table fills its box and
+ * a panel whose form fills two thirds of it read as different widths even when the boxes measure the same.
+ *
+ * The rail replaces the horizontal tab row, which needed 1674 px of buttons inside a 1217 px bar and scrolled
+ * sideways with the last tab cut off. It compacts to icons below 1100 px and becomes the horizontal row again
+ * below 900 px, because a rail costs 220 px of content width and a small window has none to give.
+ *
+ * Loaded after the per-panel stylesheets, so the spans and the measure below win over the minima they replace.
+ */
+header, main { max-width: 1800px }
+
+/* The rail is on the right. The tab list is read after the content it switches, and a right-hand rail leaves the
+ * reading edge of the measure on the left, where every panel's headings, tables and forms are.
+ *
+ * The DOM order does not move: the nav still comes first. Only its grid placement does, which keeps the tab order
+ * as it was and keeps the rail above the content on the small windows below, where the row returns. Both the
+ * column and the row are stated for both children -- with only the column set, auto-placement puts the content
+ * under the rail, which is the left-hand layout again with the nav on top. */
+.app-shell { display: grid; grid-template-columns: minmax(0, 1fr) 220px; align-items: start }
+.app-shell > nav[role=tablist] { grid-area: 1 / 2 }
+.app-shell > .app-content { grid-area: 1 / 1 }
+.app-content { min-width: 0 }
+#notice { margin-top: 0 }
+
+nav[role=tablist] {
+  display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 14px 0 14px 10px;
+  border-bottom: 0; border-left: 1px solid var(--line); position: sticky; top: 0; max-height: 100vh; overflow: auto;
+}
+nav[role=tablist] .tab-group { font-size: 10px; letter-spacing: 1.6px; color: var(--muted); font-weight: 700; margin: 14px 8px 4px; padding-right: 8px }
+nav[role=tablist] button {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: transparent; color: var(--muted); border-radius: 8px 0 0 8px;
+  border: 0; border-right: 3px solid transparent; border-bottom: 0; padding: 10px 12px;
+}
+nav[role=tablist] button[aria-selected=true] { background: var(--surface); color: var(--accent); border-right-color: var(--accent) }
+nav[role=tablist] button .tab-glyph { width: 18px; flex: 0 0 18px; text-align: center; font-weight: 400; color: var(--accent) }
+
+/* The measure. A panel is a twelve-column grid and a card is a card on it, whatever the workspace inside. */
+.panel { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; align-content: start }
+.panel > * { grid-column: span 12; margin-top: 0; margin-bottom: 0 }
+.panel > .card { margin: 0 }
+#run-form { max-width: none }
+/* `new-run.css` anchors these on `#run-form.new-run-layout`, so the measure has to be stated at least as
+   specifically or the form keeps its own two columns and the spans below index into a template they do not fit. */
+#run-form.new-run-layout, .new-run-layout, .mapping-editor-layout, .composition-workspace, .pdc-workspace,
+.bonded-columns {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+.new-run-inputs { grid-column: span 6 }
+.new-run-settings { grid-column: span 6 }
+.mapping-editor-diagram-column { grid-column: span 7 }
+.mapping-editor-controls { grid-column: span 5 }
+.bonded-columns > * { grid-column: span 6 }
+.composition-sidebar { grid-column: span 3 }
+.composition-preview { grid-column: span 9 }
+.pdc-workspace > .pdc-setup { grid-column: span 3 }
+.pdc-workspace > .pdc-view { grid-column: span 9 }
+.pdc-workspace > .pdc-status { grid-column: span 12 }
+/* The Run view panel: the chooser and what the run holds on the left, the canvas, its frames and its figures on
+   the right, and the "what this view is not" note across the measure below both. The panel's own sheet states a
+   two-column grid for the same container and loses to this rule only because this sheet is linked after it --
+   the same arrangement `new-run.css` has with the measure. */
+.run-view-stage { grid-column: span 8 }
+.run-view-notes { grid-column: span 12 }
+
+/* Every workspace is one column by 1100 px (its own stylesheet says so at 980 or 900), so the spans go with it:
+   a span of eight in a one-column grid is eight implicit columns, which is how a layout breaks by accident. */
+@media (max-width: 1100px) {
+  .app-shell { grid-template-columns: minmax(0, 1fr) 64px }
+  nav[role=tablist] .tab-group { visibility: hidden; height: 0; margin: 0; padding: 0 }
+  nav[role=tablist] button { justify-content: center; padding: 10px 4px }
+  nav[role=tablist] button .tab-text { display: none }
+  .new-run-inputs, .new-run-settings, .mapping-editor-diagram-column, .mapping-editor-controls,
+  .bonded-columns > *, .composition-sidebar, .composition-preview,
+  .pdc-workspace > .pdc-setup, .pdc-workspace > .pdc-view, .pdc-workspace > .pdc-status,
+  .run-view-stage, .run-view-notes { grid-column: span 12 }
+}
+
+@media (max-width: 900px) {
+  /* One column, and the placement goes back to the DOM order so the row sits above the content as it always did:
+     a `grid-area` left over from the rail would put both children in one cell and overlap them. */
+  .app-shell { grid-template-columns: minmax(0, 1fr) }
+  .app-shell > nav[role=tablist], .app-shell > .app-content { grid-area: auto }
+  nav[role=tablist] {
+    flex-direction: row; gap: 6px; border-left: 0; border-bottom: 1px solid var(--line);
+    padding: 0; margin-bottom: 20px; max-height: none; overflow-x: auto; white-space: nowrap;
+  }
+  nav[role=tablist] .tab-group { display: none }
+  nav[role=tablist] button { width: auto; justify-content: flex-start; padding: 12px 18px; border-radius: 8px 8px 0 0; border-bottom: 3px solid transparent }
+  nav[role=tablist] button[aria-selected=true] { border-bottom-color: var(--accent); border-right-color: transparent }
+  nav[role=tablist] button .tab-text { display: inline }
+}

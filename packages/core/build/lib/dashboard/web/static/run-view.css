@@ -1,0 +1,93 @@
+/* The Run view panel: a run's structures, its CG chain segments, and its figures.
+ *
+ * Linked after the other per-panel sheets and *before* `layout.css`, which is deliberate. This sheet states the
+ * panel's own two-column grid -- the same shape `new-run.css` states for `#run-form.new-run-layout` -- and
+ * `layout.css` states the twelve-column measure the left and right columns are hung on. At equal specificity the
+ * later rule wins, so the measure is last on purpose and this sheet's `grid-template-columns` yields to it.
+ * Reversing the two stacks the columns; the plan's draft measured exactly that.
+ *
+ * `overflow-wrap: anywhere` is inherited, and it is here because everything this panel prints is a path or a
+ * sentence about one: a run-relative artifact path and the readout's own "how the bonds were decided" reason are
+ * longer than a narrow column, and an unbreakable word in a paragraph measures as sideways scroll at a 390 px window.
+ */
+
+/* The chooser. A list of buttons rather than a select: the run's id, its label, its molecule and its type are all
+ * worth reading at once, and a select shows one line of them. */
+/* What the run holds. Rows are selectable so the canvas follows the reader's pick. */
+.run-view-structures { width: 100%; border-collapse: collapse; font-size: 12px }
+.run-view-structures th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted); padding: 8px 6px; border-bottom: 1px solid var(--line); white-space: nowrap }
+.run-view-structures td { padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top }
+.run-view-structures tr[aria-selected="true"] { background: #eef4ff }
+.run-view-structures code { font-size: 12px; overflow-wrap: anywhere }
+
+.run-view-viewer { height: 420px; min-height: 300px; border: 1px solid var(--line); border-radius: 8px; background: #f7f9fc }
+
+.run-view-readout { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px;
+  margin: 12px 0 0; padding: 10px; background: #f7f9fc; border: 1px solid var(--line); border-radius: 8px;
+  font-size: 12px; font-variant-numeric: tabular-nums }
+.run-view-readout b { display: block; font-size: 15px }
+.run-view-readout .bad { color: var(--danger) }
+.run-view-readout .ok { color: #286644 }
+
+.run-view-figures { list-style: none; margin: 0; padding: 0; font-size: 13px; overflow-wrap: anywhere }
+.run-view-figures li { margin: 4px 0; padding: 2px 0 }
+
+
+/* ------------------------------------------------------------------ two monitors
+   The Run view is two of the same thing side by side. Every monitor's own markup is built in
+   `run-view-monitor.js`, so what is here styles the pair and the shape they share: the combo that picks a run, the
+   canvas with its readout, and the three collapsible panels below it. */
+.run-view-monitors { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; margin-top: 14px; }
+@media (max-width: 1080px) { .run-view-monitors { grid-template-columns: 1fr; } }
+.monitor-host { min-width: 0; }
+.monitor { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.monitor .card { padding: 12px; }
+
+/* The combo: an input with its own filtered listbox, so the list can carry a type, an id and a date. The input is
+   the width of the monitor rather than the width of its own label -- it is the control a reader uses most. */
+.monitor .chooser { position: relative; }
+.monitor .chooser .grow { display: block; width: 100%; }
+.monitor .chooser .cap { display: block; margin-bottom: 4px; }
+.monitor .chooser input { width: 100%; min-width: 0; box-sizing: border-box; font-size: 15px; padding: 8px 10px; }
+.monitor .chooser .list { position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px); max-height: 300px;
+  overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(16, 32, 64, 0.14); display: none; }
+.monitor .chooser[data-open="true"] .list { display: block; }
+.monitor .chooser .list button { display: block; width: 100%; text-align: left; background: transparent; color: var(--ink);
+  border: 0; padding: 7px 10px; cursor: pointer; }
+.monitor .chooser .list button[data-active="true"], .monitor .chooser .list button:hover { background: #eef4fd; }
+.monitor .chooser .list .group { padding: 6px 10px 2px; font-size: 11px; letter-spacing: 1px; color: var(--muted);
+  font-weight: 700; text-transform: uppercase; }
+.monitor .chooser .list .meta { color: var(--muted); font-weight: 400; }
+.monitor .chooser .list .none { padding: 8px 10px; color: var(--muted); }
+
+/* The three panels below the canvas: minimizable, minimized by default, each summary stating its count so a closed
+   panel still says how much is behind it. */
+.run-view-sub { padding: 0; }
+.run-view-sub > summary { cursor: pointer; padding: 10px 12px; font-weight: 700; }
+.run-view-sub > .body { padding: 0 12px 12px; }
+.run-view-sub .count { color: var(--muted); font-weight: 400; }
+.run-view-sub table { width: 100%; }
+.run-view-sub td, .run-view-sub th { text-align: left; vertical-align: top; padding: 3px 6px; }
+
+/* A path is the longest word on this page, and a panel that will not break one scrolls the whole document sideways
+   at 390 px -- which is the width the row is measured at. */
+.run-view-sub .table-scroll { overflow-x: auto }
+.run-view-sub td code, .run-view-figures li code { overflow-wrap: anywhere }
+
+/* A run's paths are its longest words, and they appear as often in prose as in a table: an unbreakable one inside a
+   paragraph widens the document, which is what a 390 px check catches and nothing else does. */
+.monitor p, .monitor td, .monitor summary, .monitor label, .monitor .hint { overflow-wrap: anywhere }
+
+/* The CG chain as segments: which legs share one system, and where the system is rebuilt. Two states are drawn
+ * because a reader must not have to infer them -- a stage that holds no trajectory (nothing to play) and the stage
+ * whose atom count changed (the boundary where the system is rebuilt). */
+.run-view-segments{width:100%;border-collapse:collapse;font-size:12px}
+.run-view-segments th,.run-view-segments td{text-align:left;padding:4px 8px 4px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.run-view-segments thead th{font-weight:600;color:var(--muted);border-bottom-width:2px}
+.run-view-segments tbody th{font-weight:600;white-space:nowrap}
+.run-view-segments tr[data-idle='true'] td,.run-view-segments tr[data-idle='true'] th{color:var(--muted)}
+.run-view-segments tr[data-boundary='true'] td,.run-view-segments tr[data-boundary='true'] th{
+  background:#fff7e8;border-bottom-color:#c9963c}
+.run-view-segments tr[data-boundary='true'] td:last-child{font-weight:600}

@@ -9,7 +9,7 @@ name = "detergent-pdc"
 version = "0.2.0"
 description = "Protein-detergent simulations for the detergent-md-gui dashboard."
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["detergent-core==0.2.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

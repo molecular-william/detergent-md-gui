@@ -77,6 +77,7 @@ AREAS = {
         'browser/test_workspace_navigation_browser.py',
     ),
     'runs': (
+        'unit/test_import_run.py',
         'unit/test_run_*', 'unit/test_stage_*', 'unit/test_progress_reading.py', 'unit/test_attempt.py',
         'unit/test_candidate_verdict.py', 'unit/test_workflow_plan_pairs.py', 'unit/test_coordinator_surface.py',
         'unit/test_run_type_matrix.py', 'unit/test_prepare_time_skips.py',
