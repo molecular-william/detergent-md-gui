@@ -11,6 +11,7 @@ from functools import wraps
 
 from dashboard import files, store
 
+from ... import features
 from ...analysis import kinds
 from ...analysis.runs import observability
 from ...analysis.runs import references as aa_references
@@ -352,6 +353,7 @@ class Coordinator:
                         'settings': job.get('settings') or {},
                         'solute_root': (job.get('settings') or {}).get('solute_root'),
                         'project_root': str(self.ROOT)})
+                prepare_metadata = features.prepare_for(job.get('run_type'))
                 if not readiness['ready']:
                     raise ValueError('; '.join(readiness['blockers']))
                 source_id = None if in_place else (job.get('resume_of') or job.get('reference_run_id'))
@@ -363,12 +365,10 @@ class Coordinator:
                         protocol.adapter_for(job.get('run_type')).prepare(
                             work, {'molecule_root': self.ROOT/'molecules', 'molecule_snapshot': job.get('molecule_snapshot'),
                                    'composition_id': job.get('composition_id'), 'settings': job.get('settings')})
-                    elif not in_place and job.get('run_type') == 'pdc':
-                        # The pdc adapter writes its own six stages; the CG kwargs below describe a molecule.
-                        protocol.adapter_for('pdc').prepare(
-                            work, {'protein': job.get('protein'), 'template': job.get('template'),
-                                   'mapping_candidate': job.get('mapping_candidate') or job.get('mapping_snapshot'),
-                                   'settings': job.get('settings'), 'project_root': str(self.ROOT)})
+                    elif not in_place and prepare_metadata is not None:
+                        # A feature's run type states the arguments its own adapter's `prepare` takes; the CG kwargs
+                        # below describe a molecule and are not a shape every run type shares.
+                        protocol.adapter_for(job.get('run_type')).prepare(work, prepare_metadata(job, self.ROOT))
                     elif not in_place and job.get('run_type') == 'osmotic':
                         # An osmotic condition writes its own single stage; the CG kwargs below describe a molecule
                         # and would filter the settings down to keys this run type does not use -- dropping the
@@ -494,12 +494,10 @@ class Coordinator:
         # left to refuse. `models/bonded` keeps the states and their own compatibility checks untouched: they are
         # still fitted, edited and compared in the Bonded workspace.
         settings = protocol.adapter_for(run_type or 'aa_cg').normalize_settings(settings, profile)
-        if (run_type or 'aa_cg') == 'pdc' and not protein:
-            # Generic normalization applies the adapter's defaults before the adapter knows which protein this run
-            # has. `prepare_protein` is a protein-only default, so an empty-micelle job otherwise carries `true` and
-            # `pdc.prepare` refuses the job it just accepted -- the failure measured on `bbda8d632309`. The job
-            # record is what a retry clones, so sanitize it here rather than only at prepare time.
-            settings['prepare_protein'] = False
+        tweak = features.create_settings_for(run_type or 'aa_cg')
+        if tweak is not None:
+            settings = tweak(settings, {'protein': protein, 'template': template,
+                                        'mapping_snapshot': mapping_snapshot, 'settings': settings})
         reference_snapshot=None
         if reference_run_id and shared:
             try:
@@ -508,11 +506,14 @@ class Coordinator:
             except (OSError,ValueError) as exc:raise SourceUnavailable(str(exc))
         elif reference_run_id:
             raise SourceUnavailable('CG runs require a shared AA reference')
-        if (run_type or 'aa_cg') == 'pdc':
-            # A protein-detergent build's inputs are a protein and a detergent template rather than a molecule, so
-            # it is checked by its own adapter; asking the CG adapter about it is how a pdc job used to be refused.
-            ready = protocol.adapter_for('pdc').readiness({'protein': protein, 'template': template,
-                                                           'project_root': str(self.ROOT)})
+        question = features.readiness_for(run_type or 'aa_cg')
+        if question is not None:
+            # A feature's run type is checked by its own adapter: asking the CG adapter about a protein-detergent
+            # build is how a pdc job used to be refused.
+            ready = question({'protein': protein, 'template': template, 'molecule_id': molecule_id or detergent,
+                              'method': method, 'profile': profile, 'mapping_snapshot': mapping_snapshot,
+                              'settings': settings or {}, 'molecule_root': self.ROOT / 'molecules',
+                              'solute_root': (settings or {}).get('solute_root')}, self.ROOT)
         elif (run_type or 'aa_cg') == 'osmotic':
             # An osmotic series is asked about itself too, and for a measured reason rather than symmetry: the CG
             # adapter's own readiness refuses every `standard` profile outright, because a *replicated CG model*

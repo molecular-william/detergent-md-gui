@@ -53,6 +53,12 @@ class Feature:
     #: `(label, package directory)` trees whose content decides an analysis result, so a feature edit mints a new
     #: attempt instead of reusing a completed one (`analysis_coordinator.code_fingerprint_files`).
     code_roots: tuple = ()
+    #: `{run type: (job, root) -> metadata}` the arguments its adapter's `prepare` is called with.
+    prepare: Mapping[str, Callable] = field(default_factory=dict)
+    #: `{run type: (settings, job) -> settings}` the run type's own sanitisation after generic normalisation.
+    create_settings: Mapping[str, Callable] = field(default_factory=dict)
+    #: `{run type: (data, root) -> readiness answer}` for a run type whose adapter asks its own question.
+    readiness: Mapping[str, Callable] = field(default_factory=dict)
 
 
 _features: list[Feature] | None = None
@@ -115,6 +121,29 @@ def code_fingerprint_files():
             for path in sorted(directory.rglob('*.py')):
                 entries.append((f'{label}/{path.relative_to(directory).as_posix()}', path))
     return entries
+
+
+def _hook(table, run_type):
+    """The callable a feature registered in one of its per-run-type tables, or None."""
+    for feature in ensure():
+        if run_type in table(feature):
+            return table(feature)[run_type]
+    return None
+
+
+def prepare_for(run_type):
+    """The prepare-argument builder a feature registered for this run type, or None."""
+    return _hook(lambda feature: feature.prepare, run_type)
+
+
+def create_settings_for(run_type):
+    """The settings tweak a feature registered for this run type, or None."""
+    return _hook(lambda feature: feature.create_settings, run_type)
+
+
+def readiness_for(run_type):
+    """The readiness question a feature registered for this run type, or None."""
+    return _hook(lambda feature: feature.readiness, run_type)
 
 
 def register(app):

@@ -42,17 +42,6 @@ SECTIONS = {
         # move another panel's name.
         'panel_labels': {'new-run': 'Single Molecule Simulations'},
     },
-    'simulations': {
-        'slug': 'protein-detergent',
-        'label': 'Protein-detergent simulations',
-        'blurb': 'Set up and run a protein with its detergent, and read the results.',
-        'tabs': ('runs', 'run-view', 'new-run', 'complexes'),
-        'panel_labels': {'new-run': 'Protein-Detergent Simulations'},
-        # This workspace queues protein-detergent complexes and nothing else, so its Run view offers a
-        # `pdc` run -- and draws it here now: the panel plays the CG chain's film and lists its segments under the
-        # frames. Complexes is the other door to the same run's set-up picture, not the panel this one defers to.
-        'run_types': ('pdc',),
-    },
 }
 
 #: The human label and glyph for each sub-panel, in one place so a section cannot render a panel whose label nobody
@@ -66,7 +55,6 @@ PANELS = {
     'combinations': ('Combinations', '⧉'),
     'mapping-validation': ('Mapping Validation', '✓'),
     'osmotic-pressure': ('Osmotic Series', '△'),
-    'complexes': ('Complexes', '⬡'),
     'initial-state': ('Initial state', '⬢'),
 }
 
@@ -82,7 +70,6 @@ PANEL_BLURBS = {
     'combinations': 'building a system from several molecules',
     'mapping-validation': 'a mapping against its reference, and across molecules',
     'osmotic-pressure': 'a sugar concentration series: set one up, and read the series as it stands',
-    'complexes': 'build and inspect a system',
     'initial-state': 'the micelle builder',
 }
 
@@ -110,7 +97,6 @@ TAB_IDS = {
     'combinations': 'compositions',
     'mapping-validation': 'validation',
     'osmotic-pressure': 'osmotic-pressure',
-    'complexes': 'pdc',
     'initial-state': 'initial-state',
 }
 
