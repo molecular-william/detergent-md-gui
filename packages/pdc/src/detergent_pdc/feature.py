@@ -47,6 +47,7 @@ FEATURE = features.Feature(
     create_settings={'pdc': _create_settings},
     readiness={'pdc': _readiness},
     layout=(pdc_layout.register, pdc_segments.register),
+    priority=20,
     planned_skips=pdc_view.planned_skips,
     protein_topologies=pdc_topologies.read_protein_topologies,
     section=('simulations', {

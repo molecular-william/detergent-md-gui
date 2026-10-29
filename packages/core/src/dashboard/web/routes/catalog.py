@@ -109,6 +109,7 @@ def model_fragment_create():
     except (ValueError, OSError) as exc: abort(400, str(exc))
 
 
+# Validation-flavoured, still engine-owned pending confirmation of its consumers.
 @blueprint.post('/api/evidence/evaluate')
 def evidence_evaluate():
     data = json_object()

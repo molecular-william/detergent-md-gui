@@ -1,15 +1,22 @@
-"""The dashboard's selectable halves: an installed feature registers itself with the engine.
+"""The dashboard's selectable halves: an installed distribution registers a feature with the engine.
 
-The engine (`dashboard`) owns the run lifecycle, persistence, the molecule and mapping models and the shell. Two
-features sit on top -- detergent validation and protein-detergent simulations -- and each is its own distribution.
-A feature is present when its package is importable: `find_spec` is the install check, because there is no plugin
-registry to keep in sync with pip and an installed distribution that cannot be imported is not a usable feature.
+The engine (`dashboard`) owns the run lifecycle, persistence, the molecule and mapping models and the shell. A feature
+is its own distribution and advertises itself with an entry point in the `detergent_md.features` group; installing the
+wheel is the whole act of adding one to a dashboard. The entry point resolves to a module exporting `FEATURE`, or to
+the `Feature` object itself. Nothing outside the installed metadata names the features, so a checkout can carry one,
+two or none, and a third party can ship another without editing this repository.
 
-Core never imports a feature. This module is the only place that names them, and the record each one exports is the
-whole contract: the blueprints to register, the run types and their protocol builders, the analysis kinds it owns, and
-the workspace it contributes to the shell. Everything is added to registries that already exist and are imported by
-their consumers as dicts/objects, so registering *mutates* them rather than rebinding a name a route has already
-captured.
+`KNOWN` is a compatibility fallback, not the registry: a checkout whose editable install predates the entry point (or
+whose metadata is stale) still finds the two distributions this repository ships by import. A distribution that
+advertises the entry point always wins; the two paths are merged by `Feature.name`.
+
+Core never imports a feature. The record a distribution exports is the whole contract: the blueprints to register, the
+run types and their protocol builders, the analysis kinds it owns, and the workspace it contributes to the shell.
+Everything is added to registries that already exist and are imported by their consumers as dicts/objects, so
+registering *mutates* them rather than rebinding a name a route has already captured.
+
+An installed feature that fails to import is a start-up error, not a silent absence: a dashboard missing a panel is
+worse than one that says why.
 """
 from __future__ import annotations
 
@@ -19,8 +26,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Mapping
 
-#: The feature distributions this repository builds. Deliberately closed: a feature is a package shipped from here,
-#: not an extension point for a third party, and a name list is easier to reason about than metadata discovery.
+#: The entry-point group a feature distribution advertises:
+#:     [project.entry-points."detergent_md.features"]
+#:     validation = "detergent_validation.feature"
+#: The name on the left is the distribution's own label; the record's `Feature.name` is what the engine registers.
+ENTRY_POINT_GROUP = 'detergent_md.features'
+
+#: Compatibility fallback, not the registry: modules looked up by import when their metadata advertises no entry point
+#: (an editable checkout older than this seam). A feature is otherwise discovered from installed metadata alone.
 KNOWN = ('detergent_validation', 'detergent_pdc')
 
 
@@ -69,23 +82,55 @@ class Feature:
     protein_topologies: Callable | None = None
     #: `{kind: (coordinator, body) -> payload}` for a kind whose queue route validates and derives its body.
     kind_payload: Mapping[str, Callable] = field(default_factory=dict)
+    #: Registration order: the shell opens on the first workspace registered, so lower runs first; ties break by name.
+    priority: int = 100
 
 
 _features: list[Feature] | None = None
 
 
-def installed() -> list[Feature]:
-    """The features whose distributions are importable, in registration order.
+def _entry_points():
+    """The feature entry points installed in this interpreter.
 
-    An import failure is not swallowed: a feature that is installed and broken must say so at start-up rather than
-    disappear from the dashboard silently.
+    One indirection, so a test can hand the seam a fabricated distribution without installing one, and so the
+    compatibility fallback in `installed` can share the same view of what metadata says.
     """
-    found = []
+    from importlib import metadata
+    return list(metadata.entry_points(group=ENTRY_POINT_GROUP))
+
+
+def _feature_of(entry):
+    """Load one entry point into a `Feature`, naming the entry point in every failure."""
+    try:
+        loaded = entry.load()
+    except Exception as error:
+        raise RuntimeError(f'feature {entry.name!r} is installed but could not be loaded: {error}') from error
+    feature = getattr(loaded, 'FEATURE', loaded)
+    if not isinstance(feature, Feature):
+        raise TypeError(f'entry point {ENTRY_POINT_GROUP}.{entry.name} must resolve to a Feature or a module '
+                        f'exporting FEATURE, not {type(feature).__name__}')
+    return feature
+
+
+def installed() -> list[Feature]:
+    """The installed features, in registration order: metadata first, then the compatibility fallback.
+
+    Two distributions claiming one `Feature.name` is a registry error, not a merge, because the name decides the
+    workspace, the run types and the analysis kinds; the message names the collision rather than letting the second
+    silently replace the first.
+    """
+    found: dict[str, Feature] = {}
+    for entry in _entry_points():
+        feature = _feature_of(entry)
+        if feature.name in found:
+            raise ValueError(f'two installed features are named {feature.name!r}; give one a different name')
+        found[feature.name] = feature
     for module in KNOWN:
         if importlib.util.find_spec(module) is None:
             continue
-        found.append(importlib.import_module(f'{module}.feature').FEATURE)
-    return found
+        feature = importlib.import_module(f'{module}.feature').FEATURE
+        found.setdefault(feature.name, feature)
+    return sorted(found.values(), key=lambda feature: (feature.priority, feature.name))
 
 
 def ensure() -> list[Feature]:

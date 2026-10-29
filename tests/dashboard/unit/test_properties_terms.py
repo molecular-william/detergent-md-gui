@@ -16,7 +16,7 @@ therefore weaker than a round trip on purpose: for arbitrary text the answer mus
 beads, and reading must never raise.
 """
 import pytest
-from dashboard.analysis.runs import transferability
+from detergent_validation.analysis.runs import transferability
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 

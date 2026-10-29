@@ -1,5 +1,5 @@
 """The cross-molecule reader, with reports built by the test rather than borrowed from the workspace."""
-from dashboard.analysis.runs import transferability
+from detergent_validation.analysis.runs import transferability
 
 
 def _candidate(pairs, residue=1, name_prefix='S'):

@@ -13,3 +13,7 @@ dependencies = ["detergent-core==0.2.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[project.entry-points."detergent_md.features"]
+# Installing this wheel is what makes the feature part of a dashboard; the engine discovers it from this entry point.
+validation = "detergent_validation.feature"

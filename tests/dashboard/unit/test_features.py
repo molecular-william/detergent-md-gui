@@ -1,7 +1,8 @@
 """Features register with the engine; the engine does not import them.
 
-The two feature distributions do not exist in this checkout yet, so these tests drive the seam with a fabricated
-feature. They pin the contract the real features will rely on: discovery is by importability, and registration
+The seam is discovery by installed metadata: a distribution advertises an entry point in `detergent_md.features` and
+the engine loads its `Feature`. These tests drive that with fabricated entry points (installing a real distribution in
+a unit test would be a different kind of test), and they pin the contract a feature relies on: registration
 **mutates** the registries the engine already reads (run types, kinds, sections) instead of rebinding a name that a
 route may have captured.
 """
@@ -54,19 +55,86 @@ def fake_feature(monkeypatch):
         sections.TAB_IDS.pop(slug, None)
 
 
-def test_discovery_is_importability(monkeypatch, tmp_path):
-    """`find_spec` is the install check: a package on the path is a feature, and one absent is not named."""
+class Entry:
+    """The shape `importlib.metadata` hands back: a name to report and a `load()`."""
+
+    def __init__(self, name, loaded):
+        self.name = name
+        self._loaded = loaded
+
+    def load(self):
+        if isinstance(self._loaded, Exception):
+            raise self._loaded
+        return self._loaded
+
+
+def _discover(monkeypatch, entries, known=()):
+    monkeypatch.setattr(features, '_entry_points', lambda: entries)
+    monkeypatch.setattr(features, 'KNOWN', known)
+    monkeypatch.setattr(features, '_features', None)
+    return features.installed()
+
+
+def test_an_entry_point_is_the_install_check(monkeypatch):
+    """A distribution on disk that advertises the group is a feature; nothing is named by the engine."""
+    fake = features.Feature(name='fake-dist')
+    assert [feature.name for feature in _discover(monkeypatch, [Entry('fake-dist', fake)])] == ['fake-dist']
+    assert [feature.name for feature in features.ensure()] == ['fake-dist'], 'loaded once, then cached'
+
+
+def test_an_entry_point_may_resolve_to_a_module_exporting_feature(monkeypatch):
+    """`validation = "detergent_validation.feature"` loads a module, not the object."""
+    fake = features.Feature(name='fake-module')
+    loaded = sys.modules[__name__]  # any object with a FEATURE attribute is a module to `_feature_of`
+    loaded.__dict__['FEATURE'] = fake
+    try:
+        assert [feature.name for feature in _discover(monkeypatch, [Entry('fake-module', loaded)])] == ['fake-module']
+    finally:
+        del loaded.__dict__['FEATURE']
+
+
+def test_a_broken_entry_point_is_a_startup_error(monkeypatch):
+    """An installed feature that cannot import must say so, not disappear from the dashboard."""
+    with pytest.raises(RuntimeError, match="feature 'broken' is installed but could not be loaded"):
+        _discover(monkeypatch, [Entry('broken', ImportError('no native dependency'))])
+
+
+def test_an_entry_point_must_resolve_to_a_feature(monkeypatch):
+    with pytest.raises(TypeError, match='must resolve to a Feature'):
+        _discover(monkeypatch, [Entry('wrong', object())])
+
+
+def test_two_distributions_cannot_claim_one_name(monkeypatch):
+    first, second = features.Feature(name='same'), features.Feature(name='same')
+    with pytest.raises(ValueError, match="two installed features are named 'same'"):
+        _discover(monkeypatch, [Entry('a', first), Entry('b', second)])
+
+
+def test_priority_decides_registration_order(monkeypatch):
+    """The first registered workspace is the front door, so a feature states its place rather than its luck."""
+    later = features.Feature(name='later', priority=20)
+    first = features.Feature(name='earlier', priority=10)
+    assert [feature.name for feature in _discover(monkeypatch, [Entry('later', later), Entry('first', first)])] == [
+        'earlier', 'later']
+    ties = [features.Feature(name='zed'), features.Feature(name='abc')]
+    assert [feature.name for feature in _discover(monkeypatch, [Entry('z', ties[0]), Entry('a', ties[1])])] == [
+        'abc', 'zed'], 'equal priority breaks by name'
+
+
+def test_the_import_fallback_runs_when_metadata_is_silent(monkeypatch, tmp_path):
+    """A checkout whose editable install predates the entry point still runs: the shipped distributions are looked up
+    by import, and a distribution that does advertise the entry point always wins."""
     package = tmp_path / 'fake_installed_dist'
     package.mkdir()
     (package / '__init__.py').write_text('')
     (package / 'feature.py').write_text(
         "from dashboard import features\n\nFEATURE = features.Feature(name='fake-dist')\n")
     monkeypatch.syspath_prepend(str(tmp_path))
-    monkeypatch.setattr(features, 'KNOWN', ('fake_installed_dist', 'not_installed_anywhere'))
-    monkeypatch.setattr(features, '_features', None)
-    assert [feature.name for feature in features.installed()] == ['fake-dist']
-    assert [feature.name for feature in features.ensure()] == ['fake-dist'], 'loaded once, then cached'
-    sys.modules.pop('fake_installed_dist', None)
+    assert [feature.name for feature in _discover(monkeypatch, [], known=('fake_installed_dist', 'not_installed_anywhere'))] == ['fake-dist']
+    # metadata answers for a name the fallback would also find: one feature, the advertised record
+    advertised = features.Feature(name='fake-dist', priority=1)
+    merged = _discover(monkeypatch, [Entry('fake-dist', advertised)], known=('fake_installed_dist',))
+    assert merged == [advertised]
 
 
 def test_register_adds_every_part_the_feature_contributes(fake_feature):

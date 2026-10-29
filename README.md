@@ -57,7 +57,9 @@ process after changing Python code — routes and models are loaded at start, `s
 * `packages/validation/` — the detergent-validation feature (`detergent-validation`): the bonded, osmotic and
   refinement panel APIs and the osmotic series. `packages/pdc/` — the protein-detergent feature (`detergent-pdc`):
   the ten-stage pipeline, its adapter and scripts. The meta distribution at the root installs the engine and names
-  both as the `det`/`prot`/`all` extras.
+  both as the `det`/`prot`/`all` extras. A feature distribution joins a dashboard by advertising the
+  `detergent_md.features` entry point (`docs/PROJECT_GUIDE.md`, *Adding a distribution*); installing the wheel is the
+  whole act, and an install without one of them serves only the workspace it has.
 * `tests/dashboard/` — unit, integration and browser tiers with isolated stores; never the developer's workspace.
 * `molecules/`, `references/`, `resources/` — canonical scientific inputs; the CG force field is installed per
   workspace at `workspace/dashboard/martini3` from `references/M3-Lipid-Parameters/ITPs`, never from a copy in the tree.

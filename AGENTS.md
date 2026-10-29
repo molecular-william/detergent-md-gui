@@ -20,7 +20,8 @@ with a Flask dashboard over persisted manifests and logs. Reproducible; outputs 
   is `micelle/`. Osmotic series: `osmotic.py` with `osmotic_box.py`/`osmotic_mdp.py`.
 - Tools resolve through `config/tools.json` and `execution/tools.py`: a declared path is verified or resolves to
   nothing, never to a substitute, and every manifest records the resolved version and path.
-- `resources/` and `packages/` are the maintained trees: `packages/core` is the engine (`detergent-core`, import `dashboard`), `packages/validation`/`packages/pdc` are features (`detergent_validation`/`detergent_pdc`) that self-register through `dashboard/features.py`; the engine never imports one. Code map, routes and ownership: `PROJECT_GUIDE.md` *Source ownership*.
+- `resources/` and `packages/` are the maintained trees: `packages/core` is the engine (`detergent-core`, import `dashboard`), `packages/validation`/`packages/pdc` are features (`detergent_validation`/`detergent_pdc`) that register through `dashboard/features.py`'s `detergent_md.features`
+  entry point; the engine never imports one. Code map, routes and ownership: `PROJECT_GUIDE.md` *Source ownership*.
 
 ## Run contract
 - Four run types: `aa_only`, `aa_cg`, `pdc`, `osmotic`; each adapter's `STAGES` is the order, `pdc`'s ten are

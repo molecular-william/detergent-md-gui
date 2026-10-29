@@ -92,7 +92,8 @@ def _on_run_failed(coordinator, job):
 
 FEATURE = features.Feature(
     name='validation',
-    blueprints=(bonded.blueprint, osmotic.blueprint, refinement.blueprint, targets.blueprint),
+    blueprints=(bonded.blueprint, osmotic.blueprint, refinement.blueprint, targets.blueprint,
+                analyses_routes.blueprint),
     protocols={'osmotic': _osmotic_protocol},
     kinds=kind_rows.KINDS,
     code_roots=(('detergent_validation', Path(__file__).resolve().parent),),
@@ -121,5 +122,6 @@ FEATURE = features.Feature(
     prepare={'osmotic': _prepare},
     readiness={'osmotic': _readiness},
     admission={'osmotic': _admission},
+    priority=10,
     on_run_failed=_on_run_failed,
 )

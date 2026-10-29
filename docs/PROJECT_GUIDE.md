@@ -24,7 +24,9 @@ imports a feature; a feature imports the engine and registers through `dashboard
 The engine (`packages/core/src/dashboard/`):
 * app.py constructs the application. features.py discovers a feature and registers its blueprints, run types, analysis
   kinds, workspace and hooks (admission, prepare, create_settings, readiness, run_failed, layout, planned_skips,
-  protein_topologies, kind_payload); web/sections.py owns the section order and the `DASHBOARD_TABS` filter.
+  protein_topologies, kind_payload, priority); web/sections.py owns the section order and the `DASHBOARD_TABS` filter.
+A feature distribution advertises itself with the `detergent_md.features` entry point, so installing a wheel is
+how a dashboard gains a workspace; the engine never imports one.
 * execution/ owns coordination and stage execution: adapters/cg.py (generic CG stage pipeline), aa.py (AA-only),
   cg_names.py, composition.py, micelle.py (the micelle build adapter; `micelle/` remains the science owner), stages.py,
   workflow.py, environment.py, and coordination/ (coordinator, worker, admission, analysis_coordinator, resources,
@@ -43,8 +45,10 @@ The engine (`packages/core/src/dashboard/`):
   console scripts.
 
 detergent-validation (`packages/validation/src/detergent_validation/`): web/routes/ (bonded, osmotic, refinement,
-targets, analyses payload), execution/adapters/osmotic.py with osmotic_box/osmotic_mdp and the series runner,
-analysis/runs/ (mapping_consistency, overlap, surfaces, refinement, osmotic_pressure, consistency, draft_geometry),
+targets, the analyses payload and the comparison/diagnostics endpoints), execution/adapters/osmotic.py with
+osmotic_box/osmotic_mdp and the series runner,
+analysis/runs/ (mapping_consistency, transferability, overlap, surfaces, refinement, osmotic_pressure, consistency,
+draft_geometry),
 analysis/validation/ (report, targets, osmotic, geometry, transfer), analysis/sugar_ensemble.py, and kinds.py
 (carbohydrate-validation, mapping-consistency, osmotic-pressure, overlap, refinement-score, surfaces, targets).
 
@@ -54,6 +58,25 @@ analysis/runs/encapsulation.py, layout.py (stage directories, roles, review orde
 (the pdc segmenter and its markers), topologies.py (the protein's moleculetypes), view.py (the queued-run skip
 preview), and web/routes/pdc.py (setup, system, micelle build). The panels' markup and browser code still live in the
 shell (`templates/dashboard.html`, `static/js`); lifting them is the remaining front-end split.
+
+### Adding a distribution
+A feature is a distribution that advertises one entry point; installing it is the whole act of adding it to a
+dashboard:
+
+```toml
+[project.entry-points."detergent_md.features"]
+validation = "detergent_validation.feature"
+```
+
+The target is a module exporting `FEATURE = dashboard.features.Feature(...)` (or the `Feature` object itself). The
+record is the contract: the blueprints to serve, the run types and their protocol builders, the analysis kinds it
+owns, one workspace with its panels/blurbs/tab ids, recorded-code prefixes, code roots for the analysis fingerprint,
+and the hooks its run type needs (admission, prepare, create_settings, readiness, run_failed, layout, planned_skips,
+protein_topologies, kind_payload). `Feature.priority` decides registration order, because the shell opens on the first
+workspace registered. Discovery reads installed metadata; `KNOWN` in `features.py` is only the fallback for an
+editable checkout whose metadata predates the entry point, and a broken entry point fails at start-up rather than
+disappearing. The panels' markup and browser code are still shell-owned, so a new distribution contributes API and a
+workspace today and its own front-end once the split lands.
 
 The source-ownership list above is the maintained map; `dashboard/README.md` carries only dashboard-local setup notes.
 
@@ -238,7 +261,7 @@ model catalog. `cg_composition` runs are independent of the AA-to-CG workflow
 and contain only CG simulation, CG assessment, and CG SASA stages; they do not
 fabricate or require an AA reference. Composition artifacts and their hashes
 are immutable, so changing a choice creates another record.
-The web UI is two workspaces, `detergent-validation` and `protein-detergent` (`dashboard/web/sections.py`), each a set of panels reachable at its own URL segment (`/<workspace-slug>/<panel>`). Validation carries Runs, Run view, Single Molecule Simulations, Bead Assignment, Bond Interactions, Combinations, Mapping Validation and Osmotic Series; protein-detergent carries Runs, Run view, Protein-Detergent Simulations and Complexes. The template writes each section from the registry and `tabs.js` mounts it by DOM id.
+The web UI is two workspaces, `detergent-validation` and `protein-detergent` (`dashboard/web/sections.py`), each a set of panels reachable at its own URL segment (`/<workspace-slug>/<panel>`). `DASHBOARD_TABS` narrows an instance's panels by comma-separated slug; each named slug must exist in every installed workspace, and a name that does not fails when the app is constructed rather than as a 400 on the first page. Validation carries Runs, Run view, Single Molecule Simulations, Bead Assignment, Bond Interactions, Combinations, Mapping Validation and Osmotic Series; protein-detergent carries Runs, Run view, Protein-Detergent Simulations and Complexes. The template writes each section from the registry and `tabs.js` mounts it by DOM id.
 
 ### Runs
 Background polling updates individual status fields every five seconds. Forms, expanded details, mapping edits, and scroll position are not rebuilt. Terminal runs can be manually deleted from their run card; active workers are protected. Tabs, form values, and mapping drafts are remembered in browser storage. Elapsed time is reported only when recorded; ETA is shown only when present in current GROMACS output. Legacy runs without timestamps show "Not recorded".

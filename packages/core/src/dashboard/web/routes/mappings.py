@@ -73,6 +73,7 @@ def mapping_representations():
     ])
 
 
+# Validation-flavoured, still engine-owned pending confirmation of its consumers.
 @blueprint.get('/api/mappings/validation-targets')
 def carbohydrate_validation_targets():
     molecule_id = request.args.get('molecule_id')
@@ -124,6 +125,7 @@ def mapping_suggest_bead():
     return jsonify(mapping_suggestions.suggest_bead(context, payload['atom_ids'], mapping_references.load_index(coordinator().ROOT)))
 
 
+# Validation-flavoured, still engine-owned pending confirmation of its consumers.
 @blueprint.post('/api/mappings/ring-site/preview')
 def mapping_ring_site_preview():
     payload = json_object()

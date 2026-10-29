@@ -8,9 +8,13 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 - The engine is `detergent-core` (`packages/core`, import `dashboard`), and the two features are
   `detergent-validation` (`packages/validation`) and `detergent-pdc` (`packages/pdc`); the root `detergent-md-gui`
-  names them as the `det`/`prot`/`all` extras. A feature is present when its distribution is importable
-  (`dashboard/features.py`), and core never imports one: blueprints, run types, analysis kinds, workspaces,
-  admission rules and the prepare/readiness/series hooks all arrive through the feature record.
+  names them as the `det`/`prot`/`all` extras. A feature is whatever installed distribution advertises in the
+  `detergent_md.features` entry point (`dashboard/features.py` loads its `Feature`; `KNOWN` there is only the fallback
+  for an editable checkout whose metadata predates the entry point), so installing a wheel adds a workspace.
+  `Feature.priority` orders them -- the shell opens on the first -- and core never imports one: blueprints, run types,
+  analysis kinds, workspaces, admission rules and the prepare/readiness/series hooks all arrive through the record.
+- `DASHBOARD_TABS` is validated when the app is constructed: every named slug must exist in every installed
+  workspace, so a typo is a start-up failure rather than a 400 on the first page.
 - The data root is `DASHBOARD_ROOT` (falling back to the checkout), and the interpreter is `.venv/` at the
   checkout root. `detergent-dashboard` is the console entry point; `python -m dashboard` still runs the checkout.
 - Runs prepared before the package move keep verifying: recorded code spells `dashboard/...` and
@@ -28,8 +32,13 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
   micelle adapter and its science, the mapping editor, the molecules panel, and `analysis/validation/
   carbohydrate_targets.py` (a mapping route and the validation analyses both read it). Still to lift: the panels'
   markup and browser code in `templates/dashboard.html` and `static/js`.
+- The validation-only endpoints (`mapping-consistency`, `distance-diagnostics`, `carbohydrate-validation`,
+  `/api/runs/transferability`) and the cross-molecule reader are the validation feature's now. `/api/compare`,
+  `/api/mappings/validation-targets`, `/api/mappings/ring-site/preview` and `/api/evidence/evaluate` look
+  validation-flavoured but stay engine-owned until their consumers are confirmed.
 - A validation-only deployment lives at `/mnt/data/wee/detergent-gui-mini` (`run.sh`, port 5001, `DASHBOARD_TABS`
-  six panels) installed from `pip wheel packages/* -w dist`; `detergent-import-run` ports a run between workspaces.
+  six panels); `scripts/build_mini.sh` rebuilds and force-reinstalls it (`--smoke` checks it). `detergent-import-run`
+  ports a run between workspaces.
 
 ## Right now (2026-10-27)
 
