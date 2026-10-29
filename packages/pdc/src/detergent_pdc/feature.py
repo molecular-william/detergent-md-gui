@@ -2,6 +2,7 @@
 from dashboard import features
 from dashboard.execution import protocol
 
+from . import layout as pdc_layout
 from .execution.adapters import pdc
 from .web.routes import pdc as pdc_routes
 
@@ -42,6 +43,7 @@ FEATURE = features.Feature(
     prepare={'pdc': _prepare},
     create_settings={'pdc': _create_settings},
     readiness={'pdc': _readiness},
+    layout=(pdc_layout.register,),
     section=('simulations', {
         'slug': 'protein-detergent',
         'label': 'Protein-detergent simulations',

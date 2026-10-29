@@ -159,7 +159,7 @@ def skipped_stages(root: Path) -> dict:
 def _stage_path(root: Path, stage: str, names):
     """One file inside a pdc stage, trying every spelling of the stage directory and each candidate name."""
     for name in ((names,) if isinstance(names, str) else names or ()):
-        found = layout.pdc_stage_path(root, stage, name)
+        found = layout.stage_path(root, stage, name)
         if found is not None:
             return found
     return None
@@ -200,7 +200,7 @@ def pdc_segments(root: Path) -> list[dict]:
             # that compared chosen files would call that pair different and play the same frames twice.
             keys = {}
             for name_option in trajectory_names or ():
-                candidate = layout.pdc_stage_path(root, stage, name_option)
+                candidate = layout.stage_path(root, stage, name_option)
                 if candidate is not None:
                     keys[identity(candidate)] = candidate
             duplicate = next((seen[key] for key in keys if key in seen), None)

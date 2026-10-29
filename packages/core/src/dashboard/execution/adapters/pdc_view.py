@@ -326,7 +326,7 @@ def read_protein_topologies(run_dir) -> list[dict]:
     from ...analysis.runs import layout
 
     root = Path(run_dir)
-    directory = layout.pdc_stage_dir(root, 'system')
+    directory = layout.stage_dir(root, 'system')
     if directory is None or not (directory / 'cg').is_dir():
         # A staged work directory holds the files at its own root, under either stage spelling; the resolver
         # above already answered that case, and the `cg/` subdirectory is the one this reader needs.

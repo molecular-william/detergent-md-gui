@@ -276,9 +276,9 @@ def stage_directory(run_dir, stage_dir):
     candidate = root / path
     if candidate.is_dir():
         return candidate
-    stage = layout.pdc_stage_key(path.parts[0])
+    stage = layout.stage_key(path.parts[0])
     if stage is not None:
-        found = layout.pdc_stage_dir(run_dir, stage)
+        found = layout.stage_dir(run_dir, stage)
         if found is not None:
             return found.joinpath(*path.parts[1:])
     return candidate

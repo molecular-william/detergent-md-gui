@@ -61,6 +61,8 @@ class Feature:
     readiness: Mapping[str, Callable] = field(default_factory=dict)
     #: `(coordinator, job) -> object` called when a run ends failed: the series stop, a cleanup the run type owns.
     on_run_failed: Callable | None = None
+    #: `() -> None` callbacks that add the feature's run layout (stage directories, roles, review order, topology).
+    layout: tuple = ()
 
 
 _features: list[Feature] | None = None
@@ -92,6 +94,8 @@ def ensure() -> list[Feature]:
             protocol.register(feature.protocols)
             kinds.register(feature.kinds)
             run_scripts.register_prefixes(feature.code_prefixes)
+            for register_layout in feature.layout:
+                register_layout()
             if feature.section:
                 sections.register(feature.section, panels=feature.panels, blurbs=feature.blurbs,
                                   tab_ids=feature.tab_ids)

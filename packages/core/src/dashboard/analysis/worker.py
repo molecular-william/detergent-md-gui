@@ -40,7 +40,7 @@ def _stage_alias(relative):
     the file's path to the stage key lets one declaration match either layout, without a second list of patterns.
     """
     parts = str(relative).split('/')
-    stage = layout.pdc_stage_key(parts[0]) if parts else None
+    stage = layout.stage_key(parts[0]) if parts else None
     return '/'.join([stage, *parts[1:]]) if stage else str(relative)
 
 

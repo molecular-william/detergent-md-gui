@@ -38,17 +38,6 @@ CANDIDATES = {
     'cg_stage_structure': ('4_CG_sim/md.gro',),
     'cg_equilibrium_trajectory': ('4_CG_sim/eq.xtc',),
     'cg_equilibrium_structure': ('4_CG_sim/eq.gro',),
-    #: A protein-detergent run keeps its stages under names of their own, and its CG production is the extension's: the
-    #: final assessment re-declares that same trajectory rather than writing a second one. Two spellings get two roles,
-    #: because `resolve` refuses a role spelled twice and this run holds both the whole-box and the raw file. Each role
-    #: carries the numbered layout (`08_extension/`, written by the current run) and the legacy one (`4_extension/`).
-    'pdc_trajectory': ('08_extension/prod/whole.xtc', '4_extension/prod/whole.xtc'),
-    'pdc_raw_trajectory': ('08_extension/prod/run.xtc', '4_extension/prod/run.xtc'),
-    'pdc_structure': ('08_extension/prod/run.gro', '4_extension/prod/run.gro'),
-    #: The assessment leg's production, for a run that takes no extension (the removal path off): its production MD
-    #: is `06_assessment`, and a reader must still find a trajectory to review.
-    'pdc_assessment_trajectory': ('06_assessment/prod/whole.xtc', '2_assessment/prod/whole.xtc'),
-    'pdc_assessment_structure': ('06_assessment/prod/run.gro', '2_assessment/prod/run.gro'),
     #: Where a consumer run wrote its atomistic half before the reference/consumer split.
     'legacy_aa_trajectory': ('1_AA-reference/3-run.xtc',),
     'legacy_aa_structure': ('1_AA-reference/3-run.tpr',),
@@ -58,28 +47,36 @@ CANDIDATES = {
 #: The directory a run directory keeps those stages in, and which a work directory does not have.
 STAGES = 'stages'
 
-#: A protein-detergent run's stage directories, newest layout first, keyed by the stage itself. `01_prepare` …
-#: `10_backmap` are the numbered layout, one directory per stage; the names after each key are the legacy spelling of
-#: the same stage and are still read because two runs in this workspace predate the numbering.
-PDC_STAGE_DIRECTORIES = {
-    'prepare': ('01_prepare', '0_prepare'),
-    'system': ('02_system', '1_system'),
-    'minimisation': ('03_minimisation', '2_minimisation'),
-    'nvt': ('04_nvt', '3_nvt'),
-    'npt': ('05_npt', '4_npt'),
-    'assessment': ('06_assessment', '2_assessment'),
-    'micelle_assessment': ('07_micelle_assessment', '3_assessment'),
-    'extension': ('08_extension', '4_extension'),
-    'final_assessment': ('09_final_assessment', '5_assessment'),
-    'backmap': ('10_backmap', '6_backmap'),
-}
+#: An assessment attempt's directory names, newest first; a feature registers its own.
+ASSESSMENT_DIRECTORIES: list[str] = []
 
-#: Stage directory name -> the stage it means, across both layouts.
-PDC_STAGE_KEYS = {name: stage for stage, names in PDC_STAGE_DIRECTORIES.items() for name in names}
+#: The stage directories a feature knows, keyed by the stage itself: `start -> (numbered, legacy, ...)`. The engine
+#: owns the mechanism (one directory per stage, and a run's older spelling still readable) and a feature supplies the
+#: table, so a stage name it does not own is not a name this file has to know.
+STAGE_DIRECTORIES: dict[str, tuple[str, ...]] = {}
 
-#: An assessment attempt's directory, newest layout first: a pdc run's final assessment is `09_final_assessment`
-#: and a CG run's assessment is `5_assessment` (which a legacy pdc run's final assessment also uses).
-ASSESSMENT_DIRECTORIES = ('09_final_assessment', '5_assessment')
+#: Stage directory name -> the stage it means, filled in by `register`.
+STAGE_KEYS: dict[str, str] = {}
+
+
+def register(*, roles=None, stage_directories=None, review_sources=(), topology=None, assessment=()):
+    """Add one feature's run layout: role spellings, stage directories, review order and topology resolver.
+
+    The tables are mutated, not rebound: `views`, the worker and the analysis code imported this module and read it
+    through it. A feature's review pairs are spliced between the engine's CG band and the AA fallbacks, because order
+    decides which trajectory a dual-layout run offers.
+    """
+    CANDIDATES.update(roles or {})
+    for stage, names in (stage_directories or {}).items():
+        STAGE_DIRECTORIES[stage] = tuple(names)
+        for name in names:
+            STAGE_KEYS[name] = stage
+    _FEATURE_REVIEW_PAIRS.extend(review_sources)
+    _TOPOLOGY_RESOLVERS.update(topology or {})
+    ASSESSMENT_DIRECTORIES.extend(assessment)
+
+#: `{run type: (root, name) -> Path}` for a feature's own build layout; the engine answers `aa_cg` itself.
+_TOPOLOGY_RESOLVERS: dict[str, object] = {}
 
 
 def stage_root(root):
@@ -101,27 +98,27 @@ def _stage_bases(root):
     return (root / STAGES, root) if (root / STAGES).is_dir() else (root,)
 
 
-def pdc_stage_directories(stage):
-    """Every directory name that can hold the pdc stage `stage`, newest layout first."""
+def stage_directories(stage):
+    """Every directory name that can hold `stage`, newest layout first, as the registered table spells them."""
     try:
-        return PDC_STAGE_DIRECTORIES[stage]
+        return STAGE_DIRECTORIES[stage]
     except KeyError as error:
-        raise ValueError(f'Unknown pdc stage {stage!r}; known stages are {sorted(PDC_STAGE_DIRECTORIES)}') from error
+        raise ValueError(f'Unknown stage {stage!r}; known stages are {sorted(STAGE_DIRECTORIES)}') from error
 
 
-def pdc_stage_key(directory):
-    """The stage a pdc stage directory name means, or `None` for a directory that is not one."""
-    return PDC_STAGE_KEYS.get(str(directory))
+def stage_key(directory):
+    """The stage a directory name means, or `None` for a directory that is not one."""
+    return STAGE_KEYS.get(str(directory))
 
 
-def pdc_stage_path(root, stage, relative, *, directory=False):
-    """One path inside a pdc stage, in either layout; `None` when neither spelling holds it.
+def stage_path(root, stage, relative, *, directory=False):
+    """One path inside a stage, in every registered spelling; `None` when none holds it.
 
     `root` may be the run directory, its `stages/` root, or an analysis work directory: the candidates are the
     layout's own names under `root/stages/` and under `root`, which is the same pair `_spellings` searches.
     """
     relative = Path(relative)
-    for name in pdc_stage_directories(stage):
+    for name in stage_directories(stage):
         for base in _stage_bases(root):
             path = base / name / relative
             if path.is_dir() if directory else path.is_file():
@@ -129,29 +126,21 @@ def pdc_stage_path(root, stage, relative, *, directory=False):
     return None
 
 
-def pdc_stage_dir(root, stage):
-    """The directory a pdc stage wrote, in either layout, or `None` when neither is there."""
-    for name in pdc_stage_directories(stage):
+def stage_dir(root, stage):
+    """The directory a stage wrote, in every registered spelling, or `None` when none is there."""
+    for name in stage_directories(stage):
         for base in _stage_bases(root):
             path = base / name
             if path.is_dir():
                 return path
     return None
 
-#: The CG topology is named for the molecule's residue (`CGNames.for_snapshot`), so it is found rather than
-#: spelled. System topologies in the same directory are not molecule topologies.
+
+#: The CG topology is named for the molecule's residue (`CGNames.for_snapshot`), so it is found rather than spelled.
+#: System topologies in the same directory are not molecule topologies.
 CG_TOPOLOGY_DIR = '3_initial_CG'
 CG_TOPOLOGY_PATTERN = '*.itp'
 CG_TOPOLOGY_EXCLUDED = ('system', 'topol')
-
-#: A protein-detergent run's detergent topology, in the directory its build stage writes: `02_system/` in the
-#: numbered layout, `1_system/` before it. That directory also holds the template's atomistic copy (`detergent.itp`)
-#: and the three Martini libraries the stage copies in, so "the only `.itp` here" does not select on a real run -- the
-#: build's own filename does, and `PDC_TOPOLOGY_NAME` is `pdc.DETERGENT_TOPOLOGY`, spelled again here because the
-#: analysis layer may not import an execution adapter.
-PDC_TOPOLOGY_DIRS = PDC_STAGE_DIRECTORIES['system']
-PDC_TOPOLOGY_DIR = PDC_TOPOLOGY_DIRS[0]
-PDC_TOPOLOGY_NAME = 'detergent_CG.itp'
 
 
 def candidates(role):
@@ -204,7 +193,7 @@ def _itps(root, directory):
             if not path.name.startswith(CG_TOPOLOGY_EXCLUDED)]
 
 
-def _molecule_topology(root, directory, default_name, label, ambiguous_label, name):
+def molecule_topology(root, directory, default_name, label, ambiguous_label, name=None):
     """One stage directory's molecule topology, selected by recorded name, default name, then uniqueness.
 
     The two run types differ only in the directory their build writes, whether a default filename answers when
@@ -249,23 +238,7 @@ def cg_topology(root, name=None):
     `CGNames.for_snapshot`). Without a name a single `.itp` still answers; anything else is refused rather than
     ranked, because the topology an analysis reads decides which beads exist.
     """
-    return _molecule_topology(root, CG_TOPOLOGY_DIR, None, 'CG molecule topology', 'CG molecule topology', name)
-
-
-def pdc_topology(root, name=None):
-    """The detergent moleculetype a protein-detergent run simulated, or a refusal naming what it found.
-
-    The run's build stage writes it into `02_system/` (numbered layout) or `1_system/` (before it) under
-    `pdc.DETERGENT_TOPOLOGY`, beside the template's atomistic copy and the three Martini libraries it also copies in
-    -- measured on `00b9ae6db23f`: `detergent_CG.itp`, `detergent.itp` and three `martini_v3.0.0*.itp`, so a directory
-    of five has no "the only one" to fall back on and the build's own name is what is looked for. `name` is the file
-    the run recorded when it recorded one. A directory holding no build-name file but exactly one other molecule
-    topology still answers, because an analysis subprocess is handed a *staged* directory holding only the sources
-    its kind declares. Anything else is refused rather than ranked, for `cg_topology`'s reason: the topology is what
-    decides which beads exist.
-    """
-    return _molecule_topology(root, PDC_TOPOLOGY_DIRS, PDC_TOPOLOGY_NAME, 'detergent topology',
-                              'candidate detergent topology', name)
+    return molecule_topology(root, CG_TOPOLOGY_DIR, None, 'CG molecule topology', 'CG molecule topology', name)
 
 
 def coarse_topology(root, run_type=None, name=None):
@@ -276,12 +249,17 @@ def coarse_topology(root, run_type=None, name=None):
     when the caller has the run's own record -- the structure route does -- and a caller without one gets whichever
     layout the run wrote, because neither run type writes both.
     """
+    resolver = _TOPOLOGY_RESOLVERS.get(run_type)
+    if resolver is not None:
+        return resolver(root, name)
     if run_type is not None:
-        return pdc_topology(root, name) if run_type == 'pdc' else cg_topology(root, name)
-    try:
-        return pdc_topology(root, name)
-    except ValueError:
         return cg_topology(root, name)
+    for resolver in _TOPOLOGY_RESOLVERS.values():
+        try:
+            return resolver(root, name)
+        except ValueError:
+            continue
+    return cg_topology(root, name)
 
 
 def recorded_topology(run_dir, run_type=None, manifest=None):
@@ -356,19 +334,23 @@ def _any_present(root, role):
 #: So the preference is stated here instead of ranked at runtime: the extracted solute is what a frame should
 #: draw, then the stage's own production output, then its equilibration, and only then the atomistic reference
 #: the model was built from. A run spelling *one* of these roles two ways is still the ambiguity `resolve` refuses.
-REVIEW_SOURCES = (
+_CG_REVIEW = (
     ('cg_trajectory', 'cg_structure'),
     ('cg_stage_trajectory', 'cg_stage_structure'),
     ('cg_equilibrium_trajectory', 'cg_equilibrium_structure'),
-    # A protein-detergent run's CG production, whole-box first: a frame read raw shows molecules broken across the
-    # periodic boundary, which is a picture of the box rather than of the system.
-    ('pdc_trajectory', 'pdc_structure'),
-    ('pdc_raw_trajectory', 'pdc_structure'),
-    # A pdc run whose removal path is off (or that never reached the extension) still has production MD to review.
-    ('pdc_assessment_trajectory', 'pdc_assessment_structure'),
+)
+_AA_REVIEW = (
     ('aa_trajectory', 'aa_structure'),
     ('legacy_aa_trajectory', 'legacy_aa_structure'),
 )
+#: A feature's own preference, spliced between the CG band and the AA fallbacks so a dual-layout run prefers its own
+#: production to the atomistic reference it was built from.
+_FEATURE_REVIEW_PAIRS: list[tuple[str, str]] = []
+
+
+def review_sources():
+    """The trajectory roles a run offers for review, most preferred first, as `(trajectory, structure)` pairs."""
+    return _CG_REVIEW + tuple(_FEATURE_REVIEW_PAIRS) + _AA_REVIEW
 
 
 class NoTrajectory(ValueError):
@@ -391,12 +373,12 @@ def frame_source(root):
     missing instead of drawing nothing. Nothing here opens a file; the caller does.
     """
     root = Path(root)
-    for trajectory_role, structure_role in REVIEW_SOURCES:
+    for trajectory_role, structure_role in review_sources():
         if not _any_present(root, trajectory_role):
             continue
         return resolve(root, trajectory_role), resolve(root, structure_role), trajectory_role
     raise NoTrajectory(f'{root} offers no trajectory to review; looked for '
-                       + ', then '.join(_looked_for(trajectory) for trajectory, _ in REVIEW_SOURCES))
+                       + ', then '.join(_looked_for(trajectory) for trajectory, _ in review_sources()))
 
 
 def summary(root, topology_name=None):

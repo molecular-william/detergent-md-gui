@@ -12,6 +12,7 @@ from pathlib import Path
 
 from dashboard import files
 from dashboard.analysis.runs import layout, segments
+from detergent_pdc import layout as pdc_layout
 
 GRO = 'system {count}\n{count:5d}\n    1DET      R1     1   0.100   0.200   0.300\n   8.00000   8.00000   8.00000\n'
 
@@ -80,14 +81,14 @@ def test_the_stage_root_is_stages_when_the_run_has_it_and_the_run_root_otherwise
 
     assert layout.stage_root(numbered) == numbered / 'stages'
     assert layout.stage_root(legacy) == legacy
-    assert layout.pdc_stage_dir(numbered, 'extension') == numbered / 'stages/08_extension'
-    assert layout.pdc_stage_dir(legacy, 'extension') == legacy / '4_extension'
+    assert layout.stage_dir(numbered, 'extension') == numbered / 'stages/08_extension'
+    assert layout.stage_dir(legacy, 'extension') == legacy / '4_extension'
 
 
 def test_a_numbered_run_resolves_its_topology_trajectory_and_segments(tmp_path):
     root = numbered_run(tmp_path)
 
-    assert layout.pdc_topology(root) == root / 'stages/02_system/detergent_CG.itp'
+    assert pdc_layout.topology(root) == root / 'stages/02_system/detergent_CG.itp'
     assert layout.coarse_topology(root, 'pdc').name == 'detergent_CG.itp'
 
     trajectory, structure, role = layout.frame_source(root)
@@ -115,14 +116,14 @@ def test_a_numbered_runs_stage_root_is_what_the_built_system_route_reads(tmp_pat
 
     stage_root = layout.stage_root(root)
 
-    assert layout.pdc_stage_path(stage_root, 'system', 'system.gro') == \
+    assert layout.stage_path(stage_root, 'system', 'system.gro') == \
         root / 'stages/02_system/system.gro'
 
 
 def test_a_legacy_run_still_resolves_the_same_roles_and_segments(tmp_path):
     root = legacy_run(tmp_path)
 
-    assert layout.pdc_topology(root).name == 'detergent_CG.itp'
+    assert pdc_layout.topology(root).name == 'detergent_CG.itp'
     trajectory, structure, role = layout.frame_source(root)
     assert role == 'pdc_trajectory'
     assert trajectory == root / '4_extension/prod/whole.xtc' and structure == root / '4_extension/prod/run.gro'

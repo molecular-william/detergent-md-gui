@@ -154,7 +154,7 @@ def detergent_topology(root: Path):
     view draws the bonds the run simulated. A moleculetype that cannot be read is reported as none; a view with
     coordinates still has something to show.
     """
-    directory = layout.pdc_stage_dir(root, SETUP_STAGE)
+    directory = layout.stage_dir(root, SETUP_STAGE)
     path = None
     if directory is not None:
         candidates = [directory / pdc.DETERGENT_TOPOLOGY,
@@ -179,7 +179,7 @@ def pdc_system_pdb(job_id):
     empty box.
     """
     root = setup_root(job_id)
-    structure = layout.pdc_stage_path(root, SETUP_STAGE, SYSTEM_STRUCTURE)
+    structure = layout.stage_path(root, SETUP_STAGE, SYSTEM_STRUCTURE)
     try:
         atoms = pdc_view.read_gro(structure)
     except (OSError, ValueError, TypeError) as error:

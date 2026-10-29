@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 from dashboard.analysis.runs import layout
+from detergent_pdc import layout as pdc_layout
 
 
 def write(root, *paths):
@@ -131,7 +132,7 @@ def test_the_detergent_topology_is_the_builds_own_name_among_the_libraries(tmp_p
           'stages/1_system/martini_v3.0.0.itp', 'stages/1_system/martini_v3.0.0_solvents_v1.itp',
           'stages/1_system/martini_v3.0.0_ions_v1.itp')
 
-    assert layout.pdc_topology(tmp_path).name == 'detergent_CG.itp'
+    assert pdc_layout.topology(tmp_path).name == 'detergent_CG.itp'
     assert layout.coarse_topology(tmp_path, 'pdc').name == 'detergent_CG.itp'
 
 
@@ -139,7 +140,7 @@ def test_a_detergent_topology_is_found_in_a_staged_directory_holding_only_it(tmp
     """A producer is handed the work directory its kind's sources made, which may hold one `.itp` and nothing else."""
     write(tmp_path, '1_system/DDM.itp')
 
-    assert layout.pdc_topology(tmp_path).name == 'DDM.itp'
+    assert pdc_layout.topology(tmp_path).name == 'DDM.itp'
     assert layout.coarse_topology(tmp_path, None).name == 'DDM.itp', \
         'without a run type, the layout the run wrote answers'
 
@@ -149,7 +150,7 @@ def test_two_detergent_candidate_topologies_are_refused_rather_than_ranked(tmp_p
     write(tmp_path, 'stages/1_system/DDM.itp', 'stages/1_system/DDM_v2.itp')
 
     with pytest.raises(ValueError, match='more than one candidate detergent topology'):
-        layout.pdc_topology(tmp_path)
+        pdc_layout.topology(tmp_path)
 
 
 def test_a_run_type_names_the_directory_its_topology_lives_in(tmp_path):
@@ -165,9 +166,9 @@ def test_the_detergent_topology_name_is_the_adapters_own():
     """`layout` cannot import an execution adapter, so it spells the name again; this is what keeps them one name."""
     from detergent_pdc.execution.adapters import pdc
 
-    assert layout.PDC_TOPOLOGY_NAME == pdc.DETERGENT_TOPOLOGY == 'detergent_CG.itp'
+    assert pdc_layout.DETERGENT_TOPOLOGY == pdc.DETERGENT_TOPOLOGY == 'detergent_CG.itp'
     system = Path(pdc.stage_by_name('System preparation').relative).parent.as_posix()
-    assert system in layout.PDC_TOPOLOGY_DIRS, 'the build stage\'s directory must be a spelling the reader knows'
+    assert system in pdc_layout.STAGE_DIRECTORIES['system'], 'the build stage\'s directory must be a spelling the reader knows'
 
 
 def test_the_pdc_stage_table_names_the_adapters_own_directories():
@@ -175,8 +176,8 @@ def test_the_pdc_stage_table_names_the_adapters_own_directories():
     from detergent_pdc.execution.adapters import pdc
 
     adapter = {Path(stage.relative).parent.name for stage in pdc.STAGES}
-    assert adapter <= set(layout.PDC_STAGE_KEYS), 'the adapter writes a stage directory the readers do not know'
-    assert len(adapter) == len(layout.PDC_STAGE_DIRECTORIES), 'one numbered directory per pdc stage'
+    assert adapter <= set(pdc_layout.STAGE_DIRECTORIES and {name: stage for stage, names in pdc_layout.STAGE_DIRECTORIES.items() for name in names}), 'the adapter writes a stage directory the readers do not know'
+    assert len(adapter) == len(pdc_layout.STAGE_DIRECTORIES), 'one numbered directory per pdc stage'
 
 
 def test_the_frame_source_prefers_the_extracted_solute_over_the_stage_output(tmp_path):
