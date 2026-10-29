@@ -17,35 +17,43 @@ Open http://127.0.0.1:5000. Run one coordinator per workspace. The historical .v
 Check active simulation and analysis jobs and worker leases before restarting. Stored process IDs must never be signalled as if owned by a new coordinator.
 
 ## Source ownership
-dashboard/app.py constructs the application. execution/ owns coordination and stage execution:
-* execution/adapters/cg.py — generic CG stage pipeline
-* execution/adapters/aa.py — AA-only stage pipeline
-* execution/adapters/cg_names.py — molecule naming for CG runs
-* execution/adapters/composition.py — molecule-combination runs
-* execution/adapters/pdc.py — protein-detergent complex stage pipeline: placement, ten numbered stages, assessment and back-mapping; every stage runs a repository `pdc_*.sh` recorded by digest
-* execution/adapters/pdc_import.py, pdc_preparation.py, pdc_protein.py, pdc_placement.py, pdc_box.py, pdc_solvation.py, pdc_assessment.py, pdc_view.py — pdc's steps; execution/pdc_preview.py derives the New Run panel's system preview
-* execution/adapters/osmotic.py — sugar osmotic-pressure series (one run owning N concentrations), with osmotic_box.py and osmotic_mdp.py
-* execution/adapters/micelle.py — the dashboard's adapter for a `micelle` build; `micelle/` remains the scientific owner (paused)
-* execution/stages.py — declarative stage tables
-* execution/workflow.py — shared stage execution, provenance and resumable state
-* execution/environment.py — environment, tool probes, MDP edits
-* execution/coordination/coordinator.py — job lifecycle, workers, admission, recovery
-* execution/coordination/worker.py — subprocess stage execution
-* execution/coordination/admission.py — run-type admission rules
-* execution/coordination/analysis_coordinator.py — derived analysis jobs and immutable outputs
-* execution/coordination/resources.py, temporary.py — limits and scratch lifetime
-* execution/coordination/manifest.py — stage and run manifest helpers
+Three distributions own the sources: `packages/core` is the engine (`detergent-core`, import `dashboard`), and the two
+features are `packages/validation` (`detergent-validation`) and `packages/pdc` (`detergent-pdc`). The engine never
+imports a feature; a feature imports the engine and registers through `dashboard/features.py`.
 
-models/ owns molecular definitions, grouped by concept: mappings/ (candidate schema, storage, context, graph,
-exports, suggestions, references, depiction over a public facade), bonded/ (interaction library, state
-records, generation), sugars/ (ring recognition, coordinate construction, constrained topology, validation),
-compositions/ (reference-backed assembly and immutable Molecule Combination snapshots), molecules/ (AA input
-discovery, model registry, evidence gates, draft models, packaged DDM source), plus repository.py (JSON record
-storage) and catalog.py (CG model catalogue). analysis/ owns derived calculations: validation/ (targets,
-geometry, transfer free energy, osmotic pressure, reports) and runs/ (references, observability, refinement,
-surfaces), with metadata.py and worker.py at the root. web/ owns HTTP routes — one module per concept under
-web/routes/ — templates and browser code. CLI utilities live in dashboard/cli/. HTTP URLs and browser storage
-keys remain stable through the source reorganization.
+The engine (`packages/core/src/dashboard/`):
+* app.py constructs the application. features.py discovers a feature and registers its blueprints, run types, analysis
+  kinds, workspace and hooks (admission, prepare, create_settings, readiness, run_failed, layout, planned_skips,
+  protein_topologies, kind_payload); web/sections.py owns the section order and the `DASHBOARD_TABS` filter.
+* execution/ owns coordination and stage execution: adapters/cg.py (generic CG stage pipeline), aa.py (AA-only),
+  cg_names.py, composition.py, micelle.py (the micelle build adapter; `micelle/` remains the science owner), stages.py,
+  workflow.py, environment.py, and coordination/ (coordinator, worker, admission, analysis_coordinator, resources,
+  temporary, manifest).
+* models/ owns molecular definitions: mappings/ (candidate schema, storage, context, graph, exports, suggestions,
+  references, depiction over a public facade), bonded/, sugars/, compositions/, molecules/ (AA input discovery, model
+  registry, evidence gates, draft models, packaged DDM source), repository.py (JSON record storage) and catalog.py.
+* analysis/runs/ owns the readers every run type shares: layout.py (registered stage directories, roles, review order,
+  topology resolvers), segments.py (registered segmenters), structures.py (the GROMACS structure and CONECT writer),
+  statistics.py (block summaries), observability.py, bonded_terms.py, bonded_estimate.py, dihedral_fit.py,
+  bartender_fit.py, references.py and figures.py. analysis/validation/carbohydrate_targets.py is the target registry
+  that the mapping route and the validation analyses both read. kinds.py keeps the engine's own vocabulary
+  (bartender-fit, bonded-cross-check, dihedral-fit, observables, plots, stability); a feature adds its rows.
+* web/ owns the shell: the routes every run type shares (runs, mappings, catalog, maintenance, the analyses queue),
+  templates/dashboard.html and the shell's static JS. cli/ owns the `detergent-dashboard` and `detergent-import-run`
+  console scripts.
+
+detergent-validation (`packages/validation/src/detergent_validation/`): web/routes/ (bonded, osmotic, refinement,
+targets, analyses payload), execution/adapters/osmotic.py with osmotic_box/osmotic_mdp and the series runner,
+analysis/runs/ (mapping_consistency, overlap, surfaces, refinement, osmotic_pressure, consistency, draft_geometry),
+analysis/validation/ (report, targets, osmotic, geometry, transfer), analysis/sugar_ensemble.py, and kinds.py
+(carbohydrate-validation, mapping-consistency, osmotic-pressure, overlap, refinement-score, surfaces, targets).
+
+detergent-pdc (`packages/pdc/src/detergent_pdc/`): execution/adapters/ (pdc, pdc_import, pdc_preparation, pdc_protein,
+pdc_placement, pdc_box, pdc_solvation, pdc_assessment), execution/pdc_preview.py, the repository `pdc_*.sh` scripts,
+analysis/runs/encapsulation.py, layout.py (stage directories, roles, review order, detergent topology), segments.py
+(the pdc segmenter and its markers), topologies.py (the protein's moleculetypes), view.py (the queued-run skip
+preview), and web/routes/pdc.py (setup, system, micelle build). The panels' markup and browser code still live in the
+shell (`templates/dashboard.html`, `static/js`); lifting them is the remaining front-end split.
 
 The source-ownership list above is the maintained map; `dashboard/README.md` carries only dashboard-local setup notes.
 

@@ -83,7 +83,7 @@ def stage_root(root):
     """Where a run keeps its stage directories: `stages/` when it exists, the run root for a legacy run.
 
     The one answer every reader uses instead of `environment.execution_root`: a current run -- of any type -- keeps
-    its stages under `stages/`, and the two pdc runs written before that keep them at the run root. A staged analysis
+    its stages under `stages/`, and the numbered layouts' predecessors keep them at the run root. A staged analysis
     work directory has no `stages/` of its own, so its files are at its root; that spelling is the same case as a
     legacy run and needs no separate branch.
     """
@@ -181,7 +181,7 @@ def resolve(root, role):
 
 
 def _directories(directory):
-    """One stage directory name, or the tuple of spellings a pdc stage may be kept under."""
+    """One stage directory name, or the tuple of spellings a stage may be kept under."""
     return (directory,) if isinstance(directory, str) else tuple(directory)
 
 

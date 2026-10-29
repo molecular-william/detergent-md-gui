@@ -183,7 +183,7 @@ def read_moleculetype_text(text: str, *, source: str = '<text>', defines=()) -> 
     """One moleculetype read out of text, for a caller that derived it and has no file to point at.
 
     The system preview derives a detergent's topology from its mapping and can draw it in the same request:
-    `pdc_view`'s own reader is the one place that knows what a moleculetype's bonds are, so the derivation's text is
+    this module's own reader is the one place that knows what a moleculetype's bonds are, so the derivation's text is
     read through it rather than through a second parser (or a scratch file written only to be read back). `source`
     is what the caller's record calls the file this model came from -- the name the run writes it under -- and it
     travels into the returned record, and from there into the PDB's own REMARK, so the picture keeps saying where

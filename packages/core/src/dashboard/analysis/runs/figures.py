@@ -11,7 +11,7 @@ currently shows, and every earlier set stays on disk, reachable through the arti
 A figure outside `analyses/` -- one a stage wrote as it ran -- belongs to no analysis attempt and is otherwise always
 shown, with one exception that is the same rule applied to a stage: an assessment a run re-scored leaves
 `stages/5_assessment@1/` beside the first `stages/5_assessment/`, and both hold a score matrix, a distance
-distribution and a diagnostic matrix. A numbered pdc run's final assessment is `09_final_assessment`, re-scored as
+distribution and a diagnostic matrix. A numbered run's final assessment is `09_final_assessment`, re-scored as
 `09_final_assessment@<n>`. Only the newest attempt's are what the run currently shows; the earlier ones stay on disk
 and are counted, because a reader comparing a re-score with what it replaced needs to reach the old pictures rather
 than have them disappear.

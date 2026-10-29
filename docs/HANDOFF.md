@@ -15,9 +15,19 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
   checkout root. `detergent-dashboard` is the console entry point; `python -m dashboard` still runs the checkout.
 - Runs prepared before the package move keep verifying: recorded code spells `dashboard/...` and
   `run_scripts.code_path` resolves it through the distribution that took the file over.
-- Still in core and worth moving when the panels are lifted: the pdc stage tables/roles in `analysis/runs/layout.py`,
-  the pdc segmenter in `analysis/runs/segments.py`, `views.planned_skips`, the micelle build route in
-  `web/routes/runs.py`, and the pdc panel markup/JS in the shell template.
+- The engine no longer names a pdc stage, role, segmenter or structure reader: the stage table, five roles, three
+  review pairs and detergent-topology resolver live in `detergent_pdc/layout.py` (registered through
+  `Feature.layout`), the nine-stage segmenter and markers in `detergent_pdc/segments.py`, the protein moleculetypes in
+  `detergent_pdc/topologies.py`, the queued-run skip preview in `detergent_pdc/view.py`, and `/api/micelle/build` on
+  the pdc blueprint. The structure writer is engine code (`analysis/runs/structures.py`) because it serves every run.
+- The validation analyses and their seven kind rows moved to `detergent_validation/` (`kinds.py`, `analysis/runs/`,
+  `analysis/validation/`, `sugar_ensemble.py`). The engine seams they needed are `Kind.payload` (a row states its
+  queue body keys), `features.kind_payload_for(kind)` (the feature validates and derives that body), the targets route
+  on the validation blueprint, and `analysis/runs/statistics.py` (the block summary core and validation both report).
+- Still in core by decision: the bonded/dihedral analyses (`bonded-cross-check`, `dihedral-fit`, `bartender-fit`), the
+  micelle adapter and its science, the mapping editor, the molecules panel, and `analysis/validation/
+  carbohydrate_targets.py` (a mapping route and the validation analyses both read it). Still to lift: the panels'
+  markup and browser code in `templates/dashboard.html` and `static/js`.
 - A validation-only deployment lives at `/mnt/data/wee/detergent-gui-mini` (`run.sh`, port 5001, `DASHBOARD_TABS`
   six panels) installed from `pip wheel packages/* -w dist`; `detergent-import-run` ports a run between workspaces.
 
