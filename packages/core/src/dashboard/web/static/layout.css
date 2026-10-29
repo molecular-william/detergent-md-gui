@@ -47,7 +47,7 @@ nav[role=tablist] button .tab-glyph { width: 18px; flex: 0 0 18px; text-align: c
 #run-form { max-width: none }
 /* `new-run.css` anchors these on `#run-form.new-run-layout`, so the measure has to be stated at least as
    specifically or the form keeps its own two columns and the spans below index into a template they do not fit. */
-#run-form.new-run-layout, .new-run-layout, .mapping-editor-layout, .composition-workspace, .pdc-workspace,
+#run-form.new-run-layout, .new-run-layout, .mapping-editor-layout, .composition-workspace,
 .bonded-columns {
   grid-template-columns: repeat(12, minmax(0, 1fr));
 }
@@ -58,9 +58,6 @@ nav[role=tablist] button .tab-glyph { width: 18px; flex: 0 0 18px; text-align: c
 .bonded-columns > * { grid-column: span 6 }
 .composition-sidebar { grid-column: span 3 }
 .composition-preview { grid-column: span 9 }
-.pdc-workspace > .pdc-setup { grid-column: span 3 }
-.pdc-workspace > .pdc-view { grid-column: span 9 }
-.pdc-workspace > .pdc-status { grid-column: span 12 }
 /* The Run view panel: the chooser and what the run holds on the left, the canvas, its frames and its figures on
    the right, and the "what this view is not" note across the measure below both. The panel's own sheet states a
    two-column grid for the same container and loses to this rule only because this sheet is linked after it --
@@ -77,7 +74,6 @@ nav[role=tablist] button .tab-glyph { width: 18px; flex: 0 0 18px; text-align: c
   nav[role=tablist] button .tab-text { display: none }
   .new-run-inputs, .new-run-settings, .mapping-editor-diagram-column, .mapping-editor-controls,
   .bonded-columns > *, .composition-sidebar, .composition-preview,
-  .pdc-workspace > .pdc-setup, .pdc-workspace > .pdc-view, .pdc-workspace > .pdc-status,
   .run-view-stage, .run-view-notes { grid-column: span 12 }
 }
 

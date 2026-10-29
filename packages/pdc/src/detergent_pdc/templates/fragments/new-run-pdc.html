@@ -1,0 +1,311 @@
+  {# The protein-detergent workspace's own panel: the same form element and the same two halves, but the fields of
+     the workflow it actually queues. `execution/adapters/pdc.py` is the reader of every control below -- the
+     detergent arrives with its own topology file, so there is no AA reference to point at and no bonded fit to
+     choose, and nothing here offers one. The fieldset is rendered only for this workspace, so the other one cannot
+     show a control that applies to someone else's pipeline. #}
+  <form id="run-form" class="new-run-layout">
+    <div class="new-run-inputs">
+    <section class="card" aria-labelledby="new-detergent-title">
+      <span class="eyebrow">DETERGENT</span><h3 id="new-detergent-title">Choose a detergent</h3>
+      <p class="hint">Detergents only, filtered by the registry in <code>detergents.json</code>: a molecule that registry does not name cannot be chosen here, because the belt is built from the detergent's own beads.</p>
+      <div class="new-pdc-pair new-pdc-detergent-pair">
+        <label>Detergent<select name="molecule_id" id="new-detergent" required aria-describedby="new-detergent-detail"><option value="">Loading detergents…</option></select></label>
+        <label>Detergent template<select name="template" id="new-template" required aria-describedby="new-template-limitation"><option value="">Loading templates…</option></select></label>
+      </div>
+      <p id="new-detergent-detail" class="hint new-pdc-detergent" role="status">Reading the detergent registry…</p>
+      <p id="new-template-limitation" class="hint new-pdc-limitation"></p>
+      <label>Model<select name="mapping_candidate" id="new-mapping"><option value="">Select a saved model</option></select></label>
+    </section>
+    <section class="card" aria-labelledby="new-protein-title">
+      <span class="eyebrow">MEMBRANE PROTEIN</span><h3 id="new-protein-title">Choose or download a structure</h3>
+      <div class="new-pdc-pair new-pdc-protein-pair">
+        <label>Protein<select name="protein" id="new-protein"><option value="">No protein · empty micelle</option></select></label>
+        {# One row: the OPM id, its button, then a tick per chain the entry declares. The build, the estimate and the
+           back-map all read that selection, so the ticks sit beside the control that brings a structure in. #}
+        <div class="new-pdc-download">
+          <label class="new-pdc-opm" for="new-protein-id">Download from OPM</label>
+          <div class="new-pdc-opm-row">
+            <input name="pdbid" id="new-protein-id" type="text" maxlength="4" placeholder="1qj8" autocomplete="off" spellcheck="false" aria-describedby="new-import-status">
+            <button type="button" class="secondary new-pdc-import-button" id="new-import">Download</button>
+            <div class="new-pdc-subunits" role="group" aria-label="Subunits" hidden>
+              <span class="new-pdc-subunits-label" aria-hidden="true">Subunits</span>
+              <div class="new-pdc-chain-list"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p id="new-import-status" class="hint new-pdc-import-status" role="status"></p>
+      <p id="new-subunits-note" class="hint new-pdc-subunits-note" role="status"></p>
+      {# The plan's step 1, and the control the refusal this panel shows is answered by: a structure whose deposited
+         file is missing side-chain atoms coarse-grains into beads with no position, and the placement refuses the
+         whole build for it. A class hook rather than an id, because the single-molecule page renders no pdc
+         fieldset and `test_dom_ids.py` requires every id a module names to be on both. #}
+      <p class="hint new-pdc-prepare-note" role="status"><strong>Prepare the protein (PDB2PQR): always on.</strong>
+        pdb2pqr rebuilds the residues the deposited file left incomplete and adds the hydrogens its protonation states
+        need, and the prepared structure is what martinize2 reads. Measured on 4iar: 104 heavy atoms across 25 residues in
+        1.5 s. When pdb2pqr is not resolvable the step records <code>skipped</code> and the structure is coarse-grained as
+        deposited, rather than failing the run.</p>
+    </section>
+    <section class="card" aria-labelledby="new-config-title">
+      <span class="eyebrow">RUN CONFIGURATION</span><h3 id="new-config-title" class="new-pdc-config-title">Detergent belt and sampling</h3>
+      <div class="new-pdc-pair new-pdc-config-pair">
+        <label>Initialisation style<select name="pdc_placement_mode" id="new-placement"><option value="lattice">Pre-assembled micelle · CHARMM-GUI</option><option value="self-assembly">Self-assembly · MemProtMD</option></select></label>
+        <label><span class="new-pdc-count-label" id="new-count-label">Detergents in the belt</span>
+          <span class="setting-control">
+            <input name="aggregation_number" id="new-count" type="number" min="1" max="1000" step="1">
+          </span>
+        </label>
+      </div>
+      <div class="new-pdc-belt-block" id="new-belt-block">
+        <div class="new-pdc-estimate-card" role="status" aria-live="polite">
+          <p class="new-pdc-verdict">Choose a protein and a detergent to size the belt.</p>
+          <p class="hint new-pdc-shortfall"></p>
+          <table class="new-pdc-estimate-table" hidden><tbody>
+            <tr><td>Apolar area of the transmembrane slab</td><td><strong class="new-pdc-apolar">—</strong></td></tr>
+            <tr><td>Head-group area of one detergent bead</td><td><strong class="new-pdc-head">—</strong></td></tr>
+            <tr><td>Estimated need</td><td><strong class="new-pdc-need">—</strong></td></tr>
+            <tr><td>What you are asking for</td><td><strong class="new-pdc-have">—</strong> of that area</td></tr>
+          </tbody></table>
+          <details class="new-pdc-explanation">
+            <summary>How this estimate is worked out</summary>
+            <p class="hint new-pdc-method"></p>
+            <p class="hint new-pdc-caveat"></p>
+            <p class="hint new-pdc-about">The number is the server's, from the protein's transmembrane slab and this detergent's head bead, with the method it states and its own caveat: a flat-area sizing of an input, never a verdict that a micelle forms.</p>
+          </details>
+        </div>
+      </div>
+      <div class="new-pdc-empty-block" id="new-empty-block" hidden>
+        <table class="new-pdc-estimate"><tbody>
+          <tr><td>Experimental aggregation number</td><td><strong class="new-pdc-empty-number">— not recorded yet</strong></td></tr>
+          <tr><td>Requested above</td><td><strong class="new-pdc-empty-count">—</strong></td></tr>
+        </tbody></table>
+      </div>
+      <div class="new-pdc-pair new-pdc-legs">
+        <div class="leg">
+          <label>CG assessment leg (ns)<input name="pdc_assessment_ns" id="new-assessment-ns" type="number" min="1" max="100000" step="1"></label>
+          <span class="hint">The first CG leg, and it is named for what happens to it: its end state is judged. Detergents not in the micelle are removed, and losing more than 10% of the requested count re-runs this leg from scratch with new velocities, up to three attempts.</span>
+        </div>
+        <div class="leg">
+          <label>CG extension leg (ns)<input name="pdc_extension_ns" id="new-extension-ns" type="number" min="1" max="1000000" step="1"></label>
+          <span class="hint">Continues the system that survived, from its checkpoint (<code>gmx convert-tpr -extend</code>), so the total CG sampling is the two legs together — 1 µs by default. The assessment re-runs at the end, and this is the state that gets back-mapped.</span>
+        </div>
+      </div>
+      <label class="new-pdc-backmap">Remove out-of-micelle detergents<input name="remove_out_of_micelle" type="checkbox" checked></label>
+      <label class="new-pdc-backmap">Back-map to atomistic (CG2AT2)<input name="backmap" type="checkbox" checked></label>
+      <p class="hint new-pdc-backmap-note" role="status">On: the extended CG state is converted to atomistic with CG2AT2 (<code>-o align</code>). Off: the back-map stage records <code>skipped</code> and the run stops coarse-grained, with no atomistic structure produced.</p>
+      <details id="new-advanced"><summary>Other run options</summary>
+        <p class="hint">These are the CG production legs' numbers. Every field starts as the reviewed profile's
+          own; changing one overrides it for this run only and the manifest records what was used. The equilibration
+          and restart profiles keep their own values.</p>
+
+        <h4 class="new-pdc-option-title">Output cadence</h4>
+        <div class="settings-grid">
+          <label>Log interval (steps)<span class="setting-control"><input name="nstlog" type="number" min="1" max="1000000" step="1"></span></label>
+          <label>Energy interval (steps)<span class="setting-control"><input name="nstenergy" type="number" min="1" max="1000000" step="1"></span></label>
+          <label>Trajectory interval (steps)<span class="setting-control"><input name="nstxtcout" type="number" min="1" max="1000000" step="1"></span></label>
+          <label>Trajectory precision<span class="setting-control"><input name="xtc_precision" type="number" min="1" max="1000000" step="any"></span></label>
+          <label>Centre-of-mass removal (steps)<span class="setting-control"><input name="nstcomm" type="number" min="1" max="1000000" step="1"></span></label>
+        </div>
+        <p class="hint"><code>nstxtcout</code> is the compressed-trajectory stride; newer profiles spell the same
+          option <code>nstxout-compressed</code>. Full-precision <code>nstxout</code>, <code>nstvout</code> and
+          <code>nstfout</code> stay off, as the profiles state.</p>
+
+        <h4 class="new-pdc-option-title">Neighbour search and cutoffs</h4>
+        <div class="settings-grid">
+          <label>Neighbour list rebuild (steps)<span class="setting-control"><input name="nstlist" type="number" min="1" max="10000" step="1"></span></label>
+          <label>Verlet buffer tolerance<span class="setting-control"><input name="verlet_buffer_tolerance" type="number" min="0" max="0.1" step="0.001"></span></label>
+          <label>Neighbour cut-off (nm)<span class="setting-control"><input name="rlist" type="number" min="0.1" max="5" step="0.05"></span></label>
+          <label>Coulomb cut-off (nm)<span class="setting-control"><input name="rcoulomb" type="number" min="0.1" max="5" step="0.05"></span></label>
+          <label>van der Waals cut-off (nm)<span class="setting-control"><input name="rvdw" type="number" min="0.1" max="5" step="0.05"></span></label>
+        </div>
+
+        <h4 class="new-pdc-option-title">Thermostat and barostat</h4>
+        <div class="settings-grid">
+          <label>Temperature (K)<span class="setting-control"><input name="ref_t" type="number" min="200" max="500" step="0.01"></span></label>
+          <label>Thermostat coupling (ps)<span class="setting-control"><input name="tau_t" type="number" min="0.01" max="100" step="any"></span></label>
+          <label>Pressure (bar)<span class="setting-control"><input name="ref_p" type="number" min="0.1" max="100" step="0.1"></span></label>
+          <label>Barostat coupling (ps)<span class="setting-control"><input name="tau_p" type="number" min="0.1" max="100" step="0.1"></span></label>
+          <label>Compressibility (bar⁻¹)<span class="setting-control"><input name="compressibility" type="number" min="0" max="1" step="any"></span></label>
+        </div>
+
+        <h4 class="new-pdc-option-title">Salt, seed and box</h4>
+        <div class="settings-grid">
+          <label>Salt concentration (M)<span class="setting-control"><input name="salt_molar" type="number" min="0" max="5" step="0.01"></span></label>
+          <label>Random seed<span class="setting-control"><input name="pdc_seed" type="number" min="1" max="2147483646" step="1" required></span></label>
+          <label>Box margin (nm)<span class="setting-control"><input name="box_margin_nm" type="number" min="0.5" max="10" step="0.1"></span></label>
+          <label>Initial z box (nm)<span class="setting-control"><input name="initial_z_nm" type="number" min="1" max="50" step="0.1"></span></label>
+          <label>Micelle contact distance (nm)<span class="setting-control"><input name="contact_nm" type="number" min="0.1" max="2" step="0.1"></span></label>
+          <label>Removal threshold (fraction)<span class="setting-control"><input name="selection_threshold_fraction" type="number" min="0" max="1" step="0.01"></span></label>
+        </div>
+        <p class="hint">The seed defaults to today's date (YYYYMMDD). Detergents are placed at random in the
+          self-assembly style, so two builds are comparable only when both record the seed they placed with;
+          clearing it stops the run rather than letting one be chosen for it.</p>
+
+        <h4 class="new-pdc-option-title">Execution</h4>
+        <div class="settings-grid">
+          <label>GPU device (CUDA id)<span class="setting-control"><select name="mdrun_gpu" class="new-pdc-gpu-device"></select></span></label>
+          <label>mdrun threads<span class="setting-control"><input name="mdrun_ntomp" type="number" min="1" max="72" step="1"></span></label>
+          <label>mdrun ranks<span class="setting-control"><input name="mdrun_ranks" type="number" min="1" max="72" step="1"></span></label>
+          <label>Nonbonded scheme<span class="setting-control"><select name="mdrun_nb"><option value="auto">auto · profile decides</option><option value="cpu">CPU</option><option value="gpu">GPU</option></select></span></label>
+        </div>
+        <p class="hint new-pdc-gpu-note" role="status"></p>
+        <p class="hint">The GPU list follows the CUDA ordinal, not nvidia-smi's index. The bus address stays in the
+          run's record so the chosen device can be checked.</p>
+      </details>
+      <label>Run label <input name="label" maxlength="160" placeholder="Optional label for this run"></label>
+    </section>
+    </div>
+    <aside class="new-run-settings">
+    {# The system preview: the build's own placement step, derived on demand by `GET /api/pdc/preview/placement`.
+       It is the picture the build would write, and every statement around it is there to keep that from being read
+       as a prediction of the whole run. Every hook here is
+       a class, because `tests/dashboard/integration/test_dom_ids.py` requires an id a module names in a selector to be
+       rendered on the single-molecule page too, and this fieldset is not rendered there. #}
+    <section class="card new-pdc-preview" aria-labelledby="new-preview-title">
+      <span class="eyebrow">SYSTEM PREVIEW</span>
+      <h3 id="new-preview-title">What these inputs would build</h3>
+
+      <div class="new-pdc-preview-viewer" role="img"
+           aria-label="Coarse-grained protein and detergent belt inside the simulation box"></div>
+      <div class="bead-legend" data-bead-legend
+           aria-label="Bead colour by Martini 3 polarity family"></div>
+      {# The protein's backbone is coloured by secondary structure, and this is that key: the three classes come from
+         `ngl-beads.js`'s table, the same one the representations are coloured from, and the counts above it are the
+         assignment the server made. Both are hidden until a frame carries an assignment to decode. #}
+      <div class="bead-legend new-pdc-preview-secondary-legend" data-secondary-legend hidden
+           aria-label="Protein backbone colour by secondary structure"></div>
+      <p class="hint new-pdc-preview-secondary" role="status" hidden></p>
+      <p class="hint new-pdc-preview-ribbon-note" role="status" hidden></p>
+      <p class="hint new-pdc-preview-basis" role="status"></p>
+      <p class="hint new-pdc-preview-shell" role="status" hidden></p>
+      <p class="hint new-pdc-preview-capacity" role="status" hidden></p>
+      <p class="new-pdc-preview-refusal" role="status" hidden></p>
+
+      <div class="new-pdc-preview-actions">
+        <button type="button" class="secondary new-pdc-preview-derive">Derive the preview</button>
+        <button type="button" class="secondary new-pdc-preview-use-capacity" hidden>Use the measured count</button>
+        {# A view of the frame on screen, not an input to the derive: it switches the protein's beads to a licorice
+           stick so the model's own bonds are readable at this card's scale, and sends nothing to the server. #}
+        <label class="new-pdc-preview-bonds" title="Draw the protein as licorice sticks so the model's own bonds are visible">
+          <input type="checkbox"> Bonds
+        </label>
+        {# The all-atom structure the beads were coarse-grained from, drawn as a ribbon under them. A view switch like
+           Bonds -- it sends nothing, changes no derived value, and is not one of the derive's inputs; the server names
+           the structure, so this card never builds the URL for it. #}
+        <label class="new-pdc-preview-ribbon"
+               title="Draw the all-atom structure the beads were coarse-grained from, as a ribbon under the beads">
+          <input type="checkbox" checked> Ribbon
+        </label>
+        <span class="hint new-pdc-preview-state" role="status">Nothing derived yet: press Derive the preview.</span>
+      </div>
+
+      <dl class="review-grid new-pdc-preview-facts">
+        <dt>Derived from</dt><dd class="new-pdc-preview-from">—</dd>
+        <dt>Beads</dt><dd class="new-pdc-preview-beads">—</dd>
+        <dt>Box</dt><dd class="new-pdc-preview-box">—</dd>
+        <dt>Cost</dt><dd class="new-pdc-preview-cost">—</dd>
+        <dt>Kept</dt><dd class="new-pdc-preview-kept">—</dd>
+      </dl>
+
+      {# What the picture is *not* is folded away: it is the statement a reader needs once and then knows, and at full
+         length it buried the facts above it. The summary line keeps the one claim that has to survive on its own --
+         that this is the placement and nothing after it -- and the list names each thing it is not. #}
+      <details class="new-pdc-preview-limits">
+        <summary>It is the placement, and nothing after it: what it does not show</summary>
+        <ul class="hint new-pdc-preview-nots">
+          <li><strong>No solvent and no ions.</strong> The build leaves a <em>dry</em> system: water and salt are added
+            by the first equilibration leg. That is the build's own artifact, not a reduction of it.</li>
+          <li><strong>Not the box you will simulate.</strong> x and y come from the protein's extent plus the margin,
+            z from the initial z or the membrane slab; the NPT leg changes it, so the density here is not the run's.</li>
+          <li><strong>Not a verdict on the micelle.</strong> A placement is geometry, not dynamics: whether the belt
+            closes and survives is decided by the run's own assessment, after CG MD.</li>
+          <li><strong>Not the final system.</strong> The assessment leg removes the detergents that are not in the
+            micelle, and the back-map turns the surviving state atomistic; neither is here.</li>
+          <li><strong>Beads, not chemistry.</strong> A coarse-grained bead has no element, so the file writes a neutral
+            stand-in (<code>pdc_view</code> states it) and colours each from its own Martini 3 polarity family. With a
+            mapping the picture is that mapping's beads and bonds; with none, the build records one centre per molecule,
+            writes no topology, and every bead is the family-not-stated colour.</li>
+        </ul>
+      </details>
+
+      <details class="new-pdc-preview-explanation">
+        <summary>Where this picture comes from, what it costs, and when there is none</summary>
+        <p class="hint"><strong>Where it comes from.</strong> The build's own placement step, run on demand:
+          <code>pdc_build.select_protein</code>, the coarse-grained protein, <code>pdc_placement.place_detergents</code>,
+          <code>pdc_box</code>, <code>pdc_build.stamp</code> and <code>pdc_view.system_pdb</code> — the functions the
+          stage calls, in the order it calls them. Nothing here is drawn by hand: a schematic would look like a
+          prediction of a system these inputs do not produce, which is the one thing this card will not do.</p>
+        <p class="hint"><strong>When the build refuses, this shows the refusal and no picture.</strong> The template's
+          own validator and the placement's clearance gate are the build's gates, and the card renders the builder's
+          own sentence rather than inventing a message or drawing a system the build would refuse. One scope worth
+          knowing: a refusal from the <em>sphere</em> is not a verdict on the protein — the sphere is the shape a build
+          makes when the protein's file states no membrane, and a file that states one is placed as a band in the
+          membrane plane instead.</p>
+        <p class="hint"><strong>With no protein there is no coarse-graining at all.</strong> The empty micelle is placed
+          directly around the box the count and the radius define, so it is the cheapest case this card has, and there
+          is no belt to size.</p>
+        <p class="hint"><strong>What it costs.</strong> The expensive half is the coarse-graining, and only that half
+          depends on the protein and its chain ticks. Measured on this machine with 1AT9:
+          <code>martinize2</code> takes <strong>6.7 s</strong> for one 231-residue chain and <strong>13.6 s</strong>
+          for all three (690 residues); the placement itself is <strong>5–40 ms</strong>. The Cost row reports what
+          <em>this</em> derive actually paid, and an empty micelle pays none of it. Once the coarse-grained protein
+          exists, the count, the style, the seed and the box margins re-derive in about a tenth of a second.</p>
+        <p class="hint"><strong>What is kept.</strong> The frames are not: they are derived per request, because a run
+          re-derives its own <code>placement.pdb</code> in its own stage. What is kept is the coarse-grained protein,
+          in this workspace's own <code>preview/cg/</code> directory (~50 KB per protein-and-selection), keyed by the
+          protein's own bytes, the subunit ticks and the <code>martinize2</code> that built it — so a change to any of
+          those three derives it again, and a change to anything else does not. Nothing a run reads lives there, and a
+          preview creates no run, no job and no manifest: it never appears in the runs list.</p>
+        <p class="hint"><strong>Why the card does not redraw on every keystroke.</strong> The picture is asked for: the
+          reader presses <em>Derive the preview</em>. A change to the protein, the subunit ticks or the mapping marks
+          the frame as no longer this form's and says so, rather than quietly drawing a picture that answers a
+          different question. The count, the style, the seed and the box margins are re-derived as they change,
+          because the cached coarse-grained protein makes those cheap.</p>
+      </details>
+    </section>
+    <section class="card" aria-labelledby="new-workflow-title">
+      <span class="eyebrow">WORKFLOW</span><h3 id="new-workflow-title">What this run will do</h3>
+      <details class="new-pdc-diagram">
+        <summary>Show the CG-MD chain as a diagram</summary>
+        <figure class="new-pdc-diagram-figure">
+          <svg class="new-pdc-workflow-svg" viewBox="0 0 980 212" role="img" aria-labelledby="new-pdc-flow-title">
+            <title id="new-pdc-flow-title">The protein-detergent chain, drawn from the current settings</title>
+            <desc id="new-pdc-flow-desc">The stages this form would run, in order.</desc>
+            <defs>
+              <marker id="new-pdc-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+                      orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="new-pdc-flow-arrow-head"/></marker>
+            </defs>
+            <g class="new-pdc-flow" data-new-pdc-flow></g>
+            </g>
+          </svg>
+          <p class="hint new-pdc-flow-skipped" role="status"></p>
+          <figcaption>Memembed is not in the chain, and that is a saving rather than a gap: an OPM structure is already
+            oriented in the membrane, which is the step it would do. With a protein, steps 3, 5 and 6 use the protein's
+            hydrophobic surface; for an empty micelle step 3 is the micelle on its own and step 6's protein clause does
+            not apply. A leg the run asks none of records <code>skipped</code> and the chain carries on.</figcaption>
+        </figure>
+      </details>
+      <p class="hint new-pdc-workflow-note" role="status">With a protein, steps 3 and 6 use the protein's hydrophobic surface. For an empty micelle, step 3 is the micelle on its own and step 6's protein clause does not apply.</p>
+    </section>
+    <section class="card run-review" aria-labelledby="new-checks-title">
+    <div class="review-heading"><h3 id="new-checks-title">Review before launch</h3><span id="review-status" class="review-status" role="status">Checking readiness…</span></div>
+    <dl id="new-input-summary" class="review-grid">
+      <dt>Detergent</dt><dd data-new-summary="detergent">—</dd>
+      <dt>Mapping</dt><dd data-new-summary="mapping">—</dd>
+      <dt>Protein</dt><dd data-new-summary="protein">none · empty micelle</dd>
+      <dt class="new-pdc-subunits-label">Subunits</dt><dd data-new-summary="subunits">—</dd>
+      <dt>Protein preparation</dt><dd data-new-summary="prepare">—</dd>
+      <dt>Initialisation</dt><dd data-new-summary="placement">—</dd>
+      <dt>Detergents</dt><dd data-new-summary="count">—</dd>
+      <dt class="new-pdc-estimate-label">Estimate</dt><dd data-new-summary="estimate">—</dd>
+      <dt>Sampling</dt><dd data-new-summary="sampling">—</dd>
+      <dt>Seed</dt><dd data-new-summary="seed">—</dd>
+      <dt>Removal</dt><dd data-new-summary="removal">—</dd>
+      <dt>Back-map</dt><dd data-new-summary="backmap">CG2AT2 to atomistic</dd>
+    </dl>
+    <p class="hint review-note">Execution success does not establish scientific validation.</p>
+    <p id="launch-blocker" class="hint" role="status"></p>
+    <details id="new-provenance"><summary>View detailed provenance and stages</summary><h4>Readiness details</h4><div id="readiness" aria-live="polite">Checking requirements…</div></details>
+    <button type="submit" id="start-run" disabled>Start run</button>
+    </section></aside>
+  </form>

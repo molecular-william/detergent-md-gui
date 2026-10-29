@@ -2,8 +2,8 @@
 //
 // Scoped, never duplicated. The workspace the panel was mounted in decides which run types it offers -- the scope
 // arrives in the page (`#run-view-scope`, written from `web/sections.py`'s per-workspace `run_types`) -- and this
-// host asks `/api/jobs` for each of those types *by name* rather than paging every run on disk. A `pdc` run is drawn
-// here like any other: the monitor draws its structure and lists the chain's own segments under it, because
+// host asks `/api/jobs` for each of those types *by name* rather than paging every run on disk. Every run type is
+// drawn here: the monitor draws its structure and lists the chain's own segments under it, because
 // `/api/jobs/<id>/trajectory` answers from the run's stage files.
 //
 // Two runs at once is the point: a coarse-grained run and the atomistic reference it consumed read side by side, so
@@ -21,6 +21,10 @@
 
 import { $, api, panelIds } from './shared.js';
 import { createMonitor } from './run-view-monitor.js';
+
+// The seam a feature's module imports to register its run type's file conventions and stage chain. Re-exported here
+// so the panel a feature extends is the module it names (`/static/js/run-view.js`).
+export { registerRunViewExtension } from './run-view-extension.js';
 
 //: The route pages the artifact index and caps `limit` at 100, so every request here states its own limit.
 const PAGE_LIMIT = 100;
@@ -124,9 +128,9 @@ export function createRunView() {
   // ----------------------------------------------------------------------------------------------- the pair
 
   async function open(monitor, job) {
-    // Every run type is drawn here now, a protein-detergent run included. What once made this panel unable to draw
-    // one was that the run's CG trajectory matched no role in `analysis/runs/layout.py`; the layout resolves a pdc
-    // run's production trajectory, and the segments (which legs merge, and where the system is rebuilt) come from
+    // Every run type is drawn here. What once made this panel unable to draw one was that the run's CG trajectory
+    // matched no role in `analysis/runs/layout.py`; a feature registers its layout, so a run's production trajectory
+    // resolves, and the segments (which legs merge, and where the system is rebuilt) come from
     // `/api/jobs/<id>/trajectory`.
     await monitor.loadRun(job);
     remember();

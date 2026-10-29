@@ -77,15 +77,15 @@ def test_the_evidence_section_descriptions_are_not_analysis_kinds():
     """Three descriptions name the carbohydrate report's evidence sections, not analyses.
 
     They were in the same mapping as the kinds, which is why it held seventeen entries for thirteen kinds and why
-    nothing noticed. They are a different vocabulary -- the sections `evidence.PROFILES['carbohydrate']` requires --
-    so they live in their own mapping, checked against that profile rather than floating among the kinds.
+    nothing noticed. They are a different vocabulary -- the sections the carbohydrate profile requires -- so the
+    feature that owns the report registers them, checked against that profile rather than among the kinds.
     """
+    from dashboard import features
     from dashboard.analysis import metadata
     from dashboard.analysis.kinds import TABLE
-    from dashboard.models.molecules import evidence
 
-    sections = metadata.EVIDENCE_SECTIONS
-    assert set(sections) == set(evidence.PROFILES['carbohydrate'])
+    sections = metadata.evidence_sections()
+    assert set(sections) == set(features.molecule_profiles()['carbohydrate'])
     assert not set(sections) & set(TABLE), 'an evidence section is not an analysis kind'
     for name, (title, ideal, units) in sections.items():
         assert title and ideal and units, name

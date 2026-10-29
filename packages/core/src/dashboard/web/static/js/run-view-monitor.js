@@ -15,6 +15,7 @@ import { $, api } from './shared.js';
 import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, applyBeadRadii, renderBeadLegend, sizeClassOf } from './ngl-beads.js';
 import { conectCount, dropBonds, inStage, isCoarseGrained, loadParameters, structureExtension,
          structureRank } from './run-view-structure.js';
+import { runViewExtensionFor } from './run-view-extension.js';
 
 //: The route pages the artifact index and caps `limit` at 100, so every request here states its own limit.
 const PAGE_LIMIT = 100;
@@ -306,9 +307,10 @@ function chooser(root, side, runs, onPick) {
     }));
   }
 
-  // The CG chain as segments: which legs are one system, and where the system is rebuilt. A protein-detergent run's
-  // stages are read from `/api/jobs/<id>/trajectory`, which answers from the run's own stage files: legs sharing a
-  // `group` are one trajectory, and a change of group is a boundary.
+  // The run's stage chain: which legs are one system, and where the system is rebuilt, read from
+  // `/api/jobs/<id>/trajectory` (which answers from the run's own stage files). A run whose stage chain a feature
+  // owns draws its own table through that feature's `runSelected` hook; the engine keeps only the sentence a run
+  // with nothing to play gets, so an install without the feature still says why the sub-panel is empty.
   let segmentsToken = 0;
 
   async function loadSegments(job) {
@@ -332,46 +334,21 @@ function chooser(root, side, runs, onPick) {
       return;
     }
     if (token !== segmentsToken) return;   // the monitor moved to another run while this answered
-    const rows = (answer && answer.segments) || [];
     const why = (answer && answer.why) || '';
-    // The table is a protein-detergent run's: it lists the run's stages, and a single-molecule run has one trajectory
-    // rather than a chain of them, so its single row would print a layout role (`cg_trajectory`) in a column headed
-    // Stage. "Nothing to play" is a state either run type can be in, so that sentence is kept either way.
-    const pdc = Boolean(answer && answer.run_type === 'pdc');
-    segmentsTable.hidden = !pdc;
-    segmentsWrap.hidden = !(pdc || why);
-    if (!pdc || !rows.length) {
-      segmentsNote.textContent = why;
+    const extension = runViewExtensionFor(job);
+    if (extension && typeof extension.runSelected === 'function') {
+      await extension.runSelected({
+        job, answer,
+        nodes: {wrap: segmentsWrap, table: segmentsTable, body: segmentsBody, note: segmentsNote},
+        isCurrent: () => token === segmentsToken,
+      });
       return;
     }
-    const boundaries = new Map(((answer.boundaries) || []).map(entry => [entry.at, entry]));
-    segmentsBody.replaceChildren(...rows.map(entry => {
-      const line = document.createElement('tr');
-      // `== null` rather than a falsy test: a merge group of 0 is a group, and a stage that has none is idle for one
-      // of two reasons, which the value names instead of folding them into `true`.
-      if (entry.group == null) line.dataset.idle = entry.duplicate_of ? 'duplicate' : 'no-trajectory';
-      if (boundaries.has(entry.name)) line.dataset.boundary = 'true';
-      const note = boundaries.has(entry.name)
-        ? `system rebuilt here: ${entry.atoms} atoms, from ${boundaries.get(entry.name).atoms_from}`
-        : (entry.duplicate_of ? `the same trajectory as ${entry.duplicate_of}` : (entry.note || ''));
-      const texts = [entry.name,
-                     entry.atoms == null ? '—' : String(entry.atoms),
-                     entry.trajectory ? entry.trajectory.split('/').pop() : 'none',
-                     note];
-      texts.forEach((text, index) => {
-        const cell = document.createElement(index === 0 ? 'th' : 'td');
-        if (index === 0) cell.setAttribute('scope', 'row');
-        cell.textContent = text;
-        line.append(cell);
-      });
-      return line;
-    }));
-    // A `group` is a system, not a trajectory: group 1 on the measured run holds four distinct `.xtc` files, so
-    // calling it a trajectory contradicts the table under this sentence.
-    const systems = new Set(rows.filter(entry => entry.group != null).map(entry => entry.group)).size;
-    segmentsNote.textContent = `${rows.length} stage${rows.length === 1 ? '' : 's'} in `
-      + `${systems} system${systems === 1 ? '' : 's'}: stages in the same group share one system; `
-      + 'a change of group is where the system is rebuilt.';
+    // A single-molecule run has one trajectory rather than a chain of stages, so it has no table of them; the
+    // endpoint's own sentence about having nothing to play is the one thing kept for it.
+    segmentsTable.hidden = true;
+    segmentsWrap.hidden = !why;
+    segmentsNote.textContent = why;
   }
 
   async function loadFigures(job) {
@@ -523,8 +500,8 @@ function chooser(root, side, runs, onPick) {
         const named = sizeClasses && sizeClasses[String(atom.atomname || '').trim().toUpperCase()];
         return named || sizeClassOf(atom);
       }});
-      // The colour is the bead's own type family, from the code `pdc_view.system_pdb` writes in the b-factor column
-      // of the structure this panel serves (`ngl-beads.js` is the one table); a file that carries none draws every
+      // The colour is the bead's own type family, from the code the structure writer puts in the b-factor column
+      // of the file this panel serves (`ngl-beads.js` is the one table); a file that carries none draws every
       // bead as family-not-stated rather than as the first family.
       component.addRepresentation('ball+stick', {...BEAD_RADIUS_PARAMETERS, ...BEAD_FAMILY_PARAMETERS});
     } else {

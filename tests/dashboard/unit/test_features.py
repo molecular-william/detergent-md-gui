@@ -14,6 +14,7 @@ import pytest
 from dashboard import features
 from dashboard.analysis import kinds
 from dashboard.execution import protocol
+from dashboard.models.molecules import evidence
 from dashboard.web import sections
 from flask import Blueprint, Flask
 
@@ -192,3 +193,37 @@ def test_a_features_code_enters_the_analysis_cache_signature(fake_feature, tmp_p
 
     entry = ('fake/analysis/metric.py', module.resolve())
     assert entry in features.code_fingerprint_files()
+
+
+def test_the_validation_feature_supplies_the_carbohydrate_evidence_vocabulary(monkeypatch):
+    """The section text and the profile that requires it belong to the report's own distribution.
+
+    The engine keeps no carbohydrate vocabulary; the accessors merge what the installed features define and refuse
+    two features claiming one section or profile name.
+    """
+    carbohydrate_evidence = pytest.importorskip('detergent_validation.evidence')
+    installed = {feature.name: feature for feature in features.installed()}
+    assert 'validation' in installed, 'the validation distribution advertises its feature entry point'
+    validation = installed['validation']
+    assert validation.evidence_sections == carbohydrate_evidence.EVIDENCE_SECTIONS
+    assert validation.molecule_profiles == carbohydrate_evidence.MOLECULE_PROFILES
+
+    section = next(iter(carbohydrate_evidence.EVIDENCE_SECTIONS))
+    profile = next(iter(carbohydrate_evidence.MOLECULE_PROFILES))
+    monkeypatch.setattr(features, 'ensure', lambda: [validation])
+    assert features.evidence_sections()[section] == carbohydrate_evidence.EVIDENCE_SECTIONS[section]
+    assert features.molecule_profiles()[profile] == carbohydrate_evidence.MOLECULE_PROFILES[profile]
+
+    duplicate = features.Feature(name='duplicate',
+                                 evidence_sections={section: ('Duplicate', 'Duplicate', 'Duplicate')},
+                                 molecule_profiles={profile: ('duplicate',)})
+    monkeypatch.setattr(features, 'ensure', lambda: [validation, duplicate])
+    with pytest.raises(ValueError, match=f'evidence section {section!r} is claimed by two features'):
+        features.evidence_sections()
+    with pytest.raises(ValueError, match=f'molecule profile {profile!r} is claimed by two features'):
+        features.molecule_profiles()
+
+    engine_claim = features.Feature(name='engine-claim', molecule_profiles={'detergent': ('nothing',)})
+    monkeypatch.setattr(features, 'ensure', lambda: [engine_claim])
+    with pytest.raises(ValueError, match="molecule profile 'detergent' is claimed by the engine and a feature"):
+        evidence.profiles()

@@ -5,6 +5,7 @@ from dashboard import features
 from dashboard.execution import protocol
 
 from . import layout as pdc_layout
+from . import legacy
 from . import segments as pdc_segments
 from . import topologies as pdc_topologies
 from . import view as pdc_view
@@ -51,12 +52,18 @@ FEATURE = features.Feature(
     create_settings={'pdc': _create_settings},
     readiness={'pdc': _readiness},
     layout=(pdc_layout.register, pdc_segments.register),
+    # The pre-numbering stage directories a legacy run may hold at its root; `cli/migrate_run_layout.py` reads these
+    # through the registry rather than keeping a pdc table of its own.
+    legacy_stages={'pdc': legacy.LEGACY_STAGES},
     priority=20,
     # This feature's own browser surface: the Complexes panel's markup, sheet and module.
     templates=PACKAGE / 'templates',
     static=PACKAGE / 'static',
     styles=('pdc.css',),
     panel_modules={'pdc': ('js/pdc.js', 'createPdc')},
+    # The shared panels' pdc behaviour: the protein-detergent New run form (`new-run-pdc.js`) and which run-view
+    # structures are beads (`run-view-pdc.js`), registered onto the engine panels as they load.
+    extension_modules=('js/new-run-pdc.js', 'js/run-view-pdc.js'),
     planned_skips=pdc_view.planned_skips,
     protein_topologies=pdc_topologies.read_protein_topologies,
     section=('simulations', {
@@ -66,6 +73,11 @@ FEATURE = features.Feature(
         'tabs': ('runs', 'run-view', 'new-run', 'complexes'),
         'panel_labels': {'new-run': 'Protein-Detergent Simulations'},
         'run_types': ('pdc',),
+        # This workspace's New run form and its heading sentence are this feature's fragments, and its gallery has
+        # no figures to open yet: the shell renders what the record names, with no feature vocabulary of its own.
+        'form_fragment': 'fragments/new-run-pdc.html',
+        'form_blurb': 'fragments/new-run-pdc-blurb.html',
+        'gallery_note': 'fragments/run-view-no-figures.html',
     }),
     panels=(('complexes', ('Complexes', '\u2b21')),),
     blurbs=(('complexes', 'build and inspect a system'),),

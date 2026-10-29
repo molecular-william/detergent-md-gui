@@ -22,6 +22,8 @@ SOURCE = PACKAGE / 'web/static/js/ngl-beads.js'
 #: The mock of the new-run panel's preview, which draws the same beads and bonds without importing this module (a
 #: standalone page carries no ES modules), so its copy of these numbers is held here like the table above.
 DRAFT = PROJECT_ROOT / 'docs/superpowers/drafts/2026-10-13-pdc-system-preview-draft.html'
+#: The complex panel and the shared New Run panel's pdc half ship with the pdc feature, not the engine.
+PDC_JS = PROJECT_ROOT / 'packages/pdc/src/detergent_pdc/static/js'
 
 
 def _constants(text, names):
@@ -95,7 +97,7 @@ def test_the_run_view_and_the_preview_draw_a_bead_at_the_same_scale():
     """
     panel = re.search(r'const BEAD_SCALE\s*=\s*([0-9.]+);', (SOURCE.parent / 'run-view-monitor.js').read_text())
     assert panel, 'the run view states no BEAD_SCALE'
-    preview = re.search(r'PREVIEW_BEAD_SCALE\s*=\s*([0-9.]+);', (SOURCE.parent / 'new-run.js').read_text())
+    preview = re.search(r'PREVIEW_BEAD_SCALE\s*=\s*([0-9.]+);', (PDC_JS / 'new-run-pdc.js').read_text())
     assert preview, 'the New Run panel states no PREVIEW_BEAD_SCALE'
     assert float(preview.group(1)) == float(panel.group(1)), \
         f'the run view draws at {panel.group(1)} and the preview at {preview.group(1)}: one bead, two sizes'
@@ -128,7 +130,7 @@ def test_the_mock_draws_the_same_bead_and_bond_as_the_module():
     assert float(preview.group(1)) == 0.3, 'the mock draws the beads at the scale the user asked for'
     # And the panel now draws it too: the mock's own preview scale is the panel's, so the picture the reader approved
     # and the picture the app builds cannot differ by the one number the preview adds for reading.
-    panel = re.search(r'PREVIEW_BEAD_SCALE\s*=\s*([0-9.]+);', (SOURCE.parent / 'new-run.js').read_text())
+    panel = re.search(r'PREVIEW_BEAD_SCALE\s*=\s*([0-9.]+);', (PDC_JS / 'new-run-pdc.js').read_text())
     assert panel, 'the New Run panel states no PREVIEW_BEAD_SCALE'
     assert float(panel.group(1)) == float(preview.group(1)), 'the mock and the panel draw the preview at two scales'
     assert _drawn_parameters(draft) == _drawn_parameters(module)
@@ -289,24 +291,24 @@ def test_the_scale_knob_defaults_to_the_models_own_radius():
     assert re.search(r'BEAD_RADIUS_SCALE\s*=\s*1\s*;', SOURCE.read_text())
 
 
-#: The four views that draw a bead, and the preview card that is the fifth. Each used to hold its own numbers -- a
-#: table, an element's van der Waals radius to divide by, or a scale of its own -- which is one model in four places.
-#: `ngl-beads.js` is now the one table and the one call for all of them, and this is what holds that: a fifth copy of
-#: either would be a fifth answer. `new-run.js` is the protein-detergent New Run panel's system preview, which reads
-#: the same beads as the run's own viewer, at the one scale the reader asked both for (0.3).
-BEAD_VIEWS = ('compositions.js', 'mapping-ngl.js', 'run-view-monitor.js', 'bonded-plot.js', 'new-run.js')
+#: The four engine views that draw a bead, plus the protein-detergent preview card that is the fifth. Each used to
+#: hold its own numbers -- a table, an element's van der Waals radius to divide by, or a scale of its own -- which is
+#: one model in four places. `ngl-beads.js` is now the one table and the one call for all of them, and this is what
+#: holds that: a fifth copy of either would be a fifth answer. `new-run-pdc.js` is the pdc feature's New Run panel's
+#: system preview, which reads the same beads as the run's own viewer, at the one scale the reader asked both for
+#: (0.3).
 JS_DIR = SOURCE.parent
-#: The Complexes panel's module ships with the pdc feature, not the engine.
-PDC_JS = PROJECT_ROOT / 'packages/pdc/src/detergent_pdc/static/js'
+BEAD_VIEWS = (JS_DIR / 'compositions.js', JS_DIR / 'mapping-ngl.js', JS_DIR / 'run-view-monitor.js',
+              JS_DIR / 'bonded-plot.js', PDC_JS / 'new-run-pdc.js')
 
 
 def test_every_bead_view_reads_the_one_table_and_keeps_no_copy_of_it():
-    for name in BEAD_VIEWS:
-        text = (JS_DIR / name).read_text()
-        assert "from './ngl-beads.js'" in text, f'{name} does not read the one module'
-        assert not re.search(r'(BEAD_RADII_NM|SIZE_RADII)\s*=\s*\{', text), f'{name} keeps a radii table of its own'
-        assert not re.search(r'(BEAD_ASPECT_RATIO|VDW_CARBON)\s*=', text), f'{name} keeps a scale of its own'
-        assert not re.search(r'\b0\.264\b', text), f'{name} spells a radius the model table already states'
+    for path in BEAD_VIEWS:
+        text = path.read_text()
+        assert re.search(r"from '(?:/static/js/|\./)ngl-beads\.js'", text), f'{path.name} does not read the one module'
+        assert not re.search(r'(BEAD_RADII_NM|SIZE_RADII)\s*=\s*\{', text), f'{path.name} keeps a radii table of its own'
+        assert not re.search(r'(BEAD_ASPECT_RATIO|VDW_CARBON)\s*=', text), f'{path.name} keeps a scale of its own'
+        assert not re.search(r'\b0\.264\b', text), f'{path.name} spells a radius the model table already states'
 
 
 def test_each_panel_states_its_own_scale_at_the_call():
@@ -329,7 +331,7 @@ def test_each_panel_states_its_own_scale_at_the_call():
     # The system preview reads its beads at a scale of its own since 2026-10-14, when the user reported the beads
     # too big, halved them and then asked for 0.3: the number is still the panel's own -- stated here, and held to
     # the mock's.
-    new_run = (JS_DIR / 'new-run.js').read_text()
+    new_run = (PDC_JS / 'new-run-pdc.js').read_text()
     assert 'applyBeadRadii(component.structure, {scale: PREVIEW_BEAD_SCALE})' in new_run
     assert re.search(r'PREVIEW_BEAD_SCALE\s*=\s*0\.3\s*;', new_run), \
         'the preview draws at the scale the user asked for, and that multiplier is the panel\'s own'
@@ -344,7 +346,7 @@ def test_each_panel_states_its_own_scale_at_the_call():
 #: so the same bead type is one colour in all four.
 #: The Complexes panel's module now lives in the pdc feature; the other two are the engine's.
 FAMILY_VIEWS = {PDC_JS / 'pdc.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend'],
-                JS_DIR / 'new-run.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend'],
+                PDC_JS / 'new-run-pdc.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend'],
                 JS_DIR / 'run-view-monitor.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend']}
 
 

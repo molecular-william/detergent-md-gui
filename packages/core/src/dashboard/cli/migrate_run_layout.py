@@ -36,17 +36,13 @@ from pathlib import Path
 
 from dashboard import files, paths
 
+from .. import features
+
 TOOL = 'dashboard.cli.migrate_run_layout'
 VERSION = 1
 
 #: What every touched run records, whatever its shape.
 RECORD = 'legacy_layout.json'
-
-#: The stage directories a legacy pdc run leaves at its root, named as that run's manifest named them.
-LEGACY_PDC_STAGES = (
-    '0_prepare', '1_system', '2_minimisation', '3_nvt', '4_npt',
-    '2_assessment', '3_assessment', '4_extension', '5_assessment', '6_backmap',
-)
 
 NOTE = ("The manifest's input_snapshot_sha256 no longer verifies because its directory was archived; "
         'manifest.json was not rewritten.')
@@ -56,11 +52,6 @@ def _status(run_id, run_dir, status, *, why=None, moved=(), moved_to=(), deleted
     return {'id': run_id, 'run': str(run_dir), 'status': status, 'why': why,
             'moved': list(moved), 'moved_to': list(moved_to), 'deleted': list(deleted),
             'archive': archive, 'date': date}
-
-
-def _legacy_pdc_stages(run_dir):
-    """The known pdc stage directories present at the run root."""
-    return [name for name in LEGACY_PDC_STAGES if (run_dir / name).is_dir()]
 
 
 def _symlink_inside(root):
@@ -98,11 +89,13 @@ def _entry(run_id, run_dir):
     for name, path in (('stages', stages), ('inputs', inputs)):
         if path.is_symlink():
             return _status(run_id, run_dir, 'refused', why=f'{name} is a symbolic link')
-    for name in LEGACY_PDC_STAGES:
+    # The pdc feature owns the pre-numbering stage names; without it there is no table and nothing is assumed.
+    legacy_names = features.legacy_stages('pdc')
+    for name in legacy_names:
         if (run_dir / name).is_symlink():
             return _status(run_id, run_dir, 'refused', why=f'the legacy stage directory {name} is a symbolic link')
 
-    legacy = _legacy_pdc_stages(run_dir)
+    legacy = [name for name in legacy_names if (run_dir / name).is_dir()]
     date = files.now_iso()
     if legacy:
         if stages.exists():

@@ -244,6 +244,26 @@ def test_a_symlink_nested_in_a_moved_stage_directory_travels_with_it(tmp_path):
     assert link.issym() and link.linkname == str(database)
 
 
+def test_the_legacy_pdc_names_come_from_the_feature_registry_only(tmp_path, monkeypatch):
+    """The migration carries no pdc stage table: the installed feature names the legacy directories.
+
+    With the registry in place (the normal run) a legacy tree moves as before. With the accessor answering no table,
+    the same tree is an unknown shape -- reporting that it cannot recognise a legacy pdc run rather than assuming the
+    pre-numbering directory names.
+    """
+    from detergent_pdc import legacy as pdc_legacy
+
+    workspace = tmp_path / 'workspace'
+    pdc_run(workspace)
+    assert migration.features.legacy_stages('pdc') == pdc_legacy.LEGACY_STAGES
+    assert migration.plan(workspace, [PDC_RUN])[0]['status'] == 'moved'
+
+    monkeypatch.setattr(migration.features, 'legacy_stages', lambda run_type=None: {})
+    entry = migration.plan(workspace, [PDC_RUN])[0]
+    assert entry['status'] == 'unknown'
+    assert entry['moved'] == [] and entry['moved_to'] == []
+
+
 def test_a_pdc_run_that_already_has_stages_is_refused(tmp_path):
     workspace = tmp_path / 'workspace'
     run = pdc_run(workspace)

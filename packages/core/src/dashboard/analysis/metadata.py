@@ -4,20 +4,21 @@ A kind's description is part of its row in `kinds.TABLE` rather than a mapping o
 the four lists that described a kind independently, and the only one that had drifted: it held seventeen entries for
 fourteen kinds, and a kind missing from it rendered under a title built from its own name -- which reads exactly like
 a registered one.
+
+The evidence sections a report must carry are not the engine's vocabulary: the feature whose report requires them
+registers the text, and `evidence_sections()` is the merged view.
 """
+from .. import features
 from .kinds import TABLE
 
-EVIDENCE_SECTIONS = {
-    'mapped_geometry': ('Carbohydrate geometry and volume', 'SASA, ring geometry, and molecular volume should agree with the cited reference protocol.', 'nm², nm³, and geometric distributions'),
-    'transfer_free_energy': ('Water-to-octanol transfer free energy', 'BAR estimates require both solvent legs, uncertainty, and a cited target.', 'kJ/mol; residual to target'),
-    'osmotic_pressure': ('Concentration-dependent osmotic pressure', 'Every configured concentration must have a force/area estimate and uncertainty.', 'pressure units; residual to target'),
-}
-"""Human text for the carbohydrate report's *evidence sections*, which are not analysis kinds.
 
-A section is something `evidence.PROFILES['carbohydrate']` requires a report to contain; a kind is something the
-worker can be asked to run. These three sat in the kinds' mapping, which is why that mapping looked over-full rather
-than wrong-shaped, and the test that pins them checks them against the profile that requires them.
-"""
+def evidence_sections():
+    """The evidence-section text the installed features require a report to carry.
+
+    A section is report vocabulary, not an analysis kind; a feature owns the sections its own report needs, and the
+    registry refuses two features that claim the same name.
+    """
+    return features.evidence_sections()
 
 
 def describe(kind, result=None, legacy=False):

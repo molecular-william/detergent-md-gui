@@ -21,9 +21,10 @@ def test_carbohydrate_evidence_metadata_names_physical_measurements():
     described through the *kinds'* describer -- which is how a mapping of fourteen kinds came to hold seventeen
     entries, and why nothing noticed the three it should not have had.
     """
-    from dashboard.analysis.metadata import EVIDENCE_SECTIONS
-    assert EVIDENCE_SECTIONS['mapped_geometry'][0] == 'Carbohydrate geometry and volume'
-    assert 'osmotic' in EVIDENCE_SECTIONS['osmotic_pressure'][0].lower()
+    from dashboard.analysis.metadata import evidence_sections
+    sections = evidence_sections()
+    assert sections['mapped_geometry'][0] == 'Carbohydrate geometry and volume'
+    assert 'osmotic' in sections['osmotic_pressure'][0].lower()
 
 
 def test_the_bartender_fit_is_described_like_every_other_published_analysis():

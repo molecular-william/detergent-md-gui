@@ -57,6 +57,8 @@ def create_app(paths=None, config=None):
                            for panel, (owner, path, factory) in features.browser_panels().items()},
             feature_styles=[url_for('feature_asset', feature=owner, filename=name)
                             for owner, name in features.browser_styles()],
+            panel_extensions=[url_for('feature_asset', feature=owner, filename=module)
+                              for owner, module in features.browser_extensions()],
         )
 
     @app.errorhandler(ValueError)

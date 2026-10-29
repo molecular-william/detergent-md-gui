@@ -15,7 +15,7 @@ dependencies = ["detergent-core==0.2.0"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-detergent_pdc = ["templates/panels/*.html", "static/*.css", "static/js/*.js"]
+detergent_pdc = ["templates/panels/*.html", "templates/fragments/*.html", "static/*.css", "static/js/*.js"]
 
 [project.entry-points."detergent_md.features"]
 # Installing this wheel is what makes the feature part of a dashboard; the engine discovers it from this entry point.

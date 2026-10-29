@@ -4,6 +4,7 @@ from pathlib import Path
 from dashboard import features
 from dashboard.execution import protocol
 
+from . import evidence as evidence_tables
 from . import kinds as kind_rows
 from .execution.adapters import osmotic as osmotic_adapter
 from .web.routes import analyses as analyses_routes
@@ -100,6 +101,8 @@ FEATURE = features.Feature(
     kinds=kind_rows.KINDS,
     code_roots=(('detergent_validation', Path(__file__).resolve().parent),),
     kind_payload={'carbohydrate-validation': analyses_routes.payload},
+    evidence_sections=evidence_tables.EVIDENCE_SECTIONS,
+    molecule_profiles=evidence_tables.MOLECULE_PROFILES,
     section=('validation', {
         'slug': 'detergent-validation',
         'label': 'Detergent validation',

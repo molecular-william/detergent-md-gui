@@ -9,10 +9,13 @@ import { createRunView } from './run-view.js';
 //: Mount the engine's panels, then the installed features'. `specs` is `{panel DOM id: {url, factory}}`, emitted by
 //: the shell from `dashboard.features.browser_panels()`, so a feature's module is fetched only when its distribution
 //: is installed -- a `[det]` deployment never downloads the protein-detergent panel.
-export async function boot(specs = {}) {
+export async function boot(specs = {}, extensions = []) {
   const panels = panelIds();
   const pending = {};
   for (const [panel, spec] of Object.entries(specs)) pending[panel] = import(spec.url);
+  // A feature's extension modules register their hooks on a shared engine panel (New run, Run view) when they load;
+  // importing them here, before the first await below, means they are registered before any panel can mount.
+  for (const url of extensions) pending[url] = import(url);
 
   // The engine's panels are built from static imports, so everything below this line runs synchronously before the
   // first await. That matters for the console hooks: a module script's top-level `await` does NOT defer the page's

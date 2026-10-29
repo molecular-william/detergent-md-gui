@@ -93,6 +93,19 @@ class Feature:
     #: `{panel DOM id: (path under static, factory export)}` -- the panels the shell mounts from this feature's own ES
     #: modules. The shell emits the map to the browser and the boot code imports exactly what is installed.
     panel_modules: Mapping[str, tuple[str, str]] = field(default_factory=dict)
+    #: ES modules under `static` the shell imports for their side effects: they register extensions onto a shared
+    #: engine panel (New run, Run view) by importing that module and calling its `register...Extension`. Imported after
+    #: the engine modules and before any panel mounts, and only when this distribution is installed.
+    extension_modules: tuple = ()
+    #: `{section id: (title, what it must show, units)}` for the evidence sections a feature's report is required to
+    #: carry. A section is report vocabulary, not an analysis kind; the engine merges the installed features' tables.
+    evidence_sections: Mapping[str, tuple] = field(default_factory=dict)
+    #: `{profile name: tuple of section ids}` for a molecule evidence profile the feature owns. Core keeps the AA/CG
+    #: profiles it always had; a feature adds the ones only its molecules use.
+    molecule_profiles: Mapping[str, tuple] = field(default_factory=dict)
+    #: `{run type: tuple of legacy stage directory names}` a feature's runs may hold at the run root. The run-layout
+    #: migration reads this to recognise a pre-numbering tree; the engine does not keep a list of a feature's stages.
+    legacy_stages: Mapping[str, tuple] = field(default_factory=dict)
 
 
 _features: list[Feature] | None = None
@@ -170,6 +183,44 @@ def template_dirs():
 def static_dirs():
     """The installed features' browser-asset directories, by feature name."""
     return {feature.name: feature.static for feature in ensure() if feature.static is not None}
+
+
+def legacy_stages(run_type=None):
+    """The legacy stage directory names a feature registered for a run type (or all, merged)."""
+    merged = {}
+    for feature in ensure():
+        for name, stages in feature.legacy_stages.items():
+            if name in merged:
+                raise ValueError(f'legacy stage table {name!r} is claimed by two features')
+            merged[name] = tuple(stages)
+    return merged if run_type is None else merged.get(run_type, ())
+
+
+def browser_extensions():
+    """`[(feature name, module under its static)]` the shell imports for their side effects, in registration order."""
+    return [(feature.name, module) for feature in ensure() for module in feature.extension_modules]
+
+
+def evidence_sections():
+    """The evidence-section vocabulary, merged across the installed features; a duplicate title is an error."""
+    merged = {}
+    for feature in ensure():
+        for name, text in feature.evidence_sections.items():
+            if name in merged:
+                raise ValueError(f'evidence section {name!r} is claimed by two features')
+            merged[name] = text
+    return merged
+
+
+def molecule_profiles():
+    """The molecule evidence profiles the installed features add, merged; a duplicate name is an error."""
+    merged = {}
+    for feature in ensure():
+        for name, profile in feature.molecule_profiles.items():
+            if name in merged:
+                raise ValueError(f'molecule profile {name!r} is claimed by two features')
+            merged[name] = profile
+    return merged
 
 
 def browser_panels():
