@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ... import itp
+from dashboard import itp
 
 #: How the constrained pair was matched to the mapped structure's rows.
 BY_NAME = 'name'

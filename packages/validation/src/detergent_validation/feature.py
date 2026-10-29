@@ -1,9 +1,13 @@
 """Detergent validation: the single-molecule workspace, its panel APIs and the osmotic series."""
+from pathlib import Path
+
 from dashboard import features
 from dashboard.execution import protocol
 
+from . import kinds as kind_rows
 from .execution.adapters import osmotic as osmotic_adapter
-from .web.routes import bonded, osmotic, refinement
+from .web.routes import analyses as analyses_routes
+from .web.routes import bonded, osmotic, refinement, targets
 
 
 def _osmotic_protocol():
@@ -88,8 +92,11 @@ def _on_run_failed(coordinator, job):
 
 FEATURE = features.Feature(
     name='validation',
-    blueprints=(bonded.blueprint, osmotic.blueprint, refinement.blueprint),
+    blueprints=(bonded.blueprint, osmotic.blueprint, refinement.blueprint, targets.blueprint),
     protocols={'osmotic': _osmotic_protocol},
+    kinds=kind_rows.KINDS,
+    code_roots=(('detergent_validation', Path(__file__).resolve().parent),),
+    kind_payload={'carbohydrate-validation': analyses_routes.payload},
     section=('validation', {
         'slug': 'detergent-validation',
         'label': 'Detergent validation',

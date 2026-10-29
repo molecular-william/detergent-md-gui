@@ -10,7 +10,7 @@ import pathlib
 import MDAnalysis as mda
 import numpy as np
 import pytest
-from dashboard.analysis.runs import overlap
+from detergent_validation.analysis.runs import overlap
 
 BINS = np.array([0.0, 0.1, 0.2])            # one 0.1-wide bin each side of a boundary
 

@@ -5,7 +5,7 @@ a CG mean can sit inside the AA observed range while lying outside the spread of
 reference value can agree with the CG mean while the CG mean is nowhere near the AA ensemble. Each case is
 one test rather than one assertion inside a long one.
 """
-from dashboard.analysis.runs import consistency
+from detergent_validation.analysis.runs import consistency
 
 BEADS = {1: (1, 'A'), 2: (1, 'B'), 3: (1, 'C'), 4: (2, 'A'), 5: (2, 'B'), 6: (2, 'C')}
 PAIR_AB = frozenset((1, 2))

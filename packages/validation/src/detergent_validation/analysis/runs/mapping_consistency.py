@@ -18,9 +18,10 @@ read the run's own files through `analysis/runs/layout`.
 import json
 from pathlib import Path
 
-from ...execution.adapters.cg_names import CGNames
-from .. import sugar_ensemble as ensemble
-from . import bonded_terms, consistency, layout
+from dashboard.analysis.runs import bonded_terms, layout
+from dashboard.execution.adapters.cg_names import CGNames
+from detergent_validation.analysis import sugar_ensemble as ensemble
+from detergent_validation.analysis.runs import consistency
 
 #: Which comparison each section makes. A figure or table that does not say this is misread as evidence.
 SECTIONS = {'pairs': 'AA vs CG', 'terms': 'AA-mapped vs CG-simulated',

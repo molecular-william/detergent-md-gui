@@ -5,11 +5,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dashboard.execution import assessment_rescore
-from dashboard.models import mappings
 from flask import Blueprint, abort, jsonify, request
 
 from ...analysis.runs import layout, transferability
-from ...analysis.validation import carbohydrate_targets, targets
 from .common import coordinator, json_object
 
 blueprint = Blueprint('analyses', __name__)
@@ -116,24 +114,11 @@ def newest_dihedral_fit(c, job):
 @blueprint.post('/api/jobs/<jid>/<kind>')
 def queue_analysis(jid, kind):
     payload = json_object(optional=True)
-    if kind == 'carbohydrate-validation':
-        c = coordinator(); job = c.lookup(jid)
-        if job.get('status') != 'completed': abort(409, 'Carbohydrate validation requires a completed source run')
-        if payload.get('tier') not in ('setup', 'evidence'):
-            abort(400, 'Validation tier must be setup or evidence')
-        if payload.get('representation_mode') not in ('tc4', 'physical_only_ring_constrained'):
-            abort(400, 'Unknown carbohydrate representation')
-        mapping = payload.get('mapping_snapshot')
-        molecule_id = payload.get('molecule_id') or job.get('molecule_id')
-        dataset_id = payload.get('target_dataset_id')
-        if not isinstance(mapping, dict) or not molecule_id or not dataset_id:
-            abort(400, 'Validation requires molecule_id, mapping_snapshot, and target_dataset_id')
-        try:
-            mappings.validate_representation(mapping, payload['representation_mode'])
-            dataset = carbohydrate_targets.validate_selection(c.ROOT, molecule_id, dataset_id)
-        except (ValueError, OSError) as exc:
-            abort(400, str(exc))
-        payload = {**payload, 'molecule_id': molecule_id, 'target_dataset': dataset}
+    from ... import features
+
+    validator = features.kind_payload_for(kind)
+    if validator is not None:
+        payload = validator(coordinator(), jid, payload)
     task, status = coordinator().analysis_coordinator.queue(jid, kind, payload)
     return jsonify(task), status
 
@@ -363,11 +348,6 @@ def analyses_api(jid):
     return jsonify(tasks)
 
 
-@blueprint.get('/api/jobs/<jid>/targets')
-def targets_get(jid):
-    c = coordinator()
-    job = c.lookup(jid); path = c.analysis_coordinator.dependencies(job).get('experimental_targets.json')
-    return jsonify(json.loads((c.run_path(job)/path).read_text()) if path else targets.read(layout.stage_root(c.run_path(job))))
 
 
 def assessment_directories(root):

@@ -179,7 +179,7 @@ def compare_terms(aa, cg, currency=None, block_count=10, bins=40):
     """
     from scipy.stats import wasserstein_distance
 
-    from ..validation.geometry import block_summary
+    from .statistics import block_summary
 
     currency = currency or {}
     rows = []

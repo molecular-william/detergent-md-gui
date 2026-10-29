@@ -6,7 +6,7 @@ test can check, and the refusal cases are constructed rather than waited for.
 """
 import numpy as np
 import pytest
-from dashboard.analysis.runs import consistency
+from detergent_validation.analysis.runs import consistency
 
 from tests.dashboard import support
 

@@ -67,6 +67,8 @@ class Feature:
     planned_skips: Callable | None = None
     #: `(run_dir) -> [moleculetype dict]` the structure writer needs for a feature's own protein build.
     protein_topologies: Callable | None = None
+    #: `{kind: (coordinator, body) -> payload}` for a kind whose queue route validates and derives its body.
+    kind_payload: Mapping[str, Callable] = field(default_factory=dict)
 
 
 _features: list[Feature] | None = None
@@ -154,6 +156,14 @@ def create_settings_for(run_type):
 def readiness_for(run_type):
     """The readiness question a feature registered for this run type, or None."""
     return _hook(lambda feature: feature.readiness, run_type)
+
+
+def kind_payload_for(kind):
+    """The body contract a feature registered for one analysis kind, or None."""
+    for feature in ensure():
+        if kind in feature.kind_payload:
+            return feature.kind_payload[kind]
+    return None
 
 
 def protein_topologies(run_dir):

@@ -146,7 +146,7 @@ def currency(topology_text):
 
 def published_constraints(entry_name):
     """The reference entry's constraint lengths, keyed by (residue name, bead letter)."""
-    from ..models.sugars import reference
+    from dashboard.models.sugars import reference
     record = reference.entry(entry_name)
     atoms = {atom['index']: (atom['residue'], atom['name']) for atom in record['atoms']}
     return {frozenset((atoms[item['i']], atoms[item['j']])): float(item['length'])
@@ -176,9 +176,8 @@ def samples(run_dir, molecule='Sucrose', stride=1, limit=None):
     this reads an AA-only run's published reference and a CG consumer's own atomistic reference alike.
     """
     import MDAnalysis as mda
-
-    from ..models.sugars import candidate, coordinates, ring_pairs
-    from .runs import layout
+    from dashboard.analysis.runs import layout
+    from dashboard.models.sugars import candidate, coordinates, ring_pairs
 
     run_dir = Path(run_dir)
     solute = read_solute(run_dir)

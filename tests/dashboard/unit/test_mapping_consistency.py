@@ -9,7 +9,7 @@ import json
 
 import numpy as np
 import pytest
-from dashboard.analysis.runs import mapping_consistency
+from detergent_validation.analysis.runs import mapping_consistency
 
 from tests.dashboard import support
 

@@ -12,10 +12,9 @@ different molecule.
 from pathlib import Path
 
 import numpy as np
-
-from .. import sugar_ensemble as ensemble
-from ..sugar_ensemble import pair_distances
-from . import layout
+from dashboard.analysis.runs import layout
+from detergent_validation.analysis import sugar_ensemble as ensemble
+from detergent_validation.analysis.sugar_ensemble import pair_distances
 
 
 def expected_currency(mapping):
@@ -38,7 +37,7 @@ mapping_currency = ensemble.mapping_currency
 
 def ring_pairs(mapping):
     """The pairs a generated topology constrains, as topology index pairs."""
-    from ...models.sugars import ring_pairs as pairs_of
+    from dashboard.models.sugars import ring_pairs as pairs_of
     return list(pairs_of(mapping))
 
 
@@ -171,8 +170,7 @@ def aa_samples(aa_run_dir, mapping, molecule='Sucrose', stride=1, limit=None):
     trajectory does not have would otherwise be reported as a geometry difference.
     """
     import MDAnalysis as mda
-
-    from ...models.sugars import coordinates
+    from dashboard.models.sugars import coordinates
 
     aa_run_dir = Path(aa_run_dir)
     pairs = ring_pairs(mapping)
@@ -212,8 +210,7 @@ def aa_bead_means(aa_run_dir, mapping, stride=1, limit=None):
     constraint length are the same kind of number and can be read in one table.
     """
     import MDAnalysis as mda
-
-    from ...models.sugars import coordinates
+    from dashboard.models.sugars import coordinates
 
     aa_run_dir = Path(aa_run_dir)
     universe = mda.Universe(str(layout.resolve(aa_run_dir, 'aa_structure')),
@@ -240,7 +237,7 @@ def displacement(aa, cg, physical=None):
     fitting on it would count one constraint twice and flatter the result. The per-bead list still covers
     every bead, so a virtual site that has drifted is visible rather than hidden by the fit.
     """
-    from .surfaces import align
+    from detergent_validation.analysis.runs.surfaces import align
 
     aa_mean, cg_mean = np.asarray(aa['mean'], dtype=float), np.asarray(cg['mean'], dtype=float)
     if aa_mean.shape != cg_mean.shape:
@@ -263,7 +260,7 @@ def displacement(aa, cg, physical=None):
 
 def _summary(values, block_count):
     """Mean, spread, observed range and the block standard error the comparison is judged on."""
-    from ..validation.geometry import block_summary
+    from dashboard.analysis.runs.statistics import block_summary
     summary = ensemble.summarise({0: values})[0]
     blocks = block_summary(values, block_count)
     return {'count': summary['count'], 'mean': summary['mean'], 'std': summary['std'],

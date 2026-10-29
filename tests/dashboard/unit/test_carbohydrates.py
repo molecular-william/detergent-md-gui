@@ -89,7 +89,7 @@ def test_save_export_retains_architecture(tmp_path,monkeypatch):
 
 
 def test_surface_envelope_is_radius_and_probe_consistent():
-    from dashboard.analysis.runs.surfaces import PROBE, envelope
+    from detergent_validation.analysis.runs.surfaces import PROBE, envelope
     v,f=envelope(np.array([[0.,0.,0.]]),[.230],spacing=.015)
     radii=np.linalg.norm(v,axis=1)
     assert np.max(np.abs(radii-(.230+PROBE)))<.002

@@ -7,8 +7,8 @@ which the paper's method defines as arithmetic over the trajectory -- "the force
 molal, the box is the paper's, and PLUMED's own `KAPPA` is a measurement of this engine rather than a convention.
 """
 import pytest
-from dashboard.analysis.runs import osmotic_pressure as op
-from dashboard.analysis.validation.osmotic import pressure_from_force, validate_series
+from detergent_validation.analysis.runs import osmotic_pressure as op
+from detergent_validation.analysis.validation.osmotic import pressure_from_force, validate_series
 
 #: Ebrahimi & Sadeghi 2016, the paper's own box: 5.04156 x 5.04156 x 10.08312 nm, so the dividing area is the xy face.
 BOX_NM = (5.04156, 5.04156, 10.08312)
@@ -228,5 +228,5 @@ def test_the_kind_is_registered_in_all_four_places():
     assert 'converged' in note
     # The arm is the function it has to be, compared rather than read out of a source file. A dispatch that names a
     # module the worker cannot import is the failure this catches, and comparing the callable catches it exactly.
-    from dashboard.analysis.runs import osmotic_pressure
+    from detergent_validation.analysis.runs import osmotic_pressure
     assert row.run is osmotic_pressure.publish

@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 
 import pytest
-from dashboard.analysis.runs import draft_geometry
+from detergent_validation.analysis.runs import draft_geometry
 
 SIDE = 0.30
 SCALE = 1.15

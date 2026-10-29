@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 import pytest
-from dashboard.analysis.validation import targets as target_analysis
+from detergent_validation.analysis.validation import targets as target_analysis
 
 REGISTRY = Path(__file__).resolve().parents[3] / 'resources/validation/carbohydrates/targets-v1.json'
 LOG_P_FACTOR = 5.708  # 2.303 RT at 25 C, in kJ/mol; the table's Exp column equals this times its logP column

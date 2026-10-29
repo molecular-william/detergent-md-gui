@@ -14,14 +14,15 @@ place rather than because someone remembered four.
 from dataclasses import dataclass
 from typing import Callable
 
-from .runs import bartender_fit, bonded_estimate, dihedral_fit, mapping_consistency, observability, osmotic_pressure, overlap, refinement, surfaces
-from .validation import report as carbohydrate_validation
-from .validation import targets
+from .runs import bartender_fit, bonded_estimate, dihedral_fit, observability
 
 
-def _sources_only(function: Callable) -> Callable:
+def sources_only(function: Callable) -> Callable:
     """Adapt an analysis that reads only the sources it was handed to the `(work, payload)` shape of every row."""
     return lambda work, payload=None: function(work)
+
+
+_sources_only = sources_only
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,8 @@ class Kind:
     #: trajectory, which is why no run type defaults to it. A type that consumes a pre-parameterized molecule
     #: (`composition`, `pdc`) fits nothing, so it defaults to no kind at all.
     default_for_run_types: tuple[str, ...] = ()
+    #: The body keys this kind's queue route validates; empty when the route hands the body over untouched.
+    payload: tuple[str, ...] = ()
 
 
 TABLE: dict[str, Kind] = {row.name: row for row in (
@@ -100,21 +103,6 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         "The fitted force constants beside the ones an independent equipartition estimate reads from the same frames. The two are not expected to be equal -- one is a coupled distribution-matching fit, the other is per term -- but a term we write as a rigid constraint and the estimate reads as a spring is a different molecule.",
         "nm, kJ/mol/nm^2, and which side calls each term a constraint",
         default_for_run_types=('aa_cg',)),
-    Kind(
-        'carbohydrate-validation',
-        (
-            "1_AA-reference/prod/lig.gro",
-            "1_AA-reference/prod/lig.xtc",
-            "2_mapping/model.json",
-            "4_CG_sim/prod/lig_CG.gro",
-            "4_CG_sim/prod/lig_CG.xtc",
-            "3_initial_CG/*.itp",
-        ),
-        carbohydrate_validation.run,
-        "Carbohydrate validation report",
-        "Three independent evidence classes are required; setup checks remain diagnostic-only.",
-        "status and native evidence units",
-        reads_aa_reference=True, records_gmx_version=True),
     # The same inputs as the cross-check, because it asks the same kind of question of the same frames:
     # what would a criterion-driven fit say, beside what the run's own tool-chosen terms say.
     Kind(
@@ -135,22 +123,6 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
     # the beads, and the simulated coarse-grained trajectory, plus the topology that names the
     # beads.
     Kind(
-        'mapping-consistency',
-        (
-            "1_AA-reference/prod/lig.gro",
-            "1_AA-reference/prod/lig.xtc",
-            "2_mapping/mapped.gro",
-            "2_mapping/mapped.xtc",
-            "4_CG_sim/prod/lig_CG.gro",
-            "4_CG_sim/prod/lig_CG.xtc",
-            "3_initial_CG/*.itp",
-        ),
-        mapping_consistency.publish,
-        "Mapping consistency",
-        "A model should reproduce the atomistic structure it was built from; agreement here is not experimental evidence.",
-        "nm, degrees, and distribution metrics",
-        reads_aa_reference=True),
-    Kind(
         'observables',
         ("2_mapping/mapped.gro", "2_mapping/mapped.xtc", "3_initial_CG/DDM_initial.itp"),
         _sources_only(observability.unparameterized_observables),
@@ -162,34 +134,9 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
     # the trajectory is read against, and the trajectory itself. The walls are staged deliberately
     # rather than re-derived -- the analysis and the simulation disagreeing about what a molecule is
     # would be invisible in the number.
-    Kind(
-        'osmotic-pressure',
-        (
-            "01_simulate/osmotic_condition.json",
-            "01_simulate/plumed.dat",
-            "01_simulate/solvated.gro",
-            "01_simulate/prod/md_whole.xtc",
-        ),
-        osmotic_pressure.publish,
-        "Osmotic pressure \u00b7 one condition",
-        "The wall force the confined solute exerts, recomputed from the run's own trajectory at the paper's 1000 kJ/mol/nm2 and divided by the dividing area. Both walls are reported: their mean is the pressure, and their ratio says whether the average has converged -- a one-sided load halves the mean, which is the failure the ratio exists to catch.",
-        "bar, and each wall's force in kJ/mol/nm"),
     # The model against the reference it was built from: both ensembles, and the model for the bead names.
     # The *mapped* trajectory is deliberately not staged -- it is a third thing, and this analysis says
     # nothing about it.
-    Kind(
-        'overlap',
-        (
-            "1_AA-reference/prod/lig.gro",
-            "1_AA-reference/prod/lig.xtc",
-            "2_mapping/model.json",
-            "4_CG_sim/prod/lig_CG.gro",
-            "4_CG_sim/prod/lig_CG.xtc",
-        ),
-        overlap.publish,
-        "AA/CG bead overlap",
-        "The coarse-grained model should reproduce the intra-bead distance distributions of the atomistic reference it was built from; agreement is internal consistency, not experimental evidence.",
-        "overlap coefficient 0-1; higher is closer"),
     Kind(
         'plots',
         ("*SASA*/AA/*.xvg", "*SASA*/CG/*.xvg"),
@@ -198,14 +145,6 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         "AA and CG SASA should agree in mean and temporal variability; larger is not inherently better.",
         "nm\u00b2; agreement of mean/SD is desired"),
     Kind(
-        'refinement-score',
-        ("5_assessment/validation.json",),
-        _sources_only(refinement.score),
-        "Refinement score",
-        "Mismatch metrics are lower-is-better; 0 means identical distributions where the scorer defines that range.",
-        "native metric units",
-        takes_dependencies=True),
-    Kind(
         'stability',
         ("*.log", "*.xtc"),
         _sources_only(observability.numerical_stability),
@@ -213,27 +152,6 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         "No LINCS warnings and finite coordinates are required, but passing does not establish physical validity.",
         "counts and diagnostic signals",
         records_gmx_version=True),
-    Kind(
-        'surfaces',
-        (
-            "1_AA-reference/prod/lig.gro",
-            "1_AA-reference/prod/lig.xtc",
-            "2_mapping/model.json",
-            "4_CG_sim/prod/lig_CG.gro",
-            "4_CG_sim/prod/lig_CG.xtc",
-        ),
-        _sources_only(surfaces.generate),
-        "AA/CG solvent-accessible surface overlay",
-        "Aligned envelopes should occupy similar regions; a snapshot is not ensemble validation.",
-        "nm; visual agreement",
-        reads_aa_reference=True, records_gmx_version=True),
-    Kind(
-        'targets',
-        (),
-        targets.build,
-        "Analysis targets",
-        "Targets describe the comparison protocol; they are not a quality score.",
-        "protocol metadata"),
 )}
 
 
@@ -274,11 +192,6 @@ def for_every_run() -> tuple[str, ...]:
 #: data the analysis layer could read (the route is also the layer above this one, so importing it here would invert
 #: the dependency). `tests/dashboard/unit/test_kinds_published.py` parses the route and fails if the two answer
 #: differently, so the mapping cannot drift from the route it names.
-_PAYLOAD: dict[str, tuple[str, ...]] = {
-    'carbohydrate-validation': ('tier', 'representation_mode', 'mapping_snapshot', 'molecule_id', 'target_dataset_id'),
-}
-
-
 def published() -> list[dict]:
     """The whole table as JSON-safe dicts, one per kind, in table order.
 
@@ -289,7 +202,7 @@ def published() -> list[dict]:
     as `list[str]` or `None` -- so no tuple, callable or other dashboard object can reach the response.
     """
     return [{'name': row.name, 'label': row.title, 'inputs': list(row.sources),
-             'payload': list(_PAYLOAD[row.name]) if row.name in _PAYLOAD else None,
+             'payload': list(row.payload) if row.payload else None,
              'runs_for_every_run': row.runs_for_every_run,
              'default_for_run_types': list(row.default_for_run_types), 'summary': row.ideal_result}
             for row in TABLE.values()]

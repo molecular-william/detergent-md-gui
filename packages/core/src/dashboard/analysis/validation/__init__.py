@@ -1,1 +1,1 @@
-"""Validation reports: geometry, transfer, osmotic and target residuals."""
+"""Shared validation inputs: the target registry a mapping and an analysis both read."""

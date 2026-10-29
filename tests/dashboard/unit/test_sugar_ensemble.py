@@ -5,7 +5,7 @@ that reads one only fills the dictionary the samples arrive in.
 """
 import numpy as np
 import pytest
-from dashboard.analysis import sugar_ensemble
+from detergent_validation.analysis import sugar_ensemble
 
 POINTS = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 2.0, 0.0]]
 BEADS = {'A': [0, 1], 'B': [2]}

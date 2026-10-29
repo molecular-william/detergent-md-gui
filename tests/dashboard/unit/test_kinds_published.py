@@ -15,15 +15,16 @@ import inspect
 import json
 import textwrap
 
+import pytest
+from dashboard import features
 from dashboard.analysis import kinds
-from dashboard.web.routes import analyses as analyses_routes
 
 #: The keys of one published row, as the seam block in the plan names them. Written literally rather than derived:
 #: this is the contract the web layer serialises, so it must be read here in the words both sides agreed on.
 SEAM_KEYS = {'name', 'label', 'inputs', 'payload', 'runs_for_every_run', 'default_for_run_types', 'summary'}
 
 
-def _payload_keys_read(node):
+def _payload_keys_read(node, name='payload'):
     """Every body key `node` reads from a `payload` object: `payload.get(k)`, `payload[k]`, `k in payload`.
 
     Deliberately narrow. A dict *literal* that writes into a new payload (`{**payload, 'molecule_id': ...}`)
@@ -32,36 +33,37 @@ def _payload_keys_read(node):
     keys = set()
     for child in ast.walk(node):
         if (isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute) and child.func.attr == 'get'
-                and isinstance(child.func.value, ast.Name) and child.func.value.id == 'payload'
+                and isinstance(child.func.value, ast.Name) and child.func.value.id == name
                 and child.args and isinstance(child.args[0], ast.Constant) and isinstance(child.args[0].value, str)):
             keys.add(child.args[0].value)
         elif (isinstance(child, ast.Subscript) and isinstance(child.value, ast.Name)
-              and child.value.id == 'payload' and isinstance(child.slice, ast.Constant)
+              and child.value.id == name and isinstance(child.slice, ast.Constant)
               and isinstance(child.slice.value, str)):
             keys.add(child.slice.value)
         elif (isinstance(child, ast.Compare) and isinstance(child.left, ast.Constant)
               and isinstance(child.left.value, str) and any(isinstance(op, ast.In) for op in child.ops)
-              and any(isinstance(other, ast.Name) and other.id == 'payload' for other in child.comparators)):
+              and any(isinstance(other, ast.Name) and other.id == name for other in child.comparators)):
             keys.add(child.left.value)
     return keys
 
 
-def _route_payload_keys():
-    """Which kinds `queue_analysis` branches on, and the body keys each branch reads, read off the route's source."""
-    function = ast.parse(textwrap.dedent(inspect.getsource(analyses_routes.queue_analysis))).body[0]
-    assert isinstance(function, ast.FunctionDef), 'the queue route is no longer a plain function'
-    branches = {}
-    for statement in function.body:
-        test = getattr(statement, 'test', None)
-        if (isinstance(statement, ast.If) and isinstance(test, ast.Compare)
-                and isinstance(test.left, ast.Name) and test.left.id == 'kind'
-                and len(test.ops) == 1 and isinstance(test.ops[0], ast.Eq)
-                and isinstance(test.comparators[0], ast.Constant) and isinstance(test.comparators[0].value, str)):
-            branches[test.comparators[0].value] = _payload_keys_read(statement)
-    assert branches, (
-        'the queue route no longer branches on `kind == <name>`, so its body contract cannot be read from it. '
-        'Re-read `web/routes/analyses.py` and update `kinds._PAYLOAD` and this reader together.')
-    return branches
+@pytest.fixture(autouse=True)
+def _installed_features():
+    """The validation rows are registered by the feature, so the table is complete before a test reads it."""
+    features.ensure()
+
+
+def _validator_payload_keys():
+    """Which kinds a feature supplies a body contract for, and the body keys its validator reads."""
+    found = {}
+    for name in kinds.TABLE:
+        validator = features.kind_payload_for(name)
+        if validator is None:
+            continue
+        function = ast.parse(textwrap.dedent(inspect.getsource(validator))).body[0]
+        assert isinstance(function, ast.FunctionDef), f'{name}: the validator is no longer a plain function'
+        found[name] = _payload_keys_read(function, 'body')
+    return found
 
 
 def test_published_writes_the_whole_table_in_order_with_exactly_the_seam_keys():
@@ -100,21 +102,21 @@ def test_a_published_row_reads_the_table_rather_than_a_second_copy_of_it():
 
 def test_every_published_payload_is_the_payload_its_queue_route_validates():
     """A wrong `payload` is a button the control offers and the worker refuses, so it is read off the route."""
-    route_keys = _route_payload_keys()
+    validator_keys = _validator_payload_keys()
     published = {row['name']: row['payload'] for row in kinds.published()}
     for name in kinds.TABLE:
-        expected = sorted(route_keys.get(name, ())) or None
+        expected = sorted(validator_keys.get(name, ())) or None
         actual = sorted(published[name]) if published[name] is not None else None
         assert actual == expected, (
-            f'{name}: kinds._PAYLOAD says {actual}, the queue route validates {expected}. '
+            f'{name}: the row says {actual}, the feature validator reads {expected}. '
             'Read `web/routes/analyses.py::queue_analysis` and change the declaration, not this test.')
     # And the other direction: a branch the table does not carry is a kind the control cannot name its arguments for.
-    assert set(route_keys) == {name for name, payload in published.items() if payload is not None}
+    assert set(validator_keys) == {name for name, payload in published.items() if payload is not None}
 
 
 def test_the_only_kind_with_a_payload_is_the_validation_report():
     """Measured, not guessed: only this branch reads the body at all; everything else takes any object."""
-    assert set(_route_payload_keys()) == {'carbohydrate-validation'}
+    assert set(_validator_payload_keys()) == {'carbohydrate-validation'}
 
 
 def test_default_for_aa_cg_is_the_two_checks_that_re_derive_the_fit():

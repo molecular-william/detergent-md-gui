@@ -2,10 +2,10 @@
 
 from pathlib import Path
 
-from ...models.sugars.validation import derive_representation
-from . import geometry as carbohydrate_geometry
-from . import osmotic as osmotic_pressure
-from . import transfer as transfer_free_energy
+from dashboard.models.sugars.validation import derive_representation
+from detergent_validation.analysis.validation import geometry as carbohydrate_geometry
+from detergent_validation.analysis.validation import osmotic as osmotic_pressure
+from detergent_validation.analysis.validation import transfer as transfer_free_energy
 
 
 def _insufficient(message):

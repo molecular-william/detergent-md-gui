@@ -9,11 +9,10 @@ import subprocess
 from pathlib import Path
 
 import numpy as np
-
-from ... import files
-from ...execution import tools
-from ...models import sugars as carbohydrates
-from .radii import AA_RADII, PROBE
+from dashboard import files
+from dashboard.analysis.runs.radii import AA_RADII, PROBE
+from dashboard.execution import tools
+from dashboard.models import sugars as carbohydrates
 
 
 def envelope(positions, radii, spacing=.04):

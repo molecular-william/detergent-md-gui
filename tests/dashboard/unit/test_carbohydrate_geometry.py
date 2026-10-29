@@ -1,5 +1,6 @@
 import pytest
-from dashboard.analysis.validation.geometry import block_summary, run
+from dashboard.analysis.runs.statistics import block_summary
+from detergent_validation.analysis.validation.geometry import run
 
 
 def test_block_summary_is_finite_and_deterministic():

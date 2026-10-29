@@ -20,9 +20,11 @@ def signature_hash(entries):
 
 def test_every_module_an_analysis_reads_is_covered():
     names = {name for name, _ in code_fingerprint_files()}
-    for expected in ('analysis/worker.py', 'analysis/runs/bonded_terms.py', 'analysis/runs/consistency.py',
-                     'analysis/runs/mapping_consistency.py', 'analysis/runs/layout.py',
-                     'analysis/sugar_ensemble.py', 'analysis/validation/geometry.py',
+    for expected in ('analysis/worker.py', 'analysis/runs/bonded_terms.py', 'analysis/runs/layout.py',
+                     'detergent_validation/analysis/runs/consistency.py',
+                     'detergent_validation/analysis/runs/mapping_consistency.py',
+                     'detergent_validation/analysis/sugar_ensemble.py',
+                     'detergent_validation/analysis/validation/geometry.py',
                      'models/sugars/topology.py', 'models/mappings/exports.py'):
         assert expected in names, expected
 
