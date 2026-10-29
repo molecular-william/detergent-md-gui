@@ -65,6 +65,8 @@ class Feature:
     layout: tuple = ()
     #: `(job, manifest) -> {stage name: reason}` for the stages a queued run of this type will not run.
     planned_skips: Callable | None = None
+    #: `(run_dir) -> [moleculetype dict]` the structure writer needs for a feature's own protein build.
+    protein_topologies: Callable | None = None
 
 
 _features: list[Feature] | None = None
@@ -152,6 +154,16 @@ def create_settings_for(run_type):
 def readiness_for(run_type):
     """The readiness question a feature registered for this run type, or None."""
     return _hook(lambda feature: feature.readiness, run_type)
+
+
+def protein_topologies(run_dir):
+    """The protein moleculetypes a feature's run type writes, or [] when none owns this run."""
+    for feature in ensure():
+        if feature.protein_topologies is not None:
+            topologies = feature.protein_topologies(run_dir)
+            if topologies:
+                return topologies
+    return []
 
 
 def planned_skips(job, manifest=None):

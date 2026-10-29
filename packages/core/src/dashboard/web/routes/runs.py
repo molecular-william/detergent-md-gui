@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 import tempfile
-import uuid
 import zipfile
 from pathlib import Path
 from urllib.parse import quote
@@ -12,10 +11,10 @@ from urllib.parse import quote
 from dashboard import files
 from flask import Blueprint, Response, abort, jsonify, render_template, request, send_file
 
+from ... import features
+from ...analysis.runs import structures
 from ...analysis.runs.figures import current_figures
 from ...execution import devices, protocol
-from ...execution.adapters import pdc_view
-from ...execution.adapters.micelle import run_micelle_job
 from ...execution.coordination import admission
 from ...models.molecules import aa as aa_molecules
 from .. import views
@@ -200,25 +199,6 @@ def queue():
     profile = data.get('profile') or protocol.profile_for_run_type(run_type)
     job = c.create_job(data.get('detergent') or data.get('molecule_id') or data.get('composition_id'), data.get('method'), data.get('label', ''), profile=profile, settings={k: data.get(k) for k in specs if data.get(k) not in (None, '')}, reference_run_id=data.get('reference_run_id') or None, mapping_candidate=data.get('mapping_candidate'), temporary_validation=str(data.get('temporary_validation','')).lower() in ('1','true','yes'), molecule_id=data.get('molecule_id'),run_type=data.get('run_type'), composition_id=data.get('composition_id'), protein=data.get('protein') or None, template=data.get('template') or None)
     return jsonify(view_of(c, job)), 201
-
-
-@blueprint.post('/api/micelle/build')
-def micelle_build_api():
-    """Thin adapter for the native micelle CLI; reports are ordinary run artifacts."""
-    c = coordinator()
-    payload = json_object()
-    jid = uuid.uuid4().hex[:12]
-    job = {'id': jid, 'label': payload.get('label') or 'Micelle build', 'detergent': payload.get('detergent','DDM'),
-           'method': 'micelle', 'status': 'running', 'stage': 'micelle build', 'created': c.now(), 'profile': 'micelle', 'settings': payload}
-    with c.JOBS_LOCK:
-        c.database().insert(job)
-    directory = c.RUNS / jid; directory.mkdir(parents=True, exist_ok=False)
-    try:
-        result = run_micelle_job(payload, directory)
-        c.database().update(jid, status='completed' if result['status']=='completed' else 'failed', stage='complete' if result['status']=='completed' else 'micelle build', ended_at=c.now(), error=result.get('error'), command=' '.join(result['command']))
-    except Exception as exc:
-        c.database().update(jid, status='failed', stage='micelle build', ended_at=c.now(), error=str(exc))
-    return jsonify(view_of(c, c.lookup(jid))), 201
 
 
 @blueprint.post('/control/<jid>/<action>')
@@ -443,7 +423,7 @@ def run_structure_api(jid):
     `stages/3_initial_CG/` for a single-molecule CG build, `stages/1_system/` for a protein-detergent run's
     detergent -- states which beads are bonded, and this route writes those `[ bonds ]` and `[ constraints ]` as
     CONECT records over the file's own coordinates, through the same writer the complex system view uses
-    (`execution.adapters.pdc_view.structure_pdb`). The client's CONECT branch then draws exactly those bonds and
+    (`execution.adapters.structures.structure_pdb`). The client's CONECT branch then draws exactly those bonds and
     leaves its distance guess off, which is the one rule this repository already had.
 
     The topology is located by the run's own layout rule (`analysis.runs.layout.coarse_topology`, named by the
@@ -462,7 +442,7 @@ def run_structure_api(jid):
     moleculetype = None
     if topology is not None:
         try:
-            moleculetype = pdc_view.read_moleculetype(topology)
+            moleculetype = structures.read_moleculetype(topology)
         except (OSError, ValueError):
             moleculetype = None
     try:
@@ -470,8 +450,8 @@ def run_structure_api(jid):
         # single structure it came from, because both are written from the run's own mapping. The protein chains'
         # own moleculetypes are passed too, so the protein is drawn bonded here exactly as it is in a series; a
         # run without them (every single-molecule run) gets the same file it always did.
-        text = pdc_view.structure_pdb(path, topology=moleculetype, subunits=pdc_view.read_subunits(run_dir),
-                                      protein_topologies=pdc_view.read_protein_topologies(run_dir),
+        text = structures.structure_pdb(path, topology=moleculetype, subunits=structures.read_subunits(run_dir),
+                                      protein_topologies=features.protein_topologies(run_dir),
                                       title=f'{path.name} (run {jid})')
     except (OSError, ValueError) as error:
         abort(400, f'{path.name} could not be read for the viewer: {error}')

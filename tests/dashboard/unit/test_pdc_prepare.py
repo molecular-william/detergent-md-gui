@@ -296,7 +296,7 @@ def test_the_stage_builds_the_box_the_placement_and_the_report(tmp_path):
 
 def test_the_reader_the_stage_uses_returns_the_shape_the_stage_indexes(tmp_path):
     """`read_gro` documented tuples and returned dicts, which is how this stage first read 'position' as letters."""
-    from dashboard.execution.adapters import pdc_view
+    from dashboard.analysis.runs import structures as pdc_view
 
     path = write_gro(tmp_path / 'protein.gro', [('PRO', 'B01', (0.0, 0.0, 0.0))])
     atoms = pdc_view.read_gro(path)

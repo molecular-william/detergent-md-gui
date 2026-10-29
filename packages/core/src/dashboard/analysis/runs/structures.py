@@ -313,36 +313,6 @@ def read_subunits(run_dir) -> dict[str, str]:
     return {}
 
 
-def read_protein_topologies(run_dir) -> list[dict]:
-    """The protein's own Martini moleculetypes, sorted, from wherever the run keeps its CG build.
-
-    A protein-detergent build writes one `molecule_N.itp` per protein chain under the build stage's `cg/`
-    directory (martinize2 emits one molecule per chain), and the protein's beads are the leading atoms of every
-    trajectory that follows. The build stage is `02_system/` in the numbered layout and `1_system/` before it; a
-    staged analysis work directory keeps the same files at its root, so the layout's resolver reads all three. No
-    directory is a protein-free build, which is a state rather than an error: `[]` means there is no protein
-    molecule to bond.
-    """
-    from ...analysis.runs import layout
-
-    root = Path(run_dir)
-    directory = layout.stage_dir(root, 'system')
-    if directory is None or not (directory / 'cg').is_dir():
-        # A staged work directory holds the files at its own root, under either stage spelling; the resolver
-        # above already answered that case, and the `cg/` subdirectory is the one this reader needs.
-        return []
-
-    def order(path):
-        # Chain order is the trajectory's leading-atom order, so `molecule_10` follows `molecule_9`; a plain
-        # name sort would put it before `molecule_2` and bond the wrong block.
-        suffix = path.stem.rsplit('_', 1)[-1]
-        return (0, int(suffix), path.name) if suffix.isdigit() else (1, 0, path.name)
-
-    cg = directory / 'cg'
-    paths = sorted(cg.glob('molecule_*.itp'), key=order)
-    return [read_moleculetype(path) for path in paths] if paths else []
-
-
 def _detergent_residue(atoms, topology, protein_topologies):
     """The residue the detergent beads carry: the first bead after the protein chains' leading atoms.
 

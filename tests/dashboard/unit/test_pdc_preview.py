@@ -29,7 +29,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from dashboard.execution.adapters import pdc_view
+from dashboard.analysis.runs import structures as pdc_view
 from dashboard.models.bonded import parameterization
 from detergent_pdc.execution import pdc_preview
 from detergent_pdc.execution.adapters import pdc_box, pdc_placement, pdc_preparation

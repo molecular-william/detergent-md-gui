@@ -32,7 +32,7 @@ The route is served as a fixture, so nothing here reads the developer's workspac
 import json
 import re
 
-from dashboard.execution.adapters import pdc_view
+from dashboard.analysis.runs import structures as pdc_view
 from playwright.sync_api import expect
 
 from . import panels

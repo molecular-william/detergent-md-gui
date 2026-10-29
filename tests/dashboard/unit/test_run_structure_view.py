@@ -15,7 +15,7 @@ run's own layout rule, so nothing here spells a stage directory by hand.
 from __future__ import annotations
 
 import pytest
-from dashboard.execution.adapters import pdc_view
+from dashboard.analysis.runs import structures as pdc_view
 from dashboard.web.routes.runs import run_topology, structure_target
 from werkzeug.exceptions import NotFound
 

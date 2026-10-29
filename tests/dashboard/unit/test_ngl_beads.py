@@ -185,7 +185,7 @@ def test_the_element_stand_ins_are_the_ones_the_system_writer_writes():
     resolves each bead's class and writes the stand-in element that class has; `sizeClassOf` turns that element back
     into the class. Two tables, one meaning: if either side moves, a bead is drawn at a size the model does not state.
     """
-    from dashboard.execution.adapters import pdc_view
+    from dashboard.analysis.runs import structures as pdc_view
     assert {element: size for size, element in pdc_view.SIZE_ELEMENTS.items()} == _strings('SIZE_ELEMENTS')
     # The composition writer's own choice is the same three stand-ins, which is the convention both readers describe.
     written = {line[76:78].strip() for line in composition_pdb().splitlines() if line.startswith('HETATM')}
@@ -202,7 +202,7 @@ def test_the_size_class_a_bead_type_names_is_martini_3s_own():
     prefix. `models/molecules/draft.py` reconciles a mapping's stated size with its bead type by that same letter,
     and the saved DDM mapping's types (`SP1r`, `SN6`, `TC4`, `C1`) read back as the sizes it states for them.
     """
-    from dashboard.execution.adapters import pdc_view
+    from dashboard.analysis.runs import structures as pdc_view
     classes = {bead_type: pdc_view.size_class(bead_type)
                for bead_type in ('SP1r', 'SN6', 'SP4r', 'TC4', 'C1', 'C2', 'TN2', '')}
     assert classes == {'SP1r': 'S', 'SN6': 'S', 'SP4r': 'S', 'TC4': 'T', 'C1': 'R', 'C2': 'R', 'TN2': 'T', '': 'R'}
@@ -216,7 +216,7 @@ def test_the_family_a_bead_type_names_is_martini_3s_polarity_family():
     `SN6` small *and* nonpolar), and a type whose letter is none of the four -- a water bead, a bead no mapping
     names, an empty column -- states no family rather than being guessed into one.
     """
-    from dashboard.execution.adapters import pdc_view
+    from dashboard.analysis.runs import structures as pdc_view
     families = {bead_type: pdc_view.bead_family(bead_type)
                 for bead_type in ('SP1r', 'SN6', 'SP4r', 'TC4', 'C1', 'C4', 'P1', 'N1', 'Q5', 'TN2', 'WF1', '', None)}
     assert families == {'SP1r': 'P', 'SN6': 'N', 'SP4r': 'P', 'TC4': 'C', 'C1': 'C', 'C4': 'C', 'P1': 'P',
@@ -229,7 +229,7 @@ def test_the_family_codes_are_the_order_the_modules_own_table_states():
     The writer numbers the families and the representation's colour scale is handed the same five in the same order,
     which is what makes code *k* the *k*-th colour rather than one the panel picked.
     """
-    from dashboard.execution.adapters import pdc_view
+    from dashboard.analysis.runs import structures as pdc_view
     assert list(pdc_view.BEAD_FAMILIES) == ['unstated', 'C', 'N', 'P', 'Q']
     assert [pdc_view.bead_family_code(bead_type)
             for bead_type in ('C1', 'N1', 'P1', 'Q5', '', 'TC4')] == [1, 2, 3, 4, 0, 1]
@@ -261,7 +261,7 @@ def test_the_mocks_frames_carry_the_writers_own_family_codes():
     bead -- which no moleculetype names -- is written `unstated`, and each frame spans more than one family (the
     polar sugar heads and the apolar tails), which is what makes the picture a colouring rather than one flat fill.
     """
-    from dashboard.execution.adapters import pdc_view
+    from dashboard.analysis.runs import structures as pdc_view
     frames = re.findall(r'<script type="text/plain" data-frame="(\w)"[^>]*>\n(.*?)\n</script>',
                         DRAFT.read_text(), re.DOTALL)
     assert len(frames) == 5, [key for key, _ in frames]

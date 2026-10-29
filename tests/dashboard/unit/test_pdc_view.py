@@ -10,7 +10,8 @@ The fixtures are formatted rather than hand-typed: a .gro is fixed-width, and a 
 shifts every float by a character.
 """
 import pytest
-from dashboard.execution.adapters import pdc_view
+from dashboard.analysis.runs import structures as pdc_view
+from detergent_pdc import topologies as pdc_topologies
 
 from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_TYPES, ddm_moleculetype
 
@@ -344,17 +345,17 @@ def test_read_protein_topologies_takes_the_sorted_cg_directory_in_both_spellings
     (cg / 'molecule_1.itp').write_text(_protein_moleculetype('molecule_1'))
     (cg / 'molecule_0.itp').write_text(_protein_moleculetype('molecule_0'))
 
-    assert [topology['path'].split('/')[-1] for topology in pdc_view.read_protein_topologies(tmp_path)] == \
+    assert [topology['path'].split('/')[-1] for topology in pdc_topologies.read_protein_topologies(tmp_path)] == \
         ['molecule_0.itp', 'molecule_1.itp']
 
     staged = tmp_path / 'work'
     (staged / 'stages/1_system/cg').mkdir(parents=True)
     (staged / 'stages/1_system/cg/molecule_0.itp').write_text(_protein_moleculetype('molecule_0'))
-    assert len(pdc_view.read_protein_topologies(staged)) == 1
+    assert len(pdc_topologies.read_protein_topologies(staged)) == 1
 
 
 def test_a_run_without_a_protein_chain_states_no_protein_topology(tmp_path):
-    assert pdc_view.read_protein_topologies(tmp_path) == []
+    assert pdc_topologies.read_protein_topologies(tmp_path) == []
 
 
 def test_the_moleculetype_reader_obeys_its_preprocessor_branches():

@@ -20,7 +20,7 @@ and not a second copy of its convention. No test reads the developer's workspace
 """
 import re
 
-from dashboard.execution.adapters import pdc_view
+from dashboard.analysis.runs import structures as pdc_view
 
 from . import panels
 from tests.dashboard.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, DDM_PLACEMENT, PACKAGE, ddm_moleculetype

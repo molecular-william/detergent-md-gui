@@ -17,8 +17,8 @@ import json
 import math
 
 import pytest
+from dashboard.analysis.runs import structures as pdc_view
 from dashboard.execution import tools
-from dashboard.execution.adapters import pdc_view
 
 
 def peptide(residues=6, *, chain='A', shift_nm=0.0) -> str:

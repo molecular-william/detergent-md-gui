@@ -15,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from dashboard.execution.adapters import pdc_view
+from dashboard.analysis.runs import structures as pdc_view
 from detergent_pdc.execution.adapters import pdc, pdc_placement
 from detergent_pdc.execution.adapters.pdc_placement import MIN_CLEARANCE_NM
 from detergent_pdc.execution.scripts import pdc_build

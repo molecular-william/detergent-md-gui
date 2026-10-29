@@ -1,12 +1,13 @@
 """Protein-detergent complex endpoints: the catalogue the panel builds its setup from, and the system it built."""
 import json
+import uuid
 from pathlib import Path
 from urllib.parse import unquote
 
 from dashboard import paths
-from dashboard.analysis.runs import layout
-from dashboard.execution.adapters import pdc_view
-from dashboard.web.routes.common import coordinator
+from dashboard.analysis.runs import layout, structures
+from dashboard.execution.adapters.micelle import run_micelle_job
+from dashboard.web.routes.common import coordinator, json_object
 from detergent_pdc.execution.adapters import pdc, pdc_import
 from flask import Blueprint, Response, abort, current_app, jsonify, request
 
@@ -163,7 +164,7 @@ def detergent_topology(root: Path):
     if path is None:
         return None
     try:
-        return pdc_view.read_moleculetype(path)
+        return structures.read_moleculetype(path)
     except (OSError, ValueError):
         return None
 
@@ -173,7 +174,7 @@ def pdc_system_pdb(job_id):
     """The built system as a viewer file. 404 with a reason until a build has produced one.
 
     The panel shows the system as set up rather than as imagined, so this serves the coordinates a stage wrote,
-    through `pdc_view.system_pdb`: one residue per molecule, and the run's own moleculetype's bonds as CONECT
+    through `structures.system_pdb`: one residue per molecule, and the run's own moleculetype's bonds as CONECT
     records. Without them the panel falls back to NGL's distance-based guess -- measured at 90 bonds on a frame the
     model bonds 60 ways. Before that stage has run there is no picture to show, and saying so is better than an
     empty box.
@@ -181,10 +182,10 @@ def pdc_system_pdb(job_id):
     root = setup_root(job_id)
     structure = layout.stage_path(root, SETUP_STAGE, SYSTEM_STRUCTURE)
     try:
-        atoms = pdc_view.read_gro(structure)
+        atoms = structures.read_gro(structure)
     except (OSError, ValueError, TypeError) as error:
         abort(404, f'no built system to show yet: {error}')
-    return Response(pdc_view.system_pdb(atoms, topology=detergent_topology(root)), mimetype='text/plain')
+    return Response(structures.system_pdb(atoms, topology=detergent_topology(root)), mimetype='text/plain')
 
 
 def catalogue_protein(root, entry):
@@ -436,7 +437,7 @@ def pdc_preview_placement():
     """The frame these inputs would build, derived from the build's own placement step and nothing else.
 
     A GET, because it is a derived read-only answer about the inputs -- the same shape as
-    `GET /api/pdc/proteins/<entry>/encapsulation` beside it. The picture is `pdc_view.system_pdb`'s own output: one
+    `GET /api/pdc/proteins/<entry>/encapsulation` beside it. The picture is `structures.system_pdb`'s own output: one
     residue per molecule, the mapping's beads, and the model's own bonds as `CONECT` records.
 
     **A refusal is an answer, not a bad request.** A template the builder's validator refuses, and a placement that
@@ -484,3 +485,24 @@ def pdc_preview_placement():
     except ValueError as error:
         return jsonify({'error': str(error)}), 400
     return jsonify(answer)
+
+
+@blueprint.post('/api/micelle/build')
+def micelle_build_api():
+    """Thin adapter for the native micelle CLI; reports are ordinary run artifacts."""
+    from dashboard.web.routes.runs import view_of
+
+    c = coordinator()
+    payload = json_object()
+    jid = uuid.uuid4().hex[:12]
+    job = {'id': jid, 'label': payload.get('label') or 'Micelle build', 'detergent': payload.get('detergent','DDM'),
+           'method': 'micelle', 'status': 'running', 'stage': 'micelle build', 'created': c.now(), 'profile': 'micelle', 'settings': payload}
+    with c.JOBS_LOCK:
+        c.database().insert(job)
+    directory = c.RUNS / jid; directory.mkdir(parents=True, exist_ok=False)
+    try:
+        result = run_micelle_job(payload, directory)
+        c.database().update(jid, status='completed' if result['status']=='completed' else 'failed', stage='complete' if result['status']=='completed' else 'micelle build', ended_at=c.now(), error=result.get('error'), command=' '.join(result['command']))
+    except Exception as exc:
+        c.database().update(jid, status='failed', stage='micelle build', ended_at=c.now(), error=str(exc))
+    return jsonify(view_of(c, c.lookup(jid))), 201
