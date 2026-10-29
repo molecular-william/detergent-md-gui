@@ -42,6 +42,48 @@ Acceptance is the same suite, same result, with three independently runnable tre
 Cross-module duplicate basenames: **none** today; verify again after the move (it decides whether `importlib` mode
 is required).
 
+## Baseline recorded (2026-10-29, `bc6678a`, clean tree)
+
+Phase 0 measured. Comparable numbers for every later phase:
+
+| measurement | recorded | Phase 0 expectation |
+| --- | --- | --- |
+| fast tier, `-n 8 --dist loadfile` | **2186 passed, 1 xfailed** (26 s) | 2186 + 1 xfail |
+| browser tier, `-n 16 --dist worksteal` | 235 collected; three full runs gave **234+1**, **233+2**, **234+1** | 235 passed |
+| browser tier, `-n 0` | **234 passed, 1 failed** (343 s) | -- |
+| slow tier, `-n 0` | **17 passed** (43 s) | 17 |
+| `--collect-only -q` | **2439** | 2439 |
+| per module (`-m core\|validation\|pdc`) | **1465 / 312 / 662** | 1465 / 312 / 662 |
+| `ruff check packages tests scripts` | clean | -- |
+
+The expected xfail is
+`tests/dashboard/integration/test_pdc_preview_api.py::test_the_route_reads_the_preparation_choice_and_refuses_a_value_that_is_not_one`.
+
+**The browser tier is flaky at this commit, independent of the move.** Four different tests failed across three full
+runs -- `test_bead_editor_controls_browser.py::test_add_and_delete_beads_...`,
+`test_mapping_overlay3d_browser.py::test_every_sphere_sits_...`, and twice
+`test_bonded_parameterization_browser.py` (`::test_a_running_job_...`, `::test_a_fit_answer_that_arrives_...`). Every
+failed test passed alone. The fit-answer one failed **1 in 5** solo runs, spending 15 s in an expectation that resolved
+to "Choose an AA reference: this engine fits to its ensemble": the reference picker is re-rendered between the test's
+`wait_for_function` and its click, so the button is disabled again when clicked. That is a race in the test's own
+re-apply loop, not load and not layout. Phase 5 must compare the failure *set* against this note, not demand 235/235,
+until the flake is fixed.
+
+### Inventory re-measured (supersedes the table above)
+
+- Test files **288**: unit 197 / integration 54 / browser 37. The +1 is `unit/test_test_modules.py`, added in
+  `1455d1e`; the table's 287 describes `4f295a5`.
+- Per module **190 / 29 / 69** (core/validation/pdc). The table's totals of 188 and 70 contradict its own parenthetical
+  splits, which sum to 190 and 69; the measured values match the splits.
+- Files importing the harness: **60** (61 import lines), not 123. `__file__` checkout computations: **37 files, 38
+  uses** (`parents[3]` 36, `parents[2]` 1, `parents[1]` 1), not 38/43. Cross-test helper imports: **24** (match).
+- **A duplicate basename exists:** `test_assessment_rescore.py` in both `unit/` and `integration/`, so the "none" above
+  is stale. They do not collide today only because both directories are `__init__.py` packages. Phase 3 must therefore
+  keep an `__init__.py` chain under `packages/<module>/tests/` **or** adopt `--import-mode=importlib`, or prepend mode
+  will import the two files under one module name.
+- Harness sizes: support 185, factory 30, bond_fixtures 60, pdc_fixtures 172, areas 112, modules 57, conftest 80,
+  browser/conftest 95, browser/panels 105 lines.
+
 ## Decisions to implement (resolve these; do not re-derive from scratch)
 
 1. **Harness stays at the repository root** as `tests/harness/`, outside every distribution. It is not shipped and
