@@ -1,6 +1,7 @@
 # Modular test packages: move each module's tests into its distribution
 
-Status: **open, next task.** Written 2026-10-29 at `1455d1e`, after the source split and the ownership axis.
+Status: **done, 2026-10-29**, in six commits through `8612cca`. Written at `1455d1e`, after the source split
+and the ownership axis; executed with `--import-mode=importlib`, as chosen at Phase 3.
 Predecessor state: the suite already divides by *subject* (`tests/dashboard/areas.py`) and by *owning distribution*
 (`tests/dashboard/modules.py`, `-m core|validation|pdc`, `scripts/test_module.sh`). What remains is the physical
 layout: every test still lives in one `tests/dashboard/` tree, so a feature cannot be developed or tested from its
@@ -211,3 +212,14 @@ one commit.
 - `grep -rn "tests\.dashboard" packages tests scripts docs` returns only this plan and dated historical plans.
 - The suite's selection still works three ways: tree path, `-m` module marker, `-m` area marker.
 - No wheel contains a `tests/` path; docs are current; HANDOFF closes this item.
+
+## Completed (2026-10-29)
+
+- 289 files moved: core 191, validation 29, pdc 69; 2,440 collected (1,466 / 312 / 662 by marker and by directory).
+- `--import-mode=importlib` settled the duplicate basename; no `__init__.py` chain inside a tests tree.
+- `tests/harness/` holds the fixtures, the two plugins, `mapping_fixtures.py`, `validation_fixtures.py` and the
+  selection tables; `modules.py` derives ownership from `packages/<module>/tests`.
+- Each package carries a dev-only `test` extra; all three wheels contain zero `/tests/` paths.
+- Acceptance: fast 2,187 + 1 xfailed, slow 17, mutation 11/10 caught/1 survived/0 stale, ruff clean, DoD grep clean.
+- Residual, recorded in `docs/HANDOFF.md`: the mapping editor's overlay can load an empty bead file under load
+  (`atoms: [35, 0]`, about one browser run in eight); every failed test passes alone.
