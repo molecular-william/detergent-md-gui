@@ -16,6 +16,7 @@ reports/*
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.hypothesis/
 .ipynb_checkpoints/
 runs/*
 !runs/.gitkeep
@@ -29,6 +30,10 @@ runs/*
 coverage.xml
 htmlcov/
 .DS_Store
+# GROMACS writes this into whichever directory mdrun is started from.
+mdout.mdp
+# Rendered design drafts; the HTML source beside each one is the artifact.
+docs/design/drafts/*.png
 .idea/
 .vscode/
 
@@ -36,5 +41,10 @@ htmlcov/
 archive/
 tools/
 resources/parameterizers/
-references/M3-Bible/
-references/M3-Small-Molecules/
+# The published Martini 3 set and the reference corpus are upstream inputs, not source: every run records
+# their sha256 in `inputs/inputs.json`, and a run reads the installed set in place. They stay on disk,
+# never in git -- provision them into a checkout (see docs/PROJECT_GUIDE.md).
+references/
+
+# Worked-example simulation artifacts (ENAP): trajectories and topologies, no code reads them.
+resources/templates/parametrize_new_small_molecule/
