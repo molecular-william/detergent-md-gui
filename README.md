@@ -60,7 +60,8 @@ process after changing Python code — routes and models are loaded at start, `s
   both as the `det`/`prot`/`all` extras. A feature distribution joins a dashboard by advertising the
   `detergent_md.features` entry point (`docs/PROJECT_GUIDE.md`, *Adding a distribution*); installing the wheel is the
   whole act, and an install without one of them serves only the workspace it has.
-* `tests/dashboard/` — unit, integration and browser tiers with isolated stores; never the developer's workspace.
+* `packages/<name>/tests/` — each distribution's own unit, integration and browser tiers, with `tests/harness/`
+  holding the fixtures, plugins and selection tables they share; isolated stores, never the developer's workspace.
 * `molecules/`, `references/`, `resources/` — canonical scientific inputs; the CG force field is installed per
   workspace at `workspace/dashboard/martini3` from `references/M3-Lipid-Parameters/ITPs`, never from a copy in the tree.
 * `tools/cg2at/` — CG2AT2, vendored, used by the `pdc` back-map stage with the `martini_3-0_charmm36` fragment DB.
@@ -86,8 +87,9 @@ process after changing Python code — routes and models are loaded at start, `s
 .venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast tier
 .venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser tier
 .venv/bin/python -m pytest -m slow -q -n 0                       # slow tier, serial
-.venv/bin/ruff check packages tests                             # must exit 0
+.venv/bin/ruff check packages tests conftest.py                  # must exit 0
 scripts/test_module.sh core|validation|pdc [fast|browser|slow]    # one distribution's tests
+.venv/bin/python -m pytest packages/core/tests -q                 # one tree, all tiers (likewise validation/pdc)
 ```
 
 Tier counts and timings are measured in `pytest.ini`; for the current total, quote

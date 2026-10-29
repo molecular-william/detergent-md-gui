@@ -1,13 +1,12 @@
 # Project guidance for coding agents
 
-Rules and facts for working here. State and open items are in `HANDOFF.md`; repo layout, persistence, migration and
-testing in `PROJECT_GUIDE.md`; scoring in `DDM_CALIBRATION.md`. Read `HANDOFF.md` before the DDM CG chain or coordinator.
+Rules and facts for working here. State/open items: `docs/HANDOFF.md`; layout, persistence, migration and testing: `PROJECT_GUIDE.md`; scoring: `DDM_CALIBRATION.md`.
 
 ## What belongs in this file
 A line earns its place only if an agent could damage the project by not knowing it before opening any other file: a
 rule, an invariant, a decision not to re-litigate, or a command. How a subsystem works belongs in `PROJECT_GUIDE.md`,
 state and incidents in `HANDOFF.md`, scoring science in `DDM_CALIBRATION.md`.
-`tests/dashboard/unit/test_agents_contract.py` enforces the budget and headings, and that every invariant names code.
+`packages/core/tests/unit/test_agents_contract.py` enforces the budget and headings, and that every invariant names code.
 
 ## Goal
 One local Python service orchestrating resumable GROMACS/Martini jobs -- AA to CG, protein-detergent, osmotic series --
@@ -22,6 +21,7 @@ with a Flask dashboard over persisted manifests and logs. Reproducible; outputs 
   nothing, never to a substitute, and every manifest records the resolved version and path.
 - `resources/` and `packages/` are the maintained trees: `packages/core` is the engine (`detergent-core`, import `dashboard`), `packages/validation`/`packages/pdc` are features (`detergent_validation`/`detergent_pdc`) that register through `dashboard/features.py`'s `detergent_md.features`
   entry point; the engine never imports one. Code map, routes and ownership: `PROJECT_GUIDE.md` *Source ownership*.
+- Tests live in each distribution's own tree (`packages/<name>/tests/{unit,integration,browser}`); `tests/harness/` holds the fixtures, plugins and selection tables every tree shares.
 
 ## Run contract
 - Four run types: `aa_only`, `aa_cg`, `pdc`, `osmotic`; each adapter's `STAGES` is the order, `pdc`'s ten are
@@ -108,14 +108,14 @@ with a Flask dashboard over persisted manifests and logs. Reproducible; outputs 
 
 ## Verify
 ```
-.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast tier; -m core|validation|pdc for one module
+.venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast tier; -m core|validation|pdc, or packages/<m>/tests, for one module
 .venv/bin/python -m pytest -m browser -q -n 16 --dist worksteal   # browser tier
 .venv/bin/python -m pytest -m slow -q -n 0                       # slow tier, serial
-.venv/bin/ruff check packages tests                             # F, E9, I must exit 0
+.venv/bin/ruff check packages tests conftest.py                 # F, E9, I must exit 0
 scripts/gate_commit.sh <message-file> <paths...>                           # fast tier + ruff over named paths
 .venv/bin/python scripts/mutation_check.py                       # 11 mutants: 10 caught, 1 survived
 ```
-Eleven areas in `tests/dashboard/areas.py` cover the suite (`test_test_areas.py` fails on an unnamed module): pdc,
+Eleven areas in `tests/harness/areas.py` cover the suite (`test_test_areas.py` fails on an unnamed module): pdc,
 runs, bonded, analysis, infra, osmotic, mapping, carbohydrate, web, molecules, aa. Compose an area with a tier, e.g.
 `-m 'pdc and not browser and not slow'`; counts are in `pytest.ini`. Private `MPLCONFIGDIR`; lint your own paths.
 

@@ -394,7 +394,7 @@ JSON and log endpoints are under /api/jobs, /api/readiness, /api/mappings, /api/
 
 ### Mapping exports and diagrams
 
-The editor draws the same assignment in three dimensions with the vendored NGL viewer: the heavy atoms as ball-and-stick, and every bead as a translucent sphere at the centre of the atoms it maps, sized by its R/S/T class. Spheres are served as a file of one atom per bead and drawn as one representation per size class, because a representation carries a single radius scale. Clicking a sphere selects every atom that bead maps and clicking an atom selects that atom, both through the editor's own toggle, so the two views cannot hold different selections. `POST /api/mappings/overlay3d` serves both files; the unit conversion (a mapping context holds nanometres, a PDB file angstroms), the centres and the radii live in `models/mappings/overlay3d.py` with unit tests, and the browser behavior is covered by `tests/dashboard/browser/test_mapping_overlay3d_browser.py`.
+The editor draws the same assignment in three dimensions with the vendored NGL viewer: the heavy atoms as ball-and-stick, and every bead as a translucent sphere at the centre of the atoms it maps, sized by its R/S/T class. Spheres are served as a file of one atom per bead and drawn as one representation per size class, because a representation carries a single radius scale. Clicking a sphere selects every atom that bead maps and clicking an atom selects that atom, both through the editor's own toggle, so the two views cannot hold different selections. `POST /api/mappings/overlay3d` serves both files; the unit conversion (a mapping context holds nanometres, a PDB file angstroms), the centres and the radii live in `models/mappings/overlay3d.py` with unit tests, and the browser behavior is covered by `packages/core/tests/browser/test_mapping_overlay3d_browser.py`.
 Each candidate can export .ndx, .map, .gro, or a ZIP containing all three plus candidate metadata, source hash, and validation report. All files use matching bead IDs B01, B02, …; original display names remain in model.json. This avoids GRO name truncation and Fast_Forward's restriction to alphanumeric bead identifiers. Missing, repeated, unknown, or hydrogen assignments block export. Size and connectivity findings remain visible and recorded as review issues.
 
 The .map header is [ molecule ] LIG1 <molecule_name>, as required by Fast_Forward. The .gro frame is calculated from equal-weight heavy-atom COGs, converted from ångströms to nm, and has no periodic box. These are review artifacts, not fitted parameters or a ready-to-run system. Original atom indices refer to the matching SwissParam ligand-only order.
@@ -468,9 +468,17 @@ tiers in use:
 .venv/bin/python -m pytest -m slow -q -n 0
 ```
 
-Tests live under tests/dashboard/{unit,integration,browser}. Shared fixtures redirect every writable store; tests generate their own mapping candidates.
+Tests live in each distribution's own tree -- `packages/core/tests/`, `packages/validation/tests/` and
+`packages/pdc/tests/ -- each with `unit/`, `integration/` and `browser/`. `tests/harness/` holds what they share:
+`support.py` (root constants, `QuietHandler`, the small fixtures), `factory.py`, `bond_fixtures.py`, `pdc_fixtures.py`,
+`browser.py`, `mapping_fixtures.py`, `validation_fixtures.py`, the two pytest plugins, and the selection tables. The
+root `conftest.py` puts the repository on `sys.path` and registers the plugins, so the fixtures reach every tree, and
+`pytest.ini` selects all three trees with `--import-mode=importlib`: modules are named by their path, so two trees may
+hold the same basename and no `__init__.py` chain is needed inside a tests tree. A package's tests also run from inside
+it: `cd packages/validation && ../../.venv/bin/python -m pytest tests`. Shared fixtures redirect every writable store;
+tests generate their own mapping candidates.
 
-Two collection axes select a subset. `areas.py` answers "what subject" (`-m pdc`, `-m osmotic`, `-m 'mapping and not browser'`). `modules.py` answers "which distribution owns this test" and adds exactly one `core`, `validation` or `pdc` marker to every collected module: `unit/test_test_modules.py` fails on a pattern that matches no module, on a module claimed twice, or when the three groups do not cover the suite. The rule is ownership, not imports -- a browser test that opens a pdc page without importing the package is `pdc`, while an engine contract test that imports both features (discovery, the analysis fingerprint, a run-type matrix) is `core`. One module's tests, at any tier:
+Two collection axes select a subset. `areas.py` answers "what subject" (`-m pdc`, `-m osmotic`, `-m 'mapping and not browser'`). `modules.py` answers "which distribution owns this test" from the tree the file lives in -- `packages/<module>/tests` -- and the collection hook adds exactly one `core`, `validation` or `pdc` marker to every collected module: `packages/core/tests/unit/test_test_modules.py` fails when a file sits in no tree or in two, or when a collected item's marker disagrees with its tree. The rule is ownership, not imports -- a browser test that opens a pdc page without importing the package is `pdc`, while an engine contract test that imports both features (discovery, the analysis fingerprint, a run-type matrix) is `core`. One module's tests, at any tier:
 
 ```bash
 scripts/test_module.sh core|validation|pdc [fast|browser|slow]
@@ -479,11 +487,10 @@ scripts/test_module.sh core|validation|pdc [fast|browser|slow]
 
 The selection is ownership, not isolation: every run uses the checkout's install with all three distributions present. Isolating a module's tests into an environment without the other features would be a different (and much larger) harness change. The suite checks commands, lifecycle and recovery, quota and dependency guards, parsing, API contracts, and browser interactions without long simulations. Browser tests use installed Playwright and Chrome, temporary databases, and loopback servers.
 
-The physical half is the next task: move each module's tests into `packages/<module>/tests/` so a feature can be
-tested from its own package, with the shared harness at `tests/harness/`. It is specified in
-`docs/plans/2026-10-29-modular-test-packages.md` (target layout, inventory, phases, hazards, acceptance); this
-section describes the state before that move.
-Tiers answer "how expensive", areas answer "what about": `tests/dashboard/areas.py` holds one table of module patterns per area, applied as markers by `pytest_collection_modifyitems`, so `-m pdc` is the protein-detergent work, `-m 'mapping and not browser'` the bead editor without a browser, and `-m 'pdc and not browser and not slow'` that area's tool-free part. The areas are pdc, runs, bonded, analysis, infra, osmotic, mapping, carbohydrate, web, molecules and aa; they partition the suite exactly, which `unit/test_test_areas.py` enforces -- an unnamed module, a module two areas claim, or an area with no module fails that test. Order in the table decides an ambiguous name (a mapping test named `test_cg_mapping_script.py` is `mapping`, not `runs`), so a new file goes where its subject is, with the pattern that names it. Tier and area counts are measured in `pytest.ini`.
+The physical half landed on 2026-10-29 (`docs/plans/2026-10-29-modular-test-packages.md` is its plan and record):
+every module's tests moved into its package, the ownership table became the tree, and each package's `pyproject.toml`
+carries a dev-only `test` extra. A built wheel carries no tests: `packages.find` scans `src/` only.
+Tiers answer "how expensive", areas answer "what about": `tests/harness/areas.py` holds one table of module patterns per area, applied as markers by `pytest_collection_modifyitems`, so `-m pdc` is the protein-detergent work, `-m 'mapping and not browser'` the bead editor without a browser, and `-m 'pdc and not browser and not slow'` that area's tool-free part. The areas are pdc, runs, bonded, analysis, infra, osmotic, mapping, carbohydrate, web, molecules and aa; they partition the suite exactly, which `packages/core/tests/unit/test_test_areas.py` enforces -- an unnamed module, a module two areas claim, or an area with no module fails that test. Order in the table decides an ambiguous name (a mapping test named `test_cg_mapping_script.py` is `mapping`, not `runs`), so a new file goes where its subject is, with the pattern that names it. Tier and area counts are measured in `pytest.ini`.
 
 Optional process parallelism is provided by `requirements-dashboard-tests.txt`. That file also carries the test-only imports `playwright` (browser tests), `vermouth` (sugar topology) and `mdtraj` (pdc secondary structure; see below), so install it before running the full suite:
 
@@ -495,7 +502,7 @@ Use the commands above; do not re-state worker counts here. Threaded execution i
 
 ### Environment gaps
 
-Tier and area counts are measured in `pytest.ini`; quote a fresh `pytest --collect-only -q` rather than a copy. `.venv/bin/ruff check packages tests` exits 0; repo-wide `ruff check .` is clean. Two further instruments sit beside the tiers: `scripts/gate_commit.sh <message-file> <paths...>` runs the fast tier and `ruff` over the paths it is given and commits only when both are clean, and `scripts/mutation_check.py` reports which tests notice a one-line change in an engine or feature analysis module or execution adapter (11 mutants, 10 caught, 1 survived -- the control).
+Tier and area counts are measured in `pytest.ini`; quote a fresh `pytest --collect-only -q` rather than a copy. `.venv/bin/ruff check packages tests conftest.py` exits 0; repo-wide `ruff check .` is clean. Two further instruments sit beside the tiers: `scripts/gate_commit.sh <message-file> <paths...>` runs the fast tier and `ruff` over the paths it is given and commits only when both are clean, and `scripts/mutation_check.py` reports which tests notice a one-line change in an engine or feature analysis module or execution adapter (11 mutants, 10 caught, 1 survived -- the control).
 
 The two tests that used to skip by design on a missing vendor tree now run, because the Fast_Forward source tree is provisioned and patched:
 
@@ -504,7 +511,7 @@ The two tests that used to skip by design on a missing vendor tree now run, beca
 | `integration/test_mapping_exports.py::test_fast_forward_parser_reads_names_and_order` | skipped: `map_file_parers.py` absent | passes against the vendored source |
 | `unit/test_carbohydrates.py::test_ff_dihedral_membership_controls_restricted_bending` | skipped: `interaction_fit.py` absent | passes; it pins both local patches |
 
-Both still resolve their path through `tests/dashboard/tool_paths.py` instead of a literal path, so a missing vendor tree skips with a reason rather than failing for a reason unrelated to the code under test. Provisioning is not the whole story on its own: pristine upstream passes the parser test and fails the membership test, which is why the tracked patch is part of setup (see Environment). `unit/test_carbohydrates.py::test_installed_fast_forward_is_the_vendored_source` fails when the installed package is not the vendored source, so a rebuilt virtualenv cannot silently revert to upstream behaviour.
+Both still resolve their path through `tests/harness/support.py` instead of a literal path, so a missing vendor tree skips with a reason rather than failing for a reason unrelated to the code under test. Provisioning is not the whole story on its own: pristine upstream passes the parser test and fails the membership test, which is why the tracked patch is part of setup (see Environment). `unit/test_carbohydrates.py::test_installed_fast_forward_is_the_vendored_source` fails when the installed package is not the vendored source, so a rebuilt virtualenv cannot silently revert to upstream behaviour.
 
 Measured toolchain on this machine: GROMACS 2026.3 at `/usr/local/gromacs/2026.3/bin/gmx` (CUDA, OpenMPI),
 Fast_Forward 0.0.1.dev1 built from the patched vendor tree (fitter sha256 `0ab9252d…`), MDAnalysis 2.9.0,
@@ -529,17 +536,17 @@ Two more tools enter through `requirements-dashboard-tests.txt` (`mdtraj`, `pdb2
 ## Focused validation
 ```bash
 .venv/bin/python -m pytest \
-  tests/dashboard/unit/test_bonded.py \
-  tests/dashboard/unit/test_bonded_parameterization.py \
-  tests/dashboard/integration/test_mapping_exports.py \
-  tests/dashboard/integration/test_mapping_workspace_api.py \
+  packages/core/tests/unit/test_bonded.py \
+  packages/core/tests/unit/test_bonded_parameterization.py \
+  packages/core/tests/integration/test_mapping_exports.py \
+  packages/core/tests/integration/test_mapping_workspace_api.py \
   -q
 node --check dashboard/web/static/js/main.js
 ```
 Browser acceptance uses installed Playwright and Chrome:
 
 ```bash
-.venv/bin/python -m pytest tests/dashboard/browser -v
+.venv/bin/python -m pytest -m browser -v
 ```
 
 The suite exercises polling without state loss, mapping edits and draft persistence, console pause/follow/copy/download, and mobile layout using isolated test jobs. Worker tests cancel an actual short-lived subprocess without running MD.

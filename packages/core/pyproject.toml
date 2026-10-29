@@ -23,6 +23,11 @@ dependencies = [
 detergent-dashboard = "dashboard.cli.serve:main"
 detergent-import-run = "dashboard.cli.import_run:main"
 
+[project.optional-dependencies]
+# The tests live beside each package (`tests/`) but are not shipped: this extra is the dev-side install of the runner,
+# not a dependency of the dashboard. The scientific stack and the fixtures' own libraries stay host-provided.
+test = ["pytest>=8", "pytest-xdist>=3.6,<4", "playwright>=1.40"]
+
 [tool.setuptools.package-data]
 # The shell is data, not modules: the template, the stylesheets, the panel scripts and the vendored NGL bundle are
 # read from the installed package, so a wheel without them starts and then cannot render a page.

@@ -14,6 +14,11 @@ dependencies = ["detergent-core==0.2.0"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[project.optional-dependencies]
+# The tests live beside each package (`tests/`) but are not shipped: this extra is the dev-side install of the runner,
+# not a dependency of the dashboard. The scientific stack and the fixtures' own libraries stay host-provided.
+test = ["pytest>=8", "pytest-xdist>=3.6,<4", "playwright>=1.40"]
+
 [tool.setuptools.package-data]
 detergent_validation = ["templates/panels/*.html", "static/*.css", "static/js/*.js"]
 
