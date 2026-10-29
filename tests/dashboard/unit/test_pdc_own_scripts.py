@@ -14,8 +14,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dashboard.execution.adapters import aa, cg, composition, osmotic
+from dashboard.execution.adapters import aa, cg, composition
 from detergent_pdc.execution.adapters import pdc
+from detergent_validation.execution.adapters import osmotic
 
 SCRIPTS = Path(pdc.__file__).resolve().parents[1] / 'scripts'
 

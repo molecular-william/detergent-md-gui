@@ -55,5 +55,6 @@ FEATURE = features.Feature(
     tab_ids=(('complexes', 'pdc'),),
     # A prepared pdc run records the engine spelling `dashboard/execution/scripts/pdc_*.sh`; the files live here now,
     # and the resolver looks for them in this distribution before the engine's own scripts directory.
-    code_prefixes=(('dashboard/execution/scripts/', 'detergent_pdc', 'execution/scripts/'),),
+    code_prefixes=(('dashboard/execution/scripts/', 'detergent_pdc', 'execution/scripts/'),
+                   ('dashboard/execution/adapters/', 'detergent_pdc', 'execution/adapters/')),
 )

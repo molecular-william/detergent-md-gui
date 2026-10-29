@@ -59,6 +59,8 @@ class Feature:
     create_settings: Mapping[str, Callable] = field(default_factory=dict)
     #: `{run type: (data, root) -> readiness answer}` for a run type whose adapter asks its own question.
     readiness: Mapping[str, Callable] = field(default_factory=dict)
+    #: `(coordinator, job) -> object` called when a run ends failed: the series stop, a cleanup the run type owns.
+    on_run_failed: Callable | None = None
 
 
 _features: list[Feature] | None = None
@@ -144,6 +146,14 @@ def create_settings_for(run_type):
 def readiness_for(run_type):
     """The readiness question a feature registered for this run type, or None."""
     return _hook(lambda feature: feature.readiness, run_type)
+
+
+def run_failed(coordinator, jid):
+    """Tell every feature a run ended failed, so a run type can close what it opened (an osmotic series)."""
+    job = coordinator.lookup(jid)
+    for feature in ensure():
+        if feature.on_run_failed is not None:
+            feature.on_run_failed(coordinator, job)
 
 
 def register(app):

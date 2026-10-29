@@ -72,8 +72,8 @@ NEW_MODULES = (
     'dashboard.analysis.validation.targets', 'dashboard.analysis.runs.references',
     'dashboard.analysis.runs.surfaces',
     'dashboard.web.routes.common', 'dashboard.web.routes.mappings',
-    'dashboard.web.routes.bonded', 'dashboard.web.routes.catalog',
-    'dashboard.web.routes.refinement',
+    'detergent_validation.web.routes.bonded', 'dashboard.web.routes.catalog',
+    'detergent_validation.web.routes.refinement',
 )
 
 

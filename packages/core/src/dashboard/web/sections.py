@@ -12,36 +12,6 @@ whether they are two pages or one, this record is the same -- which is why it is
 #: not derived from each other on purpose: the label "protein-detergent simulations" is longer than its slug
 #: `protein-detergent`, and `new-run` is a better URL than a panel called `new`.
 SECTIONS = {
-    'validation': {
-        'slug': 'detergent-validation',
-        'label': 'Detergent validation',
-        'blurb': "Build and check a detergent's coarse-grained model",
-        # The sub-panels, in the order they appear. Each is also its URL segment:
-        # `/detergent-validation/new-run`. A panel appears here only once its section exists in
-        # dashboard.html: a registered panel with no section renders a live tab that resolves to no
-        # element, so clicking it hides every panel and leaves a blank workspace. `osmotic-pressure` is
-        # the sugar concentration series; it was registered in PLANNED until its section existed, and
-        # the panel is now built: the set-up door, and the reader for the series the route reports.
-        #
-        # `run-view` sits directly after `runs` because it is the other half of reading a run: the table
-        # lists them, this panel draws one. It is registered in *both* workspaces on purpose -- one
-        # component, scoped to each workspace's own run types (`run_types` below), so there is one
-        # bond rule rather than a second viewer that forgets it.
-        'tabs': ('runs', 'run-view', 'new-run', 'bead-assignment', 'bond-interactions', 'combinations',
-                 'mapping-validation', 'osmotic-pressure'),
-        # The run types this workspace's Run view panel offers. The panel asks `/api/jobs` for each of
-        # these by name -- the run-type filter on the route, so the list is one workspace's runs and not
-        # a page of every run narrowed afterwards in the browser. Read from here rather than written in
-        # the JavaScript for the reason the whole registry exists: a second copy drifts, and this one
-        # decides what a reader can reach.
-        'run_types': ('aa_only', 'aa_cg', 'cg_composition', 'osmotic'),
-        # The heading the panel carries in *this* workspace, for a panel whose heading is not its rail label. The
-        # rail is 220 px wide and both workspaces call this panel "New run", which is not the same thing as the
-        # heading above it: the two workspaces queue different pipelines, and the heading is where that is said.
-        # A panel left out of this map keeps its rail label (`panel_label` falls back), so adding an entry cannot
-        # move another panel's name.
-        'panel_labels': {'new-run': 'Single Molecule Simulations'},
-    },
 }
 
 #: The human label and glyph for each sub-panel, in one place so a section cannot render a panel whose label nobody
@@ -50,11 +20,6 @@ PANELS = {
     'runs': ('Runs', '☰'),
     'run-view': ('Run view', '⬓'),
     'new-run': ('New run', '▶'),
-    'bead-assignment': ('Bead Assignment', '◎'),
-    'bond-interactions': ('Bond Interactions', '⇄'),
-    'combinations': ('Combinations', '⧉'),
-    'mapping-validation': ('Mapping Validation', '✓'),
-    'osmotic-pressure': ('Osmotic Series', '△'),
     'initial-state': ('Initial state', '⬢'),
 }
 
@@ -65,11 +30,6 @@ PANEL_BLURBS = {
     'runs': 'every run in this workspace, with what it draws on and what uses it',
     'run-view': 'one run, its structures, its frames and its figures',
     'new-run': 'a run, with a snapshot of the box before it starts',
-    'bead-assignment': 'the CG mapping editor',
-    'bond-interactions': 'fitted terms, and the cross-check against the reference',
-    'combinations': 'building a system from several molecules',
-    'mapping-validation': 'a mapping against its reference, and across molecules',
-    'osmotic-pressure': 'a sugar concentration series: set one up, and read the series as it stands',
     'initial-state': 'the micelle builder',
 }
 
@@ -92,11 +52,6 @@ TAB_IDS = {
     'runs': 'runs',
     'run-view': 'runview',
     'new-run': 'new',
-    'bead-assignment': 'mappings',
-    'bond-interactions': 'bonded',
-    'combinations': 'compositions',
-    'mapping-validation': 'validation',
-    'osmotic-pressure': 'osmotic-pressure',
     'initial-state': 'initial-state',
 }
 

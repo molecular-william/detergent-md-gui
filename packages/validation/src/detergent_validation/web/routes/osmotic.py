@@ -13,16 +13,16 @@ import json
 import uuid
 from pathlib import Path
 
+from dashboard.analysis.runs import layout
+from dashboard.execution import protocol
+from dashboard.execution.coordination import admission
+from dashboard.models import mappings
+from dashboard.models.mappings import context as mapping_context
+from dashboard.models.molecules import aa as aa_molecules
+from dashboard.web.routes.common import coordinator, json_object
 from flask import Blueprint, abort, jsonify, request
 
-from ...analysis.runs import layout
-from ...execution import protocol
-from ...execution.adapters import osmotic, osmotic_box, osmotic_mdp
-from ...execution.coordination import admission
-from ...models import mappings
-from ...models.mappings import context as mapping_context
-from ...models.molecules import aa as aa_molecules
-from .common import coordinator, json_object
+from detergent_validation.execution.adapters import osmotic, osmotic_box, osmotic_mdp
 
 blueprint = Blueprint('osmotic', __name__)
 
@@ -240,7 +240,7 @@ def conditions_api():
     happens to hold. That is the rule every other test in this suite follows, and it is the rule this route broke in
     its first draft.
     """
-    from .common import coordinator
+    from dashboard.web.routes.common import coordinator
 
     runs = coordinator().RUNS
     conditions = [condition for run_dir in sorted(runs.iterdir()) for condition in conditions_for(run_dir)]

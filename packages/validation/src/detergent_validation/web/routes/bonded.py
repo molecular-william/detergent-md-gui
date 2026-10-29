@@ -11,12 +11,11 @@ payload keys it names, and each route is a thin shell over one model call.
 
 from pathlib import Path
 
+from dashboard.models import mappings
+from dashboard.models.bonded import fitting as bonded_fitting
+from dashboard.models.bonded import parameterization
+from dashboard.web.routes.common import coordinator, json_object
 from flask import Blueprint, abort, jsonify, request
-
-from ...models import mappings
-from ...models.bonded import fitting as bonded_fitting
-from ...models.bonded import parameterization
-from .common import coordinator, json_object
 
 blueprint = Blueprint('bonded', __name__)
 

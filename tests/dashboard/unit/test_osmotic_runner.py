@@ -22,7 +22,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from dashboard.execution.adapters import osmotic
+from detergent_validation.execution.adapters import osmotic
 
 SCRIPTS = Path(osmotic.__file__).resolve().parents[1] / 'scripts'
 MAPPING = {'beads': [{'name': 'S1A', 'type': 'SP1r', 'atoms': [1, 2, 3]},

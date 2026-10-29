@@ -310,7 +310,7 @@ class Coordinator:
                 # The one place a condition becomes terminally `failed`, after its retries are exhausted. A series
                 # that asked to stop ends here; a series that carries on is left exactly as the route left it.
                 if status == 'failed':
-                    self.stop_series(jid)
+                    features.run_failed(self, jid)
                 self.artifact_index(self.lookup(jid), refresh=True)
             finally:
                 if worker.lease_file: worker.lease_file.close()
@@ -369,15 +369,6 @@ class Coordinator:
                         # A feature's run type states the arguments its own adapter's `prepare` takes; the CG kwargs
                         # below describe a molecule and are not a shape every run type shares.
                         protocol.adapter_for(job.get('run_type')).prepare(work, prepare_metadata(job, self.ROOT))
-                    elif not in_place and job.get('run_type') == 'osmotic':
-                        # An osmotic condition writes its own single stage; the CG kwargs below describe a molecule
-                        # and would filter the settings down to keys this run type does not use -- dropping the
-                        # molality, which is the one setting that makes a series a series.
-                        protocol.adapter_for('osmotic').prepare(
-                            work, {'settings': job.get('settings') or {},
-                                   'mapping_snapshot': job.get('mapping_snapshot'),
-                                   'molecule_id': job.get('molecule_id'),
-                                   'molecule_root': self.ROOT / 'molecules'})
                     elif not in_place:
                         # The same door the four branches above use. The run type's own prepare now owns the stage
                         # directory, the `inputs/` copy and the manifest, and applies its own settings dialect -- the
@@ -514,16 +505,6 @@ class Coordinator:
                               'method': method, 'profile': profile, 'mapping_snapshot': mapping_snapshot,
                               'settings': settings or {}, 'molecule_root': self.ROOT / 'molecules',
                               'solute_root': (settings or {}).get('solute_root')}, self.ROOT)
-        elif (run_type or 'aa_cg') == 'osmotic':
-            # An osmotic series is asked about itself too, and for a measured reason rather than symmetry: the CG
-            # adapter's own readiness refuses every `standard` profile outright, because a *replicated CG model*
-            # has not been approved -- a gate about the CG topology, which this run type does not build. What an
-            # osmotic run needs of its mapping is the bead radii the box is sized from, and that is its own
-            # question: is the solute a sugar, are its files here, can every concentration be placed.
-            ready = protocol.adapter_for('osmotic').readiness({
-                'molecule_id': molecule_id or detergent, 'molecule_root': self.ROOT / 'molecules',
-                'project_root': str(self.ROOT), 'solute_root': (settings or {}).get('solute_root'),
-                'mapping_snapshot': mapping_snapshot, 'settings': settings or {}})
         else:
             ready = cg.readiness(molecule_id or detergent, method, profile, mapping_snapshot, molecule_root=self.ROOT / 'molecules')
         if not ready['ready']:
@@ -698,56 +679,7 @@ class Coordinator:
             return self.lookup(jid), 202
 
 
-    def stop_series(self, jid):
-        """End a series when one of its conditions ends failed and the series asked to stop.
 
-        `series_on_failure` is the run type's own setting -- `carry_on` is the historical behaviour and the
-        default, `stop` is the other choice. It rides in the condition's `settings`, where the queue route already
-        put it and where `series_id` lets a sibling be found: the same string the run type records for its own
-        series, so no second registry exists to keep in step.
-
-        A sibling this coordinator owns a worker for is stopped exactly the way `/control/<id>/cancel` stops a run
-        -- through that worker's own cancel event, because only the current worker owns its subprocess groups and a
-        stored PID must never be signalled. A sibling with no worker is a queued condition this server will not
-        start, so it is marked `cancelled` and says why. Either way the conditions that did not run are recorded on
-        the failed run as the gap they are.
-        """
-        with self.JOBS_LOCK:
-            job = self.lookup(jid)
-            if job.get('run_type') != 'osmotic' or job.get('status') != 'failed':
-                return []
-            settings = job.get('settings') or {}
-            series_id = settings.get('series_id')
-            # The choice is the run's, not the code's: absent means the route's own answer, which is to carry on.
-            if not series_id or str(settings.get('series_on_failure') or 'carry_on') != 'stop':
-                return []
-            stopped = []
-            for sibling in self.database().all():
-                if sibling.get('id') == jid:
-                    continue
-                if (sibling.get('settings') or {}).get('series_id') != series_id:
-                    continue
-                if sibling.get('status') not in ('queued', 'waiting', 'running'):
-                    continue
-                if sibling['id'] in self.WORKERS:
-                    self.WORKERS[sibling['id']].cancel.set()
-                    self.database().update(sibling['id'], status='cancelling')
-                elif sibling.get('status') in ('queued', 'waiting'):
-                    # No worker will ever start it, so marking it cancelled is the honest terminal state.
-                    self.database().update(sibling['id'], status='cancelled', stage='Series stopped',
-                                           ended_at=self.now(), error=self._series_stop_reason(settings))
-                else:
-                    # `running` but held by a worker this coordinator does not own: it cannot be stopped from here,
-                    # so it is left alone rather than recorded as cancelled while a process is still on it.
-                    continue
-                stopped.append({'id': sibling['id'],
-                                'molality': (sibling.get('settings') or {}).get('osmotic_molality')})
-            if stopped:
-                self.database().update(jid, series_stopped=stopped)
-            return stopped
-
-
-    @staticmethod
     def _series_stop_reason(settings):
         """Why a sibling was cancelled, naming the condition that ended the series where its molality is known."""
         molality = settings.get('osmotic_molality')

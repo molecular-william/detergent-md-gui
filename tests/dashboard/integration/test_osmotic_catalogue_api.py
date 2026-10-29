@@ -11,8 +11,8 @@ run's own driver -- so the answer no longer rests on anything outside the run ty
 """
 import dataclasses
 
-from dashboard.execution.adapters import osmotic
 from dashboard.models.mappings import context as mapping_context
+from detergent_validation.execution.adapters import osmotic
 
 CATALOGUE = '/api/osmotic/catalogue'
 # The solute bundle's own files: the Martini solvents file is the workspace install's now, not a bundle file.
@@ -138,7 +138,7 @@ def test_a_choice_the_run_type_did_not_carry_is_offered_disabled_with_its_reason
     is false, which is the state a panel has to be able to render rather than the state it is in.
     """
     from dashboard.execution import protocol
-    from dashboard.web.routes import osmotic as route
+    from detergent_validation.web.routes import osmotic as route
 
     real = protocol.adapter_for
 
@@ -160,7 +160,7 @@ def test_a_choice_the_run_type_did_not_carry_is_offered_disabled_with_its_reason
 
 def test_the_standing_setup_is_the_pipelines_own_numbers(dashboard):
     """Shown, never offered: every value is read from the module that decides it."""
-    from dashboard.execution.adapters import osmotic, osmotic_box, osmotic_mdp
+    from detergent_validation.execution.adapters import osmotic, osmotic_box, osmotic_mdp
 
     setup = _catalogue(dashboard)['setup']
     assert setup['box_nm'] == list(osmotic_box.BOX_NM)

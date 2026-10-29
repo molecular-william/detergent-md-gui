@@ -11,7 +11,7 @@ anyway, after placement, where the counts come from the system rather than from 
 import json
 
 import pytest
-from dashboard.execution.adapters import osmotic, osmotic_box
+from detergent_validation.execution.adapters import osmotic, osmotic_box
 
 RADII = [0.264, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.191]
 BEADS = 8
@@ -129,7 +129,7 @@ def test_a_non_positive_reference_index_is_refused():
 
 def test_the_mdps_written_are_the_ones_that_were_tested(tmp_path):
     """One source of truth: the adapter must not keep its own copy of the method."""
-    from dashboard.execution.adapters import osmotic_mdp
+    from detergent_validation.execution.adapters import osmotic_mdp
 
     record = osmotic.plan_and_build(tmp_path, molality=1.0, temperature=308.15, production_ps=500000.0)
     expected = osmotic_mdp.osmotic_mdps(temperature=308.15, solute_molecules=record['solute_molecules'],

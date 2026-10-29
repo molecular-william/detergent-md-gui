@@ -5,11 +5,12 @@ only checked the dataclass would pass while the run was unbuildable.
 """
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
 from dashboard.execution import protocol, run_scripts
-from dashboard.execution.adapters import osmotic
+from detergent_validation.execution.adapters import osmotic
 
 from tests.dashboard.support import PROJECT_ROOT
 
@@ -257,7 +258,7 @@ def test_the_paper_scale_production_writes_the_frames_it_was_asked_for():
     """The trap this test exists for: `nstxtcout` is a *step* count, so an interval of 10 ps at dt 0.02 is 500 steps.
     The first version of the mdp divided the 500 ns *duration* by the interval and passed 50,000, which is 1 ns per
     frame -- a hundred times sparser than asked, and the same cost."""
-    from dashboard.execution.adapters import osmotic_mdp
+    from detergent_validation.execution.adapters import osmotic_mdp
 
     mdps = osmotic_mdp.osmotic_mdps(temperature=308.15, solute_molecules=2, production_ps=500000.0,
                                     equilibration_ps=10000.0, output_interval_ps=10.0)
@@ -294,7 +295,7 @@ def test_an_output_interval_that_is_not_a_whole_number_of_steps_is_refused():
     """Silently flooring it would write frames at an interval nobody chose, and two conditions in a series would then
     have different windows -- which is what makes their averages incomparable."""
     import pytest
-    from dashboard.execution.adapters import osmotic_mdp
+    from detergent_validation.execution.adapters import osmotic_mdp
 
     with pytest.raises(ValueError, match='whole number of'):
         osmotic_mdp.osmotic_mdps(temperature=308.15, solute_molecules=2, production_ps=1000.0,
@@ -340,7 +341,8 @@ def test_the_placement_writes_a_gro_file_gromacs_can_read(tmp_path):
     # is entered the way the series driver enters it: `OSMOTIC_CONDITION` set to the directory it works in. The stage
     # runs the repository script, as the executor does, with the stage directory as its working directory.
     subprocess.run(['bash', str(run_scripts.code_path(osmotic.OSMOTIC_SCRIPT, root=REPOSITORY))], cwd=stage, capture_output=True, check=False,
-                   env={**os.environ, 'GROMACS': str(stub), 'OSMOTIC_CONDITION': str(condition)})
+                   env={**os.environ, 'GROMACS': str(stub), 'OSMOTIC_CONDITION': str(condition),
+                        'PROJECT_ROOT': str(REPOSITORY), 'PYTHON': sys.executable})
 
     lines = (condition / 'system.gro').read_text().splitlines()
     molecules = record['conditions'][0]['solute_molecules']

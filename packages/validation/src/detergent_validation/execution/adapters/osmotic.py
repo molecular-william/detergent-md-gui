@@ -21,12 +21,13 @@ import math
 import shutil
 from pathlib import Path
 
-from ... import martini3, paths
-from .. import devices, protocol, run_inputs, tools
-from ..environment import ROOT, recorded_environment
-from ..settings import coerce_integers, normalize
-from ..stages import Stage, stage_tables
-from . import osmotic_box, osmotic_mdp
+from dashboard import martini3, paths
+from dashboard.execution import devices, protocol, run_inputs, tools
+from dashboard.execution.environment import ROOT, recorded_environment
+from dashboard.execution.settings import coerce_integers, normalize
+from dashboard.execution.stages import Stage, stage_tables
+
+from detergent_validation.execution.adapters import osmotic_box, osmotic_mdp
 
 #: The repository file the one stage runs. Recorded in the manifest's `stage_scripts` by path and digest; the stage's
 #: directory stays its working directory, and the driver reaches its own condition directories from there.
@@ -448,8 +449,8 @@ def refuse_non_sugar(molecule_id, molecule_root=None, root=None):
                 f'registry ({CARBOHYDRATE_REGISTRY}) does not name it. An osmotic series takes a sugar as its '
                 'solute.')
     try:
-        from ...models.mappings import context as mapping_context
-        from ...models.sugars import identification
+        from dashboard.models.mappings import context as mapping_context
+        from dashboard.models.sugars import identification
         structure = mapping_context.as_structure(mapping_context.build_context(molecules, molecule_id))
         identified = identification.identify(structure) or {}
     except (OSError, ValueError) as exc:
@@ -520,7 +521,7 @@ def solute_bead_radii(mapping_snapshot):
     Imported rather than restated: `RADII_NM` is this repository's own table, and a second copy would be a second
     answer to the same question.
     """
-    from ...models.sugars import recognition
+    from dashboard.models.sugars import recognition
     beads = []
     for bead in (mapping_snapshot or {}).get('beads') or []:
         if not isinstance(bead, dict) or bead.get('virtual_site') or not bead.get('atoms'):

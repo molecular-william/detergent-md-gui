@@ -12,7 +12,7 @@ from werkzeug.exceptions import HTTPException
 from . import paths as path_config
 from .constants import HOST, PORT
 from .execution.coordination.coordinator import Coordinator
-from .web.routes import analyses, bonded, catalog, common, maintenance, mappings, molecules, osmotic, refinement, runs
+from .web.routes import analyses, catalog, common, maintenance, mappings, molecules, runs
 
 
 def create_app(paths=None, config=None):
@@ -23,7 +23,7 @@ def create_app(paths=None, config=None):
     coordinator = Coordinator(app, app.config['PATHS'])
     app.extensions['dashboard_coordinator'] = coordinator
     app.before_request(coordinator.ensure_service)
-    for module in (runs, molecules, catalog, mappings, bonded, refinement, analyses, maintenance, osmotic):
+    for module in (runs, molecules, catalog, mappings, analyses, maintenance):
         app.register_blueprint(module.blueprint)
     from . import features
     features.register(app)

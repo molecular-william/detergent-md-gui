@@ -1,8 +1,7 @@
 """Refinement endpoints: recorded reviews and variant generation."""
+from dashboard.models import mappings
+from dashboard.web.routes.common import json_object
 from flask import Blueprint, jsonify
-
-from ...models import mappings
-from .common import json_object
 
 blueprint = Blueprint('refinement', __name__)
 

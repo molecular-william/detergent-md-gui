@@ -16,8 +16,9 @@ from pathlib import Path
 
 import pytest
 from dashboard.execution import devices
-from dashboard.execution.adapters import aa, cg, osmotic
+from dashboard.execution.adapters import aa, cg
 from detergent_pdc.execution.adapters import pdc
+from detergent_validation.execution.adapters import osmotic
 
 from tests.dashboard.support import PROJECT_ROOT
 

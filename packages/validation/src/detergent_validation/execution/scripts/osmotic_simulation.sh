@@ -51,7 +51,7 @@ set -euxo pipefail
 # The interpreter the application runs under, and the checkout it imports. The executor sets both; a caller that
 # runs this repository file by hand gets the script's own location as the root, which is the same checkout.
 PYTHON="${PYTHON:-python}"
-REPO_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"
+REPO_ROOT="${PROJECT_ROOT:-$("$PYTHON" -c 'from dashboard import paths; print(paths.PROJECT_ROOT)')}"
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 # One attempt's record, appended per attempt rather than written at the end, so it survives the condition being

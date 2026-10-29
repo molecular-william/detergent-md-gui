@@ -6,7 +6,7 @@ definitions rather than as remembered constants.
 """
 
 import pytest
-from dashboard.execution.adapters import osmotic_box
+from detergent_validation.execution.adapters import osmotic_box
 
 
 def test_the_box_is_the_papers_and_the_confining_wall_is_its_quarter():

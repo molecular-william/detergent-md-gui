@@ -18,7 +18,7 @@ import subprocess
 import pytest
 from dashboard import files
 from dashboard.execution import protocol, workflow
-from dashboard.execution.adapters import osmotic
+from detergent_validation.execution.adapters import osmotic
 
 SERIES = 'series0stop01'
 FAILED = 'fa11ed000001'

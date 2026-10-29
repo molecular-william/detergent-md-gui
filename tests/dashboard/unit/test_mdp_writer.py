@@ -13,10 +13,11 @@ from dataclasses import replace
 import pytest
 from dashboard import paths
 from dashboard.execution import environment, forcefields
-from dashboard.execution.adapters import aa, cg, osmotic_mdp
+from dashboard.execution.adapters import aa, cg
 from dashboard.execution.mdp import PROFILES, render, write_mdp
 from dashboard.execution.mdp.writer import formatted
 from detergent_pdc.execution.adapters import pdc
+from detergent_validation.execution.adapters import osmotic_mdp
 
 ROOT = paths.DEFAULT.project_root
 TEMPLATES = ROOT / 'resources/templates'

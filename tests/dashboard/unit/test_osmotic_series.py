@@ -22,7 +22,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from dashboard.execution.adapters import osmotic
+from detergent_validation.execution.adapters import osmotic
 
 from tests.dashboard.support import PROJECT_ROOT
 
@@ -368,11 +368,12 @@ def series_run(root):
     in the manifest's `stage_scripts`, so the run holds no launcher of its own.
     """
     from dashboard import files
+    from dashboard.execution import run_scripts
 
     inputs, stage = root / 'inputs', root / 'stages' / '01_simulate'
     (root / 'logs').mkdir(parents=True, exist_ok=True)
     stage.mkdir(parents=True)
-    script = REPOSITORY / osmotic.OSMOTIC_SCRIPT
+    script = run_scripts.code_path(osmotic.OSMOTIC_SCRIPT, root=REPOSITORY)
     (root / 'manifest.json').write_text(json.dumps({
         'run_type': 'osmotic', 'layout_version': 3, 'stages': [],
         'stage_scripts': {'Osmotic series': {'path': osmotic.OSMOTIC_SCRIPT,

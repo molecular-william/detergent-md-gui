@@ -20,7 +20,7 @@ tests pass only on a machine where those records happened to exist.
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from dashboard.web.routes import osmotic as route
+from detergent_validation.web.routes import osmotic as route
 
 SERIES = '/api/osmotic/series'
 

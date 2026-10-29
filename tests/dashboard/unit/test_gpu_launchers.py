@@ -13,16 +13,18 @@ variable.
 from pathlib import Path
 
 import detergent_pdc
+import detergent_validation
 
 from tests.dashboard.support import PACKAGE
 
 SCRIPTS = PACKAGE / 'execution/scripts'
 #: The pdc scripts moved to their feature distribution; a launcher is checked where the run would find it.
 PDC_SCRIPTS = Path(detergent_pdc.__file__).resolve().parent / 'execution/scripts'
+VALIDATION_SCRIPTS = Path(detergent_validation.__file__).resolve().parent / 'execution/scripts'
 
 
 def _script(name):
-    for directory in (PDC_SCRIPTS, SCRIPTS):
+    for directory in (PDC_SCRIPTS, VALIDATION_SCRIPTS, SCRIPTS):
         if (directory / name).is_file():
             return directory / name
     raise FileNotFoundError(name)

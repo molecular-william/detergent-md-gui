@@ -1,0 +1,15 @@
+# The detergent-validation feature distribution: the single-molecule panels' APIs and the osmotic series.
+# It depends on the engine (`detergent-core`); the engine never imports it.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "detergent-validation"
+version = "0.2.0"
+description = "Detergent validation panels and the osmotic series for the detergent-md-gui dashboard."
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
