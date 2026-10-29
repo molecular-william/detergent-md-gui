@@ -10,8 +10,8 @@ import json
 from pathlib import Path
 
 import pytest
-from dashboard.execution.adapters import pdc
-from dashboard.execution.scripts import pdc_assess
+from detergent_pdc.execution.adapters import pdc
+from detergent_pdc.execution.scripts import pdc_assess
 
 from tests.dashboard.pdc_fixtures import inputs_dir, script_of, settings_of
 
@@ -177,7 +177,7 @@ def test_both_assessment_stages_run_the_same_shared_script(tmp_path):
         scripts.add(stage.script)
         executed = '\n'.join(line for line in script_of(name).read_text().splitlines()
                              if not line.strip().startswith('#'))
-        assert 'dashboard.execution.scripts.pdc_assess' in executed
+        assert 'detergent_pdc.execution.scripts.pdc_assess' in executed
         assert 'pdc_assessment' not in executed, 'the criterion is not restated in the stage script'
         assert not (run / pdc.STAGES_DIRECTORY / Path(stage.relative).parent / 'pdc_assess.py').exists()
     assert scripts == {'dashboard/execution/scripts/pdc_assess.sh'}

@@ -6,8 +6,8 @@ builds `new Map(stages.map(stage => [stage.name, stage]))` and then `stageMap.ge
 for it. So a protein-detergent build -- the one run type whose plan is always recorded, because its scripts are generated
 per run -- showed ten blank dots and no green tick for the seven stages it had actually completed.
 """
-from dashboard.execution.adapters import pdc
 from dashboard.web import views
+from detergent_pdc.execution.adapters import pdc
 
 PDC_PLAN = [[stage.name, stage.relative] for stage in pdc.STAGES]
 

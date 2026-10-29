@@ -61,15 +61,16 @@ import subprocess
 import time
 from pathlib import Path
 
+from dashboard import files
+from dashboard.execution.adapters import pdc_view
+
+from detergent_pdc.execution.adapters import pdc as pdc_adapter
+from detergent_pdc.execution.adapters import pdc_box, pdc_placement, pdc_preparation, pdc_protein
+from detergent_pdc.execution.adapters.pdc import DETERGENT_TOPOLOGY
+from detergent_pdc.execution.scripts import pdc_build
+from detergent_pdc.models.molecules import detergent_cg
 from micelle import frame as micelle_frame
 from micelle import registry as micelle_registry
-
-from .. import files
-from ..models.molecules import detergent_cg
-from .adapters import pdc as pdc_adapter
-from .adapters import pdc_box, pdc_placement, pdc_preparation, pdc_protein, pdc_view
-from .adapters.pdc import DETERGENT_TOPOLOGY
-from .scripts import pdc_build
 
 #: Where the coarse-grained proteins are kept, relative to the workspace. Deliberately not a directory any stage
 #: reads or writes: the preview derives its own frame and keeps only the coarse-grained protein, so its cache can
@@ -404,7 +405,7 @@ def resolve_mapping(mapping, root):
     source = Path(str(mapping))
     if source.is_file():
         return source
-    from ..models.mappings import store
+    from dashboard.models.mappings import store
 
     candidate = store.candidate_paths().get(source.name)
     if candidate:
@@ -423,7 +424,7 @@ def _discard_unreadable(cache_root, protein_path, chains, executable, *, prepare
     structure to remove. The entry is keyed by the same choices the derive was keyed by, so a prepared derive discards
     the prepared entry rather than the unprepared one it never looked at.
     """
-    from .adapters import pdc_import
+    from detergent_pdc.execution.adapters import pdc_import
 
     entry = Path(cache_root) / cache_key(protein_path, chains, executable, prepare=prepare,
                                          prepare_executable=prepare_executable)

@@ -163,7 +163,7 @@ def test_a_run_type_names_the_directory_its_topology_lives_in(tmp_path):
 
 def test_the_detergent_topology_name_is_the_adapters_own():
     """`layout` cannot import an execution adapter, so it spells the name again; this is what keeps them one name."""
-    from dashboard.execution.adapters import pdc
+    from detergent_pdc.execution.adapters import pdc
 
     assert layout.PDC_TOPOLOGY_NAME == pdc.DETERGENT_TOPOLOGY == 'detergent_CG.itp'
     system = Path(pdc.stage_by_name('System preparation').relative).parent.as_posix()
@@ -172,7 +172,7 @@ def test_the_detergent_topology_name_is_the_adapters_own():
 
 def test_the_pdc_stage_table_names_the_adapters_own_directories():
     """The layout table is the only copy of the stage->directory rule; the adapter must not drift from it."""
-    from dashboard.execution.adapters import pdc
+    from detergent_pdc.execution.adapters import pdc
 
     adapter = {Path(stage.relative).parent.name for stage in pdc.STAGES}
     assert adapter <= set(layout.PDC_STAGE_KEYS), 'the adapter writes a stage directory the readers do not know'

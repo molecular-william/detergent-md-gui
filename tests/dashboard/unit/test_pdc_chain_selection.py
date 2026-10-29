@@ -14,8 +14,8 @@ import json
 from pathlib import Path
 
 import pytest
-from dashboard.execution.adapters import pdc, pdc_import
-from dashboard.execution.scripts import pdc_build
+from detergent_pdc.execution.adapters import pdc, pdc_import
+from detergent_pdc.execution.scripts import pdc_build
 
 from tests.dashboard.pdc_fixtures import molecule_tree, prepared_run, settings_of, system_stage
 

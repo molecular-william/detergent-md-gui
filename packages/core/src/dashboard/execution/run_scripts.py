@@ -35,6 +35,8 @@ def register_prefixes(entries) -> None:
 
 def _feature_file(text):
     """The file a moved recorded path names, or None when no registered feature holds it."""
+    from .. import features
+    features.ensure()
     for recorded, distribution, inside in _FEATURE_PREFIXES:
         if not text.startswith(recorded):
             continue

@@ -7,7 +7,7 @@ production the run asked for.
 """
 import importlib
 
-ext = importlib.import_module('dashboard.execution.scripts.pdc_extension')
+ext = importlib.import_module('detergent_pdc.execution.scripts.pdc_extension')
 
 MDP = """title = Martini
 

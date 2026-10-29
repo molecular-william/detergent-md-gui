@@ -42,6 +42,10 @@ def environment():
     env['PATH'] = tools.search_path()
     env['MPLBACKEND'] = 'Agg'
     env['OMP_NUM_THREADS'] = '8'
+    # The data root, exported rather than re-derived: a feature's stage scripts live in `packages/*/src` and can no
+    # longer count directory levels to the checkout. The scripts keep a python fallback for a caller that runs one by
+    # hand, but a stage starts with it already set.
+    env['PROJECT_ROOT'] = str(paths.current().project_root)
     for name in INHERITED_INTERPRETER_VARIABLES:
         env.pop(name, None)
     return env

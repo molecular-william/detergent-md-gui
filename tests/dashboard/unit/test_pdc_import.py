@@ -8,7 +8,7 @@ import hashlib
 import json
 
 import pytest
-from dashboard.execution.adapters import pdc_import
+from detergent_pdc.execution.adapters import pdc_import
 
 # The head of a real OPM download (1qj8, OmpX). The statement travels with the coordinates, which is why the import
 # reads the file and not the entry page.

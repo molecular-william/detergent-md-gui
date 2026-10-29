@@ -23,7 +23,7 @@ set -euxo pipefail
 # The interpreter the application runs under, and the repository it imports from. `python` on the stage PATH is this
 # workspace's virtualenv (`tools.search_path` puts it first); a caller that exports PYTHON/PROJECT_ROOT wins.
 PYTHON="${PYTHON:-python}"
-REPO_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"
+REPO_ROOT="${PROJECT_ROOT:-$("$PYTHON" -c 'from dashboard import paths; print(paths.PROJECT_ROOT)')}"
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export PROJECT_ROOT="$REPO_ROOT"
 
@@ -56,7 +56,7 @@ cp -f "$ATOMISTIC" cg2at_atomistic.pdb
 # molecule's atom types, a mirror of the fragment library that holds them, and the CG structure with bead names short
 # enough to survive the tool's PDB round trip. Built inside the stage -- the vendored database is not written to. A run
 # whose detergent has no mapping cannot be converted, and the helper says so and exits 3.
-"$PYTHON" -m dashboard.execution.scripts.pdc_backmap --stage . --project-root "$PROJECT_ROOT" 2>&1 | tee backmap_inputs.log
+"$PYTHON" -m detergent_pdc.execution.scripts.pdc_backmap --stage . --project-root "$PROJECT_ROOT" 2>&1 | tee backmap_inputs.log
 test -f backmap_inputs.json
 FRAGMENTS=$("$PYTHON" -c "import json;print(json.load(open('backmap_inputs.json'))['library'])")
 FORCEFIELD=$("$PYTHON" -c "import json;print(json.load(open('backmap_inputs.json'))['force_field'])")
@@ -110,4 +110,4 @@ fi
 # the 4iar/DDM complex: -5. Neutralising it here is what lets a later atomistic leg (and CG2AT2's own steering) run in a
 # box GROMACS will simulate without warning about Ewald background charge. `neutralisation.json` records the sum before and
 # after and the ions it took, so a converted system that is still charged is visible rather than assumed fixed.
-"$PYTHON" -m dashboard.execution.scripts.pdc_neutralise --system FINAL/FINAL --stage . 2>&1 | tee neutralise.log
+"$PYTHON" -m detergent_pdc.execution.scripts.pdc_neutralise --system FINAL/FINAL --stage . 2>&1 | tee neutralise.log

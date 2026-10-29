@@ -20,8 +20,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from dashboard.execution.adapters import pdc
 from dashboard.execution.environment import ROOT
+from detergent_pdc.execution.adapters import pdc
 
 from tests.dashboard.pdc_fixtures import inputs_dir, prepared_run, script_of
 
@@ -210,7 +210,7 @@ def test_the_minimisation_leg_solvates_through_the_builder_rather_than_restating
     run = prepared(tmp_path)
     script = script_of('Energy minimisation').read_text()
 
-    assert 'dashboard.execution.scripts.pdc_solvate' in script and 'gmx solvate' not in script
+    assert 'detergent_pdc.execution.scripts.pdc_solvate' in script and 'gmx solvate' not in script
     assert '--salt-molar' in script, 'the run records a salt concentration and this is the leg that uses it'
     assert leg_record(run, 'Energy minimisation')['solvate'] is True
     assert leg_record(run, 'NVT equilibration')['solvate'] is False

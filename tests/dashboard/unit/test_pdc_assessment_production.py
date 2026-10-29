@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from dashboard.execution.adapters import pdc
+from detergent_pdc.execution.adapters import pdc
 
 from tests.dashboard.pdc_fixtures import inputs_dir, prepared_run, script_of
 

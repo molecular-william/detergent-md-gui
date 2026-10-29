@@ -14,7 +14,7 @@ set -euxo pipefail
 # The interpreter the application runs under, and the repository it imports from. `python` on the stage PATH is this
 # workspace's virtualenv (`tools.search_path` puts it first); a caller that exports PYTHON/PROJECT_ROOT wins.
 PYTHON="${PYTHON:-python}"
-REPO_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"
+REPO_ROOT="${PROJECT_ROOT:-$("$PYTHON" -c 'from dashboard import paths; print(paths.PROJECT_ROOT)')}"
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 # The system this phase extends is the production phase's, and the decision about what to remove is the micelle
@@ -30,7 +30,7 @@ cp -f ../../inputs/water.gro inputs/water.gro
 # Both paths -- continue from the assessment's checkpoint, or delete what the criterion left outside the micelle and
 # restart from the kept system with new velocities -- are the helper's, because the difference is a decision rather
 # than a command: it reads the assessment's own removal record and the run's settings and does the one they imply.
-"$PYTHON" -m dashboard.execution.scripts.pdc_extension --settings ../../inputs/pdc-settings.json --stage . \
+"$PYTHON" -m detergent_pdc.execution.scripts.pdc_extension --settings ../../inputs/pdc-settings.json --stage . \
   --assessment ../07_micelle_assessment --assessment-stage ../06_assessment
 # `-center` asks twice: the group to centre on, then the group to write. One answer reads EOF on the second.
 printf 'System\nSystem\n' | gmx trjconv -f prod/run.xtc -s prod/run.tpr -pbc mol -center -o prod/whole.xtc

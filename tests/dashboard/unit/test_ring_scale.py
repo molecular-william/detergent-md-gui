@@ -13,8 +13,8 @@ from pathlib import Path
 import pytest
 from dashboard.models import mappings
 from dashboard.models.mappings import schema
-from dashboard.models.molecules import detergent_cg
 from dashboard.models.sugars import validation
+from detergent_pdc.models.molecules import detergent_cg
 
 MOLECULE_ROOT = Path(__file__).resolve().parents[3] / 'molecules'
 

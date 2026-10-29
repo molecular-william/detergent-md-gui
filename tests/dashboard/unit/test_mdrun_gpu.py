@@ -12,12 +12,14 @@ Two claims carry the acceptance:
   run type that publishes the setting.
 """
 import json
+from pathlib import Path
 
 import pytest
 from dashboard.execution import devices
-from dashboard.execution.adapters import aa, cg, osmotic, pdc
+from dashboard.execution.adapters import aa, cg, osmotic
+from detergent_pdc.execution.adapters import pdc
 
-from tests.dashboard.support import PACKAGE, PROJECT_ROOT
+from tests.dashboard.support import PROJECT_ROOT
 
 MOLECULES = PROJECT_ROOT / 'molecules'
 #: The command every AA stage produced before the setting existed, and what an untouched form still produces.
@@ -171,4 +173,6 @@ def test_a_pdc_runs_own_settings_build_the_flags_its_scripts_read():
     flags = aa.mdrun_command_flags(settings, 'em', 'mpi')[1]
     assert f' {flags} '.find(' -gpu_id 1 ') >= 0
     assert '-gpu_id 0' not in flags
-    assert '${MDRUN_FLAGS:-' in (PACKAGE / 'execution/scripts/pdc_assessment.sh').read_text()
+    from detergent_pdc import __file__ as pdc_file
+    script = Path(pdc_file).resolve().parent / 'execution/scripts/pdc_assessment.sh'
+    assert '${MDRUN_FLAGS:-' in script.read_text()

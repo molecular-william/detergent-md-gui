@@ -16,7 +16,7 @@ So this step adds the ions it takes to make the sum zero, and writes what it mea
   line and the very net charge this step exists to fix, so the budget is raised here and the number of warnings recorded
   rather than assumed.
 
-    python -m dashboard.execution.scripts.pdc_neutralise --system FINAL [--stage .]
+    python -m detergent_pdc.execution.scripts.pdc_neutralise --system FINAL [--stage .]
 
 Writes `neutralisation.json` beside the stage: the charges before and after, the ions added, the commands, and the
 warnings grompp raised. Nothing is claimed that was not read back from the topology.

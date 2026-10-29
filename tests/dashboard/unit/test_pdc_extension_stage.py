@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from dashboard.execution.adapters import pdc
+from detergent_pdc.execution.adapters import pdc
 
 from tests.dashboard.pdc_fixtures import inputs_dir, prepared_run, script_of
 
@@ -58,7 +58,7 @@ def test_the_script_hands_both_paths_to_the_helper(tmp_path):
     script = script_of(EXTENSION).read_text()
     executed = '\n'.join(line for line in script.splitlines() if not line.strip().startswith('#'))
 
-    assert 'dashboard.execution.scripts.pdc_extension' in executed
+    assert 'detergent_pdc.execution.scripts.pdc_extension' in executed
     assert '--assessment ../07_micelle_assessment' in executed
     assert '--assessment-stage ../06_assessment' in executed
     assert 'convert-tpr' not in executed and '-cpi' not in executed, 'both are the helper\'s decisions, not the script\'s'

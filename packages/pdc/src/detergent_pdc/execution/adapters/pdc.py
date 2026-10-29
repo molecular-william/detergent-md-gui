@@ -9,13 +9,14 @@ import re
 import shutil
 from pathlib import Path
 
-from ... import files, martini3, paths
-from .. import devices, protocol, run_inputs, tools
-from ..environment import TUTORIAL_TEMPLATE
-from ..mdp import PROFILES, write_mdp
-from ..settings import normalize
-from ..stages import Stage
-from . import pdc_import, pdc_preparation
+from dashboard import files, martini3, paths
+from dashboard.execution import devices, protocol, run_inputs, tools
+from dashboard.execution.environment import TUTORIAL_TEMPLATE
+from dashboard.execution.mdp import PROFILES, write_mdp
+from dashboard.execution.settings import normalize
+from dashboard.execution.stages import Stage
+
+from detergent_pdc.execution.adapters import pdc_import, pdc_preparation
 
 # The coarse-grained parameters a pdc topology has to carry, from the published Martini 3 lipid set: the bead types
 # (which the detergent's own beads need defined), the solvents file that defines water as `W`, and the ions file that
@@ -346,7 +347,7 @@ def validate_payload(payload):
     # rather than in a numeric SETTING_SPECS bound. The import is lazy because `pdc_placement` pulls `micelle/__init__`
     # (the builder CLI, ~115 ms) and the route layer imports this module at startup; the placement module is otherwise
     # only reached through `prepare`.
-    from .pdc_placement import DEFAULT_PLACEMENT_MODE, canonical_mode
+    from detergent_pdc.execution.adapters.pdc_placement import DEFAULT_PLACEMENT_MODE, canonical_mode
     placement_mode = canonical_mode(payload.get('placement_mode', DEFAULT_PLACEMENT_MODE))
     backmap = payload.get('backmap', DEFAULTS['backmap'])
     if not isinstance(backmap, bool):
@@ -769,7 +770,7 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     # The device must be one this host reports, refused here rather than by mdrun three stages in. A host with no
     # devices is not a refusal (`devices.require`), and the index travels to the stage scripts as MDRUN_FLAGS.
     devices.require(numbers['mdrun_gpu'])
-    from .pdc_placement import DEFAULT_RADIUS_NM
+    from detergent_pdc.execution.adapters.pdc_placement import DEFAULT_RADIUS_NM
     numbers.update({'seed': choices['seed'], 'aggregation_number': choices['aggregation_number'],
                     'salt_molar': choices['salt_molar'], 'backmap': choices['backmap'],
                     'radius_nm': numbers.get('radius_nm') or round(float(DEFAULT_RADIUS_NM), 6)})
@@ -845,8 +846,9 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
              'source': 'no mapping: the detergent is one centre per molecule'}
     mapping_tail_beads = []
     if mapping is not None:
-        from ...models.mappings import store
-        from ...models.molecules import detergent_cg
+        from dashboard.models.mappings import store
+
+        from detergent_pdc.models.molecules import detergent_cg
         # A saved candidate arrives by name, not by path: the panel offers the names the store lists, and the run's
         # own record keeps that name, so it is resolved here rather than demanded as a path.
         source = Path(str(mapping))
@@ -978,9 +980,9 @@ def readiness(protein=None, template=None, project_root=None, **kwargs):
     tool the machine does not have is blocked here rather than in the middle of a stage. An empty micelle is a
     choice the caller states, so a missing protein is reported as an absence rather than a blocker when it is one.
     """
-    from micelle import registry
+    from dashboard.execution.environment import probe_tool
 
-    from ..environment import probe_tool
+    from micelle import registry
 
     checks, blockers = [], []
     root = Path(project_root or Path.cwd())

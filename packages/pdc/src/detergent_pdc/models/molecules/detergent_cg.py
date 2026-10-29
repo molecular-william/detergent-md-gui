@@ -22,9 +22,9 @@ import json
 import re
 from pathlib import Path
 
-from ..bonded import generation, parameterization
-from ..mappings.context import as_structure, build_context
-from ..sugars.units import angstrom_factor
+from dashboard.models.bonded import generation, parameterization
+from dashboard.models.mappings.context import as_structure, build_context
+from dashboard.models.sugars.units import angstrom_factor
 
 
 def candidate(path) -> dict:

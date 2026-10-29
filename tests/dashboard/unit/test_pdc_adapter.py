@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from dashboard import paths
-from dashboard.execution.adapters import pdc
+from detergent_pdc.execution.adapters import pdc
 
 
 def test_a_build_requires_a_seed_and_a_positive_aggregation_number():

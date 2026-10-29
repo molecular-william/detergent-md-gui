@@ -12,7 +12,7 @@ stops on any line that arrives before one.
 """
 import json
 
-from dashboard.execution.scripts import cg2at_fragment as fragment
+from detergent_pdc.execution.scripts import cg2at_fragment as fragment
 
 MAPPING = {
     'name': 'DDM_CG_20261021',

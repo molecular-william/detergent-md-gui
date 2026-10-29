@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 
 import pytest
-from dashboard.analysis.runs import encapsulation
+from detergent_pdc.analysis.runs import encapsulation
 
 PROBE = 0.191
 

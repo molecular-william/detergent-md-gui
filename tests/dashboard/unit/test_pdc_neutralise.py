@@ -10,7 +10,7 @@ the command depends on. The end-to-end result (-5.0 -> 0.0, 5 NA added) was meas
 """
 from pathlib import Path
 
-from dashboard.execution.scripts import pdc_neutralise as neutralise
+from detergent_pdc.execution.scripts import pdc_neutralise as neutralise
 
 TOPOLOGY = """[ molecules ]
 ; Compound        #mols

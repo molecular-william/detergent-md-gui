@@ -13,7 +13,7 @@ set -euxo pipefail
 # The interpreter the application runs under, and the repository it imports from. `python` on the stage PATH is this
 # workspace's virtualenv (`tools.search_path` puts it first); a caller that exports PYTHON/PROJECT_ROOT wins.
 PYTHON="${PYTHON:-python}"
-REPO_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"
+REPO_ROOT="${PROJECT_ROOT:-$("$PYTHON" -c 'from dashboard import paths; print(paths.PROJECT_ROOT)')}"
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 SOURCE=../06_assessment
@@ -23,4 +23,4 @@ fi
 mkdir -p prod
 cp -f "$SOURCE/prod/run.gro" prod/run.gro
 
-"$PYTHON" -m dashboard.execution.scripts.pdc_assess --settings ../../inputs/pdc-settings.json --structure prod/run.gro
+"$PYTHON" -m detergent_pdc.execution.scripts.pdc_assess --settings ../../inputs/pdc-settings.json --structure prod/run.gro

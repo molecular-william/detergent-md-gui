@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 import pytest
-from dashboard.execution.scripts import pdc_extension, pdc_solvate
+from detergent_pdc.execution.scripts import pdc_extension, pdc_solvate
 
 TOPOLOGY = ('#include "protein_CG.itp"\n#include "detergent_CG.itp"\n\n[ system ]\nname\n\n[ molecules ]\n'
             'PROT\t1\nDDM\t8\n')
@@ -146,7 +146,7 @@ def test_the_removal_reduces_the_detergent_row_and_leaves_the_solvent_alone():
     "the row that is not the protein's" -- which is water. The caller now names the detergent, which it knows from
     the settings' own detergent model.
     """
-    from dashboard.execution.scripts import pdc_extension
+    from detergent_pdc.execution.scripts import pdc_extension
 
     text = '[ molecules ]\nDDM\t6\nW\t5000\nNA\t60\nCL\t60\n'
     kept = dict(pdc_extension.molecule_counts(pdc_extension.kept_topology(text, 2, detergent='DDM')))
@@ -182,7 +182,7 @@ def test_the_restart_topology_is_dry_because_the_restart_solvates_again():
     -- because the ions sit scattered among the water beads of an already-solvated system. The kept coordinates are
     the detergents alone, so the topology that goes with them is the dry one and solvation adds the rest back.
     """
-    from dashboard.execution.scripts import pdc_extension
+    from detergent_pdc.execution.scripts import pdc_extension
 
     text = '[ molecules ]\nDDM\t6\nW\t5000\nNA\t60\nCL\t60\n'
     kept = pdc_extension.kept_topology(text, 3, detergent='DDM', drop=('W', 'NA', 'CL'))
@@ -199,7 +199,7 @@ def test_the_restart_mdp_seeds_new_velocities_without_defining_gen_seed_twice():
     -- because the template mdp already names one and the writer appended a second. A restart does need new
     velocities, so the seed is replaced, not added.
     """
-    from dashboard.execution.scripts import pdc_extension
+    from detergent_pdc.execution.scripts import pdc_extension
 
     template = 'integrator = md\ngen-vel = no\ngen-seed = 1\nnsteps = 1000\n'
     written = pdc_extension.restart_mdp(template, 20260930)
@@ -210,7 +210,7 @@ def test_the_restart_mdp_seeds_new_velocities_without_defining_gen_seed_twice():
 
 
 def test_a_template_without_a_seed_gets_one():
-    from dashboard.execution.scripts import pdc_extension
+    from detergent_pdc.execution.scripts import pdc_extension
 
     written = pdc_extension.restart_mdp('gen-vel = no\nnsteps = 10\n', 7)
 
@@ -227,7 +227,7 @@ def test_the_restart_says_it_is_not_a_continuation():
     -- and it is right: a seeded restart is not a continuation. The checkpoint still supplies the state; what it does
     not supply is the claim that nothing was reset.
     """
-    from dashboard.execution.scripts import pdc_extension
+    from detergent_pdc.execution.scripts import pdc_extension
 
     template = 'continuation = yes\ngen-vel = no\ngen-seed = 1\nnsteps = 1000\n'
     written = pdc_extension.restart_mdp(template, 5)

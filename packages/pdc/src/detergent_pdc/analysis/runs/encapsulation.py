@@ -22,9 +22,8 @@ import math
 import re
 
 import numpy as np
-
-from ...models.sugars import recognition
-from .surfaces import AA_RADII, PROBE
+from dashboard.analysis.runs.radii import AA_RADII, PROBE
+from dashboard.models.sugars import recognition
 
 # The probe and the element radii are the house surface conventions, imported rather than restated: a second copy
 # would be a second convention, and the two would drift. `PROBE_NM` and `ATOM_RADII_NM` are the names a caller here

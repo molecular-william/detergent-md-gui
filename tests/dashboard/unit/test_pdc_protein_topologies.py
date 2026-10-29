@@ -22,8 +22,8 @@ import shutil
 from pathlib import Path
 
 from dashboard.execution import workflow
-from dashboard.execution.adapters import pdc
-from dashboard.execution.scripts import pdc_build
+from detergent_pdc.execution.adapters import pdc
+from detergent_pdc.execution.scripts import pdc_build
 
 from tests.dashboard.pdc_fixtures import prepared_run, stage_dir, write_gro
 

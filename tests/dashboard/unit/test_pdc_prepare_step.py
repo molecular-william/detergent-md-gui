@@ -27,8 +27,8 @@ from pathlib import Path
 
 import pytest
 from dashboard.execution import tools
-from dashboard.execution.adapters import pdc, pdc_preparation
-from dashboard.execution.scripts import pdc_build, pdc_prepare
+from detergent_pdc.execution.adapters import pdc, pdc_preparation
+from detergent_pdc.execution.scripts import pdc_build, pdc_prepare
 
 from micelle.frame import stated_half_thickness_nm
 from tests.dashboard.pdc_fixtures import inputs_dir, molecule_tree, prepared_run, script_of, system_stage
@@ -456,7 +456,7 @@ def test_the_build_reads_the_deposited_file_when_the_preparation_did_not_run(tmp
 def test_the_run_manifest_records_the_preparer_and_never_substitutes_one_is_not_there(tmp_path, monkeypatch):
     """A tool that is not resolvable is recorded as unresolved -- the declaration rule, not a fallback."""
     monkeypatch.setattr(tools, 'tool_path', lambda name, *args, **kwargs: None if name == 'pdb2pqr' else '/bin/true')
-    monkeypatch.setattr('dashboard.execution.adapters.pdc.tools.tool_path', tools.tool_path)
+    monkeypatch.setattr('detergent_pdc.execution.adapters.pdc.tools.tool_path', tools.tool_path)
     run = prepared(tmp_path, prepare_protein=True)
 
     recorded = json.loads((run / 'manifest.json').read_text())['tools']
@@ -485,7 +485,7 @@ def test_the_readiness_checks_name_the_preparer_without_blocking_a_run_that_does
 
 def preview_repo(tmp_path, **kwargs):
     """The preview over the fixture tree, with its cache in the test's own directory."""
-    from dashboard.execution import pdc_preview
+    from detergent_pdc.execution import pdc_preview
 
     arguments = {'project_root': tmp_path, 'cache_root': tmp_path / 'cache', 'seed': 20261014,
                  'aggregation_number': 4, 'template': str(tmp_path / 'molecules/DDM/micelle_template.json'),
@@ -501,7 +501,7 @@ def test_the_preview_runs_the_preparer_only_when_the_form_asks_for_it(tmp_path, 
     `pdc_preparation.prepare`, the coarse-graining at `subprocess` -- and what is measured is which file each was
     handed, because that is the whole claim: the prepared structure is what martinize2 reads.
     """
-    from dashboard.execution import pdc_preview
+    from detergent_pdc.execution import pdc_preview
 
     molecule_tree(tmp_path)
     martinize_calls = []
@@ -553,7 +553,7 @@ def test_the_preview_runs_the_preparer_only_when_the_form_asks_for_it(tmp_path, 
 
 def test_the_preview_runs_no_preparer_twice_for_one_entry(tmp_path, monkeypatch):
     """A cached entry re-derives without paying the step again -- it is the expensive half's own rule, extended."""
-    from dashboard.execution import pdc_preview
+    from detergent_pdc.execution import pdc_preview
 
     molecule_tree(tmp_path)
     calls = []
@@ -586,7 +586,7 @@ def test_the_preview_runs_no_preparer_twice_for_one_entry(tmp_path, monkeypatch)
 
 
 def test_a_prepared_entry_and_an_unprepared_one_are_different_cache_entries(tmp_path):
-    from dashboard.execution import pdc_preview
+    from detergent_pdc.execution import pdc_preview
 
     protein = tmp_path / 'protein.pdb'
     protein.write_text(PROTEIN_TEXT)
@@ -602,7 +602,7 @@ def test_a_prepared_entry_and_an_unprepared_one_are_different_cache_entries(tmp_
 
 
 def test_a_preparation_the_tool_refuses_is_a_refusal_that_names_that_step(tmp_path, monkeypatch):
-    from dashboard.execution import pdc_preview
+    from detergent_pdc.execution import pdc_preview
 
     molecule_tree(tmp_path)
 

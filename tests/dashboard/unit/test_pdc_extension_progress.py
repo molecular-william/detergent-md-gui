@@ -9,7 +9,7 @@ import importlib
 
 from dashboard.web import progress
 
-ext = importlib.import_module('dashboard.execution.scripts.pdc_extension')
+ext = importlib.import_module('detergent_pdc.execution.scripts.pdc_extension')
 
 
 def test_the_extension_announces_a_grompp_and_a_leg_the_reader_can_measure(tmp_path, capsys, monkeypatch):

@@ -14,10 +14,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from dashboard.execution.adapters import pdc
-from dashboard.execution.scripts import pdc_build
 from dashboard.models.bonded import parameterization
-from dashboard.models.molecules import detergent_cg
+from detergent_pdc.execution.adapters import pdc
+from detergent_pdc.execution.scripts import pdc_build
+from detergent_pdc.models.molecules import detergent_cg
 
 ROOT = Path(__file__).resolve().parents[3]
 TEMPLATE_PATH = 'molecules/DDM/micelle_template.json'

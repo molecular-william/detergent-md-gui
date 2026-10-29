@@ -6,7 +6,7 @@ come from `pdc_solvation`, which is the tested place that decides the bead radiu
 `genion` is allowed to replace; this module runs them, pipes the group in, and reads the composition back off the
 topology that results.
 
-    python -m dashboard.execution.scripts.pdc_solvate [--salt-molar 0.15]
+    python -m detergent_pdc.execution.scripts.pdc_solvate [--salt-molar 0.15]
 
 Writes `solvation.json` beside the stage: the commands as they ran, and the molecule counts the topology holds
 afterwards, which is what makes a run's composition a recorded number rather than a claim.
@@ -18,7 +18,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from dashboard.execution.adapters import pdc_solvation
+from detergent_pdc.execution.adapters import pdc_solvation
 
 OUTPUT_NAME = 'solvation.json'
 

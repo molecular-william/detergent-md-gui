@@ -26,7 +26,7 @@ Two things it deliberately does not do yet, and says so rather than guessing:
   bare centre (no mapping, so no bead model) stops before it, at exit 3: a `[ molecules ]` row naming a molecule whose
   beads nothing knows cannot be written.
 
-    python -m dashboard.execution.scripts.pdc_build --stage .
+    python -m detergent_pdc.execution.scripts.pdc_build --stage .
 
 Reads `pdc-settings.json` and `protein.pdb` from the stage directory. Writes `cg/` (martinize2's own output),
 `system.gro` and `prepare_report.json`.
@@ -42,9 +42,9 @@ import sys
 from pathlib import Path
 
 from dashboard import martini3
-from dashboard.execution.adapters import pdc, pdc_box, pdc_import, pdc_placement, pdc_preparation, pdc_protein
-from dashboard.execution.adapters.pdc import DETERGENT_GEOMETRY, DETERGENT_TOPOLOGY, REPORT_NAME, SETTINGS_NAME
 
+from detergent_pdc.execution.adapters import pdc, pdc_box, pdc_import, pdc_placement, pdc_preparation, pdc_protein
+from detergent_pdc.execution.adapters.pdc import DETERGENT_GEOMETRY, DETERGENT_TOPOLOGY, REPORT_NAME, SETTINGS_NAME
 from micelle import frame as micelle_frame
 from micelle import output as micelle_output
 from micelle import registry as micelle_registry

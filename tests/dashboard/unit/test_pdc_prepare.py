@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 from dashboard import martini3
-from dashboard.execution.adapters import pdc
-from dashboard.execution.scripts import pdc_build
+from detergent_pdc.execution.adapters import pdc
+from detergent_pdc.execution.scripts import pdc_build
 
 from tests.dashboard.pdc_fixtures import inputs_dir, molecule_tree, prepared_run, script_of, settings_of, stage_dir, system_stage
 
@@ -131,7 +131,7 @@ def test_the_system_stage_script_is_the_repositorys_and_runs_the_entry_point(tmp
     run = prepared(tmp_path)
     script = script_of(SYSTEM_STAGE).read_text()
 
-    assert '-m dashboard.execution.scripts.pdc_build --stage .' in script
+    assert '-m detergent_pdc.execution.scripts.pdc_build --stage .' in script
     assert '${PYTHON:-python}' in script, 'the executor may hand the interpreter over; the venv python is the default'
     assert 'REPO_ROOT' in script and 'PYTHONPATH' in script, 'the entry point must import from the tree'
     recorded = json.loads((run / 'manifest.json').read_text())['stage_scripts'][SYSTEM_STAGE]
@@ -320,7 +320,7 @@ def test_a_template_that_cannot_build_a_system_refuses_before_placing(tmp_path):
 
 def test_a_protein_free_build_writes_topologies_with_no_protein_row(tmp_path):
     """The same two files with no protein row, so a reader downstream needs no special case."""
-    from dashboard.execution.scripts import pdc_build
+    from detergent_pdc.execution.scripts import pdc_build
 
     stage = tmp_path / 'stage'
     stage.mkdir()

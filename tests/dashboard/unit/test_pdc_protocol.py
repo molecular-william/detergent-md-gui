@@ -13,7 +13,7 @@ import json
 
 import pytest
 from dashboard.execution import protocol
-from dashboard.execution.adapters import pdc
+from detergent_pdc.execution.adapters import pdc
 
 from tests.dashboard.pdc_fixtures import molecule_tree
 

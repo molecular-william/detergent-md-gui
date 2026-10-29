@@ -4,7 +4,7 @@ Run by `01_prepare/pdc_prepare.sh`, the repository script every pdc run records 
 step *does* is `execution/adapters/pdc_preparation.py`'s; this module is the stage's half of it -- where the run's
 settings are read, which of the contract's outcomes applies, and what is written for a reader afterwards.
 
-    python -m dashboard.execution.scripts.pdc_prepare --stage .
+    python -m detergent_pdc.execution.scripts.pdc_prepare --stage .
 
 The step is optional, and the run's settings decide it at prepare time: a run that does not ask for it -- or has no
 protein -- gets no stage directory and the manifest records the skip. A stage that exists answers `skipped` (exit 4)
@@ -19,8 +19,8 @@ import json
 import sys
 from pathlib import Path
 
-from dashboard.execution.adapters import pdc_preparation
-from dashboard.execution.adapters.pdc import SETTINGS_NAME
+from detergent_pdc.execution.adapters import pdc_preparation
+from detergent_pdc.execution.adapters.pdc import SETTINGS_NAME
 
 SKIPPED = 4
 REFUSED = 2

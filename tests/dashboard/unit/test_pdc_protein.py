@@ -5,7 +5,7 @@ the force is constant, and `-eu` is the upper cutoff beyond which it is zero. "W
 getting it wrong would have produced a network that looked plausible and restrained the wrong pairs.
 """
 import pytest
-from dashboard.execution.adapters import pdc_protein
+from detergent_pdc.execution.adapters import pdc_protein
 
 
 def test_the_elastic_network_is_the_requested_one(tmp_path):

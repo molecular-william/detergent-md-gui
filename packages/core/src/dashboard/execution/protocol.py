@@ -224,11 +224,6 @@ def _composition_protocol() -> Protocol:
     return composition.PROTOCOL
 
 
-def _pdc_protocol() -> Protocol:
-    from .adapters import pdc
-    return pdc.PROTOCOL
-
-
 def _osmotic_protocol() -> Protocol:
     from .adapters import osmotic
     return osmotic.PROTOCOL
@@ -238,7 +233,6 @@ _BUILDERS: dict[str, Callable[[], Protocol]] = {
     'aa_only': _aa_protocol,
     'aa_cg': _cg_protocol,
     'cg_composition': _composition_protocol,
-    'pdc': _pdc_protocol,
     'osmotic': _osmotic_protocol,
 }
 

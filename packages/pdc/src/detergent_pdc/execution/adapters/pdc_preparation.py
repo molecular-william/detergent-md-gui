@@ -84,7 +84,7 @@ def resolve_tool(config=None):
     Through `execution/tools.py` rather than a `shutil.which` of this module's own, so the resolved path is the one
     the run records and a machine without the tool gets no substitute for it.
     """
-    from .. import tools
+    from dashboard.execution import tools
 
     return tools.tool_path(TOOL, config)
 
@@ -178,7 +178,7 @@ def prepare(source, directory, *, chains=None, executable=None, timeout=1800) ->
     `chains` is the run's own selection, applied by the same reader the build applies it with, so the preparer is
     handed the polymer the build would have coarse-grained and not the file's ligands with it.
     """
-    from . import pdc_import
+    from detergent_pdc.execution.adapters import pdc_import
 
     # Absolute, and measured rather than defensive: PDB2PQR derives its own log file from the PQR path it is handed,
     # and a *relative* one makes it write the log at a path of its own construction -- measured: a relative

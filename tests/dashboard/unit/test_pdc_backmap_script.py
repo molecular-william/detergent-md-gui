@@ -6,11 +6,12 @@ a relative default `tools/cg2at/cg2at` named a path inside the run, and `-e` was
 now, so it derives the root from its own location (`dashboard/execution/scripts/` is three levels under it) and a caller
 that exports `PROJECT_ROOT` still wins.
 """
+from pathlib import Path
 
-from tests.dashboard.support import PACKAGE
+import detergent_pdc
 
-TEMPLATE = PACKAGE / 'execution/scripts/pdc_backmap.sh'
-ROOT_LINE = 'REPO_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"'
+TEMPLATE = Path(detergent_pdc.__file__).resolve().parent / 'execution/scripts/pdc_backmap.sh'
+ROOT_LINE = 'REPO_ROOT="${PROJECT_ROOT:-$("$PYTHON" -c \'from dashboard import paths; print(paths.PROJECT_ROOT)\')}"'
 
 
 def text() -> str:

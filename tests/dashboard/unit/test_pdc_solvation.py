@@ -4,7 +4,7 @@ The count of water and ions a run records comes from these commands and nothing 
 assertions are about `-radius`, `-neutral` and `-conc` rather than about a file that would need GROMACS to produce.
 """
 import pytest
-from dashboard.execution.adapters import pdc_solvation
+from detergent_pdc.execution.adapters import pdc_solvation
 
 
 def test_the_commands_solvate_then_neutralise_then_add_salt():
@@ -42,7 +42,7 @@ def test_genion_is_invoked_with_options_this_gromacs_has():
     Measured: a stage that had already solvated its box stopped with "Unknown command-line option -g", because the
     command was written from a version of genion that had one. The stage's own log receives the tool's output.
     """
-    from dashboard.execution.adapters import pdc_solvation
+    from detergent_pdc.execution.adapters import pdc_solvation
 
     commands = pdc_solvation.solvation_commands('system.top', 'system.gro', 'system.tpr')
     genion = commands[2]

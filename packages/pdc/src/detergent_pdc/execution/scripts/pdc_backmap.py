@@ -13,7 +13,7 @@ where the tool reads them -- inside the stage, never in the vendored tree:
 * the fragment library is mirrored the same way, because `-fg` takes a *path* and the molecule's fragment has to sit
   inside a library directory: the mirror holds symlinks to every vendored fragment and one real directory for this run's.
 
-    python -m dashboard.execution.scripts.pdc_backmap --stage . [--project-root /path]
+    python -m detergent_pdc.execution.scripts.pdc_backmap --stage . [--project-root /path]
 
 Writes `backmap_inputs.json` beside the stage: what was built, from which mapping, and the two paths the invocation
 needs. A run with no mapping records why and exits 3 -- a complex whose detergent cannot be converted is a stage that
@@ -29,8 +29,8 @@ import shutil
 import sys
 from pathlib import Path
 
-from dashboard.execution.adapters.pdc import SETTINGS_NAME
-from dashboard.execution.scripts import cg2at_fragment as fragment
+from detergent_pdc.execution.adapters.pdc import SETTINGS_NAME
+from detergent_pdc.execution.scripts import cg2at_fragment as fragment
 
 OUTPUT_NAME = 'backmap_inputs.json'
 RECORD_NAME = 'backmap.json'

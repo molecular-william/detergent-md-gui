@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 import pytest
-from dashboard.models.molecules import detergent_cg
+from detergent_pdc.models.molecules import detergent_cg
 
 MOLECULE_ROOT = Path(__file__).resolve().parents[3] / 'molecules'
 STRUCTURE = {'atoms': [{'id': 1, 'xyz': [0.0, 0.0, 0.0]}, {'id': 2, 'xyz': [1.0, 0.0, 0.0]},

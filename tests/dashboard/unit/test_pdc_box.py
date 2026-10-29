@@ -5,7 +5,7 @@ ends up at least 20 A from the system. Those are claims about numbers, so they a
 through a run.
 """
 import pytest
-from dashboard.execution.adapters import pdc_box
+from detergent_pdc.execution.adapters import pdc_box
 
 
 def test_the_initial_box_uses_a_two_nanometre_margin_in_x_and_y_and_the_stated_z():

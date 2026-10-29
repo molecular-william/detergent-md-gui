@@ -110,7 +110,7 @@ def test_the_repositorys_own_ddm_tail_carries_a_martini_3_reference(tmp_path):
                   {'name': 'B', 'type': 'C1', 'atoms': [5, 6, 7, 8]}],
         'connections': [['A', 'B']]}))
     molecule_root = Path(__file__).resolve().parents[3] / 'molecules'
-    from dashboard.models.molecules import detergent_cg
+    from detergent_pdc.models.molecules import detergent_cg
 
     draft = detergent_cg.derive(candidate, molecule_root, molecule_root.parent)
     bond = draft['topology'].split('[ bonds ]', 1)[1].strip().splitlines()[0].split()

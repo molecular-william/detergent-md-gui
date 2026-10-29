@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import json
 
-from dashboard.execution.adapters import pdc as pdc_adapter
 from dashboard.execution.mdp import PROFILES, render
+from detergent_pdc.execution.adapters import pdc as pdc_adapter
 
 from tests.dashboard.pdc_fixtures import inputs_dir, prepared_run, settings_of
 

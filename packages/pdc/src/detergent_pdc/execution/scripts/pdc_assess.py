@@ -4,7 +4,7 @@ Run by `07_micelle_assessment/pdc_assess.sh` and `09_final_assessment/pdc_assess
 `pdc_assessment`, which is the one implementation of the design spec's criterion; this module's job is to read the
 system the stage produced, select each detergent's tail beads, and write the three declared outputs.
 
-    python -m dashboard.execution.scripts.pdc_assess --settings ../../inputs/pdc-settings.json --structure prod/run.gro
+    python -m detergent_pdc.execution.scripts.pdc_assess --settings ../../inputs/pdc-settings.json --structure prod/run.gro
 
 Reads the stage's structure rather than the trajectory, because the verdict is about the state the phase ended in
 and a reader can check it against one file.
@@ -17,8 +17,9 @@ import json
 import sys
 from pathlib import Path
 
-from dashboard.execution.adapters import pdc_assessment, pdc_view
+from dashboard.execution.adapters import pdc_view
 
+from detergent_pdc.execution.adapters import pdc_assessment
 from micelle import output as micelle_output
 
 ASSESSMENT_NAME = 'assessment.json'
@@ -112,7 +113,7 @@ def main(argv=None) -> int:
     # and the restart could then do nothing useful with it -- re-solvation found the box already full and added four
     # water beads, while the dry topology the restart writes described a different system and grompp refused the pair.
     # The restart solvates because removal leaves space where the water never was; it needs a dry structure to fill.
-    from dashboard.execution.adapters import pdc_solvation
+    from detergent_pdc.execution.adapters import pdc_solvation
 
     solvent = pdc_solvation.SOLVENT_RESIDUES
     atoms = [{'residue_id': atom['residue_id'], 'residue': atom['residue'], 'name': atom['name'],

@@ -6,7 +6,7 @@ adapter does not advertise is dropped silently -- no error, just a job built on 
 on the lattice anyway. These tests hold both ends of that: the adapter advertises the choice, and the expression the
 route uses keeps it.
 """
-from dashboard.execution.adapters import pdc, pdc_placement
+from detergent_pdc.execution.adapters import pdc, pdc_placement
 
 
 def test_the_adapter_advertises_the_placement_choice():

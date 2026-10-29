@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from dashboard.models.bonded import generation
-from dashboard.models.molecules import detergent_cg
+from detergent_pdc.models.molecules import detergent_cg
 
 MOLECULE_ROOT = Path(__file__).resolve().parents[3] / 'molecules'
 

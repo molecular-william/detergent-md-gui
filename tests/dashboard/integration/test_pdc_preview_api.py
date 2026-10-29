@@ -113,7 +113,7 @@ def test_a_coarse_grained_bead_with_no_position_refuses_with_a_reason_the_panel_
     server never sent, for a picture the server had actually drawn. Both halves are pinned here -- the gate refuses
     with its own count, and what comes back is parseable.
     """
-    from dashboard.execution import pdc_preview as preview_module
+    from detergent_pdc.execution import pdc_preview as preview_module
 
     beads = [{'residue_id': 1, 'residue': 'PRO', 'name': f'B{index:03d}', 'position': [float(index), 0.0, 0.0]}
              for index in range(1, 5)]
@@ -301,7 +301,7 @@ def test_a_chain_selection_measures_its_own_shell(dashboard, monkeypatch):
     The structure states no membrane, so the placement is the sphere, and its radius is measured from the beads the
     selection coarse-grains to.
     """
-    from dashboard.execution import pdc_preview as preview_module
+    from detergent_pdc.execution import pdc_preview as preview_module
 
     def stub(cache_root, protein_path, chains, **kwargs):
         selected = [chain for chain in ('A', 'B') if chain in (chains or [])] or ['A']
@@ -345,7 +345,7 @@ def test_the_route_reads_the_preparation_choice_and_refuses_a_value_that_is_not_
     request* rather than a yes -- a route that read `maybe` as one of them would put a control on screen that means
     the opposite of what it says.
     """
-    from dashboard.execution import pdc_preview as preview_module
+    from detergent_pdc.execution import pdc_preview as preview_module
 
     beads = [{'residue_id': 1, 'residue': 'PRO', 'name': f'B{index:03d}',
               'position': [0.3 * index, 0.0, 0.0]} for index in range(1, 5)]

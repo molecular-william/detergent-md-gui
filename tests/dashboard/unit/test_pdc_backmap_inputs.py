@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 
 import pytest
-from dashboard.execution.scripts import pdc_backmap
+from detergent_pdc.execution.scripts import pdc_backmap
 
 MAPPING = {'name': 'DDM_CG_test', 'beads': [
     {'name': 'S1A', 'atoms': [1, 2]},

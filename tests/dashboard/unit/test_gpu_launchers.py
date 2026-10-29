@@ -10,13 +10,26 @@ device**. The fallbacks are the case with no executor and no device named -- thr
 named device 0 would silently overrule a run that chose device 1 whenever the executor failed to export the
 variable.
 """
+from pathlib import Path
+
+import detergent_pdc
+
 from tests.dashboard.support import PACKAGE
 
 SCRIPTS = PACKAGE / 'execution/scripts'
+#: The pdc scripts moved to their feature distribution; a launcher is checked where the run would find it.
+PDC_SCRIPTS = Path(detergent_pdc.__file__).resolve().parent / 'execution/scripts'
+
+
+def _script(name):
+    for directory in (PDC_SCRIPTS, SCRIPTS):
+        if (directory / name).is_file():
+            return directory / name
+    raise FileNotFoundError(name)
 
 
 def _mdrun_lines(name):
-    text = (SCRIPTS / name).read_text()
+    text = _script(name).read_text()
     # The command may carry a launcher prefix (`${MDRUN_LAUNCHER:-}gmx mdrun`), so match the command itself
     # rather than the start of the line.
     return [line for line in text.splitlines() if 'gmx mdrun' in line]

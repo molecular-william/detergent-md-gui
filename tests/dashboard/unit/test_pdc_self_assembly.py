@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from dashboard.execution.adapters import pdc, pdc_box, pdc_placement
+from detergent_pdc.execution.adapters import pdc, pdc_box, pdc_placement
 
 from micelle.packing import pack_micelle
 from micelle.registry import load_template
@@ -144,7 +144,7 @@ def _prepared_run(tmp_path: Path, *, placement_mode=None, aggregation_number=8):
 
 def test_a_self_assembled_build_records_its_mode_in_the_report_and_the_manifest(tmp_path):
     """The mode is provenance: a reader has to be able to tell which build made the system, without re-deriving it."""
-    from dashboard.execution.scripts import pdc_build
+    from detergent_pdc.execution.scripts import pdc_build
 
     run, stage = _prepared_run(tmp_path, placement_mode='self-assembly')
 
@@ -162,7 +162,7 @@ def test_a_self_assembled_build_records_its_mode_in_the_report_and_the_manifest(
 
 
 def test_the_lattice_is_what_a_build_does_when_no_mode_is_stated(tmp_path):
-    from dashboard.execution.scripts import pdc_build
+    from detergent_pdc.execution.scripts import pdc_build
 
     run, stage = _prepared_run(tmp_path)
 

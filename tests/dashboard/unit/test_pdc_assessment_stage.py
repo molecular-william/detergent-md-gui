@@ -11,9 +11,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from dashboard.execution.adapters import pdc, pdc_solvation
 from dashboard.execution.mdp import PROFILES
-from dashboard.execution.scripts import pdc_solvate
+from detergent_pdc.execution.adapters import pdc, pdc_solvation
+from detergent_pdc.execution.scripts import pdc_solvate
 
 from tests.dashboard.pdc_fixtures import inputs_dir, prepared_run, script_of, stage_dir
 
@@ -117,7 +117,7 @@ def test_the_back_map_stage_now_has_a_tool_and_an_invocation():
     # The library is the one the stage builds rather than the vendored name: it has to hold this run's detergent
     # fragment, and the vendored one holds 48 lipids and sterols and no detergent at all.
     assert '-fg "$FRAGMENTS"' in script and '-silent' in script
-    assert 'dashboard.execution.scripts.pdc_backmap' in script
+    assert 'detergent_pdc.execution.scripts.pdc_backmap' in script
 
 
 class FakeRun:

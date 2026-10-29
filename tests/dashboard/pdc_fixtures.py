@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 from dashboard.execution import run_scripts
-from dashboard.execution.adapters import pdc
+from detergent_pdc.execution.adapters import pdc
 
 from tests.dashboard.support import PROJECT_ROOT
 

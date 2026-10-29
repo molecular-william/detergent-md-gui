@@ -11,7 +11,7 @@ user chose the strict reading, and this is it:
   extension duration runs from there. Every attempt is recorded with the number removed and the seed it used, and the
   loop is bounded by the run's own `attempts_max`.
 
-    python -m dashboard.execution.scripts.pdc_extension --settings ../../inputs/pdc-settings.json --stage . \
+    python -m detergent_pdc.execution.scripts.pdc_extension --settings ../../inputs/pdc-settings.json --stage . \
         --assessment ../07_micelle_assessment --assessment-stage ../06_assessment
 """
 from __future__ import annotations
@@ -253,14 +253,14 @@ def main(argv=None) -> int:
         protein = None
         if (stage / 'system_EMPTY.top').is_file():
             protein = molecule_counts((stage / 'system_EMPTY.top').read_text())[0][0]
-        from dashboard.execution.adapters import pdc_solvation
+        from detergent_pdc.execution.adapters import pdc_solvation
         detergent = (settings.get('detergent_model') or {}).get('residue') or None
         solvent = (pdc_solvation.WATER_BEADS, *pdc_solvation.ION_NAMES)
         (stage / KEPT_TOPOLOGY).write_text(kept_topology((stage / 'system.top').read_text(), len(removed), protein,
                                                          detergent=detergent, drop=solvent))
         shutil.copy2(stage / KEPT_TOPOLOGY, stage / 'system.top')
         sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-        from dashboard.execution.scripts import pdc_solvate
+        from detergent_pdc.execution.scripts import pdc_solvate
         pdc_solvate.main(['--stage', str(stage), '--topology', 'system.top',
                           '--structure', str(assessment / 'kept.gro'),
                           '--salt-molar', str(settings.get('salt_molar', 0.15))])

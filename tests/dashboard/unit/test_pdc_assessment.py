@@ -7,7 +7,7 @@ whose answer a reader can see by hand.
 from __future__ import annotations
 
 import pytest
-from dashboard.execution.adapters import pdc_assessment
+from detergent_pdc.execution.adapters import pdc_assessment
 
 
 def detergent(name: str, centre, *, spacing: float = 0.1) -> dict:

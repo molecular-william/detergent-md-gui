@@ -113,7 +113,7 @@ def detergent_length_nm(template) -> float | None:
     """
     if template is None:
         return None
-    from .pdc_import import structure_atoms
+    from detergent_pdc.execution.adapters.pdc_import import structure_atoms
 
     try:
         atoms = structure_atoms(template.coordinates)
@@ -166,7 +166,7 @@ def detergent_profile(template) -> dict | None:
         points = np.asarray([[float(value) for value in position] for position in stated], dtype=float)
         labels, source = beads, 'beads'
     else:
-        from .pdc_import import structure_atoms
+        from detergent_pdc.execution.adapters.pdc_import import structure_atoms
 
         try:
             atoms = structure_atoms(template.coordinates)
@@ -790,7 +790,7 @@ def _self_assemble(points, count, seed, *, radius_nm, min_clearance_nm, margin_n
 
 def _initial_box(points, margin_nm, initial_z_nm):
     """The box rule, imported where it is used: `pdc_box` is otherwise only reached through the build entry point."""
-    from .pdc_box import initial_box
+    from detergent_pdc.execution.adapters.pdc_box import initial_box
 
     return initial_box([list(point) for point in points], margin_nm=margin_nm, initial_z_nm=initial_z_nm)
 

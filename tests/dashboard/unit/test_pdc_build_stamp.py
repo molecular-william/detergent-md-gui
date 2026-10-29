@@ -11,8 +11,8 @@ import json
 from pathlib import Path
 
 import pytest
-from dashboard.execution.adapters import pdc
-from dashboard.execution.scripts import pdc_build
+from detergent_pdc.execution.adapters import pdc
+from detergent_pdc.execution.scripts import pdc_build
 
 from tests.dashboard.pdc_fixtures import candidate_file, system_stage, write_cg_pdb
 
@@ -56,7 +56,7 @@ def test_a_stamped_micelle_has_its_heads_toward_the_water_and_its_tails_in_the_c
     the way the draft's frames were measured, over a real lattice placement of the pipeline's own code.
     """
     import numpy as np
-    from dashboard.execution.adapters import pdc_placement
+    from detergent_pdc.execution.adapters import pdc_placement
 
     placed = pdc_placement.place_detergents(None, None, 24, seed=20261013, mode='lattice')
     atoms = pdc_build.stamp(DRAFT, placed['centers'], placed['directions'], first_residue=10)

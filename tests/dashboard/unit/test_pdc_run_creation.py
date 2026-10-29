@@ -6,8 +6,8 @@ not a wrong label: the CG adapter's readiness check answered a pdc payload, and 
 executable workflow" is what a reader saw.
 """
 from dashboard.app import create_app
-from dashboard.execution.adapters.pdc import STAGES as PDC_STAGES
 from dashboard.paths import Paths
+from detergent_pdc.execution.adapters.pdc import STAGES as PDC_STAGES
 
 
 def test_a_pdc_payload_keeps_its_run_type_and_plan(tmp_path):

@@ -13,9 +13,7 @@ import numpy as np
 from ... import files
 from ...execution import tools
 from ...models import sugars as carbohydrates
-
-AA_RADII = {'H':.109,'C':.175,'N':.161,'O':.156,'F':.144,'P':.180,'S':.179,'Cl':.174,'Br':.185,'I':.200}
-PROBE = .191
+from .radii import AA_RADII, PROBE
 
 
 def envelope(positions, radii, spacing=.04):

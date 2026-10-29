@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from dashboard.execution.adapters import pdc
+from detergent_pdc.execution.adapters import pdc
 
 from tests.dashboard.pdc_fixtures import inputs_dir, prepared_run, script_of
 
@@ -42,7 +42,7 @@ def test_the_back_map_uses_the_align_method_and_the_inputs_the_stage_built() -> 
 
     assert '-o align' in executed
     assert '-fg "$FRAGMENTS"' in executed and '-ff "$FORCEFIELD"' in executed
-    assert 'dashboard.execution.scripts.pdc_backmap' in executed, 'the fragment, force field and gro are staged first'
+    assert 'detergent_pdc.execution.scripts.pdc_backmap' in executed, 'the fragment, force field and gro are staged first'
     assert 'backmap_inputs.json' in executed
     assert 'final_cg2at_aligned.pdb' in script, 'the stage still reports which build it produced'
     assert 'final_cg2at_de_novo.pdb' in script, 'and accepts the de-novo build, which is the one the tool completes'
@@ -60,7 +60,7 @@ def test_the_stage_names_the_tool_it_is_waiting_for_rather_than_failing_obscurel
     script = script_of(BACKMAP).read_text()
 
     assert 'CG2AT="${CG2AT:-$PROJECT_ROOT/tools/cg2at/cg2at}"' in script
-    assert 'REPO_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"' in script, \
+    assert 'REPO_ROOT="${PROJECT_ROOT:-$("$PYTHON" -c \'from dashboard import paths; print(paths.PROJECT_ROOT)\')}"' in script, \
         'a stage runs from its own directory; the tool lives at the repository root'
     assert 'not there' in script and 'exit 3' in script
 

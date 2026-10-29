@@ -3,12 +3,13 @@ import json
 from pathlib import Path
 from urllib.parse import unquote
 
+from dashboard import paths
+from dashboard.analysis.runs import layout
+from dashboard.execution.adapters import pdc_view
+from dashboard.web.routes.common import coordinator
 from flask import Blueprint, Response, abort, current_app, jsonify, request
 
-from ... import paths
-from ...analysis.runs import layout
-from ...execution.adapters import pdc, pdc_import, pdc_view
-from .common import coordinator
+from detergent_pdc.execution.adapters import pdc, pdc_import
 
 blueprint = Blueprint('pdc', __name__)
 
@@ -54,7 +55,7 @@ def model_entry(record):
     renders it and never decides fitted from derived. `terms` is `total_terms` (which excludes `virtual_sitesn`, the
     count a panel prints) while `term_kinds` is the full row of counts `pdc.prepare` records.
     """
-    from ...models.bonded import parameterization
+    from dashboard.models.bonded import parameterization
 
     if not isinstance(record, dict) or record.get('error'):
         return None
@@ -89,9 +90,9 @@ def pdc_models():
     A missing or unknown `molecule_id` is a **400** that names it: the list is one detergent's models, and there is no
     honest default for which detergent a caller meant.
     """
-    from ...models import mappings
-    from ...models.molecules import detergent_registry
-    from .common import query_context
+    from dashboard.models import mappings
+    from dashboard.models.molecules import detergent_registry
+    from dashboard.web.routes.common import query_context
 
     root = coordinator().ROOT
     molecule = (request.args.get('molecule_id') or '').strip()
@@ -215,7 +216,7 @@ def saved_mappings(molecule_id):
     without the mapping validator: this is a question about a bead's size class, and an unrelated validation finding
     must not hide the mapping that would actually build a run.
     """
-    from ...models.mappings import store
+    from dashboard.models.mappings import store
 
     found = []
     for name, path in store.candidate_paths().items():
@@ -239,7 +240,7 @@ def pdc_encapsulation(entry):
     describes the object that will be simulated rather than the whole deposited file. A chain the structure does not
     have is refused, not dropped.
     """
-    from ...analysis.runs import encapsulation
+    from detergent_pdc.analysis.runs import encapsulation
 
     root = coordinator().ROOT
     protein = catalogue_protein(root, entry)
@@ -351,7 +352,7 @@ def preview_choices(source):
     checks are `pdc.validate_payload`'s -- the adapter's own admission, called rather than restated -- and only the
     spelling is translated here. So a preview refuses the same inputs a run refuses, in the same terms.
     """
-    from ...execution.adapters import pdc
+    from detergent_pdc.execution.adapters import pdc
 
     def whole(name, default=None):
         raw = (source.args.get(name) or '').strip()
@@ -395,7 +396,7 @@ def preview_cache_root():
     configured one, or the repository's own directory), so the missing case is a refusal rather than a fallback to
     somewhere a preview has no business writing.
     """
-    from ...execution import pdc_preview
+    from detergent_pdc.execution import pdc_preview
 
     workspace = paths.current().workspace
     if workspace is None:
@@ -418,7 +419,7 @@ def pdc_preview_protein():
     well-formed key the cache does not hold is a **404** that names it: a preview whose entry was removed is a
     missing file, not a bad question. Nothing here writes, and nothing here is a run's input.
     """
-    from ...execution import pdc_preview
+    from detergent_pdc.execution import pdc_preview
 
     key = (request.args.get('key') or '').strip()
     if not pdc_preview.CACHE_KEY_PATTERN.fullmatch(key):
@@ -451,8 +452,10 @@ def pdc_preview_placement():
     all-atom structure the beads were coarse-grained from under them -- and it names neither for a build with no
     protein.
     """
-    from ...execution import pdc_preview, tools
-    from ...execution.adapters import pdc_preparation
+    from dashboard.execution import tools
+
+    from detergent_pdc.execution import pdc_preview
+    from detergent_pdc.execution.adapters import pdc_preparation
 
     root = coordinator().ROOT
     try:
