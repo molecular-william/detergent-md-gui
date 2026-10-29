@@ -192,13 +192,16 @@ export function createMappings() {
     if (moleculeOverlay) moleculeOverlay.destroy(); moleculeOverlay = null;
     editorMessage(`Loading ${moleculeId}…`);
     try {
-      // Keyed by molecule: a switch supersedes the load in flight, so the state assignment
-      // below only happens for the molecule that is still selected.
+      // `guarded` is keyed by molecule, so it supersedes only a reload of the *same* molecule; a switch to a
+      // different one is a separate key. The generation check is what makes the newest selection win: the default
+      // molecule's answer can land after the reader has chosen another, and without it that stale answer replaced
+      // the editor -- a different molecule's atoms beside a candidate that belonged to the first.
       const loaded = await guarded(`molecule-editor:${moleculeId}`, () => Promise.all([
         cachedApi('/api/mappings/context?molecule_id=' + encodeURIComponent(moleculeId), {maxAge: 10000}),
         cachedApi('/api/mappings?molecule_id=' + encodeURIComponent(moleculeId) + '&view=summary', {maxAge: 10000}),
       ]));
       if (loaded === DROP) return;
+      if (generation !== editorGeneration) return;
       const [source, catalogue] = loaded;
       if (!source?.context) { editorMessage('Server did not return a mapping context; reload the page.'); return; }
       mappingData.candidates = catalogue.candidates || [];
@@ -208,6 +211,7 @@ export function createMappings() {
       const candidate = recovered?.molecule_snapshot?.snapshot_sha256 === source.context.snapshot.snapshot_sha256
         ? recovered
         : (catalogue.candidates?.[0] ? await loadMapping(catalogue.candidates[0].file) : null);
+      if (generation !== editorGeneration) return;
       moleculeEditor = createEditor(source.context, candidate);
       // A bead ticked in the overlay is the same edit as one picked before it: the callback calls the editor rather
       // than keeping a selection of its own.
@@ -229,8 +233,9 @@ export function createMappings() {
         : 'New local draft — no saved mapping for this molecule yet', ''));
       for (const item of catalogue.candidates || []) filter.append(new Option(item.name, item.file));
       if (candidate?.file) filter.value = candidate.file;
-    } catch (error) { editorMessage(error.message); }
-    finally { if (generation === editorGeneration) workspace?.setAttribute('aria-busy', 'false'); }
+    } catch (error) {
+      if (generation === editorGeneration) editorMessage(error.message);
+    } finally { if (generation === editorGeneration) workspace?.setAttribute('aria-busy', 'false'); }
   }
 
   function makeDialog(title, submitText, fields = []) {

@@ -5,6 +5,7 @@ new bead" / "Delete selected bead" below the table. The numbers are the interest
 molecule's PDB, and that file's serials *are* the mapping's atom ids, so labelling by serial is what turns a row's
 `atoms` field from a guess into something a reader can check against the view.
 """
+import pytest
 from playwright.sync_api import expect
 
 MOLECULE = 'Maltose'
@@ -195,3 +196,44 @@ def test_the_numbering_choice_survives_a_reload(dashboard, live_page):
     page.get_by_role('checkbox', name='Number atoms').check()
     assert len(_label_representations(page)) == 1
     assert page.evaluate("localStorage.getItem('ddm.mappingAtomLabels')") == 'true'
+
+
+def test_a_slow_default_molecule_does_not_replace_the_molecule_the_reader_chose(dashboard, live_page):
+    """The editor loads the catalogue's first molecule on mount; a reader can choose another before it answers.
+
+    `guarded` is keyed by molecule, so it supersedes a reload of the same one and nothing else. Without a generation
+    check the first molecule's slower answer landed last and replaced the editor -- its atoms beside a candidate that
+    belonged to the chosen molecule, and an overlay drawn from whatever beads the stale load carried. This is the
+    state the browser tier saw under load as an empty bead file, made deterministic by delaying the first load.
+    """
+    candidate = seed_candidate(dashboard)
+    page, errors = live_page
+    page.add_init_script("""(() => {
+      const original = window.fetch;
+      window.fetch = async (url, options) => {
+        const text = String(url);
+        if (text.includes('molecule_id=') && !text.includes('molecule_id=Maltose')) {
+          await new Promise(resolve => setTimeout(resolve, 1200));
+        }
+        return original(url, options);
+      };
+    })()""")
+    page.goto(f'{live_page.base_url}/detergent-validation/bead-assignment')
+    page.locator('#tab-mappings').click()
+    page.wait_for_function("() => document.querySelector('#mapping-molecule')?.options.length > 1", timeout=30000)
+    first = page.locator('#mapping-molecule option').first.get_attribute('value')
+    if first == MOLECULE:
+        pytest.skip('the catalogue lists the test molecule first, so there is no earlier load to outlive')
+
+    page.locator('#mapping-molecule').select_option(MOLECULE)
+    expect(page.locator('.molecule-mapping-workspace')).to_have_attribute('aria-busy', 'false')
+    expect(page.locator('#mapping-editor-status')).to_contain_text('Maltose loaded', timeout=30000)
+
+    # The first molecule's delayed answer lands here; it must not paint over the chosen one.
+    page.wait_for_timeout(1800)
+    expect(page.locator('#mapping-editor-status')).to_contain_text('Maltose loaded')
+    expect(page.locator('#mapping-bead-rows tr')).to_have_count(len(candidate['beads']))
+    atoms = page.locator(OVERLAY).evaluate(
+        'el => (el.overlayStage?.compList || []).map(component => component.structure ? component.structure.atomCount : 0)')
+    assert len(atoms) == 2 and atoms[1] > 0, atoms
+    assert errors == [], errors
