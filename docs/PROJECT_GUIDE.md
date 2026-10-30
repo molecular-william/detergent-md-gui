@@ -282,7 +282,8 @@ fabricate or require an AA reference. Composition artifacts and their hashes
 are immutable, so changing a choice creates another record.
 The web UI is the workspaces the installed features register -- `detergent-validation` and `protein-detergent` in a full install, and the engine's own `dashboard` workspace when no feature is installed (`dashboard/web/sections.py`) -- each a set of panels reachable at its own URL segment (`/<workspace-slug>/<panel>`). `DASHBOARD_TABS` narrows an instance's panels by comma-separated slug; each named slug must exist in every installed workspace, and a name that does not fails when the app is constructed rather than as a 400 on the first page. Validation carries Runs, Run view, Single Molecule Simulations, Bead Assignment, Bond Interactions, Combinations, Mapping Validation and Osmotic Series; protein-detergent carries Runs, Run view, Protein-Detergent Simulations and Complexes. A header **Modules** switch (`GET`/`PUT /api/modules`) saves `modules.json` in the workspace and filters the
 registry on the next page load: a hidden module's workspaces and New run types are not offered, while its APIs,
-its run types for existing runs and its recorded-code resolvers stay live, so old runs remain readable. With
+its run types for existing runs and its recorded-code resolvers stay live, so old runs remain readable. A URL into a
+hidden workspace redirects to the Runs front door (an unknown workspace or panel is still a 404). With
 every module hidden the engine's own `dashboard` workspace is what the navigation shows. The template writes
 each section from the registry and `tabs.js` mounts it by DOM id.
 

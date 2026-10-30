@@ -77,7 +77,14 @@ def test_the_switch_round_trips_through_the_api_and_survives_a_new_application(t
     page = client.get('/').get_data(as_text=True)
     assert 'data-section="detergent-validation"' in page
     assert 'data-section="protein-detergent"' not in page
-    assert client.get('/protein-detergent/runs').status_code == 404
+    # A workspace whose module is hidden is a link that was valid a moment ago: it lands on the Runs front door.
+    for path in ('/protein-detergent', '/protein-detergent/runs', '/protein-detergent/new-run'):
+        response = client.get(path)
+        assert response.status_code == 302, path
+        assert response.headers['Location'] == '/' or response.headers['Location'].endswith('/'), path
+    # A workspace this dashboard does not have, and a panel a shown workspace does not have, are still 404s.
+    assert client.get('/not-a-workspace/runs').status_code == 404
+    assert client.get('/detergent-validation/not-a-panel').status_code == 404
 
     # A new application over the same workspace reads the saved set: the switch survives a restart.
     restarted = create_app(built.paths, {'DISABLE_COORDINATOR': True})

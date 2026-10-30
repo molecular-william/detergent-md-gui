@@ -19,6 +19,7 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
   writes `modules.json` in the workspace; `sections.shown()` filters the registry on the next page load, and
   `section_by_slug`/the routes answer 404 for a hidden workspace. Nothing is unloaded -- APIs, run types for
   existing runs and code resolvers stay live -- and the engine workspace is what remains when every module is off.
+  A URL into a hidden workspace redirects to the Runs front door; an unknown workspace or panel still 404s.
   The popover was chosen over the rail (`docs/design/drafts/2026-10-30-module-toggles.html`).
 
 ## Right now (2026-10-29): the dashboard is three distributions

@@ -189,6 +189,11 @@ def test_the_modules_switch_hides_a_workspace_after_a_reload(dashboard, live_pag
     page.locator('#modules-button').click()
     expect(page.locator('#modules-popover input[data-module="pdc"]')).not_to_be_checked()
     expect(page.locator('#modules-popover .module-row.is-off')).to_have_count(1)
+
+    # A link into the hidden workspace is not a dead end: it lands on the Runs front door.
+    page.goto(f'{live_page.base_url}/protein-detergent/runs')
+    expect(page).to_have_url(f'{live_page.base_url}/')
+    expect(page.locator('#tab-runs')).to_have_attribute('aria-selected', 'true')
     assert errors == [], errors
 
 

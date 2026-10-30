@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from dashboard import files
-from flask import Blueprint, Response, abort, current_app, jsonify, render_template, request, send_file
+from flask import Blueprint, Response, abort, current_app, jsonify, redirect, render_template, request, send_file, url_for
 
 from ... import features
 from ...analysis.runs import structures
@@ -81,10 +81,17 @@ def index():
 
 @blueprint.get('/<section>')
 def section_view(section):
-    """A workspace, opened on its first panel."""
+    """A workspace, opened on its first panel; one whose module is hidden lands on the Runs front door.
+
+    The distinction is between a workspace this dashboard **does not have** (a typo or a retired slug: 404) and one
+    it has but is not showing because its module is switched off. The second is a link that was valid a moment ago,
+    so it redirects rather than dead-ending -- the front door renders the Runs panel of the first shown workspace.
+    """
+    if section_by_slug(section) is None:
+        abort(404)
     found = section_by_slug(section, enabled(current_app.config['PATHS']))
     if found is None:
-        abort(404)
+        return redirect(url_for('runs.index'))
     return render_template('dashboard.html', **workspace_context(section, found['tabs'][0]))
 
 
@@ -96,8 +103,12 @@ def panel_view(section, panel):
     not recognise with the first tab it had, which is how a wrong link became a wrong page with no report; a URL that
     names a panel is checkable, so it is checked.
     """
+    if section_by_slug(section) is None:
+        abort(404)
     found = section_by_slug(section, enabled(current_app.config['PATHS']))
-    if found is None or panel not in visible(found)['tabs']:
+    if found is None:
+        return redirect(url_for('runs.index'))
+    if panel not in visible(found)['tabs']:
         abort(404)
     return render_template('dashboard.html', **workspace_context(section, panel))
 
