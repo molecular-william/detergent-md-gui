@@ -3,6 +3,9 @@
 Status: **built 2026-10-30.** Written 2026-10-30. The execution record is at the end; read `docs/HANDOFF.md` for
 state and open items.
 
+Follow-up (2026-10-30): the player's controls and the PBC options are handed off in
+`docs/plans/2026-10-30-run-view-pbc-controls.md`.
+
 ## The report
 
 "Run view" (the shared, engine-owned panel in both workspaces) can no longer play a simulation trajectory, or

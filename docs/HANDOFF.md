@@ -4,166 +4,63 @@ State and open items for this repository. Rules live in `AGENTS.md`; subsystem b
 `docs/PROJECT_GUIDE.md`; scoring science in `docs/DDM_CALIBRATION.md`. Read this before touching the DDM CG chain,
 the protein-detergent pipeline or the coordinator. This file keeps only what is current and the evidence behind it.
 
-## Right now (2026-10-30, latest): Run view plays a trajectory again
+## Next task (2026-10-30): Run view controls and PBC options
 
-**Built, verified and being served:** the dashboard was restarted 2026-10-30, and both live pdc runs hold a
-series built with the default arguments. The plan and its execution record are
-`docs/plans/2026-10-30-run-view-trajectory.md`.
+The player shipped earlier on 2026-10-30 (`e7e6ad8` path contract, `d635763` the on-demand `frame-series` analysis and
+the Trajectory block; docs `c3cf6c8`, `e33956a`; plan and record `docs/plans/2026-10-30-run-view-trajectory.md`). The
+user's follow-up is written up, with the answers to its two questions, in
+`docs/plans/2026-10-30-run-view-pbc-controls.md` (approved 2026-10-30):
 
-- **Phase 0, the path contract (`e7e6ad8`)**: `segments.relative()` returns the run-root spelling, so the URLs
-  `/trajectory` carries are the ones `/structure` and `/artifacts` resolve. Live: 14 of 14 segment URLs answer 200 on
-  `00b9ae6db23f`; the route test builds `stages/…`, fetches every URL it answers, keeps a legacy-root case, and covers
-  a `.pdb` structure, which the structure route refuses and the artifact route serves.
-- **The on-demand `frame-series` analysis** (`analysis/runs/frame_series.py`): `POST /api/jobs/<id>/frame-series`
-  takes the nine arguments (trajectory, structure, start/end ns, stride, fit, fragment, atoms, assembled), validates
-  them before an attempt exists (400), and stages the chosen pair plus the run's mapping/topologies through
-  `Kind.source_hook`; the queue hashes them, so a changed trajectory is a new attempt. Caps: 240 models / ~250 MB.
-  `fit` and `assembled` are views, and the file says so in its REMARKs. Same arguments reuse the attempt (200);
-  changed ones queue a new one (202). `/trajectory` now carries each playable segment's content `identity`.
-- **The player** (`static/js/run-view-trajectory.js`, in the engine panel of both workspaces): Play/Pause, seek,
-  −1/+1, speed, loop and a `t = … ns · model i/n` readout from `frames.json`; `run-frames.pdb` is fetched only when
-  Play is pressed, never on mount. The Recompute form offers the arguments as native controls; a stale series
-  (`frames.json.trajectory_identity` is not the segment's `identity`) says so, and a failed attempt shows its error
-  and the end of its log.
-- **Measured on the live runs** (whole 100 ns, auto stride): 120 models over 0–99.246 ns; on the extension leg the
-  producer took 44 s after one sequential pass, wrote 20.3 MB with 210,480 CONECT records and 120 `TIME` remarks, and
-  the same arguments returned the same attempt. The empty micelle's series is 15.7 MB of 8,604 atoms, assembled.
-- **`config/dashboard.json` `max_run_bytes` 30 -> 40 GiB**: `00b9ae6db23f` is 34.08 GiB, so the per-run admission
-  check refused to analyse the very run the plan names. A cap no existing run of that size could meet.
-- **One measured trap, now a test**: a run may keep a stage topology as a symlink into `inputs/` (b920's
-  `detergent_CG.itp`). Request-named paths stay strict (no symlink), but a *recorded* input whose target is inside the
-  run is staged under its stage spelling, so the series draws the run's own bonds. Without that, the played series
-  came out with zero CONECT beside a structure picture that drew them.
-- The retired `snapshots` cadence and the timed film stay retired; playback is on demand.
+- make the NGL canvas taller;
+- remove the readout cell that says **how the bonds were decided** (and its browser assertions);
+- one build action: the top "Recompute frames" button only opens the form while the submit says "Build frames";
+- replace the frame-step argument with **nanoseconds per frame** (keeping old attempts readable);
+- explain **Assemble** (a display-only gather, not a PBC conversion) and fold it into real `trjconv`-style `pbc`,
+  `center`, `fit` and `group` options, with a `gmx trjconv` differential test.
 
-## Right now (2026-10-30): core-only starts, and features are selectable
+Live checks should use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9ae6db23f` was deleted by the
+user on 2026-10-30**, after the player's acceptance; anything that still names it is history, not a live run.
 
-- **A core-only install is a working dashboard.** With no feature installed, `sections.ensure_default()` registers the
-  engine's own `dashboard` workspace (Runs, Run view, New run; run types `aa_only`, `aa_cg`). Before this, `home()`
-  returned `next(iter(SECTIONS.values()))` on an empty registry and the front door answered 500.
-- **`--features` / `DASHBOARD_FEATURES` selects what loads**, default every installed feature. A feature outside the
-  list is never imported; a selected one that fails to load is skipped, logged and recorded by `features.failures()`;
-  a name nothing provides is a start-up error. This deliberately replaces the old rule that a broken entry point was
-  fatal -- the row in `PROJECT_GUIDE.md` (*Adding a distribution*) says so now.
-- The launcher and `python -m dashboard` share one argument parser (`cli/serve.py`), so `--host`, `--port` and
-  `--features` work for both.
-- **The header Modules switch** shows or hides installed features at runtime. `GET`/`PUT /api/modules` reads and
-  writes `modules.json` in the workspace; `sections.shown()` filters the registry on the next page load, and
-  `section_by_slug`/the routes answer 404 for a hidden workspace. Nothing is unloaded -- APIs, run types for
-  existing runs and code resolvers stay live -- and the engine workspace is what remains when every module is off.
-  A URL into a hidden workspace redirects to the Runs front door; an unknown workspace or panel still 404s.
-  The popover was chosen over the rail (`docs/design/drafts/2026-10-30-module-toggles.html`).
+## Current state (2026-10-30)
 
-## Right now (2026-10-29): the dashboard is three distributions
-
-- The engine is `detergent-core` (`packages/core`, import `dashboard`), and the two features are
-  `detergent-validation` (`packages/validation`) and `detergent-pdc` (`packages/pdc`); the root `detergent-md-gui`
-  names them as the `det`/`prot`/`all` extras. A feature is whatever installed distribution advertises in the
-  `detergent_md.features` entry point (`dashboard/features.py` loads its `Feature`; `KNOWN` there is only the fallback
-  for an editable checkout whose metadata predates the entry point), so installing a wheel adds a workspace.
-  `Feature.priority` orders them -- the shell opens on the first -- and core never imports one: blueprints, run types,
-  analysis kinds, workspaces, admission rules and the prepare/readiness/series hooks all arrive through the record.
-- Tests live in each distribution's tree: `packages/<name>/tests/{unit,integration,browser}`, with the shared harness
-  at `tests/harness/` and `--import-mode=importlib` in `pytest.ini`, so a duplicate basename across tiers needs no
-  `__init__.py`. The two selection axes remain: subject (`-m <area>`, table in `tests/harness/areas.py`) and owner
-  (`-m core|validation|pdc`, derived from the tree); `scripts/test_module.sh <module> [tier]` runs one tree.
-- **The test-package split landed 2026-10-29** (plan and record: `docs/plans/2026-10-29-modular-test-packages.md`):
-  191/29/69 files and 1466/312/662 tests in core/validation/pdc, 2,441 collected. Each package's `pyproject.toml`
-  carries a dev-only `test` extra, and a built wheel carries no tests (`packages.find` scans `src/` only). The
-  browser-tier flake it inherited was traced and fixed on 2026-10-29 (`0738b49`): a stale molecule load could replace
-  a newer selection in the bead editor, which the overlay then drew as the default molecule with an empty bead file.
-- `DASHBOARD_TABS` is validated when the app is constructed: every named slug must exist in every installed
-  workspace, so a typo is a start-up failure rather than a 400 on the first page.
-- The data root is `DASHBOARD_ROOT` (falling back to the checkout), and the interpreter is `.venv/` at the
-  checkout root. `detergent-dashboard` is the console entry point; `python -m dashboard` still runs the checkout.
-- Runs prepared before the package move keep verifying: recorded code spells `dashboard/...` and
-  `run_scripts.code_path` resolves it through the distribution that took the file over.
-- The engine no longer names a pdc stage, role, segmenter or structure reader: the stage table, five roles, three
-  review pairs and detergent-topology resolver live in `detergent_pdc/layout.py` (registered through
-  `Feature.layout`), the nine-stage segmenter and markers in `detergent_pdc/segments.py`, the protein moleculetypes in
-  `detergent_pdc/topologies.py`, the queued-run skip preview in `detergent_pdc/view.py`, and `/api/micelle/build` on
-  the pdc blueprint. The structure writer is engine code (`analysis/runs/structures.py`) because it serves every run.
-- The validation analyses and their seven kind rows moved to `detergent_validation/` (`kinds.py`, `analysis/runs/`,
-  `analysis/validation/`, `sugar_ensemble.py`). The carbohydrate evidence vocabulary moved too:
-  `detergent_validation/evidence.py` owns the three section texts and the `carbohydrate` profile; the engine keeps
-  `alkyl_tail`/`charged_headgroup`/`detergent`, and `molecules/evidence.PROFILES` is a live merged view (a core-only
-  install therefore has no carbohydrate profile, by design). The engine seams they needed are `Kind.payload` (a row states its
-  queue body keys), `features.kind_payload_for(kind)` (the feature validates and derives that body), the targets route
-  on the validation blueprint, and `analysis/runs/statistics.py` (the block summary core and validation both report).
-- Still in core by decision: the bonded/dihedral analyses (`bonded-cross-check`, `dihedral-fit`, `bartender-fit`), the
-  micelle adapter and its science, the mapping editor, the molecules panel, and `analysis/validation/
-  carbohydrate_targets.py` (a mapping route and the validation analyses both read it). The remaining engine-held
-  feature vocabulary are now registered too: the carbohydrate evidence sections/profile (2a) and the legacy pdc stage
-  names the migration reads (2b).
-- Feature panels own their browser surface now: the shell loop includes each registered `panels/<id>.html` from the
-  feature's template package, links its `styles`, and boots its `panel_modules` (mapping-validation + osmotic from
-  detergent_validation, the Complexes panel from detergent_pdc); a deployment without a feature fetches neither its
-  markup nor its JS. The last shared panels follow the same rule through extension hooks: `new-run.js` and the
-  `run-view-*.js` family expose `registerNewRunExtension({workspace, create(context)})` and
-  `registerRunViewExtension({name, serves, structure, runSelected})`, the pdc feature registers both from
-  `js/new-run-pdc.js` / `js/run-view-pdc.js` (`Feature.extension_modules`), and its markup lives in
-  `templates/fragments/` inserted at generic slots. The engine's panel JS, CSS and template name no pdc/protein-detergent
-  vocabulary; the styling followed the markup into `pdc.css`.
-- The validation-only endpoints (`mapping-consistency`, `distance-diagnostics`, `carbohydrate-validation`,
-  `/api/runs/transferability`) and the cross-molecule reader are the validation feature's now. `/api/compare`,
-  `/api/mappings/validation-targets`, `/api/mappings/ring-site/preview` and `/api/evidence/evaluate` look
-  validation-flavoured but stay engine-owned until their consumers are confirmed.
-- A validation-only deployment lives at `/mnt/data/wee/detergent-gui-mini` (`run.sh`, port 5001, `DASHBOARD_TABS`
-  six panels); `scripts/build_mini.sh` rebuilds and force-reinstalls it (`--smoke` checks it). `detergent-import-run`
-  ports a run between workspaces.
-
-## Right now (2026-10-27)
-
-- **Snapshots are retired (2026-10-28):** the `snapshots` analysis kind, PDC's stage snapshot writer and
-  `snapshots.json` indexes, and Run view's transport/film are removed. The New run snapshot interval/cap are gone;
-  Run view shows static structures, the CG-chain segment table and figures. Notes below that describe snapshot
-  frames or the film are historical evidence, not current behaviour.
-- **The run-lifecycle refactor is built and the live layout is migrated; the 100 ns acceptance run is open.** Every run type
-  writes `stages/` and a generated-data `inputs/`; `inputs/inputs.json` names every shared input by
-  `role`/`label`/`kind`/`root`/`path`/`sha256`, and the manifest's `input_snapshot_sha256` digests that record,
-  re-verified before every stage. No new run carries a `.py` or a copied `.sh`: `stage_scripts`/`python_modules` pin the
-  repository script and helpers each stage runs. MDPs are written from the reviewed profiles in
-  `dashboard/execution/mdp/` and recorded as `mdp_profiles`; pdc has ten stage directories numbered `01_prepare` …
-  `10_backmap`, and a stage the settings rule out has no directory. Two exceptions are recorded in the plan's
-  *Notes from implementation*: AA still writes its generated `run.sh`, and osmotic's MDPs still come from
-  `osmotic_mdp`.
-- **Run-layout migration** is `.venv/bin/python -m dashboard.cli.migrate_run_layout --all --apply`
-  (dry run without `--apply`). Per legacy run it archives `inputs/` and the copied code, or moves a pre-numbering
-  pdc stage tree under `stages/`, to `legacy_evidence*.tar.gz`, proves the archive reads back, then writes
-  `legacy_layout.json`; `manifest.json` is never rewritten. It has no busy-run guard and iterates in run-name
-  order, so never run it while a run is executing. Applied to the live workspace 2026-10-27: every remaining run now
-  has `legacy_layout.json` and `stages/` (10 of 10; `936b74bd3fa8` was deleted by the user before it was migrated).
-  Archives are written with `pigz` when installed. Open every migrated run in the run view and resolve its analyses
-  before treating the migration as accepted.
-- **The 100 ns micelle-only acceptance run is `b920391735dd`**: a protein-free pdc run, DDM mapping revision 2,
-  `remove_out_of_micelle=false`, `backmap=false`; 99 ns assessment + 1 ns extension folded into one 5,000,000-step
-  leg at 20 fs. Completed 2026-10-27; `stages/06_assessment/prod/whole.xtc` runs 0-100 ns, the four ruled-out stages
-  have no directory and render skipped, and the run holds no `.py`/`.sh`.
-- **`936b74bd3fa8` was deleted by the user on 2026-10-27.** It had failed in `CG assessment MD` on 2026-10-26 with
-  `Worker stopped: per-run storage limit reached`; nothing was running when it was removed.
-- **Restart the dashboard when convenient**: the running service predates the empty-micelle display assembly. Use
-  `systemctl --user restart detergent-dashboard`.
-- `bbda8d632309` is a permanent failed record: it carried `prepare_protein=true` with `protein=null` because generic
-  job normalization applied a protein-only default before the adapter knew the run had no protein. `create_job`
-  now sets `prepare_protein=false` for a pdc job with no protein, so **retry** or a new queue works; the old record
-  cannot be repaired in place.
-- `00b9ae6db23f` is the current 1 us-labelled complex run, but its data is **200 ns**: assessment 100 ns + extension
-  100 ns. The rebuilt extension path ignored `extension.ps`; `restart_mdp` now rewrites `nsteps` from `length_ps` and
-  the mdp `dt`, so future rebuilt runs honour 900 ns.
-- Run view draws NVT, NPT and the one no-removal CG leg as segments; the timed film that played them is retired.
-- The dashboard is a user service: `systemctl --user restart detergent-dashboard`. Never infer its PID from an
-  unfiltered `ss`; DSH owns 3080. Use `lsof -t -iTCP:5000 -sTCP:LISTEN` or the service name.
+- **Three distributions.** Engine `detergent-core` (`packages/core`, import `dashboard`); features
+  `detergent-validation` (`packages/validation`) and `detergent-pdc` (`packages/pdc`), discovered through the
+  `detergent_md.features` entry point. The root meta distribution names them as `det`/`prot`/`all`. The engine never
+  imports a feature.
+- **Feature selection and modules.** `--features`/`DASHBOARD_FEATURES` filters discovery before loading; a selected
+  feature that fails is skipped and recorded (`features.failures()`); no feature still serves the engine's own
+  `dashboard` workspace. The header Modules switch saves `modules.json` per workspace; hidden means not offered, never
+  unloaded. The front door `/` renders a workspace without naming it, so client code reads `body[data-workspace]`.
+- **Tests** live in each distribution's tree (`packages/<name>/tests/{unit,integration,browser}`), with the shared
+  harness at `tests/harness/` and `--import-mode=importlib`; the two axes are area (`-m pdc`, …) and owner
+  (`-m core|validation|pdc`). `scripts/test_module.sh` runs one tree.
+- **Run layout.** Every run type writes `stages/` and a generated-data `inputs/inputs.json` (roles, paths, digests);
+  repository code is pinned in `stage_scripts`/`python_modules`, MDPs in `mdp_profiles`; pdc's ten stages are
+  `01_prepare` … `10_backmap`. Legacy trees were migrated to `legacy_layout.json`; `manifest.json` is never rewritten.
+- **Tools.** All provisioned tools live under the gitignored `tools/`: `fast_forward` (patched checkout, pinned
+  `61e407e6` in `config/tools.json`), `bartender/m3_bartender` (with its bundled xtb) and `cg2at`. `config/tools.json`
+  is the one declaration `execution/tools.py` resolves; a declared path is verified or resolves to nothing. The
+  Fast-Forward patch itself is tracked source under `resources/patches/`.
+- **Martini 3 set.** The published lipidome ITPs, the sugar reference and the licence are tracked in
+  `references/M3-Lipid-Parameters`, so a clone installs the force field without a download; the first CG reader
+  installs one copy at `workspace/dashboard/martini3` and records the upstream commit and per-file digests. The rest
+  of `references/` (PDFs, partial clones, benchmark material) stays untracked.
+- **Run view.** Static structures, the CG segment table, figures, and the on-demand Trajectory block: a
+  `frame-series` attempt is built from nine arguments, played back from a server-written multi-model PDB, fetched only
+  on Play. `/trajectory` answers run-root paths with each playable segment's `identity`; a `.pdb` structure is served
+  by the artifact route. Caps are 240 models / ~250 MB. `config/dashboard.json` admits 40 GiB per run (the deleted
+  `00b9ae6db23f` was 34.08 GiB, which the former 30 GiB limit could not analyse).
+- **Service.** The dashboard runs on port 5000 as the transient user unit `detergent-dashboard`; restart it with
+  `systemctl --user stop` then a new `systemd-run --user`. Restart after Python changes; `static/` and templates are
+  read per request.
 
 ## Open items
 
 | item | state | next |
 | --- | --- | --- |
-| run-layout migration | applied 2026-10-27 to all 10 existing runs (`legacy_layout.json`); `936b74bd3fa8` deleted by the user | verify run view and analyses for every migrated run |
-| 100 ns micelle-only acceptance | `b920391735dd` completed 2026-10-27: 5,000,000 steps, 100 ns, skipped stages absent, stage artifacts present | inspect it in the run view; no open action |
-| `936b74bd3fa8` | deleted by the user 2026-10-27; failed in `CG assessment MD` (per-run storage limit) | nothing |
-| 1 us run for `00b9ae6db23f` | impossible from its data: 200 ns total | new pdc run with the corrected extension duration |
-| Overall Run view progress | the card bar is the current stage's fraction; timeline/plan skips now show settings | decide whether a true run-level percentage is wanted |
-| Run view trajectory | built 2026-10-30 (`e7e6ad8` + `d635763`); the service was restarted and both live pdc runs hold a default series | play one in Run view; any other view is a Recompute |
+| Run view controls and PBC | approved 2026-10-30; plan `docs/plans/2026-10-30-run-view-pbc-controls.md` | build it; `b920391735dd` is the live example |
+| run-layout migration | applied 2026-10-27 (`legacy_layout.json` on every then-existing run); `936b74bd3fa8`, `00b9ae6db23f` deleted by the user | verify the migrated runs still render and resolve analyses |
+| Overall Run view progress | the card bar is the current stage's fraction; timeline/plan skips show settings | decide whether a true run-level percentage is wanted |
 | cloud vs rough belt | open measurement, not a task | one protein, one seed, two 100 ns legs; compare removal fraction/aggregation/belt thickness before adopting a belt criterion |
 | `pytest-socket` | not installed; no test enforces the no-outbound-HTTPS audit | add with `--allow-hosts=127.0.0.1,localhost` |
 | known test flake | `test_pdc_preview.py::test_the_cached_step_is_not_run_again...` has failed in one full fast run and passed alone | capture a failing order with `-p no:cacheprovider` |
@@ -171,98 +68,82 @@ series built with the default arguments. The plan and its execution record are
 | Phase 4 sucrose/maltose | deferred; targets remain `availability: metadata_only` | separate decision |
 | native micelle builder | paused; `micelle/` is a partial, unvalidated skeleton | do not present it as a model |
 | CI / coverage | no `.github/workflows`; `scripts/gate_commit.sh` is the gate; mutation signal is 11 mutants, 10 caught | no CI to add by default |
-| docs beyond this file | HANDOFF, DDM calibration, PROJECT_GUIDE and README are current; AGENTS carries the new run contract; history archives deleted on request | use code/manifests/run records for superseded evidence |
+| docs beyond this file | HANDOFF, DDM calibration, PROJECT_GUIDE and README are current | use code/manifests/run records for superseded evidence |
 
 ## Invariants and incidents worth keeping
 
 - **A trajectory URL is the run-root spelling.** `segments.relative()` keeps `stages/` because `/structure` and
   `/artifacts` resolve from the run root; a `.pdb` structure is named by the artifact route instead. The route test
   fetches every URL it answers rather than matching shapes -- a shape check stayed green while every URL 404'd.
-- **The URL does not always name the workspace.** The front door `/` renders one without a path segment, so client
-  code reads `body[data-workspace]` (the rendered workspace), not `location.pathname`; and the remembered-workspace
-  redirect follows a workspace only when it is still shown. Both failures on 2026-10-30 came from assuming the path:
-  the engine New run form was built inside a feature workspace (a null `onclick`), and `/` reloaded forever when a
-  module switch hid the remembered workspace.
-
+- **The URL does not always name the workspace.** The front door `/` renders one without a path segment, so client code
+  reads `body[data-workspace]`; a remembered workspace is followed only while it is still shown. Both 2026-10-30
+  failures came from assuming the path.
 - **Skipped is a real outcome.** A stage with nothing to do exits 4, writes `skip.json` with its reason, and the run
-  continues. The 11,821-attempt incident happened because skipped analyses were requeued; the coordinator now treats
-  a skipped kind as current by signature, and automatic queue dedupe ignores payload only where it should not.
-- **An analysis signature is code plus inputs.** `pdc_view.py` changes and pdc source changes must mint a new
-  attempt; a completed analysis is not reused for different sources.
-- **`analysis/runs/segments.py` still names the pdc stage order** for the segment table; the `_pdc_timeline`
-  film that consumed it is retired.
-- **Display assembly is not dynamics.** For a complex, chains are joined and detergent molecules are moved to the
-  image nearest the protein *surface*. For an empty micelle, `_assemble_micelle` seeds on the first detergent and
-  wraps the rest to it, then centres. Never rewrite the trajectory; never use `gmx trjconv -pbc cluster` to pull
-  separate micelles together.
-- **A rebuilt extension must set its own duration.** `restart_mdp(..., length_ps=)` overwrites `nsteps`; the old
-  path left the assessment's 100 ns in place, which is why the 1 us run is 200 ns.
-- **A protein-only default must not become an empty-micelle request.** `create_job` clears `prepare_protein` for a
-  pdc job with no protein; `pdc.prepare` still refuses a direct explicit true.
+  continues. The 11,821-attempt incident happened because skipped analyses were requeued; the coordinator treats a
+  skipped kind as current by signature.
+- **An analysis signature is code plus inputs.** `pdc_view.py` and pdc source changes mint a new attempt; a completed
+  analysis is not reused for different sources. `frame-series` adds the chosen trajectory through `Kind.source_hook`.
+- **`analysis/runs/segments.py` still names the pdc stage order** for the segment table; the film that consumed it is
+  retired.
+- **Display assembly is not dynamics.** `analysis/runs/frame_series.py::_assemble` moves whole molecules by periodic
+  images to the protein (or the first molecule) and centres it for the viewer; it assumes an orthogonal box, never
+  rewrites the trajectory, and the file says so. Never use `gmx trjconv -pbc cluster` to pull separate micelles
+  together.
+- **A rebuilt extension must set its own duration.** `restart_mdp(..., length_ps=)` overwrites `nsteps`; the old path
+  left the assessment's 100 ns in place.
+- **A protein-only default must not become an empty-micelle request.** `create_job` clears `prepare_protein` for a pdc
+  job with no protein; `pdc.prepare` still refuses a direct explicit true.
 - **The run card timeline follows settings.** `views.planned_skips` predicts empty-micelle/no-removal/back-map/
   equilibration skips; a real stage record always wins. The bar itself remains stage-local.
 - **No `ION`/water in the pdc viewer.** `ION` was once drawn as unbonded protein beads; it is in `WATER_RESIDUES`.
-- **pdc bonds are chemical by default.** Protein and detergent CONECT records; the elastic network is a separate
-  PDB series at opacity 0.1, not the chemical bonds.
+- **pdc bonds are chemical by default.** Protein and detergent CONECT records; the elastic network is a separate PDB
+  series at opacity 0.1.
+- **The player's files are views with a record.** `frames.json` carries the trajectory identity, the arguments and the
+  effective cadence; `series_pdb`'s REMARKs state any fit or assembly. The series PDB is fetched only on Play.
 - **Never kill DSH.** The first listener on 3080 is DSH; the dashboard is 5000 and is a systemd user service.
 
 ## Current measurements
 
-- `00b9ae6db23f`: 4iar + 120 DDM; assessment cluster sizes `[76,21,14,7,2]`, final `[42,16,15,3]`; protein contacts
-  41/34; 2,248 atoms; 2,194 chemical bonds/model; 2,236 protein elastic pairs; assessment 100 ns, extension actual
-  100 ns; total 200 ns.
-- `00b9ae6db23f`, historical film measurement before the `snapshots` analysis was retired: NVT 0.5005 ns, NPT
-  4.5005 ns, assessment 100 ns, extension 100 ns; NVT at 0.1 ns/frame (6 models), NPT at 0.1 (46), production 101
-  each; 254 frames total. NVT/NPT raw `.xtc` are made whole with `gmx trjconv -pbc mol -center`.
-- `936b74bd3fa8`: empty micelle, 120 DDM, no removal; the 1,000 ns leg after NVT/NPT was configured at
-  50,000,000 steps and did not finish: the run failed in `CG assessment MD` at the per-run storage limit.
-- `bbda8d632309`: failed at input before stages; no stage directories.
-- Frame series (2026-10-30): `00b9ae6db23f` extension and `b920391735dd` assessment, whole 100 ns, auto stride -- 120
-  models each, 0-99.246 ns; 210,480 CONECT records over 10,427 atoms and 8,604 atoms for the empty micelle; 44 s
-  for the producer's single pass. Both are built in the live workspace with the default arguments (00b9's is
-  19.4 MiB), so Run view plays them now.
-- Tests (measured 2026-10-30, after the Run view slice): 2,518 collected; fast **2,249 passed, 1 xfailed**;
-  browser **251 passed**; slow **17 passed**; `ruff check packages tests conftest.py` clean; mutation signal
-  10 caught / 1 survived. `pytest.ini` owns tier counts; do not copy moving counts into this file.
+- `b920391735dd`: protein-free pdc run (DDM, no removal, no back-map), 5,000,000 steps at 20 fs = 100 ns in one
+  assessment leg, the ruled-out stages absent. Its series: 120 models over 0–99.246 ns, 8,604 atoms, 15.7 MB, and
+  180,000 CONECT records measured on the assembled acceptance series. It is the surviving live pdc example.
+- `00b9ae6db23f` (deleted by the user 2026-10-30) was 4iar + 120 DDM, 2,248 atoms in the dry build and 11,708/10,427
+  through its two systems; its measurements remain in `docs/plans/2026-10-30-run-view-trajectory.md` as the acceptance
+  evidence, not as a live run.
+- Frame-series producer (2026-10-30): 44 s for the whole 100 ns, 2.5 GB extension trajectory after one sequential
+  pass; random `.xtc` access cost 1.7 s a frame, which is why the producer never indexes frames at random.
+- Tests (measured 2026-10-30, after the player): 2,518 collected; fast **2,249 passed, 1 xfailed**; browser **251
+  passed**; slow **17 passed**; `ruff check packages tests conftest.py` clean; mutation signal 10 caught / 1 survived.
+  `pytest.ini` owns tier counts; do not copy moving counts into this file.
 
 ## Landed slices, newest first
 
 - **2026-10-30 Martini 3 set tracked**: the published lipidome ITPs, the sugar reference and the licence are in git
-  (18 MB), so a clone installs the force field without a download; the upstream benchmark material and workbook stay
-  untracked.
+  (18 MB), so a clone installs the force field without a download; benchmark material and the workbook stay untracked.
 - **2026-10-30 tools layout**: Fast-Forward moved from `resources/parameterizers/` to `tools/fast_forward`, so all
-  three provisioned tools (Fast-Forward, BARTENDER, CG2AT2) live under the one gitignored tree; `config/tools.json`,
-  the test harness, the README and the guide point there, and the tracked patch stays in `resources/patches/`.
+  provisioned tools live under the one gitignored tree; the tracked patch stays in `resources/patches/`.
 - **2026-10-30 Run view trajectory**: the path-contract fix, the on-demand `frame-series` analysis (payload-driven
-  sources, fit/assembly, caps) and the player plus recompute form in the shared panel; verified on the live pdc runs.
-- **2026-10-30 modules switch**: the header popover hides/shows installed features for this workspace, saved in
+  sources, fit/assembly, caps) and the player plus build form in the shared panel.
+- **2026-10-30 modules switch**: the header popover hides/shows installed features per workspace, saved in
   `modules.json` and applied on reload; hidden means not offered, not unloaded.
 - **2026-10-30 feature selection and core-only start**: `DASHBOARD_FEATURES`/`--features` filters discovery before
-  loading, failed features are skipped and recorded, and an empty registry gets the engine's own workspace.
-- **2026-10-29 browser-tier flake**: a stale molecule load could replace a newer selection in the bead editor, so the
-  overlay drew the default molecule with an empty bead file; `loadMoleculeEditor` now checks its generation after
-  every await, and a delayed-fetch browser test requires the reader's choice to win. 14 consecutive runs green.
-- **2026-10-29 test-package split**: every test moved into its package (191/29/69 files; 1466/312/662 tests), shared
-  fixtures and the selection tables at `tests/harness/`, a root `conftest.py`, `--import-mode=importlib`;
-  `scripts/test_module.sh` selects a tree and `scripts/mutants.json` follows it.
-- **2026-10-27 run lifecycle**: one layout for every run type — `inputs/inputs.json` for shared inputs by path and
-  digest, generated data only in `inputs/`, repository code pinned in `stage_scripts`/`python_modules`, profile-written
-  MDPs with `mdp_profiles`, pdc's ten numbered stages with prepare-time skips, and `migrate_run_layout.py` for the old
-  trees.
-- **2026-10-26 pdc Run view**: timed CG reel from NVT/NPT/assessment/extension; one global playhead; 1 ns/frame
-  default for pdc; elastic overlay; protein/detergent bonds; PBC surface assembly.
-- **2026-10-26 empty micelle / no removal**: `remove_out_of_micelle`; single CG MD leg = assessment + extension;
-  empty-micelle preview and disabled Bonds/Ribbon; settings-driven SVG; job-level `prepare_protein` sanitization;
-  run-card planned skips; empty-micelle image assembly.
+  loading; failed features are skipped and recorded; an empty registry gets the engine's own workspace.
+- **2026-10-29 browser-tier flake**: a stale molecule load could replace a newer selection in the bead editor;
+  `loadMoleculeEditor` now checks its generation after every await, with a delayed-fetch regression test.
+- **2026-10-29 test-package split**: every test moved into its package, shared fixtures and selection tables at
+  `tests/harness/`, a root `conftest.py`, `--import-mode=importlib`; `scripts/test_module.sh` selects a tree.
+- **2026-10-27 run lifecycle**: `inputs/inputs.json` for shared inputs by path and digest, repository code pinned in
+  `stage_scripts`/`python_modules`, profile-written MDPs with `mdp_profiles`, pdc's ten numbered stages with
+  prepare-time skips, and `migrate_run_layout.py` for old trees.
+- **2026-10-26 empty micelle / no removal**: `remove_out_of_micelle`; one CG MD leg = assessment + extension;
+  empty-micelle preview and disabled Bonds/Ribbon; settings-driven SVG; job-level `prepare_protein` sanitisation;
+  planned skips; empty-micelle image assembly.
 - **2026-10-26 extension duration fix**: `restart_mdp` writes `nsteps` from `length_ps`/`dt`.
 - **2026-10-23 DDM back-map**: CG2AT2 vendored, fragment and force field wired, net charge -5.0 → 0.0, protein
   preparation default.
-- **2026-10-22 bond panel/rows, body-aware placement, device setting**.
-- **2026-10-21 serializer/store/name rules**.
-- **2026-10-20 profile choice removal, mapping reuse, lazy-Plotly slice**.
-- **2026-10-16 run type owns its fit; parameterization without a run**.
-- **2026-10-15 gate, mutation signal, property tests**.
-- **2026-10-12 → 2026-10-15 protein-detergent chain and run view**.
+- **2026-10-20 → 2026-10-22**: parameterization without a run, profile choice removal and mapping reuse, bond
+  panel/rows, body-aware placement, device setting, serializer/store/name rules.
+- **2026-10-12 → 2026-10-15**: protein-detergent chain and run view; gate, mutation signal and property tests.
 
 ## Where to read what
 
