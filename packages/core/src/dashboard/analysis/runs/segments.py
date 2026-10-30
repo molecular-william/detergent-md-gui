@@ -82,16 +82,17 @@ def present(root: Path, relative: str) -> Path | None:
 def relative(root: Path, path: Path) -> str:
     """The run-relative spelling of a resolved path, which is what the artifact route takes.
 
-    `stages/` is tried first: a run on disk keeps its stages under it, and a path under `stages/` would otherwise be
-    reported with that prefix -- which the artifact route resolves against the run root and would not find.
+    One spelling, relative to the run directory, because that is what `/structure` and `/artifacts` resolve a path
+    against. A current run keeps its stages under `stages/`, so that prefix is part of the answer and a panel can
+    fetch the file it was handed; a legacy run's files sit at the root and keep their own spelling. Stripping the
+    prefix here (the contract before this) produced URLs the routes answered 404 for on every current-layout run.
     """
     root = Path(root)
-    for base in (root / layout.STAGES, root):
-        try:
-            return path.relative_to(base).as_posix()
-        except ValueError:
-            continue
-    return path.as_posix()
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        # A path outside the run the caller named is reported in full rather than guessed at.
+        return path.as_posix()
 
 
 def _manifest(root: Path) -> dict:

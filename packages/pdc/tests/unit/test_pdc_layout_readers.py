@@ -103,12 +103,12 @@ def test_a_numbered_run_resolves_its_topology_trajectory_and_segments(tmp_path):
                              'Back-mapping (CG2AT2)'], list(by_name)
     with_trajectory = {name for name, entry in by_name.items() if entry.get('trajectory')}
     assert with_trajectory == {'NVT equilibration', 'NPT equilibration', 'CG assessment MD', 'CG extension MD'}
-    # Run-relative paths do not carry the `stages/` prefix: the artifact route resolves them against the run root.
-    assert by_name['CG extension MD']['trajectory'] == '08_extension/prod/whole.xtc'
-    assert by_name['CG assessment MD']['trajectory'] == '06_assessment/prod/whole.xtc'
-    assert by_name['Micelle assessment']['structure'] == '07_micelle_assessment/kept.gro'
+    # Run-relative paths carry the `stages/` prefix: that is the spelling the artifact and structure routes take.
+    assert by_name['CG extension MD']['trajectory'] == 'stages/08_extension/prod/whole.xtc'
+    assert by_name['CG assessment MD']['trajectory'] == 'stages/06_assessment/prod/whole.xtc'
+    assert by_name['Micelle assessment']['structure'] == 'stages/07_micelle_assessment/kept.gro'
     assert by_name['Back-mapping (CG2AT2)']['structure'] == \
-        '10_backmap/FINAL/FINAL/final_cg2at_neutral.pdb'
+        'stages/10_backmap/FINAL/FINAL/final_cg2at_neutral.pdb'
 
 
 def test_a_numbered_runs_stage_root_is_what_the_built_system_route_reads(tmp_path):

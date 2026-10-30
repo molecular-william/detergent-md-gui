@@ -108,7 +108,8 @@ def test_a_single_molecule_run_is_one_segment_from_the_layout(tmp_path):
     assert len(answer['segments']) == 1
     entry = answer['segments'][0]
     assert entry['atoms'] == 12 and entry['group'] == 1
-    assert entry['trajectory'] == '4_CG_sim/prod/lig_CG.xtc', 'the stages/ prefix is not part of the run-relative path'
+    assert entry['trajectory'] == 'stages/4_CG_sim/prod/lig_CG.xtc', (
+        'the spelling is the run root the artifact route resolves against')
 
 
 def test_a_run_with_nothing_to_play_says_why(tmp_path):
