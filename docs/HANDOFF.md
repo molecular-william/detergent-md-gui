@@ -4,23 +4,36 @@ State and open items for this repository. Rules live in `AGENTS.md`; subsystem b
 `docs/PROJECT_GUIDE.md`; scoring science in `docs/DDM_CALIBRATION.md`. Read this before touching the DDM CG chain,
 the protein-detergent pipeline or the coordinator. This file keeps only what is current and the evidence behind it.
 
-## Right now (2026-10-30, later): Run view has no player
+## Right now (2026-10-30, latest): Run view plays a trajectory again
 
-**Open next task -- Run view trajectory playback and frame recomputation.** The user reports that Run view, in both
-workspaces, can no longer play a simulation trajectory or recompute its frames, and that recomputing should offer
-comboboxes for the arguments. Verified in this session:
+**Built and verified; restart the dashboard to serve it.** The plan and its execution record are
+`docs/plans/2026-10-30-run-view-trajectory.md`.
 
-- The player was **removed, not broken**, in `d3ca13d` (2026-10-27); only the segment table remains. The retired
-  implementation and its tests are recoverable from `d3ca13d^` (see the plan for the exact paths).
-- The multi-model writer survives unused: `analysis/runs/structures.py::series_pdb`.
-- The vendored NGL has **no XTC/TRR parser**, so playback must be a server-written multi-model PDB series.
-- Trajectory URLs currently 404 on current-layout runs: `segments.relative()` strips `stages/` while `/structure`
-  and `/artifacts` resolve from the run root (live evidence in the plan). The route test writes the pre-`stages/`
-  fixture, which is why the suite is green.
-
-Full plan -- arguments, phases, recovery commits, tests, hazards, acceptance:
-`docs/plans/2026-10-30-run-view-trajectory.md`. Do Phase 0 (the path contract) first; it blocks even the structure
-picture.
+- **Phase 0, the path contract (`e7e6ad8`)**: `segments.relative()` returns the run-root spelling, so the URLs
+  `/trajectory` carries are the ones `/structure` and `/artifacts` resolve. Live: 14 of 14 segment URLs answer 200 on
+  `00b9ae6db23f`; the route test builds `stages/…`, fetches every URL it answers, keeps a legacy-root case, and covers
+  a `.pdb` structure, which the structure route refuses and the artifact route serves.
+- **The on-demand `frame-series` analysis** (`analysis/runs/frame_series.py`): `POST /api/jobs/<id>/frame-series`
+  takes the nine arguments (trajectory, structure, start/end ns, stride, fit, fragment, atoms, assembled), validates
+  them before an attempt exists (400), and stages the chosen pair plus the run's mapping/topologies through
+  `Kind.source_hook`; the queue hashes them, so a changed trajectory is a new attempt. Caps: 240 models / ~250 MB.
+  `fit` and `assembled` are views, and the file says so in its REMARKs. Same arguments reuse the attempt (200);
+  changed ones queue a new one (202). `/trajectory` now carries each playable segment's content `identity`.
+- **The player** (`static/js/run-view-trajectory.js`, in the engine panel of both workspaces): Play/Pause, seek,
+  −1/+1, speed, loop and a `t = … ns · model i/n` readout from `frames.json`; `run-frames.pdb` is fetched only when
+  Play is pressed, never on mount. The Recompute form offers the arguments as native controls; a stale series
+  (`frames.json.trajectory_identity` is not the segment's `identity`) says so, and a failed attempt shows its error
+  and the end of its log.
+- **Measured on the live runs** (whole 100 ns, auto stride): 120 models over 0–99.246 ns; on the extension leg the
+  producer took 44 s after one sequential pass, wrote 20.3 MB with 210,480 CONECT records and 120 `TIME` remarks, and
+  the same arguments returned the same attempt. The empty micelle's series is 15.7 MB of 8,604 atoms, assembled.
+- **`config/dashboard.json` `max_run_bytes` 30 -> 40 GiB**: `00b9ae6db23f` is 34.08 GiB, so the per-run admission
+  check refused to analyse the very run the plan names. A cap no existing run of that size could meet.
+- **One measured trap, now a test**: a run may keep a stage topology as a symlink into `inputs/` (b920's
+  `detergent_CG.itp`). Request-named paths stay strict (no symlink), but a *recorded* input whose target is inside the
+  run is staged under its stage spelling, so the series draws the run's own bonds. Without that, the played series
+  came out with zero CONECT beside a structure picture that drew them.
+- The retired `snapshots` cadence and the timed film stay retired; playback is on demand.
 
 ## Right now (2026-10-30): core-only starts, and features are selectable
 
@@ -149,7 +162,7 @@ picture.
 | `936b74bd3fa8` | deleted by the user 2026-10-27; failed in `CG assessment MD` (per-run storage limit) | nothing |
 | 1 us run for `00b9ae6db23f` | impossible from its data: 200 ns total | new pdc run with the corrected extension duration |
 | Overall Run view progress | the card bar is the current stage's fraction; timeline/plan skips now show settings | decide whether a true run-level percentage is wanted |
-| Run view film | retired with the `snapshots` analysis (`d3ca13d`); the panel has no player or recompute, and trajectory URLs 404 on current-layout runs | `docs/plans/2026-10-30-run-view-trajectory.md`, Phase 0 first |
+| Run view trajectory | built 2026-10-30 (`e7e6ad8` + `d635763`, the on-demand series and player); live API acceptance passed | restart the dashboard, open a run and play one series |
 | cloud vs rough belt | open measurement, not a task | one protein, one seed, two 100 ns legs; compare removal fraction/aggregation/belt thickness before adopting a belt criterion |
 | `pytest-socket` | not installed; no test enforces the no-outbound-HTTPS audit | add with `--allow-hosts=127.0.0.1,localhost` |
 | known test flake | `test_pdc_preview.py::test_the_cached_step_is_not_run_again...` has failed in one full fast run and passed alone | capture a failing order with `-p no:cacheprovider` |
@@ -161,9 +174,9 @@ picture.
 
 ## Invariants and incidents worth keeping
 
-- **The trajectory contract predates `stages/`.** `segments.relative()` strips the prefix while `/structure` and
-  `/artifacts` resolve from the run root, so every segment URL 404s on a current-layout run; the route test writes its
-  fixture at the root and stays green. One spelling, asserted by fetching the URLs, not by matching their shape.
+- **A trajectory URL is the run-root spelling.** `segments.relative()` keeps `stages/` because `/structure` and
+  `/artifacts` resolve from the run root; a `.pdb` structure is named by the artifact route instead. The route test
+  fetches every URL it answers rather than matching shapes -- a shape check stayed green while every URL 404'd.
 - **The URL does not always name the workspace.** The front door `/` renders one without a path segment, so client
   code reads `body[data-workspace]` (the rendered workspace), not `location.pathname`; and the remembered-workspace
   redirect follows a workspace only when it is still shown. Both failures on 2026-10-30 came from assuming the path:
@@ -203,12 +216,17 @@ picture.
 - `936b74bd3fa8`: empty micelle, 120 DDM, no removal; the 1,000 ns leg after NVT/NPT was configured at
   50,000,000 steps and did not finish: the run failed in `CG assessment MD` at the per-run storage limit.
 - `bbda8d632309`: failed at input before stages; no stage directories.
-- Tests (measured 2026-10-30): 2,460 collected; fast **2,202 passed, 1 xfailed**; browser **240 passed**; slow
-  **17 passed**; `ruff check packages tests conftest.py` clean. `pytest.ini` owns tier counts; do not
-  copy moving counts into this file.
+- Frame series (2026-10-30): `00b9ae6db23f` extension and `b920391735dd` assessment, whole 100 ns, auto stride -- 120
+  models each, 0-99.246 ns; 20.3 MB / 210,480 CONECT (10,427 atoms) and 15.7 MB / 8,604 atoms assembled; 44 s
+  for the producer's single pass.
+- Tests (measured 2026-10-30, after the Run view slice): 2,518 collected; fast **2,249 passed, 1 xfailed**;
+  browser **251 passed**; slow **17 passed**; `ruff check packages tests conftest.py` clean; mutation signal
+  10 caught / 1 survived. `pytest.ini` owns tier counts; do not copy moving counts into this file.
 
 ## Landed slices, newest first
 
+- **2026-10-30 Run view trajectory**: the path-contract fix, the on-demand `frame-series` analysis (payload-driven
+  sources, fit/assembly, caps) and the player plus recompute form in the shared panel; verified on the live pdc runs.
 - **2026-10-30 modules switch**: the header popover hides/shows installed features for this workspace, saved in
   `modules.json` and applied on reload; hidden means not offered, not unloaded.
 - **2026-10-30 feature selection and core-only start**: `DASHBOARD_FEATURES`/`--features` filters discovery before

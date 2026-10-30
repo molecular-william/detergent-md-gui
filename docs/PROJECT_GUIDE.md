@@ -46,7 +46,8 @@ how a dashboard gains a workspace; the engine never imports one.
   registry, evidence gates, draft models, packaged DDM source), repository.py (JSON record storage) and catalog.py.
 * analysis/runs/ owns the readers every run type shares: layout.py (registered stage directories, roles, review order,
   topology resolvers), segments.py (registered segmenters), structures.py (the GROMACS structure and CONECT writer),
-  statistics.py (block summaries), observability.py, bonded_terms.py, bonded_estimate.py, dihedral_fit.py,
+  frame_series.py (an on-demand trajectory-to-series producer), statistics.py (block summaries), observability.py,
+  bonded_terms.py, bonded_estimate.py, dihedral_fit.py,
   bartender_fit.py, references.py and figures.py. analysis/validation/carbohydrate_targets.py is the target registry
   that the mapping route and the validation analyses both read. kinds.py keeps the engine's own vocabulary
   (bartender-fit, bonded-cross-check, dihedral-fit, observables, plots, stability); a feature adds its rows.
@@ -292,7 +293,7 @@ naming it in the path (and a remembered workspace a module switch hid is never f
 ### Runs
 Background polling updates individual status fields every five seconds. Forms, expanded details, mapping edits, and scroll position are not rebuilt. Terminal runs can be manually deleted from their run card; active workers are protected. Tabs, form values, and mapping drafts are remembered in browser storage. Elapsed time is reported only when recorded; ETA is shown only when present in current GROMACS output. Legacy runs without timestamps show "Not recorded".
 
-Each run card shows the workflow stages from its manifest and indexes files created inside the run directory. Artifact links are path-checked; SVG files are previewed in the card. The former default `snapshots` analysis is retired: no analysis frame series is produced, and a run holds only the structures and trajectories its own stages wrote.
+Each run card shows the workflow stages from its manifest and indexes files created inside the run directory. Artifact links are path-checked; SVG files are previewed in the card. The default `snapshots` analysis stays retired: a run holds only the structures and trajectories its own stages wrote, and a frame series is on demand — `frame-series` samples a chosen segment into one multi-model PDB (`analysis/runs/frame_series.py`), never on a cadence.
 
 ### Run view
 One run, its structures and its figures, registered in **both** workspaces and scoped per
@@ -303,14 +304,22 @@ a CG structure is sized from the model's own size classes and coloured by type f
 `static/js/ngl-beads.js`, with the legend drawn from the same table. The bond rule is one helper
 (`static/js/run-view-structure.js`): a file carrying CONECT is drawn from those records and never guessed at,
 a coarse-grained file is `inferBonds: 'none'` even without CONECT, and only an all-atom file with no CONECT is
-left to the viewer's inference. There is no transport row or frame film: the snapshot analysis that published
-a frame series is retired, so the canvas shows one static structure at a time. A `pdc` run is drawn here too,
+left to the viewer's inference. A file is drawn as a static structure until the reader asks for frames: the
+**Trajectory** block (`static/js/run-view-trajectory.js`) offers one segment at a time and reads the newest
+completed `frame-series` attempt whose nine recorded arguments match its form. `run-frames.pdb` is fetched only
+when Play is pressed — never on mount — and Play/Pause, frame seek, −1/+1, speed, loop and a
+`t = <ns> · model <i>/<n>` readout come from that attempt's `frames.json`. The Recompute form offers segment,
+atoms, fit (with the mapping's fragment when the fit is on beads), start/end ns, step and assemble; submitting
+arguments that already have an attempt reuses it (`200`), and changed ones queue a new attempt (`202`). A series
+built from other bytes says so: `frames.json.trajectory_identity` is compared with the segment's `identity`. A `pdc` run is drawn here too,
 and its CG chain is presented as **segments**: a
 protein-detergent run rebuilds its system when the removal path takes detergents out, so its legs are not one
 trajectory. `GET /api/jobs/<id>/trajectory` answers them in stage order (`analysis/runs/segments.py`) — each
-entry's `structure`, `trajectory`, `atoms` and `group`, the `boundaries` where the atom count changes, and a
-stage that only re-declares another's file marked `duplicate_of` rather than played twice — and the panel
-renders one row per stage under the frames, `data-idle` for a stage with nothing to play and `data-boundary`
+entry's `structure`, `trajectory`, `atoms` and `group`, the `boundaries` where the atom count changes, a
+stage that only re-declares another's file marked `duplicate_of` rather than played twice, and each trajectory's
+content `identity` (size and both ends) so a series can say which bytes it sampled. A `structure_url` names
+`/structure` for a `.gro` and the artifact route for a `.pdb`. The panel renders one row per stage under the
+frames, `data-idle` for a stage with nothing to play and `data-boundary`
 for the rebuild, with both counts. Legs sharing a `group` are one system a player may concatenate; a change of
 group is where it must switch files (measured on `00b9ae6db23f`: 11,708 atoms through
 minimisation/NVT/NPT/assessment, 10,427 in the extension). The table is rendered only for a pdc run. `GET
@@ -320,7 +329,7 @@ bonds ]`/`[ constraints ]` written as CONECT (the topology located by
 `02_system/detergent_CG.itp` for a pdc one; a single-molecule run still falls back to the manifest's
 `FINAL_ITP`); a `.pdb` is refused to the artifact route.
 
-The analysis subprocess reads a work directory holding only the patterns its kind declares (`kinds.py`), so a role the layout can resolve is still invisible there until the kind copies the files.
+The analysis subprocess reads a work directory holding only the patterns its kind declares (`kinds.py`), so a role the layout can resolve is still invisible there until the kind copies the files. A kind whose sources its request decides declares `Kind.source_hook` instead: `frame-series` stages the chosen trajectory and structure plus the writer's topology/mapping inputs, and the queue hashes them, so changed bytes are a new attempt rather than a stale series.
 
 Analysis graphs expand inline: ff_assess PNG plots and a Plot SASA action that generates an image from measured AA/CG XVG data. Original XVG data are preserved; SVG artifacts remain previewable. Reads use byte offsets and bounded chunks; the display keeps up to 256 KB.
 
@@ -582,8 +591,8 @@ a three-leg script stage (`cg_simulation.sh`: min, eq, md) has no single GROMACS
 different questions.
 
 `coordinator.automatic_analyses` is the one resolver the queueing path asks -- `kinds.for_every_run()` plus
-`kinds.default_for(run_type)`. `for_every_run()` is empty because the snapshot analysis is retired; an `aa_cg` run still
-owes `dihedral-fit` and `bonded-cross-check`.
+`kinds.default_for(run_type)`. `for_every_run()` is empty because the snapshot analysis is retired; `frame-series`
+is on demand only; an `aa_cg` run still owes `dihedral-fit` and `bonded-cross-check`.
 
 The owed kinds are worked through **one at a time**, because `queue` takes one analysis per run and refuses a second
 with `RunBusy` while the first holds the worker. `analysis_coordinator.drain` queues what it can and names the rest in
