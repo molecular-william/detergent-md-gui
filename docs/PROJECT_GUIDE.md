@@ -101,6 +101,9 @@ below are written as they are imported (`dashboard/...`); the files live under `
 under its own `packages/<feature>/src/` tree.
 
 ## Environment
+The clone-to-running sequence -- Python packages, the third-party tools and where each one goes -- is in
+`README.md`, *Install from a clone*. This section records the environment facts a maintainer needs.
+
 The interpreter lives in .venv/ at the checkout root. Existing virtual environments cannot be moved because launchers include absolute paths. Scientific resources and the local Fast_Forward package live under resources/. Fresh setup, from the repository root:
 
 ```bash

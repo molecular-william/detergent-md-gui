@@ -17,7 +17,132 @@ Two workspaces, one for the model and one for the protein:
 `molecules/DDM` is the worked reference molecule; any molecule with a compatible AA topology goes through the same
 generic adapters. Generated parameters are hypotheses: a fit is an execution fact, never scientific validation.
 
-## Start
+## Install from a clone
+
+A clone carries the source only. The scientific inputs and the compiled tools are provisioned separately: `tools/`,
+`references/` and `resources/parameterizers/` are gitignored on purpose, so the checkout stays small and every run
+records the exact bytes and versions it used.
+
+### 1. Python environment
+
+You need Python 3.12 or newer. Every simulation stage runs a bash script, so the simulations need Linux or macOS; the
+dashboard and the test suite run on both. GROMACS is covered in step 2.
+
+The distributions declare only their dashboard imports, so the scientific stack is installed explicitly:
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip setuptools wheel
+
+# the engine and both features: a clone installs them from source, they are not on an index
+.venv/bin/python -m pip install -e packages/core
+.venv/bin/python -m pip install --no-deps -e packages/validation -e packages/pdc
+
+# what the code imports but the packages do not declare
+.venv/bin/python -m pip install numpy scipy matplotlib MDAnalysis numba networkx scikit-image openpyxl biotite
+.venv/bin/python -m pip install lmfit cgsmiles pysmiles pbr tqdm
+
+# pdc's DSSP and protonation steps, the test runner, and the browser driver
+.venv/bin/python -m pip install -r requirements-dashboard-tests.txt
+```
+
+`pip wheel packages/* -w dist --no-deps` followed by `pip install --find-links dist "detergent-md-gui[all]"` is the
+non-editable alternative.
+
+### 2. Scientific inputs and third-party tools
+
+Provision these once per clone. A declared path is the one the code uses; nothing is downloaded at run time, and a
+missing tool is reported by readiness rather than replacing itself with something else.
+
+| Tool | Needed for | Get it from | Put it at |
+| --- | --- | --- | --- |
+| GROMACS 2026.x | every simulation | <https://www.gromacs.org> (or your distribution, Spack, or conda) | any path with a working `gmx`; declare it |
+| Fast-Forward (`ff_map`, `ff_inter`, `ff_assess`) | the AA→CG parameterization | <https://github.com/Martini-Force-Field-Initiative/fast_forward> | `resources/parameterizers/fast_forward` |
+| BARTENDER + xtb | the CG Bond Interactions fit | the CGMartini tutorial archive (URL in the command below) | `tools/bartender/m3_bartender` |
+| CG2AT2 | the `pdc` back-mapping stage | <https://github.com/owenvickery/cg2at> | `tools/cg2at` |
+| Martini 3 force field | every CG run | <https://github.com/Martini-Force-Field-Initiative/M3-Lipid-Parameters> | `references/M3-Lipid-Parameters` |
+| the sugar reference | part of the same Martini set | the raw file URL below | `references/martini_v3.0.0_sugars_v2.itp` |
+| PLUMED (optional) | the `osmotic` series | <https://www.plumed.org> | any path; declare it |
+
+The Fast-Forward patch is not optional: without it its dihedral membership test is wrong, so restricted bending is
+never assigned. The patch applies to upstream commit `718ce2de`.
+
+`martinize2` (from the `vermouth` package) and `pdb2pqr` are installed by step 1 and resolve from the venv; they need
+no download or declaration. The DSSP step asks vermouth for `mdtraj`, which step 1 also installs.
+
+```bash
+# Fast-Forward, patched and installed into the environment
+mkdir -p resources/parameterizers
+git clone https://github.com/Martini-Force-Field-Initiative/fast_forward resources/parameterizers/fast_forward
+git -C resources/parameterizers/fast_forward checkout 718ce2de
+git -C resources/parameterizers/fast_forward apply "$PWD/resources/patches/fast_forward-dihedral-membership.patch"
+.venv/bin/python -m pip install --no-build-isolation --no-deps ./resources/parameterizers/fast_forward
+
+# BARTENDER (its archive also carries the xtb build the configuration declares)
+mkdir -p tools/bartender
+curl -L -o /tmp/m3_bartender.zip \
+  https://cgmartini-library.s3.ca-central-1.amazonaws.com/0_Tutorials/m3_tutorials/Parametrize_Small_Molecule/m3_bartender.zip
+unzip -q /tmp/m3_bartender.zip -d tools/bartender
+tar -xzf tools/bartender/m3_bartender/Bartender0.1.1.tgz -C tools/bartender/m3_bartender
+
+# CG2AT2 (the back-map stage runs tools/cg2at/cg2at and reads its database/ tree in place)
+mkdir -p tools
+git clone https://github.com/owenvickery/cg2at tools/cg2at
+
+# the Martini 3 set every CG run reads, and the sugar reference that is part of it
+mkdir -p references
+git clone https://github.com/Martini-Force-Field-Initiative/M3-Lipid-Parameters.git references/M3-Lipid-Parameters
+git -C references/M3-Lipid-Parameters checkout 2121527
+curl -L -o references/martini_v3.0.0_sugars_v2.itp \
+  https://raw.githubusercontent.com/marrink-lab/martini-forcefields/e11f1d31923ba8090779f8601847dbde84e559e4/martini_forcefields/regular/v3.0.0/gmx_files/martini_v3.0.0_sugars_v2.itp
+cat > references/martini_v3.0.0_sugars_v2.source.json <<'JSON'
+{
+  "url": "https://raw.githubusercontent.com/marrink-lab/martini-forcefields/e11f1d31923ba8090779f8601847dbde84e559e4/martini_forcefields/regular/v3.0.0/gmx_files/martini_v3.0.0_sugars_v2.itp",
+  "commit": "e11f1d31923ba8090779f8601847dbde84e559e4",
+  "sha256": "4d29956a77d936cfdad10e8bbdf201cebdaa24a2f5f50688988a1c7bb9ebfc50",
+  "paper_doi": "10.1021/acs.jctc.2c00757",
+  "martini_version": 3
+}
+JSON
+```
+
+A CUDA GPU is optional: the AA and CG defaults offload nonbonded work to device 0, so on a CPU-only machine set
+`mdrun_nb` and `mdrun_pme` to `cpu` in the run's settings. The code asks `gmx` whether it is an MPI or a thread-MPI
+build and passes only the thread flags that build accepts.
+
+The Martini set is installed into `workspace/dashboard/martini3/` by the first CG reader, which records the upstream
+commit and a digest per file. The checkout's `references/` also holds optional upstream trees: `M3-Small-Molecules`
+and `M3-Bible` widen the mapping-suggestion index, and the reference PDFs are reading material, not inputs.
+
+PLUMED is needed only for the `osmotic` series, and the GROMACS build must have PLUMED support: `gmx mdrun -plumed`
+loads a kernel at run time, and the code sets `PLUMED_KERNEL` from the `lib/` directory beside the declared `plumed`.
+
+### 3. Declare the tools
+
+`config/tools.json` is the one declaration `dashboard.execution.tools` reads. A declared path must be an executable
+file or it resolves to nothing -- never to a different build of the same tool. A bare command name is resolved on the
+dashboard's own search path (the environment's `bin` first, then the declared tools' directories, then `PATH`), and a
+name that is not declared at all (`martinize2`, `pdb2pqr`) resolves the same way.
+
+```json
+{
+  "gromacs": "/usr/local/gromacs/2026.3/bin/gmx",
+  "fast_forward": "ff_map",
+  "fast_forward_source": "resources/parameterizers/fast_forward",
+  "fast_forward_commit": "61e407e60ffa0153fb2b5a028b065383619c2586",
+  "bartender": "tools/bartender/m3_bartender/bartender",
+  "xtb": "tools/bartender/m3_bartender/xtb-6.4.1/bin/xtb",
+  "plumed": "/opt/plumed/bin/plumed"
+}
+```
+
+The dashboard starts with none of these declared; each run type reports a missing tool at prepare time instead of
+guessing at a substitute. Set `gromacs` to your own `gmx` (the value may also be the bare name `"gmx"`), and set
+`fast_forward_commit` to the commit of your patched checkout if you provisioned a different one: the provenance is
+recorded per run, and one test fails when the pin and the checkout disagree. Omit `plumed` if you do not run the
+osmotic series.
+
+### 4. Start
 
 From the repository root:
 
@@ -26,13 +151,25 @@ From the repository root:
 .venv/bin/python -m dashboard --features validation  # only that feature; the default is every installed one
 ```
 
-A feature that fails to load is skipped and logged rather than stopping the dashboard; a name that matches no
-installed feature is an error. With no feature installed the engine still serves its own workspace — Runs, Run view
-and New run for AA-only and AA-CG runs.
+`detergent-dashboard` is the same entry point once the packages are installed. A feature that fails to load is skipped
+and logged rather than stopping the dashboard; a name that matches no installed feature is an error. With no feature
+installed the engine still serves its own workspace — Runs, Run view and New run for AA-only and AA-CG runs.
 
-One coordinator per configured workspace. The checkout selects `workspace/dashboard/` through
-`config/dashboard-paths.json`; `DASHBOARD_WORKSPACE=/absolute/path` overrides it for an isolated instance. Restart the
-process after changing Python code — routes and models are loaded at start, `static/` and templates are not.
+The first start creates `workspace/dashboard/` with its SQLite store and run directories; the Martini set is installed
+into it the first time a CG reader needs it. One coordinator per configured workspace: the checkout selects `workspace/dashboard/` through
+`config/dashboard-paths.json`, and `DASHBOARD_WORKSPACE=/absolute/path` overrides it for an isolated instance. Restart
+the process after changing Python code — routes and models are loaded at start, `static/` and templates are not.
+
+### 5. Check the installation
+
+Open the dashboard; **New run** shows a readiness list and names every tool it cannot resolve. From a shell:
+
+```bash
+curl -s http://127.0.0.1:5000/api/jobs        # 200 with an empty or populated job list
+```
+
+The worked example is `molecules/DDM` (its atomistic input is under `molecules/DDM/results/MATCH`), and the run types
+above say what each needs. Nothing is downloaded or installed by a run.
 
 ## The model a run consumes
 
@@ -87,6 +224,9 @@ process after changing Python code — routes and models are loaded at start, `s
 * [docs/research/](docs/research/) — carbohydrate mapping and validation operations.
 
 ## Verification
+
+The browser tier drives the installed Google Chrome through Playwright (`channel='chrome'`), so Chrome must be
+present; `playwright install` is not needed for that channel.
 
 ```bash
 .venv/bin/python -m pytest -m 'not browser and not slow' -q      # fast tier
