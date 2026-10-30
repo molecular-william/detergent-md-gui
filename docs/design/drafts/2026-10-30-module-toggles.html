@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Module toggles · three layouts · draft for review</title>
+<link rel="stylesheet" href="../../../packages/core/src/dashboard/web/static/dashboard.css">
+<link rel="stylesheet" href="../../../packages/core/src/dashboard/web/static/workspaces.css">
+<style>
+  /* ---- draft chrome ------------------------------------------------------------------------------------------ */
+  body { padding: 24px; }
+  main { max-width: 1320px; margin: 0 auto; }
+  .draft-banner { background: #fffbe6; border: 1px solid #e6d78a; border-radius: 10px; padding: 14px 18px; margin: 0 0 18px; }
+  .draft-banner h2 { margin: 0 0 6px; font-size: 17px; }
+  .draft-banner p, .draft-banner li { font-size: 13px; line-height: 1.55; margin: 4px 0; }
+  .draft-banner ul { margin: 6px 0 0; padding-left: 20px; }
+  .draft-tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--accent); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; margin: 0 0 10px; }
+  .draft-choices { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+  .draft-choices button { background: #fff; color: var(--accent); border-color: var(--line); }
+  .draft-choices button[aria-pressed=true] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .draft-frame { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--bg);
+    box-shadow: 0 6px 24px #162c4814; margin: 0 0 24px; }
+  .draft-frame[hidden] { display: none; }
+  .draft-caption { font-size: 12px; color: var(--muted); margin: 10px 2px 0; }
+  .demo-app { display: grid; grid-template-columns: 276px minmax(0, 1fr); min-height: 560px;
+    transition: grid-template-columns .18s ease; }
+  .demo-app.rail-collapsed { grid-template-columns: 68px minmax(0, 1fr); }
+  .demo-content { padding: 18px 22px 22px; min-width: 0; }
+  .demo-content nav { margin-bottom: 18px; }
+  .panel-demo { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+  .panel-demo h2 { margin: 0 0 4px; }
+  .panel-demo p { color: var(--muted); margin: 0 0 14px; }
+  .ghost-table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  .ghost-table th, .ghost-table td { text-align: left; border-bottom: 1px solid var(--line); padding: 8px 6px; }
+  .ghost-table th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; }
+  .dirty-note { display: flex; align-items: center; gap: 10px; background: #fff8e7; border: 1px solid #efdfad;
+    border-radius: 8px; padding: 9px 12px; font-size: 12.5px; margin: 0 0 16px; }
+  .dirty-note button { padding: 5px 10px; font-size: 12px; }
+
+  /* ---- the rail (design A) ----------------------------------------------------------------------------------- */
+  .rail { background: #fff; border-right: 1px solid var(--line); padding: 14px 12px; display: flex; flex-direction: column;
+    width: 276px; transition: width .18s ease; }
+  .rail.is-collapsed { width: 68px; padding: 14px 8px; }
+  .rail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 4px 10px; }
+  .rail-title { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .rail-toggle { background: #fff; color: var(--accent); border: 1px solid var(--line); border-radius: 8px;
+    width: 30px; height: 30px; padding: 0; font-size: 15px; line-height: 1; }
+  .module-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .module { display: flex; align-items: flex-start; gap: 10px; padding: 9px 8px; border-radius: 9px; }
+  .module:hover { background: #f4f7fb; }
+  .module-glyph { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px;
+    background: #e8eef6; color: var(--accent); font-size: 14px; font-weight: 700; }
+  .module.is-off .module-glyph { background: #f1f3f6; color: #93a1b3; }
+  .module.is-off .module-body strong { color: var(--muted); }
+  .module.is-missing .module-glyph { background: #f7f2ea; color: #b08a4a; }
+  .module-body { flex: 1; min-width: 0; padding-top: 1px; }
+  .module-body strong { display: block; font-size: 13.5px; }
+  .module-body small { display: block; color: var(--muted); font-size: 11.5px; line-height: 1.4; margin-top: 1px; }
+  .module-state { font-size: 11px; color: var(--muted); white-space: nowrap; padding-top: 4px; }
+  .rail-note { margin: auto 4px 2px; color: var(--muted); font-size: 11.5px; line-height: 1.45; border-top: 1px solid var(--line); padding-top: 10px; }
+  .rail.is-collapsed .rail-title, .rail.is-collapsed .module-body, .rail.is-collapsed .module-state,
+  .rail.is-collapsed .rail-note, .rail.is-collapsed .switch { display: none; }
+  .rail.is-collapsed .module { justify-content: center; }
+  .rail.is-collapsed .module-glyph { width: 34px; height: 34px; }
+  /* collapsed rows keep their on/off state as a corner dot */
+  .module { position: relative; }
+  .rail.is-collapsed .module::after { content: ""; position: absolute; right: 7px; top: 7px; width: 7px; height: 7px;
+    border-radius: 50%; background: #2f9e6a; }
+  .rail.is-collapsed .module.is-off::after { background: #b9c4d1; }
+  .rail.is-collapsed .module.is-missing::after { background: #d9c29a; }
+
+  /* ---- the switch -------------------------------------------------------------------------------------------- */
+  .switch { position: relative; flex: none; width: 34px; height: 20px; display: inline-block; margin: 3px 0 0; }
+  .switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; z-index: 1; }
+  .switch-track { position: absolute; inset: 0; border-radius: 999px; background: #c9d4e0; transition: background .15s ease; }
+  .switch-track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 2px #162c4833; transition: transform .15s ease; }
+  .switch input:checked + .switch-track { background: #2f9e6a; }
+  .switch input:checked + .switch-track::after { transform: translateX(14px); }
+  .switch input:focus-visible + .switch-track { outline: 3px solid #78a9ec; outline-offset: 2px; }
+  .switch input:disabled { cursor: not-allowed; }
+  .switch input:disabled + .switch-track { opacity: .45; }
+
+  /* ---- the header popover (design B) ------------------------------------------------------------------------- */
+  .demo-topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px;
+    background: #fff; border-bottom: 1px solid var(--line); position: relative; }
+  .demo-topbar strong { font-size: 14px; }
+  .popover-wrap { position: relative; }
+  #modulesButton { background: #fff; color: var(--accent); border-color: var(--line); }
+  .popover { position: absolute; right: 0; top: calc(100% + 8px); width: 340px; background: #fff; border: 1px solid var(--line);
+    border-radius: 12px; box-shadow: 0 12px 30px #162c4826; padding: 10px; z-index: 5; }
+  .popover h3 { margin: 4px 6px 8px; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+
+  /* ---- the settings page (design C) -------------------------------------------------------------------------- */
+  .settings { padding: 22px; }
+  .settings h2 { margin: 0 0 4px; }
+  .settings > p { color: var(--muted); margin: 0 0 18px; }
+  .module-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+  .module-card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; gap: 12px; }
+  .module-card.is-off { background: #fafbfd; }
+  .module-card .module-body strong { font-size: 14.5px; }
+  .module-card .capabilities { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  .module-card .capabilities span { font-size: 11px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; color: var(--muted); }
+  .tag-missing { font-size: 11px; font-weight: 700; color: #8a6a2f; background: #f7f2ea; border-radius: 999px; padding: 2px 9px; }
+
+  @media (max-width: 900px) { .demo-app { grid-template-columns: 68px minmax(0, 1fr); }
+    .rail:not(.is-collapsed) { width: 68px; }
+    .rail:not(.is-collapsed) .rail-title, .rail:not(.is-collapsed) .module-body,
+    .rail:not(.is-collapsed) .module-state, .rail:not(.is-collapsed) .rail-note,
+    .rail:not(.is-collapsed) .switch { display: none; }
+    .rail:not(.is-collapsed) .module { justify-content: center; } }
+</style>
+</head>
+<body>
+<main>
+  <div class="draft-banner">
+    <span class="draft-tag">Draft · not wired up</span>
+    <h2>Switching installed modules on and off</h2>
+    <p>The toggles change which workspaces this dashboard shows. Nothing is unloaded: the module's API, run types and
+       recorded-code resolvers stay live, so existing runs keep opening and analysing. A change applies when the page is
+       reloaded — the banner in each design is the only new state.</p>
+    <ul>
+      <li><strong>On</strong> — workspace appears in the navigation and its run types appear in New run.</li>
+      <li><strong>Off</strong> — workspace and its run types are hidden; its panels are reachable only if you already have a run of that type open.</li>
+      <li><strong>Not installed</strong> — listed but not switchable, so a missing dependency is visible rather than forgotten.</li>
+    </ul>
+  </div>
+
+  <div class="draft-choices" role="tablist" aria-label="Draft layouts">
+    <button type="button" role="tab" data-view="rail" aria-pressed="true">A · Modules rail (recommended)</button>
+    <button type="button" role="tab" data-view="popover" aria-pressed="false">B · Header popover</button>
+    <button type="button" role="tab" data-view="settings" aria-pressed="false">C · Settings page</button>
+  </div>
+
+  <!-- ============================================================ A · rail ==================================== -->
+  <section class="draft-frame" data-frame="rail">
+    <div class="demo-app" id="railApp">
+      <aside class="rail" id="rail" aria-label="Modules">
+        <div class="rail-head">
+          <span class="rail-title">Modules</span>
+          <button type="button" class="rail-toggle" id="railToggle" aria-expanded="true"
+                  aria-label="Collapse the modules rail" title="Collapse">‹</button>
+        </div>
+        <ul class="module-list">
+          <li class="module" data-slug="engine" title="Engine">
+            <span class="module-glyph" aria-hidden="true">▣</span>
+            <span class="module-body"><strong>Engine</strong><small>Runs, Run view, New run</small></span>
+            <span class="module-state">Always on</span>
+          </li>
+          <li class="module" data-slug="validation" title="Detergent validation">
+            <span class="module-glyph" aria-hidden="true">◎</span>
+            <span class="module-body"><strong>Detergent validation</strong>
+              <small>Bead assignment, Bond interactions, Mapping validation, Osmotic series</small></span>
+            <label class="switch"><input type="checkbox" data-module="validation" checked
+                   aria-label="Enable Detergent validation"><span class="switch-track"></span></label>
+          </li>
+          <li class="module" data-slug="pdc" title="Protein-detergent simulations">
+            <span class="module-glyph" aria-hidden="true">⬡</span>
+            <span class="module-body"><strong>Protein-detergent</strong>
+              <small>Complexes, Protein-detergent runs</small></span>
+            <label class="switch"><input type="checkbox" data-module="pdc" checked
+                   aria-label="Enable Protein-detergent simulations"><span class="switch-track"></span></label>
+          </li>
+          <li class="module is-missing" title="Carbohydrate pack is not installed">
+            <span class="module-glyph" aria-hidden="true">◇</span>
+            <span class="module-body"><strong>Carbohydrate pack</strong><small>Not installed</small></span>
+            <label class="switch"><input type="checkbox" disabled aria-label="Carbohydrate pack, not installed">
+              <span class="switch-track"></span></label>
+          </li>
+        </ul>
+        <p class="rail-note">Toggles apply when you reload. The engine workspace appears when every module is off.</p>
+      </aside>
+      <div class="demo-content">
+        <div class="dirty-note" data-dirty hidden>
+          <span>Module selection changed — reload to apply.</span>
+          <button type="button" class="secondary" onclick="location.reload()">Reload now</button>
+        </div>
+        <nav class="section-tabs" role="tablist" aria-label="Workspaces">
+          <a class="section-tab" href="#" role="tab" aria-selected="true" data-tab-module="validation">
+            Detergent validation<span class="sub">Build and check a detergent's coarse-grained model</span></a>
+          <a class="section-tab" href="#" role="tab" aria-selected="false" data-tab-module="pdc">
+            Protein-detergent simulations<span class="sub">A protein with its detergent</span></a>
+          <a class="section-tab" href="#" role="tab" aria-selected="false" data-tab-engine hidden>
+            Dashboard<span class="sub">The engine on its own: AA-only and AA-CG runs</span></a>
+        </nav>
+        <nav class="subtabs" role="tablist" aria-label="Panels">
+          <a class="subtab" href="#" role="tab" aria-selected="true"><span class="tab-glyph" aria-hidden="true">☰</span><span class="tab-text">Runs</span></a>
+          <a class="subtab" href="#" role="tab" aria-selected="false"><span class="tab-glyph" aria-hidden="true">⬓</span><span class="tab-text">Run view</span></a>
+          <a class="subtab" href="#" role="tab" aria-selected="false"><span class="tab-glyph" aria-hidden="true">▶</span><span class="tab-text">New run</span></a>
+        </nav>
+        <div class="panel-demo">
+          <h2>Run activity</h2>
+          <p>Status updates in the background. Your workspace stays in place.</p>
+          <table class="ghost-table">
+            <thead><tr><th>Run</th><th>Status</th><th>Molecule</th><th>Method</th></tr></thead>
+            <tbody>
+              <tr><td>ddm100ns</td><td><span class="badge" data-status="completed">completed</span></td><td>DDM</td><td>aa_cg</td></tr>
+              <tr><td>micelle-1us</td><td><span class="badge" data-status="running">running</span></td><td>DDM</td><td>pdc</td></tr>
+              <tr><td>osmotic-series</td><td><span class="badge" data-status="waiting">waiting</span></td><td>Sucrose</td><td>osmotic</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+  <p class="draft-caption" data-frame="rail">A · A dashboard-owned rail. The collapse control leaves a 68px glyph
+    column whose corner dot shows each module's state; expand to flip a switch. At under 900px it behaves like the
+    collapsed state, which is also how it can ship on narrow screens without a separate design.</p>
+
+  <!-- ========================================================= B · popover ==================================== -->
+  <section class="draft-frame" data-frame="popover" hidden>
+    <div class="demo-topbar">
+      <strong>Detergent MD</strong>
+      <div class="popover-wrap">
+        <button type="button" id="modulesButton" aria-expanded="false" aria-controls="modulesPopover">Modules ▾</button>
+        <div class="popover" id="modulesPopover" hidden>
+          <h3>Installed modules</h3>
+          <ul class="module-list">
+            <li class="module" data-slug="validation">
+              <span class="module-glyph" aria-hidden="true">◎</span>
+              <span class="module-body"><strong>Detergent validation</strong><small>Single-molecule CG work</small></span>
+              <label class="switch"><input type="checkbox" data-module="validation" checked aria-label="Enable Detergent validation"><span class="switch-track"></span></label>
+            </li>
+            <li class="module" data-slug="pdc">
+              <span class="module-glyph" aria-hidden="true">⬡</span>
+              <span class="module-body"><strong>Protein-detergent</strong><small>Complexes and pdc runs</small></span>
+              <label class="switch"><input type="checkbox" data-module="pdc" checked aria-label="Enable Protein-detergent simulations"><span class="switch-track"></span></label>
+            </li>
+            <li class="module is-missing">
+              <span class="module-glyph" aria-hidden="true">◇</span>
+              <span class="module-body"><strong>Carbohydrate pack</strong><small>Not installed</small></span>
+              <label class="switch"><input type="checkbox" disabled aria-label="Carbohydrate pack, not installed"><span class="switch-track"></span></label>
+            </li>
+          </ul>
+          <p class="rail-note">Changes apply when you reload.</p>
+        </div>
+      </div>
+    </div>
+    <div class="demo-content" style="padding-top:16px">
+      <div class="dirty-note" data-dirty hidden><span>Module selection changed — reload to apply.</span>
+        <button type="button" class="secondary" onclick="location.reload()">Reload now</button></div>
+      <nav class="section-tabs" role="tablist" aria-label="Workspaces">
+        <a class="section-tab" href="#" role="tab" aria-selected="true" data-tab-module="validation">Detergent validation<span class="sub">Build and check a detergent's model</span></a>
+        <a class="section-tab" href="#" role="tab" aria-selected="false" data-tab-module="pdc">Protein-detergent simulations<span class="sub">A protein with its detergent</span></a>
+        <a class="section-tab" href="#" role="tab" aria-selected="false" data-tab-engine hidden>Dashboard<span class="sub">The engine on its own</span></a>
+      </nav>
+      <div class="panel-demo"><h2>Run activity</h2><p>The panel is unchanged; only the navigation shrinks.</p></div>
+    </div>
+  </section>
+  <p class="draft-caption" data-frame="popover" hidden>B · No permanent layout. One extra header control, the smallest diff to
+    the shell; discoverability is lower and the list is hidden most of the time.</p>
+
+  <!-- ========================================================= C · settings page ============================== -->
+  <section class="draft-frame" data-frame="settings" hidden>
+    <div class="settings">
+      <h2>Modules and workspaces</h2>
+      <p>Choose what this dashboard shows. Installed modules are always available to running work; switching one off
+         only hides its workspace and its New run form.</p>
+      <div class="dirty-note" data-dirty hidden><span>Module selection changed — reload to apply.</span>
+        <button type="button" class="secondary" onclick="location.reload()">Reload now</button></div>
+      <div class="module-cards">
+        <div class="module-card" data-slug="validation">
+          <span class="module-glyph" aria-hidden="true">◎</span>
+          <div class="module-body">
+            <strong>Detergent validation</strong>
+            <small>Build and check a detergent's coarse-grained model, compare mappings, run an osmotic series.</small>
+            <div class="capabilities"><span>Bead assignment</span><span>Bond interactions</span><span>Mapping validation</span><span>Osmotic series</span></div>
+          </div>
+          <label class="switch"><input type="checkbox" data-module="validation" checked aria-label="Enable Detergent validation"><span class="switch-track"></span></label>
+        </div>
+        <div class="module-card" data-slug="pdc">
+          <span class="module-glyph" aria-hidden="true">⬡</span>
+          <div class="module-body">
+            <strong>Protein-detergent</strong>
+            <small>Place a detergent belt around a protein and run the ten-stage pdc pipeline.</small>
+            <div class="capabilities"><span>Complexes</span><span>Placement</span><span>Back-map</span></div>
+          </div>
+          <label class="switch"><input type="checkbox" data-module="pdc" checked aria-label="Enable Protein-detergent simulations"><span class="switch-track"></span></label>
+        </div>
+        <div class="module-card is-missing">
+          <span class="module-glyph" aria-hidden="true">◇</span>
+          <div class="module-body">
+            <strong>Carbohydrate pack</strong>
+            <small>Installed with <code>pip install detergent-md-gui[all]</code>. This instance does not have it.</small>
+            <div class="capabilities"><span class="tag-missing">not installed</span></div>
+          </div>
+          <label class="switch"><input type="checkbox" disabled aria-label="Carbohydrate pack, not installed"><span class="switch-track"></span></label>
+        </div>
+      </div>
+    </div>
+  </section>
+  <p class="draft-caption" data-frame="settings" hidden>C · A full page inside the engine workspace. Most room for
+    explanations and "not installed" guidance; one navigation step away from where the reader is.</p>
+
+  <div class="draft-banner" style="margin-top:8px">
+    <h2>Recommendation</h2>
+    <p><strong>A</strong> is the best fit: the workspaces are already a small, stable set, so a rail costs 276px and
+       teaches the module concept in place. <strong>B</strong> is the smallest change if the rail is too much layout.
+       <strong>C</strong> belongs beside A as the place to explain modules, not as the only way to reach them.</p>
+    <p>Implementation notes: the switch writes a workspace-scoped setting; the server filters workspaces and New run's
+       run types on the next page load; a disabled workspace's URL answers 404 with a link to the enabled ones; the
+       current workspace falling out of the set lands on the first remaining one. The rail's collapse state is
+       remembered in <code>localStorage</code>.</p>
+  </div>
+</main>
+
+<script>
+  // ---- shared draft state ----------------------------------------------------------------------------------------
+  const enabled = { validation: true, pdc: true };
+  let dirty = false;
+
+  function render() {
+    document.querySelectorAll('input[data-module]').forEach(input => {
+      input.checked = enabled[input.dataset.module];
+    });
+    document.querySelectorAll('[data-tab-module]').forEach(tab => {
+      tab.hidden = !enabled[tab.dataset.tabModule];
+    });
+    const engineTab = document.querySelector('[data-frame="rail"] [data-tab-engine]');
+    if (engineTab) engineTab.hidden = enabled.validation || enabled.pdc;
+    document.querySelectorAll('[data-slug]').forEach(row => {
+      if (!(row.dataset.slug in enabled)) return;
+      row.classList.toggle('is-off', !enabled[row.dataset.slug]);
+    });
+    document.querySelectorAll('[data-dirty]').forEach(note => { note.hidden = !dirty; });
+  }
+
+  document.addEventListener('change', event => {
+    const input = event.target.closest('input[data-module]');
+    if (!input) return;
+    enabled[input.dataset.module] = input.checked;
+    dirty = true;
+    render();
+  });
+
+  // ---- variant switcher ------------------------------------------------------------------------------------------
+  document.querySelectorAll('[data-view]').forEach(button => {
+    button.addEventListener('click', () => {
+      document.querySelectorAll('[data-view]').forEach(other => other.setAttribute('aria-pressed', String(other === button)));
+      document.querySelectorAll('[data-frame]').forEach(frame => { frame.hidden = frame.dataset.frame !== button.dataset.view; });
+    });
+  });
+
+  // ---- rail collapse ---------------------------------------------------------------------------------------------
+  const rail = document.getElementById('rail');
+  const railApp = document.getElementById('railApp');
+  const railToggle = document.getElementById('railToggle');
+  railToggle.addEventListener('click', () => {
+    const collapsed = rail.classList.toggle('is-collapsed');
+    railApp.classList.toggle('rail-collapsed', collapsed);
+    railToggle.textContent = collapsed ? '›' : '‹';
+    railToggle.setAttribute('aria-expanded', String(!collapsed));
+    railToggle.setAttribute('aria-label', collapsed ? 'Expand the modules rail' : 'Collapse the modules rail');
+  });
+
+  // ---- popover ---------------------------------------------------------------------------------------------------
+  const modulesButton = document.getElementById('modulesButton');
+  const modulesPopover = document.getElementById('modulesPopover');
+  modulesButton.addEventListener('click', () => {
+    const open = modulesButton.getAttribute('aria-expanded') === 'true';
+    modulesButton.setAttribute('aria-expanded', String(!open));
+    modulesPopover.hidden = open;
+  });
+  document.addEventListener('click', event => {
+    if (modulesPopover.hidden) return;
+    if (!event.target.closest('#modulesPopover') && !event.target.closest('#modulesButton')) {
+      modulesPopover.hidden = true;
+      modulesButton.setAttribute('aria-expanded', 'false');
+    }
+  });
+
+  render();
+</script>
+</body>
+</html>
