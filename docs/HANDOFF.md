@@ -4,6 +4,24 @@ State and open items for this repository. Rules live in `AGENTS.md`; subsystem b
 `docs/PROJECT_GUIDE.md`; scoring science in `docs/DDM_CALIBRATION.md`. Read this before touching the DDM CG chain,
 the protein-detergent pipeline or the coordinator. This file keeps only what is current and the evidence behind it.
 
+## Right now (2026-10-30, later): Run view has no player
+
+**Open next task -- Run view trajectory playback and frame recomputation.** The user reports that Run view, in both
+workspaces, can no longer play a simulation trajectory or recompute its frames, and that recomputing should offer
+comboboxes for the arguments. Verified in this session:
+
+- The player was **removed, not broken**, in `d3ca13d` (2026-10-27); only the segment table remains. The retired
+  implementation and its tests are recoverable from `d3ca13d^` (see the plan for the exact paths).
+- The multi-model writer survives unused: `analysis/runs/structures.py::series_pdb`.
+- The vendored NGL has **no XTC/TRR parser**, so playback must be a server-written multi-model PDB series.
+- Trajectory URLs currently 404 on current-layout runs: `segments.relative()` strips `stages/` while `/structure`
+  and `/artifacts` resolve from the run root (live evidence in the plan). The route test writes the pre-`stages/`
+  fixture, which is why the suite is green.
+
+Full plan -- arguments, phases, recovery commits, tests, hazards, acceptance:
+`docs/plans/2026-10-30-run-view-trajectory.md`. Do Phase 0 (the path contract) first; it blocks even the structure
+picture.
+
 ## Right now (2026-10-30): core-only starts, and features are selectable
 
 - **A core-only install is a working dashboard.** With no feature installed, `sections.ensure_default()` registers the
@@ -131,7 +149,7 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 | `936b74bd3fa8` | deleted by the user 2026-10-27; failed in `CG assessment MD` (per-run storage limit) | nothing |
 | 1 us run for `00b9ae6db23f` | impossible from its data: 200 ns total | new pdc run with the corrected extension duration |
 | Overall Run view progress | the card bar is the current stage's fraction; timeline/plan skips now show settings | decide whether a true run-level percentage is wanted |
-| Run view film | retired with the `snapshots` analysis; the panel shows static structures and CG-chain segments | nothing |
+| Run view film | retired with the `snapshots` analysis (`d3ca13d`); the panel has no player or recompute, and trajectory URLs 404 on current-layout runs | `docs/plans/2026-10-30-run-view-trajectory.md`, Phase 0 first |
 | cloud vs rough belt | open measurement, not a task | one protein, one seed, two 100 ns legs; compare removal fraction/aggregation/belt thickness before adopting a belt criterion |
 | `pytest-socket` | not installed; no test enforces the no-outbound-HTTPS audit | add with `--allow-hosts=127.0.0.1,localhost` |
 | known test flake | `test_pdc_preview.py::test_the_cached_step_is_not_run_again...` has failed in one full fast run and passed alone | capture a failing order with `-p no:cacheprovider` |
@@ -143,6 +161,9 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Invariants and incidents worth keeping
 
+- **The trajectory contract predates `stages/`.** `segments.relative()` strips the prefix while `/structure` and
+  `/artifacts` resolve from the run root, so every segment URL 404s on a current-layout run; the route test writes its
+  fixture at the root and stays green. One spelling, asserted by fetching the URLs, not by matching their shape.
 - **The URL does not always name the workspace.** The front door `/` renders one without a path segment, so client
   code reads `body[data-workspace]` (the rendered workspace), not `location.pathname`; and the remembered-workspace
   redirect follows a workspace only when it is still shown. Both failures on 2026-10-30 came from assuming the path:
