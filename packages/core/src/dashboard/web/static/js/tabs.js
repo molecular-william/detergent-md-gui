@@ -107,9 +107,11 @@ export function initializeTabs() {
   const here = parts[0];
   const remembered = storage.get('workspace', '');
   if (!here) {
-    // The front door answers with one workspace. This sends a browser that was last in the other one onward.
-    // `replace`, not `assign`: the root is not somewhere anyone chose to be, so it should not enter the history.
-    if (remembered) location.replace('/' + remembered);
+    // The front door answers with one workspace. A browser that was last in another one is sent onward -- but only
+    // when that workspace is still shown. A remembered workspace a module switch hid would otherwise bounce through
+    // `/` forever: its URL redirects back here, and this line sent it there again.
+    const shown = new Set($$('nav.section-tabs [data-section]').map(tab => tab.dataset.section));
+    if (remembered && shown.has(remembered)) location.replace('/' + remembered);
   } else {
     storage.set('workspace', here);
     // With no fragment in the URL any more, a remembered panel is what decides -- unless the URL already names one.

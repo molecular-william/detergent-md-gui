@@ -143,6 +143,12 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Invariants and incidents worth keeping
 
+- **The URL does not always name the workspace.** The front door `/` renders one without a path segment, so client
+  code reads `body[data-workspace]` (the rendered workspace), not `location.pathname`; and the remembered-workspace
+  redirect follows a workspace only when it is still shown. Both failures on 2026-10-30 came from assuming the path:
+  the engine New run form was built inside a feature workspace (a null `onclick`), and `/` reloaded forever when a
+  module switch hid the remembered workspace.
+
 - **Skipped is a real outcome.** A stage with nothing to do exits 4, writes `skip.json` with its reason, and the run
   continues. The 11,821-attempt incident happened because skipped analyses were requeued; the coordinator now treats
   a skipped kind as current by signature, and automatic queue dedupe ignores payload only where it should not.
@@ -176,7 +182,7 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 - `936b74bd3fa8`: empty micelle, 120 DDM, no removal; the 1,000 ns leg after NVT/NPT was configured at
   50,000,000 steps and did not finish: the run failed in `CG assessment MD` at the per-run storage limit.
 - `bbda8d632309`: failed at input before stages; no stage directories.
-- Tests (measured 2026-10-30): 2,458 collected; fast **2,202 passed, 1 xfailed**; browser **238 passed**; slow
+- Tests (measured 2026-10-30): 2,460 collected; fast **2,202 passed, 1 xfailed**; browser **240 passed**; slow
   **17 passed**; `ruff check packages tests conftest.py` clean. `pytest.ini` owns tier counts; do not
   copy moving counts into this file.
 

@@ -81,7 +81,8 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
         // implements -- so a reader arrives on the run already drawn. The workspace segment comes from this
         // page's own URL because Runs lives in both workspaces and the link must stay in the one being read.
         const viewRun = $('.job-view-run', card);
-        if (viewRun) viewRun.href = `/${location.pathname.split('/').filter(Boolean)[0] || 'detergent-validation'}/run-view?run=${job.id}`;
+        const workspace = document.body.dataset.workspace || location.pathname.split('/').filter(Boolean)[0] || 'detergent-validation';
+        if (viewRun) viewRun.href = `/${workspace}/run-view?run=${job.id}`;
         $('.job-resume',card).onclick = async () => {
           try { await post(`/api/jobs/${job.id}/resume`,{stage:$('.resume-stage',card).value}); notice('Run resumed; current stage files will be executed.'); await refreshJobs(); }
           catch(error) { notice(error.message); }
@@ -359,7 +360,10 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
       if(force)invalidateResource('/api/storage');
       const result=await cachedApi(force?'/api/storage?refresh=1':'/api/storage',{maxAge:10000}), gib=n=>(n/1073741824).toFixed(2)+' GiB';
       const text=`Storage: ${gib(result.run_bytes)} / ${gib(result.limits.max_total_bytes)} quota; ${gib(result.disk_free_bytes)} free. ${result.retention_candidates.length} runs older than ${result.limits.retention_days} days for manual review. No automatic deletion.`;
-      setText($('#storage-report'),text); setText($('#new-storage'),text);
+      setText($('#storage-report'),text);
+      // Only the engine's New run form carries the mirror; a feature form replaces that markup, so its absence is
+      // not an error and must not turn the storage line into one.
+      const mirror = $('#new-storage'); if (mirror) setText(mirror, text);
     } catch(error) { setText($('#storage-report'),error.message); }
   }
   $('#refresh-storage').onclick=()=>refreshStorage(true);

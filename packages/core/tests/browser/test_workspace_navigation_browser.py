@@ -197,6 +197,26 @@ def test_the_modules_switch_hides_a_workspace_after_a_reload(dashboard, live_pag
     assert errors == [], errors
 
 
+def test_a_remembered_hidden_workspace_does_not_loop_through_the_front_door(dashboard, live_page):
+    """The front door sends a browser back to its remembered workspace -- unless a module switch hid it.
+
+    Unchecked, that was a reload loop: `/` redirects to the hidden workspace, its 302 answers with `/`, and the page
+    asked again. The page must keep the rendered workspace instead.
+    """
+    dashboard.client.put('/api/modules', json={'enabled': ['pdc']})
+    page, errors = live_page
+    page.add_init_script("localStorage.setItem('ddm.workspace', JSON.stringify('detergent-validation'))")
+    navigations = []
+    page.on('framenavigated', lambda frame: navigations.append(frame.url) if frame == page.main_frame else None)
+    page.goto(f'{live_page.base_url}/')
+    page.wait_for_timeout(800)
+
+    assert len(navigations) <= 2, navigations
+    expect(page.locator('.section-tab')).to_have_count(1)
+    assert '/detergent-validation' not in page.url
+    assert errors == [], errors
+
+
 def test_escape_closes_the_modules_switch(dashboard, live_page):
     page, errors = live_page
     page.goto(live_page.base_url)

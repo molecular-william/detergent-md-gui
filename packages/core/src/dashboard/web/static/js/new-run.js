@@ -91,7 +91,9 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
   // and no reference select at all, so every AA statement below would throw on its first `form.elements.<name>`.
   // The extension is resolved here, above them, so the two panels cannot read each other's fields by accident.
   let panel = null;
-  const workspace = location.pathname.split('/').filter(Boolean)[0] || '';
+  // The rendered workspace, not the URL: the front door `/` renders one without naming it in the path, so a path
+  // segment would say "" there and build the engine form inside a feature's markup.
+  const workspace = document.body.dataset.workspace || location.pathname.split('/').filter(Boolean)[0] || '';
   const resolve = () => panel || (panel = extensions.has(workspace)
     ? extensions.get(workspace).create(context)
     : createEngineNewRun(context));

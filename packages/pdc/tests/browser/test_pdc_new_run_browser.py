@@ -459,3 +459,23 @@ def test_the_empty_micelle_disables_the_protein_views_and_the_removal_gate_redra
     assert page.locator('.new-pdc-flow [data-stage=extend]').count() == 0
     assert page.locator('.new-pdc-flow [data-stage=final-assessment]').count() == 0
     assert errors == [], errors
+
+
+def test_the_front_door_uses_the_only_module_s_form_and_its_storage_line(dashboard, live_page):
+    """`/` renders a workspace without naming it in the path; the panel and the storage line must follow the page.
+
+    Two failures this pins, both from the same assumption that the URL segment names the workspace: the New run
+    factory built the engine form inside the pdc markup (`#leave-clone` missing, a null `onclick`), and the Runs
+    storage line wrote to the engine form's `#new-storage`, replacing its own text with the error.
+    """
+    # The front door renders the first shown workspace: hide validation so it is pdc, as a module switch can.
+    response = dashboard.client.put('/api/modules', json={'enabled': ['pdc']})
+    assert response.status_code == 200
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/')
+
+    expect(page.locator('#storage-report')).to_contain_text('Storage:')
+    page.get_by_role('tab', name='New run', exact=True).click()
+    expect(page.locator('#new-protein')).to_be_visible()
+    assert page.locator('#leave-clone').count() == 0, 'the engine form was built inside the pdc workspace'
+    assert errors == [], errors
