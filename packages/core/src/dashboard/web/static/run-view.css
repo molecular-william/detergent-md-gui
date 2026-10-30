@@ -91,3 +91,31 @@
 .run-view-segments tr[data-boundary='true'] td,.run-view-segments tr[data-boundary='true'] th{
   background:#fff7e8;border-bottom-color:#c9963c}
 .run-view-segments tr[data-boundary='true'] td:last-child{font-weight:600}
+
+/* ---------------------------------------------------------------- the trajectory block
+   Above the segment table and always open: a run's frames are what a reader comes to the panel for, while the table
+   below is what explains where they came from. The controls sit in the monitor's width, so every row wraps rather
+   than pushing the document sideways at 390 px. */
+.run-view-trajectory-title { margin: 0 0 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted) }
+.run-view-trajectory-pick { display: flex; flex-wrap: wrap; gap: 8px; align-items: center }
+.run-view-trajectory-pick label { font-size: 12px; color: var(--muted) }
+.run-view-trajectory-pick select { flex: 1 1 160px; min-width: 0; max-width: 100% }
+.run-view-series { margin: 8px 0 0; font-size: 12px }
+/* A failed build prints the last lines of its log, and a log is lines: the white space is the message. */
+.run-view-trajectory > .hint { white-space: pre-wrap }
+.run-view-trajectory .transport-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px }
+.run-view-trajectory .transport-frame { display: flex; gap: 6px; align-items: center; font-size: 12px;
+  color: var(--muted); flex: 1 1 180px; min-width: 0 }
+.run-view-trajectory .transport-frame input[type="range"] { flex: 1 1 90px; min-width: 60px }
+.run-view-trajectory .transport-loop { display: flex; gap: 4px; align-items: center; font-size: 12px }
+/* The time is a number a reader compares between two monitors, so it does not move under the glyphs. */
+.run-view-time { font-size: 12px; font-variant-numeric: tabular-nums }
+.run-view-recompute { margin-top: 10px }
+.run-view-recompute > summary { cursor: pointer; font-weight: 700 }
+.run-view-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 8px;
+  margin-top: 8px }
+.run-view-form-grid > label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted) }
+.run-view-form-grid select, .run-view-form-grid input[type="number"] { width: 100%; min-width: 0; box-sizing: border-box }
+.run-view-form-grid > .run-view-form-check { flex-direction: row; align-items: center; gap: 6px }
+.run-view-form-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 8px }

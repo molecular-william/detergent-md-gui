@@ -50,8 +50,11 @@ export function createRunView() {
       const state = JSON.parse(localStorage.getItem(STATE_KEY) || '{}') || {};
       state.pair = monitors.map(monitor => (monitor.run() || {}).id || '');
       state.collapsed = {};
-      monitors.forEach(monitor => [...monitor.root.querySelectorAll('details')].forEach((details, index) => {
-        state.collapsed[monitor.side + '.' + index] = !details.open;
+      // Keyed by the element's own id rather than by its position: a block inserted above the sub-panels -- the
+      // trajectory block's argument form is one -- would otherwise move every remembered state onto its neighbour,
+      // and a reader's layout would open the wrong panel. An id nothing remembers is a panel at its default, closed.
+      monitors.forEach(monitor => [...monitor.root.querySelectorAll('details[id]')].forEach(details => {
+        state.collapsed[details.id] = !details.open;
       }));
       localStorage.setItem(STATE_KEY, JSON.stringify(state));
     } catch (error) {
@@ -117,8 +120,8 @@ export function createRunView() {
         root, side, runs,
         onPick: job => { open(monitor, job).catch(() => {}); },
       });
-      [...monitor.root.querySelectorAll('details')].forEach((details, index) => {
-        details.open = (state.collapsed || {})[side + '.' + index] === false;
+      [...monitor.root.querySelectorAll('details[id]')].forEach(details => {
+        details.open = (state.collapsed || {})[details.id] === false;
         details.addEventListener('toggle', remember);
       });
       return monitor;

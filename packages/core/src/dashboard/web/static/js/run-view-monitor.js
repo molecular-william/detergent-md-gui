@@ -8,13 +8,15 @@
 // The per-run work below is the panel's own: the structure index, the bond rule's application, the bead sizing, the
 // readout, and the CG chain's segments (which legs are one system, and where the system is rebuilt, from
 // `/api/jobs/<id>/trajectory`). The bond rule is one module (`run-view-structure.js`), the bead table is another
-// (`ngl-beads.js`), and the chooser filters as you type over the run's own label, molecule, type, id and date.
-// Nothing here decides anything twice.
+// (`ngl-beads.js`), the trajectory block and its recompute form are a third (`run-view-trajectory.js`), and the
+// chooser filters as you type over the run's own label, molecule, type, id and date. Nothing here decides anything
+// twice.
 
 import { $, api } from './shared.js';
 import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, applyBeadRadii, renderBeadLegend, sizeClassOf } from './ngl-beads.js';
 import { conectCount, dropBonds, inStage, isCoarseGrained, loadParameters, structureExtension,
          structureRank } from './run-view-structure.js';
+import { createTrajectory, trajectoryMarkup } from './run-view-trajectory.js';
 import { runViewExtensionFor } from './run-view-extension.js';
 
 //: The route pages the artifact index and caps `limit` at 100, so every request here states its own limit.
@@ -63,6 +65,15 @@ export function createMonitor({root, side, runs, onPick}) {
 
   const combo = chooser(root, side, runs, job => onPick(job));
 
+  // The trajectory block above the segment table: its markup, its ids and its work are all in one module, so a second
+  // monitor cannot reach into this one and this file states no id twice. It draws into the canvas above, which is why
+  // it is handed the stage rather than given one of its own, and why it is told which component is the structure's.
+  const trajectory = createTrajectory({
+    root, side,
+    stageOf: () => stageFor(),
+    artifactText,
+    decorate,
+  });
 
 // The monitor's own markup, built here rather than in the page template: two of everything is the layout, and the
 // ids are the only thing that differs between the two. The `<details>` are collapsed, which is what "minimizable and
@@ -85,6 +96,7 @@ function monitorMarkup(side) {
            aria-label="Bead colour by Martini 3 polarity family"></div>
       <div id="run-view-readout-${side}" class="run-view-readout"></div>
     </div>
+    ${trajectoryMarkup(side)}
     <details class="card run-view-sub" id="run-view-holds-details-${side}">
       <summary>what this run holds <span class="count" id="run-view-holds-count-${side}"></span></summary>
       <div class="body">
@@ -215,6 +227,9 @@ function chooser(root, side, runs, onPick) {
 
 
   async function loadRun(job) {
+    // Before anything of the run is read: a fetch still in flight for the run this monitor is leaving must land in
+    // nothing, and the series on the stage belongs to that run rather than to this one.
+    trajectory.reset();
     viewer.hidden = false;
     // Who this monitor is holding, in one line: the id, what the run is called, the molecule it is about and the
     // day it ran. It was the list that used to say this, and the list is two combos now.
@@ -335,6 +350,9 @@ function chooser(root, side, runs, onPick) {
     }
     if (token !== segmentsToken) return;   // the monitor moved to another run while this answered
     const why = (answer && answer.why) || '';
+    // The trajectory block reads the same answer as the table below it: which segments are playable, which is the
+    // run's latest system, and what a build from it defaults to. Its own fetch of the run's analyses starts here.
+    trajectory.setRun(job, answer);
     const extension = runViewExtensionFor(job);
     if (extension && typeof extension.runSelected === 'function') {
       await extension.runSelected({
@@ -441,6 +459,28 @@ function chooser(root, side, runs, onPick) {
     return viewer.runViewStage;
   }
 
+  // How a file of this run is drawn. One function because two things are drawn through it -- the structure file and a
+  // trajectory series -- and a bead drawn at two different radii in one monitor would say the model changed size.
+  function decorate(component, coarse) {
+    if (!component) return;
+    if (coarse) {
+      // A bead's radius is a size class the model states, not the stand-in element's: `ngl-beads.js` is the one
+      // table and the one call, so this view draws the same beads as Complexes and the bead editor. The display
+      // scale is this panel's own and stated at the call -- `BEAD_SCALE`, 0.3 -- and it multiplies the table's
+      // radius on the way onto the structure, which is the value the readout below reports back.
+      applyBeadRadii(component.structure, {scale: BEAD_SCALE, sizeOf: atom => {
+        const named = sizeClasses && sizeClasses[String(atom.atomname || '').trim().toUpperCase()];
+        return named || sizeClassOf(atom);
+      }});
+      // The colour is the bead's own type family, from the code the structure writer puts in the b-factor column
+      // of the file this panel serves (`ngl-beads.js` is the one table); a file that carries none draws every
+      // bead as family-not-stated rather than as the first family.
+      component.addRepresentation('ball+stick', {...BEAD_RADIUS_PARAMETERS, ...BEAD_FAMILY_PARAMETERS});
+    } else {
+      component.addRepresentation('ball+stick', {radiusScale: 0.55, aspectRatio: 2});
+    }
+  }
+
   async function draw(job, path) {
     what.textContent = `Loading ${path}…`;
     const coarse = isCoarseGrained(path, job.run_type);
@@ -483,6 +523,10 @@ function chooser(root, side, runs, onPick) {
                ['how the bonds would be decided', parameters.reason]]);
       return;
     }
+    // The stage is about to be emptied, and the series component on it belongs to this module's own trajectory block:
+    // it is told first, so its player is stopped and its state dropped rather than left pointing at a disposed
+    // component. The trajectory block then keeps the summary -- pressing Play again re-fetches the file.
+    trajectory.detach();
     renderer.removeAllComponents();
     const component = await renderer.loadFile(new Blob([text], {type: 'text/plain'}), {...parameters});
     // A file that states no bonds of its own must be drawn without any, and `inferBonds: 'none'` is not enough on
@@ -491,23 +535,11 @@ function chooser(root, side, runs, onPick) {
     // a `.gro` came back with four guessed bonds whatever the flag said. So the store is emptied here too, and
     // **only** where the file carries no `CONECT` of its own, so a file that does state its bonds keeps every one.
     if (parameters.inferBonds === 'none' && conectCount(text) === 0) dropBonds(component.structure);
-    if (coarse) {
-      // A bead's radius is a size class the model states, not the stand-in element's: `ngl-beads.js` is the one
-      // table and the one call, so this view draws the same beads as Complexes and the bead editor. The display
-      // scale is this panel's own and stated at the call -- `BEAD_SCALE`, 0.3 -- and it multiplies the table's
-      // radius on the way onto the structure, which is the value the readout below reports back.
-      applyBeadRadii(component.structure, {scale: BEAD_SCALE, sizeOf: atom => {
-        const named = sizeClasses && sizeClasses[String(atom.atomname || '').trim().toUpperCase()];
-        return named || sizeClassOf(atom);
-      }});
-      // The colour is the bead's own type family, from the code the structure writer puts in the b-factor column
-      // of the file this panel serves (`ngl-beads.js` is the one table); a file that carries none draws every
-      // bead as family-not-stated rather than as the first family.
-      component.addRepresentation('ball+stick', {...BEAD_RADIUS_PARAMETERS, ...BEAD_FAMILY_PARAMETERS});
-    } else {
-      component.addRepresentation('ball+stick', {radiusScale: 0.55, aspectRatio: 2});
-    }
+    decorate(component, coarse);
     component.autoView();
+    // The picture a trajectory series hides while it is on the stage, and never disposes: it is the structure the
+    // table below names, and the reader's place in that table is what the canvas is showing.
+    trajectory.structure(component);
 
     holds.querySelectorAll('tr').forEach((line, index) => {
       line.setAttribute('aria-selected', String(structures[index] && structures[index].path === path));

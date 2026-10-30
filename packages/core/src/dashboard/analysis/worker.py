@@ -44,7 +44,7 @@ def _stage_alias(relative):
     return '/'.join([stage, *parts[1:]]) if stage else str(relative)
 
 
-def source_entries(root,kind):
+def source_entries(root,kind,payload=None):
     patterns = list(TABLE[kind].sources)
     run=root.parent if root.name=='stages' else root
     metadata=json.loads((run/'manifest.json').read_text()) if (run/'manifest.json').is_file() else {}
@@ -71,6 +71,10 @@ def source_entries(root,kind):
         return any(fnmatch.fnmatch(_stage_alias(relative), _stage_alias(pattern)) for pattern in patterns)
     entries={str(p.relative_to(root)):p for p in files.safe_files(root) if str(p.relative_to(root)).split('/')[0] not in ('analysis','analyses','analysis_plots','snapshots','inputs','logs') and matches(str(p.relative_to(root)))}
     if aa_source:entries.update({f'1_AA-reference/prod/{name}':aa_source/name for name in ('lig.gro','lig.xtc')})
+    # A kind whose sources are decided by its request rather than by a pattern list: the hook validates the payload and
+    # resolves the files against the run root, which is also where the queue fingerprints them.
+    if TABLE[kind].source_hook is not None:
+        entries.update(TABLE[kind].source_hook(run, payload or {}))
     return entries
 
 def execute(request_path):
@@ -94,7 +98,7 @@ def execute(request_path):
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix='.work-', dir=attempt) as temporary:
         work = Path(temporary); sources = {}
-        for relative,path in source_entries(root,kind).items():
+        for relative,path in source_entries(root,kind,request.get('payload', {})).items():
             target = work/relative; target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, target)
             provenance=str(path.relative_to(run)) if path.is_relative_to(run) else 'shared/'+str(path.relative_to(run.parent))

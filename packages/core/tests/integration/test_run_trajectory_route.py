@@ -47,6 +47,9 @@ def pdc_run(dashboard, *, job_id=JOB_ID, run_type='pdc', stages='stages/'):
     write(root, f'{stages}4_extension/prod/run.xtc', size=90)
     write(root, f'{stages}5_assessment/prod/run.gro', gro(32))
     write(root, f'{stages}5_assessment/prod/run.xtc', size=90)
+    # The back-mapped complex is a `.pdb`: the structure route refuses one, so its URL must be the artifact route's.
+    write(root, f'{stages}10_backmap/FINAL/FINAL/final_cg2at_neutral.pdb',
+          'ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\n')
     dashboard.coordinator.database().insert({'id': job_id, 'run_type': run_type, 'status': 'completed',
                                              'stage': 'complete', 'molecule_id': 'DDM',
                                              'created': '2026-10-14T00:00:00+00:00'})
@@ -81,6 +84,11 @@ def test_every_url_the_answer_carries_is_one_the_routes_serve(dashboard):
     assert nvt['structure_url'] == f'/api/jobs/{JOB_ID}/structure?path=stages/3_nvt/system.gro'
     assert nvt['trajectory_url'] == f'/api/jobs/{JOB_ID}/artifacts/stages/3_nvt/system.xtc'
     assert nvt['atoms'] == 40 and nvt['group'] is not None
+
+    backmap = next(entry for entry in body['segments'] if entry['name'] == 'Back-mapping (CG2AT2)')
+    assert backmap['structure_url'] == (f'/api/jobs/{JOB_ID}/artifacts/'
+                                        'stages/10_backmap/FINAL/FINAL/final_cg2at_neutral.pdb?inline=1'), (
+        'a .pdb is served by the artifact route, because the structure route refuses one')
 
     fetched = 0
     for entry in body['segments']:

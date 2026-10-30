@@ -52,6 +52,8 @@ AREAS = {
         'unit/test_overlap_*', 'unit/test_cross_check_reader.py', 'unit/test_kinds_published.py',
         'unit/test_default_analyses.py', 'unit/test_transferability_reader.py', 'unit/test_transfer_free_energy.py',
         'unit/test_model_topology.py', 'unit/test_reference_caching.py',
+        # The on-demand frame series Run view's player reads: an analysis kind and its producer.
+        'unit/test_frame_series.py', 'integration/test_frame_series_analysis.py',
         'integration/test_analysis_*', 'integration/test_assessment_rescore.py', 'integration/test_default_analyses.py',
         'integration/test_distance_diagnostics_api.py',
         'integration/test_transferability_api.py',

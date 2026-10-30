@@ -417,8 +417,20 @@ def run_trajectory_api(jid):
     run_dir = c.run_path(job)
     answer = segments_module.segments(run_dir, job.get('run_type'))
     for entry in answer['segments']:
-        entry['structure_url'] = (f'/api/jobs/{jid}/structure?path={quote(entry["structure"])}'
-                                  if entry.get('structure') else None)
+        # The segment's own content identity: a series built from these bytes can say which trajectory it sampled, and
+        # a panel can tell a trajectory that was replaced from one whose path merely moved.
+        if entry.get('trajectory'):
+            source = segments_module.present(run_dir, entry['trajectory'])
+            if source is not None:
+                entry['identity'] = segments_module.identity(source)
+        # A `.gro` is served with the run's own bonds written as CONECT; the structure route refuses a `.pdb` because
+        # a PDB already carries, or declines, its own records, and the artifact route serves it. The URL therefore
+        # names the route that will answer for this file's own type, so every URL in the answer is fetchable.
+        structure = entry.get('structure')
+        entry['structure_url'] = (f'/api/jobs/{jid}/artifacts/{quote(structure)}?inline=1'
+                                  if structure and structure.lower().endswith('.pdb')
+                                  else (f'/api/jobs/{jid}/structure?path={quote(structure)}'
+                                        if structure else None))
         entry['trajectory_url'] = (f'/api/jobs/{jid}/artifacts/{quote(entry["trajectory"])}'
                                    if entry.get('trajectory') else None)
     answer['id'] = jid

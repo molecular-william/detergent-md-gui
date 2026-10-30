@@ -198,7 +198,7 @@ class AnalysisCoordinator:
             if job['status'] not in ('completed', 'failed', 'cancelled') or jid in owner.WORKERS:
                 raise RunBusy('Analysis requires a stopped run')
             source_root = layout.stage_root(owner.run_path(job))
-            source_entries = analysis.source_entries(source_root, kind)
+            source_entries = analysis.source_entries(source_root, kind, payload)
             fingerprint = [(relative, files.sha256(path)) for relative, path in source_entries.items()]
             code_files = code_fingerprint_files()
             signature = hashlib.sha256(json.dumps(

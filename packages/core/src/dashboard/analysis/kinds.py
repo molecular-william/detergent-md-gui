@@ -14,7 +14,7 @@ place rather than because someone remembered four.
 from dataclasses import dataclass
 from typing import Callable
 
-from .runs import bartender_fit, bonded_estimate, dihedral_fit, observability
+from .runs import bartender_fit, bonded_estimate, dihedral_fit, frame_series, observability
 
 
 def sources_only(function: Callable) -> Callable:
@@ -59,6 +59,8 @@ class Kind:
     default_for_run_types: tuple[str, ...] = ()
     #: The body keys this kind's queue route validates; empty when the route hands the body over untouched.
     payload: tuple[str, ...] = ()
+    #: Payload-driven sources the pattern list cannot name, validated and resolved against the run root.
+    source_hook: Callable | None = None
 
 
 TABLE: dict[str, Kind] = {row.name: row for row in (
@@ -152,6 +154,18 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         "No LINCS warnings and finite coordinates are required, but passing does not establish physical validity.",
         "counts and diagnostic signals",
         records_gmx_version=True),
+    # On demand only: a series is a view a person asks for with arguments, not a cadence a run owes. Its sources are
+    # the payload's own files -- a chosen segment and structure -- so the pattern list is empty and `source_hook`
+    # resolves and validates them, which is what makes the chosen trajectory part of the analysis signature.
+    Kind(
+        'frame-series',
+        (),
+        frame_series.run,
+        "Trajectory frame series",
+        "A series plays the run's own trajectory as a sampled view for inspection; it measures nothing and does not "
+        "establish convergence.",
+        "nm and ns; frames sampled over the trajectory's own time",
+        source_hook=frame_series.sources),
 )}
 
 
