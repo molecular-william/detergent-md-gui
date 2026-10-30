@@ -285,7 +285,9 @@ registry on the next page load: a hidden module's workspaces and New run types a
 its run types for existing runs and its recorded-code resolvers stay live, so old runs remain readable. A URL into a
 hidden workspace redirects to the Runs front door (an unknown workspace or panel is still a 404). With
 every module hidden the engine's own `dashboard` workspace is what the navigation shows. The template writes
-each section from the registry and `tabs.js` mounts it by DOM id.
+each section from the registry and `tabs.js` mounts it by DOM id. The rendered workspace is on
+`body[data-workspace]`: client code reads that, not the URL, because the front door `/` renders a workspace without
+naming it in the path (and a remembered workspace a module switch hid is never followed).
 
 ### Runs
 Background polling updates individual status fields every five seconds. Forms, expanded details, mapping edits, and scroll position are not rebuilt. Terminal runs can be manually deleted from their run card; active workers are protected. Tabs, form values, and mapping drafts are remembered in browser storage. Elapsed time is reported only when recorded; ETA is shown only when present in current GROMACS output. Legacy runs without timestamps show "Not recorded".
