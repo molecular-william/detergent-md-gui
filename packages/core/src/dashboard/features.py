@@ -15,13 +15,17 @@ run types and their protocol builders, the analysis kinds it owns, and the works
 Everything is added to registries that already exist and are imported by their consumers as dicts/objects, so
 registering *mutates* them rather than rebinding a name a route has already captured.
 
-An installed feature that fails to import is a start-up error, not a silent absence: a dashboard missing a panel is
-worse than one that says why.
+An installed feature that cannot load is skipped and recorded, not fatal: `DASHBOARD_FEATURES` (or the launcher's
+`--features`) narrows what is loaded, a feature outside that list is never imported, and one inside it that fails is
+logged with its reason and left out. A requested name that matches nothing is an error -- a typo must not read as a
+feature that is simply not installed.
 """
 from __future__ import annotations
 
 import importlib
 import importlib.util
+import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Mapping
@@ -35,6 +39,12 @@ ENTRY_POINT_GROUP = 'detergent_md.features'
 #: Compatibility fallback, not the registry: modules looked up by import when their metadata advertises no entry point
 #: (an editable checkout older than this seam). A feature is otherwise discovered from installed metadata alone.
 KNOWN = ('detergent_validation', 'detergent_pdc')
+
+#: What the last `installed()` call skipped, as `[(name, message)]`: a feature that is installed but could not load is
+#: absent from the dashboard, and this is what lets the reason be reported instead of the absence being silent.
+_failures: list[tuple[str, str]] = []
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -134,24 +144,59 @@ def _feature_of(entry):
     return feature
 
 
+def selected() -> list[str]:
+    """The feature names `DASHBOARD_FEATURES` asks for; an empty list means every installed one."""
+    return [name.strip() for name in (os.environ.get('DASHBOARD_FEATURES') or '').split(',') if name.strip()]
+
+
+def failures() -> list[tuple[str, str]]:
+    """The features the last discovery skipped, and why."""
+    return list(_failures)
+
+
+def _skip(name, error) -> None:
+    _failures.append((name, str(error)))
+    _log.warning('feature %r is installed but could not be loaded: %s', name, error)
+
+
 def installed() -> list[Feature]:
     """The installed features, in registration order: metadata first, then the compatibility fallback.
 
-    Two distributions claiming one `Feature.name` is a registry error, not a merge, because the name decides the
-    workspace, the run types and the analysis kinds; the message names the collision rather than letting the second
-    silently replace the first.
+    `DASHBOARD_FEATURES` narrows the list by entry-point name (which the shipped features keep equal to
+    `Feature.name`); a feature outside it is not imported at all. One that fails to load is skipped and recorded by
+    `failures()` rather than stopping the dashboard. Two distributions claiming one `Feature.name` is still a registry
+    error, not a merge, because the name decides the workspace, the run types and the analysis kinds.
     """
+    wanted = selected()
+    _failures.clear()
     found: dict[str, Feature] = {}
     for entry in _entry_points():
-        feature = _feature_of(entry)
+        if wanted and entry.name not in wanted:
+            continue
+        try:
+            feature = _feature_of(entry)
+        except Exception as error:  # noqa: BLE001 - every load failure is a skipped feature, not a dead dashboard
+            _skip(entry.name, error)
+            continue
         if feature.name in found:
             raise ValueError(f'two installed features are named {feature.name!r}; give one a different name')
         found[feature.name] = feature
-    for module in KNOWN:
-        if importlib.util.find_spec(module) is None:
-            continue
-        feature = importlib.import_module(f'{module}.feature').FEATURE
-        found.setdefault(feature.name, feature)
+    # The fallback is for a checkout whose editable metadata predates the entry point. It is tried only when a
+    # requested name is still missing: an unselected module is never imported, and its failure cannot fail this one.
+    if not wanted or not set(wanted) <= set(found):
+        for module in KNOWN:
+            if importlib.util.find_spec(module) is None:
+                continue
+            try:
+                feature = importlib.import_module(f'{module}.feature').FEATURE
+            except Exception as error:  # noqa: BLE001 - same rule as an entry point
+                _skip(module, error)
+                continue
+            found.setdefault(feature.name, feature)
+    unknown = [name for name in wanted if name not in found]
+    if unknown:
+        raise ValueError(f'DASHBOARD_FEATURES names {unknown}, which no installed feature provides; '
+                         f'the installed features are {sorted(found)}')
     return sorted(found.values(), key=lambda feature: (feature.priority, feature.name))
 
 

@@ -4,6 +4,18 @@ State and open items for this repository. Rules live in `AGENTS.md`; subsystem b
 `docs/PROJECT_GUIDE.md`; scoring science in `docs/DDM_CALIBRATION.md`. Read this before touching the DDM CG chain,
 the protein-detergent pipeline or the coordinator. This file keeps only what is current and the evidence behind it.
 
+## Right now (2026-10-30): core-only starts, and features are selectable
+
+- **A core-only install is a working dashboard.** With no feature installed, `sections.ensure_default()` registers the
+  engine's own `dashboard` workspace (Runs, Run view, New run; run types `aa_only`, `aa_cg`). Before this, `home()`
+  returned `next(iter(SECTIONS.values()))` on an empty registry and the front door answered 500.
+- **`--features` / `DASHBOARD_FEATURES` selects what loads**, default every installed feature. A feature outside the
+  list is never imported; a selected one that fails to load is skipped, logged and recorded by `features.failures()`;
+  a name nothing provides is a start-up error. This deliberately replaces the old rule that a broken entry point was
+  fatal -- the row in `PROJECT_GUIDE.md` (*Adding a distribution*) says so now.
+- The launcher and `python -m dashboard` share one argument parser (`cli/serve.py`), so `--host`, `--port` and
+  `--features` work for both.
+
 ## Right now (2026-10-29): the dashboard is three distributions
 
 - The engine is `detergent-core` (`packages/core`, import `dashboard`), and the two features are
@@ -158,12 +170,14 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 - `936b74bd3fa8`: empty micelle, 120 DDM, no removal; the 1,000 ns leg after NVT/NPT was configured at
   50,000,000 steps and did not finish: the run failed in `CG assessment MD` at the per-run storage limit.
 - `bbda8d632309`: failed at input before stages; no stage directories.
-- Tests (measured 2026-10-29, after the split): 2,441 collected; fast **2,187 passed, 1 xfailed**; browser **236
-  passed**; slow **17 passed**; `ruff check packages tests conftest.py` clean. `pytest.ini` owns tier counts; do not
+- Tests (measured 2026-10-30): 2,448 collected; fast **2,194 passed, 1 xfailed**; browser **236 passed**; slow
+  **17 passed**; `ruff check packages tests conftest.py` clean. `pytest.ini` owns tier counts; do not
   copy moving counts into this file.
 
 ## Landed slices, newest first
 
+- **2026-10-30 feature selection and core-only start**: `DASHBOARD_FEATURES`/`--features` filters discovery before
+  loading, failed features are skipped and recorded, and an empty registry gets the engine's own workspace.
 - **2026-10-29 browser-tier flake**: a stale molecule load could replace a newer selection in the bead editor, so the
   overlay drew the default molecule with an empty bead file; `loadMoleculeEditor` now checks its generation after
   every await, and a delayed-fetch browser test requires the reader's choice to win. 14 consecutive runs green.

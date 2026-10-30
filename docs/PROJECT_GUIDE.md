@@ -14,6 +14,13 @@ From the repository root:
 
 Open http://127.0.0.1:5000. Run one coordinator per workspace. The historical .venv/bin/python packages/core/src/dashboard/app.py command remains supported.
 
+`--features validation,pdc` (the same comma list in `DASHBOARD_FEATURES`) narrows which installed features are loaded;
+the default is every installed one, and a feature outside the list is never imported. A selected feature that fails to
+load is skipped and its reason logged (`features.failures()`), while a name that matches no installed feature is a
+start-up error, so a typo cannot pass as an installation that simply lacks it. An install with no feature still
+starts: the engine registers its own `dashboard` workspace with Runs, Run view and New run for the AA-only and AA-CG
+run types it owns alone.
+
 Check active simulation and analysis jobs and worker leases before restarting. Stored process IDs must never be signalled as if owned by a new coordinator.
 
 ## Source ownership
@@ -22,11 +29,12 @@ features are `packages/validation` (`detergent-validation`) and `packages/pdc` (
 imports a feature; a feature imports the engine and registers through `dashboard/features.py`.
 
 The engine (`packages/core/src/dashboard/`):
-* app.py constructs the application. features.py discovers a feature and registers its blueprints, run types, analysis
+* app.py constructs the application. features.py discovers a feature (`DASHBOARD_FEATURES` selects which) and
+  registers its blueprints, run types, analysis
   kinds, workspace and hooks (admission, prepare, create_settings, readiness, run_failed, layout, planned_skips,
   protein_topologies, kind_payload, priority, templates, static, styles, panel_modules, extension_modules,
 evidence_sections, molecule_profiles, legacy_stages); web/sections.py owns the
-section order and the `DASHBOARD_TABS` filter.
+section order, the `DASHBOARD_TABS` filter and the engine's own fallback workspace.
 A feature distribution advertises itself with the `detergent_md.features` entry point, so installing a wheel is
 how a dashboard gains a workspace; the engine never imports one.
 * execution/ owns coordination and stage execution: adapters/cg.py (generic CG stage pipeline), aa.py (AA-only),
@@ -77,8 +85,9 @@ owns, one workspace with its panels/blurbs/tab ids, recorded-code prefixes, code
 and the hooks its run type needs (admission, prepare, create_settings, readiness, run_failed, layout, planned_skips,
 protein_topologies, kind_payload). `Feature.priority` decides registration order, because the shell opens on the first
 workspace registered. Discovery reads installed metadata; `KNOWN` in `features.py` is only the fallback for an
-editable checkout whose metadata predates the entry point, and a broken entry point fails at start-up rather than
-disappearing. A feature's browser surface is its own too: `templates` joins the Jinja search path, `static` is served
+editable checkout whose metadata predates the entry point. A feature that fails to load is skipped and recorded with
+its reason rather than stopping the dashboard, and `DASHBOARD_FEATURES` (or `--features`) says which features this
+instance loads; a requested name nothing provides is an error. A feature's browser surface is its own too: `templates` joins the Jinja search path, `static` is served
 under `url_for('feature_asset', ...)`, `styles` are linked before the shell's panel sheets, and `panel_modules` maps a
 panel's DOM id to an ES module and its factory. The shell includes every registered `panels/<id>.html` and boots the
 modules it was handed, so an install without a feature downloads neither its markup nor its scripts. Two surfaces are
@@ -271,7 +280,7 @@ model catalog. `cg_composition` runs are independent of the AA-to-CG workflow
 and contain only CG simulation, CG assessment, and CG SASA stages; they do not
 fabricate or require an AA reference. Composition artifacts and their hashes
 are immutable, so changing a choice creates another record.
-The web UI is two workspaces, `detergent-validation` and `protein-detergent` (`dashboard/web/sections.py`), each a set of panels reachable at its own URL segment (`/<workspace-slug>/<panel>`). `DASHBOARD_TABS` narrows an instance's panels by comma-separated slug; each named slug must exist in every installed workspace, and a name that does not fails when the app is constructed rather than as a 400 on the first page. Validation carries Runs, Run view, Single Molecule Simulations, Bead Assignment, Bond Interactions, Combinations, Mapping Validation and Osmotic Series; protein-detergent carries Runs, Run view, Protein-Detergent Simulations and Complexes. The template writes each section from the registry and `tabs.js` mounts it by DOM id.
+The web UI is the workspaces the installed features register -- `detergent-validation` and `protein-detergent` in a full install, and the engine's own `dashboard` workspace when no feature is installed (`dashboard/web/sections.py`) -- each a set of panels reachable at its own URL segment (`/<workspace-slug>/<panel>`). `DASHBOARD_TABS` narrows an instance's panels by comma-separated slug; each named slug must exist in every installed workspace, and a name that does not fails when the app is constructed rather than as a 400 on the first page. Validation carries Runs, Run view, Single Molecule Simulations, Bead Assignment, Bond Interactions, Combinations, Mapping Validation and Osmotic Series; protein-detergent carries Runs, Run view, Protein-Detergent Simulations and Complexes. The template writes each section from the registry and `tabs.js` mounts it by DOM id.
 
 ### Runs
 Background polling updates individual status fields every five seconds. Forms, expanded details, mapping edits, and scroll position are not rebuilt. Terminal runs can be manually deleted from their run card; active workers are protected. Tabs, form values, and mapping drafts are remembered in browser storage. Elapsed time is reported only when recorded; ETA is shown only when present in current GROMACS output. Legacy runs without timestamps show "Not recorded".

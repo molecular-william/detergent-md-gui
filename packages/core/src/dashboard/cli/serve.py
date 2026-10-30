@@ -16,7 +16,11 @@ def main(argv=None) -> None:
     parser = argparse.ArgumentParser(prog='detergent-dashboard')
     parser.add_argument('--host', default=os.environ.get('DASHBOARD_HOST', HOST))
     parser.add_argument('--port', type=int, default=int(os.environ.get('DASHBOARD_PORT', PORT)))
+    parser.add_argument('--features', default=os.environ.get('DASHBOARD_FEATURES', ''),
+                        help='comma-separated feature names to load; default every installed feature')
     arguments = parser.parse_args(argv)
+    # Before the app module is imported: it builds one application at import time.
+    os.environ['DASHBOARD_FEATURES'] = arguments.features
     from ..app import create_app
     create_app().run(host=arguments.host, port=arguments.port, debug=False)
 

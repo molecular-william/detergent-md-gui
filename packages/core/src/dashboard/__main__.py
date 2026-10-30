@@ -1,6 +1,5 @@
-"""Run one loopback dashboard coordinator."""
-from .app import app
-from .constants import HOST, PORT
+"""Run one loopback dashboard coordinator, through the same launcher the installed command uses."""
+from .cli.serve import main
 
-if __name__ == "__main__":
-    app.run(host=HOST, port=PORT, debug=False)
+if __name__ == '__main__':
+    main()

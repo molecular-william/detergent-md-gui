@@ -22,8 +22,13 @@ generic adapters. Generated parameters are hypotheses: a fit is an execution fac
 From the repository root:
 
 ```bash
-.venv/bin/python -m dashboard               # then open http://127.0.0.1:5000
+.venv/bin/python -m dashboard                        # then open http://127.0.0.1:5000
+.venv/bin/python -m dashboard --features validation  # only that feature; the default is every installed one
 ```
+
+A feature that fails to load is skipped and logged rather than stopping the dashboard; a name that matches no
+installed feature is an error. With no feature installed the engine still serves its own workspace — Runs, Run view
+and New run for AA-only and AA-CG runs.
 
 One coordinator per configured workspace. The checkout selects `workspace/dashboard/` through
 `config/dashboard-paths.json`; `DASHBOARD_WORKSPACE=/absolute/path` overrides it for an isolated instance. Restart the

@@ -8,8 +8,11 @@ The registry is also the answer to "where does a new panel go" -- a panel is add
 and giving it a label, and the tests below fail if either half is missing.
 """
 import pytest
+from dashboard import features
 from dashboard.web import sections
 from dashboard.web.sections import PANEL_BLURBS, PANELS, PLANNED, SECTIONS, panel_glyph, panel_label, section_by_slug, section_for, tabs_for
+
+from tests.harness import factory
 
 
 def test_the_two_sections_are_the_ones_the_design_names():
@@ -179,3 +182,41 @@ def test_create_app_validates_dashboard_tabs_at_construction(tmp_path, monkeypat
 
     monkeypatch.delenv('DASHBOARD_TABS')
     assert factory.build(tmp_path / 'unset').app is not None, 'unset still means every panel'
+
+
+def test_the_engine_registers_its_own_workspace_when_none_is_installed():
+    """A core-only install has no feature workspace; the engine's own is the page its front door renders."""
+    saved = dict(SECTIONS)
+    SECTIONS.clear()
+    try:
+        sections.ensure_default()
+        assert set(SECTIONS) == {'core'}
+        assert SECTIONS['core']['tabs'] == ('runs', 'run-view', 'new-run')
+        assert SECTIONS['core']['run_types'] == ('aa_only', 'aa_cg')
+    finally:
+        SECTIONS.clear()
+        SECTIONS.update(saved)
+
+
+def test_a_full_install_keeps_its_workspaces():
+    """`ensure_default` only answers an empty registry: a full install must not grow a third, empty tab."""
+    before = dict(SECTIONS)
+    sections.ensure_default()
+    assert SECTIONS == before
+
+
+def test_a_core_only_install_starts_on_its_own_workspace(tmp_path, monkeypatch):
+    """The failure this replaces: with no workspace registered, `/` raised StopIteration and answered 500."""
+    saved = dict(SECTIONS)
+    SECTIONS.clear()
+    monkeypatch.setattr(features, 'ensure', lambda: [])
+    try:
+        built = factory.build(tmp_path / 'core-only')
+        response = built.client.get('/')
+        assert response.status_code == 200
+        page = response.get_data(as_text=True)
+        assert 'data-tab="runs"' in page and 'data-tab="new"' in page
+        assert set(SECTIONS) == {'core'}
+    finally:
+        SECTIONS.clear()
+        SECTIONS.update(saved)

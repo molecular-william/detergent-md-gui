@@ -69,10 +69,11 @@ class Entry:
         return self._loaded
 
 
-def _discover(monkeypatch, entries, known=()):
+def _discover(monkeypatch, entries, known=(), selected=''):
     monkeypatch.setattr(features, '_entry_points', lambda: entries)
     monkeypatch.setattr(features, 'KNOWN', known)
     monkeypatch.setattr(features, '_features', None)
+    monkeypatch.setenv('DASHBOARD_FEATURES', selected)
     return features.installed()
 
 
@@ -94,15 +95,46 @@ def test_an_entry_point_may_resolve_to_a_module_exporting_feature(monkeypatch):
         del loaded.__dict__['FEATURE']
 
 
-def test_a_broken_entry_point_is_a_startup_error(monkeypatch):
-    """An installed feature that cannot import must say so, not disappear from the dashboard."""
-    with pytest.raises(RuntimeError, match="feature 'broken' is installed but could not be loaded"):
-        _discover(monkeypatch, [Entry('broken', ImportError('no native dependency'))])
+def test_a_broken_entry_point_is_skipped_and_recorded(monkeypatch):
+    """An installed feature that cannot import is left out, with its reason kept, not fatal to the dashboard."""
+    assert _discover(monkeypatch, [Entry('broken', ImportError('no native dependency'))]) == []
+    assert [name for name, _ in features.failures()] == ['broken']
+    assert 'could not be loaded' in features.failures()[0][1]
 
 
 def test_an_entry_point_must_resolve_to_a_feature(monkeypatch):
-    with pytest.raises(TypeError, match='must resolve to a Feature'):
-        _discover(monkeypatch, [Entry('wrong', object())])
+    """A module that exports no Feature is a bad install: skipped like an import failure, with the reason recorded."""
+    assert _discover(monkeypatch, [Entry('wrong', object())]) == []
+    assert [name for name, _ in features.failures()] == ['wrong']
+
+
+def test_the_default_is_every_installed_feature(monkeypatch):
+    entries = [Entry('a', features.Feature(name='a')), Entry('b', features.Feature(name='b'))]
+    assert [feature.name for feature in _discover(monkeypatch, entries)] == ['a', 'b']
+
+
+def test_dashboard_features_selects_which_are_loaded(monkeypatch):
+    class Spy(Entry):
+        def load(self):
+            loaded.append(self.name)
+            return super().load()
+
+    loaded = []
+    entries = [Spy('a', features.Feature(name='a')), Spy('b', features.Feature(name='b'))]
+    assert [feature.name for feature in _discover(monkeypatch, entries, selected='b')] == ['b']
+    assert loaded == ['b'], 'an unselected feature is never imported'
+
+
+def test_a_failure_outside_the_selection_is_not_recorded(monkeypatch):
+    entries = [Entry('good', features.Feature(name='good')), Entry('broken', ImportError('not selected'))]
+    assert [feature.name for feature in _discover(monkeypatch, entries, selected='good')] == ['good']
+    assert features.failures() == []
+
+
+def test_a_name_no_installed_feature_provides_is_an_error(monkeypatch):
+    """A typo is a request error, not a feature that failed to load: the message names what is installed."""
+    with pytest.raises(ValueError, match=r"names \['typo'\]"):
+        _discover(monkeypatch, [Entry('a', features.Feature(name='a'))], selected='typo')
 
 
 def test_two_distributions_cannot_claim_one_name(monkeypatch):

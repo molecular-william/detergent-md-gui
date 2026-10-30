@@ -1,8 +1,10 @@
 """Which panels each workspace of the dashboard owns.
 
-The dashboard has two workspaces -- detergent validation and protein-detergent simulations -- and this module is the
-single record of what goes where. It is deliberately not in the template: the template renders a section, and a test
-can assert the split without reading HTML.
+A full install has the workspaces its features register -- detergent validation and protein-detergent simulations --
+and this module is the single record of what goes where. A core-only install has none of those, so the engine
+registers one of its own (`ensure_default`): the shared panels, and the run types the engine itself owns. It is
+deliberately not in the template: the template renders a section, and a test can assert the split without reading
+HTML.
 
 Nothing here knows about layout. Whether the two workspaces are entered from an overview or shown side by side, and
 whether they are two pages or one, this record is the same -- which is why it is the first thing the refactor builds.
@@ -55,6 +57,17 @@ TAB_IDS = {
     'initial-state': 'initial-state',
 }
 
+#: The workspace the engine registers when no distribution supplied one. A core-only install still gets a working
+#: dashboard: the shared panels, and the two run types the engine owns without a feature.
+DEFAULT_SECTION = ('core', {
+    'slug': 'dashboard',
+    'label': 'Dashboard',
+    'blurb': 'the engine on its own: queue and read AA-only and AA-CG runs',
+    'tabs': ('runs', 'run-view', 'new-run'),
+    'run_types': ('aa_only', 'aa_cg'),
+    'panel_labels': {},
+})
+
 
 def register(section, *, panels=(), blurbs=(), tab_ids=()) -> None:
     """Add one feature's workspace and panels to the registry.
@@ -72,13 +85,25 @@ def register(section, *, panels=(), blurbs=(), tab_ids=()) -> None:
     TAB_IDS.update(tab_ids)
 
 
-def home():
-    """The workspace the front door renders: the first registered one.
+def ensure_default() -> None:
+    """Register the engine's own workspace when nothing else did.
 
-    Registration order is the answer: the engine contributes the shell, then features register in `Feature.priority`
-    order, so a full install opens on validation and a minimal one opens on its only workspace. Naming a workspace
-    here would keep one feature's name in the engine.
+    Only when the registry is empty: a full install opens on its first feature workspace (`Feature.priority` order),
+    and a third, empty tab would describe a dashboard nobody asked for. Without this a core-only install has no page
+    at all -- `home()` had nothing to return, and the front door answered 500.
     """
+    if not SECTIONS:
+        register(DEFAULT_SECTION)
+
+
+def home():
+    """The workspace the front door renders: the first registered one, with the engine's own as the fallback.
+
+    Registration order is the answer: features register in `Feature.priority` order, so a full install opens on
+    validation and a minimal one opens on its only workspace. Naming a workspace here would keep one feature's name
+    in the engine.
+    """
+    ensure_default()
     return next(iter(SECTIONS.values()))
 
 
