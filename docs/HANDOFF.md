@@ -6,7 +6,8 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Right now (2026-10-30, latest): Run view plays a trajectory again
 
-**Built and verified; restart the dashboard to serve it.** The plan and its execution record are
+**Built, verified and being served:** the dashboard was restarted 2026-10-30, and both live pdc runs hold a
+series built with the default arguments. The plan and its execution record are
 `docs/plans/2026-10-30-run-view-trajectory.md`.
 
 - **Phase 0, the path contract (`e7e6ad8`)**: `segments.relative()` returns the run-root spelling, so the URLs
@@ -162,7 +163,7 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 | `936b74bd3fa8` | deleted by the user 2026-10-27; failed in `CG assessment MD` (per-run storage limit) | nothing |
 | 1 us run for `00b9ae6db23f` | impossible from its data: 200 ns total | new pdc run with the corrected extension duration |
 | Overall Run view progress | the card bar is the current stage's fraction; timeline/plan skips now show settings | decide whether a true run-level percentage is wanted |
-| Run view trajectory | built 2026-10-30 (`e7e6ad8` + `d635763`, the on-demand series and player); live API acceptance passed | restart the dashboard, open a run and play one series |
+| Run view trajectory | built 2026-10-30 (`e7e6ad8` + `d635763`); the service was restarted and both live pdc runs hold a default series | play one in Run view; any other view is a Recompute |
 | cloud vs rough belt | open measurement, not a task | one protein, one seed, two 100 ns legs; compare removal fraction/aggregation/belt thickness before adopting a belt criterion |
 | `pytest-socket` | not installed; no test enforces the no-outbound-HTTPS audit | add with `--allow-hosts=127.0.0.1,localhost` |
 | known test flake | `test_pdc_preview.py::test_the_cached_step_is_not_run_again...` has failed in one full fast run and passed alone | capture a failing order with `-p no:cacheprovider` |
@@ -217,8 +218,9 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
   50,000,000 steps and did not finish: the run failed in `CG assessment MD` at the per-run storage limit.
 - `bbda8d632309`: failed at input before stages; no stage directories.
 - Frame series (2026-10-30): `00b9ae6db23f` extension and `b920391735dd` assessment, whole 100 ns, auto stride -- 120
-  models each, 0-99.246 ns; 20.3 MB / 210,480 CONECT (10,427 atoms) and 15.7 MB / 8,604 atoms assembled; 44 s
-  for the producer's single pass.
+  models each, 0-99.246 ns; 210,480 CONECT records over 10,427 atoms and 8,604 atoms for the empty micelle; 44 s
+  for the producer's single pass. Both are built in the live workspace with the default arguments (00b9's is
+  19.4 MiB), so Run view plays them now.
 - Tests (measured 2026-10-30, after the Run view slice): 2,518 collected; fast **2,249 passed, 1 xfailed**;
   browser **251 passed**; slow **17 passed**; `ruff check packages tests conftest.py` clean; mutation signal
   10 caught / 1 survived. `pytest.ini` owns tier counts; do not copy moving counts into this file.
