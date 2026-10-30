@@ -104,18 +104,19 @@ under its own `packages/<feature>/src/` tree.
 The clone-to-running sequence -- Python packages, the third-party tools and where each one goes -- is in
 `README.md`, *Install from a clone*. This section records the environment facts a maintainer needs.
 
-The interpreter lives in .venv/ at the checkout root. Existing virtual environments cannot be moved because launchers include absolute paths. Scientific resources and the local Fast_Forward package live under resources/. Fresh setup, from the repository root:
+The interpreter lives in .venv/ at the checkout root. Existing virtual environments cannot be moved because launchers include absolute paths. Scientific resources live under resources/; the provisioned tools and their source checkouts (Fast-Forward, BARTENDER, CG2AT2) live under tools/. Fresh setup, from the repository root:
 
 ```bash
 python -m venv --system-site-packages .venv
-git clone --depth 1 https://github.com/Martini-Force-Field-Initiative/fast_forward resources/parameterizers/fast_forward
-git -C resources/parameterizers/fast_forward apply "$PWD/resources/patches/fast_forward-dihedral-membership.patch"
-.venv/bin/python -m pip install --no-build-isolation --no-deps ./resources/parameterizers/fast_forward
+git clone https://github.com/Martini-Force-Field-Initiative/fast_forward tools/fast_forward
+git -C tools/fast_forward checkout 718ce2de
+git -C tools/fast_forward apply "$PWD/resources/patches/fast_forward-dihedral-membership.patch"
+.venv/bin/python -m pip install --no-build-isolation --no-deps ./tools/fast_forward
 ```
 
 Fast_Forward also needs lmfit, cgsmiles, matplotlib, MDAnalysis, numba, pbr, pysmiles, tqdm and vermouth; `--no-deps` installs the package alone, so add any that are missing (`pip install lmfit cgsmiles` pulls asteval, dill and uncertainties with lmfit).
 
-`resources/parameterizers/` is gitignored, which means the vendor tree and the installed package are both outside version control. A rebuilt virtualenv therefore loses the local patch and silently runs pristine upstream, where the `dihedrals` getter reports an empty system for every molecule and no angle is ever recognised as part of a dihedral, so restricted bending is never assigned. The tracked patch `resources/patches/fast_forward-dihedral-membership.patch` is the record, `unit/test_carbohydrates.py` fails when the installed fitter is not the vendored source, and the run manifest records the sha256 of the fitted `interaction_fit.py`. The patch was written against upstream commit `718ce2de`; tags `v0.0.2` and `v0.0.3` carry both defects too, so no tag can be pinned instead of patching.
+`tools/` is gitignored, which means the vendor tree and the installed package are both outside version control. A rebuilt virtualenv therefore loses the local patch and silently runs pristine upstream, where the `dihedrals` getter reports an empty system for every molecule and no angle is ever recognised as part of a dihedral, so restricted bending is never assigned. The tracked patch `resources/patches/fast_forward-dihedral-membership.patch` is the record, `unit/test_carbohydrates.py` fails when the installed fitter is not the vendored source, and the run manifest records the sha256 of the fitted `interaction_fit.py`. The patch was written against upstream commit `718ce2de`; tags `v0.0.2` and `v0.0.3` carry both defects too, so no tag can be pinned instead of patching.
 
 Readiness checks tool executables and imports before launch. Every run captures resolved tool paths, versions, commands, environment, and input/script hashes. No package installation happens inside simulation jobs.
 
@@ -259,7 +260,7 @@ Set up the isolated tool installation once from the repository root:
 
 ```bash
 python -m venv --system-site-packages .venv
-.venv/bin/python -m pip install --no-build-isolation --no-deps ./resources/parameterizers/fast_forward
+.venv/bin/python -m pip install --no-build-isolation --no-deps ./tools/fast_forward
 ```
 
 Readiness invokes each tool's help to check imports as well as executable discovery. Run manifests record resolved tool paths, versions, and input/script hashes. Missing dependencies block execution rather than triggering installation inside a simulation.

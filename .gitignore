@@ -39,7 +39,6 @@ docs/design/drafts/*.png
 # Large local/vendor trees are provisioned separately from the source repo.
 archive/
 tools/
-resources/parameterizers/
 # The reference corpus is upstream reading material and partial clones. The published Martini 3 set inside it is
 # tracked, because a clone must be able to run a CG system without downloading a force field (Apache-2.0, licence
 # beside it); the benchmark directory, the property workbook and the upstream checkout stay untracked by decision.

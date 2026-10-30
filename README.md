@@ -19,8 +19,8 @@ generic adapters. Generated parameters are hypotheses: a fit is an execution fac
 
 ## Install from a clone
 
-A clone carries the source and the Martini 3 force field; the compiled tools and Fast-Forward's source are
-provisioned separately (`tools/` and `resources/parameterizers/` are gitignored on purpose), so the checkout stays
+A clone carries the source and the Martini 3 force field; the compiled tools and their checkouts (Fast-Forward,
+BARTENDER, CG2AT2) live under `tools/`, which is provisioned separately and gitignored, so the checkout stays
 reasonably small and every run still records the exact bytes and versions it used.
 
 ### 1. Python environment
@@ -57,7 +57,7 @@ missing tool is reported by readiness rather than replacing itself with somethin
 | Tool | Needed for | Get it from | Put it at |
 | --- | --- | --- | --- |
 | GROMACS 2026.x | every simulation | <https://www.gromacs.org> (or your distribution, Spack, or conda) | any path with a working `gmx`; declare it |
-| Fast-Forward (`ff_map`, `ff_inter`, `ff_assess`) | the AA→CG parameterization | <https://github.com/Martini-Force-Field-Initiative/fast_forward> | `resources/parameterizers/fast_forward` |
+| Fast-Forward (`ff_map`, `ff_inter`, `ff_assess`) | the AA→CG parameterization | <https://github.com/Martini-Force-Field-Initiative/fast_forward> | `tools/fast_forward` |
 | BARTENDER + xtb | the CG Bond Interactions fit | the CGMartini tutorial archive (URL in the command below) | `tools/bartender/m3_bartender` |
 | CG2AT2 | the `pdc` back-mapping stage | <https://github.com/owenvickery/cg2at> | `tools/cg2at` |
 | Martini 3 force field | every CG run | shipped in this repository (upstream: <https://github.com/Martini-Force-Field-Initiative/M3-Lipid-Parameters>, Apache-2.0) | `references/M3-Lipid-Parameters` |
@@ -65,18 +65,19 @@ missing tool is reported by readiness rather than replacing itself with somethin
 | PLUMED (optional) | the `osmotic` series | <https://www.plumed.org> | any path; declare it |
 
 The Fast-Forward patch is not optional: without it its dihedral membership test is wrong, so restricted bending is
-never assigned. The patch applies to upstream commit `718ce2de`.
+never assigned. The patch applies to upstream commit `718ce2de`, and the patch file itself is repository source under
+`resources/patches/` -- only the checkout it applies to is provisioned.
 
 `martinize2` (from the `vermouth` package) and `pdb2pqr` are installed by step 1 and resolve from the venv; they need
 no download or declaration. The DSSP step asks vermouth for `mdtraj`, which step 1 also installs.
 
 ```bash
 # Fast-Forward, patched and installed into the environment
-mkdir -p resources/parameterizers
-git clone https://github.com/Martini-Force-Field-Initiative/fast_forward resources/parameterizers/fast_forward
-git -C resources/parameterizers/fast_forward checkout 718ce2de
-git -C resources/parameterizers/fast_forward apply "$PWD/resources/patches/fast_forward-dihedral-membership.patch"
-.venv/bin/python -m pip install --no-build-isolation --no-deps ./resources/parameterizers/fast_forward
+mkdir -p tools
+git clone https://github.com/Martini-Force-Field-Initiative/fast_forward tools/fast_forward
+git -C tools/fast_forward checkout 718ce2de
+git -C tools/fast_forward apply "$PWD/resources/patches/fast_forward-dihedral-membership.patch"
+.venv/bin/python -m pip install --no-build-isolation --no-deps ./tools/fast_forward
 
 # BARTENDER (its archive also carries the xtb build the configuration declares)
 mkdir -p tools/bartender
@@ -119,7 +120,7 @@ name that is not declared at all (`martinize2`, `pdb2pqr`) resolves the same way
 {
   "gromacs": "/usr/local/gromacs/2026.3/bin/gmx",
   "fast_forward": "ff_map",
-  "fast_forward_source": "resources/parameterizers/fast_forward",
+  "fast_forward_source": "tools/fast_forward",
   "fast_forward_commit": "61e407e60ffa0153fb2b5a028b065383619c2586",
   "bartender": "tools/bartender/m3_bartender/bartender",
   "xtb": "tools/bartender/m3_bartender/xtb-6.4.1/bin/xtb",

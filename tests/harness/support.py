@@ -21,7 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = dashboard_paths.PACKAGE_ROOT
 
 #: The vendored Fast_Forward tree; not part of every checkout, which is why lookups may return None.
-FAST_FORWARD_ROOT = PROJECT_ROOT / 'resources/parameterizers/fast_forward/fast_forward'
+FAST_FORWARD_ROOT = PROJECT_ROOT / 'tools/fast_forward/fast_forward'
 
 #: One DDM molecule as a run's own `detergent_CG.itp` declares it: eleven beads, and the ten bonded terms that
 #: hold them together -- four `[ bonds ]` and the six `[ constraints ]` the head's ring is pinned by. The numbers

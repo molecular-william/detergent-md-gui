@@ -90,8 +90,8 @@ def test_a_provenance_declaration_is_not_treated_as_a_tool(tmp_path, monkeypatch
 
 def test_a_relative_declared_path_is_anchored_to_the_workspace():
     """A declaration means one thing wherever the process happened to start."""
-    assert (tools.declared_path('resources/parameterizers/fast_forward')
-            == paths.current().project_root / 'resources/parameterizers/fast_forward')
+    assert (tools.declared_path('tools/fast_forward')
+            == paths.current().project_root / 'tools/fast_forward')
     assert tools.declared_path('/opt/tool/bin') == Path('/opt/tool/bin')
     assert tools.declared_path('~/bin') == Path.home() / 'bin'
 

@@ -58,7 +58,7 @@ jobs/processes before operating the server. Old process IDs are stale.
 
 | Output | Calculation and interpretation |
 | --- | --- |
-| `score_matrix_DDM.png` / `report_distances.out` | Native Fast-Forward comparison against raw AA-mapped distributions. Modified Hellinger/mean-difference score, not pure Hellinger. Default weights 0.7/0.3; recognized constrained pairs 0.2/0.8 unless `-include-constraints`. Constraints are reweighted, not excluded. See `resources/parameterizers/fast_forward/fast_forward/score.py`. |
+| `score_matrix_DDM.png` / `report_distances.out` | Native Fast-Forward comparison against raw AA-mapped distributions. Modified Hellinger/mean-difference score, not pure Hellinger. Default weights 0.7/0.3; recognized constrained pairs 0.2/0.8 unless `-include-constraints`. Constraints are reweighted, not excluded. See `tools/fast_forward/fast_forward/score.py`. |
 | `report_interactions.out` | Per-term entries are `Hellinger (modified score)`. Overall interaction score is a modified-score summary. Keep labels distinct. |
 | `distance_diagnostics_stratified.json` | Wasserstein distances in **nm**, raw mapped AA and ring-expanded AA vs independent CG. Lower is closer; no universal 0.3/0.5 nm threshold. |
 | `distance_matrix_stratified_DDM.png` | Physical-pair Wasserstein matrix against expanded AA when available, else raw AA. Virtual pairs masked; six constrained physical pairs visible. |

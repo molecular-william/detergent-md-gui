@@ -139,7 +139,7 @@ def test_installed_fast_forward_is_the_vendored_source():
     assert digest(installed) == digest(path), (
         f'the installed fitter {installed} is not the vendored source {path}; reinstall it with: '
         'pip install --force-reinstall --no-cache-dir --no-build-isolation --no-deps '
-        './resources/parameterizers/fast_forward')
+        './tools/fast_forward')
 
 
 def test_the_vendored_source_is_at_the_revision_the_configuration_pins():
