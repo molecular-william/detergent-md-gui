@@ -15,6 +15,11 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
   fatal -- the row in `PROJECT_GUIDE.md` (*Adding a distribution*) says so now.
 - The launcher and `python -m dashboard` share one argument parser (`cli/serve.py`), so `--host`, `--port` and
   `--features` work for both.
+- **The header Modules switch** shows or hides installed features at runtime. `GET`/`PUT /api/modules` reads and
+  writes `modules.json` in the workspace; `sections.shown()` filters the registry on the next page load, and
+  `section_by_slug`/the routes answer 404 for a hidden workspace. Nothing is unloaded -- APIs, run types for
+  existing runs and code resolvers stay live -- and the engine workspace is what remains when every module is off.
+  The popover was chosen over the rail (`docs/design/drafts/2026-10-30-module-toggles.html`).
 
 ## Right now (2026-10-29): the dashboard is three distributions
 
@@ -170,12 +175,14 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 - `936b74bd3fa8`: empty micelle, 120 DDM, no removal; the 1,000 ns leg after NVT/NPT was configured at
   50,000,000 steps and did not finish: the run failed in `CG assessment MD` at the per-run storage limit.
 - `bbda8d632309`: failed at input before stages; no stage directories.
-- Tests (measured 2026-10-30): 2,448 collected; fast **2,194 passed, 1 xfailed**; browser **236 passed**; slow
+- Tests (measured 2026-10-30): 2,458 collected; fast **2,202 passed, 1 xfailed**; browser **238 passed**; slow
   **17 passed**; `ruff check packages tests conftest.py` clean. `pytest.ini` owns tier counts; do not
   copy moving counts into this file.
 
 ## Landed slices, newest first
 
+- **2026-10-30 modules switch**: the header popover hides/shows installed features for this workspace, saved in
+  `modules.json` and applied on reload; hidden means not offered, not unloaded.
 - **2026-10-30 feature selection and core-only start**: `DASHBOARD_FEATURES`/`--features` filters discovery before
   loading, failed features are skipped and recorded, and an empty registry gets the engine's own workspace.
 - **2026-10-29 browser-tier flake**: a stale molecule load could replace a newer selection in the bead editor, so the

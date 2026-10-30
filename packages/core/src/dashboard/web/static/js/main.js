@@ -5,11 +5,13 @@ import { createNewRun } from './new-run.js';
 import { createMappings } from './mappings.js';
 import { createCompositions } from './compositions.js';
 import { createRunView } from './run-view.js';
+import { initModules } from './modules.js';
 
 //: Mount the engine's panels, then the installed features'. `specs` is `{panel DOM id: {url, factory}}`, emitted by
 //: the shell from `dashboard.features.browser_panels()`, so a feature's module is fetched only when its distribution
 //: is installed -- a `[det]` deployment never downloads the protein-detergent panel.
 export async function boot(specs = {}, extensions = []) {
+  initModules();
   const panels = panelIds();
   const pending = {};
   for (const [panel, spec] of Object.entries(specs)) pending[panel] = import(spec.url);

@@ -6,7 +6,7 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     __package__ = 'dashboard'
 
-from flask import Flask, jsonify, request, send_from_directory, url_for
+from flask import Flask, current_app, jsonify, request, send_from_directory, url_for
 from jinja2 import ChoiceLoader, FileSystemLoader
 from werkzeug.exceptions import HTTPException, NotFound
 
@@ -14,7 +14,7 @@ from . import paths as path_config
 from .constants import HOST, PORT
 from .execution.coordination.coordinator import Coordinator
 from .web import sections
-from .web.routes import analyses, catalog, common, maintenance, mappings, molecules, runs
+from .web.routes import analyses, catalog, common, maintenance, mappings, modules, molecules, runs
 
 
 def create_app(paths=None, config=None):
@@ -25,7 +25,7 @@ def create_app(paths=None, config=None):
     coordinator = Coordinator(app, app.config['PATHS'])
     app.extensions['dashboard_coordinator'] = coordinator
     app.before_request(coordinator.ensure_service)
-    for module in (runs, molecules, catalog, mappings, analyses, maintenance):
+    for module in (runs, molecules, catalog, mappings, analyses, maintenance, modules):
         app.register_blueprint(module.blueprint)
     from . import features
     features.register(app)
@@ -55,6 +55,7 @@ def create_app(paths=None, config=None):
         """The installed panels and stylesheets, as URLs: the shell includes and links them without naming a feature."""
         return dict(
             installed_features=[feature.name for feature in features.ensure()],
+            installed_modules=sections.module_rows(current_app.config['PATHS']),
             panel_modules={panel: {'url': url_for('feature_asset', feature=owner, filename=path), 'factory': factory}
                            for panel, (owner, path, factory) in features.browser_panels().items()},
             feature_styles=[url_for('feature_asset', feature=owner, filename=name)

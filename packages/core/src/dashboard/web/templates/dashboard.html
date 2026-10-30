@@ -35,7 +35,38 @@
   </script>
 </head>
 <body>
-<header><div><span class="eyebrow">LOCAL SIMULATION WORKSPACE</span><h1>Detergent MD</h1><p>Run, inspect, and refine molecular models.</p></div><span id="connection" role="status">Connecting…</span></header>
+<header><div><span class="eyebrow">LOCAL SIMULATION WORKSPACE</span><h1>Detergent MD</h1><p>Run, inspect, and refine molecular models.</p></div>
+<div class="header-actions">
+  <div class="modules-menu">
+    <button type="button" id="modules-button" aria-expanded="false" aria-controls="modules-popover">Modules <span aria-hidden="true">▾</span></button>
+    <div id="modules-popover" class="modules-popover" role="dialog" aria-label="Installed modules" hidden>
+      <h2>Installed modules</h2>
+      <ul class="modules-list">
+        <li class="module-row">
+          <span class="module-glyph" aria-hidden="true">▣</span>
+          <span class="module-text"><strong>Engine</strong><small>Runs, Run view, New run</small></span>
+          <span class="module-state">Always on</span>
+        </li>
+        {% for module in installed_modules %}
+        <li class="module-row{% if not module.enabled %} is-off{% endif %}">
+          <span class="module-glyph" aria-hidden="true">◉</span>
+          <span class="module-text"><strong>{{ module.label }}</strong>
+            {% if module.blurb %}<small>{{ module.blurb }}</small>{% endif %}</span>
+          <label class="module-switch"><input type="checkbox" data-module="{{ module.name }}"
+                 {{ 'checked' if module.enabled }} aria-label="Show {{ module.label }}"><span class="module-switch-track"></span></label>
+        </li>
+        {% endfor %}
+      </ul>
+      {% if not installed_modules %}<p class="hint">No feature modules are installed; the engine workspace is the dashboard.</p>
+      {% else %}<p class="hint">A hidden module's workspaces and run types are not offered; its existing runs stay readable.</p>{% endif %}
+      <div class="modules-dirty" id="modules-dirty" hidden>
+        <span>Changes apply when you reload.</span>
+        <button type="button" id="modules-reload">Reload</button>
+      </div>
+    </div>
+  </div>
+  <span id="connection" role="status">Connecting…</span>
+</div></header>
 <main>
 <nav class="section-tabs" role="tablist" aria-label="Workspaces">
   {% for name, each in workspaces.items() %}

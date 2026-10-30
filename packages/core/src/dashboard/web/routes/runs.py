@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from dashboard import files
-from flask import Blueprint, Response, abort, jsonify, render_template, request, send_file
+from flask import Blueprint, Response, abort, current_app, jsonify, render_template, request, send_file
 
 from ... import features
 from ...analysis.runs import structures
@@ -18,7 +18,7 @@ from ...execution import devices, protocol
 from ...execution.coordination import admission
 from ...models.molecules import aa as aa_molecules
 from .. import views
-from ..sections import PANELS, SECTIONS, TAB_IDS, home, legacy_tab_targets, run_types_for, section_by_slug, visible
+from ..sections import PANELS, TAB_IDS, enabled, home, legacy_tab_targets, run_types_for, section_by_slug, shown, visible
 from .common import coordinator, json_object, pagination
 
 blueprint = Blueprint('runs', __name__)
@@ -51,17 +51,19 @@ def workspace_context(section, panel):
     row beneath them, with no error in the console and no test noticing. A `TypeError` here is a far better outcome
     than a page that is quietly missing a third of itself.
     """
-    found = section_by_slug(section)
+    chosen = enabled(current_app.config['PATHS'])
+    found = section_by_slug(section, chosen)
     if found is None:
         raise ValueError(f'no workspace has the slug {section!r}')
     found = visible(found)
-    return dict(section=section, panel=panel, workspace=found, workspaces=SECTIONS,
-                panel_info=PANELS, tab_ids=TAB_IDS, legacy_tabs=legacy_tab_targets(),
+    workspaces = shown(chosen)
+    return dict(section=section, panel=panel, workspace=found, workspaces=workspaces,
+                panel_info=PANELS, tab_ids=TAB_IDS, legacy_tabs=legacy_tab_targets(workspaces),
                 # The Run view panel's scope, from the registry's own per-workspace `run_types`: the panel asks
                 # `/api/jobs` for these by name, so what it can reach is the registry's answer and not a list the
                 # JavaScript keeps for itself. Handed to the template rather than to the module, because the
                 # module must not have to know which workspace rendered the page.
-                run_view_scope={'slug': found['slug'], 'types': list(run_types_for(found['slug']))})
+                run_view_scope={'slug': found['slug'], 'types': list(run_types_for(found))})
 
 
 @blueprint.get('/')
@@ -73,14 +75,14 @@ def index():
     put a chosen-looking URL in the history when the root is not somewhere anyone chose to be, and it would give
     validation two canonical paths instead of one.
     """
-    first = visible(home())
+    first = visible(home(enabled(current_app.config['PATHS'])))
     return render_template('dashboard.html', **workspace_context(first['slug'], first['tabs'][0]))
 
 
 @blueprint.get('/<section>')
 def section_view(section):
     """A workspace, opened on its first panel."""
-    found = section_by_slug(section)
+    found = section_by_slug(section, enabled(current_app.config['PATHS']))
     if found is None:
         abort(404)
     return render_template('dashboard.html', **workspace_context(section, found['tabs'][0]))
@@ -94,7 +96,7 @@ def panel_view(section, panel):
     not recognise with the first tab it had, which is how a wrong link became a wrong page with no report; a URL that
     names a panel is checkable, so it is checked.
     """
-    found = section_by_slug(section)
+    found = section_by_slug(section, enabled(current_app.config['PATHS']))
     if found is None or panel not in visible(found)['tabs']:
         abort(404)
     return render_template('dashboard.html', **workspace_context(section, panel))

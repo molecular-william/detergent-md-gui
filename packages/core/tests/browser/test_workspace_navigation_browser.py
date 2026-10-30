@@ -163,3 +163,41 @@ def test_every_panel_is_the_same_width_and_has_no_dead_space_beside_it(dashboard
             assert abs(measured_width - expected) <= 2, \
                 f'{panel}: a span-{span} panel is {measured_width:.0f} px where the measure says {expected:.0f}'
     assert errors == []
+
+
+def test_the_modules_switch_hides_a_workspace_after_a_reload(dashboard, live_page):
+    """The header popover is a saved view decision: it writes the set, offers a reload, and the reload honours it."""
+    page, errors = live_page
+    page.set_viewport_size(WIDE)
+    page.goto(live_page.base_url)
+    expect(page.locator('.section-tab')).to_have_count(2)
+
+    page.locator('#modules-button').click()
+    expect(page.locator('#modules-popover')).to_be_visible()
+    expect(page.locator('#modules-button')).to_have_attribute('aria-expanded', 'true')
+    expect(page.locator('#modules-popover input[data-module]')).to_have_count(2)
+
+    page.locator('#modules-popover input[data-module="pdc"]').uncheck()
+    expect(page.locator('#modules-dirty')).to_be_visible()
+    page.locator('#modules-reload').click()
+    page.wait_for_load_state()
+
+    expect(page.locator('.section-tab')).to_have_count(1)
+    expect(page.locator('.section-tab')).to_have_text(re.compile('Detergent validation'))
+    assert page.locator('[data-section="protein-detergent"]').count() == 0
+    # The switch reads the saved state on the reloaded page.
+    page.locator('#modules-button').click()
+    expect(page.locator('#modules-popover input[data-module="pdc"]')).not_to_be_checked()
+    expect(page.locator('#modules-popover .module-row.is-off')).to_have_count(1)
+    assert errors == [], errors
+
+
+def test_escape_closes_the_modules_switch(dashboard, live_page):
+    page, errors = live_page
+    page.goto(live_page.base_url)
+    page.locator('#modules-button').click()
+    expect(page.locator('#modules-popover')).to_be_visible()
+    page.keyboard.press('Escape')
+    expect(page.locator('#modules-popover')).to_be_hidden()
+    expect(page.locator('#modules-button')).to_have_attribute('aria-expanded', 'false')
+    assert errors == [], errors

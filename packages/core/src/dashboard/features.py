@@ -216,7 +216,7 @@ def ensure() -> list[Feature]:
                 register_layout()
             if feature.section:
                 sections.register(feature.section, panels=feature.panels, blurbs=feature.blurbs,
-                                  tab_ids=feature.tab_ids)
+                                  tab_ids=feature.tab_ids, owner=feature.name)
     return _features
 
 

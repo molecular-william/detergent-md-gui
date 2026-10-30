@@ -129,3 +129,34 @@ nav{max-width:100%;overflow-x:auto;white-space:nowrap}nav button{flex:0 0 auto}
 @media (max-width: 520px) {
   .bonded-model-fields { grid-template-columns: minmax(0, 1fr) }
 }
+
+/* Installed-module switch: the header popover. The engine's own workspace is always on; a feature's row is a switch
+   whose change is saved by `js/modules.js` and applied on the next page load. */
+.header-actions{display:flex;align-items:center;gap:14px;position:relative}
+#modules-button{background:#fff;color:var(--accent);border:1px solid var(--line);padding:7px 12px;font-size:13px}
+.modules-menu{position:relative}
+.modules-popover{position:absolute;right:0;top:calc(100% + 10px);width:min(360px,calc(100vw - 32px));background:#fff;
+  border:1px solid var(--line);border-radius:12px;box-shadow:0 14px 34px #162c4826;padding:12px;z-index:60}
+.modules-popover h2{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:2px 6px 8px}
+.modules-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.module-row{display:flex;align-items:flex-start;gap:10px;padding:9px 6px;border-radius:9px}
+.module-row:hover{background:#f4f7fb}
+.module-glyph{flex:none;width:26px;height:26px;display:grid;place-items:center;border-radius:7px;background:#e8eef6;
+  color:var(--accent);font-size:13px}
+.module-text{flex:1;min-width:0;padding-top:1px}
+.module-text strong{display:block;font-size:13.5px}
+.module-text small{display:block;color:var(--muted);font-size:11.5px;line-height:1.4}
+.module-state{font-size:11px;color:var(--muted);white-space:nowrap;padding-top:5px}
+.module-row.is-off .module-glyph{background:#f1f3f6;color:#93a1b3}
+.module-row.is-off .module-text strong{color:var(--muted)}
+.module-switch{position:relative;flex:none;width:34px;height:20px;display:inline-block;margin:3px 2px 0 0}
+.module-switch input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer;z-index:1}
+.module-switch-track{position:absolute;inset:0;border-radius:999px;background:#c9d4e0;transition:background .15s ease}
+.module-switch-track::after{content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 2px #162c4833;transition:transform .15s ease}
+.module-switch input:checked + .module-switch-track{background:#2f9e6a}
+.module-switch input:checked + .module-switch-track::after{transform:translateX(14px)}
+.module-switch input:focus-visible + .module-switch-track{outline:3px solid #78a9ec;outline-offset:2px}
+.modules-dirty{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#fff8e7;
+  border:1px solid #efdfad;border-radius:8px;padding:8px 10px;margin:8px 6px 2px;font-size:12px}
+.modules-dirty button{padding:5px 10px;font-size:12px;background:var(--accent)}

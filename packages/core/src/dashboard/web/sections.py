@@ -9,6 +9,18 @@ HTML.
 Nothing here knows about layout. Whether the two workspaces are entered from an overview or shown side by side, and
 whether they are two pages or one, this record is the same -- which is why it is the first thing the refactor builds.
 """
+import json
+import logging
+from pathlib import Path
+
+from .. import features, files
+
+_log = logging.getLogger(__name__)
+
+#: Where a workspace records which modules it shows. Absent means every installed module; a hidden module is not
+#: unloaded -- its APIs, run types for existing runs and code resolvers stay live, which is what keeps old runs
+#: readable after a toggle.
+MODULES_FILE = 'modules.json'
 
 #: The two workspaces. `slug` is the URL segment and the `data-tab` prefix; `label` is the human name. The two are
 #: not derived from each other on purpose: the label "protein-detergent simulations" is longer than its slug
@@ -69,17 +81,20 @@ DEFAULT_SECTION = ('core', {
 })
 
 
-def register(section, *, panels=(), blurbs=(), tab_ids=()) -> None:
+def register(section, *, panels=(), blurbs=(), tab_ids=(), owner=None) -> None:
     """Add one feature's workspace and panels to the registry.
 
     The four dicts below are the objects routes and the template read, and `routes/runs.py` imported them by name, so
     a feature is added by **mutating** them: rebinding a name would leave every earlier importer looking at the old
     registry. A duplicate name raises, because two features claiming one workspace is a registry error, not a merge.
+
+    `owner` is the feature name that contributed the workspace. It is what the Modules switch hides; the engine's own
+    workspace has no owner and is never hidden.
     """
     name, record = section
     if name in SECTIONS:
         raise ValueError(f'workspace {name!r} is already registered')
-    SECTIONS[name] = record
+    SECTIONS[name] = {**record, 'owner': owner} if owner else record
     PANELS.update(panels)
     PANEL_BLURBS.update(blurbs)
     TAB_IDS.update(tab_ids)
@@ -96,15 +111,74 @@ def ensure_default() -> None:
         register(DEFAULT_SECTION)
 
 
-def home():
-    """The workspace the front door renders: the first registered one, with the engine's own as the fallback.
+def home(chosen=None):
+    """The workspace the front door renders: the first shown one, with the engine's own as the fallback.
 
     Registration order is the answer: features register in `Feature.priority` order, so a full install opens on
     validation and a minimal one opens on its only workspace. Naming a workspace here would keep one feature's name
     in the engine.
     """
     ensure_default()
-    return next(iter(SECTIONS.values()))
+    return next(iter(shown(chosen).values()))
+
+
+def _setting_path(paths):
+    return Path(paths.workspace) / MODULES_FILE
+
+
+def enabled(paths):
+    """The module names this workspace shows, or `None` meaning every installed one.
+
+    A malformed setting is logged and treated as "every installed module": the switch is a convenience, and a broken
+    preference file must not take the dashboard behind a 500. The warning is the reason it is ignored rather than a
+    silent fallback.
+    """
+    path = _setting_path(paths)
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text())
+        names = payload['enabled']
+        if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
+            raise ValueError('"enabled" must be a list of module names')
+        return names
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        _log.warning('ignoring unreadable %s (%s); every installed module is shown', path, error)
+        return None
+
+
+def set_enabled(paths, names) -> None:
+    """Record which modules this workspace shows; an empty list shows the engine's own workspace only."""
+    files.atomic_json(_setting_path(paths), {'enabled': sorted(set(names))})
+
+
+def module_rows(paths):
+    """The installed modules for the header switch, in registration order, with whether each is shown."""
+    chosen = enabled(paths)
+    rows = []
+    for feature in features.ensure():
+        record = feature.section[1] if feature.section else {}
+        rows.append({'name': feature.name, 'label': record.get('label', feature.name),
+                     'blurb': record.get('blurb', ''), 'enabled': chosen is None or feature.name in chosen})
+    return rows
+
+
+def _shown(section, chosen):
+    owner = section.get('owner')
+    return chosen is None or owner is None or owner in chosen
+
+
+def shown(chosen=None):
+    """The workspaces this workspace shows, filtered by the Modules setting.
+
+    The engine's own workspace is always visible and is the answer when every module is hidden; it is synthesised
+    rather than registered so that re-enabling a module does not leave it behind as a third tab.
+    """
+    registry = {name: section for name, section in SECTIONS.items() if _shown(section, chosen)}
+    if registry:
+        return registry
+    name, record = DEFAULT_SECTION
+    return {name: record}
 
 
 def visible(section):
@@ -147,13 +221,13 @@ def section_for(name):
     return SECTIONS.get(name)
 
 
-def section_by_slug(slug):
-    """The section whose URL segment is `slug`, or `None`.
+def section_by_slug(slug, chosen=None):
+    """The section whose URL segment is `slug`, or `None`; a hidden workspace is not found.
 
     The lookup by slug is separate from the lookup by name because they are different vocabularies: the overview
     links with slugs, the registry is keyed by short names, and only this function knows the mapping between them.
     """
-    for name, section in SECTIONS.items():
+    for name, section in shown(chosen).items():
         if section['slug'] == slug:
             return section
     return None
@@ -215,13 +289,15 @@ def run_types_for(section):
     be a guess. A workspace registered without a scope answers `()`, which the panel renders as "no run type in
     this workspace" rather than as every run of every kind.
     """
+    if isinstance(section, dict):
+        return tuple(section.get('run_types', ()))
     for name, record in SECTIONS.items():
         if section in (name, record['slug']):
             return tuple(record.get('run_types', ()))
     raise KeyError(f'no workspace has the slug or name {section!r}')
 
 
-def legacy_tab_targets():
+def legacy_tab_targets(workspaces=None):
     """Where an old `/#tab` fragment should land now: `{old DOM id: '/workspace/panel'}`.
 
     The dashboard used to name its panels in a fragment, so every bookmark and every browser test pointed at one page
@@ -232,7 +308,7 @@ def legacy_tab_targets():
     page did most of its work, and a fragment-only link gives no other clue about which one was meant.
     """
     targets = {}
-    for section in SECTIONS.values():
+    for section in (workspaces or SECTIONS).values():
         for slug in section['tabs']:
             targets.setdefault(TAB_IDS[slug], f"/{section['slug']}/{slug}")
     return targets
