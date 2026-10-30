@@ -19,9 +19,9 @@ generic adapters. Generated parameters are hypotheses: a fit is an execution fac
 
 ## Install from a clone
 
-A clone carries the source only. The scientific inputs and the compiled tools are provisioned separately: `tools/`,
-`references/` and `resources/parameterizers/` are gitignored on purpose, so the checkout stays small and every run
-records the exact bytes and versions it used.
+A clone carries the source and the Martini 3 force field; the compiled tools and Fast-Forward's source are
+provisioned separately (`tools/` and `resources/parameterizers/` are gitignored on purpose), so the checkout stays
+reasonably small and every run still records the exact bytes and versions it used.
 
 ### 1. Python environment
 
@@ -60,8 +60,8 @@ missing tool is reported by readiness rather than replacing itself with somethin
 | Fast-Forward (`ff_map`, `ff_inter`, `ff_assess`) | the AA→CG parameterization | <https://github.com/Martini-Force-Field-Initiative/fast_forward> | `resources/parameterizers/fast_forward` |
 | BARTENDER + xtb | the CG Bond Interactions fit | the CGMartini tutorial archive (URL in the command below) | `tools/bartender/m3_bartender` |
 | CG2AT2 | the `pdc` back-mapping stage | <https://github.com/owenvickery/cg2at> | `tools/cg2at` |
-| Martini 3 force field | every CG run | <https://github.com/Martini-Force-Field-Initiative/M3-Lipid-Parameters> | `references/M3-Lipid-Parameters` |
-| the sugar reference | part of the same Martini set | the raw file URL below | `references/martini_v3.0.0_sugars_v2.itp` |
+| Martini 3 force field | every CG run | shipped in this repository (upstream: <https://github.com/Martini-Force-Field-Initiative/M3-Lipid-Parameters>, Apache-2.0) | `references/M3-Lipid-Parameters` |
+| the sugar reference | part of the same Martini set | shipped in this repository | `references/martini_v3.0.0_sugars_v2.itp` |
 | PLUMED (optional) | the `osmotic` series | <https://www.plumed.org> | any path; declare it |
 
 The Fast-Forward patch is not optional: without it its dihedral membership test is wrong, so restricted bending is
@@ -88,31 +88,22 @@ tar -xzf tools/bartender/m3_bartender/Bartender0.1.1.tgz -C tools/bartender/m3_b
 # CG2AT2 (the back-map stage runs tools/cg2at/cg2at and reads its database/ tree in place)
 mkdir -p tools
 git clone https://github.com/owenvickery/cg2at tools/cg2at
-
-# the Martini 3 set every CG run reads, and the sugar reference that is part of it
-mkdir -p references
-git clone https://github.com/Martini-Force-Field-Initiative/M3-Lipid-Parameters.git references/M3-Lipid-Parameters
-git -C references/M3-Lipid-Parameters checkout 2121527
-curl -L -o references/martini_v3.0.0_sugars_v2.itp \
-  https://raw.githubusercontent.com/marrink-lab/martini-forcefields/e11f1d31923ba8090779f8601847dbde84e559e4/martini_forcefields/regular/v3.0.0/gmx_files/martini_v3.0.0_sugars_v2.itp
-cat > references/martini_v3.0.0_sugars_v2.source.json <<'JSON'
-{
-  "url": "https://raw.githubusercontent.com/marrink-lab/martini-forcefields/e11f1d31923ba8090779f8601847dbde84e559e4/martini_forcefields/regular/v3.0.0/gmx_files/martini_v3.0.0_sugars_v2.itp",
-  "commit": "e11f1d31923ba8090779f8601847dbde84e559e4",
-  "sha256": "4d29956a77d936cfdad10e8bbdf201cebdaa24a2f5f50688988a1c7bb9ebfc50",
-  "paper_doi": "10.1021/acs.jctc.2c00757",
-  "martini_version": 3
-}
-JSON
 ```
+
+The Martini 3 set needs no download: `references/M3-Lipid-Parameters/` (commit `2121527`, Apache-2.0, the upstream
+`LICENSE.txt` and `README.md` beside it) and the sugar reference `references/martini_v3.0.0_sugars_v2.itp` with its
+`source.json` are part of the clone. The first CG reader installs them into `workspace/dashboard/martini3/` and records
+the upstream commit and a digest per file. To take a newer upstream release, replace that directory from a fresh
+checkout, update the commit in `dashboard/martini3.py` (`SOURCE`) if it moved, and refresh the workspace install; a
+run never takes new force-field bytes on its own.
 
 A CUDA GPU is optional: the AA and CG defaults offload nonbonded work to device 0, so on a CPU-only machine set
 `mdrun_nb` and `mdrun_pme` to `cpu` in the run's settings. The code asks `gmx` whether it is an MPI or a thread-MPI
 build and passes only the thread flags that build accepts.
 
-The Martini set is installed into `workspace/dashboard/martini3/` by the first CG reader, which records the upstream
-commit and a digest per file. The checkout's `references/` also holds optional upstream trees: `M3-Small-Molecules`
-and `M3-Bible` widen the mapping-suggestion index, and the reference PDFs are reading material, not inputs.
+The checkout's `references/` also holds optional upstream trees: `M3-Small-Molecules` and `M3-Bible` widen the
+mapping-suggestion index, and the reference PDFs are reading material, not inputs. The unmodified upstream benchmark
+material and property workbook are deliberately not in git.
 
 PLUMED is needed only for the `osmotic` series, and the GROMACS build must have PLUMED support: `gmx mdrun -plumed`
 loads a kernel at run time, and the code sets `PLUMED_KERNEL` from the `lib/` directory beside the declared `plumed`.
@@ -205,7 +196,8 @@ above say what each needs. Nothing is downloaded or installed by a run.
 * `packages/<name>/tests/` — each distribution's own unit, integration and browser tiers, with `tests/harness/`
   holding the fixtures, plugins and selection tables they share; isolated stores, never the developer's workspace.
 * `molecules/`, `references/`, `resources/` — canonical scientific inputs; the CG force field is installed per
-  workspace at `workspace/dashboard/martini3` from `references/M3-Lipid-Parameters/ITPs`, never from a copy in the tree.
+  workspace at `workspace/dashboard/martini3` from `references/M3-Lipid-Parameters/ITPs` (tracked here, Apache-2.0),
+  never from a per-run copy.
 * `tools/cg2at/` — CG2AT2, vendored, used by the `pdc` back-map stage with the `martini_3-0_charmm36` fragment DB.
 * `config/` — workspace selection and declared tools (`config/tools.json`, resolved by `dashboard.execution.tools`;
   GROMACS here is `/usr/local/gromacs/2026.3/bin/gmx`, an MPI-only build, so `-ntomp` is the thread knob).

@@ -40,10 +40,20 @@ docs/design/drafts/*.png
 archive/
 tools/
 resources/parameterizers/
-# The published Martini 3 set and the reference corpus are upstream inputs, not source: every run records
-# their sha256 in `inputs/inputs.json`, and a run reads the installed set in place. They stay on disk,
-# never in git -- provision them into a checkout (see docs/PROJECT_GUIDE.md).
-references/
+# The reference corpus is upstream reading material and partial clones. The published Martini 3 set inside it is
+# tracked, because a clone must be able to run a CG system without downloading a force field (Apache-2.0, licence
+# beside it); the benchmark directory, the property workbook and the upstream checkout stay untracked by decision.
+references/*
+!references/M3-Lipid-Parameters/
+references/M3-Lipid-Parameters/*
+!references/M3-Lipid-Parameters/ITPs/
+!references/M3-Lipid-Parameters/LICENSE.txt
+!references/M3-Lipid-Parameters/README.md
+references/M3-Lipid-Parameters/ITPs/*
+!references/M3-Lipid-Parameters/ITPs/*.itp
+!references/M3-Lipid-Parameters/ITPs/README.md
+!references/martini_v3.0.0_sugars_v2.itp
+!references/martini_v3.0.0_sugars_v2.source.json
 
 # Worked-example simulation artifacts (ENAP): trajectories and topologies, no code reads them.
 resources/templates/parametrize_new_small_molecule/

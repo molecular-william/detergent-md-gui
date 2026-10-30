@@ -227,6 +227,9 @@ series built with the default arguments. The plan and its execution record are
 
 ## Landed slices, newest first
 
+- **2026-10-30 Martini 3 set tracked**: the published lipidome ITPs, the sugar reference and the licence are in git
+  (18 MB), so a clone installs the force field without a download; Fast-Forward, BARTENDER and CG2AT2 stay separately
+  provisioned, and the upstream benchmark material and workbook stay untracked.
 - **2026-10-30 Run view trajectory**: the path-contract fix, the on-demand `frame-series` analysis (payload-driven
   sources, fit/assembly, caps) and the player plus recompute form in the shared panel; verified on the live pdc runs.
 - **2026-10-30 modules switch**: the header popover hides/shows installed features for this workspace, saved in

@@ -108,3 +108,28 @@ def test_an_installed_input_is_recorded_under_the_workspace_or_absolutely(tmp_pa
         assert absolute['root'] == 'absolute'
         for entry in (stored, absolute):
             assert run_inputs.verify_entry(entry).name == 'martini_v3.0.0.itp'
+
+
+def test_the_published_set_is_tracked_so_a_clone_can_install_it():
+    """A clone must install the force field without a download; the upstream benchmark stays out of git.
+
+    The set lives under `references/`, which is mostly untracked upstream reading, so its presence on a developer's
+    disk proves nothing about a clone. This reads git's own index -- `.gitignore`'s exceptions are the contract.
+    """
+    import subprocess
+
+    root = paths.PROJECT_ROOT
+    if not (root / '.git').exists():
+        pytest.skip('not a git checkout')
+    tracked = set(subprocess.run(['git', '-C', str(root), 'ls-files', '--', 'references'],
+                                 capture_output=True, text=True, check=True).stdout.splitlines())
+    required = [f'references/M3-Lipid-Parameters/ITPs/{name}' for name in martini3.REQUIRED]
+    required += ['references/M3-Lipid-Parameters/ITPs/martini_v3.0.0_ffbonded_v2.itp',
+                 'references/M3-Lipid-Parameters/ITPs/README.md',
+                 'references/M3-Lipid-Parameters/LICENSE.txt',
+                 'references/martini_v3.0.0_sugars_v2.itp',
+                 'references/martini_v3.0.0_sugars_v2.source.json']
+    missing = [path for path in required if path not in tracked]
+    assert not missing, f'not tracked, so a clone cannot install the force field: {missing}'
+    assert not [path for path in tracked if 'Benchmark' in path or 'autobuild' in path], (
+        'the upstream benchmark material and property workbook stay untracked by decision')

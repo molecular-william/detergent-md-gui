@@ -101,7 +101,7 @@ with a Flask dashboard over persisted manifests and logs. Reproducible; outputs 
 - Internal consistency is the primary evidence; the reference's own numbers are context, not a pass mark.
 - A mapping states its own ring scale and the guard is a range. Ring scale is closed against as the cause of the DDM
   failure, and fitted linkage values are not a diagnosis -- spend no further arm on either.
-- The published M3-Lipid set is the standard source, recorded per run, and stays untracked. GLYCAM06 is dropped.
+- The published M3-Lipid set is tracked at `references/M3-Lipid-Parameters` (Apache-2.0) and installed per workspace; update it deliberately, never per run. GLYCAM06 is dropped.
 - The scheduled cron drivers and the mapping-refinement panel are cancelled; do not rebuild either.
 - `-improperIncrement 10` goes to every BARTENDER fit, so impropers fitted since are not comparable with earlier ones.
 - Phase 4 (sucrose and maltose experimental sources) is deferred, not abandoned.
