@@ -4,13 +4,19 @@ State and open items for this repository. Rules live in `AGENTS.md`; subsystem b
 `docs/PROJECT_GUIDE.md`; scoring science in `docs/DDM_CALIBRATION.md`. Read this before touching the DDM CG chain,
 the protein-detergent pipeline or the coordinator. This file keeps only what is current and the evidence behind it.
 
-## Next task (2026-11-02): none approved
+## Next task (2026-11-02): detergent conformation library
 
-The Run view controls and PBC slice landed on 2026-11-02
+The user approved the design in `docs/plans/2026-11-02-detergent-conformation-library.md`: a library of detergent
+conformations sampled from **micelle-only** runs (one run or several pooled, the caller's choice), exactly **K = 2000**
+entries chosen by stratified selection, referenced by **source run id** and rebuilt on demand — not tracked in git,
+with a self-contained directory that can be copied between workspaces. The library stores each molecule's internal
+geometry; the placement draws the azimuth. It applies to both lattice modes and to the preview. Not started; read
+that plan before touching `pdc_placement.place_detergents` or `pdc_build.stamp`.
+
+The Run view controls and PBC slice landed earlier on 2026-11-02
 (`docs/plans/2026-10-30-run-view-pbc-controls.md`): a taller canvas, the removable bonds-reason readout cell gone,
 one build action behind **Frame options**, **ns per frame** instead of a frame step, and `pbc`/`centre`/`fit`/`group`
-as a view of the frames. No next task is approved; pick from the open items below -- the Run view progress decision,
-`pytest-socket`, verifying the migrated runs still render, and the cloud-vs-rough belt measurement are the candidates.
+as a view of the frames.
 
 Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9ae6db23f` was deleted by the user on
 2026-10-30**; anything that still names it is history, not a live run.
@@ -57,6 +63,7 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
 
 | item | state | next |
 | --- | --- | --- |
+| detergent conformation library | approved 2026-11-02; plan `docs/plans/2026-11-02-detergent-conformation-library.md` | build it: K=2000 stratified from one or several micelle-only runs, referenced by run id, used by both lattice modes and the preview |
 | run-layout migration | applied 2026-10-27 (`legacy_layout.json` on every then-existing run); `936b74bd3fa8`, `00b9ae6db23f` deleted by the user | verify the migrated runs still render and resolve analyses |
 | Overall Run view progress | the card bar is the current stage's fraction; timeline/plan skips show settings | decide whether a true run-level percentage is wanted |
 | cloud vs rough belt | open measurement, not a task | one protein, one seed, two 100 ns legs; compare removal fraction/aggregation/belt thickness before adopting a belt criterion |
