@@ -17,8 +17,13 @@ import json
 import math
 
 import pytest
+from dashboard import files
 from dashboard.analysis.runs import structures as pdc_view
 from dashboard.execution import tools
+from detergent_pdc import conformations
+
+from tests.harness import conformation_fixtures
+from tests.harness.support import DDM_BONDS, DDM_CLASSES
 
 
 def peptide(residues=6, *, chain='A', shift_nm=0.0) -> str:
@@ -171,6 +176,7 @@ def test_the_basis_is_the_question_that_was_asked_and_the_cost_says_what_was_pai
     assert basis['beads'] == 160 and basis['protein_beads'] == 0
     assert basis['box_nm'] and len(basis['box_nm']) == 3 and basis['clearance_nm'] is None
     assert basis['detergent_representation'] == 'the mapping\u2019s beads'
+    assert basis['conformations'] is None, 'no library named is still the template\u2019s one rigid conformation'
 
     assert body['cost']['cg_cached'] is False and body['cost']['coarse_graining_seconds'] == 0
     assert body['cost']['cg_bytes'] == 0 and body['cost']['cg_key'] is None
@@ -376,3 +382,125 @@ def test_the_route_reads_the_preparation_choice_and_refuses_a_value_that_is_not_
     none = get(dashboard, template=TEMPLATE, pdc_seed=20261013, aggregation_number=12, prepare_protein='true')
     assert none.status_code == 400
     assert 'structure' in none.get_json()['error'], 'a step about a protein cannot be asked for with none'
+
+
+# --- the template's one body, or the library's drawn ones ----------------------------------------------
+
+LIBRARY_MAPPING = 'mapping_candidate_library.json'
+
+
+def library_mapping():
+    """The fixture source run's own eleven beads, as the mapping editor exports a saved mapping.
+
+    The preview matches the library against this mapping's derived model, so the mapping and the fixture run must
+    state the same bead names, in the same order, as the library they are used with.
+    """
+    parents = dict(conformation_fixtures.VIRTUAL_SITES)
+    beads = []
+    for index, (name, kind, _position) in enumerate(conformation_fixtures.BEADS, start=1):
+        bead = {'name': name, 'type': kind, 'size': DDM_CLASSES[name],
+                'atoms': [] if index in parents else [index]}
+        if index in parents:
+            bead['virtual_site'] = {'function': 1, 'parents': [conformation_fixtures.BEADS[parent - 1][0]
+                                                               for parent in parents[index]]}
+        beads.append(bead)
+    names = [name for name, _kind, _position in conformation_fixtures.BEADS]
+    return {'schema_version': 3, 'molecule_id': 'DDM', 'name': "the fixture run's own eleven beads",
+            'martini_version': 3, 'beads': beads,
+            'connections': [[names[first - 1], names[second - 1]] for first, second in DDM_BONDS]}
+
+
+def write_library_mapping(dashboard):
+    directory = dashboard.paths.mapping_drafts
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / LIBRARY_MAPPING
+    path.write_text(json.dumps(library_mapping()))
+    return path
+
+
+def stored_library(dashboard, *, mapping_sha256=None):
+    """A library in the workspace's store, built from the shared fixture run's real tiny trajectory."""
+    mapping = write_library_mapping(dashboard)
+    source = conformation_fixtures.run_tree(dashboard.paths.workspace,
+                                            mapping_sha256=mapping_sha256 or files.sha256(mapping))
+    library = conformations.resolve(dashboard.paths.workspace,
+                                    {'runs': [source['run_id']], 'size': 2, 'seed': 0}, build=True)
+    return source, library
+
+
+def preview_with_library(dashboard, spec, **overrides):
+    """The route the panel calls, with the spec URL-encoded the way the panel sends it."""
+    query = {'template': TEMPLATE, 'molecule_id': 'DDM', 'mapping_candidate': LIBRARY_MAPPING,
+             'aggregation_number': 12, 'pdc_seed': 20261013, 'placement_mode': 'lattice',
+             'conformation_library': json.dumps(spec) if not isinstance(spec, str) else spec}
+    query.update(overrides)
+    return dashboard.client.get('/api/pdc/preview/placement',
+                                query_string={key: value for key, value in query.items() if value is not None})
+
+
+def test_a_preview_with_a_stored_library_draws_whole_drawn_bodies_and_names_the_library(dashboard):
+    """The card's picture is the library's bodies, and what it reports is the resolved copy -- never coordinates.
+
+    Twelve sites and eleven beads each is the acceptance for "drawn bodies were placed": one template repeated would
+    be eleven atoms too, but a run with no library draws *centres*; the residue count and the bead count together say
+    the mapping's molecule stood at every site, and `basis.conformations` says which library it came from.
+    """
+    source, library = stored_library(dashboard)
+
+    response = preview_with_library(dashboard, {'key': library.key, 'sha256': library.sha256})
+
+    assert response.status_code == 200, response.get_data(as_text=True)
+    body = response.get_json()
+    assert body['valid'] is True, body.get('reasons')
+    assert body['basis']['conformations'] == {'key': library.key, 'size': 2, 'mode': 'reference',
+                                              'sources': [source['run_id']]}
+    assert body['cost']['conformations_cached'] is True, 'a reference library is never rebuilt'
+    assert body['cost']['conformations_seconds'] >= 0
+    atoms = [line for line in body['pdb'].splitlines() if line.startswith('HETATM')]
+    assert len(atoms) == 12 * len(conformation_fixtures.BEADS), 'the whole drawn body stands at every site'
+    assert len({line[22:26] for line in atoms}) == 12, 'each site is its own detergent residue'
+
+
+def test_a_library_that_is_not_the_runs_detergent_is_an_answer_not_a_bad_request(dashboard):
+    """A stored library built with another mapping is refused before a picture, with the package's own sentence."""
+    mapping = write_library_mapping(dashboard)
+    source = conformation_fixtures.run_tree(dashboard.paths.workspace, mapping_sha256='f' * 64)
+    library = conformations.resolve(dashboard.paths.workspace,
+                                    {'runs': [source['run_id']], 'size': 2, 'seed': 0}, build=True)
+    assert files.sha256(mapping) != library.mapping_sha256
+
+    response = preview_with_library(dashboard, {'key': library.key, 'sha256': library.sha256})
+
+    assert response.status_code == 200, 'a refusal is an answer, not a bad request'
+    body = response.get_json()
+    assert body['valid'] is False and body['pdb'] is None
+    assert body['step'] == 'conformation library'
+    assert any('mapping' in reason for reason in body['reasons']), body['reasons']
+
+
+def test_a_preview_that_names_a_library_without_a_mapping_says_what_is_missing(dashboard):
+    """The library is matched against the mapping's model; a form with none has nothing to match or to shape."""
+    response = preview_with_library(dashboard, {'runs': ['b920391735dd'], 'size': 2},
+                                    mapping_candidate=None, molecule_id=None)
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['valid'] is False and body['pdb'] is None
+    assert body['step'] == 'conformation library'
+    assert any('mapping' in reason for reason in body['reasons']), body['reasons']
+    assert body['basis']['conformations'] is None
+
+
+def test_a_malformed_library_specification_is_a_400_that_says_what_was_wrong(dashboard):
+    """Text that is not JSON is a malformed request; JSON of the wrong shape is the package's ValueError, also 400.
+
+    Neither is a builder refusal: the science is not in question, only the value the panel sent -- so the answer is
+    the route's own `{error}` spelling, never a `valid: false` frame that says a build refused something.
+    """
+    for spec in ('this is not json',
+                 json.dumps({'runs': []}),
+                 json.dumps({'key': 'not-hex', 'sha256': 'f' * 64}),
+                 json.dumps({'runs': ['b920391735dd'], 'size': 0})):
+        response = preview_with_library(dashboard, spec)
+        assert response.status_code == 400, (spec, response.status_code, response.get_json())
+        assert response.get_json().get('error'), spec

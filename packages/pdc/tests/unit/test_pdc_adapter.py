@@ -169,3 +169,57 @@ def test_a_file_that_names_no_chain_says_so_rather_than_guessing_one(tmp_path):
     catalogue = _catalogue(tmp_path, workspace)
 
     assert catalogue['1qj8']['chains'] == []
+
+
+# --- the detergent conformation library setting -------------------------------------------------------
+
+def test_the_library_is_a_choice_the_job_settings_keep():
+    """The panel's payload key must survive the settings filter, or the run is built with the template.
+
+    `runs.py:queue` keeps only the keys an adapter advertises, and the settings normalizer copies only those, so an
+    advertised choice with no enumerable options is the one way a spec reaches the build unflattened. This is the
+    placement-mode defect's shape -- a control the panel draws and the server drops -- pinned for the library.
+    """
+    label, options = pdc.CHOICE_SPECS['conformation_library']
+    assert label == 'Detergent conformation library'
+    assert options == (), 'the spec is validated in validate_payload, not against a fixed list'
+    assert pdc.DEFAULTS['conformation_library'] is None, 'the default is the one rigid conformation'
+    assert 'conformation_library' in dict(pdc.PROTOCOL.choice_specs())
+
+    spec = {'runs': ['b920391735dd'], 'size': 8, 'seed': 3}
+    settings = pdc.settings_from({'seed': 1, 'conformation_library': spec})
+    assert settings['conformation_library'] == spec
+
+
+def test_the_payload_normalises_the_library_and_answers_none_when_absent():
+    accepted = pdc.validate_payload({'seed': 1, 'conformation_library': {'runs': [' b920391735dd '], 'size': 4}})
+    assert accepted['conformation_library'] == {'mode': 'build', 'runs': ['b920391735dd'], 'size': 4, 'seed': 0}
+    assert pdc.validate_payload({'seed': 1})['conformation_library'] is None
+
+    key, digest = 'a' * 16, 'b' * 64
+    reference = pdc.validate_payload({'seed': 1, 'conformation_library': {'key': key, 'sha256': digest}})
+    assert reference['conformation_library'] == {'mode': 'reference', 'key': key, 'sha256': digest}
+
+
+def test_the_payload_refuses_a_library_spec_it_cannot_read():
+    """A spec is one of two shapes, and every malformed one is named rather than silently defaulted.
+
+    The old behaviour was the dangerous one: an unrecognised shape would have reached the settings as an opaque value
+    the build then ignored, so a reader would get one rigid conformation while the panel said the library was chosen.
+    """
+    key, digest = 'a' * 16, 'b' * 64
+    cases = [
+        'not an object',
+        {},
+        {'runs': []},
+        {'runs': ['b920391735dd'], 'size': 0},
+        {'runs': ['b920391735dd'], 'size': 'lots'},
+        {'runs': ['b920391735dd'], 'key': key, 'sha256': digest},
+        {'key': 'not-hex', 'sha256': digest},
+        {'sha256': digest},
+        {'key': key},
+    ]
+    for spec in cases:
+        with pytest.raises(ValueError):
+            pdc.validate_payload({'seed': 1, 'conformation_library': spec})
+

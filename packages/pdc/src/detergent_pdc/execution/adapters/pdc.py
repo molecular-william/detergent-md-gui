@@ -77,6 +77,11 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             # satisfy would block every run on a box without `pdb2pqr`. The stage therefore skips by name when the
             # tool is not resolvable, and refuses only when a tool it did resolve could not prepare the structure.
             'protein_chains': None, 'backmap': True, 'prepare_protein': True,
+            # How the detergents' bodies are drawn: `None` stamps the template's one molecule, which is every build
+            # before this setting existed; otherwise a spec naming source runs (build) or a stored library's key and
+            # digest (reference). A choice rather than a number, so `validate_payload` normalises it where the
+            # library package can say what is wrong.
+            'conformation_library': None,
             # The removal/assessment pipeline is a choice: on by default so every existing run keeps its chain; off
             # means one plain CG MD leg after NPT, no assessment/removal/extension/final assessment.
             'remove_out_of_micelle': True,
@@ -321,10 +326,12 @@ def validate_payload(payload):
     """The choices a build must carry, checked where the protocol can see them.
 
     Numbers that also appear in SETTING_SPECS are range-checked there; this validates what they mean: a seed that
-    is a positive integer rather than a float, an aggregation number that is a count rather than a size, and the two
-    choices that are not numbers -- which generator places the detergents, which subunits go into the system, and
-    whether the back-map runs. The chain list's ids are checked against the file in `prepare`, which is the first
-    place the file is resolved.
+    is a positive integer rather than a float, an aggregation number that is a count rather than a size, and the
+    choices that are not numbers -- which generator places the detergents, which subunits go into the system,
+    whether the back-map runs, and how the detergents' bodies are drawn. The chain list's ids are checked against
+    the file in `prepare`, which is the first place the file is resolved; a conformation library's spec is
+    normalised here, in the library package's own words, and its sources are validated against the runs when
+    `prepare` resolves it.
     """
     if not isinstance(payload, dict):
         raise ValueError('pdc payload must be an object')
@@ -366,9 +373,14 @@ def validate_payload(payload):
     if not isinstance(prepare_protein, bool):
         raise ValueError(f'the pdc protein-preparation setting must be true or false, not {prepare_protein!r}')
     chains = normalize_chains(payload.get('protein_chains'))
+    # The library's own spec, normalised by the package that owns its two shapes so the panel's spelling and the
+    # resolver's spelling are the same object. An absent setting is `None`; a malformed one is this refusal.
+    from detergent_pdc import conformations
+    library = conformations.normalise_spec(payload.get('conformation_library'))
     return {'seed': seed, 'aggregation_number': aggregation, 'salt_molar': salt,
             'placement_mode': placement_mode, 'protein_chains': chains, 'backmap': backmap,
             'prepare_protein': prepare_protein, 'remove_out_of_micelle': remove_out,
+            'conformation_library': library,
             'template': payload.get('template'), 'protein': payload.get('protein') or None}
 
 
@@ -840,7 +852,10 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         (inputs / 'protein.pdb').write_text('; no protein: this is an empty-micelle build\n')
     (inputs / 'system_EMPTY.top').write_text(_empty_topology())
     # The detergent's coarse-grained model, derived from the run's own mapping: the topology the system will include
-    # and the bead geometry the placement stamps. A build without a mapping is recorded as centres-only.
+    # and the bead geometry the placement stamps. A build without a mapping is recorded as centres-only. The
+    # workspace is resolved here because two records below are read from it: the mapping's own store entry and, when
+    # the run names one, the conformation library.
+    workspace = paths.current().workspace
     model = {'mapping': None, 'terms': 0, 'reference_terms': 0, 'fallback_terms': 0,
              'source': 'no mapping: the detergent is one centre per molecule'}
     mapping_tail_beads = []
@@ -856,7 +871,6 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         if not source.is_file():
             raise ValueError(f'the detergent mapping is not a file: {mapping}')
         source = source.resolve()
-        workspace = paths.current().workspace
         if _contains(workspace, source):
             references.append(run_inputs.store('mapping', source, label=source.name, workspace_root=workspace))
         else:
@@ -891,6 +905,31 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         numbers['tail_beads'] = mapping_tail_beads
         numbers['tail_beads_source'] = ("the run's own mapping: beads of the aliphatic carbon series, because the "
                                         'template names no tail roles')
+    # The shapes this build stamps, when it names a library. Resolved after the model it is matched against and before
+    # the settings file every stage reads, so the file the build stage re-verifies names exactly the library this
+    # preparation validated. The store is read in place and recorded by path and digest like every other input; the
+    # `conformations_*` keys are what `pdc_build` reads, so they are written once, here, and travel to the settings
+    # file, the manifest's settings and `inputs.json` through the writes below.
+    spec = choices['conformation_library']
+    if spec:
+        if model['mapping'] is None:
+            raise ValueError('a conformation library needs the run\'s own detergent model: this build names no '
+                             'mapping, so there are no beads to shape or to match the library against')
+        from detergent_pdc import conformations
+        library = conformations.resolve(workspace, spec, build=True)
+        library.assert_matches(residue=draft['residue'], beads=[bead['name'] for bead in draft['beads']],
+                               mapping_sha256=files.sha256(Path(model['mapping'])))
+        references.append(run_inputs.store('detergent_conformations', library.path,
+                                           label=f'{library.residue}-{library.key}', workspace_root=workspace))
+        numbers['conformation_library'] = spec
+        numbers.update({'conformations_library': str(library.path.resolve()),
+                        'conformations_key': library.key,
+                        'conformations_sha256': library.sha256,
+                        'conformations_size': library.size,
+                        'conformations_runs': [source['run_id'] for source in library.sources],
+                        'conformations_mode': spec['mode'],
+                        'conformations_mapping_sha256': library.mapping_sha256,
+                        'conformations_producer': conformations.producer()})
     # The run's own decisions, in the file every stage reads them from. Written after the mapping resolved, because
     # the model and the tail beads are part of what the criterion is told.
     (inputs / SETTINGS_NAME).write_text(json.dumps(
@@ -1063,7 +1102,11 @@ CHOICE_SPECS = {'pdc_placement_mode': ('Initialisation', ('lattice', 'self-assem
                 'protein_chains': ('Protein chains', ()),
                 'backmap': ('Back-mapping (CG2AT2)', (True, False)),
                 'prepare_protein': ('Protein preparation (PDB2PQR)', (True, False)),
-                'remove_out_of_micelle': ('Remove out-of-micelle detergents', (True, False))}
+                'remove_out_of_micelle': ('Remove out-of-micelle detergents', (True, False)),
+                # No enumerable domain here: the two shapes are build (`runs`, `size`, `seed`) and reference (`key`,
+                # `sha256`), and the library package is the one place that says which a spec is and what is wrong
+                # with it. Its empty options are what keep the key from being dropped before the job is created.
+                'conformation_library': ('Detergent conformation library', ())}
 
 PROTOCOL = protocol.Protocol(
     name='pdc',

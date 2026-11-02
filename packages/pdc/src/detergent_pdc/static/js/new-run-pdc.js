@@ -250,6 +250,160 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     describeChains();
   }
 
+  // The detergent shape ------------------------------------------------------------------------------------------
+  //
+  // Three mutually exclusive sources for the conformations the build stamps: the template's one molecule
+  // (`single`, today's build), a library built from micelle-only runs, or a library already stored in this
+  // workspace. Both lists and every refusal sentence are the server's; the card only chooses between them and
+  // hands the adapter the one setting it validates. Only the chosen mode's body is shown, and `single` has no body.
+  let shapeRuns = [], shapeRunIds = new Set(), shapeRunsLoaded = false, shapeRunsError = '';
+  let shapeLibraries = [], shapeLibraryKey = '', shapeLibrariesLoaded = false, shapeLibrariesError = '';
+  const shapeMode = () => field('shape_source')?.value || 'single';
+  // The template states the detergent's own residue; a library is stored per residue, so that is the list's filter.
+  const shapeResidue = () => templateEntry()?.residue || '';
+
+  function durationNs(value) {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? `${number.toLocaleString('en-US')} ns` : 'duration not recorded';
+  }
+  const shapeSize = () => Number(field('conformations_size')?.value);
+  const shapeSeed = () => Number(field('conformations_seed')?.value);
+  const selectedRunIds = () => shapeRuns.filter(run => run.eligible && shapeRunIds.has(run.id)).map(run => run.id);
+
+  function shapeSpec() {
+    if (shapeMode() === 'build') {
+      const runs = selectedRunIds(), size = shapeSize(), seed = shapeSeed();
+      if (!runs.length || !Number.isInteger(size) || !Number.isInteger(seed)) return null;
+      return {runs, size, seed};
+    }
+    if (shapeMode() === 'stored') {
+      const library = shapeLibraries.find(item => item.key === shapeLibraryKey);
+      return library ? {key: library.key, sha256: library.sha256} : null;
+    }
+    return null;
+  }
+
+  function renderShapeRuns() {
+    const list = pdcNode('.eligible-runs');
+    if (!list) return;
+    list.replaceChildren(...shapeRuns.map(run => {
+      const label = document.createElement('label');
+      label.className = 'eligible-run';
+      const box = document.createElement('input');
+      box.type = 'checkbox'; box.value = run.id;
+      box.checked = !!run.eligible && shapeRunIds.has(run.id);
+      // An ineligible run is shown with its own sentence rather than hidden, and it cannot be selected.
+      box.disabled = !run.eligible;
+      if (!run.eligible) label.title = run.reason || 'not eligible';
+      const id = document.createElement('code'); id.textContent = run.id;
+      const where = document.createElement('span'); where.className = 'where';
+      // The flexible column carries the run's description, or the server's sentence for a run that cannot be used --
+      // a long refusal in the narrow `auto` column beside the tag would wrap the row into an unreadable stack.
+      where.textContent = run.eligible
+        ? `${run.residue || 'detergent'} empty micelle · ${durationNs(run.duration_ns)}`
+        : (run.reason || 'not eligible');
+      const meta = document.createElement('span'); meta.className = 'meta';
+      meta.textContent = run.eligible ? (run.label || '') : (run.protein ? 'has a protein' : 'not eligible');
+      const tag = document.createElement('span'); tag.className = `tag${run.eligible ? '' : ' warn'}`;
+      tag.textContent = run.eligible ? 'eligible' : 'not eligible';
+      label.append(box, id, where, meta, tag);
+      return label;
+    }));
+  }
+
+  function renderShapeLibraries() {
+    const list = pdcNode('.stored-libraries');
+    if (!list) return;
+    const note = text => {
+      const element = document.createElement('p');
+      element.className = 'hint';
+      element.textContent = text;
+      list.replaceChildren(element);
+    };
+    if (!shapeLibrariesLoaded) return note('Reading the stored libraries…');
+    if (shapeLibrariesError) return note(shapeLibrariesError);
+    if (!shapeLibraries.length) return note('No stored library yet — build one from runs, or copy one in.');
+    list.replaceChildren(...shapeLibraries.map(library => {
+      const row = document.createElement('label');
+      row.className = 'stored-library';
+      const radio = document.createElement('input');
+      radio.type = 'radio'; radio.name = 'shape_library'; radio.value = library.key;
+      radio.checked = library.key === shapeLibraryKey;
+      const key = document.createElement('code'); key.textContent = library.key;
+      const where = document.createElement('span'); where.className = 'where';
+      const sources = Array.isArray(library.sources) ? library.sources.length : 0;
+      where.textContent = `${Number(library.size).toLocaleString('en-US')} · ${sources} run${sources === 1 ? '' : 's'}`;
+      const meta = document.createElement('span'); meta.className = 'meta';
+      const digest = String(library.sha256 || '');
+      meta.textContent = digest ? `digest ${digest.slice(0, 4)}…${digest.slice(-4)}` : 'digest not recorded';
+      const tag = document.createElement('span'); tag.className = 'tag'; tag.textContent = 'stored';
+      row.append(radio, key, where, meta, tag);
+      return row;
+    }));
+  }
+
+  function syncShapeStatus() {
+    if (!shapeRunsLoaded) return say('.shape-summary', 'Reading the micelle-only runs…');
+    if (shapeRunsError) return say('.shape-summary', shapeRunsError);
+    const count = shapeRunIds.size;
+    const size = Number.isInteger(shapeSize()) ? shapeSize().toLocaleString('en-US') : '—';
+    const seed = field('conformations_seed')?.value === '' ? '—' : field('conformations_seed')?.value;
+    say('.shape-summary', `${size} from ${count} run${count === 1 ? '' : 's'}, seed ${seed} · stored once built`);
+  }
+
+  // The card and its two lists are read on mount; the stored list is read again after a successful submit so a build
+  // from runs becomes selectable immediately, and when the detergent changes because it is stored per residue.
+  async function loadShapeRuns() {
+    try {
+      const response = await fetch('/api/pdc/conformations/runs');
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `status ${response.status}`);
+      shapeRuns = Array.isArray(body.runs) ? body.runs : [];
+      const available = new Set(shapeRuns.filter(run => run.eligible).map(run => run.id));
+      // A first answer selects every eligible run; a later one keeps what the reader ticked and drops what is gone.
+      shapeRunIds = shapeRunsLoaded ? new Set([...shapeRunIds].filter(id => available.has(id))) : available;
+      shapeRunsLoaded = true; shapeRunsError = '';
+    } catch (error) {
+      shapeRunsLoaded = true;
+      shapeRunsError = `The micelle-only runs could not be read: ${error.message}`;
+    }
+    renderShapeRuns(); syncShape();
+    // A reader can reach the card before this answer lands; the gate it armed at the switch is cleared here.
+    if (shapeMode() === 'build') refreshReadinessSoon();
+  }
+
+  async function loadShapeLibraries() {
+    const residue = shapeResidue();
+    const query = residue ? `?residue=${encodeURIComponent(residue)}` : '';
+    try {
+      const response = await fetch(`/api/pdc/conformations/libraries${query}`);
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `status ${response.status}`);
+      shapeLibraries = Array.isArray(body.libraries) ? body.libraries : [];
+      if (!shapeLibraries.some(library => library.key === shapeLibraryKey)) {
+        shapeLibraryKey = shapeLibraries[0]?.key || '';
+      }
+      shapeLibrariesLoaded = true; shapeLibrariesError = '';
+    } catch (error) {
+      shapeLibrariesLoaded = true;
+      shapeLibrariesError = `The stored libraries could not be read: ${error.message}`;
+    }
+    renderShapeLibraries(); syncShape();
+    if (shapeMode() === 'stored') refreshReadinessSoon();
+  }
+
+  function syncShape() {
+    const mode = shapeMode();
+    for (const body of form.querySelectorAll('[data-shape-body]')) body.hidden = body.dataset.shapeBody !== mode;
+    syncShapeStatus();
+    say('.shape-stored-status', shapeLibrariesError);
+    syncPreviewLibrary();
+  }
+
+  function shapeChanged() {
+    syncShape(); store(); checkReadiness(); renderPreviewState();
+  }
+
   // The workflow diagram is a render of the choices above, not a second copy of the pipeline. The static SVG used to
   // draw all ten stages whether or not they would run; an empty micelle has no prepare/coarse-grain, and removing the
   // removal pipeline removes judge, extend and final assessment. The active path is drawn, and a caption names what
@@ -543,6 +697,19 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     if (!String(field('pdc_seed').value || '').trim()) {
       return 'Choose a random seed. Detergents are placed at random, so a build with no seed cannot be compared with another.';
     }
+    // The shape setting is validated in the adapter too, but the card can refuse here first and say what to do:
+    // a build with no run selected, a size out of the adapter's 1..5000 range, or a stored mode with an unread list.
+    if (shapeMode() === 'build') {
+      if (shapeRunsError) return shapeRunsError;
+      if (!shapeRunIds.size) return 'Choose at least one micelle-only run to build the conformations from.';
+      const size = shapeSize(), seed = shapeSeed();
+      if (!Number.isInteger(size) || size < 1 || size > 5000) return 'Size must be a whole number from 1 to 5000.';
+      if (!Number.isInteger(seed)) return 'Choose a whole-number seed for the conformation selection.';
+    }
+    if (shapeMode() === 'stored') {
+      if (shapeLibrariesError) return shapeLibrariesError;
+      if (!shapeSpec()) return 'Choose a stored library, or build one from runs.';
+    }
     return '';
   }
 
@@ -678,17 +845,19 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   }
 
   function previewInputs() {
+    const shape = shapeSpec();
     return {protein: field('protein').value || '', chains: selectedChains(),
             mapping: field('mapping_candidate').value || '', molecule: field('molecule_id').value || '',
             template: templatePath(), count: field('aggregation_number').value || '',
             mode: placementMode(), seed: field('pdc_seed').value || '',
             margin: field('box_margin_nm').value || '', initial_z: field('initial_z_nm').value || '',
-            prepare: preparing()};
+            prepare: preparing(), shape: shape ? JSON.stringify(shape) : ''};
   }
   // What would be coarse-grained, or drawn from another mapping: a change to one of these is a different question,
   // and the frame on screen is no longer this form's. Everything the reader can still move without new
-  // coarse-graining re-derives instead.
-  const previewExpensive = inputs => `${inputs.protein}|${inputs.chains.join(',')}|${inputs.mapping}|${inputs.molecule}|${inputs.prepare}`;
+  // coarse-graining re-derives instead. The shape spec joins them because resolving a library reads trajectories:
+  // a changed library is a different draw, and a build from runs can be the expensive part of the derive.
+  const previewExpensive = inputs => `${inputs.protein}|${inputs.chains.join(',')}|${inputs.mapping}|${inputs.molecule}|${inputs.prepare}|${inputs.shape}`;
   const previewCheap = inputs => [inputs.count, inputs.mode, inputs.seed, inputs.margin, inputs.initial_z,
                                   inputs.template].join('|');
 
@@ -734,21 +903,61 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       : 'nothing: an empty micelle coarse-grains nothing, and the frames are not kept';
   }
 
+  // Why the frame on screen is no longer this form's, named: a shape change is not a protein change, and the
+  // existing sentence is kept verbatim for the protein/subunit/mapping case the preview's own test pins.
+  function staleSentence(inputs, moment) {
+    const before = previewFrame.inputs;
+    const drawn = before.protein !== inputs.protein || before.chains.join(',') !== inputs.chains.join(',')
+      || before.mapping !== inputs.mapping || before.molecule !== inputs.molecule || before.prepare !== inputs.prepare;
+    const shape = before.shape !== inputs.shape;
+    if (!shape) return `The protein, the subunits or the mapping have changed since this ${moment} — derive it again.`;
+    if (!drawn) return `The detergent shape has changed since this ${moment} — derive it again.`;
+    return `The protein, the subunits, the mapping and the detergent shape have changed since this ${moment} — derive it again.`;
+  }
+
+  // The preview's own sentence about the conformations it draws. The default is the single-conformation build; a
+  // derived frame naming a resolved library replaces it with the key and size (never coordinates). The fallback is
+  // deliberate: a body without `basis.conformations` -- the server has not answered with one, or the derive was
+  // refused -- keeps the sentence the card shows for a build with no library.
+  const SINGLE_SHAPE_LINE = "One rigid conformation. No library; the template's own coordinates are rotated onto every site.";
+  function previewLibraryLine() {
+    // `single` is today's build whatever a body says: there is no library in that mode.
+    if (shapeMode() === 'single') return SINGLE_SHAPE_LINE;
+    const frame = previewFrame;
+    const shape = shapeSpec();
+    const conformations = frame && !frame.refused && frame.body?.basis?.conformations;
+    if (conformations && frame.inputs.shape === (shape ? JSON.stringify(shape) : '')) {
+      const parts = [];
+      if (conformations.key) parts.push(`Library ${conformations.key}`);
+      const size = Number(conformations.size);
+      if (Number.isFinite(size)) parts.push(`${size.toLocaleString('en-US')} conformations`);
+      const sources = Array.isArray(conformations.sources) ? conformations.sources.length : 0;
+      if (sources) parts.push(`from ${sources} run${sources === 1 ? '' : 's'}`);
+      if (parts.length) return parts.join(' · ');
+    }
+    return SINGLE_SHAPE_LINE;
+  }
+  function syncPreviewLibrary() {
+    const line = previewNode('.new-pdc-preview-library');
+    if (line) setText(line, previewLibraryLine());
+  }
+
   function renderPreviewState() {
     const state = previewNode('.new-pdc-preview-state');
+    syncPreviewLibrary();
     if (!state || !previewFrame) return;
     const stale = previewExpensive(previewFrame.inputs) !== previewExpensive(previewInputs());
     state.classList.toggle('stale', stale);
     if (previewFrame.refused) {
       state.textContent = stale
-        ? 'The protein, the subunits or the mapping have changed since this refusal — derive it again.'
+        ? staleSentence(previewInputs(), 'refusal')
         : (previewFrame.unreadable
             ? 'No answer came back to read; the sentence above says so.'
             : 'The build refuses these inputs; the sentence above is its own.');
       return;
     }
     state.textContent = stale
-      ? 'The protein, the subunits or the mapping have changed since this frame was derived — derive it again.'
+      ? staleSentence(previewInputs(), 'frame was derived')
       : (previewCheap(previewFrame.inputs) !== previewCheap(previewInputs())
           ? 'Derived for the inputs below; the count, the style, the seed or the box have moved since.'
           : 'Derived for the inputs on this form.');
@@ -769,6 +978,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     if (inputs.mapping) query.set('mapping_candidate', inputs.mapping);
     if (inputs.margin) query.set('box_margin_nm', inputs.margin);
     if (inputs.initial_z) query.set('initial_z_nm', inputs.initial_z);
+    // The shape spec travels as JSON, URL-encoded by `URLSearchParams`: `single` has no spec and sends nothing,
+    // exactly as the submit payload does not.
+    if (inputs.shape) query.set('conformation_library', inputs.shape);
     return query;
   }
 
@@ -1193,11 +1405,12 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       return;
     }
     if (!response.ok) {
-      previewFrame = {inputs, refused: true};
+      previewFrame = {inputs, refused: true, body};
       renderPreviewRefusal(body.error || `the preview was refused (status ${response.status}).`, null);
       return;
     }
-    previewFrame = {inputs, refused: !body.valid};
+    // The body is kept, not only its verdict: the preview's shape line reads `basis.conformations` from it.
+    previewFrame = {inputs, refused: !body.valid, body};
     if (body.valid) renderPreviewFrame(body);
     else renderPreviewRefusal((body.reasons || []).join(' ') || reasonlessRefusal(body), body);
   }
@@ -1214,8 +1427,12 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   field('molecule_id').addEventListener('change', () => {
     describeDetergent(); store(); renderPreviewState();
     loadMappings().then(() => { syncSummary(); loadEstimate(); return checkReadiness(); }).catch(error => say('.new-pdc-detergent', error.message));
+    // A library is stored per residue, so the list follows the detergent and not only the first mount.
+    loadShapeLibraries();
   });
-  field('template').addEventListener('change', () => { describeTemplate(); store(); syncSummary(); checkReadiness(); previewMoved(); });
+  field('template').addEventListener('change', () => {
+    describeTemplate(); store(); syncSummary(); checkReadiness(); previewMoved(); loadShapeLibraries();
+  });
   field('protein').addEventListener('change', () => { syncChains(); store(); syncSummary(); loadEstimate(); checkReadiness(); renderPreviewState(); });
   // The subunit ticks are rebuilt whenever the chosen entry changes, so the listener sits on the group that holds
   // them: a per-box handler would be lost with the box it was bound to. Every tick is a change to the question the
@@ -1236,6 +1453,30 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   }
   field('aggregation_number').addEventListener('input', loadEstimate);
   field('pdc_placement_mode')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); previewMoved(); });
+  // The shape source and its inputs: each is a different question for the preview, so an existing frame is marked
+  // stale rather than redrawn -- resolving a library can read a whole trajectory. The stored list is not re-read
+  // by this listener; it is read on mount, after a submit, and when the detergent changes.
+  for (const input of form.querySelectorAll('input[name="shape_source"]')) {
+    input.addEventListener('change', shapeChanged);
+  }
+  for (const name of ['conformations_size', 'conformations_seed']) {
+    const input = field(name);
+    if (!input) continue;
+    input.addEventListener('input', () => { syncShapeStatus(); store(); renderPreviewState(); refreshReadinessSoon(); });
+    input.addEventListener('change', shapeChanged);
+  }
+  pdcNode('.eligible-runs')?.addEventListener('change', event => {
+    const box = event.target;
+    if (!box || box.type !== 'checkbox') return;
+    if (box.checked) shapeRunIds.add(box.value); else shapeRunIds.delete(box.value);
+    shapeChanged();
+  });
+  pdcNode('.stored-libraries')?.addEventListener('change', event => {
+    const radio = event.target;
+    if (!radio || radio.type !== 'radio') return;
+    shapeLibraryKey = radio.value;
+    shapeChanged();
+  });
   field('backmap')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
   field('remove_out_of_micelle')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
   // The prepare step changes what martinize2 reads, so it is one of the expensive inputs: the frame on screen is no
@@ -1307,6 +1548,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       // The style is a choice the adapter reads through its own placement-mode alias, so it travels under the
       // panel's spelling (`pdc_placement_mode`) exactly as the seed does.
       payload.pdc_placement_mode = placementMode();
+      // `single` is the adapter's absent setting, so it adds no key at all -- not a null it would have to translate.
+      // The build spec is `{runs,size,seed}` and the stored one is `{key,sha256}`, as `normalise_spec` reads them.
+      const shape = shapeSpec();
+      if (shape) payload.conformation_library = shape;
       for (const key of NUMBERS) {
         const value = field(key)?.value;
         if (value !== '' && value != null) payload[key] = Number(value);
@@ -1314,6 +1559,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       if (field('mdrun_nb')?.value) payload.mdrun_nb = field('mdrun_nb').value;
       await post('/', payload);
       notice('Run queued.');
+      // A build from runs writes its library into the store, so the stored list is read again and the new library
+      // is selectable without a reload. This is not awaited: the notice and the runs tab do not wait for it.
+      loadShapeLibraries();
       selectTab(panelIds().runs);
       if (refreshJobs) await refreshJobs();
     } catch (error) {
@@ -1351,6 +1599,11 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       if (seedInput && seedInput.value === '') seedInput.value = String(todaySeed());
       syncChains();
       await loadMappings();
+      // The shape card's two lists: the runs it can build from and the libraries already stored for this residue.
+      // They are read after the catalogue, because the stored list is filtered by the template's own residue.
+      syncShape();
+      loadShapeRuns();
+      loadShapeLibraries();
       mounted = true;
       syncSummary();
       loadEstimate();

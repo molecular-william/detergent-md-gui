@@ -38,6 +38,86 @@ def pdc_catalog():
     return jsonify(pdc.catalog(coordinator().ROOT))
 
 
+def _manifest(run):
+    """A run's manifest, or an empty record: a run whose files are gone is still listed with its sentence."""
+    try:
+        data = json.loads((Path(run) / 'manifest.json').read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _detergent_residue(run, manifest):
+    """The detergent a run states, read from its own geometry when the library's validation refused it.
+
+    An ineligible run still belongs in the list, and the row that says why it is ineligible is the one that says
+    which detergent it is -- so the residue is read from the file the run's own model came from, not left blank
+    because the reason was about something else.
+    """
+    try:
+        return json.loads((Path(run) / 'inputs' / pdc.DETERGENT_GEOMETRY).read_text()).get('residue')
+    except (OSError, ValueError):
+        pass
+    return ((manifest.get('settings') or {}).get('detergent_model') or {}).get('residue')
+
+
+def _planned_ns(settings):
+    """The CG sampling a run's manifest planned, in nanoseconds: its assessment plus its extension.
+
+    A run prepared before the durations were recorded planned the adapter's defaults, which is what it then ran.
+    """
+    return sum(float(pdc.DEFAULTS[key] if settings.get(key) is None else settings[key])
+               for key in ('assessment_ns', 'extension_ns'))
+
+
+@blueprint.get('/api/pdc/conformations/runs')
+def pdc_conformations_runs():
+    """The completed pdc runs a conformation library may be built from, newest first -- and why each one is not.
+
+    Eligibility is the library package's own verdict, not a second reading of a manifest here: `sources` is the
+    gate a build actually passes through, so a run this list offers as eligible is one the build will not then
+    refuse. A refusal is *listed*, with its sentence, because a reader choosing source runs needs to know that the
+    protein-bearing run in the table is there and why it cannot be used -- hiding it would read as "no such run".
+    """
+    from detergent_pdc import conformations
+
+    workspace = paths.current().workspace
+    runs = []
+    for job in coordinator().database().all():
+        if str(job.get('status') or '') != 'completed' or str(job.get('run_type') or '') != 'pdc':
+            continue
+        run_id = str(job['id'])
+        run = Path(workspace) / 'runs' / run_id
+        manifest = _manifest(run)
+        settings = manifest.get('settings') or {}
+        try:
+            source = conformations.sources(workspace, [run_id])[0]
+        except ValueError as error:
+            eligible, reason = False, str(error)
+            residue = _detergent_residue(run, manifest)
+        else:
+            eligible, reason, residue = True, None, source['detergent']
+        runs.append({'id': run_id, 'label': str(job.get('label') or ''), 'residue': residue,
+                     'protein': bool(manifest.get('protein')),
+                     'completed': str(manifest.get('status') or '') == 'completed',
+                     'duration_ns': _planned_ns(settings), 'eligible': eligible, 'reason': reason})
+    return jsonify({'runs': runs})
+
+
+@blueprint.get('/api/pdc/conformations/libraries')
+def pdc_conformations_libraries():
+    """The stored libraries a run may select by key, from the workspace's own store.
+
+    `available` is the store's reader: a directory whose document or sidecar cannot be verified is not listed, so a
+    row here is one `resolve` will accept. `?residue=` narrows the list to one detergent, which is what the panel
+    asks for the shape it is building.
+    """
+    from detergent_pdc import conformations
+
+    residue = (request.args.get('residue') or '').strip() or None
+    return jsonify({'libraries': conformations.available(paths.current().workspace, residue)})
+
+
 def model_entry(record):
     """One saved mapping as a model the picker can offer, or `None` for one a build could not reuse.
 
@@ -344,6 +424,23 @@ def requested_preparation(source) -> bool:
     raise ValueError(f'prepare_protein must be true or false, not {raw!r}')
 
 
+def requested_conformations(source):
+    """The `conformation_library` query as the object the preview service takes, or `None` when the form sends none.
+
+    The panel sends the spec as URL-encoded JSON, so the route decodes it where the request's spelling is known --
+    before the service sees it. A value that is not JSON is a *malformed request* (400), not a build refusal: the
+    science is not in question, only the text that arrived. Whether the decoded spec is a shape a library can be
+    named by is the library package's question, and the service asks it.
+    """
+    raw = (source.args.get('conformation_library') or '').strip()
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except ValueError as error:
+        raise ValueError(f'conformation_library must be URL-encoded JSON: {error}') from None
+
+
 def preview_choices(source):
     """The panel's numbers, in the builder's spelling and by the builder's own rules.
 
@@ -468,6 +565,7 @@ def pdc_preview_placement():
         template = (request.args.get('template') or '').strip()
         if not template:
             raise ValueError('template is required: the preview places the detergent the template names')
+        conformation_library = requested_conformations(request)
         answer = pdc_preview.preview(
             project_root=root, cache_root=preview_cache_root(),
             template=template, protein=protein, chains=choices['protein_chains'],
@@ -476,6 +574,9 @@ def pdc_preview_placement():
             aggregation_number=choices['aggregation_number'], placement_mode=choices['placement_mode'],
             seed=choices['seed'], box_margin_nm=choices['box_margin_nm'], initial_z_nm=choices['initial_z_nm'],
             prepare_protein=choices['prepare_protein'],
+            # The detergent's bodies this derive would stamp, when the form names a library; the preview resolves
+            # and matches it against the mapping's own model, and reports the resolved key rather than coordinates.
+            conformation_library=conformation_library, workspace=paths.current().workspace,
             # The preparer the optional Prepare step runs, resolved where every other tool is: the route resolves it
             # and the service reports the refusal its absence produces, with the tool named.
             prepare_executable=tools.tool_path(pdc_preparation.TOOL),

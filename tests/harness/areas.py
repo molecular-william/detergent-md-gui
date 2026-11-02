@@ -23,6 +23,7 @@ AREAS = {
         'unit/test_cg2at_fragment.py',
         # The micelle builder is pdc's placement science; a change there is a change to a protein build.
         'unit/test_micelle_*', 'integration/test_micelle_api.py',
+        'unit/test_conformations_*',
     ),
     'mapping': (
         'unit/test_mapping_*', 'unit/test_draft_*', 'unit/test_screen_candidates.py', 'unit/test_ring_scale.py',

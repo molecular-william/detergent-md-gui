@@ -9,6 +9,7 @@ The belt's own shape is the *torus* the user's correction asks for (2026-10-14):
 is the detergent's own length, the head ends sit on the tube's outer surface and every detergent's body points back
 at that centre-line. These tests measure that shape rather than describe it.
 """
+import hashlib
 import json
 
 import numpy as np
@@ -838,3 +839,113 @@ def test_the_capacity_is_the_placers_own_measurement_not_a_formula(tmp_path):
 
     assert measured == placed['capacity_aggregation']
 
+
+
+# --- a conformation library: the drawn body, its own stream, and the gate that measures it --------------------
+
+
+#: The sha256 of the placement record `place_detergents(None, _template(tmp_path), 2, seed=7)` produced before a
+#: conformation library existed, with the one new `conformations: None` key removed. This is every existing run's
+#: geometry: if it changes, a placement's own numbers moved. Re-record it only when that is the intended change.
+UNTROUBLED_PLACEMENT_SHA256 = '729a75a1262b0d07b01eaf4d7297d8a251424d6165758732c9cdf96a38116c61'
+
+
+def drawn_profile(offsets):
+    """One library entry's profile, in the shape the library's pinned API states: head at the origin, axis +z."""
+    points = np.asarray(offsets, dtype=float)
+    return {'offsets': points, 'axis': np.array([0.0, 0.0, 1.0]),
+            'length_nm': float(-points[:, 2].min()), 'reach_nm': float(np.linalg.norm(points, axis=1).max()),
+            'radial_nm': float(np.linalg.norm(points[:, :2], axis=1).max()), 'bead_count': int(len(points)),
+            'source': 'conformations', 'head_source': 'library'}
+
+
+class DrawnLibrary:
+    """The library's pinned surface, duck-typed -- a key, a size and one profile per entry -- so placement is tested
+    without the library package, which the placement must never import."""
+
+    def __init__(self, entries, key='librarykey0123456', size=None):
+        self.profiles = tuple(drawn_profile(entry) for entry in entries)
+        self.key = key
+        self.size = len(self.profiles) if size is None else size
+
+
+def test_a_placement_with_no_library_is_the_placement_it_always_was(tmp_path):
+    """`conformations=None` is every existing run: the same positions, directions and numbers, draw for draw.
+
+    The record gains exactly one key -- `conformations: None` -- and the pinned digest is taken with that key removed,
+    so this fails on any other change to a placement's own arithmetic.
+    """
+    template = _template(tmp_path)
+    implicit = pdc_placement.place_detergents(None, template, 2, seed=7)
+    explicit = pdc_placement.place_detergents(None, template, 2, seed=7, conformations=None)
+
+    assert implicit == explicit
+    assert implicit.pop('conformations') is None
+    digest = hashlib.sha256(json.dumps(implicit, sort_keys=True).encode()).hexdigest()
+    assert digest == UNTROUBLED_PLACEMENT_SHA256
+
+
+def test_the_library_draw_is_its_own_stream_one_entry_and_one_azimuth_per_site(tmp_path):
+    """A separate generator, in site order: the sites are the ones they would have been without a library."""
+    template = _template(tmp_path)
+    library = DrawnLibrary([[[0.0, 0.0, 0.0], [0.2, 0.0, -0.5]], [[0.0, 0.0, 0.0], [0.1, 0.0, -0.2]],
+                            [[0.0, 0.0, 0.0], [0.0, 0.0, -0.4]]])
+    placed = pdc_placement.place_detergents(None, template, 8, seed=11, conformations=library)
+    plain = pdc_placement.place_detergents(None, template, 8, seed=11)
+
+    rng = np.random.default_rng([11, pdc_placement.CONFORMATION_SEED])
+    entries, twists = [], []
+    for _ in range(8):
+        entries.append(int(rng.integers(0, library.size)))
+        twists.append(round(float(rng.uniform(0.0, 2.0 * np.pi)), 6))
+    assert placed['conformations'] == {'key': library.key, 'size': library.size, 'entries': entries,
+                                       'twists': twists}
+    assert plain['conformations'] is None
+    assert placed['centers'] == plain['centers'], 'the site generator draws did not move'
+    assert placed['directions'] == plain['directions']
+    again = pdc_placement.place_detergents(None, template, 8, seed=11, conformations=library)
+    assert again['conformations'] == placed['conformations'], 'the same seed draws the same entries'
+    other = pdc_placement.place_detergents(None, template, 8, seed=12, conformations=library)
+    assert other['conformations'] != placed['conformations'], 'a different seed draws different entries'
+
+
+def test_the_drawn_body_is_the_body_the_stamp_writes():
+    """The gate and `stamp` are one arithmetic: `R @ Rz(twist) @ bead`, head anchor on the site."""
+    offsets = np.array([[0.0, 0.0, 0.0], [0.4, 0.0, -0.6]])
+    profile = drawn_profile(offsets)
+    site, direction, twist = np.array([3.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]), 1.234
+
+    measured = pdc_placement.body_beads(site, direction, profile, twist)
+    atoms = pdc_build.stamp(DRAFT, [site], [direction], first_residue=0, entries=[offsets], twists=[twist])
+
+    assert np.allclose(measured, [atom['position'] for atom in atoms], atol=1e-5)
+    assert np.allclose(measured[0], site), 'the head anchor is the site'
+    assert not np.allclose(pdc_placement.body_beads(site, direction, profile), measured), 'the azimuth turns the body'
+
+
+def test_a_long_drawn_entry_fails_the_body_gate_where_a_short_one_passes(tmp_path):
+    """The gate measures the drawn body: the same sites are clear with one library and refused with another.
+
+    The template's own 2 nm body sizes the sphere and is what the gate measured before a library existed; the drawn
+    3 nm entry reaches back to the protein at the shell's centre, which the template's body never did. The azimuth is
+    a rotation about +z, so a bead's own z offset is what decides how far back it reaches.
+    """
+    template = _template(tmp_path)
+    protein = [[0.0, 0.0, 0.0]]
+    long_entry = [[[0.0, 0.0, 0.0], [0.0, 0.0, -3.0]]]
+    short_entry = [[[0.0, 0.0, 0.0], [0.0, 0.0, -0.3]]]
+
+    long_placed = pdc_placement.place_detergents(protein, template, 4, seed=7,
+                                                 conformations=DrawnLibrary(long_entry))
+    short_placed = pdc_placement.place_detergents(protein, template, 4, seed=7,
+                                                  conformations=DrawnLibrary(short_entry))
+    plain = pdc_placement.place_detergents(protein, template, 4, seed=7)
+
+    assert not long_placed['valid'], 'a body that reaches the protein is refused'
+    assert any('drawn detergent body' in issue for issue in long_placed['issues']), long_placed['issues']
+    assert short_placed['valid'], short_placed['issues']
+    assert short_placed['bead_clearance_nm'] == pytest.approx(3.0 - 0.3, abs=1e-6), \
+        "the reported clearance is the drawn body's"
+    assert plain['bead_clearance_nm'] != short_placed['bead_clearance_nm'], \
+        'the template body and the library body are different measurements'
+    assert short_placed['body_profile'] == plain['body_profile'], "body_profile stays the template's"

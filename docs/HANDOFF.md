@@ -4,40 +4,13 @@ State and open items for this repository. Rules live in `AGENTS.md`; subsystem b
 `docs/PROJECT_GUIDE.md`; scoring science in `docs/DDM_CALIBRATION.md`. Read this before touching the DDM CG chain,
 the protein-detergent pipeline or the coordinator. This file keeps only what is current and the evidence behind it.
 
-## Next task (2026-11-02): implement the detergent conformation library
+## Next task (none assigned)
 
-Approved and designed; **not started** (no code has changed). Read these in **this checkout** — plans and drafts are
-local since `684a5d3`, not tracked:
-
-- `docs/plans/2026-11-02-detergent-conformation-library.md` — the plan of record (schema, producer, resolver,
-  integration, refusals, tests, definition of done).
-- `docs/design/drafts/2026-11-02-conformation-library-in-form.html` — the compact card in the New run form.
-- `docs/design/drafts/2026-11-02-conformation-library.html` — the same card alone. Screenshots sit beside each.
-
-Decisions the user has already made:
-
-- **Sources**: one or several completed, protein-free pdc runs of the same detergent; the caller picks.
-- **Size**: exactly **K = 2000** per detergent, chosen by stratified selection; pure numpy, no new dependency.
-- **Two ways to name it**: build from runs `{runs, size, seed}` (built or reused on demand) or reference a stored
-  library `{key, sha256}` (used as-is; source runs need not be here). A build writes into the store, so it becomes
-  selectable by key afterwards. The store is not tracked and is copyable; a referenced library is never rebuilt.
-- **Orientation**: the library stores internal geometry (head anchored, head-ward axis +z); placement draws the
-  azimuth. Applies to both lattice modes (sphere and torus) and the preview, and the draw lives in
-  `place_detergents`, so self-assembly shares it.
-- **Default**: one rigid conformation; a run with no setting stays byte-identical.
-- **Panel**: one header row (eyebrow + segmented control) and only the chosen mode's body — one-line run rows, one
-  footer row of size/seed/status, or one-line stored-library rows. No per-option prose.
-
-Suggested order (the plan has the detail): (1) `detergent_pdc/conformations/` with the CLI and unit tests;
-(2) `place_detergents(profiles=…)` + `stamp(entries=…, twists=…)`; (3) `pdc.py` setting/validation/prepare,
-`pdc_build`, `pdc_preview`, and the inputs record; (4) the panel, its candidate/stored-library routes and browser
-tests; (5) `PROJECT_GUIDE.md`, this file, gates. The store is
-`workspace/dashboard/conformations/<residue>/<key>/library.json` plus `library.sha256`.
-
-The Run view controls and PBC slice landed earlier on 2026-11-02
-(`docs/plans/2026-10-30-run-view-pbc-controls.md`): a taller canvas, the removable bonds-reason readout cell gone,
-one build action behind **Frame options**, **ns per frame** instead of a frame step, and `pbc`/`centre`/`fit`/`group`
-as a view of the frames.
+The detergent conformation library landed on 2026-11-02 (see *Landed slices*); no next slice has been chosen. The
+*Open items* table below is the list to pick from. The plan of record and its implementation contract stay in this
+checkout but are untracked: `docs/plans/2026-11-02-detergent-conformation-library.md` and
+`docs/plans/2026-11-02-conformation-library-contract.md` (the pinned interfaces the four lanes were built against);
+the approved look is `docs/design/drafts/2026-11-02-conformation-library-in-form.html` with screenshots beside it.
 
 Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9ae6db23f` was deleted by the user on
 2026-10-30**; anything that still names it is history, not a live run.
@@ -76,6 +49,13 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   run-root paths with each playable segment's `identity`; a `.pdb` structure is served by the artifact route. Caps are
   240 models / ~250 MB. `config/dashboard.json` admits 40 GiB per run (the deleted `00b9ae6db23f` was 34.08 GiB,
   which the former 30 GiB limit could not analyse).
+- **Detergent conformations.** A pdc run may stamp its detergents from a fixed-size library taken from micelle-only
+  runs: `detergent_pdc/conformations/` writes `<workspace>/conformations/<residue>/<key>/library.json` plus
+  `library.sha256` (K = 2000 whole molecules, stratified split, pure numpy), `pdc.prepare` records it as the
+  `detergent_conformations` input, and `pdc_build`/`pdc_preview` draw one entry and one azimuth per site through
+  `place_detergents(conformations=…)` and stamp the same numbers. `null` is the template's one rigid molecule and
+  every earlier run. The panel's **Detergent shape** card is the fourth New run card; the two routes are
+  `GET /api/pdc/conformations/runs` and `GET /api/pdc/conformations/libraries`.
 - **Service.** The dashboard runs on port 5000 as the transient user unit `detergent-dashboard`; restart it with
   `systemctl --user stop` then a new `systemd-run --user`. Restart after Python changes; `static/` and templates are
   read per request.
@@ -84,7 +64,6 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
 
 | item | state | next |
 | --- | --- | --- |
-| detergent conformation library | approved and drafted 2026-11-02; plan and drafts are local to this checkout (untracked since `684a5d3`) | build it: K=2000 stratified from one or several micelle-only runs; name it by run id or by a stored key; used by both lattice modes and the preview |
 | run-layout migration | applied 2026-10-27 (`legacy_layout.json` on every then-existing run); `936b74bd3fa8`, `00b9ae6db23f` deleted by the user | verify the migrated runs still render and resolve analyses |
 | Overall Run view progress | the card bar is the current stage's fraction; timeline/plan skips show settings | decide whether a true run-level percentage is wanted |
 | cloud vs rough belt | open measurement, not a task | one protein, one seed, two 100 ns legs; compare removal fraction/aggregation/belt thickness before adopting a belt criterion |
@@ -137,6 +116,25 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   effective cadence, the `view` and any `legacy` marker; `series_pdb`'s REMARKs state a fit and any PBC/centre view.
   The series PDB is fetched only on Play.
 - **Never kill DSH.** The first listener on 3080 is DSH; the dashboard is 5000 and is a systemd user service.
+- **A conformation library is pinned, never swapped.** `library.json` is canonical bytes and `library.sha256` is the
+  verifier; the key is the first 16 hex of the canonical spec over the detergent signature and the sorted
+  `(run_id, trajectory_identity)` pairs, so a rebuild from the same sources names the same directory. A run records
+  the path and digest as a `store` input, a stored library whose bytes differ is refused rather than overwritten, and
+  a key-mode library is never rebuilt: if it is deleted and its runs are gone, the original must be copied back.
+- **A library shapes the bodies, never the sites.** The entry index and the azimuth are drawn from
+  `default_rng([seed, 0xC0FF])` in site order, so a placement naming no library keeps every draw it had; the
+  clearance gate measures the drawn body and `pdc_build.stamp` writes that same entry and twist.
+- **A library is matched bead for bead.** Its residue, bead names/order and the source run's mapping digest must equal
+  the new run's own model; the build stage re-verifies the recorded digest before reading the file, so a hand-edited
+  library stops the stage instead of stamping different molecules.
+- **A library samples frames, and only reads its run.** A CG production trajectory writes a frame every 2 ps
+  (`b920391735dd`: 50,001), so extraction takes at most `MAX_FRAMES = 200` evenly strided frames and records the
+  stride; MDAnalysis' `*_offsets.npz` cache is kept out of the run by opening the trajectory through a symlink in a
+  temporary directory, because a run's outputs are immutable.
+- **A molecule is judged against its own topology.** The bond/constraint reference is the `funct 1` line's stated
+  length, never the mapping-derived geometry: on `b920391735dd` the geometry states 0.2696 nm for `2-5` where the itp
+  states 0.334 and the measured median is 0.3242, so a geometry reference fails 51.6% of a normal fluctuation and
+  drops good molecules. Virtual-site parents are connectivity only.
 
 ## Current measurements
 
@@ -148,12 +146,30 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   evidence, not as a live run.
 - Frame-series producer (2026-10-30): 44 s for the whole 100 ns, 2.5 GB extension trajectory after one sequential
   pass; random `.xtc` access cost 1.7 s a frame, which is why the producer never indexes frames at random.
-- Tests (measured 2026-11-02, after the full PBC set and the cluster index fix): 2,575 collected; fast **2,288
-  passed, 1 xfailed**; browser **260 passed**; slow **26 passed**; `ruff check packages tests conftest.py` clean;
-  mutation signal 10 caught / 1 survived. `pytest.ini` owns tier counts; do not copy moving counts into this file.
+- Conformation library, built from `b920391735dd` alone (2026-11-02): 50,001 frames of 2 ps sampled every 250th (201
+  frames, stride recorded), pool 30,150, kept 29,504, broken 646, non-finite 0, wall 10.38 s (record 10.05 s); a
+  second rebuild is byte-identical. Key `d389b3135533cd3a`, sha256 `e43192db…`, 2,000 entries of 11 beads, stored at
+  `workspace/dashboard/conformations/DDM/d389b3135533cd3a/` (gitignored). Reading is cheap — 200 frames in 0.14 s,
+  offsets in 0.13 s — so the per-molecule processing is the whole cost and `MAX_FRAMES` is what bounds it.
+- Tests (measured 2026-11-02, after the conformation library): 2,670 collected; fast **2,374 passed, 1 xfailed**;
+  browser **269 passed**; slow **26 passed**; `ruff check packages tests conftest.py` clean; mutation signal 10
+  caught / 1 survived. `pytest.ini` owns tier counts; do not copy moving counts into this file.
 
 ## Landed slices, newest first
 
+- **2026-11-02 Detergent conformation library**: a pdc run may now stamp each detergent from a library of whole
+  molecules taken from micelle-only runs instead of repeating one template. `detergent_pdc/conformations/` validates
+  the source runs, makes each molecule whole, stores it head-anchored with its axis on +z, selects exactly K = 2000 by
+  a stratified split and writes canonical `library.json` + `library.sha256` under
+  `<workspace>/conformations/<residue>/<key>/` (untracked, copyable); the key is the first 16 hex of the canonical
+  spec, so a rebuild from the same sources is the same directory. A run names it by `{runs, size, seed}` (built or
+  reused on demand) or by `{key, sha256}` (used as-is, source runs need not exist); `prepare` records it as the
+  `detergent_conformations` input, the build stage re-verifies the digest and matches it bead for bead against the
+  run's mapping, and both the build and the preview draw one entry and one azimuth per site from
+  `default_rng([seed, 0xC0FF])` and stamp that same body. `null` leaves every earlier run byte-identical. The New run
+  form gains a fourth card (**Detergent shape**: one conformation · build from runs · stored library), the preview
+  prints the resolved key and size, and two routes serve the lists (`GET /api/pdc/conformations/runs`,
+  `GET /api/pdc/conformations/libraries`).
 - **2026-11-02 Run view controls and PBC**: a taller NGL canvas, the bonds-reason readout cell removed, one **Frame
   options** disclosure with a state-dependent Build/Recompute submit, **ns per frame** instead of a frame step, and
   view options `pbc` (`none|mol|res|atom|whole|nojump|cluster`), **box centre** (`tric|rect|zero`), `centre`, `fit`

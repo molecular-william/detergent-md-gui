@@ -61,7 +61,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from dashboard import files
+from dashboard import files, paths
 from dashboard.analysis.runs import structures as pdc_view
 from detergent_pdc.execution.adapters import pdc as pdc_adapter
 from detergent_pdc.execution.adapters import pdc_box, pdc_placement, pdc_preparation, pdc_protein
@@ -489,7 +489,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
             molecule_id=None, aggregation_number=150, placement_mode=pdc_placement.DEFAULT_PLACEMENT_MODE,
             box_margin_nm=pdc_placement.DEFAULT_MARGIN_NM, initial_z_nm=pdc_placement.DEFAULT_INITIAL_Z_NM,
             radius_nm=pdc_placement.DEFAULT_RADIUS_NM, executable=None, prepare_protein=False,
-            prepare_executable=None):
+            prepare_executable=None, conformation_library=None, workspace=None):
     """The placement these inputs would build, as `{valid, step, reasons, pdb, basis, cost}`.
 
     `project_root` resolves `template`, `protein` and the molecule tree a mapping is derived against -- the same root
@@ -514,6 +514,15 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     the coarse-graining reads it, exactly as the stage hands it over in a run. A preparation that cannot run comes
     back as a refusal naming that step, with the tool's own sentence -- never as a frame built from the file the
     caller asked to have prepared.
+
+    `conformation_library` is the run's own setting, in either of its shapes (source runs to build from, or a stored
+    key and digest), resolved against `workspace` -- the workspace a run would be prepared in, or the current one.
+    The library is matched bead for bead against the mapping's model before anything is placed, the placement draws
+    one entry and one azimuth per site from it, and `stamp` turns each body by its drawn azimuth. The resolved key,
+    size, mode and source run ids travel in `basis['conformations']` and never the coordinates; `None` is the
+    single-conformation build this service has always drawn. A spec the library package refuses is a `ValueError`
+    (a malformed request); a library that is missing, changed or not this run's detergent is a refusal here, with
+    the package's own sentence.
 
     Raises `ValueError` for a question that cannot be asked at all -- a template or protein that is not a file, a
     chain the file does not name, a mapping that does not exist, a count below one, a preparation asked for with no
@@ -563,7 +572,11 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
              # The all-atom protein the beads were coarse-grained from: `{key, url}` for the route that serves it, so
              # the card can draw a ribbon of the structure the beads stand for. `None` for a build with no protein,
              # and for a derive whose entry holds no such structure -- see `protein_structure_basis`.
-             'protein_structure': None}
+             'protein_structure': None,
+             # The conformation library this derive draws from: `{key, size, mode, sources}` once one is resolved,
+             # never its coordinates. `None` is the single-conformation build, and so is a derive that is refused
+             # before the library resolves.
+             'conformations': None}
     cost = {'cg_cached': False, 'coarse_graining_seconds': 0.0, 'detergent_seconds': 0.0,
             'placement_seconds': 0.0, 'seconds': 0.0, 'cg_bytes': 0, 'cg_key': None, 'prepare_seconds': 0.0}
     started = time.perf_counter()
@@ -623,12 +636,63 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
                   if (Path(cg['path']) / pdc_build.SELECTED_PROTEIN).is_file() else protein_path))
     basis['protein_beads'] = len(beads)
 
+    # A conformation library is drawn at the sites, so it resolves before the placement -- and it is matched against
+    # the run's own detergent, so the model it is matched against is derived here rather than after the placement.
+    # `None` is today's derive: nothing about it moves, and the model is still derived below on that path.
+    library, conformations, spec = None, None, None
+    model, model_seconds, mapping_path = None, 0.0, None
+    if conformation_library is not None:
+        from detergent_pdc import conformations as conformations_package
+        # A malformed spec is a question that cannot be asked, so it stays a `ValueError` the route answers with 400:
+        # the package's sentence names the field that is wrong.
+        spec = conformations_package.normalise_spec(conformation_library)
+        if not mapping:
+            cost['seconds'] = time.perf_counter() - started
+            return _refusal('conformation library',
+                            ['the form names a conformation library and no detergent mapping: the library is matched '
+                             'bead for bead against the mapping\u2019s model, so there is nothing to shape or to match '
+                             'it against'], basis, cost, subject=template_path)
+        mapping_path = resolve_mapping(mapping, root)
+        if not mapping_path.is_file():
+            raise ValueError(f'the detergent mapping is not a file: {mapping_path}')
+        model, model_seconds = detergent_model(mapping_path, root / 'molecules', root)
+        if molecule_id and str(model['molecule_id']) != str(molecule_id):
+            raise ValueError(f'the mapping {mapping_path.name} is of {model["molecule_id"]}, not of {molecule_id}')
+        basis['mapping'] = mapping_path.name
+        workspace_root = Path(workspace) if workspace is not None else paths.current().workspace
+        store = conformations_package.store_root(workspace_root)
+        held = {path.resolve() for path in store.glob('*/*')} if store.is_dir() else set()
+        started_library = time.perf_counter()
+        try:
+            library = conformations_package.resolve(workspace_root, spec, build=True)
+        except (OSError, ValueError) as error:
+            cost['seconds'] = time.perf_counter() - started
+            return _refusal('conformation library', [str(error)], basis, cost, subject=workspace_root)
+        cost['conformations_seconds'] = round(time.perf_counter() - started_library, 3)
+        # The store already holding the key is what a cached resolve is: it re-read and verified the copy instead of
+        # reading the source trajectories. A resolve that had to repair a corrupt copy pays the build and says so in
+        # the seconds beside this flag.
+        cost['conformations_cached'] = library.path.parent.resolve() in held
+        try:
+            library.assert_matches(residue=model.get('residue') or record.residue,
+                                   beads=[bead['name'] for bead in model['beads']],
+                                   mapping_sha256=files.sha256(mapping_path))
+        except ValueError as error:
+            cost['seconds'] = time.perf_counter() - started
+            return _refusal('conformation library', [str(error)], basis, cost, subject=workspace_root)
+        conformations = library.conformations()
+        # The resolved copy, never its coordinates: what the card prints, and what a reader needs to find the same
+        # library again. `mode` is how the run named it; `sources` are the runs the stored file itself names.
+        basis['conformations'] = {'key': library.key, 'size': library.size, 'mode': spec['mode'],
+                                  'sources': [entry['run_id'] for entry in library.sources]}
+
     # The membrane the belt is placed in is the protein file's own statement of it, read through `micelle.frame` --
     # the same reader the build uses, so the two cannot disagree about which shape this placement takes.
     points = [list(bead['position']) for bead in beads]
     started_placement = time.perf_counter()
     placement = pdc_placement.place_detergents(points, record, aggregation_number, seed, radius_nm=radius, mode=mode,
-                                              margin_nm=margin, initial_z_nm=initial_z, frame=frame)
+                                              margin_nm=margin, initial_z_nm=initial_z, frame=frame,
+                                              conformations=conformations)
     cost['placement_seconds'] = round(time.perf_counter() - started_placement, 3)
     # The belt's own radius, and the two numbers it was derived from. `band_radius_nm` is what the card renders as
     # "the belt is a band of radius X nm in the membrane plane", so it is the torus's **centre-line** -- the measured
@@ -672,8 +736,8 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     box = _box(points, placement, frame, margin, initial_z)
     basis['box_nm'] = list(box)
 
-    model, seconds, mapping_path = None, 0.0, None
-    if mapping:
+    seconds = 0.0
+    if model is None and mapping:
         mapping_path = resolve_mapping(mapping, root)
         if not mapping_path.is_file():
             raise ValueError(f'the detergent mapping is not a file: {mapping_path}')
@@ -684,6 +748,9 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
         if molecule_id and str(model['molecule_id']) != str(molecule_id):
             raise ValueError(f'the mapping {mapping_path.name} is of {model["molecule_id"]}, not of {molecule_id}')
         basis['mapping'] = mapping_path.name
+    elif model is not None:
+        # The library's derive already derived it, to match the library against the run's own beads.
+        seconds = model_seconds
     cost['detergent_seconds'] = round(seconds, 3)
 
     atoms = [{'residue_id': bead['residue_id'], 'residue': bead['residue'], 'name': bead['name'],
@@ -700,9 +767,18 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
                   for index, centre in enumerate(placement['centers'])]
         basis['detergent_representation'] = 'one centre per molecule'
     else:
+        # The bodies the placement drew, read back as geometry: the placement's record carries the entry index and
+        # the azimuth each site got, and the library carries the head-anchored bodies. Stamping those same numbers
+        # is what makes the picture the build's own frame rather than one template repeated.
+        entries = twists = None
+        if library is not None:
+            offsets = library.offsets()
+            entries = [offsets[index] for index in placement['conformations']['entries']]
+            twists = placement['conformations']['twists']
         try:
             atoms += pdc_build.stamp(model, placement['centers'], placement['directions'],
-                                     first_residue=max([bead['residue_id'] for bead in beads], default=0) + 1)
+                                     first_residue=max([bead['residue_id'] for bead in beads], default=0) + 1,
+                                     entries=entries, twists=twists)
         except SystemExit as error:
             cost['seconds'] = time.perf_counter() - started
             return _refusal('detergent model', [str(error)], basis, cost, subject=mapping_path)

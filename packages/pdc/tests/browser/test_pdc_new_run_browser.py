@@ -40,6 +40,11 @@ CATALOG = {
 
 
 def open_panel(page, base_url):
+    # The shape card reads two routes this lane's server does not serve yet; an empty answer keeps the form's
+    # existing claims independent of that feature while still exercising the card's own mount.
+    browser.serve_files(page,
+                        (re.compile(r'/api/pdc/conformations/runs'), {'runs': []}),
+                        (re.compile(r'/api/pdc/conformations/libraries'), {'libraries': []}))
     return browser.open_pdc_new_run(page, base_url)
 
 
@@ -472,6 +477,10 @@ def test_the_front_door_uses_the_only_module_s_form_and_its_storage_line(dashboa
     response = dashboard.client.put('/api/modules', json={'enabled': ['pdc']})
     assert response.status_code == 200
     page, errors = live_page
+    # The shape card mounts with this panel too, so its two routes are stubbed here as well.
+    browser.serve_files(page,
+                        (re.compile(r'/api/pdc/conformations/runs'), {'runs': []}),
+                        (re.compile(r'/api/pdc/conformations/libraries'), {'libraries': []}))
     page.goto(f'{live_page.base_url}/')
 
     expect(page.locator('#storage-report')).to_contain_text('Storage:')

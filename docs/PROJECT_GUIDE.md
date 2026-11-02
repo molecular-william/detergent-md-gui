@@ -66,7 +66,9 @@ osmotic-pressure, overlap, refinement-score, surfaces, targets).
 
 detergent-pdc (`packages/pdc/src/detergent_pdc/`): execution/adapters/ (pdc, pdc_import, pdc_preparation, pdc_protein,
 pdc_placement, pdc_box, pdc_solvation, pdc_assessment), execution/pdc_preview.py, the repository `pdc_*.sh` scripts,
-analysis/runs/encapsulation.py, layout.py (stage directories, roles, review order, detergent topology), segments.py
+conformations/ (the detergent conformation library: source validation, extraction, selection, canonical store and
+resolver), analysis/runs/encapsulation.py, layout.py (stage directories, roles, review order, detergent topology),
+segments.py
 (the pdc segmenter and its markers), topologies.py (the protein's moleculetypes), view.py (the queued-run skip
 preview), web/routes/pdc.py (setup, system, micelle build), and its browser surface: `templates/panels/` and
 `templates/fragments/`, `static/pdc.css`, `static/js/{pdc,new-run-pdc,run-view-pdc}.js`.
@@ -121,7 +123,7 @@ Fast_Forward also needs lmfit, cgsmiles, matplotlib, MDAnalysis, numba, pbr, pys
 Readiness checks tool executables and imports before launch. Every run captures resolved tool paths, versions, commands, environment, and input/script hashes. No package installation happens inside simulation jobs.
 
 ## Paths, state, canonical inputs
-dashboard/paths.py owns application path configuration. A workspace contains jobs.sqlite3, runs/, uploads/, mapping_drafts/, parameterizations/, model_registry/, compositions/, proteins/, preview/ and martini3/. `proteins/` holds structures a pdc run imported (each with a sidecar recording its stated half-thickness and chains); `preview/` is the New Run panel's martinize2 cache, which no run reads. `martini3/` is the installed Martini 3 set every run reads in place -- the official lipidome ITPs, the sugar reference, its provenance and `martini3.json`, which records the upstream commit/DOI and every file's digest; it is installed from `references/` by the first reader and never written by a run. The set's upstream files -- `references/M3-Lipid-Parameters/ITPs/` with its `LICENSE.txt`, `README.md` and the sugar reference -- are tracked, so a clone installs the force field without a download; the rest of `references/` (PDFs, partial clones, the upstream benchmark material and workbook) is not. SQLite is the only live job store; old JSON job snapshots are not read.
+dashboard/paths.py owns application path configuration. A workspace contains jobs.sqlite3, runs/, uploads/, mapping_drafts/, parameterizations/, model_registry/, compositions/, proteins/, preview/, conformations/ and martini3/. `proteins/` holds structures a pdc run imported (each with a sidecar recording its stated half-thickness and chains); `preview/` is the New Run panel's martinize2 cache, which no run reads. `conformations/` is the detergent conformation store (`<residue>/<key>/library.json` and `library.sha256`, written by `detergent_pdc/conformations/` and read in place by a run that names one); it is not tracked in git, and a copied directory is usable by key. `martini3/` is the installed Martini 3 set every run reads in place -- the official lipidome ITPs, the sugar reference, its provenance and `martini3.json`, which records the upstream commit/DOI and every file's digest; it is installed from `references/` by the first reader and never written by a run. The set's upstream files -- `references/M3-Lipid-Parameters/ITPs/` with its `LICENSE.txt`, `README.md` and the sugar reference -- are tracked, so a clone installs the force field without a download; the rest of `references/` (PDFs, partial clones, the upstream benchmark material and workbook) is not. SQLite is the only live job store; old JSON job snapshots are not read.
 
 The checkout selects workspace/dashboard/ in config/dashboard-paths.json. DASHBOARD_WORKSPACE=/absolute/path overrides that selection for an isolated instance. With neither setting, the legacy dashboard/ workspace is supported. Paths resolve at application construction; changing configuration requires a restart after all workers stop.
 
@@ -399,6 +401,15 @@ and **Ribbon** shows or hides the ribbon; both send nothing, stay out of the der
 derived value. The **encapsulation estimate** (`GET /api/pdc/proteins/<entry>/encapsulation`) reports how many
 detergents the apolar surface implies. Structural import lands the file in the workspace's `proteins/` with a
 sidecar.
+
+The pdc New run form's fourth card is **Detergent shape** (`CHOICE_SPECS['conformation_library']`): one rigid
+conformation (the default, and every run before 2026-11-02), a library built from micelle-only runs, or a stored
+library. *Build from runs* lists `GET /api/pdc/conformations/runs` (completed pdc runs newest first, each with its
+verdict and the refusing sentence, never hidden) and carries a size and a seed; *Stored library* lists
+`GET /api/pdc/conformations/libraries?residue=` and selects one by key and digest. The submit sends
+`conformation_library` only for the two library modes; the preview query carries the same object as URL-encoded JSON
+(`conformation_library=`), and the System preview card prints the resolved key, size and source count, never
+coordinates.
 
 ### Osmotic Series
 A sugar concentration series is **one run owning N concentrations** (`settings.molalities`), gated to sugars and built by `execution/adapters/osmotic.py`; the old one-concentration `osmotic_molality` shape is removed rather than deprecated. Each concentration gets its own directory (`condition_directory`) and its own checkpoint, resumed with `gmx mdrun -cpi` up to `osmotic_attempts_max` attempts, and a failed condition either carries on or stops the series (`series_on_failure`). The panel reads `GET /api/osmotic/catalogue`, queues the series with `POST /api/osmotic/series`, and reads the series as it stands from `GET /api/osmotic/conditions`. The dividing area and the water/solute counts are recorded at build time so the analysis divides by the number the build agreed to.
@@ -771,6 +782,46 @@ geometry, and `settings.detergent_model` says which happened: `source` is `the m
 `term_kinds`, or `the mapping's derived topology: N reference terms, M fallbacks`. `pdc._limitations` states the same
 in the run's own words, naming the revision and the AA run it was fitted from. The bead **positions** come from the
 mapping either way, so the placement is identical.
+
+### Detergent conformations: a library of drawn bodies
+
+A micelle built from one template is one shape repeated. `detergent_pdc/conformations/` replaces that with a library
+of whole molecules observed in micelle-only simulations: K = 2000 per detergent, chosen to cover the shapes the
+sources visited, drawn per site at build time. The setting is `conformation_library` (`DEFAULTS` `None`, the
+template's one molecule); the panel offers it as the **Detergent shape** card, and the source runs must be completed,
+protein-free `pdc` runs whose detergent signature agrees. `sources.py` validates them and resolves each production
+trajectory through `pdc_segments` (the last non-duplicate segment); `extract.py` reads each trajectory once with
+MDAnalysis -- at most `MAX_FRAMES = 200` frames per run, evenly strided, because a CG production trajectory writes a
+frame every 2 ps (50,001 frames on `b920391735dd`) and the pool only needs thousands of candidates, not millions --
+makes every molecule whole from the itp's bonds, constraints and virtual-site parents, drops the non-finite and the
+ones whose stated bond/constraint length leaves `[0.8, 1.2]` of the length the run's own topology states (the
+mapping-derived geometry is not the reference: a fitted topology's `b0` need not equal it — measured on
+`b920391735dd`, the geometry after 51.6% of `2-5` samples), and puts the survivors in the
+local frame `pdc_placement.detergent_profile` already defines (head at the origin, head-ward axis +z) with four
+descriptors (`length_nm`, `rg_nm`, `reach_nm`, `radial_nm`); `select.py` standardises the descriptors and splits the
+widest cell at its median until there are exactly K cells, taking the candidate nearest each centre (pure numpy,
+deterministic, pool smaller than K refused). A library stores no timestamp, so two builds from the same sources write
+the same bytes. The trajectory is opened through a symlink inside a temporary directory, because MDAnalysis writes
+its `*_offsets.npz` cache beside the file it opens and a run's outputs are immutable.
+
+The file is `library.json` (canonical, sorted keys, compact) with `library.sha256` beside it, under
+`<workspace>/conformations/<residue>/<key>/`. The `detergent` block is the detergent's own signature
+(`residue`, `beads` in mapping order, `mapping_sha256`); `sources` name each run and its `trajectory_identity`; each
+entry carries its head-anchored beads, descriptors and provenance (run index, time, resid). The key is the first 16
+hex of the canonical spec over the format, the detergent signature, the selection size/seed/method and the sorted
+`(run_id, trajectory_identity)` pairs. A spec is one of two shapes: `{runs, size, seed}` (a build, reused from the
+store by key when present) or `{key, sha256}` (a reference, used as-is and never rebuilt; the source runs need not
+exist). `resolve` is the one resolver; the CLI is
+`python -m detergent_pdc.conformations build|show --workspace <ws>`.
+
+A run records the resolved library like any other input: `pdc.prepare` resolves it, matches it against the run's own
+mapping (residue, bead names in order, mapping digest), stores `conformations_library` (absolute path), `_key`,
+`_sha256`, `_size`, `_runs`, `_mode`, `_mapping_sha256` and `_producer` in the settings file, and records the file as
+the `detergent_conformations` input with its digest. The build stage re-verifies that digest before it reads the file.
+Placement draws one entry index and one azimuth per site from a **separate** generator seeded
+`[seed, 0xC0FF]`, so a run with no library keeps every draw it had; the clearance gate measures the drawn body, and
+`pdc_build.stamp` writes that same entry and twist (head on the site, axis along the direction). A library that fails
+any check stops the stage with a sentence, like a template that cannot build.
 
 ### Back-mapping
 

@@ -81,6 +81,10 @@ MIN_DISTANCE_NM = 0.25
 # shape cannot hold that many" into the count gate's own sentence instead of an endless loop -- the same reason
 # `_self_assemble` draws a bounded number of times.
 DRAWS_PER_DETERGENT = 200
+# The tag that makes a conformation library's draw a stream of its own: `default_rng([seed, CONFORMATION_SEED])`.
+# Folding those draws into the generators' `default_rng(seed)` would move every site the moment a library was
+# selected, so a placement with no library had to stay the placement it has always been, draw for draw.
+CONFORMATION_SEED = 0xC0FF
 
 PLACEMENT_MODES = ('lattice', 'self-assembly')
 DEFAULT_PLACEMENT_MODE = 'lattice'
@@ -245,13 +249,14 @@ def _principal_axis(points, tail_direction=None):
     return axis if axis[largest] > 0 else -axis
 
 
-def body_beads(site, direction, profile) -> np.ndarray:
+def body_beads(site, direction, profile, twist=0.0) -> np.ndarray:
     """Every bead of one detergent, in world coordinates, for a head at `site` and a body along `direction`.
 
     The rotation is the one `pdc_build.stamp` applies -- the minimal rotation taking the molecule's head-ward axis
-    onto `direction` -- so the body measured here is the body the build writes, not an approximation of it. A
-    template with no profile (`None`) answers with the head site alone, which is the gate this module had before the
-    molecule's own shape was readable: one point per molecule.
+    onto `direction`, then the azimuth about +z -- so the body measured here is the body the build writes, not an
+    approximation of it. `twist` is the library's drawn azimuth in radians and is zero for a template body, whose
+    orientation has no azimuth to choose. A template with no profile (`None`) answers with the head site alone, which
+    is the gate this module had before the molecule's own shape was readable: one point per molecule.
     """
     site = np.asarray(site, dtype=float).reshape(3)
     if profile is None:
@@ -259,15 +264,30 @@ def body_beads(site, direction, profile) -> np.ndarray:
     target = np.asarray(direction, dtype=float).reshape(3)
     span = float(np.linalg.norm(target))
     target = target / span if span > 1e-12 else np.array([0.0, 0.0, 1.0])
-    return site + profile['offsets'] @ _alignment(profile['axis'], target).T
+    rotation = _alignment(profile['axis'], target)
+    if twist:
+        rotation = rotation @ _about_z(twist)
+    return site + profile['offsets'] @ rotation.T
+
+
+def _about_z(twist):
+    """The rotation by `twist` radians about +z: the azimuth a library entry is turned by before it is aimed.
+
+    The library stores each molecule's internal geometry with its head-ward axis along +z, so the azimuth is a turn
+    about that same axis -- the order `pdc_build.stamp` applies is `R @ Rz(twist)`.
+    """
+    cosine, sine = float(np.cos(twist)), float(np.sin(twist))
+    return np.array([[cosine, -sine, 0.0], [sine, cosine, 0.0], [0.0, 0.0, 1.0]])
 
 
 def _alignment(axis, target):
     """The minimal rotation taking one unit vector onto another, including the antiparallel case.
 
     The same map `pdc_build.stamp` applies to a molecule, written here because the gate has to measure the body the
-    stage writes and `pdc_build` imports this module (so this cannot import it back).
+    stage writes and `pdc_build` imports this module (so this cannot import it back). `axis` is a library profile's
+    field as well as a template's, so it is read as an array: the pinned profile spells it as a list.
     """
+    axis = np.asarray(axis, dtype=float).reshape(3)
     cross = np.cross(axis, target)
     sine = float(np.linalg.norm(cross))
     cosine = float(np.dot(axis, target))
@@ -316,7 +336,7 @@ def body_clearance(site, direction, profile, points) -> float:
     return float(np.sqrt((gap * gap).sum(axis=2)).min())
 
 
-def placed_bead_clearance(centers, directions, profile, points) -> float | None:
+def placed_bead_clearance(centers, directions, profile, points, *, profiles=None, twists=None) -> float | None:
     """The closest any placed detergent's own bead comes to any protein point, over the whole placement.
 
     The gate above answers *yes or no* cheaply, because a protein bead far from the site cannot be within the gate of
@@ -325,19 +345,45 @@ def placed_bead_clearance(centers, directions, profile, points) -> float | None:
     stays small: 16 molecules of 81 atoms against 928 protein beads is 1.2 M distances, and the whole set is a few
     hundred milliseconds at most. `None` means there was nothing to measure (no protein, or a template with no
     profile), which is not the same answer as "zero".
+
+    `profiles` and `twists` are a conformation library's draw: one body and one azimuth per site, in site order, in
+    place of the one template body. That is what makes the reported number the placement's own -- the body the build
+    stamps -- rather than the template's, which is the one molecule a site no longer has to carry.
     """
-    if profile is None or points is None or not len(points) or not len(centers):
+    if points is None or not len(points) or not len(centers):
         return None
+    if profiles is None:
+        if profile is None:
+            return None
+        profiles = [profile] * len(centers)
+    angles = [0.0] * len(centers) if twists is None else [float(twist) for twist in twists]
     cloud = np.asarray(points, dtype=float)
     best = float('inf')
     for start in range(0, len(centers), 16):
         block = np.asarray(centers[start:start + 16], dtype=float)
         headings = np.asarray(directions[start:start + 16], dtype=float)
-        beads = np.concatenate([body_beads(site, direction, profile)
-                                for site, direction in zip(block, headings)])
+        beads = np.concatenate([body_beads(site, direction, body, twist)
+                                for site, direction, body, twist
+                                in zip(block, headings, profiles[start:start + 16], angles[start:start + 16])])
         gap = beads[:, None, :] - cloud[None, :, :]
         best = min(best, float(np.sqrt((gap * gap).sum(axis=2)).min()))
     return None if not np.isfinite(best) else best
+
+
+def _draw_conformations(conformations, seed, count):
+    """One entry index and one azimuth per site, drawn from the library's own generator.
+
+    `default_rng([seed, CONFORMATION_SEED])` is a second stream: the generators that place the sites keep every draw
+    they had, so a library changes which bodies stand at the sites and never where the sites are. The azimuth is
+    rounded to six decimals because the number recorded here is the number `pdc_build.stamp` turns the body by, and
+    the clearance gate has to measure that one.
+    """
+    rng = np.random.default_rng([int(seed), CONFORMATION_SEED])
+    entries, twists = [], []
+    for _ in range(int(count)):
+        entries.append(int(rng.integers(0, int(conformations.size))))
+        twists.append(round(float(rng.uniform(0.0, 2.0 * np.pi)), 6))
+    return entries, twists
 
 
 def extent_about_centroid(points) -> float:
@@ -363,7 +409,7 @@ def _profile_record(profile) -> dict | None:
 
 def place_detergents(protein_points, template, aggregation_number, seed, *, radius_nm=DEFAULT_RADIUS_NM,
                      min_clearance_nm=MIN_CLEARANCE_NM, mode=DEFAULT_PLACEMENT_MODE, margin_nm=DEFAULT_MARGIN_NM,
-                     initial_z_nm=DEFAULT_INITIAL_Z_NM, frame=None, measure_capacity=True):
+                     initial_z_nm=DEFAULT_INITIAL_Z_NM, frame=None, measure_capacity=True, conformations=None):
     """Place `aggregation_number` detergents around the protein (or around nothing, for an empty micelle).
 
     Deterministic in the seed through whichever generator the mode names, and gated before anything runs: the
@@ -393,6 +439,13 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
     A placement that fails its gates measures what a shell *could* hold (`capacity`), against the same gates, and
     records it as `capacity_aggregation` -- the requested number itself is never changed. `measure_capacity=False` is
     how that measurement calls back in without measuring itself again.
+
+    `conformations` is a conformation library's pinned surface: a `key`, a `size` and one head-anchored, +z `profile`
+    per entry (duck-typed, so this module never imports the library). Each placed site draws one entry index and one
+    azimuth from a **separate** generator (`_draw_conformations`), and the body gate then measures the drawn body --
+    the one `pdc_build.stamp` writes -- rather than the template's. The site generators keep every draw they had, so
+    the sites are where they would have been without a library; `None` is every build that names no library, and its
+    record carries `'conformations': None` and nothing else new.
     """
     if aggregation_number < 1:
         raise ValueError('a placement needs at least one detergent')
@@ -444,9 +497,19 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
         clearance = min(float(np.linalg.norm(center - points, axis=1).min()) for center in centers)
         if clearance < min_clearance_nm:
             issues.append(f'detergent too close to the protein: {clearance:.3f} nm < {min_clearance_nm} nm')
+    drawn = None
+    if conformations is not None:
+        entries, twists = _draw_conformations(conformations, seed, len(centers))
+        drawn = {'key': str(conformations.key), 'size': int(conformations.size),
+                 'entries': entries, 'twists': twists}
     body = None
     if not unplaced and len(centers):
-        body = placed_bead_clearance(centers, directions, profile, points)
+        if drawn is None:
+            body = placed_bead_clearance(centers, directions, profile, points)
+        else:
+            body = placed_bead_clearance(centers, directions, profile, points,
+                                         profiles=[conformations.profiles[index] for index in drawn['entries']],
+                                         twists=drawn['twists'])
 
     capacity_aggregation = None
     if issues and not unplaced and measure_capacity:
@@ -455,6 +518,12 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
                                         initial_z_nm=initial_z_nm, frame=frame)
         if 0 < capacity_aggregation['count'] < aggregation_number:
             issues.append(_capacity_sentence(capacity_aggregation))
+
+    # A drawn body that reaches into the gate is refused here, after the capacity measurement: the shell's own
+    # capacity is measured over the template's body, so quoting it would answer a question this gate did not ask.
+    if drawn is not None and body is not None and body < BEAD_CLEARANCE_NM:
+        issues.append(f'a drawn detergent body reaches within {body:.3f} nm of the protein: the body gate is '
+                      f'{BEAD_CLEARANCE_NM} nm')
 
     # The numbers the shape was built at, and the settings they were measured over. `radius_nm` is the radius of the
     # shape this placement built -- the sphere's shell, the belt's centre-line -- and `radius_floor_nm` is the
@@ -486,7 +555,13 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
                 ORIENTATION_RADIAL if mode == 'lattice' else ORIENTATION_RANDOM_OUTWARD),
             # The detergent's own shape, as the gate read it, and why it could not when it could not. A number here is
             # a measurement; `None` with a reason is the honest answer for a molecule that states no coordinates.
-            'body_profile': _profile_record(profile), 'body_profile_reason': _bead_gate_sentence(profile),
+            'body_profile': _profile_record(profile),
+            # A library's bodies were measured even when the template states none, so the head-only sentence would
+            # claim a check was skipped that the drawn profile ran.
+            'body_profile_reason': None if drawn is not None else _bead_gate_sentence(profile),
+            # Which library was drawn, and the entry index and azimuth each site got: the build stamps these, so the
+            # placement's own record is what a reader needs to reproduce the coordinates.
+            'conformations': drawn,
             'seed': seed,
             'protein_free': points is None or not len(points), 'protein_clearance_nm': clearance,
             'bead_clearance_nm': None if body is None else round(float(body), 6),

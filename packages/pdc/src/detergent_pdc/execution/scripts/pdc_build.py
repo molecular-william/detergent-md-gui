@@ -41,7 +41,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from dashboard import martini3
+from dashboard import files, martini3
 from detergent_pdc.execution.adapters import pdc, pdc_box, pdc_import, pdc_placement, pdc_preparation, pdc_protein
 from detergent_pdc.execution.adapters.pdc import DETERGENT_GEOMETRY, DETERGENT_TOPOLOGY, REPORT_NAME, SETTINGS_NAME
 from micelle import frame as micelle_frame
@@ -120,7 +120,7 @@ def write_report(stage: Path, report: dict) -> None:
     (stage / REPORT_NAME).write_text(json.dumps(report, indent=2, default=str))
 
 
-def stamp(draft: dict, centres, directions, *, first_residue: int = 900) -> list[dict]:
+def stamp(draft: dict, centres, directions, *, first_residue: int = 900, entries=None, twists=None) -> list[dict]:
     """One detergent per placement, as beads: rotated so its head points along the direction, its head end at the centre.
 
     The placement's direction is the way *out* of the micelle -- away from the protein and into the water the next
@@ -141,33 +141,73 @@ def stamp(draft: dict, centres, directions, *, first_residue: int = 900) -> list
     Every copy keeps the bead names the topology declares -- `grompp` reconciles topology and coordinates by atom
     name, so a per-molecule name would break the pair -- and each copy gets its own residue number, which is how a
     reader tells eight detergents apart.
+
+    `entries` and `twists` are a conformation library's draw: one `(n, 3)` array of head-anchored, +z offsets and one
+    azimuth per molecule, in site order. A bead then lands at `centre + R @ Rz(twist) @ bead`, with `R` this module's
+    `_rotation(+z, direction)`: the site is still the head anchor, the names and residue numbers are still the
+    topology's, and only the body's shape and its azimuth come from the library. Both must be given or neither, and
+    an entry whose bead count differs from `draft['beads']` is refused before an atom is written -- a body that does
+    not fit the model would be a structure `grompp` rejects. `entries=None` is the template path, unchanged.
     """
     import numpy as np
 
     beads = draft['beads']
-    tail = [bead for bead in beads if str(bead.get('type', '')).startswith('C')]
-    head = [bead for bead in beads if not str(bead.get('type', '')).startswith('C')]
-    if not tail or not head:
-        raise SystemExit('the detergent mapping marks no hydrophobic core: its bead types must distinguish the '
-                         'tail (C-type beads) from the head, or the placement cannot orient it')
+    if (entries is None) != (twists is None):
+        raise SystemExit('stamp turns each molecule by a twist, so it needs both a library\'s entries and their '
+                         f'twists or neither: it was given {0 if entries is None else len(entries)} entries and '
+                         f'{0 if twists is None else len(twists)} twists')
+    if entries is not None:
+        entries, twists = list(entries), list(twists)
+        if len(entries) != len(twists) or len(entries) != len(centres):
+            raise SystemExit(f'stamp was given {len(centres)} sites, {len(entries)} conformation entries and '
+                             f'{len(twists)} twists: each site needs exactly one entry and one twist')
+        for index, entry in enumerate(entries):
+            offered = int(np.asarray(entry, dtype=float).reshape(-1, 3).shape[0])
+            if offered != len(beads):
+                raise SystemExit(f'the conformation entry {index} carries {offered} bead(s) and the detergent model '
+                                 f'names {len(beads)}')
 
-    positions = {bead['name']: np.asarray(bead['position'], dtype=float) for bead in beads}
-    middle = np.mean([positions[bead['name']] for bead in beads], axis=0)
-    axis = np.mean([positions[bead['name']] for bead in head], axis=0) \
-        - np.mean([positions[bead['name']] for bead in tail], axis=0)
-    axis = axis / np.linalg.norm(axis)
-    # How far the molecule's own head end stands from its middle, along that axis: what the site is anchored to.
-    head_end = max(float((positions[bead['name']] - middle) @ axis) for bead in head)
+    if entries is None:
+        tail = [bead for bead in beads if str(bead.get('type', '')).startswith('C')]
+        head = [bead for bead in beads if not str(bead.get('type', '')).startswith('C')]
+        if not tail or not head:
+            raise SystemExit('the detergent mapping marks no hydrophobic core: its bead types must distinguish the '
+                             'tail (C-type beads) from the head, or the placement cannot orient it')
 
+        positions = {bead['name']: np.asarray(bead['position'], dtype=float) for bead in beads}
+        middle = np.mean([positions[bead['name']] for bead in beads], axis=0)
+        axis = np.mean([positions[bead['name']] for bead in head], axis=0) \
+            - np.mean([positions[bead['name']] for bead in tail], axis=0)
+        axis = axis / np.linalg.norm(axis)
+        # How far the molecule's own head end stands from its middle, along that axis: what the site is anchored to.
+        head_end = max(float((positions[bead['name']] - middle) @ axis) for bead in head)
+
+        atoms = []
+        for index, (centre, direction) in enumerate(zip(centres, directions), start=1):
+            target = np.asarray(direction, dtype=float)
+            target = target / np.linalg.norm(target)
+            rotation = _rotation(axis, target)
+            residue_id = first_residue + index
+            for bead in beads:
+                position = np.asarray(centre, dtype=float) + rotation @ (positions[bead['name']] - middle) \
+                    - head_end * target
+                atoms.append({'residue_id': residue_id, 'residue': draft['residue'], 'name': bead['name'],
+                              'position': [round(float(value), 5) for value in position]})
+        return atoms
+
+    # The library's own frame: every entry is head-anchored with its head-ward axis along +z, so the only rotations
+    # left are onto the site's direction and the drawn azimuth -- and no template head or tail reading is needed.
     atoms = []
-    for index, (centre, direction) in enumerate(zip(centres, directions), start=1):
+    upward = np.array([0.0, 0.0, 1.0])
+    for index, (centre, direction, entry, twist) in enumerate(zip(centres, directions, entries, twists), start=1):
         target = np.asarray(direction, dtype=float)
         target = target / np.linalg.norm(target)
-        rotation = _rotation(axis, target)
+        cosine, sine = float(np.cos(twist)), float(np.sin(twist))
+        about_z = np.array([[cosine, -sine, 0.0], [sine, cosine, 0.0], [0.0, 0.0, 1.0]])
+        rotation = _rotation(upward, target) @ about_z
         residue_id = first_residue + index
-        for bead in beads:
-            position = np.asarray(centre, dtype=float) + rotation @ (positions[bead['name']] - middle) \
-                - head_end * target
+        for bead, offset in zip(beads, np.asarray(entry, dtype=float)):
+            position = np.asarray(centre, dtype=float) + rotation @ offset
             atoms.append({'residue_id': residue_id, 'residue': draft['residue'], 'name': bead['name'],
                           'position': [round(float(value), 5) for value in position]})
     return atoms
@@ -603,6 +643,17 @@ def build(stage: Path) -> int:
         write_report(stage, report)
         return 2
 
+    # The detergent's derived model, read here because a conformation library is matched against the beads it names;
+    # the stamping reads the same file later. A library that cannot be read or does not match this run's detergent
+    # stops the stage the way a template that cannot build does -- before martinize2 runs or anything is placed.
+    model = _detergent_model(stage)
+    try:
+        library = _conformation_library(settings, model, template)
+    except (ImportError, ValueError, OSError) as exc:
+        report.update({'valid': False, 'box_nm': None, 'protein_beads': 0, 'reasons': [str(exc)]})
+        write_report(stage, report)
+        return 2
+
     beads, command, secondary = ([], None, None)
     # The membrane the belt is placed in: the statement the file this stage was handed makes about itself, read
     # through the frame module rather than reconstructed here. No protein, no statement -- both are `None`, and the
@@ -625,7 +676,8 @@ def build(stage: Path) -> int:
     placement = pdc_placement.place_detergents(points, template, settings['aggregation_number'],
                                                settings['seed'], radius_nm=settings['radius_nm'], mode=mode,
                                                margin_nm=settings['box_margin_nm'],
-                                               initial_z_nm=settings['initial_z_nm'], frame=frame)
+                                               initial_z_nm=settings['initial_z_nm'], frame=frame,
+                                               conformations=library.conformations() if library is not None else None)
     report.update({
         'cg_command': command,
         'secondary_structure': secondary,
@@ -645,6 +697,12 @@ def build(stage: Path) -> int:
         'protein_clearance_nm': placement['protein_clearance_nm'],
         'placement_issues': placement['issues'],
     })
+    if library is not None:
+        # The library the run was prepared with, which entries each site drew, and how it was named. `mode` and
+        # `sources` are the settings' own record of that (build or reference; the runs it was built from or names).
+        report['conformations'] = {**placement['conformations'],
+                                   'mode': settings.get('conformations_mode'),
+                                   'sources': list(settings.get('conformations_runs') or [])}
     if not placement['valid']:
         report.update({'valid': False, 'box_nm': None, 'box_nm_initial': None, 'reasons': placement['issues']})
         write_report(stage, report)
@@ -671,7 +729,6 @@ def build(stage: Path) -> int:
         box = pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=settings['box_margin_nm'])
     atoms = [{'residue_id': bead['residue_id'], 'residue': bead['residue'], 'name': bead['name'],
               'position': bead['position']} for bead in beads]
-    model = _detergent_model(stage)
     if model is None:
         # A build whose detergent is a bare centre: the picture is honest and the topology stays unwritten, because
         # a `[ molecules ]` line naming a molecule whose bead count nothing knows cannot be written at all.
@@ -695,8 +752,17 @@ def build(stage: Path) -> int:
             raise SystemExit(f'the CG protein step wrote no {pdc_protein.TOPOLOGY_NAME}, so the system cannot be '
                              'assembled')
         protein_topology_path = None
+    entries = twists = None
+    if library is not None:
+        # The entries the placement drew, read back as geometry: the placement's record carries the indices and the
+        # azimuths, and the library carries the bodies. Stamping the same numbers the gate measured is what makes
+        # the bead-level clearance a statement about the coordinates this build writes.
+        offsets = library.offsets()
+        entries = [offsets[index] for index in placement['conformations']['entries']]
+        twists = placement['conformations']['twists']
     atoms += stamp(model, placement['centers'], placement['directions'],
-                   first_residue=max([bead['residue_id'] for bead in beads], default=0) + 1)
+                   first_residue=max([bead['residue_id'] for bead in beads], default=0) + 1,
+                   entries=entries, twists=twists)
     micelle_output.write_gro(stage / 'system.gro', atoms,
                              title=f'protein-detergent complex ({template.name}, '
                                    f'AN={settings["aggregation_number"]}, {model["residue"]})', box=box)
@@ -717,6 +783,44 @@ def _detergent_model(stage: Path) -> dict | None:
     if not path.is_file():
         return None
     return json.loads(path.read_text())
+
+
+def _conformation_library(settings: dict, model: dict | None, template):
+    """The conformation library this run's settings name, loaded and matched against the run's own detergent.
+
+    `None` is every run that names none -- today's build, unchanged. A run that names one must have been prepared
+    with a mapping, because the library is matched bead for bead against the model that mapping derives, and the
+    digest the run recorded is checked against the file's own bytes: a run pins the library it was prepared with, the
+    same rule `inputs.json` applies to every other input. Every refusal is a `ValueError` naming the two values, and
+    `build` turns it into the `valid: false` report a template that cannot build already gets.
+    """
+    value = settings.get('conformations_library')
+    if not value:
+        return None
+    path = Path(value)
+    if not path.is_absolute():
+        path = Path(settings['project_root']) / path
+    if model is None or not model.get('beads'):
+        raise ValueError(f'the run names the conformation library {path} but was prepared with no detergent model: '
+                         'there are no beads to shape or to match the library against')
+    expected = settings.get('conformations_sha256')
+    if not expected:
+        raise ValueError(f'the run names the conformation library {path} and records no conformations_sha256, so '
+                         'the file cannot be verified')
+    # The library package is the conformation library's own code, imported only when a run names a library so that
+    # every existing build is independent of it.
+    from detergent_pdc import conformations
+    library = conformations.load(path)
+    digest = files.sha256(path)
+    if digest != expected:
+        raise ValueError(f'the conformation library {path} has digest {digest}, not the {expected} the run was '
+                         'prepared with')
+    # The model's residue is the mapping's; one that states none falls back to the run's template, the other place
+    # the run names its detergent.
+    library.assert_matches(residue=model.get('residue') or template.residue,
+                           beads=[bead['name'] for bead in model['beads']],
+                           mapping_sha256=settings.get('conformations_mapping_sha256'))
+    return library
 
 
 def main(argv=None) -> int:

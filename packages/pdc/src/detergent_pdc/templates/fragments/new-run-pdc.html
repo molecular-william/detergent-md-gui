@@ -154,6 +154,38 @@
       </details>
       <label>Run label <input name="label" maxlength="160" placeholder="Optional label for this run"></label>
     </section>
+    {# The detergent shape: how the build gets the conformations it stamps. `single` is today's build (one rigid
+       template molecule); `build` selects micelle-only runs the server lists; `stored` selects a library already in
+       this workspace. The card owns no science -- both lists, and the spec the adapter validates, are the server's --
+       and it shows only the chosen mode's body, with no prose per option. #}
+    <section class="card new-pdc-shape" aria-labelledby="new-shape-title">
+      <h3 class="sr-only" id="new-shape-title">Detergent shape</h3>
+      <div class="shape-head">
+        <span class="eyebrow">DETERGENT SHAPE <span class="new-tag">new</span></span>
+        <div class="segmented" role="radiogroup" aria-label="Detergent shape source">
+          <label class="seg"><input type="radio" name="shape_source" value="single" checked><span>One conformation</span></label>
+          <label class="seg"><input type="radio" name="shape_source" value="build"><span>Build from runs</span></label>
+          <label class="seg"><input type="radio" name="shape_source" value="stored"><span>Stored library</span></label>
+        </div>
+      </div>
+      <div class="shape-body" data-shape-body="single"></div>
+      <div class="shape-body" data-shape-body="build" hidden>
+        <div class="eligible-runs" role="group" aria-label="Micelle-only runs"></div>
+        <div class="build-foot">
+          <label class="foot-field">Size
+            <input name="conformations_size" type="number" min="1" max="5000" step="1" value="2000">
+          </label>
+          <label class="foot-field">Seed
+            <input name="conformations_seed" type="number" step="1" value="0">
+          </label>
+          <span class="hint shape-summary" role="status"></span>
+        </div>
+      </div>
+      <div class="shape-body" data-shape-body="stored" hidden>
+        <div class="stored-libraries" role="radiogroup" aria-label="Stored libraries"></div>
+        <p class="hint shape-stored-status" role="status"></p>
+      </div>
+    </section>
     </div>
     <aside class="new-run-settings">
     {# The system preview: the build's own placement step, derived on demand by `GET /api/pdc/preview/placement`.
@@ -177,6 +209,9 @@
       <p class="hint new-pdc-preview-secondary" role="status" hidden></p>
       <p class="hint new-pdc-preview-ribbon-note" role="status" hidden></p>
       <p class="hint new-pdc-preview-basis" role="status"></p>
+      {# Which conformations this preview's placement draws, when a derive answers with the resolved library: the
+         key and size, never the coordinates. Before that, and for a single-conformation build, it says so. #}
+      <p class="new-pdc-preview-library preview-library" role="status">One rigid conformation. No library; the template's own coordinates are rotated onto every site.</p>
       <p class="hint new-pdc-preview-shell" role="status" hidden></p>
       <p class="hint new-pdc-preview-capacity" role="status" hidden></p>
       <p class="new-pdc-preview-refusal" role="status" hidden></p>

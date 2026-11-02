@@ -103,3 +103,52 @@
    a wall of fields. */
 #run-form .new-pdc-option-title{margin:14px 0 4px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
 #run-form .new-pdc-option-title:first-of-type{margin-top:10px}
+/* --- The detergent shape card -----------------------------------------------------------------------------------
+   One header row (eyebrow and the three-way segmented control) and only the chosen mode's body: the eligible-run
+   rows a build needs, or the stored libraries a reference needs. `single` has no body, so the card is today's form.
+   The layout follows `docs/design/drafts/2026-11-02-conformation-library-in-form.html`; every rule is scoped to
+   `#run-form` so it outranks the shared `label > input` sizing that would otherwise stretch a checkbox or a radio. */
+#run-form .new-pdc-shape .shape-head{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between}
+#run-form .new-tag{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#fff;
+  background:var(--accent);border-radius:999px;padding:2px 8px}
+#run-form .new-pdc-shape .eyebrow{margin:0}
+#run-form .segmented{display:flex;flex-wrap:wrap;gap:4px}
+#run-form .seg{position:relative;margin:0;font-weight:400}
+#run-form .seg input{position:absolute;inset:0;width:100%;height:100%;opacity:0;margin:0;padding:0;cursor:pointer}
+#run-form .seg span{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:5px 11px;
+  font-size:12px;line-height:1.2;background:#fff}
+#run-form .seg:has(input:checked) span{background:var(--accent);color:#fff;border-color:var(--accent)}
+#run-form .seg:has(input:focus-visible) span{outline:3px solid #78a9ec;outline-offset:2px}
+#run-form .shape-body{margin-top:10px}
+#run-form .shape-body:empty{display:none}
+#run-form .shape-body[hidden]{display:none}
+#run-form .eligible-runs,#run-form .stored-libraries{display:flex;flex-direction:column;gap:4px;margin:10px 0 6px}
+#run-form .eligible-run{display:grid;grid-template-columns:15px minmax(120px,.7fr) minmax(0,1fr) auto auto;
+  column-gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:6px 10px;background:#fff;
+  cursor:pointer;margin:0;font-weight:400}
+#run-form .eligible-run:has(input:checked){border-color:#9db4c9;background:#f7fbff}
+#run-form .eligible-run > input[type="checkbox"]{width:15px!important;height:15px!important;margin:0!important;padding:0!important}
+#run-form .eligible-run code{font-size:12.5px}
+#run-form .eligible-run .where,#run-form .eligible-run .meta{font-size:12px}
+#run-form .eligible-run .meta{color:var(--muted)}
+#run-form .eligible-run .tag{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+  color:#286644;background:#eaf6ef;border-radius:999px;padding:2px 8px}
+#run-form .eligible-run .tag.warn{color:#8a6a2f;background:#f7f2ea}
+#run-form .stored-library{display:grid;grid-template-columns:15px minmax(140px,.8fr) minmax(0,1fr) auto auto;
+  column-gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:6px 10px;background:#fff;
+  cursor:pointer;margin:0;font-weight:400}
+#run-form .stored-library:has(input:checked){border-color:var(--accent);background:#f7fbff}
+#run-form .stored-library > input[type="radio"]{width:15px!important;height:15px!important;margin:0!important;padding:0!important}
+#run-form .stored-library code{font-size:12.5px}
+#run-form .stored-library .where{font-size:12px}
+#run-form .stored-library .meta{color:var(--muted);font-size:12px}
+#run-form .stored-library .tag{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--accent);background:#eef4ff;border-radius:999px;padding:2px 8px}
+#run-form .build-foot{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-top:8px}
+#run-form .foot-field{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin:0;font-weight:400}
+#run-form .foot-field input{width:74px;margin:0}
+#run-form .build-foot .shape-summary{margin:0;border-left:0;background:transparent;padding:0}
+/* The preview's conformation line: which library (key and size) the derived placement draws, or the single
+   template molecule when the run names none. It is a statement beside the picture, never coordinates. */
+#run-form .new-pdc-preview-library{border:1px solid var(--line);border-radius:9px;padding:9px 11px;background:#f7fbff;
+  margin:10px 0 0;font-size:12px;line-height:1.5}
