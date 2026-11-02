@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Detergent shape in the New run form · draft for review</title>
+<link rel="stylesheet" href="../../../packages/core/src/dashboard/web/static/dashboard.css">
+<link rel="stylesheet" href="../../../packages/core/src/dashboard/web/static/workspaces.css">
+<link rel="stylesheet" href="../../../packages/core/src/dashboard/web/static/new-run.css">
+<link rel="stylesheet" href="../../../packages/pdc/src/detergent_pdc/static/pdc.css">
+<style>
+  /* ---- draft chrome ------------------------------------------------------------------------------------------ */
+  body { padding: 24px; }
+  main { max-width: 1360px; margin: 0 auto; }
+  .draft-banner { background: #fffbe6; border: 1px solid #e6d78a; border-radius: 10px; padding: 14px 18px; margin: 0 0 18px; }
+  .draft-banner h2 { margin: 0 0 6px; font-size: 17px; }
+  .draft-banner p, .draft-banner li { font-size: 13px; line-height: 1.55; margin: 4px 0; }
+  .draft-banner ol { margin: 6px 0 0; padding-left: 22px; }
+  .draft-banner code { font-size: 12px; }
+  .draft-tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--accent); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; margin: 0 0 10px; }
+  .draft-choices { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+  .draft-choices button { background: #fff; color: var(--accent); border: 1px solid var(--line); border-radius: 8px;
+    padding: 7px 14px; font-size: 13px; cursor: pointer; }
+  .draft-choices button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .draft-frame { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #f3f6fa;
+    box-shadow: 0 6px 24px #162c4814; margin: 0 0 18px; }
+  .draft-frame[hidden] { display: none; }
+  .draft-caption { font-size: 12px; color: var(--muted); margin: -8px 2px 22px; }
+  .draft-notes { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+  .draft-notes h2 { margin: 0 0 8px; font-size: 16px; }
+  .draft-notes h3 { margin: 16px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .draft-notes p, .draft-notes li { font-size: 13px; line-height: 1.55; }
+  .draft-notes ul { margin: 4px 0 0; padding-left: 20px; }
+  .draft-context { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 11px 18px;
+    background: #fff; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  .draft-context b { color: var(--text, #1c2b3a); }
+
+  /* ---- the demo form, laid out like the real New run page --------------------------------------------------- */
+  .demo-form { padding: 18px; }
+  .demo-form .new-run-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(300px, .8fr); gap: 18px; }
+  .demo-form .new-run-inputs, .demo-form .new-run-settings { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .demo-form .card { margin: 0; }
+  .demo-form h3 { margin: 2px 0 8px; }
+  .demo-form .card > .hint { margin-top: 0; }
+  .demo-form .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+  .demo-form select, .demo-form input[type="text"], .demo-form input[type="number"] { width: 100%; box-sizing: border-box; }
+  .demo-form .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+  .demo-new { position: relative; }
+  .demo-new::before { content: "NEW"; position: absolute; top: 12px; right: 12px; font-size: 10px; font-weight: 700;
+    letter-spacing: .08em; color: #fff; background: var(--accent); border-radius: 999px; padding: 2px 8px; }
+  .demo-estimate { border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; background: #f7fafd; margin: 10px 0; }
+  .demo-estimate p { margin: 0; font-size: 13px; }
+  .demo-canvas { border: 1px dashed #c4d0dc; border-radius: 10px; background: #f7fafc; height: 190px; display: grid;
+    place-items: center; color: var(--muted); font-size: 12px; margin: 4px 0 10px; }
+
+  /* ---- the shape card's own controls ------------------------------------------------------------------------ */
+  .shape-choice { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .shape-choice legend { padding: 0; margin: 0 0 2px; font-size: 12px; color: var(--muted); }
+  .shape-card { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 10px;
+    padding: 11px 12px; background: #fff; cursor: pointer; }
+  .shape-card:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; background: #f7fbff; }
+  .shape-card strong { display: block; font-size: 13.5px; }
+  .shape-card .hint { display: block; margin: 2px 0 0; }
+  .shape-card > span { min-width: 0; flex: 1 1 auto; }
+  /* the app sheets style inputs as full-width controls; these are ordinary radio/checkbox marks */
+  .demo-form .shape-card > input[type="radio"], .demo-form .stored-library > input[type="radio"],
+  .demo-form .eligible-run > input[type="checkbox"] {
+    width: 15px !important; height: 15px !important; flex: 0 0 15px !important;
+    margin: 2px 0 0 !important; padding: 0 !important; }
+  .shape-body { margin-top: 12px; }
+  .shape-body[hidden] { display: none; }
+  .eligible-runs, .stored-libraries { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 6px; }
+  .eligible-run { display: grid; grid-template-columns: 15px minmax(120px, .6fr) minmax(0, 1.3fr) auto;
+    grid-template-rows: auto auto; column-gap: 10px; row-gap: 2px; align-items: center;
+    border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; background: #fff; cursor: pointer; }
+  .eligible-run:has(input:checked) { border-color: #9db4c9; background: #f7fbff; }
+  .demo-form .eligible-run > input[type="checkbox"] { grid-column: 1; grid-row: 1 / span 2; align-self: start; }
+  .eligible-run code { grid-column: 2; grid-row: 1; font-size: 12.5px; }
+  .eligible-run .where { grid-column: 3; grid-row: 1; font-size: 12.5px; }
+  .eligible-run .meta { grid-column: 2 / 5; grid-row: 2; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+  .eligible-run .tag { grid-column: 4; grid-row: 1; justify-self: end; font-size: 10.5px; font-weight: 700;
+    letter-spacing: .04em; text-transform: uppercase; color: #286644; background: #eaf6ef; border-radius: 999px;
+    padding: 2px 8px; }
+  .eligible-run .tag.warn { color: #8a6a2f; background: #f7f2ea; }
+  .stored-library { display: grid; grid-template-columns: 15px minmax(130px, .7fr) minmax(0, 1fr) auto;
+    grid-template-rows: auto auto; column-gap: 10px; row-gap: 2px; align-items: center;
+    border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; background: #fff; cursor: pointer; }
+  .stored-library:has(input:checked) { border-color: var(--accent); background: #f7fbff; }
+  .demo-form .stored-library > input[type="radio"] { grid-column: 1; grid-row: 1 / span 2; align-self: start; }
+  .stored-library code { grid-column: 2; grid-row: 1; font-size: 12.5px; }
+  .stored-library .where { grid-column: 3; grid-row: 1; font-size: 12.5px; }
+  .stored-library .meta { grid-column: 2 / 5; grid-row: 2; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+  .stored-library .tag { grid-column: 4; grid-row: 1; justify-self: end; font-size: 10.5px; font-weight: 700;
+    letter-spacing: .04em; text-transform: uppercase; color: var(--accent); background: #eef4ff; border-radius: 999px;
+    padding: 2px 8px; }
+  .shape-summary { border-left: 3px solid var(--accent); background: #f7fbff; padding: 9px 12px;
+    border-radius: 0 8px 8px 0; margin: 12px 0 0; }
+  .shape-empty { border: 1px dashed #c4d0dc; border-radius: 10px; padding: 16px; background: #fff; text-align: center; }
+  .shape-empty strong { display: block; margin-bottom: 4px; }
+  .shape-details { margin-top: 10px; }
+  .shape-details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--accent); }
+  .preview-library { border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; background: #f7fbff;
+    margin: 10px 0 0; font-size: 12px; line-height: 1.5; }
+  .preview-library code { font-size: 11.5px; overflow-wrap: anywhere; }
+
+  @media (max-width: 1000px) { .demo-form .new-run-layout { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <div class="draft-banner">
+    <span class="draft-tag">Draft · not wired up</span>
+    <h2>Where the detergent-shape controls sit inside New run</h2>
+    <p>This is <strong>one form</strong>, not a new panel and not a new tab: the protein-detergent workspace's New run
+      page. The cards, in order, are the ones the page has today, with the new one marked. The shape controls are a
+      sibling of <em>Detergent</em>, <em>Membrane protein</em> and <em>Run configuration</em> because they are another
+      per-run build input, and the <em>System preview</em> beside them is the same preview the page already builds.</p>
+    <ol>
+      <li><strong>Detergent</strong> — which molecule, template and saved mapping.</li>
+      <li><strong>Membrane protein</strong> — the structure, or no protein for an empty micelle.</li>
+      <li><strong>Run configuration</strong> — placement style, aggregation number, legs, removal and back-map.</li>
+      <li><strong>Detergent shape</strong> — one rigid conformation, a library built from micelle-only runs, or a
+        library already stored in this workspace.</li>
+    </ol>
+    <p>The card has three modes, and the third is what makes a pre-built library usable: a build-from-runs writes its
+      result into the store, so it appears in the "existing library" list afterwards. The run records the mode, the
+      key and the digest either way.</p>
+  </div>
+
+  <div class="draft-choices" role="group" aria-label="Shape card state">
+    <button type="button" data-state="off" aria-pressed="true">Off · one rigid conformation</button>
+    <button type="button" data-state="build" aria-pressed="false">Build from runs</button>
+    <button type="button" data-state="stored" aria-pressed="false">Existing library</button>
+  </div>
+
+  <div class="draft-frame">
+    <div class="draft-context">protein-detergent &nbsp;›&nbsp; <b>New run</b></div>
+    <div class="demo-form">
+      <div class="new-run-layout">
+        <div class="new-run-inputs">
+
+          <!-- 1 · DETERGENT ----------------------------------------------------------------------------------- -->
+          <section class="card" aria-labelledby="d1">
+            <span class="eyebrow">DETERGENT</span>
+            <h3 id="d1">Choose a detergent</h3>
+            <div class="pair" style="margin-top:10px">
+              <label>Detergent<select><option>DDM · n-dodecyl-β-D-maltoside</option></select></label>
+              <label>Detergent template<select><option>DDM · registered-template</option></select></label>
+            </div>
+            <label style="display:block;margin-top:10px">Model<select><option>DDM · saved candidate (current revision)</option></select></label>
+            <p class="hint">The build stamps this detergent's coarse-grained beads; the shape card below says where each
+              copy's conformation comes from.</p>
+          </section>
+
+          <!-- 2 · MEMBRANE PROTEIN ---------------------------------------------------------------------------- -->
+          <section class="card" aria-labelledby="d2">
+            <span class="eyebrow">MEMBRANE PROTEIN</span>
+            <h3 id="d2">Choose or download a structure</h3>
+            <label>Protein<select><option>No protein · empty micelle</option></select></label>
+            <p class="hint" style="margin-top:8px">No protein: this is an empty-micelle build. The same card accepts a
+              deposited or downloaded structure; <strong>Prepare the protein (PDB2PQR)</strong> is always on, and the
+              belt is sized from the transmembrane slab when a protein is present.</p>
+          </section>
+
+          <!-- 3 · RUN CONFIGURATION --------------------------------------------------------------------------- -->
+          <section class="card" aria-labelledby="d3">
+            <span class="eyebrow">RUN CONFIGURATION</span>
+            <h3 id="d3">Detergent belt and sampling</h3>
+            <div class="pair">
+              <label>Initialisation style<select><option>Pre-assembled micelle · CHARMM-GUI</option><option>Self-assembly · MemProtMD</option></select></label>
+              <label>Detergents in the belt<span class="setting-control"><input type="number" value="150" min="1" max="1000"></span></label>
+            </div>
+            <div class="demo-estimate">
+              <p><strong>Belt: 150 detergents in a sphere of radius 3.0 nm.</strong></p>
+              <p class="hint">The shape is a sphere for an empty micelle; with a protein stating a membrane it becomes a torus.</p>
+            </div>
+            <div class="pair">
+              <label>CG assessment leg (ns)<input type="number" value="100"></label>
+              <label>CG extension leg (ns)<input type="number" value="900"></label>
+            </div>
+            <label style="display:block;margin-top:10px"><input type="checkbox" checked> Remove out-of-micelle detergents</label>
+            <label style="display:block"><input type="checkbox" checked> Back-map to atomistic (CG2AT2)</label>
+            <details style="margin-top:10px"><summary>Other run options</summary>
+              <p class="hint">Output cadence, cutoffs, thermostat and barostat, salt, seed, box and execution.</p>
+            </details>
+            <label style="display:block;margin-top:10px">Run label <input type="text" placeholder="Optional label for this run"></label>
+          </section>
+
+          <!-- 4 · DETERGENT SHAPE (new) ----------------------------------------------------------------------- -->
+          <section class="card demo-new" aria-labelledby="d4">
+            <span class="eyebrow">DETERGENT SHAPE</span>
+            <h3 id="d4">Where each detergent's shape comes from</h3>
+            <fieldset class="shape-choice">
+              <legend>Shape source</legend>
+              <label class="shape-card">
+                <input type="radio" name="shape-source" value="single" checked>
+                <span><strong>One rigid conformation</strong>
+                  <span class="hint">The template's coordinates, rotated onto every site. This is what every build does
+                    today.</span></span>
+              </label>
+              <label class="shape-card">
+                <input type="radio" name="shape-source" value="build">
+                <span><strong>Build a library from micelle-only runs</strong>
+                  <span class="hint">Reads one or several completed, protein-free pdc runs of this detergent, selects
+                    2,000 conformations, and stores the result for this and later runs.</span></span>
+              </label>
+              <label class="shape-card">
+                <input type="radio" name="shape-source" value="stored">
+                <span><strong>Existing library</strong>
+                  <span class="hint">Uses a library already in this workspace, by key and digest. The source runs need
+                    not be here.</span></span>
+              </label>
+            </fieldset>
+
+            <!-- state: off ------------------------------------------------------------------------------------- -->
+            <div class="shape-body" data-body="off">
+              <p class="hint" role="status">No library is used for this build: the belt's detergents are the template's
+                one conformation.</p>
+            </div>
+
+            <!-- state: build ----------------------------------------------------------------------------------- -->
+            <div class="shape-body" data-body="build" hidden>
+              <p class="hint">Micelle-only runs to pool. Only completed pdc runs with no protein, for this detergent,
+                are listed.</p>
+              <div class="eligible-runs">
+                <label class="eligible-run">
+                  <input type="checkbox" checked>
+                  <code>b920391735dd</code>
+                  <span class="where">DDM empty micelle · 100 ns</span>
+                  <span class="meta">120 written frames · 8,604 atoms · recorded 2026-10-30</span>
+                  <span class="tag">eligible</span>
+                </label>
+                <label class="eligible-run">
+                  <input type="checkbox" checked>
+                  <code>8f2c1a4e9d3b</code>
+                  <span class="where">DDM empty micelle · 300 ns</span>
+                  <span class="meta">180 written frames · 8,604 atoms · recorded 2026-11-01</span>
+                  <span class="tag">eligible</span>
+                </label>
+                <label class="eligible-run">
+                  <input type="checkbox">
+                  <code>4iar-DDM-run</code>
+                  <span class="where">4IAR + DDM complex</span>
+                  <span class="meta">has a protein: a protein-contacted ensemble, not a micelle-only one</span>
+                  <span class="tag warn">not eligible</span>
+                </label>
+              </div>
+              <div class="settings-grid">
+                <label>Conformations per detergent
+                  <span class="setting-control"><input type="number" value="2000" min="1" max="5000" step="1"></span>
+                </label>
+                <label>Selection seed
+                  <span class="setting-control"><input type="number" value="0" step="1"></span>
+                </label>
+              </div>
+              <p class="hint">Exactly 2,000 entries, chosen to span the shapes the runs sampled. The builder refuses a
+                pool smaller than the size rather than shrinking it; add a run or lower the size.</p>
+              <p class="hint shape-summary" role="status"><strong>Will be built once, then stored.</strong> 2,000
+                conformations from 2 runs (b920391735dd, 8f2c1a4e9d3b), selection seed 0. The key and digest are
+                recorded on the run, and the library appears under <em>Existing library</em> afterwards.</p>
+              <details class="shape-details">
+                <summary>How the library is built and stored</summary>
+                <p class="hint">Each source trajectory is read once: whole detergent molecules from the production
+                  frames are made whole, checked against the mapping's bond geometry, turned into a local frame (head at
+                  the origin, head-ward axis along +z) and described by length, radius of gyration, reach and radial
+                  spread. The candidates are split into 2,000 strata over those descriptors, one representative per
+                  stratum.</p>
+                <p class="hint">The result is
+                  <code>workspace/dashboard/conformations/DDM/&lt;key&gt;/library.json</code> plus
+                  <code>library.sha256</code>. It is not tracked in git and can be copied into another workspace; a
+                  copied library is accepted when its digest matches.</p>
+              </details>
+            </div>
+
+            <!-- state: stored ---------------------------------------------------------------------------------- -->
+            <div class="shape-body" data-body="stored" hidden>
+              <p class="hint">Libraries in this workspace for DDM. Selecting one records its key and digest on the run;
+                no source run is needed.</p>
+              <div class="stored-libraries">
+                <label class="stored-library">
+                  <input type="radio" name="stored-library" checked>
+                  <code>3fa9c2e71b04d865</code>
+                  <span class="where">2,000 conformations · from b920391735dd, 8f2c1a4e9d3b</span>
+                  <span class="meta">digest 5d0a…c1e8 · 1.9 MB · built with the same detergent and mapping</span>
+                  <span class="tag">stored</span>
+                </label>
+                <label class="stored-library">
+                  <input type="radio" name="stored-library">
+                  <code>9c02b41d77ae5f20</code>
+                  <span class="where">2,000 conformations · from 8f2c1a4e9d3b</span>
+                  <span class="meta">digest 8e11…49bd · 1.9 MB · built with the same detergent and mapping</span>
+                  <span class="tag">stored</span>
+                </label>
+              </div>
+              <p class="hint">A build from runs adds its result here. To bring one from another workspace, copy the
+                library's directory into <code>workspace/dashboard/conformations/DDM/</code>; a missing or edited
+                library is refused, never silently rebuilt.</p>
+              <details class="shape-details">
+                <summary>What the run records</summary>
+                <p class="hint">The mode (<code>reference</code>), the key, the digest and the source run ids the
+                  library names. If the file is later deleted, a run prepared from it is refused with "copy the
+                  original back" — the provenance is the digest, not a rebuild.</p>
+              </details>
+            </div>
+          </section>
+
+        </div>
+
+        <!-- the preview aside, as the page already renders it --------------------------------------------------- -->
+        <aside class="new-run-settings">
+          <section class="card">
+            <span class="eyebrow">SYSTEM PREVIEW</span>
+            <h3>What these inputs would build</h3>
+            <div class="demo-canvas">coarse-grained protein and detergent belt — the build's own placement</div>
+            <p class="hint">Belt: 150 detergents · sphere of radius 3.0 nm · clearance gate on the drawn body of each
+              detergent.</p>
+            <div class="preview-library" id="preview-shape"><strong>One rigid conformation.</strong> No library; the
+              template's own coordinates are rotated onto every site.</div>
+            <p class="hint">The preview derives the same placement the build writes, so the shapes it draws are the
+              shapes the run starts from.</p>
+          </section>
+          <section class="card" aria-hidden="true" style="opacity:.6">
+            <span class="eyebrow">ESTIMATE</span>
+            <h3>Without a protein</h3>
+            <p class="hint">An empty micelle has no slab to measure, so the belt is the sphere stated in Run
+              configuration. Choose a protein to size a torus.</p>
+          </section>
+        </aside>
+      </div>
+    </div>
+  </div>
+  <p class="draft-caption">The form at 1360 px. The new card sits after Run configuration and before the page's
+    existing preview; nothing else on the page moves.</p>
+
+  <div class="draft-notes">
+    <h2>Fit and behaviour</h2>
+
+    <h3>How it fits</h3>
+    <ul>
+      <li>It is a card in the pdc feature's own New run fragment, rendered in place of the engine form, not a new
+        workspace, tab or route.</li>
+      <li>It reads the detergent/template/mapping above it and writes the run's settings, `inputs.json` and manifest,
+        exactly like the belt and legs do.</li>
+      <li>The preview beside it already answers to the card: its basis names the number of conformations and the key,
+        never the coordinates.</li>
+    </ul>
+
+    <h3>Three modes, one store</h3>
+    <ul>
+      <li><strong>One rigid conformation</strong> — the default; existing builds unchanged.</li>
+      <li><strong>Build from runs</strong> — payload <code>{runs, size, seed}</code>; builds if absent, reuses if
+        present, and stores the result so it becomes an existing library.</li>
+      <li><strong>Existing library</strong> — payload <code>{key, sha256}</code>; used as-is, source runs not needed;
+        a missing or edited file is refused.</li>
+    </ul>
+
+    <h3>What the implementation still needs (not drawn)</h3>
+    <ul>
+      <li>The first build's wait (one sequential read per source run) and its failure state.</li>
+      <li>The refusal sentences: pool smaller than the size, source has a protein, detergent/mapping mismatch, digest
+        mismatch or missing file.</li>
+      <li>The stored-library list's empty state ("copy one in, or build one from runs").</li>
+    </ul>
+
+    <p class="hint">Plan: <code>docs/plans/2026-11-02-detergent-conformation-library.md</code>. Component draft:
+      <code>docs/design/drafts/2026-11-02-conformation-library.html</code>.</p>
+  </div>
+</main>
+<script>
+  const buttons = [...document.querySelectorAll('.draft-choices button')];
+  const bodies = [...document.querySelectorAll('.shape-body')];
+  const preview = document.querySelector('#preview-shape');
+  const previewText = {
+    off: '<strong>One rigid conformation.</strong> No library; the template\'s own coordinates are rotated onto every site.',
+    build: '<strong>2,000 conformations</strong> from 2 runs.<br><code>b920391735dd</code> · <code>8f2c1a4e9d3b</code><br>key <code>3fa9c2e71b04d865</code> · seed 0 · will be stored for reuse.',
+    stored: '<strong>2,000 conformations</strong> from the stored library.<br>key <code>3fa9c2e71b04d865</code><br>digest <code>5d0a…c1e8</code> · source runs recorded as provenance.',
+  };
+  const sourceFor = {off: 'single', build: 'build', stored: 'stored'};
+  const radios = [...document.querySelectorAll('input[name="shape-source"]')];
+  buttons.forEach(button => button.addEventListener('click', () => {
+    buttons.forEach(other => other.setAttribute('aria-pressed', String(other === button)));
+    bodies.forEach(body => { body.hidden = body.dataset.body !== button.dataset.state; });
+    radios.forEach(radio => { radio.checked = radio.value === sourceFor[button.dataset.state]; });
+    preview.innerHTML = previewText[button.dataset.state];
+  }));
+</script>
+</body>
+</html>
