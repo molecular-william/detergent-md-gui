@@ -151,7 +151,7 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   second rebuild is byte-identical. Key `d389b3135533cd3a`, sha256 `e43192db…`, 2,000 entries of 11 beads, stored at
   `workspace/dashboard/conformations/DDM/d389b3135533cd3a/` (gitignored). Reading is cheap — 200 frames in 0.14 s,
   offsets in 0.13 s — so the per-molecule processing is the whole cost and `MAX_FRAMES` is what bounds it.
-- Tests (measured 2026-11-02, after the conformation library): 2,670 collected; fast **2,374 passed, 1 xfailed**;
+- Tests (measured 2026-11-02, after the conformation library): 2,675 collected; fast **2,379 passed, 1 xfailed**;
   browser **269 passed**; slow **26 passed**; `ruff check packages tests conftest.py` clean; mutation signal 10
   caught / 1 survived. `pytest.ini` owns tier counts; do not copy moving counts into this file.
 
