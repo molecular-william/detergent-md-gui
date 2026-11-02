@@ -26,23 +26,20 @@ with a Flask dashboard over persisted manifests and logs. Reproducible; outputs 
 ## Run contract
 - Four run types: `aa_only`, `aa_cg`, `pdc`, `osmotic`; each adapter's `STAGES` is the order, `pdc`'s ten are
   `01_prepare` … `10_backmap`, and `pdc.LEGS`/`stage_by_name` name a leg or stage rather than a caller counting.
-- A prepared run reads shared inputs in place: `inputs/inputs.json` names each by role/label/kind/root/path/sha256,
-  `input_snapshot_sha256` digests that record, and every stage verifies it. No `.py` or copied `.sh` lives in a run:
-  `stage_scripts`/`python_modules` pin repository code, and `mdp_profiles` names each MDP's reviewed profile.
+- A prepared run reads shared inputs in place: `inputs/inputs.json` names each by role/label/kind/root/path/sha256 and
+  `input_snapshot_sha256` digests it; `stage_scripts`/`python_modules` pin repository code and `mdp_profiles` names each MDP's reviewed profile, so no `.py` or copied `.sh` lives in a run.
 - Every stage records start/end, command, environment, inputs, outputs, exit code and log path.
 - A stage with nothing to do records `skipped` (exit 4) with `skip.json`; a stage `prepare` rules out gets no directory
   and is recorded `skipped` from `skipped_stages`. A legacy tree is migrated by `cli/migrate_run_layout.py`.
 - Runs end `complete`, `failed`, `cancelled` or `blocked`.
-- Stage lists and settings: `PROJECT_GUIDE.md` (*AA-only and shared-reference protocol*, *Dashboard workspace*).
 
 ## Invariants
 - One content identity is one saved mapping: `save_draft` refuses a second (`DuplicateMapping`; the route answers 409
   with `existing`), and a rename is an in-place save, so it is not a duplicate.
 - An AA-CG run always fits its own bonded terms (`cg.AA_CG_PROFILE`) unless its mapping carries a current revision,
   which it then consumes and records that it did.
-- A parameterization belongs to the mapping: revisions keyed by content hash, one current (`make current`), and a claim
-  list (`owners`) that decides when the revisions go. The panel deletes the parameterization
-  (`DELETE /api/bonded-parameterizations/<content_hash>`); the editor deletes the mapping. No flat bonded-state store.
+- A parameterization belongs to the mapping: revisions keyed by content hash, one current (`make current`), and an
+  `owners` claim list; the panel deletes it (`DELETE /api/bonded-parameterizations/<content_hash>`), the editor the mapping; no flat store.
 - New Run pins the AA source to the run a mapping's current revision names (`aa_reference.run_id`), and a null
   readiness answer is not an unlock.
 - A mapping's identity must not depend on how its numbers were spelled: only `candidate_identity` normalises
@@ -52,8 +49,7 @@ with a Flask dashboard over persisted manifests and logs. Reproducible; outputs 
 - `ff_assess` scores against histograms it does not make. A revision recording none still runs, and its assessment stage
   records `skipped` with that reason rather than scoring 0.00.
 - A pdc belt is a torus when the protein states a membrane (`radius_nm` is then a floor under the measured
-  centre-line) and a sphere when it does not; on either shape a detergent's body must clear the protein, not only its
-  head site.
+  centre-line) and a sphere when it does not; on either shape a detergent's body must clear the protein, not only its head site.
 - `coordinator.automatic_analyses` is the one resolver for a run type's default analyses; `kinds.for_every_run()`
   is empty because the snapshot analysis is retired, and an `aa_cg` run still owes `dihedral-fit`/`bonded-cross-check`.
 - A run's progress counts mdrun legs from the stage log and its ETA is GROMACS' own text; `percent` is `null` until a
@@ -74,6 +70,10 @@ with a Flask dashboard over persisted manifests and logs. Reproducible; outputs 
   `workspace/dashboard/martini3` (`dashboard.martini3`), every run reads it in place, and `references/` is upstream.
 
 ## Engineering rules
+- Read `docs/HANDOFF.md` before the first edit and leave it current: the next session starts there, not from your transcript.
+- When a request is ambiguous, ask one round of numbered questions; the user decides the science, and a UI change shows an HTML draft or a cross-layer change a plan in `docs/plans/` before code.
+- When work is parallel, lanes own disjoint files; one integrator runs the tiers and commits.
+- Fix the cause, measure before and after, and report every check's command and result; reproduce a suspected pre-existing failure at HEAD first.
 - Test against fixtures, never the developer's workspace; build the record through the route the UI uses.
 - Shared test fixtures hold the *construction*, never the meaning. A file keeps its arguments because copies drift.
 - Trace inputs, state transitions, outputs and failure handling before editing.
@@ -85,6 +85,8 @@ with a Flask dashboard over persisted manifests and logs. Reproducible; outputs 
 - Test command construction, stage transitions, failure recovery and analysis parsing without long simulations.
 
 ## Do not
+- Kill a process by an unfiltered listener: DSH is 3080, the dashboard 5000.
+- Push; the user pushes. Commit only after the relevant checks pass; `scripts/gate_commit.sh` is the gate.
 - Exercise a destructive control against the live workspace. Point it at a fixture, or inspect what the client sends.
 - Delete simulation data, or rebuild a file to stand in for a lost record.
 - Signal a PID from a previous coordinator session; only the current worker owns its subprocess groups.
@@ -93,14 +95,12 @@ with a Flask dashboard over persisted manifests and logs. Reproducible; outputs 
 
 ## Standing decisions
 - **The two fitting engines keep separate analyses** (2026-10-20, the user's decision): `ff_assess` for Fast-Forward,
-  its own graphs for BARTENDER, because its analysis is its own. Unifying them is postponed, not planned, and a
-  bartender model runs with stage 5 `skipped` and its reason -- do not route it through the Fast-Forward baseline.
+  its own graphs for BARTENDER; unifying them is postponed, not planned, and a bartender model runs stage 5 `skipped`, never the FF baseline.
 - CG production 20 fs, CG equilibration 5 fs, AA half 2 fs; each MDP is its reviewed `mdp.PROFILES` entry's own.
 - This GROMACS is an MPI-only build: `-ntomp` is the knob, `-ntmpi` is invalid. In use:
   `/usr/local/gromacs/2026.3/bin/gmx`.
 - Internal consistency is the primary evidence; the reference's own numbers are context, not a pass mark.
-- A mapping states its own ring scale and the guard is a range. Ring scale is closed against as the cause of the DDM
-  failure, and fitted linkage values are not a diagnosis -- spend no further arm on either.
+- A mapping states its own ring scale and the guard is a range; ring scale is closed as the cause of the DDM failure, and fitted linkage values are not a diagnosis -- spend no further arm on either.
 - The published M3-Lipid set is tracked at `references/M3-Lipid-Parameters` (Apache-2.0) and installed per workspace; update it deliberately, never per run. GLYCAM06 is dropped.
 - The scheduled cron drivers and the mapping-refinement panel are cancelled; do not rebuild either.
 - `-improperIncrement 10` goes to every BARTENDER fit, so impropers fitted since are not comparable with earlier ones.

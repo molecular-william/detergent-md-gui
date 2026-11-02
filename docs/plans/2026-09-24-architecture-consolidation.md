@@ -8,7 +8,9 @@
 
 **Tech Stack:** Python 3.12, Flask 3.1, SQLite (WAL), pytest 9 + pytest-xdist, native JS modules, GROMACS 2026 / Fast_Forward when executing runs.
 
-**Evidence:** `architecture-review-20260924.html` (repository root) — all file:line claims below were verified against commit `e0504a3`. Test counts below were measured on this checkout on 2026-09-24, not predicted.
+**Evidence:** the 2026-09-24 architecture review — all file:line claims below were verified against commit `e0504a3`.
+That review's HTML is no longer in the tree; the claims are checkable against that commit. Test counts below were
+measured on this checkout on 2026-09-24, not predicted.
 
 **Status 2026-09-24:** Phase 0 and Phase 1 are complete on `main`: `219e745` opens the phase, `ef7f77e..fe6817d` perform the moves and the guards, `d76c10d` repairs the two paths the moves broke, and the corrected ownership documentation lands in the commit that carries this paragraph. Where the executed layout differs from the tree in Task 1, the deviation is deliberate and named there.
 
