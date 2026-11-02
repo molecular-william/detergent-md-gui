@@ -551,8 +551,30 @@ def structure_remarks(title, topology, counts, *, extra=(), subunits=None,
     return lines + list(extra)
 
 
+def _group_phrase(group):
+    """The view's group in the file's own words: `fragment A`, or `the protein group`."""
+    group = str(group or 'solute')
+    if group.startswith('fragment:'):
+        return f'fragment {group.split(":", 1)[1]}'
+    return f'the {group} group'
+
+
+def _view_modifications(view):
+    """The PBC/centre/fit sentence a series with a moved view has to carry, or `''` when nothing moved."""
+    parts = []
+    pbc = view.get('pbc', 'none')
+    if pbc != 'none':
+        parts.append(f'pbc {pbc} (atoms moved between periodic images, never a rewritten trajectory)')
+    if view.get('center'):
+        parts.append(f'centred {_group_phrase(view.get("group"))} at the box centre')
+    fit = view.get('fit', 'none')
+    if fit != 'none':
+        parts.append(f'fit {fit} against {_group_phrase(view.get("group"))} of the first sampled frame')
+    return ', '.join(parts)
+
+
 def series_pdb(frames, *, topology=None, detergent_residue=None, title='frame series', note=None, fit=None,
-               subunits=None, include_water=False, times_ns=None, protein_topologies=None, assembled=False,
+               subunits=None, include_water=False, times_ns=None, protein_topologies=None, view=None,
                conect_kind='chemical'):
     """A run's sampled frames as one multi-model PDB, written with the conventions the run's own structure uses.
 
@@ -573,9 +595,10 @@ def series_pdb(frames, *, topology=None, detergent_residue=None, title='frame se
     letting the times and the models drift apart.
 
     `protein_topologies` are the protein chains' own moleculetypes (`read_protein_topologies`), written as CONECT
-    per protein molecule beside the detergent's. `assembled` states that the caller moved the coordinates by whole
-    periodic images and centred the protein for display; the file says so, because that makes it a view of the
-    trajectory rather than the trajectory's own frame.
+    per protein molecule beside the detergent's. `view` is the PBC/centre/fit/group request the producer applied --
+    ``{'pbc', 'center', 'fit', 'group'}`` -- and the file states each modification, because moving coordinates for
+    display makes this a view of the trajectory rather than the trajectory's own frame. `fit` states how the fitted
+    series was held; a file whose view changed nothing is the trajectory's own coordinates and claims no modification.
     """
     if times_ns is not None and len(times_ns) != len(frames):
         raise ValueError(f'{len(frames)} frames but {len(times_ns)} model times: a series states one time per model')
@@ -585,20 +608,22 @@ def series_pdb(frames, *, topology=None, detergent_residue=None, title='frame se
                               include_water=include_water, protein_topologies=protein_topologies,
                                topology=topology, conect_kind=conect_kind) for atoms in frames]
     extra = [f'REMARK 950 SAMPLED SERIES: {len(frames)} models' + (f', {note}' if note else '')]
-    if assembled:
-        extra.append('REMARK 950 COORDINATES ARE PERIODIC-IMAGE ASSEMBLED AND CENTRED FOR DISPLAY, NOT A FITTED '
-                     'OR ALIGNED TRAJECTORY: each molecule was moved by whole box vectors so the chains sit '
-                     'together and the protein is at the origin')
+    if view:
+        modifications = _view_modifications(view)
+        if modifications:
+            extra.append(f'REMARK 950 VIEW MODIFICATIONS: {modifications} -- THESE ARE NOT THE RUN\'S RAW '
+                         'COORDINATES; THE TRAJECTORY ITSELF IS UNCHANGED')
     if fit:
         # A fitted series is a *derived* view of the trajectory, so the file has to say so: every model superposed
         # on one of them means the molecule's own translation and rotation are gone, and a reader who took the
         # remaining motion for the whole motion would be reading a composite the run never wrote.
-        target = fit.get('target')
-        fitted = (f'the {fit["atoms"]} beads of fragment {target}' if target
+        fitted = (f'the {fit["atoms"]} beads of {_group_phrase(fit["group"])}' if fit.get('group')
                   else f'the reference model\'s own {fit["atoms"]} beads')
+        mode = fit.get('fit', 'rot+trans')
+        removed = 'translation and rotation' if mode == 'rot+trans' else 'translation'
         extra.append(f'REMARK 950 FITTED SERIES: every model is superposed on {fitted} (model {fit["reference"]})'
                      + (f' of {fit["of"]}' if fit.get('of') else '')
-                     + ', so the translation and rotation those beads do are removed and what remains is the '
+                     + f' with {mode}, so the {removed} those beads do are removed and what remains is the '
                        'motion of everything else relative to them -- RMSD across the fitted beads '
                        f'{fit["rmsd_nm"]["min"]:.3f}-{fit["rmsd_nm"]["max"]:.3f} nm')
     counts = built[0][2] if built else {'detergent_molecules': 0, 'unbonded': 0}

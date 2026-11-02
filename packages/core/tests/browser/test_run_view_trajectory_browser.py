@@ -37,7 +37,7 @@ LATEST = 'stages/04_nvt/prod/run.xtc'
 
 BEADS = ('B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08')
 #: The run's own mapping: eight beads, their export names, their size classes and the fragments they make up. The
-#: fragments are what the fit's `beads` option and its fragment select are built from.
+#: fragments are the `fragment:<letter>` options of the group select, and the beads each one names.
 MODEL_JSON = {'name': 'fixture mapping', 'status': 'candidate-unvalidated', 'beads': [
     {'name': f'S{index}', 'export_name': name, 'size': 'S' if name in BEADS[:3] or name in BEADS[4:7] else 'T',
      'letter': 'A' if name in BEADS[:3] else 'B'}
@@ -87,9 +87,15 @@ def segments_answer(run_id):
 
 
 def default_arguments(run_id):
-    """The arguments the block must default to for the run's latest system: `beads` for a coarse trajectory."""
-    return {'trajectory': LATEST, 'structure': STRUCTURES[run_id], 'start_ns': None, 'end_ns': None, 'stride': None,
-            'fit': 'none', 'fragment': None, 'atoms': 'beads', 'assembled': False}
+    """The arguments the block must default to for the run's latest system: `beads` for a coarse trajectory, raw."""
+    return {'trajectory': LATEST, 'structure': STRUCTURES[run_id], 'start_ns': None, 'end_ns': None,
+            'interval_ns': None, 'atoms': 'beads', 'pbc': 'none', 'center': False, 'fit': 'none', 'group': None}
+
+
+def legacy_arguments(run_id):
+    """An attempt built before ns per frame and the view options: a frame step, an assembly, a protein fit."""
+    return {'trajectory': LATEST, 'structure': STRUCTURES[run_id], 'start_ns': None, 'end_ns': None,
+            'stride': 10, 'fit': 'protein', 'fragment': None, 'atoms': 'beads', 'assembled': True}
 
 
 def series_task(run_id, args, attempt='a1', *, status='completed'):
@@ -112,7 +118,8 @@ def frames_json(run_id, *, identity='latest-copy', times=(0.0, 0.5, 1.0), size=2
     return {'args': {}, 'models': len(times), 'atoms': 3, 'times_ns': list(times),
             'indices': [index * 50 for index in range(len(times))], 'trajectory': LATEST,
             'structure': STRUCTURES[run_id], 'trajectory_identity': identity,
-            'structure_identity': 'structure-copy', 'cadence_ns': 0.5, 'fit': 'none', 'assembled': False,
+            'structure_identity': 'structure-copy', 'cadence_ns': 0.5, 'interval_ns': None,
+            'view': {'pbc': 'none', 'center': False, 'fit': 'none', 'group': 'solute'}, 'legacy': [],
             'bytes': size}
 
 
@@ -315,32 +322,163 @@ def test_play_advances_the_model_and_the_time_then_pause_stops_it(dashboard, liv
 # -------------------------------------------------------------------------------------------------------- the build
 
 
-def test_submit_sends_the_nine_key_body_for_the_chosen_controls(dashboard, live_page):
+def test_the_options_control_opens_the_form_and_only_the_submit_queues(dashboard, live_page):
+    """One click path: the top control is the form's disclosure, and a queued attempt is the submit's doing alone."""
+    page, errors, state = open_run(dashboard, live_page, ENGINE_RUN)
+    expect(series(page)).to_contain_text('3 models')
+    options = page.locator('#run-view-build-A')
+    expect(options).to_have_text('Frame options')
+    expect(options).to_have_attribute('aria-expanded', 'false')
+    expect(options).to_have_attribute('aria-controls', 'run-view-recompute-A')
+    expect(page.locator('#run-view-form-A')).to_be_hidden()
+
+    options.click()
+    expect(options).to_have_attribute('aria-expanded', 'true')
+    expect(page.locator('#run-view-form-A')).to_be_visible()
+    assert not state['posted'], 'the options control queued a build; only the submit may'
+
+    options.click()
+    expect(options).to_have_attribute('aria-expanded', 'false')
+    expect(page.locator('#run-view-form-A')).to_be_hidden()
+    assert not state['posted'], 'closing the options queued a build'
+
+    options.click()
+    page.locator('#run-view-submit-A').click()
+    expect(series(page)).to_contain_text('5 models')
+    assert len(state['posted']) == 1, state['posted']
+    assert errors == [], errors
+
+
+def test_the_submit_label_follows_the_attempt_it_would_build(dashboard, live_page):
+    """Build frames for arguments nothing has built; Recompute frames for the attempt already on the stage."""
+    page, errors, state = open_run(dashboard, live_page, ENGINE_RUN)
+    expect(series(page)).to_contain_text('3 models')
+    expect(page.locator('#run-view-submit-A')).to_have_text('Recompute frames')
+
+    page.locator('#run-view-build-A').click()
+    page.locator('#run-view-form-atoms-A').select_option('ca')
+    expect(series(page)).to_contain_text('No frames have been built')
+    expect(page.locator('#run-view-submit-A')).to_have_text('Build frames')
+
+    page.locator('#run-view-submit-A').click()
+    expect(series(page)).to_contain_text('5 models')
+    expect(page.locator('#run-view-submit-A')).to_have_text('Recompute frames')
+    assert errors == [], errors
+
+
+def test_the_submit_says_build_when_no_attempt_matches(dashboard, live_page):
+    """A run with nothing built yet offers one name for the action: Build frames."""
+    page, errors, state = open_run(dashboard, live_page, ENGINE_RUN, tasks=[])
+    expect(series(page)).to_contain_text('No frames have been built')
+
+    page.locator('#run-view-build-A').click()
+    expect(page.locator('#run-view-submit-A')).to_be_enabled()
+    expect(page.locator('#run-view-submit-A')).to_have_text('Build frames')
+    assert errors == [], errors
+
+
+def test_submit_sends_the_ten_key_body_for_the_chosen_controls(dashboard, live_page):
     """The form's values, exactly: the server validates this body, so a key in the wrong place is a refusal."""
     page, errors, state = open_run(dashboard, live_page, ENGINE_RUN)
     expect(series(page)).to_contain_text('3 models')
 
     page.locator('#run-view-build-A').click()
     page.wait_for_function(
-        """() => [...document.querySelectorAll('#run-view-form-fit-A option')].some(option => option.value === 'beads')""",
+        """() => [...document.querySelectorAll('#run-view-form-group-A option')]
+            .some(option => option.value === 'fragment:B')""",
         timeout=30000)
-    expect(page.locator('#run-view-form-fragment-A option').first).to_contain_text('A — B01, B02, B03')
+    expect(page.locator('#run-view-form-group-A option[value="fragment:A"]')).to_contain_text('B01, B02, B03')
 
     page.locator('#run-view-form-atoms-A').select_option('ca')
-    page.locator('#run-view-form-fit-A').select_option('beads')
-    page.locator('#run-view-form-fragment-A').select_option('B')
+    page.locator('#run-view-form-interval-A').fill('0.5')
     page.locator('#run-view-form-start-A').fill('1.5')
     page.locator('#run-view-form-end-A').fill('12')
-    page.locator('#run-view-form-stride-A').fill('10')
-    page.locator('#run-view-form-assembled-A').check()
+    page.locator('#run-view-form-pbc-A').select_option('mol')
+    page.locator('#run-view-form-center-A').check()
+    page.locator('#run-view-form-fit-A').select_option('rot+trans')
+    page.locator('#run-view-form-group-A').select_option('fragment:B')
     page.locator('#run-view-submit-A').click()
 
     expect(series(page)).to_contain_text('CA atoms only')
-    expect(series(page)).to_contain_text('aligned on fragment B')
-    expect(series(page)).to_contain_text('every 10th frame')
+    expect(series(page)).to_contain_text('PBC mol')
+    expect(series(page)).to_contain_text('centred on fragment B')
+    expect(series(page)).to_contain_text('rotation-and-translation fit on fragment B')
+    expect(series(page)).to_contain_text('one model every 0.5 ns')
     assert state['posted'] == [{'trajectory': LATEST, 'structure': STRUCTURES[ENGINE_RUN], 'start_ns': 1.5,
-                                'end_ns': 12, 'stride': 10, 'fit': 'beads', 'fragment': 'B', 'atoms': 'ca',
-                                'assembled': True}], state['posted']
+                                'end_ns': 12, 'interval_ns': 0.5, 'atoms': 'ca', 'pbc': 'mol', 'center': True,
+                                'fit': 'rot+trans', 'group': 'fragment:B'}], state['posted']
+    assert errors == [], errors
+
+
+def test_a_blank_interval_sends_null_and_asks_the_server_for_auto(dashboard, live_page):
+    """A blank ns per frame is `interval_ns: null`, not a zero and not an omitted key: the server reads the one."""
+    page, errors, state = open_run(dashboard, live_page, ENGINE_RUN)
+    expect(series(page)).to_contain_text('3 models')
+
+    page.locator('#run-view-build-A').click()
+    page.locator('#run-view-form-atoms-A').select_option('ca')
+    page.locator('#run-view-submit-A').click()
+
+    expect(series(page)).to_contain_text('5 models')
+    assert state['posted'] == [dict(default_arguments(ENGINE_RUN), atoms='ca')], state['posted']
+    assert errors == [], errors
+
+
+def test_a_legacy_attempt_is_found_played_and_named_as_a_frame_step(dashboard, live_page):
+    """An attempt built with `stride`/`assembled`/`fit: protein` stays playable and is never relabelled as a view.
+
+    Its view is the one the old keys described -- mol, centred, rotation and translation on the protein -- so the
+    form that finds it holds those options. Only a blank interval matches: the attempt recorded no interval_ns at all.
+    """
+    legacy = series_task(ENGINE_RUN, legacy_arguments(ENGINE_RUN), 'a1')
+    page, errors, state = open_run(dashboard, live_page, ENGINE_RUN, tasks=[legacy])
+    expect(series(page)).to_contain_text('No frames have been built')
+
+    page.locator('#run-view-build-A').click()
+    page.locator('#run-view-form-pbc-A').select_option('mol')
+    page.locator('#run-view-form-center-A').check()
+    page.locator('#run-view-form-fit-A').select_option('rot+trans')
+    page.locator('#run-view-form-group-A').select_option('protein')
+
+    expect(series(page)).to_contain_text('3 models')
+    expect(series(page)).to_contain_text('one model every 0.5 ns')
+    expect(series(page)).to_contain_text('PBC mol')
+    expect(series(page)).to_contain_text('centred on the protein')
+    expect(series(page)).to_contain_text('rotation-and-translation fit on the protein')
+    expect(series(page)).to_contain_text('built with a frame step')
+    expect(page.locator('#run-view-submit-A')).to_have_text('Recompute frames')
+
+    page.locator('#run-view-loop-A').check()
+    page.locator('#run-view-play-A').click()
+    page.wait_for_function(
+        "() => document.querySelector('#run-view-time-A').textContent.includes('model 2/3')", timeout=30000)
+    assert measured(page)['frames'] == 3
+
+    # An interval the attempt never recorded is not a match: only a blank one is the old attempt's default.
+    page.locator('#run-view-form-interval-A').fill('0.5')
+    page.locator('#run-view-form-atoms-A').focus()
+    expect(series(page)).to_contain_text('No frames have been built')
+    assert errors == [], errors
+
+
+def test_the_group_control_shows_only_when_the_centre_or_the_fit_needs_it(dashboard, live_page):
+    """Group is hidden for a raw view and offered as soon as Centre or a fit would act on one."""
+    page, errors, state = open_run(dashboard, live_page, ENGINE_RUN)
+    page.locator('#run-view-build-A').click()
+    group = page.locator('#run-view-form-group-A')
+    expect(group).to_be_hidden()
+    expect(page.locator('#run-view-form-pbc-A')).to_be_visible()
+
+    page.locator('#run-view-form-center-A').check()
+    expect(group).to_be_visible()
+    page.locator('#run-view-form-center-A').uncheck()
+    expect(group).to_be_hidden()
+
+    page.locator('#run-view-form-fit-A').select_option('trans')
+    expect(group).to_be_visible()
+    page.locator('#run-view-form-fit-A').select_option('none')
+    expect(group).to_be_hidden()
+    expect(page.locator('#run-view-form-pbc-A option')).to_have_count(4)
     assert errors == [], errors
 
 
@@ -377,13 +515,14 @@ def test_a_build_still_in_flight_waits_instead_of_queuing_a_second(dashboard, li
     expect(page.locator('#run-view-play-A')).to_be_disabled()
     page.locator('#run-view-build-A').click()
     expect(page.locator('#run-view-submit-A')).to_be_disabled()
+    expect(page.locator('#run-view-submit-A')).to_have_text('Building frames…')
     expect(page.locator('#run-view-form-note-A')).to_contain_text('queued')
     assert not state['posted'], 'a second attempt was queued for a build the run is already running'
     assert errors == [], errors
 
 
 def test_the_block_fits_a_narrow_window(dashboard, live_page):
-    """The block is one column of a two-monitor grid, and the form adds seven controls to it: none may widen the page."""
+    """The block is one column of a two-monitor grid, and the form's controls all sit in it: none may widen the page."""
     page, errors, state = open_run(dashboard, live_page, ENGINE_RUN)
     page.set_viewport_size({'width': 390, 'height': 900})
     page.locator('#run-view-build-A').click()
@@ -395,13 +534,19 @@ def test_the_block_fits_a_narrow_window(dashboard, live_page):
 # ------------------------------------------------------------------------------------------------- failure states
 
 
-def test_a_series_older_than_the_trajectory_says_so_and_offers_recompute(dashboard, live_page):
+def test_a_series_older_than_the_trajectory_says_so_and_points_at_the_options(dashboard, live_page):
     """A built series whose trajectory digest is not the segment's is played, but it is named as an old copy."""
     page, errors, state = open_run(dashboard, live_page, ENGINE_RUN, identity='older-copy')
 
     expect(series(page)).to_contain_text('older copy of the segment')
-    expect(page.locator('#run-view-trajectory-note-A')).to_contain_text('Recompute frames')
+    note = page.locator('#run-view-trajectory-note-A')
+    expect(note).to_contain_text('Frame options')
+    expect(note).not_to_contain_text('Recompute frames')
+    expect(page.locator('#run-view-build-A')).to_have_text('Frame options')
     expect(page.locator('#run-view-build-A')).to_be_enabled()
+    # The submit is the one place that says "Recompute frames", and this series is the attempt it would rebuild.
+    expect(page.locator('#run-view-submit-A')).to_have_text('Recompute frames')
+    expect(page.get_by_text('Recompute frames', exact=True)).to_have_count(1)
     assert errors == [], errors
 
 
@@ -441,9 +586,7 @@ def test_the_block_plays_and_builds_in_both_workspaces(dashboard, live_page, run
     page.locator('#run-view-submit-A').click()
     expect(series(page)).to_contain_text('5 models')
     expect(series(page)).to_contain_text('all atoms (water left out)')
-    assert state['posted'][-1] == {'trajectory': LATEST, 'structure': STRUCTURES[run_id], 'start_ns': None,
-                                   'end_ns': None, 'stride': None, 'fit': 'none', 'fragment': None, 'atoms': 'all',
-                                   'assembled': False}, state['posted']
+    assert state['posted'][-1] == dict(default_arguments(run_id), atoms='all'), state['posted']
     assert errors == [], errors
 
 

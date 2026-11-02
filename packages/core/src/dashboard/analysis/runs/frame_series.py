@@ -2,7 +2,8 @@
 
 Run view plays a trajectory by loading a file, and the vendored NGL has no XTC or TRR parser, so the frames have to be
 written server-side. This is that writer as an on-demand analysis rather than a cadence: a person asks for a segment, a
-time window, a stride and a view, and the attempt records exactly what it was asked for beside the frames.
+time window, one model every N nanoseconds and a view -- PBC, centre, fit and the group they act on -- and the attempt
+records exactly what it was asked for beside the frames.
 
 Nothing here reads a trajectory on page load. The panel names the files it wants through the payload -- the same
 run-relative paths `GET /api/jobs/<id>/trajectory` reports -- and the queue resolves and hashes them through `sources`,
@@ -10,8 +11,11 @@ so the chosen trajectory is part of the analysis signature and a changed file is
 series. `sources` is the strict half (it runs before an attempt exists, so a bad request is a 400 and no task);
 `run` is the producer (it reads the staged copies the worker made).
 
-Two things are views rather than measurements, and the file says so: `fit` superposes every model on the first one, and
-`assembled` moves whole molecules by periodic images and centres the protein for display. Neither rewrites the run.
+The view is a view, never a rewrite: `pbc`, `center`, `fit` and `group` move the coordinates for display with
+MDAnalysis's in-process transforms -- `pbc` and `center` are the operations `gmx trjconv` performs (a differential
+test pins them), and `fit` superposes every sampled frame on the first one. `structures.series_pdb` writes a REMARK
+naming what was done. An old attempt's `assembled`, `fit: protein|beads` and `fragment` arguments are read as the view
+they described and are recorded as such rather than relabelled.
 """
 import json
 import math
@@ -24,8 +28,9 @@ from . import layout, segments, structures
 
 try:
     import MDAnalysis as mda
+    from MDAnalysis import transformations as mda_transforms
 except ImportError:  # a frame series needs a trajectory reader; `run` refuses in its own words
-    mda = None
+    mda = mda_transforms = None
 
 #: The most models one series may hold. A viewer loads the whole file, so this is the cap that keeps a long
 #: trajectory from publishing a file no browser should be handed.
@@ -33,12 +38,18 @@ MAX_MODELS = 240
 #: The most a series may be estimated to weigh, in bytes: one HETATM line per atom per model, plus the model's
 #: records. Refused before any frame is read.
 MAX_BYTES = 250_000_000
-#: What `stride: 'auto'` aims at: about one model every `frames / AUTO_MODELS` frames.
+#: What a null `interval_ns` aims at: about one model every `frames / AUTO_MODELS` frames.
 AUTO_MODELS = 120
 #: The bytes one atom contributes to the estimate: a HETATM record plus its share of a CONECT record.
 BYTES_PER_ATOM = 120
 
-FIT_MODES = ('none', 'protein', 'beads')
+#: The PBC treatments this producer performs in process. `res`, `atom` and `cluster` are deliberately absent: the
+#: panel does not ask for them, and `cluster` is the one operation MDAnalysis does not provide.
+PBC_MODES = ('none', 'mol', 'whole', 'nojump')
+#: The fits the view offers; `trans` removes translation only, `rot+trans` the Kabsch rotation too.
+FIT_MODES = ('none', 'trans', 'rot+trans')
+#: The fits an attempt built before `trans`/`rot+trans` could be written with; both meant a rigid superposition.
+LEGACY_FIT_MODES = ('protein', 'beads')
 ATOM_MODES = ('all', 'beads', 'ca')
 
 
@@ -53,6 +64,111 @@ def _nanoseconds(payload, field):
     if not math.isfinite(value):
         raise ValueError(f'{field} must be a finite number of nanoseconds, not {value!r}')
     return value
+
+
+def _interval(payload):
+    """Nanoseconds per model: a finite number greater than zero, or `None` for the automatic cadence."""
+    value = payload.get('interval_ns')
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f'interval_ns must be a number of nanoseconds or null, not {value!r}')
+    value = float(value)
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f'interval_ns must be a finite number of nanoseconds greater than zero, not {value!r}')
+    return value
+
+
+def _legacy_stride(payload):
+    """The old `stride` argument, kept only so an attempt built before `interval_ns` still reads."""
+    stride = payload.get('stride')
+    if stride is None or stride == 'auto':
+        return None
+    if isinstance(stride, bool) or not isinstance(stride, int) or stride < 1:
+        raise ValueError(f"stride must be a whole number of frames at least 1, 'auto', or null, not {stride!r}")
+    return stride
+
+
+def _boolean(payload, field, default):
+    """One optional switch: strictly a boolean, because `'yes'` in a payload is a caller's mistake, not a truth."""
+    value = payload.get(field, default)
+    if not isinstance(value, bool):
+        raise ValueError(f'{field} must be true or false, not {value!r}')
+    return value
+
+
+def _fragment(payload):
+    """The old `fragment` letter, when one was sent; still validated so an old attempt cannot drift."""
+    value = payload.get('fragment')
+    if value is None:
+        return None
+    letter = value.strip() if isinstance(value, str) else ''
+    if len(letter) != 1 or not letter.isalpha():
+        raise ValueError(f"fragment must be one letter of the run's mapping, not {value!r}")
+    return letter.upper()
+
+
+def _group_argument(payload):
+    """The `group` key when it names a selection; `None` when the caller left it to the legacy keys or the default."""
+    value = payload.get('group')
+    if value is None:
+        return None
+    if value in ('protein', 'solute'):
+        return value
+    if isinstance(value, str) and value.startswith('fragment:'):
+        letter = value[len('fragment:'):]
+        if len(letter) == 1 and letter.isalpha():
+            return f'fragment:{letter.upper()}'
+    raise ValueError(f"group must be 'protein', 'solute' or 'fragment:<letter>', not {value!r}")
+
+
+def _view(payload):
+    """The PBC/centre/fit/group request, with old attempts' keys read as the view they described.
+
+    The new keys win; a key an old attempt never sent is filled from `assembled`, `fit: protein|beads` and `fragment`.
+    The tuple returned beside the view names the old keys that supplied it, so `frames.json` and the file can say a
+    request was legacy instead of pretending it always had the new shape.
+    """
+    assembled = _boolean(payload, 'assembled', False)
+    legacy = []
+    if 'pbc' in payload:
+        pbc = payload['pbc']
+        if not isinstance(pbc, str) or pbc not in PBC_MODES:
+            raise ValueError(f"pbc must be one of {', '.join(PBC_MODES)}, not {pbc!r}")
+    else:
+        pbc = 'mol' if assembled else 'none'
+        if assembled and 'assembled' not in legacy:
+            legacy.append('assembled')
+    if 'center' in payload:
+        center = _boolean(payload, 'center', False)
+    else:
+        center = assembled
+        if assembled and 'assembled' not in legacy:
+            legacy.append('assembled')
+    fit_raw = payload.get('fit', 'none')
+    if not isinstance(fit_raw, str) or fit_raw not in FIT_MODES + LEGACY_FIT_MODES:
+        raise ValueError(f"fit must be one of {', '.join(FIT_MODES)}, not {fit_raw!r}")
+    fragment = _fragment(payload)
+    if fit_raw in LEGACY_FIT_MODES:
+        fit = 'rot+trans'
+        marker = f'fit {fit_raw!r}'
+        if fit_raw == 'beads' and fragment:
+            marker += f' fragment {fragment}'
+        legacy.append(marker)
+    else:
+        fit = fit_raw
+    group = _group_argument(payload)
+    if group is None:
+        if fit_raw == 'protein':
+            group = 'protein'
+        elif fit_raw == 'beads':
+            if fragment is None:
+                raise ValueError("fit 'beads' needs a fragment letter: the run's own mapping states which beads "
+                                 'make up which ring')
+            group = f'fragment:{fragment}'
+        else:
+            group = 'solute'
+    return {'pbc': pbc, 'center': center, 'fit': fit, 'group': group}, tuple(legacy)
 
 
 def _run_relative(payload, field):
@@ -73,32 +189,13 @@ def _settings(payload):
     start, end = _nanoseconds(payload, 'start_ns'), _nanoseconds(payload, 'end_ns')
     if start is not None and end is not None and start > end:
         raise ValueError(f'start_ns {start:g} is after end_ns {end:g}: a window starts at or before it ends')
-    stride = payload.get('stride')
-    if stride is None or stride == 'auto':
-        stride = None
-    elif isinstance(stride, bool) or not isinstance(stride, int) or stride < 1:
-        raise ValueError(f"stride must be a whole number of frames at least 1, 'auto', or null, not {stride!r}")
-    fit = payload.get('fit', 'none')
-    if not isinstance(fit, str) or fit not in FIT_MODES:
-        raise ValueError(f"fit must be one of {', '.join(FIT_MODES)}, not {fit!r}")
-    fragment = payload.get('fragment')
-    if fragment is not None:
-        letter = fragment.strip() if isinstance(fragment, str) else ''
-        if len(letter) != 1 or not letter.isalpha():
-            raise ValueError(f"fragment must be one letter of the run's mapping, not {fragment!r}")
-        fragment = letter.upper()
-    if fit == 'beads' and fragment is None:
-        raise ValueError("fit 'beads' needs a fragment letter: the run's own mapping states which beads make up "
-                         'which ring')
+    view, legacy = _view(payload)
     atoms = payload.get('atoms', 'beads')
     if not isinstance(atoms, str) or atoms not in ATOM_MODES:
         raise ValueError(f"atoms must be one of {', '.join(ATOM_MODES)}, not {atoms!r}")
-    assembled = payload.get('assembled', False)
-    if not isinstance(assembled, bool):
-        raise ValueError(f'assembled must be true or false, not {assembled!r}')
     return {'trajectory': _run_relative(payload, 'trajectory'), 'structure': _run_relative(payload, 'structure'),
-            'start_ns': start, 'end_ns': end, 'stride': stride, 'fit': fit, 'fragment': fragment,
-            'atoms': atoms, 'assembled': assembled}
+            'start_ns': start, 'end_ns': end, 'interval_ns': _interval(payload), 'stride': _legacy_stride(payload),
+            'atoms': atoms, 'view': view, 'legacy': legacy}
 
 
 def _manifest(run_dir):
@@ -204,15 +301,18 @@ def sources(run_dir, payload=None):
 
 
 def _sample_indices(n_frames, first_ns, dt_ps, settings):
-    """`(frame indices, effective stride)` for the window and stride asked for, first selected frame always in.
+    """`(frame indices, effective stride)` for the window, interval and legacy stride, first selected frame always in.
 
     Frame numbers are computed from the trajectory's own first time and time step rather than from a list of every
     frame's time: reading that list means walking the whole file (40 s for a live 100 ns, 2.5 GB XTC), and the walk
     is what the producer then has to repeat for the frames it samples. A GROMACS `.xtc` writes its frames on a fixed
     step, which is what this arithmetic is; a file whose steps vary is not one this window can name exactly.
+
+    `interval_ns` is converted with the trajectory's own step. A request finer than the step becomes one frame, and
+    the effective cadence is then the step rather than the request; the caller records that, never the wish.
     """
     start, end = settings['start_ns'], settings['end_ns']
-    stride = settings['stride']
+    selected = list(range(n_frames))
     if start is not None or end is not None:
         if not dt_ps or dt_ps <= 0:
             raise ValueError('this trajectory states no time step, so a window in nanoseconds selects nothing: '
@@ -225,9 +325,14 @@ def _sample_indices(n_frames, first_ns, dt_ps, settings):
             raise ValueError(f'the window {start!r}-{end!r} ns selects no frame; this trajectory runs '
                              f'{first_ns:g}-{last_ns:g} ns')
         selected = list(range(low, high + 1))
+    if settings['interval_ns'] is not None:
+        if not dt_ps or dt_ps <= 0:
+            raise ValueError('this trajectory states no time step, so one model every N nanoseconds cannot be '
+                             'selected: ask for the whole file at its own frames instead')
+        stride = max(1, round(settings['interval_ns'] * 1000.0 / dt_ps))
+    elif settings['stride'] is not None:
+        stride = settings['stride']
     else:
-        selected = list(range(n_frames))
-    if stride is None:
         stride = max(1, math.ceil(len(selected) / AUTO_MODELS))
     return selected[::stride], stride
 
@@ -255,59 +360,45 @@ def _protein_atoms(universe, protein_topologies):
     return np.asarray(universe.select_atoms('protein').indices, dtype=int)
 
 
-def _fit_selection(universe, settings, written, subunits, protein):
-    """The atoms the fit is computed on, or `None` when no fit was asked for; and the fragment it names.
+def _group_selection(universe, view, written, subunits, protein):
+    """The atoms the view's `group` names, cut to the atoms this file writes, and the fragment it names.
 
-    The fit's own atoms are the ones the Kabsch rotation comes from; applying it to every atom is what leaves the rest
-    of the molecule free to move relative to them. A selection that holds no atom this file writes is refused rather
-    than fitted on everything, because that would answer a different question with the same picture.
+    `protein` is the run's own protein moleculetypes, `solute` is what the writer keeps -- the same water and ion
+    exclusion `structures.series_pdb` applies by residue name -- and `fragment:<letter>` is the run's mapping, the
+    selection an old `fit: beads` named. A selection that holds no atom this file writes is refused rather than
+    centred or fitted on everything, because that would answer a different question with the same picture.
     """
-    if settings['fit'] == 'none':
-        return None, None
-    if settings['fit'] == 'protein':
-        selection, target = protein, None
+    target = None
+    group = view['group']
+    if group == 'protein':
+        selection = protein
+        missing = "group 'protein' selected no protein atom: this run states no protein to centre or fit on"
+    elif group == 'solute':
+        names = universe.atoms.resnames
+        selection = np.asarray([index for index, name in enumerate(names)
+                                if str(name).strip().upper() not in structures.WATER_RESIDUES], dtype=int)
+        missing = "group 'solute' selected no atom this series writes: this trajectory holds only solvent"
     else:
-        wanted = settings['fragment']
+        target = group.split(':', 1)[1]
         names = [str(name).strip().upper() for name in universe.atoms.names]
-        selection = np.asarray([index for index, name in enumerate(names) if subunits.get(name) == wanted],
+        selection = np.asarray([index for index, name in enumerate(names) if subunits.get(name) == target],
                                dtype=int)
-        target = wanted
         if not len(selection):
-            groups = {}
+            stated = {}
             for name, fragment in subunits.items():
-                groups.setdefault(fragment, []).append(name)
-            stated = ', '.join(f'{fragment} ({", ".join(sorted(members))})'
-                               for fragment, members in sorted(groups.items())) or 'no fragment'
-            raise ValueError(f"The run's own mapping places no bead in fragment '{wanted}', so there is nothing to "
-                             f'fit on: it states {stated}')
-    if not len(selection):
-        raise ValueError("fit 'protein' selected no protein atom: this run states no protein to hold still")
+                stated.setdefault(fragment, []).append(name)
+            words = ', '.join(f'{fragment} ({", ".join(sorted(members))})'
+                              for fragment, members in sorted(stated.items())) or 'no fragment'
+            raise ValueError(f"The run's own mapping places no bead in fragment '{target}', so there is nothing to "
+                             f'centre or fit on: it states {words}')
+        missing = 'the fragment selection holds no atom this series writes: centre or fit something the file shows'
     selection = selection[np.isin(selection, written)]
     if not len(selection):
-        raise ValueError('the fit selection holds no atom this series writes: fit something the file shows')
+        raise ValueError(missing)
     return selection, target
 
 
-def _fit_positions(mobile, reference, selection):
-    """The rotation and translation that superpose `mobile` on `reference`, and the RMSD that remains, in ångström.
-
-    Kabsch, written out rather than called: the reference is the first sampled frame's coordinate array, and the fit is
-    a dozen lines a test can hold against a known rotation. A reflection is flipped to a rotation explicitly -- an
-    improper fit would mirror the molecule and call it motion.
-    """
-    mobile_centroid, reference_centroid = mobile[selection].mean(axis=0), reference[selection].mean(axis=0)
-    centred, target = mobile - mobile_centroid, reference - reference_centroid
-    left, _, right = np.linalg.svd(centred[selection].T @ target[selection])
-    rotation = left @ right
-    if np.linalg.det(rotation) < 0:
-        left[:, -1] *= -1
-        rotation = left @ right
-    fitted = centred @ rotation + reference_centroid
-    judged = fitted[selection] - reference[selection]
-    return fitted, float(np.sqrt((judged ** 2).sum(axis=1).mean()))
-
-
-def _fit_record(rmsds, atoms, *, target=None, of=None):
+def _fit_record(rmsds, atoms, *, target=None, of=None, group=None, mode=None):
     """What a fitted series states about its own fit: how many atoms were held and how far they moved, in nm."""
     record = {'reference': 1, 'atoms': int(atoms),
               'rmsd_nm': {'min': round(min(rmsds) / 10.0, 4), 'max': round(max(rmsds) / 10.0, 4),
@@ -315,51 +406,62 @@ def _fit_record(rmsds, atoms, *, target=None, of=None):
     if target:
         # Which fragment was held still: a reader comparing two fittings has to tell one ring's fit from another's.
         record['target'] = target
+    if group:
+        record['group'] = group
+    if mode:
+        record['fit'] = mode
     if of is not None:
         record['of'] = int(of)
     return record
 
 
 def _molecules(universe):
-    """The trajectory's atoms grouped by molecule, in the order the coordinates first show them."""
+    """The trajectory's atoms grouped by molecule, in the order the coordinates first show them.
+
+    GROMACS numbers residues across the whole system, so `(residue name, residue number)` is the only molecule
+    identity a `.gro` states -- the same grouping `structures.structure_records` writes a file by. A protein's
+    residues are separate groups here; that is the definition this display view uses.
+    """
     groups = {}
     for index, key in enumerate(zip(universe.atoms.resnames, universe.atoms.resids)):
         groups.setdefault((str(key[0]), int(key[1])), []).append(index)
     return [np.asarray(indices, dtype=int) for indices in groups.values()]
 
 
+def _declare_molecule_bonds(universe, groups):
+    """Declare each molecule as a bonded fragment, because a GROMACS `.gro` carries no bonds.
+
+    MDAnalysis's `unwrap` moves bonded *fragments*; a universe read from a `.gro` and an `.xtc` alone has no bonds, so
+    every atom would be its own fragment and `pbc: mol` would do nothing. One bond between consecutive atoms of each
+    molecule gives `make_whole` the same chain of nearest-image moves GROMACS makes inside a molecule. A universe whose
+    structure states its own bonds (a PDB with CONECT) keeps them.
+
+    ponytail: a molecule is `(resname, resid)` -- the only identity a `.gro` states. Exact for a detergent, a water or
+    an ion, which are one residue; a protein chain spans many residues, so a chain crossing the boundary unwraps per
+    residue and can differ from `gmx trjconv -pbc mol`. Reading a `.tpr`/topology for the real molecule split is the
+    upgrade path; the differential fixture is one residue and does not exercise it.
+    """
+    if getattr(universe, 'bonds', None) is not None:
+        return
+    pairs = [(int(group[index]), int(group[index + 1]))
+             for group in groups for index in range(len(group) - 1)]
+    if pairs:
+        universe.add_bonds(pairs)
+
+
 def _box(universe, structure):
-    """The frame's box vectors in ångström: the trajectory's own, else the structure's, or `None` when neither states one."""
+    """The frame's box in ångström (`ts.dimensions` order), or `None` when neither source states one."""
     if universe.dimensions is not None:
-        lengths = np.asarray(universe.dimensions[:3], dtype=float)
-        if np.all(np.isfinite(lengths)) and np.all(lengths > 0):
-            return lengths
+        values = np.asarray(universe.dimensions, dtype=float)
+        if values.size >= 3 and np.all(np.isfinite(values[:3])) and np.all(values[:3] > 0):
+            return values
     try:
-        lengths = np.asarray(structures.read_gro_box(structure), dtype=float)[:3] * 10.0  # nm -> Angstrom
+        values = np.asarray(structures.read_gro_box(structure), dtype=float) * 10.0  # nm -> Angstrom
     except (OSError, ValueError):
         return None
-    return lengths if np.all(np.isfinite(lengths)) and np.all(lengths > 0) else None
-
-
-def _assemble(positions, box, groups, fixed):
-    """Every molecule moved by whole periodic images to the anchor, then the anchor centred for display.
-
-    A view, not a rewrite: the trajectory keeps its own frames and only the file says it was assembled. The anchor is
-    the protein when the run states one, and the first molecule when it does not -- a run with no protein still gets
-    its molecules gathered instead of split across the box.
-    """
-    if box is None:
-        raise ValueError('assembled needs a box: neither the trajectory nor the structure states one')
-    moved = np.asarray(positions, dtype=float).copy()
-    # ponytail: orthogonal boxes only -- whole images are the box lengths. A triclinic box would need its own vectors.
-    anchor = moved[fixed].mean(axis=0)
-    fixed_atoms = set(fixed.tolist())
-    for group in groups:
-        if all(index in fixed_atoms for index in group):
-            continue
-        shift = np.round((anchor - moved[group].mean(axis=0)) / box)
-        moved[group] += shift * box
-    return moved - moved[fixed].mean(axis=0)
+    if values.size < 3 or not np.all(np.isfinite(values[:3])) or not np.all(values[:3] > 0):
+        return None
+    return np.array([*values[:3], 90.0, 90.0, 90.0])
 
 
 def _frame_atoms(universe, positions, written):
@@ -383,12 +485,24 @@ def _protein_topologies(work):
         return []
 
 
+def _note(trajectory, stride, cadence_ns, legacy):
+    """The build sentence: nanoseconds when the trajectory states a time step, frames when it does not."""
+    if cadence_ns is not None:
+        note = f'one model every {cadence_ns:g} ns of {trajectory.name}'
+    else:
+        note = f'every {stride}th frame of {trajectory.name}'
+    if legacy:
+        note += f" (requested as the old {', '.join(legacy)})"
+    return note
+
+
 def run(work, payload):
     """Sample the chosen trajectory into `run-frames.pdb`, and record the arguments and the timeline in `frames.json`."""
     if mda is None:
         raise RuntimeError('MDAnalysis is not installed; a frame series cannot read a trajectory')
     work = Path(work)
     settings = _settings(payload)
+    view = settings['view']
     trajectory, structure = work / settings['trajectory'], work / settings['structure']
     for path, label in ((trajectory, 'trajectory'), (structure, 'structure')):
         if not path.is_file():
@@ -425,36 +539,70 @@ def run(work, payload):
             except (OSError, ValueError):
                 topology = None
     protein = _protein_atoms(universe, protein_topologies)
-    selection, target = _fit_selection(universe, settings, written, subunits, protein)
-    groups = _molecules(universe)
+    centred = view['center'] or view['fit'] != 'none'
+    selection, target = _group_selection(universe, view, written, subunits, protein) if centred else (None, None)
+    box = _box(universe, structure)
+    if box is None and (view['pbc'] != 'none' or view['center']):
+        raise ValueError(f"this view needs a box: pbc '{view['pbc']}' and centre both move atoms by it, and neither "
+                         'the trajectory nor the structure states one')
+    if box is not None and (universe.dimensions is None or not np.all(np.asarray(universe.dimensions[:3]) > 0)):
+        universe.dimensions = box
+    unwrap = wrap = nojump = centre_transform = fit_transform = None
+    if view['pbc'] in ('mol', 'whole'):
+        # MDAnalysis's unwrap moves bonded fragments; a `.gro` states none, so the molecule groups are declared.
+        _declare_molecule_bonds(universe, _molecules(universe))
+        unwrap = mda_transforms.unwrap(universe.atoms)
+        if view['pbc'] == 'mol':
+            wrap = mda_transforms.wrap(universe.atoms, compound='fragments')
+    elif view['pbc'] == 'nojump':
+        nojump = mda_transforms.NoJump()
+    if view['center']:
+        centre_transform = mda_transforms.center_in_box(universe.atoms[selection])
     frames, times, rmsds, reference = [], [], [], None
     wanted = iter(indices)
     wanted_index = next(wanted, None)
-    for index, timestep in enumerate(universe.trajectory):
+    for index, timestep in enumerate(universe.trajectory[indices[0]:indices[-1] + 1], start=indices[0]):
         if wanted_index is None:
             break
+        # A frame-local transform is only needed for the frames this file writes; nojump is history-dependent, so it
+        # is applied to every frame of the selected window in order or its answer differs from `gmx trjconv`.
+        if nojump is not None or index == wanted_index:
+            if unwrap is not None:
+                unwrap(timestep)
+            if wrap is not None:
+                wrap(timestep)
+            if nojump is not None:
+                nojump(timestep)
         if index != wanted_index:
             continue
-        positions = np.asarray(universe.atoms.positions, dtype=float)
-        if settings['assembled']:
-            positions = _assemble(positions, _box(universe, structure), groups,
-                                  protein if len(protein) else groups[0])
+        if centre_transform is not None:
+            centre_transform(timestep)
         rmsd = None
-        if selection is not None:
+        if view['fit'] != 'none':
             if reference is None:
-                reference = positions.copy()
-            positions, rmsd = _fit_positions(positions, reference, selection)
+                reference = universe.atoms.positions.copy()
+                fixed = mda.Merge(universe.atoms[selection])
+                fixed.atoms.positions = reference[selection]
+                fit_transform = (mda_transforms.fit_rot_trans(universe.atoms[selection], fixed.atoms)
+                                 if view['fit'] == 'rot+trans'
+                                 else mda_transforms.fit_translation(universe.atoms[selection], fixed.atoms))
+            fit_transform(timestep)
+            judged = universe.atoms.positions[selection] - reference[selection]
+            rmsd = float(np.sqrt((judged ** 2).sum(axis=1).mean()))
+        positions = np.asarray(universe.atoms.positions, dtype=float)
         frames.append(_frame_atoms(universe, positions, written))
         times.append(round(float(timestep.time) / 1000.0, 6))
         if rmsd is not None:
             rmsds.append(rmsd)
         wanted_index = next(wanted, None)
-    fit = _fit_record(rmsds, len(selection), target=target, of=atoms) if rmsds else None
+    fit_record = (_fit_record(rmsds, len(selection), target=target, of=atoms, group=view['group'],
+                              mode=view['fit'])
+                  if rmsds else None)
     cadence_ns = round(dt_ps * stride / 1000.0, 6) if dt_ps > 0 and models > 1 else None
-    note = f'every {stride}th frame of {trajectory.name}'
+    note = _note(trajectory, stride, cadence_ns, settings['legacy'])
     text = structures.series_pdb(frames, topology=topology, detergent_residue=None, subunits=subunits,
                                  include_water=False, times_ns=times, protein_topologies=protein_topologies or None,
-                                 assembled=settings['assembled'], fit=fit,
+                                 view=view, fit=fit_record,
                                  title=f'{trajectory.name} frame series', note=note)
     output = work / 'run-frames.pdb'
     output.write_text(text)
@@ -464,8 +612,11 @@ def run(work, payload):
         'args': payload, 'models': models, 'atoms': atoms, 'times_ns': times, 'indices': indices,
         'trajectory': settings['trajectory'], 'structure': settings['structure'],
         'trajectory_identity': trajectory_identity, 'structure_identity': structure_identity,
-        'bytes': size, 'cadence_ns': cadence_ns, 'fit': fit, 'assembled': settings['assembled']})
+        'bytes': size, 'cadence_ns': cadence_ns, 'interval_ns': settings['interval_ns'], 'stride': stride,
+        'view': view, 'legacy': list(settings['legacy']), 'fit': fit_record})
     return {'models': models, 'atoms': atoms, 'times': len(times), 'trajectory': settings['trajectory'],
             'structure': settings['structure'], 'trajectory_identity': trajectory_identity,
-            'structure_identity': structure_identity, 'bytes': size, 'cadence_ns': cadence_ns, 'fit': fit,
-            'assembled': settings['assembled'], 'files': ['run-frames.pdb', 'frames.json']}
+            'structure_identity': structure_identity, 'bytes': size, 'cadence_ns': cadence_ns,
+            'interval_ns': settings['interval_ns'], 'stride': stride, 'view': view,
+            'legacy': list(settings['legacy']), 'fit': fit_record,
+            'files': ['run-frames.pdb', 'frames.json']}

@@ -503,13 +503,7 @@ function chooser(root, side, runs, onPick) {
     }
     let parameters;
     if (served) {
-      parameters = {ext: 'pdb', inferBonds: 'none',
-        reason: conectCount(text)
-          ? "the run's own moleculetype, written as CONECT over this file's coordinates "
-            + "(its own topology file, for the molecule this file holds) — the model's bonds, and the distance "
-            + 'guess is off'
-          : 'coarse-grained, and this run states no moleculetype for the molecule this file holds, so the picture '
-            + 'claims no bonds rather than guessing them'};
+      parameters = {ext: 'pdb', inferBonds: 'none'};
     } else {
       text = await artifactText(job.id, path);
       parameters = loadParameters(text, {path, runType: job.run_type});
@@ -519,8 +513,7 @@ function chooser(root, side, runs, onPick) {
       what.textContent = 'This page could not start a 3D view. The file\'s own numbers, which do not need a '
         + 'renderer, still hold.';
       readout([['atoms in the file', String(countRecords(text))],
-               ['bonds from the file', String(conectCount(text))],
-               ['how the bonds would be decided', parameters.reason]]);
+               ['bonds from the file', String(conectCount(text))]]);
       return;
     }
     // The stage is about to be emptied, and the series component on it belongs to this module's own trajectory block:
@@ -550,7 +543,6 @@ function chooser(root, side, runs, onPick) {
       ['atoms drawn', String(structure.atomCount)],
       [served ? "bonds the run's own topology states" : 'bonds the file states', String(conectCount(text))],
       ['bonds the viewer resolved', String(structure.bondCount), 'ok'],
-      ['how the bonds were decided', parameters.reason],
       ['bead radii', coarse
         ? (sizeClasses
             ? `the run's own stages/2_mapping/model.json size classes, drawn at ${BEAD_SCALE}x`

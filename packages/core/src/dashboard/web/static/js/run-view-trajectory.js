@@ -23,9 +23,9 @@
 import { api } from './shared.js';
 import { isCoarseGrained } from './run-view-structure.js';
 
-//: The nine keys a frame-series attempt records its arguments under -- the form, the lookup for an existing attempt
+//: The ten keys a frame-series attempt records its arguments under -- the form, the lookup for an existing attempt
 //: and the POST body are all this one list, so a key cannot be added to one of them and forgotten in another.
-const ARGS = ['trajectory', 'structure', 'start_ns', 'end_ns', 'stride', 'fit', 'fragment', 'atoms', 'assembled'];
+const ARGS = ['trajectory', 'structure', 'start_ns', 'end_ns', 'interval_ns', 'atoms', 'pbc', 'center', 'fit', 'group'];
 
 //: One times speed: ten frames a second, the rate nglview's own Play uses and the one a reader can follow. A speed of
 //: 2 halves the frame interval and 0.5 doubles it; it is the interval, not a multiplier of anything else.
@@ -36,12 +36,12 @@ const FRAME_MS = 100;
 const POLL_MS = 2000;
 
 //: The server's own cap on one attempt, stated to the reader rather than re-checked here: the panel cannot count the
-//: trajectory's frames, so it cannot know whether a step is too small -- a hint that pretended otherwise would print
+//: trajectory's frames, so it cannot know whether an interval is too fine -- a hint that pretended otherwise would print
 //: a wrong estimate as a fact.
 const MAX_MODELS = 240;
 
 //: Where a run's mapping states which beads make up which fragment. Read lazily, when the form is opened: a run with
-//: no mapping answers 404, and that is "no fragments to fit on", not a failure of the panel.
+//: no mapping answers 404, and that is "no fragments to group on", not a failure of the panel.
 const MAPPING = 'stages/2_mapping/model.json';
 
 const pollMilliseconds = () => Number(window.__runViewPollMs) || POLL_MS;
@@ -66,7 +66,7 @@ async function queueBuild(path, body) {
 }
 
 // The block, above the segment table. A group rather than a form region: the controls act on the canvas beside them,
-// and the recompute form inside it is its own `<form>`.
+// and the options form -- opened only by the "Frame options" button, which never builds -- is its own `<form>`.
 export function trajectoryMarkup(side) {
   const id = name => `${name}-${side}`;
   return `
@@ -77,7 +77,8 @@ export function trajectoryMarkup(side) {
       <div class="run-view-trajectory-pick">
         <label for="${id('run-view-segment')}">Segment</label>
         <select id="${id('run-view-segment')}" disabled></select>
-        <button type="button" id="${id('run-view-build')}" disabled>Recompute frames</button>
+        <button type="button" id="${id('run-view-build')}" aria-expanded="false"
+                aria-controls="${id('run-view-recompute')}" disabled>Frame options</button>
       </div>
       <p class="run-view-series" id="${id('run-view-series')}" aria-live="polite"></p>
       <div class="transport-controls" role="group" aria-label="Playback">
@@ -98,8 +99,7 @@ export function trajectoryMarkup(side) {
         <label class="transport-loop"><input type="checkbox" id="${id('run-view-loop')}"> Loop</label>
         <span class="run-view-time" id="${id('run-view-time')}">t = — ns · model 0/0</span>
       </div>
-      <details class="run-view-recompute" id="${id('run-view-recompute')}">
-        <summary>Frame arguments</summary>
+      <div class="run-view-recompute" id="${id('run-view-recompute')}" hidden>
         <form id="${id('run-view-form')}">
           <div class="run-view-form-grid">
             <label for="${id('run-view-form-atoms')}">Atoms
@@ -109,14 +109,9 @@ export function trajectoryMarkup(side) {
                 <option value="ca">CA atoms only</option>
               </select>
             </label>
-            <label for="${id('run-view-form-fit')}">Fit
-              <select id="${id('run-view-form-fit')}">
-                <option value="none">none</option>
-                <option value="protein">protein</option>
-              </select>
-            </label>
-            <label for="${id('run-view-form-fragment')}" id="${id('run-view-form-fragment-label')}" hidden>Fragment
-              <select id="${id('run-view-form-fragment')}" hidden></select>
+            <label for="${id('run-view-form-interval')}">ns per frame
+              <input type="number" id="${id('run-view-form-interval')}" min="0.000001" step="any"
+                     placeholder="auto (about 120 models)">
             </label>
             <label for="${id('run-view-form-start')}">Start (ns)
               <input type="number" id="${id('run-view-form-start')}" min="0" step="any" placeholder="whole file">
@@ -124,11 +119,29 @@ export function trajectoryMarkup(side) {
             <label for="${id('run-view-form-end')}">End (ns)
               <input type="number" id="${id('run-view-form-end')}" min="0" step="any" placeholder="whole file">
             </label>
-            <label for="${id('run-view-form-stride')}">Step (frames)
-              <input type="number" id="${id('run-view-form-stride')}" min="1" step="1" placeholder="auto">
+            <label for="${id('run-view-form-pbc')}">PBC
+              <select id="${id('run-view-form-pbc')}">
+                <option value="none" selected>none — the file as the run wrote it</option>
+                <option value="mol">mol — gather each molecule split across the boundary</option>
+                <option value="whole">whole — gather each molecule split across the boundary</option>
+                <option value="nojump">nojump — remove jumps over the window (history-dependent)</option>
+              </select>
             </label>
-            <label class="run-view-form-check" for="${id('run-view-form-assembled')}">
-              <input type="checkbox" id="${id('run-view-form-assembled')}"> Assemble
+            <label for="${id('run-view-form-fit')}">Fit
+              <select id="${id('run-view-form-fit')}">
+                <option value="none">none</option>
+                <option value="trans">trans — translation only</option>
+                <option value="rot+trans">rot+trans — rotation and translation</option>
+              </select>
+            </label>
+            <label for="${id('run-view-form-group')}" id="${id('run-view-form-group-label')}" hidden>Group
+              <select id="${id('run-view-form-group')}" hidden>
+                <option value="solute" selected>solute</option>
+                <option value="protein">protein</option>
+              </select>
+            </label>
+            <label class="run-view-form-check" for="${id('run-view-form-center')}">
+              <input type="checkbox" id="${id('run-view-form-center')}"> Centre
             </label>
           </div>
           <div class="run-view-form-actions">
@@ -136,36 +149,66 @@ export function trajectoryMarkup(side) {
             <span class="hint" id="${id('run-view-form-note')}"></span>
           </div>
         </form>
-        <p class="hint">The server caps one build at ${MAX_MODELS} models and about 250 MB, and refuses a bigger one.
-          This panel does not count the trajectory's frames -- counting a 2.6 GB file takes about a minute -- so it
-          cannot predict a build's size. A blank step aims at roughly 120 models; a blank start and end mean the
-          whole file. Changing a control here is what makes the build a new attempt; a matching one already built is
-          reused and shown instead.</p>
-      </details>
+        <p class="hint">ns per frame is a request: the server converts it with the trajectory's own time step and
+          records the cadence it actually got. A blank interval aims at roughly 120 models, and a blank start and end
+          mean the whole file. PBC, Centre, Fit and Group change the view of the frames, never the run: mol/whole
+          gather a molecule split across the boundary, nojump removes jumps over the whole window (it is
+          history-dependent), Centre puts the group in the middle of the box, and Fit is a translation or a rotation
+          and translation on that group. The server caps one build at ${MAX_MODELS} models and about 250 MB, and
+          refuses a bigger one. This panel does not count the trajectory's frames -- counting a 2.6 GB file takes
+          about a minute -- so it cannot predict a build's size. Changing a control here is what makes the build a
+          new attempt; a matching one already built is reused and shown instead.</p>
+      </div>
     </div>`;
 }
 
 //: The arguments a segment is built from when nothing has been chosen: beads for a coarse-grained trajectory (its
-//: atoms are beads), everything for an atomistic one, no fit, no bounds, no assembly.
+//: atoms are beads), everything for an atomistic one, an automatic cadence, no bounds and the file's own view.
 export function defaultArguments(entry, runType) {
   return {
     trajectory: entry.trajectory,
     structure: entry.structure || null,
     start_ns: null,
     end_ns: null,
-    stride: null,
-    fit: 'none',
-    fragment: null,
+    interval_ns: null,
     atoms: isCoarseGrained(entry.trajectory, runType) ? 'beads' : 'all',
-    assembled: false,
+    pbc: 'none',
+    center: false,
+    fit: 'none',
+    group: null,
   };
 }
 
-//: A payload as the nine arguments, with a key the record does not hold read as `null` -- which is what the lookup
-//: compares, so an attempt recorded by an older form is not silently taken for a match.
+//: A payload as the ten arguments. An old attempt's keys are read as the view they described rather than relabelled:
+//: `assembled` meant `pbc: 'mol'` plus a centre, `fit: 'protein'` a rigid fit on the protein, and `fit: 'beads'` a
+//: rigid fit on one mapping fragment. `legacy` keeps what the old keys said, so the sentence can name the frame step
+//: the attempt was actually built with instead of pretending it was asked for in nanoseconds.
 function recordedArguments(payload) {
+  const source = payload && typeof payload === 'object' ? payload : {};
   const args = {};
-  for (const key of ARGS) args[key] = payload && payload[key] != null ? payload[key] : null;
+  for (const key of ARGS) args[key] = source[key] != null ? source[key] : null;
+  const has = key => Object.prototype.hasOwnProperty.call(source, key);
+  args.legacy = {
+    frameStep: !has('interval_ns'),
+    stride: Number.isInteger(source.stride) && source.stride > 0 ? source.stride : null,
+  };
+  args.pbc = has('pbc') ? source.pbc : (source.assembled === true ? 'mol' : 'none');
+  args.center = has('center') ? source.center === true : source.assembled === true;
+  const stated = has('group') && source.group != null ? source.group : null;
+  if (source.fit === 'protein') {
+    args.fit = 'rot+trans';
+    args.group = stated || 'protein';
+  } else if (source.fit === 'beads') {
+    args.fit = 'rot+trans';
+    const letter = typeof source.fragment === 'string' ? source.fragment.trim().toUpperCase() : '';
+    args.group = stated || (letter ? `fragment:${letter}` : null);
+  } else {
+    args.fit = source.fit != null ? source.fit : 'none';
+    args.group = stated;
+  }
+  // The server fills `solute` when the centre or the fit needs a group and the payload states none, so the lookup
+  // compares against that same default rather than against a null the server would never have used.
+  if (args.group == null && (args.center || args.fit !== 'none')) args.group = 'solute';
   return args;
 }
 
@@ -218,35 +261,48 @@ const megabytes = bytes => {
   return `${(number / (1024 * 1024)).toFixed(number >= 100 * 1024 * 1024 ? 0 : 1)} MB`;
 };
 
-//: The build, in words: what it was built from, at what step, of what, aligned on what. A sentence rather than a
-//: second table of the recorded arguments -- the reader already chose those, and this is the one line to quote.
-function buildSentence(args, entry) {
+//: The group a centre or fit acts on, in words.
+function groupName(group) {
+  if (group === 'protein') return 'the protein';
+  if (group === 'solute') return 'the solute';
+  if (typeof group === 'string' && group.startsWith('fragment:')) return `fragment ${group.slice(9)}`;
+  return null;
+}
+
+//: The build, in words: what it was built from, one model every how many nanoseconds, of what, and the view that was
+//: applied. It reads the attempt's recorded arguments and its `frames.json`, not the form: an old attempt built with a
+//: frame step says so, and its cadence is the one the record states -- never one this panel guessed.
+function buildSentence(args, entry, frames) {
   const parts = [`Built from ${entry.name}`];
-  parts.push(args.stride == null ? 'at a stride the server chose' : `every ${ordinal(args.stride)} frame`);
+  const cadence = Number(frames && frames.cadence_ns);
+  if (cadence > 0) parts.push(`one model every ${nsText(cadence)} ns`);
+  else if (args.interval_ns != null) parts.push(`one model every ${nsText(args.interval_ns)} ns requested`);
+  else if (args.legacy && args.legacy.stride) parts.push(`every ${ordinal(args.legacy.stride)} frame`);
   if (args.start_ns != null || args.end_ns != null) {
     parts.push(`${args.start_ns == null ? 'the start' : `${nsText(args.start_ns)} ns`}`
       + `–${args.end_ns == null ? 'the end' : `${nsText(args.end_ns)} ns`}`);
   }
   parts.push(args.atoms === 'beads' ? 'beads only'
     : (args.atoms === 'ca' ? 'CA atoms only' : 'all atoms (water left out)'));
-  if (args.fit === 'protein') parts.push('aligned on the protein');
-  else if (args.fit === 'beads') parts.push(`aligned on fragment ${args.fragment}`);
-  if (args.assembled) parts.push('assembled');
+  const on = groupName(args.group);
+  if (args.pbc && args.pbc !== 'none') parts.push(`PBC ${args.pbc}`);
+  if (args.center) parts.push(on ? `centred on ${on}` : 'centred');
+  if (args.fit === 'trans') parts.push(`translation-only fit${on ? ` on ${on}` : ''}`);
+  else if (args.fit === 'rot+trans') parts.push(`rotation-and-translation fit${on ? ` on ${on}` : ''}`);
+  if (args.legacy && args.legacy.frameStep) parts.push('built with a frame step');
   return parts.join(', ');
 }
 
-//: What a series holds, from the record of the build and the file it published: models, cadence, timespan and size --
-//: all read off `frames.json` rather than counted by anything here.
+//: What a series holds, from the record of the build and the file it published: models, timespan and size -- all read
+//: off `frames.json` rather than counted by anything here.
 function seriesSentence(args, entry, frames) {
   const times = Array.isArray(frames.times_ns) ? frames.times_ns : [];
   const models = Number(frames.models) || times.length;
   const pieces = [`${models} model${models === 1 ? '' : 's'}`];
-  const cadence = Number(frames.cadence_ns);
-  if (cadence > 0) pieces.push(`one every ${nsText(cadence)} ns`);
   if (times.length > 1) pieces.push(`${nsText(times[0])}–${nsText(times[times.length - 1])} ns`);
   const bytes = megabytes(frames.bytes);
   if (bytes) pieces.push(bytes);
-  return `${buildSentence(args, entry)}. It holds ${pieces.join(', ')}.`;
+  return `${buildSentence(args, entry, frames)}. It holds ${pieces.join(', ')}.`;
 }
 
 function nearestIndex(times, ns) {
@@ -279,13 +335,14 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
   const recompute = $(id('run-view-recompute'));
   const form = $(id('run-view-form'));
   const atomsPick = $(id('run-view-form-atoms'));
-  const fitPick = $(id('run-view-form-fit'));
-  const fragmentPick = $(id('run-view-form-fragment'));
-  const fragmentLabel = $(id('run-view-form-fragment-label'));
+  const intervalInput = $(id('run-view-form-interval'));
   const startInput = $(id('run-view-form-start'));
   const endInput = $(id('run-view-form-end'));
-  const strideInput = $(id('run-view-form-stride'));
-  const assembleBox = $(id('run-view-form-assembled'));
+  const pbcPick = $(id('run-view-form-pbc'));
+  const centerBox = $(id('run-view-form-center'));
+  const fitPick = $(id('run-view-form-fit'));
+  const groupPick = $(id('run-view-form-group'));
+  const groupLabel = $(id('run-view-form-group-label'));
   const submitButton = $(id('run-view-submit'));
   const formNote = $(id('run-view-form-note'));
 
@@ -394,76 +451,84 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
     if (playable.length) pick.value = String(playable.length - 1);
   }
 
-  // The arguments the form holds now: what a submit sends, and what a series is looked up by.
+  // The arguments the form holds now: what a submit sends, and what a series is looked up by. `group` is null when
+  // neither the centre nor the fit uses one, which is the same default the server fills for itself.
   function formArguments(entry) {
-    const fit = fitPick.value;
     return {
       trajectory: entry.trajectory,
       structure: entry.structure || null,
       start_ns: numberOrNull(startInput.value),
       end_ns: numberOrNull(endInput.value),
-      stride: numberOrNull(strideInput.value),
-      fit,
-      fragment: fit === 'beads' ? (fragmentPick.value || null) : null,
+      interval_ns: numberOrNull(intervalInput.value),
       atoms: atomsPick.value,
-      assembled: assembleBox.checked,
+      pbc: pbcPick.value,
+      center: centerBox.checked,
+      fit: fitPick.value,
+      group: groupNeeded() ? (groupPick.value || null) : null,
     };
   }
 
   function fillForm(args) {
     atomsPick.value = ['all', 'beads', 'ca'].includes(args.atoms) ? args.atoms : 'all';
-    if (args.fit === 'beads') offerBeads(true);
-    fitPick.value = ['none', 'protein', 'beads'].includes(args.fit) ? args.fit : 'none';
-    showFragmentRow(fitPick.value === 'beads');
-    if (fitPick.value === 'beads' && args.fragment
-        && ![...fragmentPick.options].some(option => option.value === args.fragment)) {
-      const option = document.createElement('option');
-      option.value = args.fragment;
-      option.textContent = args.fragment;
-      fragmentPick.append(option);
-    }
-    if (fitPick.value === 'beads') fragmentPick.value = args.fragment || '';
+    intervalInput.value = args.interval_ns == null ? '' : String(args.interval_ns);
     startInput.value = args.start_ns == null ? '' : String(args.start_ns);
     endInput.value = args.end_ns == null ? '' : String(args.end_ns);
-    strideInput.value = args.stride == null ? '' : String(args.stride);
-    assembleBox.checked = !!args.assembled;
+    pbcPick.value = ['none', 'mol', 'whole', 'nojump'].includes(args.pbc) ? args.pbc : 'none';
+    centerBox.checked = !!args.center;
+    fitPick.value = ['none', 'trans', 'rot+trans'].includes(args.fit) ? args.fit : 'none';
+    setGroupValue(args.group);
+    showGroupRow(groupNeeded());
   }
 
-  function showFragmentRow(on) {
-    fragmentLabel.hidden = !on;
-    fragmentPick.hidden = !on;
+  // The group is needed exactly when the centre or the fit acts on one; otherwise the control is hidden and the body
+  // sends null, so a default build's recorded arguments stay the ten default ones.
+  const groupNeeded = () => fitPick.value !== 'none' || centerBox.checked;
+
+  function showGroupRow(on) {
+    groupLabel.hidden = !on;
+    groupPick.hidden = !on;
   }
 
-  // `beads` is an option of the fit select only where the run's mapping states fragments: a fit that names no
-  // fragment is a request the server refuses, and offering a select that can only be refused is worse than no select.
-  function offerBeads(on) {
-    const found = [...fitPick.options].find(option => option.value === 'beads');
-    if (on && !found) {
+  // A group name the select may not offer yet -- a recorded fragment whose mapping has since changed -- is appended
+  // rather than dropped, because restoring the attempt's own view is the point of the fill.
+  function setGroupValue(value) {
+    const wanted = value || 'solute';
+    if (![...groupPick.options].some(option => option.value === wanted)) {
       const option = document.createElement('option');
-      option.value = 'beads';
-      option.textContent = 'beads (aligned on a fragment)';
-      fitPick.append(option);
-    } else if (!on && found) {
-      found.remove();
+      option.value = wanted;
+      option.textContent = wanted.replace(/^fragment:/, 'fragment ');
+      groupPick.append(option);
     }
+    groupPick.value = wanted;
   }
 
-  function setFragmentOptions(letters) {
-    fragmentPick.replaceChildren(...letters.map(letter => {
+  // The run's mapping supplies fragment letters for the group select; the two fixed groups are always offered. The
+  // current choice is kept, because the mapping read can resolve after the reader has already picked one.
+  function setGroupOptions(letters) {
+    const previous = groupPick.value || 'solute';
+    const options = ['solute', 'protein'].map(value => {
       const option = document.createElement('option');
-      option.value = letter;
-      const beads = (fragments && fragments[letter]) || [];
-      option.textContent = beads.length ? `${letter} — ${beads.join(', ')}` : letter;
+      option.value = value;
+      option.textContent = value;
       return option;
-    }));
+    });
+    for (const letter of letters) {
+      const option = document.createElement('option');
+      option.value = `fragment:${letter}`;
+      const beads = (fragments && fragments[letter]) || [];
+      option.textContent = beads.length ? `fragment ${letter} — ${beads.join(', ')}` : `fragment ${letter}`;
+      options.push(option);
+    }
+    groupPick.replaceChildren(...options);
+    setGroupValue(previous);
   }
 
   // The mapping is read when the form is first opened, not on mount: a run whose mapping is missing answers 404, and
-  // that is a state -- no fragments to fit on -- rather than a failure of the panel.
+  // that is a state -- no fragments to group on -- rather than a failure of the panel.
   async function loadFragments() {
     if (fragments !== null || !job) return fragments || {};
-    // One read for one click: the Build button opens the form and the `<details>`' own toggle event fires with it, and
-    // two callers asking at once would fetch the mapping twice.
+    // One read for one form: the button that opens it, a fit or centre chosen while it is open, and a series being
+    // shown all ask, and two callers asking at once would fetch the mapping twice.
     if (fragmentsPending) return fragmentsPending;
     const runId = job.id;
     fragmentsPending = (async () => {
@@ -481,13 +546,7 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
       }
       if (token !== fragmentsToken || !job || job.id !== runId) return {};
       fragments = found;
-      const letters = Object.keys(found).sort();
-      offerBeads(letters.length > 0);
-      setFragmentOptions(letters);
-      if (!letters.length) {
-        showFragmentRow(false);
-        if (fitPick.value === 'beads') fitPick.value = 'none';
-      }
+      setGroupOptions(Object.keys(found).sort());
       return fragments;
     })();
     try {
@@ -499,20 +558,22 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
 
   // ------------------------------------------------------------------------------------------------ the attempt
 
-  // The submit button's own state: a bead fit without a fragment cannot be sent, and neither can an attempt the run is
-  // already building -- pressing it again would queue a second copy of the same work.
+  // The submit is the only control that queues a build, and its label says which build that is: one nothing has built
+  // with these arguments yet, the attempt already on the stage (a recompute of it), or the identical attempt the run is
+  // already building, which the disabled button waits for.
   function updateSubmit() {
     const entry = entryNow();
     if (!job || !entry) {
       submitButton.disabled = true;
+      submitButton.textContent = 'Build frames';
       return;
     }
     const args = formArguments(entry);
-    const needsFragment = args.fit === 'beads' && !args.fragment;
     const inflight = newest(tasks, ['queued', 'running'], args);
-    submitButton.disabled = needsFragment || !!inflight;
-    if (needsFragment) setFormNote('A bead fit needs a fragment to align on.');
-    else if (inflight) setFormNote(`This build is ${inflight.status}. The button waits for it.`);
+    const built = newest(tasks, ['completed', 'failed', 'cancelled'], args);
+    submitButton.textContent = inflight ? 'Building frames…' : (built ? 'Recompute frames' : 'Build frames');
+    submitButton.disabled = !!inflight;
+    if (inflight) setFormNote(`This build is ${inflight.status}. The button waits for it.`);
   }
 
   function clearPoll() {
@@ -633,10 +694,10 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
     seriesLine.textContent = (stale
       ? 'This series was built from an older copy of the segment\'s trajectory, so it may not show what the run '
         + 'holds now. ' : '') + seriesSentence(args, entry, frames);
-    setNote(stale ? 'Recompute frames to rebuild it from the trajectory on disk.' : '');
+    setNote(stale ? 'Open Frame options and build again to rebuild it from the trajectory on disk.' : '');
     playButton.disabled = false;
     if (prefill) {
-      if (args.fit === 'beads') await loadFragments();
+      if (typeof args.group === 'string' && args.group.startsWith('fragment:')) await loadFragments();
       if (token !== formToken) return;
       fillForm(args);
     }
@@ -771,10 +832,6 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
     const entry = entryNow();
     if (!job || !entry) return;
     const args = formArguments(entry);
-    if (args.fit === 'beads' && !args.fragment) {
-      setFormNote('A bead fit needs a fragment to align on.');
-      return;
-    }
     const token = runToken;
     submitButton.disabled = true;
     setFormNote('Queuing the build…');
@@ -797,40 +854,44 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
     selectSeries({prefill: true});
   });
 
+  // The one opener of the options form, and the one name for it. It never builds: `aria-expanded` and `hidden` are the
+  // same state written in one place, so the reader cannot click a "Frame options" that the form disagrees with.
+  function setOptionsOpen(open) {
+    recompute.hidden = !open;
+    buildButton.setAttribute('aria-expanded', String(!!open));
+  }
+
   buildButton.addEventListener('click', () => {
-    recompute.open = true;
-    loadFragments();
-    atomsPick.focus();
-  });
-
-  recompute.addEventListener('toggle', () => {
-    if (recompute.open) loadFragments();
-  });
-
-  for (const element of [startInput, endInput, strideInput]) {
-    element.addEventListener('change', () => {
-      updateSubmit();
-      selectSeries();
-    });
-  }
-  for (const element of [atomsPick, fragmentPick, assembleBox]) {
-    element.addEventListener('change', () => {
-      updateSubmit();
-      selectSeries();
-    });
-  }
-  fitPick.addEventListener('change', async () => {
-    if (fitPick.value === 'beads') {
-      await loadFragments();
-      if (fragments && !Object.keys(fragments).length) {
-        offerBeads(false);
-        fitPick.value = 'none';
-      }
+    const open = recompute.hidden;
+    setOptionsOpen(open);
+    if (open) {
+      loadFragments();
+      atomsPick.focus();
     }
-    showFragmentRow(fitPick.value === 'beads');
+  });
+
+  for (const element of [startInput, endInput, intervalInput]) {
+    element.addEventListener('change', () => {
+      updateSubmit();
+      selectSeries();
+    });
+  }
+  for (const element of [atomsPick, pbcPick, groupPick]) {
+    element.addEventListener('change', () => {
+      updateSubmit();
+      selectSeries();
+    });
+  }
+  // The group row follows the two controls that use it. The mapping is read when the form opens, so a fit chosen here
+  // waits on that one read rather than starting a second.
+  function updateGroupRow() {
+    showGroupRow(groupNeeded());
+    if (groupNeeded()) loadFragments();
     updateSubmit();
     selectSeries();
-  });
+  }
+  fitPick.addEventListener('change', updateGroupRow);
+  centerBox.addEventListener('change', updateGroupRow);
 
   form.addEventListener('submit', event => {
     event.preventDefault();
@@ -873,12 +934,11 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
       buildButton.disabled = true;
       playButton.disabled = true;
       submitButton.disabled = true;
+      submitButton.textContent = 'Build frames';
       seriesLine.textContent = '';
       setNote('Choose a run to play its trajectory.');
       setFormNote('');
-      offerBeads(false);
       fillForm(defaultArguments({trajectory: '', structure: null}, null));
-      showFragmentRow(false);
     },
 
     // The run's own segments answer, from the monitor's one `/trajectory` fetch. The analyses are asked for here, once,
@@ -898,6 +958,7 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
       buildButton.disabled = !playable.length;
       playButton.disabled = true;
       submitButton.disabled = true;
+      submitButton.textContent = 'Build frames';
       if (!playable.length) {
         seriesLine.textContent = '';
         setNote(answer.why || 'This run offers no trajectory to play.');

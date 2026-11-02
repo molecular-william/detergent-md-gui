@@ -13,7 +13,8 @@ from dashboard.analysis.runs import segments
 JID = '123456abcdef'
 TRAJECTORY = 'stages/3_nvt/system.xtc'
 STRUCTURE = 'stages/3_nvt/system.gro'
-PAYLOAD = {'trajectory': TRAJECTORY, 'structure': STRUCTURE, 'stride': 2}
+PAYLOAD = {'trajectory': TRAJECTORY, 'structure': STRUCTURE, 'interval_ns': 0.5,
+           'pbc': 'mol', 'center': True, 'fit': 'rot+trans', 'group': 'protein'}
 
 
 def write(root, relative, text='', size=0):
@@ -92,11 +93,11 @@ def test_a_changed_argument_is_a_new_attempt(dashboard, monkeypatch):
     first = dashboard.client.post(f'/api/jobs/{JID}/frame-series', json=PAYLOAD)
     settle(coordinator)
 
-    changed = dashboard.client.post(f'/api/jobs/{JID}/frame-series', json=dict(PAYLOAD, stride=5))
+    changed = dashboard.client.post(f'/api/jobs/{JID}/frame-series', json=dict(PAYLOAD, interval_ns=1.0))
 
     assert changed.status_code == 202
     assert changed.get_json()['id'] != first.get_json()['id']
-    assert [task['payload'] for task in tasks(coordinator)] == [PAYLOAD, dict(PAYLOAD, stride=5)]
+    assert [task['payload'] for task in tasks(coordinator)] == [PAYLOAD, dict(PAYLOAD, interval_ns=1.0)]
 
 
 def test_changed_trajectory_bytes_at_the_same_path_are_a_new_attempt(dashboard, monkeypatch):
@@ -123,6 +124,38 @@ def test_an_invalid_payload_is_a_400_and_creates_no_task(dashboard, monkeypatch)
     assert response.status_code == 400
     assert 'structure' in response.get_json()['error'], response.get_json()
     assert tasks(coordinator) == [], 'a refused payload must create no attempt'
+
+
+def test_a_changed_view_is_a_new_attempt(dashboard, monkeypatch):
+    """The view arguments are part of the signature: asking for different coordinates is a different series."""
+    coordinator, _ = seed(dashboard)
+    monkeypatch.setattr(coordinator.analysis_coordinator, 'run', lambda *args: None)
+    first = dashboard.client.post(f'/api/jobs/{JID}/frame-series', json=PAYLOAD)
+    settle(coordinator)
+
+    changed = dashboard.client.post(f'/api/jobs/{JID}/frame-series',
+                                    json=dict(PAYLOAD, pbc='none', center=False, group='solute'))
+
+    assert changed.status_code == 202
+    assert changed.get_json()['id'] != first.get_json()['id']
+
+
+LEGACY = {'trajectory': TRAJECTORY, 'structure': STRUCTURE, 'stride': 2, 'assembled': True,
+          'fit': 'beads', 'fragment': 'A'}
+
+
+def test_a_legacy_attempt_is_queued_as_it_was_written_and_still_lists(dashboard, monkeypatch):
+    """An old panel's payload still queues and lists verbatim: the server maps it in the producer, never in the record."""
+    coordinator, _ = seed(dashboard)
+    monkeypatch.setattr(coordinator.analysis_coordinator, 'run', lambda *args: None)
+
+    response = dashboard.client.post(f'/api/jobs/{JID}/frame-series', json=LEGACY)
+    assert response.status_code == 202, response.get_data(as_text=True)
+    settle(coordinator)
+
+    listed = dashboard.client.get(f'/api/jobs/{JID}/analyses').get_json()
+    attempt = next(row for row in listed if row['id'] == response.get_json()['id'])
+    assert attempt['payload'] == LEGACY, 'the old request was relabelled instead of being recorded as written'
 
 
 def test_the_trajectory_endpoint_carries_each_segments_identity(dashboard):

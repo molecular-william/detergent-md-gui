@@ -20,8 +20,8 @@
 //
 // A `.gro` carries no bond records, and this vendored build's GRO parser guesses bonds from distances whatever
 // `inferBonds` says -- measured: the eight mapped beads of a `.gro` came back with four bonds under either flag. So
-// the caller clears the store on branch 2, and the caption names the run's own topology rather than implying a
-// connectivity the coordinates hold.
+// the caller clears the store on branch 2, and the readout reports the bonds the run's own topology states, or none,
+// rather than implying a connectivity the coordinates hold.
 
 import { runViewStructureRule } from './run-view-extension.js';
 
@@ -65,29 +65,18 @@ export function loadParameters(text, {path, runType} = {}) {
     throw new Error(`${path || 'that file'} is not a .gro or .pdb this viewer can open`);
   }
   if (/^CONECT/m.test(String(text || ''))) {
-    return {ext, inferBonds: 'none',
-            reason: 'the file carries CONECT — drawn from its own records, the distance guess is off'};
+    return {ext, inferBonds: 'none'};
   }
   if (ext === 'gro' && isCoarseGrained(path, runType)) {
     // This vendored build's GRO parser guesses from distances whatever the flag, and a `.gro` carries no bond
-    // records of its own, so the picture is bondless once the caller clears the store: the caption says so rather
-    // than implying a connectivity, and says where the model's own bonds are without naming a directory -- a
-    // single-molecule CG build keeps its moleculetype under its own stage, a feature's run layout keeps it under
-    // one of its own, and this module has no run directory to look in.
-    return {ext, inferBonds: 'none',
-            reason: 'a .gro carries coordinates and no bond records, so this viewer draws no bond of its own'
-                    + ", so a coarse-grained model is drawn as loose beads and its own [ bonds ] and "
-                    + '[ constraints ] are in the run\'s topology file for the molecule it holds'};
+    // records of its own, so the picture is bondless once the caller clears the store: the readout counts no bonds
+    // the file states, and the model's own `[ bonds ]` and `[ constraints ]` live in the run's topology file.
+    return {ext, inferBonds: 'none'};
   }
   if (isCoarseGrained(path, runType)) {
-    return {ext, inferBonds: 'none',
-            reason: 'coarse-grained — a bead is a radius stand-in, so the distance guess is off by construction'};
+    return {ext, inferBonds: 'none'};
   }
-  return {ext, inferBonds: 'all',
-          reason: ext === 'gro'
-            ? 'all-atom, and a .gro carries no bond records of its own — the bonds drawn are this viewer\'s '
-              + 'distance guess over the coordinates'
-            : "all-atom with no CONECT — the viewer's own distance guess reproduces the chemistry"};
+  return {ext, inferBonds: 'all'};
 }
 
 //: Empty a structure's bond store. `inferBonds: 'none'` is not enough on its own for every format: this build's

@@ -4,24 +4,18 @@ State and open items for this repository. Rules live in `AGENTS.md`; subsystem b
 `docs/PROJECT_GUIDE.md`; scoring science in `docs/DDM_CALIBRATION.md`. Read this before touching the DDM CG chain,
 the protein-detergent pipeline or the coordinator. This file keeps only what is current and the evidence behind it.
 
-## Next task (2026-10-30): Run view controls and PBC options
+## Next task (2026-11-02): none approved
 
-The player shipped earlier on 2026-10-30 (`e7e6ad8` path contract, `d635763` the on-demand `frame-series` analysis and
-the Trajectory block; docs `c3cf6c8`, `e33956a`; plan and record `docs/plans/2026-10-30-run-view-trajectory.md`). The
-user's follow-up is written up, with the answers to its two questions, in
-`docs/plans/2026-10-30-run-view-pbc-controls.md` (approved 2026-10-30):
+The Run view controls and PBC slice landed on 2026-11-02
+(`docs/plans/2026-10-30-run-view-pbc-controls.md`): a taller canvas, the removable bonds-reason readout cell gone,
+one build action behind **Frame options**, **ns per frame** instead of a frame step, and `pbc`/`centre`/`fit`/`group`
+as a view of the frames. No next task is approved; pick from the open items below -- the Run view progress decision,
+`pytest-socket`, verifying the migrated runs still render, and the cloud-vs-rough belt measurement are the candidates.
 
-- make the NGL canvas taller;
-- remove the readout cell that says **how the bonds were decided** (and its browser assertions);
-- one build action: the top "Recompute frames" button only opens the form while the submit says "Build frames";
-- replace the frame-step argument with **nanoseconds per frame** (keeping old attempts readable);
-- explain **Assemble** (a display-only gather, not a PBC conversion) and fold it into real `trjconv`-style `pbc`,
-  `center`, `fit` and `group` options, with a `gmx trjconv` differential test.
+Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9ae6db23f` was deleted by the user on
+2026-10-30**; anything that still names it is history, not a live run.
 
-Live checks should use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9ae6db23f` was deleted by the
-user on 2026-10-30**, after the player's acceptance; anything that still names it is history, not a live run.
-
-## Current state (2026-10-30)
+## Current state (2026-11-02)
 
 - **Three distributions.** Engine `detergent-core` (`packages/core`, import `dashboard`); features
   `detergent-validation` (`packages/validation`) and `detergent-pdc` (`packages/pdc`), discovered through the
@@ -46,10 +40,13 @@ user on 2026-10-30**, after the player's acceptance; anything that still names i
   installs one copy at `workspace/dashboard/martini3` and records the upstream commit and per-file digests. The rest
   of `references/` (PDFs, partial clones, benchmark material) stays untracked.
 - **Run view.** Static structures, the CG segment table, figures, and the on-demand Trajectory block: a
-  `frame-series` attempt is built from nine arguments, played back from a server-written multi-model PDB, fetched only
-  on Play. `/trajectory` answers run-root paths with each playable segment's `identity`; a `.pdb` structure is served
-  by the artifact route. Caps are 240 models / ~250 MB. `config/dashboard.json` admits 40 GiB per run (the deleted
-  `00b9ae6db23f` was 34.08 GiB, which the former 30 GiB limit could not analyse).
+  `frame-series` attempt is built from ten arguments (segment, atoms, ns per frame, start/end, `pbc`, `center`, `fit`,
+  `group`), played back from a server-written multi-model PDB, fetched only on Play. The form is behind the **Frame
+  options** disclosure; the one submit labels itself Build or Recompute. An older attempt recorded with
+  `stride`/`assembled`/`fit: protein|beads` is still found and played as the view it described. `/trajectory` answers
+  run-root paths with each playable segment's `identity`; a `.pdb` structure is served by the artifact route. Caps are
+  240 models / ~250 MB. `config/dashboard.json` admits 40 GiB per run (the deleted `00b9ae6db23f` was 34.08 GiB,
+  which the former 30 GiB limit could not analyse).
 - **Service.** The dashboard runs on port 5000 as the transient user unit `detergent-dashboard`; restart it with
   `systemctl --user stop` then a new `systemd-run --user`. Restart after Python changes; `static/` and templates are
   read per request.
@@ -58,7 +55,6 @@ user on 2026-10-30**, after the player's acceptance; anything that still names i
 
 | item | state | next |
 | --- | --- | --- |
-| Run view controls and PBC | approved 2026-10-30; plan `docs/plans/2026-10-30-run-view-pbc-controls.md` | build it; `b920391735dd` is the live example |
 | run-layout migration | applied 2026-10-27 (`legacy_layout.json` on every then-existing run); `936b74bd3fa8`, `00b9ae6db23f` deleted by the user | verify the migrated runs still render and resolve analyses |
 | Overall Run view progress | the card bar is the current stage's fraction; timeline/plan skips show settings | decide whether a true run-level percentage is wanted |
 | cloud vs rough belt | open measurement, not a task | one protein, one seed, two 100 ns legs; compare removal fraction/aggregation/belt thickness before adopting a belt criterion |
@@ -85,10 +81,11 @@ user on 2026-10-30**, after the player's acceptance; anything that still names i
   analysis is not reused for different sources. `frame-series` adds the chosen trajectory through `Kind.source_hook`.
 - **`analysis/runs/segments.py` still names the pdc stage order** for the segment table; the film that consumed it is
   retired.
-- **Display assembly is not dynamics.** `analysis/runs/frame_series.py::_assemble` moves whole molecules by periodic
-  images to the protein (or the first molecule) and centres it for the viewer; it assumes an orthogonal box, never
-  rewrites the trajectory, and the file says so. Never use `gmx trjconv -pbc cluster` to pull separate micelles
-  together.
+- **A view is not dynamics.** `pbc`, `centre` and `fit` move sampled frames with MDAnalysis transforms; the view is
+  recorded in `frames.json.view` and stated in the PDB's `VIEW MODIFICATIONS` REMARK, and the trajectory is never
+  rewritten. `nojump` is applied to every frame of the window in order, never only to the sampled ones. `-pbc mol
+  -center` and `-pbc nojump` are pinned by a `gmx trjconv` differential test. Never use `gmx trjconv -pbc cluster`
+  to pull separate micelles together.
 - **A rebuilt extension must set its own duration.** `restart_mdp(..., length_ps=)` overwrites `nsteps`; the old path
   left the assessment's 100 ns in place.
 - **A protein-only default must not become an empty-micelle request.** `create_job` clears `prepare_protein` for a pdc
@@ -98,8 +95,9 @@ user on 2026-10-30**, after the player's acceptance; anything that still names i
 - **No `ION`/water in the pdc viewer.** `ION` was once drawn as unbonded protein beads; it is in `WATER_RESIDUES`.
 - **pdc bonds are chemical by default.** Protein and detergent CONECT records; the elastic network is a separate PDB
   series at opacity 0.1.
-- **The player's files are views with a record.** `frames.json` carries the trajectory identity, the arguments and the
-  effective cadence; `series_pdb`'s REMARKs state any fit or assembly. The series PDB is fetched only on Play.
+- **The player's files are views with a record.** `frames.json` carries the trajectory identity, the arguments, the
+  effective cadence, the `view` and any `legacy` marker; `series_pdb`'s REMARKs state a fit and any PBC/centre view.
+  The series PDB is fetched only on Play.
 - **Never kill DSH.** The first listener on 3080 is DSH; the dashboard is 5000 and is a systemd user service.
 
 ## Current measurements
@@ -112,12 +110,16 @@ user on 2026-10-30**, after the player's acceptance; anything that still names i
   evidence, not as a live run.
 - Frame-series producer (2026-10-30): 44 s for the whole 100 ns, 2.5 GB extension trajectory after one sequential
   pass; random `.xtc` access cost 1.7 s a frame, which is why the producer never indexes frames at random.
-- Tests (measured 2026-10-30, after the player): 2,518 collected; fast **2,249 passed, 1 xfailed**; browser **251
-  passed**; slow **17 passed**; `ruff check packages tests conftest.py` clean; mutation signal 10 caught / 1 survived.
+- Tests (measured 2026-11-02, after the PBC slice): 2,555 collected; fast **2,277 passed, 1 xfailed**; browser **258
+  passed**; slow **19 passed**; `ruff check packages tests conftest.py` clean; mutation signal 10 caught / 1 survived.
   `pytest.ini` owns tier counts; do not copy moving counts into this file.
 
 ## Landed slices, newest first
 
+- **2026-11-02 Run view controls and PBC**: a taller NGL canvas, the bonds-reason readout cell removed, one **Frame
+  options** disclosure with a state-dependent Build/Recompute submit, **ns per frame** instead of a frame step, and
+  in-process `pbc`/`centre`/`fit`/`group` view options with a `gmx trjconv` differential test; old
+  `stride`/`assembled` attempts stay playable and labelled as frame-step builds.
 - **2026-10-30 Martini 3 set tracked**: the published lipidome ITPs, the sugar reference and the licence are in git
   (18 MB), so a clone installs the force field without a download; benchmark material and the workbook stay untracked.
 - **2026-10-30 tools layout**: Fast-Forward moved from `resources/parameterizers/` to `tools/fast_forward`, so all

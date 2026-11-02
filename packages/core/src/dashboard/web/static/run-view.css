@@ -7,8 +7,9 @@
  * Reversing the two stacks the columns; the plan's draft measured exactly that.
  *
  * `overflow-wrap: anywhere` is inherited, and it is here because everything this panel prints is a path or a
- * sentence about one: a run-relative artifact path and the readout's own "how the bonds were decided" reason are
- * longer than a narrow column, and an unbreakable word in a paragraph measures as sideways scroll at a 390 px window.
+ * sentence about one: a run-relative artifact path and the readout sentence naming the `model.json` it took its bead
+ * sizes from are longer than a narrow column, and an unbreakable word in a paragraph measures as sideways scroll at a
+ * 390 px window.
  */
 
 /* The chooser. A list of buttons rather than a select: the run's id, its label, its molecule and its type are all
@@ -21,7 +22,8 @@
 .run-view-structures tr[aria-selected="true"] { background: #eef4ff }
 .run-view-structures code { font-size: 12px; overflow-wrap: anywhere }
 
-.run-view-viewer { height: 420px; min-height: 300px; border: 1px solid var(--line); border-radius: 8px; background: #f7f9fc }
+.run-view-viewer { height: clamp(520px, 58vh, 760px); min-height: 420px; border: 1px solid var(--line);
+  border-radius: 8px; background: #f7f9fc }
 
 .run-view-readout { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px;
   margin: 12px 0 0; padding: 10px; background: #f7f9fc; border: 1px solid var(--line); border-radius: 8px;
@@ -77,8 +79,11 @@
 .run-view-sub td code, .run-view-figures li code { overflow-wrap: anywhere }
 
 /* A run's paths are its longest words, and they appear as often in prose as in a table: an unbreakable one inside a
-   paragraph widens the document, which is what a 390 px check catches and nothing else does. */
-.monitor p, .monitor td, .monitor summary, .monitor label, .monitor .hint { overflow-wrap: anywhere }
+   paragraph widens the document, which is what a 390 px check catches and nothing else does. The readout's values
+   are bold `<b>` elements, not paragraphs, so they need the same rule: a bead-size sentence names
+   `stages/2_mapping/model.json`, and an unbreakable path there widened the readout's grid past a 390 px window. */
+.monitor p, .monitor td, .monitor summary, .monitor label, .monitor .hint,
+.run-view-readout b { overflow-wrap: anywhere }
 
 /* The CG chain as segments: which legs share one system, and where the system is rebuilt. Two states are drawn
  * because a reader must not have to infer them -- a stage that holds no trajectory (nothing to play) and the stage
@@ -112,7 +117,6 @@
 /* The time is a number a reader compares between two monitors, so it does not move under the glyphs. */
 .run-view-time { font-size: 12px; font-variant-numeric: tabular-nums }
 .run-view-recompute { margin-top: 10px }
-.run-view-recompute > summary { cursor: pointer; font-weight: 700 }
 .run-view-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 8px;
   margin-top: 8px }
 .run-view-form-grid > label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted) }

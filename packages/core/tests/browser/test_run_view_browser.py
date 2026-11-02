@@ -445,8 +445,8 @@ def test_an_aa_runs_gro_is_drawn_with_the_guess_that_is_right_about_chemistry(da
     This test used to assert the opposite -- zero bonds on a `.gro` -- because the rule sent every `.gro` down the
     coarse-grained branch and emptied the store. That is right for a bead, where the guess is wrong by construction,
     and wrong for chemistry, which is the one case it is right about: the atomistic half of a comparison was left
-    with no bonds at all. The readout names which guess the bonds came from, and the coarse-grained branch is held
-    to its own answer by the tests above.
+    with no bonds at all. The readout counts the bonds the file states and the bonds the viewer resolved, and the
+    coarse-grained branch is held to its own answer by the tests below.
     """
     seed(dashboard)
     page, errors = live_page
@@ -458,13 +458,12 @@ def test_an_aa_runs_gro_is_drawn_with_the_guess_that_is_right_about_chemistry(da
     assert measured['bonds'] > 0, 'an all-atom .gro keeps the guess its chemistry is drawn by'
     expect(page.locator('#run-view-readout-A')).to_contain_text('bonds the file states')
     expect(page.locator('#run-view-readout-A')).to_contain_text('bonds the viewer resolved')
-    expect(page.locator('#run-view-readout-A')).to_contain_text("this viewer's distance guess")
     expect(page.locator('#run-view-what-A')).to_contain_text('stages/07_reference/lig.gro')
     assert errors == []
 
 
 def test_an_aa_runs_molecule_is_the_one_case_the_viewers_own_guess_is_left_on(dashboard, live_page):
-    """An all-atom `.pdb` with no `CONECT` is the third branch: the guess reproduces the chemistry."""
+    """An all-atom `.pdb` with no `CONECT` is the third branch: the viewer's own distance guess is left on."""
     seed(dashboard)
     page, errors = live_page
     open_panel(page, live_page, run=AA_RUN)
@@ -477,7 +476,6 @@ def test_an_aa_runs_molecule_is_the_one_case_the_viewers_own_guess_is_left_on(da
     assert measured['atoms'] == 5
     assert measured['bonds'] > 0, 'the viewer\'s own distance guess reproduces a real molecule'
     expect(page.locator('#run-view-readout-A')).to_contain_text('bonds the file states')
-    expect(page.locator('#run-view-readout-A')).to_contain_text('reproduces the chemistry')
     assert errors == []
 
 
@@ -507,11 +505,11 @@ def test_a_cg_runs_mapped_model_is_drawn_with_the_models_own_bonds(dashboard, li
     assert drawn == set(MODEL_BONDS), f"the drawn bonds are not the model's: {sorted(drawn ^ set(MODEL_BONDS))}"
     expect(page.locator('#run-view-what-A')).to_contain_text('stages/2_mapping/mapped.gro')
     expect(page.locator('#run-view-readout-A')).to_contain_text("bonds the run's own topology states")
-    expect(page.locator('#run-view-readout-A')).to_contain_text("the run's own moleculetype, written as CONECT")
-    # The readout names the file's own topology, not a directory: a protein-detergent run keeps its detergent's model
-    # somewhere else entirely, and this sentence was the one that told a pdc reader to look under `3_initial_CG/`.
-    expect(page.locator('#run-view-readout-A')).to_contain_text('its own topology file')
-    assert 'stages/3_initial_CG/' not in page.locator('#run-view-readout-A').inner_text()
+    # The bonds-reason cell was removed at the reader's request. Pinned here, on a served coarse file, so neither
+    # the row nor a rephrased copy of it can come back silently.
+    readout = page.locator('#run-view-readout-A').inner_text()
+    assert 'how the bonds' not in readout, f'the removed bonds-reason cell came back: {readout}'
+    assert 'distance guess' not in readout, f'the bonds reason was rephrased into the readout: {readout}'
     assert errors == []
 
 
@@ -533,8 +531,13 @@ def test_a_cg_run_that_states_no_moleculetype_is_drawn_bondless_and_says_so(dash
 
     measured = page.locator('#run-view-viewer-A').evaluate(MEASURE)
     assert measured['bonds'] == 0, 'a bond nothing declares must not be drawn'
-    expect(page.locator('#run-view-readout-A')).to_contain_text('states no moleculetype')
-    expect(page.locator('#run-view-readout-A')).to_contain_text('the picture claims no bonds')
+    # The readout keeps its count cells and carries no bonds-reason cell. The count cell is asserted first, so the
+    # absence below cannot pass on a readout that simply has not been written yet. The route still serves this file's
+    # coordinates (with no CONECT), so the count is the run's own topology's: zero.
+    expect(page.locator('#run-view-readout-A')).to_contain_text("bonds the run's own topology states")
+    readout = page.locator('#run-view-readout-A').inner_text()
+    assert 'how the bonds' not in readout, f'the removed bonds-reason cell came back: {readout}'
+    assert 'claims no bonds' not in readout, f'the bonds reason was rephrased into the readout: {readout}'
     assert errors == []
 
 
@@ -555,21 +558,16 @@ def test_a_cg_file_that_carries_conect_is_drawn_from_it_and_never_guessed_at(das
     select_row(page, 'LIG1.pdb')
     wait_for_component(page, atoms=8, drawn='stages/3_initial_CG/LIG1.pdb', fresh=True)
     measured = page.locator('#run-view-viewer-A').evaluate(MEASURE)
-    # The same instant as the structure read, and named on the panel's own caption: `draw()` writes the bond
-    # provenance into this readout *after* `loadFile` resolves, so a measurement taken in the click's own window
-    # would not see it -- but only a file that carries CONECT records reaches that branch, so the readout is what
-    # says this is the CONECT file's structure rather than the mapped `.gro` that was drawn before the click.
+    # The same instant as the structure read, and named on the panel's own caption: the caption carries the file this
+    # component was built from, so an assertion on it says the measurement belongs to the CONECT file rather than to
+    # the mapped `.gro` that was drawn before the click.
     assert measured['caption'].split(' · ')[1:2] == ['stages/3_initial_CG/LIG1.pdb'], (
         f'the measurement was not taken on the file the click named: {measured["caption"]}')
-    assert 'carries CONECT' in measured['readout'], (
-        f'the measurement was not taken on the CONECT-carrying file: {measured["readout"]}')
     drawn = {tuple(pair) for pair in measured['pairs']}
     assert measured['bonds'] == len(MODEL_BONDS), (
         f'the file states {len(MODEL_BONDS)} bonds and the viewer drew {measured["bonds"]}: the CONECT records '
         f'were double-drawn with a distance guess ({sorted(drawn)})')
     assert drawn == set(MODEL_BONDS), f'the drawn bonds are not the file\'s own: {sorted(drawn ^ set(MODEL_BONDS))}'
-    expect(page.locator('#run-view-readout-A')).to_contain_text('carries CONECT')
-    expect(page.locator('#run-view-readout-A')).to_contain_text('the distance guess is off')
     assert errors == []
 
 
@@ -957,6 +955,52 @@ def test_the_rule_hands_an_all_atom_gro_to_the_guess_and_a_coarse_one_to_nothing
 
 
 # ------------------------------------------------------------------------------------------- the layout itself
+
+
+def test_the_canvas_is_taller_than_the_old_height_and_ngl_fills_its_host(dashboard, live_page):
+    """The viewer grows with the window, and the NGL canvas is the host's own measured box.
+
+    At the normal 1700x1050 viewport the host is above the old fixed 420 px; the exact pixel height is deliberately
+    not asserted, because it is a clamp of the viewport and must not move with a font metric or a window manager.
+    The canvas filling the host is proved on both a wide and a 390 px window, which also proves the existing
+    `resize` listener reaches NGL's `handleResize()` -- a canvas left at the old width is what that failure looks
+    like. The narrow window keeps the panel's no-horizontal-scroll rule.
+    """
+    seed(dashboard)
+    page, errors = live_page
+    open_panel(page, live_page, run=CG_RUN)
+    wait_for_component(page, atoms=8)
+
+    def fills_host():
+        return page.wait_for_function(
+            """() => {
+                 const host = document.querySelector('#run-view-viewer-A');
+                 const canvas = host && host.querySelector('canvas');
+                 if (!canvas) return false;
+                 const drawn = canvas.getBoundingClientRect(), box = host.getBoundingClientRect();
+                 return Math.abs(drawn.height - box.height) <= 2 && Math.abs(drawn.width - box.width) <= 2;
+               }""",
+            timeout=30000)
+
+    fills_host()
+    measured = page.locator('#run-view-viewer-A').evaluate("""el => {
+      const canvas = el.querySelector('canvas').getBoundingClientRect();
+      const host = el.getBoundingClientRect();
+      return {host: {width: host.width, height: host.height},
+              canvas: {width: canvas.width, height: canvas.height}};
+    }""")
+    assert measured['host']['height'] > 420, (
+        f'the viewer is no taller than the old fixed 420 px: {measured}')
+    assert abs(measured['canvas']['height'] - measured['host']['height']) <= 2, (
+        f'the NGL canvas does not fill the host height: {measured}')
+    assert abs(measured['canvas']['width'] - measured['host']['width']) <= 2, (
+        f'the NGL canvas does not fill the host width: {measured}')
+
+    # The narrow window is the width the panel's own rule is measured at: one column, no sideways scroll.
+    page.set_viewport_size({'width': 390, 'height': 900})
+    fills_host()
+    browser.assert_no_horizontal_scroll(page)
+    assert errors == []
 
 
 def test_the_run_view_is_two_monitors_each_with_a_combo_and_three_panels_below(dashboard, live_page):

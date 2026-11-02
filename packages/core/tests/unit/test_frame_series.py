@@ -1,22 +1,28 @@
-"""The frame-series producer: the frames it samples, the fit and assembly it records, and what it refuses.
+"""The frame-series producer: the frames it samples, the view it applies, and what it refuses.
 
 The work directory is the one the analysis subprocess is handed: the chosen trajectory and structure at the keys the
 payload names, `manifest.json`, and whatever the source hook staged beside them. Each fixture builds a real `.gro` and
 `.xtc` with MDAnalysis, so the assertions are against a trajectory the test made rather than a run in the developer's
 workspace. Positions are ångström (MDAnalysis's unit) and the file states nanometres, so a unit slip is what the
 tolerances catch.
+
+The last test compares the producer with `gmx trjconv` itself; it is marked slow and skips, with the reason stated,
+when the declared GROMACS is not installed.
 """
 import json
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 import MDAnalysis as mda
 import numpy as np
 import pytest
 from dashboard.analysis.runs import frame_series, segments
+from dashboard.execution import tools
 
 NAMES = ('B01', 'B02', 'B03', 'B04')
+GMX = tools.tool_path('gmx')
 
 
 def _trajectory(directory, positions_by_frame, *, names=NAMES, resindex=None, resnames=None, resids=None,
@@ -32,12 +38,13 @@ def _trajectory(directory, positions_by_frame, *, names=NAMES, resindex=None, re
     universe.add_TopologyAttr('names', names)
     universe.add_TopologyAttr('resnames', resnames)
     universe.add_TopologyAttr('resids', resids)
+    dimensions = None if box is None else ([*box, 90.0, 90.0, 90.0] if len(box) == 3 else list(box))
     with mda.Writer(str(directory / f'{stem}.xtc'), n_atoms=len(names)) as writer:
         for frame, positions in enumerate(positions_by_frame):
             universe.atoms.positions = np.asarray(positions, dtype=float)
             universe.trajectory.ts.time = frame * dt_ps
-            if box is not None:
-                universe.dimensions = [*box, 90.0, 90.0, 90.0]
+            if dimensions is not None:
+                universe.dimensions = dimensions
             if frame == 0:
                 universe.atoms.write(str(directory / f'{stem}.gro'))
             writer.write(universe.atoms)
@@ -84,20 +91,24 @@ def _turned(positions, degrees, shift=(0.0, 0.0, 0.0)):
     return np.asarray(positions, dtype=float) @ rotation.T + np.asarray(shift, dtype=float)
 
 
+DEFAULTS = {'pbc': 'none', 'center': False, 'fit': 'none', 'group': 'solute'}
 
-def test_a_series_holds_the_frames_it_was_asked_for_and_states_their_times(tmp_path):
+
+def test_a_series_holds_the_frames_the_interval_asks_for_and_states_their_times(tmp_path):
     work = tmp_path / 'work'
     _trajectory(work, _moved(5), resindex=[0] * 4, resnames=['DDM'], resids=[1])
 
-    result = frame_series.run(work, _payload(stride=2))
+    result = frame_series.run(work, _payload(interval_ns=0.02))
 
     text = (work / 'run-frames.pdb').read_text()
     assert len(re.findall(r'^MODEL', text, re.M)) == 3
     assert 'REMARK 950 MODEL 1 TIME 0.000000 NS' in text
     assert 'REMARK 950 MODEL 2 TIME 0.020000 NS' in text
     assert 'REMARK 950 MODEL 3 TIME 0.040000 NS' in text
+    assert 'one model every 0.02 ns' in text, 'the build sentence does not read in nanoseconds'
+    assert 'VIEW MODIFICATIONS' not in text, 'a raw series claims a modification it did not make'
     record = json.loads((work / 'frames.json').read_text())
-    assert record['args'] == _payload(stride=2)
+    assert record['args'] == _payload(interval_ns=0.02)
     assert record['indices'] == [0, 2, 4]
     assert record['times_ns'] == [0.0, 0.02, 0.04]
     assert record['models'] == result['models'] == 3
@@ -106,7 +117,11 @@ def test_a_series_holds_the_frames_it_was_asked_for_and_states_their_times(tmp_p
     assert record['structure_identity'] == segments.identity(work / 'traj.gro')
     assert record['bytes'] == (work / 'run-frames.pdb').stat().st_size
     assert record['cadence_ns'] == pytest.approx(0.02)
-    assert record['fit'] is None and record['assembled'] is False
+    assert record['interval_ns'] == 0.02 and record['stride'] == 2
+    assert record['view'] == DEFAULTS and record['legacy'] == []
+    assert record['fit'] is None
+    assert result['interval_ns'] == 0.02 and result['stride'] == 2
+    assert result['view'] == DEFAULTS
     assert result['times'] == 3 and result['files'] == ['run-frames.pdb', 'frames.json']
     # A run with no topology, mapping or protein is still a run of coordinates, and the file says so.
     assert 'NO BONDS RECORDED' in text
@@ -117,15 +132,15 @@ def test_a_time_window_selects_the_frames_between_its_ends(tmp_path):
     work = tmp_path / 'work'
     _trajectory(work, _moved(5), resindex=[0] * 4, resnames=['DDM'], resids=[1])
 
-    frame_series.run(work, _payload(start_ns=0.01, end_ns=0.03, stride=2))
+    frame_series.run(work, _payload(start_ns=0.01, end_ns=0.03, interval_ns=0.02))
 
     record = json.loads((work / 'frames.json').read_text())
     assert record['indices'] == [1, 3]
     assert record['times_ns'] == [0.01, 0.03]
 
 
-def test_auto_stride_aims_at_the_model_budget(tmp_path):
-    """A stride of `None`/`'auto'` is what a panel offers first; it must not ask for hundreds of models."""
+def test_the_auto_cadence_aims_at_the_model_budget(tmp_path):
+    """A null/absent interval is what a panel offers first; it must not ask for hundreds of models."""
     work = tmp_path / 'work'
     _trajectory(work, _moved(200), resindex=[0] * 4, resnames=['DDM'], resids=[1])
 
@@ -134,6 +149,68 @@ def test_auto_stride_aims_at_the_model_budget(tmp_path):
     record = json.loads((work / 'frames.json').read_text())
     assert record['models'] == 100 <= frame_series.AUTO_MODELS
     assert record['indices'][:3] == [0, 2, 4] and record['indices'][-1] == 198
+    assert record['interval_ns'] is None and record['stride'] == 2
+
+
+def test_an_interval_that_is_an_exact_multiple_of_the_step_uses_that_stride(tmp_path):
+    work = tmp_path / 'work'
+    _trajectory(work, _moved(5), resindex=[0] * 4, resnames=['DDM'], resids=[1])  # dt = 0.01 ns
+
+    frame_series.run(work, _payload(interval_ns=0.03))
+
+    record = json.loads((work / 'frames.json').read_text())
+    assert record['stride'] == 3 and record['indices'] == [0, 3]
+    assert record['cadence_ns'] == pytest.approx(0.03)
+
+
+def test_an_interval_that_is_not_a_multiple_records_the_step_it_rounded_to(tmp_path):
+    """3.5 steps rounds to 4 frames, so the effective cadence is 0.04 ns, not the 0.035 ns that was asked for."""
+    work = tmp_path / 'work'
+    _trajectory(work, _moved(5), resindex=[0] * 4, resnames=['DDM'], resids=[1])
+
+    frame_series.run(work, _payload(interval_ns=0.035))
+
+    record = json.loads((work / 'frames.json').read_text())
+    assert record['args']['interval_ns'] == 0.035, 'the request is not what was recorded'
+    assert record['stride'] == 4 and record['indices'] == [0, 4]
+    assert record['cadence_ns'] == pytest.approx(0.04)
+    assert 'one model every 0.04 ns' in (work / 'run-frames.pdb').read_text()
+
+
+def test_an_interval_finer_than_the_step_is_one_frame_at_the_step(tmp_path):
+    work = tmp_path / 'work'
+    _trajectory(work, _moved(3), resindex=[0] * 4, resnames=['DDM'], resids=[1])
+
+    frame_series.run(work, _payload(interval_ns=0.004))
+
+    record = json.loads((work / 'frames.json').read_text())
+    assert record['stride'] == 1 and record['indices'] == [0, 1, 2]
+    assert record['cadence_ns'] == pytest.approx(0.01), 'the recorded cadence is the request, not the frame step'
+    assert 'one model every 0.01 ns' in (work / 'run-frames.pdb').read_text()
+
+
+def test_an_interval_without_a_time_step_is_refused(tmp_path):
+    work = tmp_path / 'work'
+    _trajectory(work, _moved(3), resindex=[0] * 4, resnames=['DDM'], resids=[1], dt_ps=0.0)
+
+    with pytest.raises(ValueError) as refused:
+        frame_series.run(work, _payload(interval_ns=0.1))
+
+    assert 'states no time step' in str(refused.value), str(refused.value)
+
+
+def test_the_old_stride_argument_is_still_read_for_an_attempt_built_before_the_interval(tmp_path):
+    work = tmp_path / 'work'
+    _trajectory(work, _moved(5), resindex=[0] * 4, resnames=['DDM'], resids=[1])
+
+    result = frame_series.run(work, _payload(stride=2))
+
+    record = json.loads((work / 'frames.json').read_text())
+    assert record['indices'] == [0, 2, 4] and record['stride'] == 2
+    assert record['interval_ns'] is None
+    assert record['cadence_ns'] == pytest.approx(0.02)
+    assert record['args'] == _payload(stride=2)
+    assert result['stride'] == 2
 
 
 def test_more_models_than_the_cap_are_refused_naming_both_numbers(tmp_path, monkeypatch):
@@ -142,7 +219,7 @@ def test_more_models_than_the_cap_are_refused_naming_both_numbers(tmp_path, monk
     _trajectory(work, _moved(4), resindex=[0] * 4, resnames=['DDM'], resids=[1])
 
     with pytest.raises(ValueError) as refused:
-        frame_series.run(work, _payload(stride=1))
+        frame_series.run(work, _payload(interval_ns=0.01))
 
     message = str(refused.value)
     assert '4 models' in message and 'at most 2' in message, message
@@ -154,7 +231,7 @@ def test_an_estimated_series_over_the_size_cap_is_refused_naming_both_numbers(tm
     _trajectory(work, _moved(4), resindex=[0] * 4, resnames=['DDM'], resids=[1])
 
     with pytest.raises(ValueError) as refused:
-        frame_series.run(work, _payload(stride=1))
+        frame_series.run(work, _payload(interval_ns=0.01))
 
     message = str(refused.value)
     assert '4 models of 4 atoms' in message and '1920' in message and '1000' in message, message
@@ -168,20 +245,53 @@ def _rigid_frames(frames=4):
 def test_the_fit_superposes_every_model_on_the_first(tmp_path):
     work = tmp_path / 'work'
     _trajectory(work, _rigid_frames(), resindex=[0] * 4, resnames=['ALA'], resids=[1])
-    frame_series.run(work, _payload(stride=1))
+    frame_series.run(work, _payload())
     raw = _models(work / 'run-frames.pdb')
     assert np.abs(raw[-1] - raw[0]).max() > 10.0, 'the fixture did not move as asked'
 
-    result = frame_series.run(work, _payload(stride=1, fit='protein'))
+    result = frame_series.run(work, _payload(fit='rot+trans', group='protein'))
 
     fitted = _models(work / 'run-frames.pdb')
     assert np.abs(fitted[-1] - fitted[0]).max() < 1e-2, 'the fit left the rigid motion in the file'
     record = json.loads((work / 'frames.json').read_text())
-    assert record['fit']['reference'] == 1
+    assert record['view'] == dict(DEFAULTS, fit='rot+trans', group='protein')
+    assert record['fit']['reference'] == 1 and record['fit']['fit'] == 'rot+trans'
+    assert record['fit']['group'] == 'protein'
     assert record['fit']['atoms'] == 4 and record['fit']['of'] == 4
     assert record['fit']['rmsd_nm']['max'] == pytest.approx(0.0, abs=1e-3)
     assert result['fit']['reference'] == 1
-    assert 'FITTED SERIES' in (work / 'run-frames.pdb').read_text()
+    text = (work / 'run-frames.pdb').read_text()
+    assert 'FITTED SERIES' in text and 'VIEW MODIFICATIONS' in text
+    assert 'fit rot+trans against the protein group' in text
+
+
+def test_a_translation_only_fit_keeps_the_rotation(tmp_path):
+    """`trans` removes where the group is, not how it is turned; a rot+trans fit on the same frames would remove both."""
+    work = tmp_path / 'work'
+    _trajectory(work, _rigid_frames(), resindex=[0] * 4, resnames=['ALA'], resids=[1])
+
+    frame_series.run(work, _payload(fit='trans', group='protein'))
+
+    models = _models(work / 'run-frames.pdb')
+    assert models[-1].mean(axis=0) == pytest.approx(models[0].mean(axis=0), abs=1e-2), 'the translation stayed'
+    assert np.abs(models[-1] - models[0]).max() > 1.0, 'the rotation was removed by a translation-only fit'
+    record = json.loads((work / 'frames.json').read_text())
+    assert record['fit']['fit'] == 'trans'
+    assert 'translation those beads do are removed' in (work / 'run-frames.pdb').read_text()
+
+
+def test_a_legacy_protein_fit_is_read_as_rot_trans_on_the_protein_group(tmp_path):
+    work = tmp_path / 'work'
+    _trajectory(work, _rigid_frames(), resindex=[0] * 4, resnames=['ALA'], resids=[1])
+
+    frame_series.run(work, _payload(fit='protein'))
+
+    record = json.loads((work / 'frames.json').read_text())
+    assert record['args'] == _payload(fit='protein'), 'the old request was rewritten in the record'
+    assert record['view'] == dict(DEFAULTS, fit='rot+trans', group='protein')
+    assert record['legacy'] == ["fit 'protein'"]
+    assert record['fit']['group'] == 'protein' and record['fit']['fit'] == 'rot+trans'
+    assert "requested as the old fit 'protein'" in (work / 'run-frames.pdb').read_text()
 
 
 def test_a_bead_fit_holds_the_named_fragment_and_records_the_motion_of_the_rest(tmp_path):
@@ -206,7 +316,9 @@ def test_a_bead_fit_holds_the_named_fragment_and_records_the_motion_of_the_rest(
     frame_series.run(work, _payload(fit='beads', fragment='A'))
 
     record = json.loads((work / 'frames.json').read_text())
-    assert record['fit']['target'] == 'A'
+    assert record['view'] == dict(DEFAULTS, fit='rot+trans', group='fragment:A')
+    assert record['legacy'] == ["fit 'beads' fragment A"]
+    assert record['fit']['target'] == 'A' and record['fit']['group'] == 'fragment:A'
     assert record['fit']['atoms'] == 3 and record['fit']['of'] == 5
     assert record['fit']['rmsd_nm']['max'] > 0.0, 'A\'s own wobble is not in the recorded fit'
     text = (work / 'run-frames.pdb').read_text()
@@ -214,6 +326,23 @@ def test_a_bead_fit_holds_the_named_fragment_and_records_the_motion_of_the_rest(
     models = _models(work / 'run-frames.pdb')
     assert np.abs(models[-1][:3] - models[0][:3]).max() < 1.0, 'the fragment the fit named did not hold still'
     assert np.abs(models[-1][3:] - models[0][3:]).max() > 2.0, 'the other fragment did not move relative to it'
+
+
+def test_a_fragment_group_is_named_without_the_old_fit_key(tmp_path):
+    names = ('B01', 'B02', 'B03', 'B04')
+    work = tmp_path / 'work'
+    _trajectory(work, _moved(3), names=names, resindex=[0] * 4, resnames=['SUCR'], resids=[1])
+    mapping = work / '2_mapping' / 'model.json'
+    mapping.parent.mkdir(parents=True)
+    mapping.write_text(json.dumps({'beads': [
+        {'export_name': 'B01', 'letter': 'A'}, {'export_name': 'B02', 'letter': 'A'},
+        {'export_name': 'B03', 'letter': 'B'}, {'export_name': 'B04', 'letter': 'B'}]}))
+
+    frame_series.run(work, _payload(fit='rot+trans', group='fragment:A'))
+
+    record = json.loads((work / 'frames.json').read_text())
+    assert record['view'] == dict(DEFAULTS, fit='rot+trans', group='fragment:A')
+    assert record['legacy'] == [] and record['fit']['target'] == 'A'
 
 
 def test_a_fragment_the_mapping_does_not_state_is_refused_with_what_it_does_state(tmp_path):
@@ -226,41 +355,142 @@ def test_a_fragment_the_mapping_does_not_state_is_refused_with_what_it_does_stat
         {'export_name': 'B03', 'letter': 'B'}, {'export_name': 'B04', 'letter': 'B'}]}))
 
     with pytest.raises(ValueError) as refused:
-        frame_series.run(work, _payload(fit='beads', fragment='Z'))
+        frame_series.run(work, _payload(fit='rot+trans', group='fragment:Z'))
 
     message = str(refused.value)
     assert "places no bead in fragment 'Z'" in message and 'A (B01, B02)' in message, message
 
 
-def test_assembly_wraps_whole_molecules_and_centres_the_anchor(tmp_path):
-    """A display view: each molecule takes the periodic image nearest the protein, which is then centred."""
-    positions = [[1.0, 1.0, 1.0], [2.0, 1.0, 1.0], [1.0, 2.0, 1.0], [95.0, 1.0, 1.0]]
+def test_the_solute_group_is_what_the_writer_keeps_water_excluded(tmp_path):
+    names = ('B01', 'B02', 'B03', 'B04', 'W1', 'W2')
+    positions = [np.vstack([_turned(BASE[:4], 20.0 * frame, (10.0 * frame, 0.0, 0.0)),
+                            np.array([[90.0, 90.0, 90.0], [92.0, 90.0, 90.0]])]) for frame in range(3)]
     work = tmp_path / 'work'
-    _trajectory(work, [positions, positions], resindex=[0, 0, 0, 1],
-                resnames=['ALA', 'DDM'], resids=[1, 2], box=(100.0, 100.0, 100.0))
-    frame_series.run(work, _payload(stride=1))
-    raw = _models(work / 'run-frames.pdb')
-    assert raw[0][3][0] == pytest.approx(95.0, abs=1e-2), 'the fixture did not place the second molecule at the edge'
+    _trajectory(work, positions, names=names, resindex=[0, 0, 0, 0, 1, 1],
+                resnames=['ALA', 'W'], resids=[1, 2])
 
-    result = frame_series.run(work, _payload(stride=1, assembled=True))
+    frame_series.run(work, _payload(fit='rot+trans', group='solute'))
 
-    assembled = _models(work / 'run-frames.pdb')
-    # 95 A wrapped to the nearest image of the protein centroid (4/3 A), then the protein centred at the origin.
-    assert assembled[0][3][0] == pytest.approx(-5.0 - 4.0 / 3.0, abs=1e-2), \
-        'the second molecule was not wrapped to the nearest image'
-    assert assembled[0][:3].mean(axis=0) == pytest.approx([0.0, 0.0, 0.0], abs=1e-2), 'the anchor is not centred'
-    assert result['assembled'] is True
     record = json.loads((work / 'frames.json').read_text())
-    assert record['assembled'] is True
-    assert 'PERIODIC-IMAGE ASSEMBLED AND CENTRED FOR DISPLAY' in (work / 'run-frames.pdb').read_text()
+    assert record['fit']['atoms'] == 4 and record['fit']['of'] == 6, 'the solute fit counted water'
+    assert _models(work / 'run-frames.pdb').shape == (3, 4, 3), 'the writer stopped dropping water'
+    assert 'the solute group' in (work / 'run-frames.pdb').read_text()
 
 
-def test_assembly_without_a_box_is_refused(tmp_path):
+def _crossing(directory):
+    """One molecule split over the x boundary and then carried further: the shapes `-pbc` and `-nojump` differ on."""
+    frames = [np.array([[2.0, 2.0, 2.0], [3.0, 2.0, 2.0], [4.0, 2.0, 2.0], [5.0, 2.0, 2.0]]),
+              np.array([[29.5, 2.0, 2.0], [0.5, 2.0, 2.0], [1.5, 2.0, 2.0], [2.5, 2.0, 2.0]]),
+              np.array([[27.5, 2.0, 2.0], [28.5, 2.0, 2.0], [29.5, 2.0, 2.0], [0.5, 2.0, 2.0]])]
+    _trajectory(directory, frames, names=NAMES, resindex=[0] * 4, resnames=['ALA'], resids=[1], box=(30.0,) * 3)
+
+
+def test_pbc_mol_makes_a_split_molecule_whole_and_wraps_its_centre_into_the_box(tmp_path):
+    work = tmp_path / 'work'
+    _crossing(work)
+
+    frame_series.run(work, _payload(pbc='mol'))
+
+    models = _models(work / 'run-frames.pdb')
+    assert models[1][:, 0] == pytest.approx([-0.5, 0.5, 1.5, 2.5], abs=1e-2), \
+        'the split molecule was not made whole and moved to its nearest image'
+    assert models[2][:, 0] == pytest.approx([27.5, 28.5, 29.5, 30.5], abs=1e-2)
+    assert 'pbc mol' in (work / 'run-frames.pdb').read_text()
+    record = json.loads((work / 'frames.json').read_text())
+    assert record['view']['pbc'] == 'mol'
+
+
+def test_pbc_whole_makes_the_molecule_whole_and_leaves_its_image_where_it_is(tmp_path):
+    work = tmp_path / 'work'
+    _crossing(work)
+
+    frame_series.run(work, _payload(pbc='whole'))
+
+    models = _models(work / 'run-frames.pdb')
+    assert models[1][:, 0] == pytest.approx([29.5, 30.5, 31.5, 32.5], abs=1e-2)
+    assert models[2][:, 0] == pytest.approx([27.5, 28.5, 29.5, 30.5], abs=1e-2)
+
+
+def test_nojump_reads_every_frame_of_the_window_not_only_the_sampled_ones(tmp_path):
+    """The molecule travels 10 Å a frame; sampling every second frame would read a 20 Å jump and move it a box back."""
+    frames = [np.array([[2.0 + 10.0 * step, 2.0, 2.0], [3.0 + 10.0 * step, 2.0, 2.0],
+                        [4.0 + 10.0 * step, 2.0, 2.0], [5.0 + 10.0 * step, 2.0, 2.0]]) for step in range(3)]
+    work = tmp_path / 'work'
+    _trajectory(work, frames, names=NAMES, resindex=[0] * 4, resnames=['ALA'], resids=[1], box=(30.0,) * 3)
+
+    frame_series.run(work, _payload(pbc='nojump', interval_ns=0.02))
+
+    models = _models(work / 'run-frames.pdb')
+    assert models[-1][:, 0] == pytest.approx([22.0, 23.0, 24.0, 25.0], abs=1e-2), \
+        'nojump was applied only to the sampled frames, so its history is not the one `gmx trjconv` reads'
+
+
+def test_centre_puts_the_group_at_the_box_centre(tmp_path):
+    work = tmp_path / 'work'
+    _crossing(work)
+
+    frame_series.run(work, _payload(center=True, group='solute'))
+
+    models = _models(work / 'run-frames.pdb')
+    assert models[0].mean(axis=0) == pytest.approx([15.0, 15.0, 15.0], abs=1e-2)
+    text = (work / 'run-frames.pdb').read_text()
+    assert 'centred the solute group at the box centre' in text
+    assert 'pbc' not in text.split('VIEW MODIFICATIONS')[1].split('\n')[0]
+
+
+def test_centre_uses_the_trajectorys_triclinic_box_vectors(tmp_path):
+    """The old display assembly assumed an orthogonal box; MDAnalysis's centre uses the box it is handed."""
+    work = tmp_path / 'work'
+    frames = [np.array([[2.0, 2.0, 2.0], [3.0, 2.0, 2.0], [4.0, 2.0, 2.0], [5.0, 2.0, 2.0]])] * 2
+    _trajectory(work, frames, names=NAMES, resindex=[0] * 4, resnames=['ALA'], resids=[1],
+                box=(30.0, 30.0, 30.0, 60.0, 70.0, 80.0))
+    probe = mda.Universe(str(work / 'traj.gro'), str(work / 'traj.xtc'))
+    probe.trajectory[0]
+    expected = np.asarray(probe.trajectory.ts.triclinic_dimensions, dtype=float).sum(axis=0) / 2.0
+
+    frame_series.run(work, _payload(center=True, group='solute'))
+
+    assert _models(work / 'run-frames.pdb')[0].mean(axis=0) == pytest.approx(expected, abs=1e-2)
+
+
+def test_a_pbc_or_centre_request_without_a_box_is_refused(tmp_path):
     work = tmp_path / 'work'
     _trajectory(work, _moved(2), resindex=[0] * 4, resnames=['DDM'], resids=[1])
 
-    with pytest.raises(ValueError, match='needs a box'):
-        frame_series.run(work, _payload(assembled=True))
+    for payload in (_payload(pbc='mol'), _payload(center=True)):
+        with pytest.raises(ValueError, match='needs a box'):
+            frame_series.run(work, payload)
+
+
+def test_a_legacy_assembled_request_is_read_as_pbc_mol_and_centre(tmp_path):
+    work = tmp_path / 'work'
+    _crossing(work)
+    frame_series.run(work, _payload(pbc='mol', center=True))
+    expected = _models(work / 'run-frames.pdb')
+
+    result = frame_series.run(work, _payload(assembled=True))
+
+    assert _models(work / 'run-frames.pdb') == pytest.approx(expected, abs=0.0), \
+        'assembled no longer maps to the pbc/centre view it stood for'
+    record = json.loads((work / 'frames.json').read_text())
+    assert record['args'] == _payload(assembled=True), 'the old payload was relabelled in the record'
+    assert record['view'] == dict(DEFAULTS, pbc='mol', center=True)
+    assert record['legacy'] == ['assembled']
+    assert result['legacy'] == ['assembled'] and result['view']['pbc'] == 'mol'
+    text = (work / 'run-frames.pdb').read_text()
+    assert 'VIEW MODIFICATIONS' in text and 'pbc mol' in text
+    assert "requested as the old assembled" in text
+
+
+def test_default_arguments_write_the_trajectorys_own_coordinates(tmp_path):
+    work = tmp_path / 'work'
+    _crossing(work)
+
+    frame_series.run(work, _payload())
+
+    models = _models(work / 'run-frames.pdb')
+    assert models[1][:, 0] == pytest.approx([29.5, 0.5, 1.5, 2.5], abs=1e-2)
+    assert 'VIEW MODIFICATIONS' not in (work / 'run-frames.pdb').read_text()
 
 
 def test_ca_atoms_are_written_alone_and_claim_no_bonds(tmp_path):
@@ -277,10 +507,10 @@ def test_ca_atoms_are_written_alone_and_claim_no_bonds(tmp_path):
     (work / 'manifest.json').write_text(json.dumps(
         {'run_type': 'aa_cg', 'stages': [{'environment': {'FINAL_ITP': 'LIG_initial.itp'}}]}))
 
-    frame_series.run(work, _payload(stride=1))
+    frame_series.run(work, _payload(interval_ns=0.01))
     assert 'CONECT' in (work / 'run-frames.pdb').read_text(), 'the fixture does not bond the all-atom series'
 
-    result = frame_series.run(work, _payload(stride=1, atoms='ca'))
+    result = frame_series.run(work, _payload(interval_ns=0.01, atoms='ca'))
 
     text = (work / 'run-frames.pdb').read_text()
     assert 'CONECT' not in text, 'a CA-only series claims no bonds'
@@ -308,12 +538,13 @@ def _run_tree(root):
 
 
 PAYLOAD_STAGES = {'trajectory': 'stages/4_CG_sim/prod/lig_CG.xtc', 'structure': 'stages/4_CG_sim/prod/lig_CG.gro'}
+VIEW_KEYS = {'interval_ns': 0.5, 'pbc': 'nojump', 'center': True, 'fit': 'rot+trans', 'group': 'protein'}
 
 
 def test_sources_are_the_chosen_pair_and_the_writer_inputs_the_run_holds(tmp_path):
     root = _run_tree(tmp_path / 'run')
 
-    entries = frame_series.sources(root, dict(PAYLOAD_STAGES, colour='blue'))
+    entries = frame_series.sources(root, dict(PAYLOAD_STAGES, colour='blue', **VIEW_KEYS))
 
     assert set(entries) == {*PAYLOAD_STAGES.values(), 'stages/2_mapping/model.json',
                             'stages/02_system/detergent_CG.itp', 'stages/02_system/cg/molecule_1.itp'}, sorted(entries)
@@ -407,15 +638,25 @@ def test_the_hook_and_the_producer_agree_on_the_staged_keys(tmp_path):
     (_payload(start_ns=True), 'start_ns'),
     (_payload(end_ns=float('inf')), 'end_ns'),
     (_payload(start_ns=5.0, end_ns=1.0), 'start_ns'),
+    (_payload(interval_ns=0), 'interval_ns'),
+    (_payload(interval_ns=-0.1), 'interval_ns'),
+    (_payload(interval_ns=float('inf')), 'interval_ns'),
+    (_payload(interval_ns=True), 'interval_ns'),
+    (_payload(interval_ns='soon'), 'interval_ns'),
     (_payload(stride=0), 'stride'),
     (_payload(stride=1.5), 'stride'),
     (_payload(stride=True), 'stride'),
     (_payload(stride='slow'), 'stride'),
+    (_payload(pbc='res'), 'pbc'),
+    (_payload(pbc='cluster'), 'pbc'),
+    (_payload(center='yes'), 'center'),
     (_payload(fit='all'), 'fit'),
     (_payload(fit=None), 'fit'),
     (_payload(fit='beads'), 'fragment'),
     (_payload(fit='beads', fragment='AB'), 'fragment'),
     (_payload(fit='beads', fragment='2'), 'fragment'),
+    (_payload(group='water'), 'group'),
+    (_payload(group='fragment:AB'), 'group'),
     (_payload(atoms='water'), 'atoms'),
     (_payload(assembled='yes'), 'assembled'),
 ])
@@ -462,3 +703,112 @@ def test_a_recorded_topology_that_leaves_the_run_is_not_staged(tmp_path):
     entries = frame_series.sources(root, dict(PAYLOAD_STAGES))
 
     assert 'stages/02_system/detergent_CG.itp' not in entries
+
+
+# --- The differential check: the same atoms, within PDB rounding, as `gmx trjconv` ------------------------------
+
+TOPOLOGY = """[ defaults ]
+1 1 no 1.0 1.0
+
+[ atomtypes ]
+B01    6       1.0   0.0     A      0.0 0.0
+
+[ moleculetype ]
+MOL 3
+
+[ atoms ]
+1 B01 1 ALA B01 1 0.0 1.0
+2 B01 1 ALA B02 2 0.0 1.0
+3 B01 1 ALA B03 3 0.0 1.0
+4 B01 1 ALA B04 4 0.0 1.0
+
+[ bonds ]
+1 2 1 0.1 1000
+2 3 1 0.1 1000
+3 4 1 0.1 1000
+
+[ system ]
+test system
+
+[ molecules ]
+MOL 1
+"""
+
+MDP = """integrator = md
+nsteps = 0
+cutoff-scheme = Verlet
+"""
+
+
+def _gmx(cwd, *arguments, selection='0\n0\n'):
+    """Run a GROMACS command in the fixture directory; a non-zero exit is the test's failure with its own output."""
+    done = subprocess.run([GMX, *arguments], cwd=str(cwd), input=selection, capture_output=True, text=True)
+    assert done.returncode == 0, f'{arguments[0]} failed:\n{done.stdout}\n{done.stderr}'
+    return done
+
+
+def _gmx_models(path):
+    """Every model's coordinates in ångström from a PDB: GROMACS writes `ATOM`, this writer `HETATM`."""
+    blocks, current = [], None
+    for line in Path(path).read_text().splitlines():
+        if line.startswith('MODEL'):
+            current = []
+        elif line.startswith('ENDMDL'):
+            blocks.append(current)
+            current = None
+        elif current is not None and (line.startswith('ATOM') or line.startswith('HETATM')):
+            current.append([float(line[30:38]), float(line[38:46]), float(line[46:54])])
+    return np.asarray(blocks, dtype=float)
+
+
+def _gmx_fixture(directory):
+    """The same crossing molecule as `_crossing`, plus a topology file `gmx trjconv -pbc mol` can read."""
+    directory = Path(directory)
+    _crossing(directory)
+    (directory / 'topol.top').write_text(TOPOLOGY)
+    (directory / 'grompp.mdp').write_text(MDP)
+    _gmx(directory, 'grompp', '-f', 'grompp.mdp', '-c', 'traj.gro', '-p', 'topol.top', '-o', 'topol.tpr',
+         '-maxwarn', '2', selection='')
+
+
+def _producer(directory, work, **view):
+    directory, work = Path(directory), Path(work)
+    work.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(directory / 'traj.xtc', work / 'traj.xtc')
+    shutil.copy2(directory / 'traj.gro', work / 'traj.gro')
+    payload = {'trajectory': 'traj.xtc', 'structure': 'traj.gro'}
+    payload.update(view)
+    frame_series.run(work, payload)
+    return _models(work / 'run-frames.pdb')
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(GMX is None, reason='gmx is not resolvable from config/tools.json; the trjconv differential check '
+                                        'needs GROMACS')
+def test_pbc_mol_and_centre_match_gmx_trjconv(tmp_path):
+    directory = tmp_path / 'gmx'
+    _gmx_fixture(directory)
+    _gmx(directory, 'trjconv', '-s', 'topol.tpr', '-f', 'traj.xtc', '-o', 'reference.pdb', '-pbc', 'mol', '-center')
+    reference = _gmx_models(directory / 'reference.pdb')
+
+    ours = _producer(directory, tmp_path / 'work', pbc='mol', center=True)
+
+    deviation = float(np.abs(ours - reference).max())
+    assert ours.shape == reference.shape
+    assert deviation <= 0.001, f'the same atoms differ by {deviation:.6f} Å from gmx trjconv'
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(GMX is None, reason='gmx is not resolvable from config/tools.json; the trjconv differential check '
+                                        'needs GROMACS')
+def test_pbc_nojump_matches_gmx_trjconv(tmp_path):
+    directory = tmp_path / 'gmx'
+    _gmx_fixture(directory)
+    _gmx(directory, 'trjconv', '-s', 'topol.tpr', '-f', 'traj.xtc', '-o', 'reference.pdb', '-pbc', 'nojump')
+    reference = _gmx_models(directory / 'reference.pdb')
+
+    ours = _producer(directory, tmp_path / 'work', pbc='nojump')
+
+    deviation = float(np.abs(ours - reference).max())
+    assert ours.shape == reference.shape
+    assert deviation <= 0.001, f'the same atoms differ by {deviation:.6f} Å from gmx trjconv'

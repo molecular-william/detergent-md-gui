@@ -1,6 +1,6 @@
 # Run view: a taller canvas, one build action, ns per frame, and PBC options
 
-Status: **approved 2026-10-30** (the user's request). Owner: next agent. Read `docs/HANDOFF.md` first (same date).
+Status: **implemented 2026-11-02** (approved 2026-10-30; see *Execution record*). Read `docs/HANDOFF.md` first.
 
 ## The report
 
@@ -200,3 +200,62 @@ Proposed argument shape (replaces `stride`/`assembled`; the panel offers only wh
   PDB REMARKs, and pinned by a `gmx trjconv` differential test for at least `-pbc mol -center` and `-pbc nojump`.
 - Old attempts (stride/assembled) remain findable and playable with their own recorded cadence.
 - Tiers, ruff and the mutation check pass; the docs and this plan's execution record are updated.
+
+## Execution record (2026-11-02)
+
+Landed in four disjoint lanes, one integrator running the tiers and the docs.
+
+### What shipped
+
+- **Canvas**: `.run-view-viewer` is `height: clamp(520px, 58vh, 760px); min-height: 420px`. A browser test proves the
+  host is taller than the old 420 px and that NGL's canvas fills it before and after a resize to 390 px (which also
+  proves `handleResize` runs), with no horizontal scroll. The readout's bold values gained `overflow-wrap: anywhere`,
+  fixing a pre-existing 390 px overflow the taller-canvas test exposed (a bead-size sentence embeds
+  `stages/2_mapping/model.json`).
+- **Readout**: the `how the bonds were decided` row and its no-renderer twin are gone; `loadParameters` no longer
+  returns `reason`. Counts and the CONECT/guess behaviour assertions stayed, and two panels now pin the removed text's
+  absence (after a positive count assert, so absence cannot pass on an unwritten readout). The CONECT test's timing
+  signal moved to the caption/path it already asserted.
+- **One build action**: `#run-view-build` is **Frame options**, a disclosure (`aria-expanded`/`aria-controls`) over a
+  hidden form; it never posts. The submit is the only build and reads **Build frames** / **Recompute frames** /
+  **Building frames…** from whether an attempt matches and whether it is in flight. The stale note points at the new
+  control.
+- **ns per frame**: `interval_ns` replaces `stride` in the form and payload. The producer converts it with the
+  trajectory's own `dt` (`stride = max(1, round(interval_ns*1000/dt))`), records the effective `cadence_ns` beside the
+  request, and says "one model every N ns" in the note and the summary. A request finer than `dt` is one frame at
+  `dt`; `interval_ns` with `dt <= 0` is refused in the window's own words. The caps still refuse before a frame is
+  read. Old `stride` payloads remain readable.
+- **View options**: `pbc` (`none|mol|whole|nojump`), `center`, `fit` (`none|trans|rot+trans`) and `group`
+  (`protein|solute|fragment:<letter>`) are applied in process with MDAnalysis transforms. `frames.json` records
+  `view`, `legacy` and the request; `run-frames.pdb` carries a `REMARK 950 VIEW MODIFICATIONS` sentence (or none when
+  the coordinates are raw) and the fit REMARK now names mode and group. `assembled`, `fit: protein|beads` and
+  `fragment` are read as the view they described, kept in `args`, named in `legacy`, and the panel still finds and
+  plays such attempts, labelled "built with a frame step".
+
+### Deviations from the plan as written
+
+- The writer is `analysis/runs/structures.py::series_pdb`; there is no `series_pdb.py`. Its `assembled` flag became
+  `view`.
+- Per the user's reduced scope, `res`, `atom` and `cluster` are not offered (they are named as deliberately omitted in
+  the form's hint); no `gmx trjconv` subprocess path exists.
+- `fit` now states *how* (`trans`/`rot+trans`) and `group` names the selection; the old `protein`/`beads` values were
+  the selection, so they map to `rot+trans` + a group rather than being kept as fit values.
+- The top control is a disclosure `<div>` rather than `<details>`: `aria-expanded` and `hidden` are written together,
+  so a "Frame options" button cannot disagree with the form it names.
+
+### Evidence
+
+- `gmx trjconv` differential (MDAnalysis-built gro/xtc + grompp tpr fixture): max deviation **0.0 Å** for
+  `-pbc mol -center` and for `-pbc nojump` (tolerance 0.001 Å), run in the slow tier.
+- Tiers after the slice: fast **2,277 passed, 1 xfailed**; browser **258 passed**; slow **19 passed**; 2,555 collected;
+  `ruff check packages tests conftest.py` clean; mutation check **10 caught / 1 survived** as documented.
+- Legacy coverage: a unit case per interval conversion (auto, exact multiple, non-multiple, finer than the step,
+  no `dt`), a mapping case per legacy key, an integration case that a legacy payload queues verbatim and still lists,
+  and browser cases for a blank interval, the group show rule, and a legacy attempt found/played/labelled.
+
+### Known limit
+
+- Molecule identity for `pbc: mol/whole` is `(resname, resid)`, the only identity a `.gro` states. Exact for
+  detergent/water/ion; a protein chain spans residues, so a chain crossing the boundary unwraps per residue and can
+  differ from `gmx trjconv -pbc mol`. Recorded as a `ponytail:` note in `_declare_molecule_bonds`; the differential
+  fixture is one residue and does not exercise it.
