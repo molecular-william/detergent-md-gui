@@ -4,14 +4,35 @@ State and open items for this repository. Rules live in `AGENTS.md`; subsystem b
 `docs/PROJECT_GUIDE.md`; scoring science in `docs/DDM_CALIBRATION.md`. Read this before touching the DDM CG chain,
 the protein-detergent pipeline or the coordinator. This file keeps only what is current and the evidence behind it.
 
-## Next task (2026-11-02): detergent conformation library
+## Next task (2026-11-02): implement the detergent conformation library
 
-The user approved the design in `docs/plans/2026-11-02-detergent-conformation-library.md`: a library of detergent
-conformations sampled from **micelle-only** runs (one run or several pooled, the caller's choice), exactly **K = 2000**
-entries chosen by stratified selection, referenced by **source run id** and rebuilt on demand — not tracked in git,
-with a self-contained directory that can be copied between workspaces. The library stores each molecule's internal
-geometry; the placement draws the azimuth. It applies to both lattice modes and to the preview. Not started; read
-that plan before touching `pdc_placement.place_detergents` or `pdc_build.stamp`.
+Approved and designed; **not started** (no code has changed). Read these in **this checkout** — plans and drafts are
+local since `684a5d3`, not tracked:
+
+- `docs/plans/2026-11-02-detergent-conformation-library.md` — the plan of record (schema, producer, resolver,
+  integration, refusals, tests, definition of done).
+- `docs/design/drafts/2026-11-02-conformation-library-in-form.html` — the compact card in the New run form.
+- `docs/design/drafts/2026-11-02-conformation-library.html` — the same card alone. Screenshots sit beside each.
+
+Decisions the user has already made:
+
+- **Sources**: one or several completed, protein-free pdc runs of the same detergent; the caller picks.
+- **Size**: exactly **K = 2000** per detergent, chosen by stratified selection; pure numpy, no new dependency.
+- **Two ways to name it**: build from runs `{runs, size, seed}` (built or reused on demand) or reference a stored
+  library `{key, sha256}` (used as-is; source runs need not be here). A build writes into the store, so it becomes
+  selectable by key afterwards. The store is not tracked and is copyable; a referenced library is never rebuilt.
+- **Orientation**: the library stores internal geometry (head anchored, head-ward axis +z); placement draws the
+  azimuth. Applies to both lattice modes (sphere and torus) and the preview, and the draw lives in
+  `place_detergents`, so self-assembly shares it.
+- **Default**: one rigid conformation; a run with no setting stays byte-identical.
+- **Panel**: one header row (eyebrow + segmented control) and only the chosen mode's body — one-line run rows, one
+  footer row of size/seed/status, or one-line stored-library rows. No per-option prose.
+
+Suggested order (the plan has the detail): (1) `detergent_pdc/conformations/` with the CLI and unit tests;
+(2) `place_detergents(profiles=…)` + `stamp(entries=…, twists=…)`; (3) `pdc.py` setting/validation/prepare,
+`pdc_build`, `pdc_preview`, and the inputs record; (4) the panel, its candidate/stored-library routes and browser
+tests; (5) `PROJECT_GUIDE.md`, this file, gates. The store is
+`workspace/dashboard/conformations/<residue>/<key>/library.json` plus `library.sha256`.
 
 The Run view controls and PBC slice landed earlier on 2026-11-02
 (`docs/plans/2026-10-30-run-view-pbc-controls.md`): a taller canvas, the removable bonds-reason readout cell gone,
@@ -63,7 +84,7 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
 
 | item | state | next |
 | --- | --- | --- |
-| detergent conformation library | approved 2026-11-02; plan `docs/plans/2026-11-02-detergent-conformation-library.md` | build it: K=2000 stratified from one or several micelle-only runs, referenced by run id, used by both lattice modes and the preview |
+| detergent conformation library | approved and drafted 2026-11-02; plan and drafts are local to this checkout (untracked since `684a5d3`) | build it: K=2000 stratified from one or several micelle-only runs; name it by run id or by a stored key; used by both lattice modes and the preview |
 | run-layout migration | applied 2026-10-27 (`legacy_layout.json` on every then-existing run); `936b74bd3fa8`, `00b9ae6db23f` deleted by the user | verify the migrated runs still render and resolve analyses |
 | Overall Run view progress | the card bar is the current stage's fraction; timeline/plan skips show settings | decide whether a true run-level percentage is wanted |
 | cloud vs rough belt | open measurement, not a task | one protein, one seed, two 100 ns legs; compare removal fraction/aggregation/belt thickness before adopting a belt criterion |
