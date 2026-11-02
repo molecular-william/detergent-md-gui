@@ -69,6 +69,7 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
 | cloud vs rough belt | open measurement, not a task | one protein, one seed, two 100 ns legs; compare removal fraction/aggregation/belt thickness before adopting a belt criterion |
 | `pytest-socket` | not installed; no test enforces the no-outbound-HTTPS audit | add with `--allow-hosts=127.0.0.1,localhost` |
 | known test flake | `test_pdc_preview.py::test_the_cached_step_is_not_run_again...` has failed in one full fast run and passed alone | capture a failing order with `-p no:cacheprovider` |
+| checkpoint resume before a stage's last mdrun | Resume is hidden there (no checkpoint for the final mdrun) and Restart re-runs the stage | decide whether the pdc extension should continue a death in `eq`/`ramp` instead of re-entering the stage from its inputs |
 | DDM CG Task 2.4 | written off by the user 2026-10-15; six arms failed with stochastic onset, causes eliminated | do not rebuild the arms or cron schedule |
 | Phase 4 sucrose/maltose | deferred; targets remain `availability: metadata_only` | separate decision |
 | native micelle builder | paused; `micelle/` is a partial, unvalidated skeleton | do not present it as a model |
@@ -116,6 +117,17 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   effective cadence, the `view` and any `legacy` marker; `series_pdb`'s REMARKs state a fit and any PBC/centre view.
   The series PDB is fetched only on Play.
 - **Never kill DSH.** The first listener on 3080 is DSH; the dashboard is 5000 and is a systemd user service.
+- **Resume continues one stage's last mdrun, never an earlier one.** `continue_plan` names the first stage that is
+  not completed/reused/skipped and the first existing checkpoint its declaration names; a stage that died before
+  that mdrun has none, so Resume is hidden and Restart is the answer. The continue preparation keeps the stage
+  directory (no archive) and truncates the manifest's stage list from that stage.
+- **`MDRUN_CONTINUE` reaches exactly one stage.** The worker sets it from the manifest's `continue_stage`/
+  `continue_checkpoint` for that stage only and records it in that stage's environment; the fields are cleared when
+  the stage completes, so a later stage cannot inherit a spent checkpoint. The scripts skip the work before the
+  final mdrun **including its `grompp`**, run `-cpi … -append`, and re-run their post-step.
+- **`mdrun_cpt` has no adapter default.** Absent means no `-cpt` flag, so an untouched run's command is byte-identical
+  to before the setting existed and GROMACS' 15 minutes applies; the forms prefill 15 so a panel run records what it
+  showed.
 - **A conformation library is pinned, never swapped.** `library.json` is canonical bytes and `library.sha256` is the
   verifier; the key is the first 16 hex of the canonical spec over the detergent signature and the sorted
   `(run_id, trajectory_identity)` pairs, so a rebuild from the same sources names the same directory. A run records
@@ -151,11 +163,23 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   second rebuild is byte-identical. Key `d389b3135533cd3a`, sha256 `e43192db…`, 2,000 entries of 11 beads, stored at
   `workspace/dashboard/conformations/DDM/d389b3135533cd3a/` (gitignored). Reading is cheap — 200 frames in 0.14 s,
   offsets in 0.13 s — so the per-molecule processing is the whole cost and `MAX_FRAMES` is what bounds it.
-- Tests (measured 2026-11-02, after the conformation library): 2,675 collected; fast **2,379 passed, 1 xfailed**;
-  browser **269 passed**; slow **26 passed**; `ruff check packages tests conftest.py` clean; mutation signal 10
+- Tests (measured 2026-11-02, after checkpoint resume): 2,713 collected; fast **2,413 passed, 1 xfailed**;
+  browser **273 passed**; slow **26 passed**; `ruff check packages tests conftest.py` clean; mutation signal 10
   caught / 1 survived. `pytest.ini` owns tier counts; do not copy moving counts into this file.
 
 ## Landed slices, newest first
+
+- **2026-11-02 Resume from a checkpoint**: the Runs table gains **Resume** beside Delete, offered only for a
+  `failed`/`cancelled` run whose stopped stage left its own mdrun checkpoint. It keeps the run id and the stage
+  directory, and the worker hands that stage `MDRUN_CONTINUE=<checkpoint>`; the script skips the work before its
+  final mdrun (and that mdrun's `grompp`) and runs `mdrun -cpi <checkpoint> -append` against the existing `.tpr`, so
+  the trajectory, log and energy file grow. `Stage.checkpoint`/`resumes_in_place` declare what each stage can
+  continue from (pdc legs `system.cpt`, assessment `prod/run.cpt`, extension `('prod/run.cpt','run.cpt')`, CG
+  `md.cpt`, AA `run.cpt`, AA reference `3-run.cpt`; the osmotic series resumes itself). The old picker is renamed
+  **Restart from stage** (button **Restart**) and keeps its archive-and-re-run behaviour. `mdrun_cpt` (minutes, no
+  adapter default, 15 prefilled in the forms) is emitted as `-cpt` by `aa.mdrun_command_flags`, so a run that names
+  none keeps its exact command and GROMACS' 15 minutes. A run holds 3–8 current checkpoints (4–6 for pdc), ~38–100
+  kB each.
 
 - **2026-11-02 Detergent conformation library**: a pdc run may now stamp each detergent from a library of whole
   molecules taken from micelle-only runs instead of repeating one template. `detergent_pdc/conformations/` validates

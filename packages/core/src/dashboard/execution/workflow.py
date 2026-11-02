@@ -176,6 +176,73 @@ def resumable_stages(run_dir, metadata=None):
     return choices
 
 
+def _stopped_stage(metadata):
+    """The first stage in the run's plan that is not completed, reused or skipped.
+
+    A stage the run's own prepare ruled out (`skipped_stages`) counts as skipped even when it never reached the
+    manifest, so a failed run whose first unfinished stage is one that will never run still names the stage that
+    stopped it.
+    """
+    if not isinstance(metadata, dict):
+        return None
+    plan = plan_for(metadata)
+    recorded = {}
+    for entry in reversed(metadata.get('stages') or []):
+        if isinstance(entry, dict) and entry.get('name') not in recorded:
+            recorded[entry['name']] = entry.get('status')
+    skipped = set(metadata.get('skipped_stages') or {})
+    for stage in plan:
+        if recorded.get(stage.name) in ('completed', 'reused', 'skipped') or stage.name in skipped:
+            continue
+        return stage
+    return None
+
+
+def continue_plan(run_dir, metadata=None):
+    """The stage that stopped and the checkpoint Resume would continue it from, or None.
+
+    The checkpoint is the first existing one the stage's declaration names, spelled relative to the stage directory
+    for the record and absolute for the stage that runs it. A stage that resumes itself (`resumes_in_place`) is
+    continued with no checkpoint at all, because re-entry is the whole of its resume. None means Resume is not
+    offered: no stage is left, or the stopped stage declares no checkpoint that exists.
+    """
+    run_dir = Path(run_dir)
+    if metadata is None:
+        try:
+            metadata = json.loads((run_dir / 'manifest.json').read_text())
+        except (OSError, ValueError):
+            return None
+    if not isinstance(metadata, dict):
+        return None
+    stage = _stopped_stage(metadata)
+    if stage is None:
+        return None
+    if getattr(stage, 'resumes_in_place', False):
+        return {'name': stage.name, 'relative': stage.relative, 'checkpoint': None,
+                'checkpoint_relative': None, 'resumes_in_place': True}
+    declared = getattr(stage, 'checkpoint', None)
+    if isinstance(declared, str):
+        declared = (declared,)
+    if not declared:
+        return None
+    try:
+        directory = stage_root(run_dir) / Path(stage.relative).parent
+    except (OSError, ValueError):
+        # A run directory without its stages/ tree has nothing for a reader to offer; the view reports that run
+        # unrepairable rather than this helper raising out of a page.
+        return None
+    for candidate in declared:
+        if not isinstance(candidate, str) or not candidate:
+            continue
+        path = directory / candidate
+        if path.is_file() and not path.is_symlink():
+            return {'name': stage.name, 'relative': stage.relative,
+                    'checkpoint': str(path.absolute()),
+                    'checkpoint_relative': PurePosixPath(candidate).as_posix(),
+                    'resumes_in_place': False}
+    return None
+
+
 def prepare_resume(run_dir, source, from_stage):
     """Fork a new attempt, reusing verified upstream stages only."""
     if from_stage not in resumable_stages(source):
@@ -310,6 +377,45 @@ def prepare_resume_in_place(run_dir, from_stage, analyses=None, finalize=True):
         raise
 
 
+def prepare_continue_in_place(run_dir, analyses=None):
+    """Prepare continuing the stopped stage from its checkpoint, keeping its directory and files.
+
+    Resume and Restart differ in one thing here: Restart archives the stages from its boundary, so the stage starts
+    from its inputs. Continue keeps the failed stage's directory as it is, removes only its manifest record, and
+    records the checkpoint the worker hands that stage. The stage script decides what to skip and appends to what is
+    already there; nothing is archived and nothing is deleted.
+    """
+    run_dir = Path(run_dir)
+    manifest_path = run_dir / 'manifest.json'
+    metadata = json.loads(manifest_path.read_text())
+    plan = continue_plan(run_dir, metadata=metadata)
+    if plan is None:
+        stage = _stopped_stage(metadata)
+        if stage is None:
+            raise ValueError('This run has no stage left to continue; use Restart from stage')
+        raise ValueError(f'{stage.name} has no checkpoint to continue from; use Restart from stage')
+    names = [name for name, _ in stage_definitions(metadata)[0]]
+    try:
+        start = names.index(plan['name'])
+    except ValueError as exc:
+        raise ValueError(f'{plan["name"]} is not a stage of this run; use Restart from stage') from exc
+    if run_dir.joinpath('resume_journal.json').is_file():
+        recover_resume_journal(run_dir, {'status': 'failed'})
+    if analyses is not None and analyses != metadata.get('analyses', []):
+        metadata['analyses'] = analyses
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    metadata['stages'] = [entry for entry in metadata.get('stages', []) if entry.get('name') in names[:start]]
+    metadata['analyses'] = [dict(task, status='superseded', superseded_at=now)
+                            for task in metadata.get('analyses', [])]
+    metadata.update(status='queued', error=None, ended_at=None,
+                    resume_count=metadata.get('resume_count', 0) + 1,
+                    resume_mode='continue', continue_stage=plan['name'],
+                    continue_checkpoint=plan['checkpoint_relative'],
+                    resume_from=plan['name'], resume_requested_at=now, resume_in_place=True)
+    files.atomic_json(manifest_path, metadata)
+    return metadata
+
+
 def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
     root = stage_root(run_dir)
     initial=json.loads((run_dir/'manifest.json').read_text()) if (run_dir/'manifest.json').exists() else {}
@@ -429,6 +535,13 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
                 stage_env['PYTHON']=sys.executable
                 stage_env['PYTHONPATH']=str(ROOT)
                 stage_env['STAGE_DATA']=str(stage_dir / 'stage.json')
+                # What Resume recorded: this stage, and no other, is handed the checkpoint it continues from. The
+                # path is absolute because the stage runs with its own directory as the working directory.
+                continued_from = data.get('continue_checkpoint')
+                if data.get('continue_stage') == name and continued_from:
+                    continued_from = str((stage_dir / continued_from).absolute())
+                    stage_env['MDRUN_CONTINUE'] = continued_from
+                    entry['environment']['MDRUN_CONTINUE'] = continued_from
                 entry['environment']['PYTHON']=sys.executable
                 entry['environment']['PYTHONPATH']=str(ROOT)
                 # A shared stage script reads the values it was written against from the run's settings, so the
@@ -495,6 +608,12 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
                     raise RuntimeError(f'{name}: command exited successfully but required outputs are missing or empty: {", ".join(missing)}')
                 entry['status'] = 'completed'; entry['exit_code'] = 0
                 entry['outputs_sha256'] = declared_output_hashes(stage_dir, required_outputs.get(name, ()))
+                if data.get('continue_stage') == name:
+                    # The continuation is spent: a later stage must not inherit it, and a reader of the finished
+                    # manifest should not think this run is still waiting to continue.
+                    data.pop('continue_stage', None)
+                    data.pop('continue_checkpoint', None)
+                    data.pop('resume_mode', None)
             if stop_after == name:
                 break
         data = json.loads((run_dir/'manifest.json').read_text())

@@ -20,16 +20,32 @@ class Stage:
     #: The repository script the stage runs, when it is not the file at `relative`. A run records this path and its
     #: digest; the stage's own directory stays the working directory.
     script: str | None = None
+    #: The checkpoint(s) this stage's last mdrun writes, relative to the stage directory; the first that exists is the
+    #: one a continue names. `None` for a stage that writes no checkpoint (a minimisation, or a tool stage).
+    checkpoint: str | tuple[str, ...] | None = None
+    #: True when re-running the stage continues from the checkpoint it already left instead of starting from scratch;
+    #: the osmotic driver loops its unfinished conditions with `-cpi`, so it has no single checkpoint to name.
+    resumes_in_place: bool = False
 
     def resolve(self, context: Mapping[str, str] | None = None) -> "Stage":
         """Return this declaration with run-specific placeholders resolved."""
         values = context or {}
+
+        def spelled(path):
+            if path is None:
+                return None
+            if isinstance(path, tuple):
+                return tuple(part.format_map(values) for part in path)
+            return path.format_map(values)
+
         return Stage(
             name=self.name.format_map(values),
             relative=self.relative.format_map(values),
             inputs=tuple(value.format_map(values) for value in self.inputs),
             outputs=tuple(value.format_map(values) for value in self.outputs),
             script=self.script.format_map(values) if self.script else None,
+            checkpoint=spelled(self.checkpoint),
+            resumes_in_place=self.resumes_in_place,
         )
 
 

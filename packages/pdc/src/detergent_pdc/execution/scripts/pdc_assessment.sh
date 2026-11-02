@@ -18,6 +18,15 @@
 # where that flag aborts mdrun before the first step. -ntomp is valid for both builds.
 set -euxo pipefail
 
+# A resumed stage keeps the directory the failed attempt left, so the copy and the grompp in front of the production
+# mdrun already happened. Only that mdrun re-runs -- from the checkpoint, appending to its trajectory -- and then the
+# whole-system trjconv, so the trajectory the run view reads includes the appended frames.
+if [ -n "${MDRUN_CONTINUE:-}" ]; then
+  ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm prod/run -cpi "$MDRUN_CONTINUE" -append ${MDRUN_FLAGS:--ntomp 8} -v
+  printf 'System\nSystem\n' | gmx trjconv -f prod/run.xtc -s prod/run.tpr -pbc mol -center -o prod/whole.xtc
+  exit 0
+fi
+
 # The interpreter the application runs under, and the repository it imports from. `python` on the stage PATH is this
 # workspace's virtualenv (`tools.search_path` puts it first); a caller that exports PYTHON/PROJECT_ROOT wins.
 PYTHON="${PYTHON:-python}"

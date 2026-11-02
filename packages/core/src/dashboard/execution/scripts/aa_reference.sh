@@ -12,6 +12,13 @@ AA_REFERENCE_DIR="${AA_REFERENCE_DIR:-../1_AA-reference/prod}"
 # thread-MPI, where that flag aborts mdrun before the first step. -ntomp is valid for both builds; extra ranks
 # need mpirun, which MDRUN_LAUNCHER supplies.
 set -euxo pipefail
+# A resumed stage names the checkpoint of this stage's production mdrun. The minimisation and equilibration legs in
+# front of it already happened, so only that leg re-runs -- appending to the trajectory it was writing rather than
+# replacing it. The dynamics bracket is `MDRUN_FLAGS_PME`, the one the fresh production mdrun takes.
+if [ -n "${MDRUN_CONTINUE:-}" ]; then
+  ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm 3-run -cpi "$MDRUN_CONTINUE" -append ${MDRUN_FLAGS_PME:--ntomp 8} -v
+  exit 0
+fi
 cp system_EMPTY.top system.top
 gmx editconf -f molecule.pdb -d 1.5 -c -bt dodecahedron -o boxed.gro
 gmx grompp -f em.mdp -c boxed.gro -p system.top -o vacuum.tpr

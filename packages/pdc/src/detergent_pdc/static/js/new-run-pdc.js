@@ -30,7 +30,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
                    'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
                    'nstlist', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
                    'ref_t', 'tau_t', 'ref_p', 'tau_p', 'compressibility',
-                   'mdrun_gpu', 'mdrun_ntomp', 'mdrun_ranks'];
+                   'mdrun_gpu', 'mdrun_ntomp', 'mdrun_ranks', 'mdrun_cpt'];
   // The catalogue publishes the settings under the builders' names; the panel's controls carry the pipeline's.
   const DEFAULT_ALIASES = {assessment_ns: 'pdc_assessment_ns', extension_ns: 'pdc_extension_ns',
                            placement_mode: 'pdc_placement_mode'};

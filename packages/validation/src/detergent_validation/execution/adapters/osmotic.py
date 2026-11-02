@@ -236,7 +236,9 @@ STAGE_DEFS = (
           ('../../inputs/conditions.json',)
           + tuple(f'../../inputs/conditions/*/{name}' for name in CONDITION_FILES),
           tuple(f'conditions/*/{name}' for name in ('built.json', 'system.top', 'prod/md_whole.xtc')),
-          script=OSMOTIC_SCRIPT),
+          # The driver loops each condition's unfinished mdrun with `-cpi`, so re-entering the stage is itself the
+          # resume: there is no single checkpoint of the stage to name.
+          script=OSMOTIC_SCRIPT, resumes_in_place=True),
 )
 STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS = stage_tables(STAGE_DEFS)
 

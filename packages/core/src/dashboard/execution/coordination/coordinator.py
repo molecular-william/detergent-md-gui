@@ -82,10 +82,31 @@ class Coordinator:
 
 
     def resume_in_place(self, jid, stage):
-        """Queue an in-place resume on the existing job and run directory."""
+        """Queue an in-place restart from a stage boundary on the existing job and run directory."""
+        def prepare(path, analyses):
+            if stage not in workflow.resumable_stages(path):
+                raise RunConflict('Cannot resume that stage; choose a completed-stage boundary')
+            return workflow.prepare_resume_in_place(path, stage, analyses=analyses, finalize=False)
+        return self._queue_in_place(jid, ('failed', 'cancelled', 'completed'), prepare)
+
+
+    def continue_in_place(self, jid):
+        """Queue continuing the stopped stage from its checkpoint, keeping its directory and files."""
+        def prepare(path, analyses):
+            return workflow.prepare_continue_in_place(path, analyses=analyses)
+        return self._queue_in_place(jid, ('failed', 'cancelled'), prepare)
+
+
+    def _queue_in_place(self, jid, statuses, prepare):
+        """The one in-place queue path: admission, lease, preparation, then the worker.
+
+        Resume and Continue differ in which statuses they accept and what preparing the run writes; every check
+        that admits them -- another worker, an active analysis, a retained consumer, capacity, the quota and the
+        filesystem -- is this code, so the two cannot drift apart in what they refuse.
+        """
         with self.JOBS_LOCK:
             job = self.lookup(jid)
-            if job.get('status') not in ('failed', 'cancelled', 'completed') or jid in self.WORKERS:
+            if job.get('status') not in statuses or jid in self.WORKERS:
                 raise RunBusy('Run must be stopped before it can be resumed')
             if any(key[0] == jid for key in list(self.ANALYSIS_WORKERS)) or any(
                     task.get('status') in ('queued', 'running', 'cancelling') for task in job.get('analyses', [])):
@@ -107,16 +128,16 @@ class Coordinator:
             except ValueError as exc:
                 raise RunBusy(str(exc))
             try:
-                if stage not in workflow.resumable_stages(path):
-                    raise RunConflict('Cannot resume that stage; choose a completed-stage boundary')
                 try:
-                    prepared = workflow.prepare_resume_in_place(path, stage, analyses=job.get('analyses', []), finalize=False)
+                    prepared = prepare(path, job.get('analyses', []))
+                except RunConflict:
+                    raise
                 except (OSError, ValueError, KeyError) as exc:
                     raise RunConflict(str(exc))
                 try:
                     updated = self.database().update(jid, status='queued', stage='queued', started_at=None, ended_at=None,
                                               error=None, command=None, resume_count=prepared['resume_count'],
-                                              resume_from=stage, resume_requested_at=prepared['resume_requested_at'],
+                                              resume_from=prepared.get('resume_from'), resume_requested_at=prepared.get('resume_requested_at'),
                                               resume_in_place=True, reference_eligible=False,
                                               analyses=prepared.get('analyses', job.get('analyses', [])),
                                               resume_history=prepared.get('resume_history', []))

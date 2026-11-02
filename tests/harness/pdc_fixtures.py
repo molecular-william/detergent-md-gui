@@ -134,6 +134,26 @@ def run_stage(run: Path, stage_name: str, *, timeout: int = 60):
     return subprocess.run(['bash', str(script_of(stage_name))], cwd=stage, capture_output=True, text=True,
                           timeout=timeout, env=env)
 
+
+def run_script(script: Path, cwd: Path, *, environment: dict | None = None, timeout: int = 60):
+    """Run a repository stage script under a stand-in `gmx` that records its argv and does nothing else.
+
+    The scripts branch on `MDRUN_CONTINUE` before they call any tool, so a test of that branch needs no GROMACS: a
+    `gmx` shim on PATH writes each call to `GMX_TRACE` and exits 0, and the script's own `set -x` trace is the
+    record. `PROJECT_ROOT` is exported because the executor does: without it the script asks a Python import for it.
+    """
+    shims = cwd / 'shims'
+    shims.mkdir(exist_ok=True)
+    gmx = shims / 'gmx'
+    gmx.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$GMX_TRACE"\n')
+    gmx.chmod(0o755)
+    trace = cwd / 'gmx.trace'
+    env = {'PATH': f'{shims}:{Path(sys.executable).parent}:/usr/bin:/bin', 'PYTHON': sys.executable,
+           'PROJECT_ROOT': str(PROJECT_ROOT), 'PYTHONPATH': str(PROJECT_ROOT), 'GMX_TRACE': str(trace),
+           **(environment or {})}
+    return subprocess.run(['bash', str(script)], cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env)
+
+
 def gro_line(residue_id, residue, name, serial, xyz) -> str:
     """One fixed-width `gro` atom line: nm, three decimals, the columns GROMACS actually reads."""
     return (f'{residue_id:5d}{residue:5s}{name:5s}{serial:5d}'

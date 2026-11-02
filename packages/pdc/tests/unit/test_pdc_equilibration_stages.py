@@ -23,7 +23,7 @@ from pathlib import Path
 from dashboard.execution.environment import ROOT
 from detergent_pdc.execution.adapters import pdc
 
-from tests.harness.pdc_fixtures import inputs_dir, prepared_run, script_of
+from tests.harness.pdc_fixtures import inputs_dir, prepared_run, run_script, script_of, stage_dir
 
 TEMPLATE = {
     'name': 'DDM',
@@ -246,3 +246,34 @@ def test_the_run_record_carries_the_legs_step_counts(tmp_path):
     assert record['stage_plan'][0][0] == 'Protein preparation'
     assert record['stage_plan'][2][0] == 'Energy minimisation', \
         'the legs start after the system build, and the plan says so by name'
+
+
+def test_a_resumed_leg_runs_only_its_own_mdrun_from_the_named_checkpoint(tmp_path):
+    """Resume re-enters the leg with `MDRUN_CONTINUE` set: the copy, the solvation and the grompp already happened."""
+    checkpoint = tmp_path / 'left-by-the-failed-attempt' / 'system.cpt'
+
+    done = run_script(script_of('NVT equilibration'), tmp_path, environment={'MDRUN_CONTINUE': str(checkpoint)})
+
+    assert done.returncode == 0, done.stderr
+    assert f'+ gmx mdrun -deffnm system -cpi {checkpoint} -append -ntomp 8 -v' in done.stderr
+    assert 'grompp' not in done.stderr, 'the resumed leg does not rebuild the tpr it continues'
+    assert 'cp -f' not in done.stderr and 'solvate' not in done.stderr, 'nothing before the mdrun runs'
+
+
+def test_a_leg_without_a_continue_checkpoint_runs_the_commands_it_always_did(tmp_path):
+    """The trace without `MDRUN_CONTINUE` is today's: the same copy, the same grompp, the same mdrun."""
+    run = prepared(tmp_path)
+    stage = stage_dir(run, 'NVT equilibration')
+    previous = stage_dir(run, 'Energy minimisation')
+    (previous / 'system.gro').write_text('system\n0\n   1.00000   1.00000   1.00000\n')
+    (previous / 'system.top').write_text('[ molecules ]\n')
+
+    done = run_script(script_of('NVT equilibration'), stage)
+
+    assert done.returncode == 0, done.stderr
+    for command in ('+ cp -f ../03_minimisation/system.gro ../03_minimisation/system.top .',
+                    '+ cp -f ../../inputs/nvt.mdp .',
+                    '+ gmx grompp -f nvt.mdp -p system.top -c system.gro -o system.tpr -maxwarn 1',
+                    '+ gmx mdrun -deffnm system -ntomp 8 -v'):
+        assert command in done.stderr, (command, done.stderr)
+    assert '-cpi' not in done.stderr and '-append' not in done.stderr

@@ -230,8 +230,29 @@ def main(argv=None) -> int:
     decision = json.loads((assessment / 'removed.json').read_text())
     removed = decision.get('removed') or []
     (stage / 'prod').mkdir(exist_ok=True)
+    continue_from = os.environ.get('MDRUN_CONTINUE')
 
-    if not removed:
+    if continue_from:
+        # A resume names the checkpoint of this stage's last mdrun. Everything in front of it -- the kept topology, the
+        # re-solvation, the minimisation, equilibration and ramp, and the grompp that rebuilt its tpr -- already ran in
+        # this directory, so only that mdrun re-runs, appending to the trajectory it was writing.
+        last = 'prod/run' if removed else 'run'
+        run([f'{launcher}gmx', 'mdrun', '-deffnm', last, '-cpi', continue_from, '-append',
+             *mdrun_flags.split(), '-v'])
+        if not removed:
+            shutil.copy2(stage / 'run.gro', stage / 'prod' / 'run.gro')
+            shutil.copy2(stage / 'run.xtc', stage / 'prod' / 'run.xtc')
+            record = {'attempt': len(attempts(stage)) + 1, 'removed': 0, 'removed_fraction': 0.0,
+                      'mode': 'continued', 'seed': settings.get('seed')}
+        else:
+            history = attempts(stage)
+            seed = int(settings.get('seed', 1)) + len(history) + 1
+            record = {'attempt': len(history) + 1, 'removed': len(removed), 'mode': 'restarted',
+                      'ramp': {'dt_ps': RAMP_DT_PS, 'ps': RAMP_PS},
+                      'removed_fraction': decision.get('fraction_removed'), 'seed': seed,
+                      'above_threshold': bool(decision.get('fraction_removed', 0) >
+                                              float(settings.get('selection_threshold_fraction', 0.10)))}
+    elif not removed:
         # The spec's own sentence: nothing outside the micelle, so the phase continues from the checkpoint.
         for name in ('run.tpr', 'run.cpt', 'run.xtc', 'run.gro'):
             source = previous / 'prod' / name

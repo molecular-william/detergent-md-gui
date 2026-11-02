@@ -10,12 +10,14 @@ device**. The fallbacks are the case with no executor and no device named -- thr
 named device 0 would silently overrule a run that chose device 1 whenever the executor failed to export the
 variable.
 """
+import subprocess
+import sys
 from pathlib import Path
 
 import detergent_pdc
 import detergent_validation
 
-from tests.harness.support import PACKAGE
+from tests.harness.support import PACKAGE, PROJECT_ROOT
 
 SCRIPTS = PACKAGE / 'execution/scripts'
 #: The pdc scripts moved to their feature distribution; a launcher is checked where the run would find it.
@@ -47,8 +49,9 @@ def test_no_executed_launcher_states_a_gpu_device():
 
 def test_the_cg_launchers_take_the_executors_flags():
     """Nonbonded work may go to the GPU; PME stays on the CPU for the coarse-grained stages, and the executor's
-    minimisation bracket is what says so -- these three lines only read it."""
-    lines = _mdrun_lines('cg_simulation.sh')
+    minimisation bracket is what says so -- these three lines only read it. The resume line is the same leg
+    continued, so it is checked where the continue contract is (`test_a_resumed_cg_simulation_...`)."""
+    lines = [line for line in _mdrun_lines('cg_simulation.sh') if '-cpi' not in line]
     assert len(lines) == 3
     assert all('${MDRUN_LAUNCHER:-}gmx mdrun' in line for line in lines)
     assert all('${MDRUN_FLAGS:-' in line for line in lines)
@@ -57,9 +60,101 @@ def test_the_cg_launchers_take_the_executors_flags():
 
 def test_the_aa_reference_launcher_reads_both_brackets():
     """Its minimisation keeps PME on the CPU and its dynamics put it on the GPU, so it reads both built brackets:
-    one builder decides the device, and the two brackets differ only in the scheme they add."""
-    vacuum, solvated, equilibration, production = _mdrun_lines('aa_reference.sh')
+    one builder decides the device, and the two brackets differ only in the scheme they add. The resume line is the
+    production leg continued, so it is excluded here."""
+    lines = [line for line in _mdrun_lines('aa_reference.sh') if '-cpi' not in line]
+    vacuum, solvated, equilibration, production = lines
     assert '${MDRUN_FLAGS:-' in vacuum and '${MDRUN_FLAGS:-' in solvated
     assert '-pme' not in vacuum and '-pme' not in solvated
     assert '${MDRUN_FLAGS_PME:-' in equilibration and '${MDRUN_FLAGS_PME:-' in production
     assert '${MDRUN_LAUNCHER:-}' in production, 'the ranks the builder decided reach this stage too'
+
+
+def run_script(script: Path, cwd: Path, **environment) -> subprocess.CompletedProcess:
+    """Run a launcher under a stand-in `gmx` that records its argv and does nothing else.
+
+    A resume branches before it calls any tool, and so does the plain path's grompp/mdrun sequence; nothing here
+    reads GROMACS' output, only the script's own `set -x` trace.
+    """
+    shims = cwd / 'shims'
+    shims.mkdir(exist_ok=True)
+    gmx = shims / 'gmx'
+    gmx.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$GMX_TRACE"\n')
+    gmx.chmod(0o755)
+    env = {'PATH': f'{shims}:{Path(sys.executable).parent}:/usr/bin:/bin', 'PYTHON': sys.executable,
+           'PROJECT_ROOT': str(PROJECT_ROOT), 'PYTHONPATH': str(PROJECT_ROOT),
+           'GMX_TRACE': str(cwd / 'gmx.trace'), **environment}
+    return subprocess.run(['bash', str(script)], cwd=cwd, capture_output=True, text=True, timeout=60, env=env)
+
+
+def cg_workspace(tmp_path):
+    """The files `cg_simulation.sh` reads before its mdrun, so the plain path can run without a real build."""
+    stage = tmp_path / 'stage'
+    stage.mkdir()
+    (tmp_path / '3_initial_CG').mkdir()
+    (tmp_path / '3_initial_CG' / 'lig.itp').write_text('#include "martini.itp"\n')
+    (tmp_path / '2_mapping').mkdir()
+    (tmp_path / '2_mapping' / 'mapped.gro').write_text('system\n0\n   1.00000   1.00000   1.00000\n')
+    (stage / 'system_EMPTY.top').write_text('[ molecules ]\n')
+    return stage
+
+
+def aa_workspace(tmp_path):
+    stage = tmp_path / 'stage'
+    stage.mkdir()
+    for name in ('system_EMPTY.top', 'molecule.pdb', 'em.mdp', 'eq.mdp', 'run.mdp'):
+        (stage / name).write_text('molecule\n')
+    return stage
+
+
+def test_a_resumed_cg_simulation_runs_only_its_production_leg(tmp_path):
+    checkpoint = tmp_path / 'md.cpt'
+
+    done = run_script(SCRIPTS / 'cg_simulation.sh', tmp_path, MDRUN_CONTINUE=str(checkpoint))
+
+    assert done.returncode == 0, done.stderr
+    assert f'+ gmx mdrun -deffnm md -cpi {checkpoint} -append -ntomp 8 -v' in done.stderr
+    assert 'grompp' not in done.stderr and 'editconf' not in done.stderr and 'solvate' not in done.stderr
+    assert 'convert-tpr' not in done.stderr and 'trjconv' not in done.stderr
+
+
+def test_a_cg_simulation_without_a_continue_checkpoint_runs_the_commands_it_always_did(tmp_path):
+    stage = cg_workspace(tmp_path)
+
+    done = run_script(SCRIPTS / 'cg_simulation.sh', stage, FINAL_ITP='lig.itp', MOLECULE_TYPE='DDM')
+
+    assert done.returncode == 0, done.stderr
+    for command in ('+ cp ../3_initial_CG/lig.itp lig.itp',
+                    '+ gmx grompp -f inputs/minimization.mdp -p system.top -c solvated.gro -o min.tpr',
+                    '+ gmx mdrun -deffnm min -ntomp 8 -v',
+                    '+ gmx grompp -f inputs/eq.mdp -p system.top -c min.gro -o eq.tpr -maxwarn 1',
+                    '+ gmx mdrun -deffnm eq -ntomp 8 -v',
+                    '+ gmx grompp -f inputs/md.mdp -p system.top -c eq.gro -t eq.cpt -o md.tpr -maxwarn 1',
+                    '+ gmx mdrun -deffnm md -ntomp 8 -v',
+                    '+ gmx trjconv -f md.xtc -s md.tpr -pbc mol -center -o prod/lig_CG.xtc'):
+        assert command in done.stderr, (command, done.stderr)
+    assert '-cpi' not in done.stderr and '-append' not in done.stderr
+
+
+def test_a_resumed_aa_reference_runs_only_its_production_leg(tmp_path):
+    checkpoint = tmp_path / '3-run.cpt'
+
+    done = run_script(SCRIPTS / 'aa_reference.sh', tmp_path, MDRUN_CONTINUE=str(checkpoint))
+
+    assert done.returncode == 0, done.stderr
+    assert f'+ gmx mdrun -deffnm 3-run -cpi {checkpoint} -append -ntomp 8 -v' in done.stderr
+    assert 'grompp' not in done.stderr and 'editconf' not in done.stderr and 'solvate' not in done.stderr
+
+
+def test_an_aa_reference_without_a_continue_checkpoint_runs_the_commands_it_always_did(tmp_path):
+    stage = aa_workspace(tmp_path)
+
+    done = run_script(SCRIPTS / 'aa_reference.sh', stage)
+
+    assert done.returncode == 0, done.stderr
+    for command in ('+ gmx grompp -f em.mdp -c boxed.gro -p system.top -o vacuum.tpr',
+                    '+ gmx mdrun -deffnm vacuum -ntomp 8 -v',
+                    '+ gmx grompp -f run.mdp -c 2-eq.gro -t 2-eq.cpt -p system.top -o 3-run.tpr',
+                    '+ gmx mdrun -deffnm 3-run -ntomp 8 -v'):
+        assert command in done.stderr, (command, done.stderr)
+    assert '-cpi' not in done.stderr and '-append' not in done.stderr

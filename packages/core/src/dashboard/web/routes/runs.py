@@ -322,7 +322,12 @@ def clone_job(jid):
 def resume_job(jid):
     c = coordinator()
     data = json_object(optional=True)
-    job = c.resume_in_place(jid, data.get('stage'))
+    # No stage means Resume: the stopped stage continues from its own checkpoint. A stage means Restart from
+    # stage: the stages from that boundary are archived and re-run, which is what the picker asks for.
+    if 'stage' in data:
+        job = c.resume_in_place(jid, data.get('stage'))
+    else:
+        job = c.continue_in_place(jid)
     return jsonify(view_of(c, job)), 200
 
 

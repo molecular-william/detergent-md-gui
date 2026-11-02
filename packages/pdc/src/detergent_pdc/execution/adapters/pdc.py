@@ -95,7 +95,7 @@ _PROTEIN_LIMIT = 50
 # rather than `120.0`. `aggregation_number` was missing here while `validate_payload` refused anything that was not an
 # `int`, so the normalizer turned every supplied aggregation number into a float and the validator then rejected the
 # record the normalizer had just written -- no pdc build with an aggregation number could get past `prepare`.
-_INTEGRAL = ('seed', 'minimisation_steps', 'mdrun_gpu', 'aggregation_number', 'attempts_max',
+_INTEGRAL = ('seed', 'minimisation_steps', 'mdrun_gpu', 'mdrun_cpt', 'aggregation_number', 'attempts_max',
              'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm', 'nstlist',
              'mdrun_ntomp', 'mdrun_ranks')
 # The refusal each count carries, so a fractional value is named rather than floored. `seed` has a spec and no
@@ -141,6 +141,9 @@ SETTING_SPECS = {
     'pdc_npt_ps': ('CG NPT equilibration (ps)', 0, 1000000),
     # An index into the devices the host reports, and the check that matters is against those, at prepare.
     'mdrun_gpu': ('mdrun GPU device', 0, 64),
+    # The checkpoint cadence, in minutes. No entry in `DEFAULTS`, so a run that names none writes no flag and keeps
+    # GROMACS' own 15 minutes; a supplied one is kept for `workflow`'s one flag builder.
+    'mdrun_cpt': ('Checkpoint interval (minutes)', 1, 100000),
 }
 
 # What each equilibration leg's shared script has to know: the mdp it runs, the phase it copies its system from, the
@@ -199,18 +202,18 @@ STAGES = (
           ('../../inputs/04_nvt.json', '../../inputs/nvt.mdp', '../03_minimisation/system.gro',
            '../03_minimisation/system.top', f'../02_system/{PROTEIN_TOPOLOGY_DIRECTORY}/'),
           ('system.tpr', 'system.gro', 'system.top', 'system.edr', 'system.log', 'system.cpt', 'system.xtc'),
-          script='dashboard/execution/scripts/pdc_leg.sh'),
+          script='dashboard/execution/scripts/pdc_leg.sh', checkpoint='system.cpt'),
     Stage('NPT equilibration', '05_npt/pdc_leg.sh',
           ('../../inputs/05_npt.json', '../../inputs/npt.mdp', '../04_nvt/system.gro', '../04_nvt/system.top',
            f'../02_system/{PROTEIN_TOPOLOGY_DIRECTORY}/'),
           ('system.tpr', 'system.gro', 'system.top', 'system.edr', 'system.log', 'system.cpt', 'system.xtc'),
-          script='dashboard/execution/scripts/pdc_leg.sh'),
+          script='dashboard/execution/scripts/pdc_leg.sh', checkpoint='system.cpt'),
     # The counterpart of change 2: this leg is production only, and it samples the system the NPT leg left.
     Stage('CG assessment MD', '06_assessment/pdc_assessment.sh',
           ('../../inputs/assessment.mdp', '../05_npt/system.gro', '../05_npt/system.top',
            f'../02_system/{PROTEIN_TOPOLOGY_DIRECTORY}/'),
           ('prod/run.gro', 'prod/run.tpr', 'prod/run.xtc', 'prod/run.cpt', 'system.top'),
-          script='dashboard/execution/scripts/pdc_assessment.sh'),
+          script='dashboard/execution/scripts/pdc_assessment.sh', checkpoint='prod/run.cpt'),
     # Judges the production phase that just ran: its script copies `prod/run.gro` from `06_assessment`, because a
     # stage reads the phase before it immutably. A run with out-of-micelle removal off has no decision to make and
     # gets no directory here.
@@ -227,7 +230,10 @@ STAGES = (
            '../07_micelle_assessment/removed.json', '../07_micelle_assessment/kept.gro',
            '../06_assessment/system.top', f'../02_system/{PROTEIN_TOPOLOGY_DIRECTORY}/'),
           ('prod/run.gro', 'prod/run.xtc'),
-          script='dashboard/execution/scripts/pdc_extension.sh'),
+          # The extension's last leg is `prod/run` when the removal path rebuilds the system, and a bare `run` when it
+          # does not; the first that exists is the one a continue names.
+          script='dashboard/execution/scripts/pdc_extension.sh',
+          checkpoint=('prod/run.cpt', 'run.cpt')),
     Stage('Final assessment', '09_final_assessment/pdc_assess.sh',
           ('../../inputs/' + SETTINGS_NAME, '../08_extension/prod/run.gro'),
           ('assessment.json',),

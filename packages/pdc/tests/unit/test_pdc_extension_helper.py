@@ -243,3 +243,42 @@ def test_the_helper_does_not_decide_a_settings_driven_skip():
 
     assert "remove_out_of_micelle" not in source
     assert "skip.json" not in source
+
+
+def test_a_resume_re_runs_only_the_no_removal_production_leg(tmp_path, monkeypatch):
+    """Resume names `run.cpt`: the copies, convert-tpr and the grompp already ran, so only that mdrun and the
+    trailing copies into `prod/` happen."""
+    stage, assessment, previous = staged(tmp_path, {'removed': [], 'fraction_removed': 0.0})
+    checkpoint = stage / 'run.cpt'
+    fake = FakeGmx(stage)
+    monkeypatch.setattr(pdc_extension.subprocess, 'run', fake)
+    monkeypatch.setenv('MDRUN_CONTINUE', str(checkpoint))
+
+    assert pdc_extension.main(arguments(stage, assessment, previous)) == 0
+
+    assert fake.commands == [['gmx', 'mdrun', '-deffnm', 'run', '-cpi', str(checkpoint), '-append',
+                              '-ntomp', '8', '-v']]
+    assert (stage / 'prod' / 'run.gro').is_file() and (stage / 'prod' / 'run.xtc').is_file()
+    assert not any('convert-tpr' in command for command in fake.commands), 'the tpr is the one already there'
+    record = json.loads((stage / pdc_extension.ATTEMPTS).read_text())['attempts']
+    assert record == [{'attempt': 1, 'removed': 0, 'removed_fraction': 0.0, 'mode': 'continued', 'seed': 20260930}]
+
+
+def test_a_resume_re_runs_only_the_removal_paths_production_leg(tmp_path, monkeypatch):
+    """The other name: a run that removed detergents resumed its rebuilt production, `prod/run`."""
+    stage, assessment, previous = staged(tmp_path, {
+        'removed': [{'name': 'DDM3', 'residue_id': 3, 'beads': 11, 'tail_beads': 3}],
+        'stayed': ['DDM1', 'DDM2'], 'fraction_removed': 0.125, 'aggregation_number': 8})
+    checkpoint = stage / 'prod' / 'run.cpt'
+    fake = FakeGmx(stage)
+    monkeypatch.setattr(pdc_extension.subprocess, 'run', fake)
+    monkeypatch.setenv('MDRUN_CONTINUE', str(checkpoint))
+
+    assert pdc_extension.main(arguments(stage, assessment, previous)) == 0
+
+    assert fake.commands == [['gmx', 'mdrun', '-deffnm', 'prod/run', '-cpi', str(checkpoint), '-append',
+                              '-ntomp', '8', '-v']]
+    assert not (stage / 'kept.top').exists(), 'the rebuild already happened; resuming does not repeat it'
+    assert pdc_extension.molecule_counts((stage / 'system.top').read_text()) == [('PROT', 1), ('DDM', 8)]
+    record = json.loads((stage / pdc_extension.ATTEMPTS).read_text())['attempts']
+    assert record[0]['mode'] == 'restarted' and record[0]['removed'] == 1 and record[0]['seed'] == 20260931

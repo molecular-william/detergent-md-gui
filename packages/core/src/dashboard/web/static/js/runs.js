@@ -83,6 +83,15 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
         const viewRun = $('.job-view-run', card);
         const workspace = document.body.dataset.workspace || location.pathname.split('/').filter(Boolean)[0] || 'detergent-validation';
         if (viewRun) viewRun.href = `/${workspace}/run-view?run=${job.id}`;
+        // Two doors into the same route, and the body is what tells them apart: `{}` continues the stage that
+        // stopped from its own checkpoint and appends to its trajectory, while a stage name restarts from that
+        // stage's inputs. The template owns which is which; a page whose shell predates the Resume button simply
+        // does not offer it.
+        const continueButton = $('.job-continue',card);
+        if (continueButton) continueButton.onclick = async () => {
+          try { await post(`/api/jobs/${job.id}/resume`,{}); notice('Run continuing from its checkpoint; the trajectory appends to the same run.'); await refreshJobs(); }
+          catch(error) { notice(error.message); }
+        };
         $('.job-resume',card).onclick = async () => {
           try { await post(`/api/jobs/${job.id}/resume`,{stage:$('.resume-stage',card).value}); notice('Run resumed; current stage files will be executed.'); await refreshJobs(); }
           catch(error) { notice(error.message); }
@@ -145,6 +154,10 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
       $('.job-cancel', card).hidden = !job.can_cancel;
       $('.job-retry', card).hidden = !job.can_retry;
       $('.job-delete', card).hidden = !job.can_delete;
+      // And again on every render, because a run becomes continuable (or stops being so) while the page is open.
+      // Absent `can_continue` is false: the view that gains the field may land after this page's script does.
+      const continueButton = $('.job-continue', card);
+      if (continueButton) continueButton.hidden = !job.can_continue;
       $('.job-resume',card).hidden = !job.resume_stages?.length; $('.resume-control',card).hidden = !job.resume_stages?.length;
       const resumeSelect = $('.resume-stage',card), previousStage = resumeSelect.value;
       resumeSelect.replaceChildren(...(job.resume_stages || []).map(name=>new Option(name,name)));

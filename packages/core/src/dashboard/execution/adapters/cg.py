@@ -75,7 +75,7 @@ STAGE_DEFS = (
     Stage('AA reference', '1_AA-reference/aa_reference.sh',
           ('molecule.pdb', 'system_EMPTY.top', 'em.mdp', 'eq.mdp', 'run.mdp'),
           ('prod/lig.gro', 'prod/lig.tpr', 'prod/lig.xtc', '3-run.xtc'),
-          script='dashboard/execution/scripts/aa_reference.sh'),
+          script='dashboard/execution/scripts/aa_reference.sh', checkpoint='3-run.cpt'),
     Stage('trajectory mapping', '2_mapping/map_trajectory.sh',
           ('../1_AA-reference/prod/lig.xtc', '../1_AA-reference/prod/lig.tpr',
            '../1_AA-reference/prod/lig.gro', 'mapping.map'),
@@ -94,7 +94,7 @@ STAGE_DEFS = (
           ('../2_mapping/mapped.gro', '../3_initial_CG/{final_itp}',
            'system_EMPTY.top', 'inputs/md.mdp'),
           ('prod/lig_CG.gro', 'prod/lig_CG.tpr', 'prod/lig_CG.xtc'),
-          script='dashboard/execution/scripts/cg_simulation.sh'),
+          script='dashboard/execution/scripts/cg_simulation.sh', checkpoint='md.cpt'),
     Stage('CG assessment (ff_assess)', '5_assessment/assess.sh',
           ('../4_CG_sim/prod/lig_CG.xtc', '../4_CG_sim/prod/lig_CG.tpr',
            '../4_CG_sim/prod/lig_CG.gro', '../3_initial_CG/{initial_itp}',
@@ -184,9 +184,10 @@ SETTING_SPECS = {
     'output_interval_ps': ('Trajectory output interval', 0.001, 100000),
 }
 
-#: Settings from the AA half that describe *this run's* execution rather than the AA reference it consumes: the device
-#: and the CPU budget. A reference is prepared under its own settings; these are the run's own, on both halves.
-RUN_EXECUTION_SETTINGS = ('mdrun_gpu', 'mdrun_ntomp', 'mdrun_ranks')
+#: Settings from the AA half that describe *this run's* execution rather than the AA reference it consumes: the device,
+#: the CPU budget and the checkpoint cadence. A reference is prepared under its own settings; these are the run's own,
+#: on both halves.
+RUN_EXECUTION_SETTINGS = ('mdrun_gpu', 'mdrun_ntomp', 'mdrun_ranks', 'mdrun_cpt')
 
 
 def _mdp_value(path, key):

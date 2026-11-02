@@ -105,10 +105,10 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
 // The engine's own panel: the persisted form of the single-molecule workspaces.
 function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   const AA_FIELDS = ['aa_nvt_ps','aa_npt_ps','aa_production_ps','temperature_k','pressure_bar','output_interval_ps','box_nm','aa_seed','mdrun_ntomp','mdrun_ranks','mdrun_nb','mdrun_pme'];
-  // The device is a setting of *this host*, not of the AA reference a run inherits: a reference run's GPU must not
-  // be locked onto a new run, so this key is deliberately not in AA_FIELDS. It still has to travel as a setting
-  // when a run is cloned, which is what this list is for.
-  const GPU_FIELDS = ['mdrun_gpu'];
+  // The device and the checkpoint cadence are settings of *this host and run*, not of the AA reference a run
+  // inherits: a reference run's GPU must not be locked onto a new run, so this key is deliberately not in
+  // AA_FIELDS. They still have to travel as settings when a run is cloned, which is what this list is for.
+  const GPU_FIELDS = ['mdrun_gpu','mdrun_cpt'];
   const CG_FIELDS = ['cg_equil_ps','cg_production_ps','sasa_probe_nm','cg_seed'];
   //: The profile is the run type's own (`protocol.profile_for_run_type`): the panel offers no choice, sends no key, and
   //: asks `/api/defaults` and `/api/readiness` without one, so the durations it shows and the profile the run is

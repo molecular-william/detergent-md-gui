@@ -316,6 +316,7 @@ def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, co
     if run_dir is None or not usable_run_id(job):
         return result | {'status': 'failed', 'error': UNREPAIRABLE, 'can_cancel': False,
                          'can_delete': False, 'can_retry': False, 'stages': [],
+                         'can_continue': False, 'continue_stage': None,
                          'workflow_stages': plan_names(job),
                          'elapsed_seconds': None, 'analyses': [], 'consistency': None}
     run_dir = Path(run_dir)
@@ -333,9 +334,17 @@ def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, co
     result['workflow_skips'] = features.planned_skips(job, manifest)
     result['resume_stages'] = (workflow.resumable_stages(run_dir, metadata=manifest)
                               if job.get('status') in ('failed','cancelled','completed') else [])
+    # Resume continues the stopped stage from its own checkpoint; Restart from stage is the picker above. Both are
+    # read from the run's own record, so a run that declared nothing to continue from offers no button rather than
+    # one that would fail when pressed.
+    continued = (workflow.continue_plan(run_dir, metadata=manifest)
+                 if job.get('status') in ('failed','cancelled') else None)
+    result['can_continue'] = bool(continued)
+    result['continue_stage'] = continued['name'] if continued else None
     if busy:
         result['can_delete'] = False
         result['resume_stages'] = []
+        result['can_continue'] = False
         result['metadata_warnings'].append('An external worker still holds this run; reuse and deletion are blocked until it exits')
     if (run_dir / 'manifest.json').is_file() and not manifest:
         result['metadata_warnings'].append('Manifest is unreadable; inspect the original artifact')

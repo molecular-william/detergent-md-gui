@@ -1,6 +1,13 @@
 #!/bin/bash
 AA_REFERENCE_DIR="${AA_REFERENCE_DIR:-../1_AA-reference/prod}"
 set -euxo pipefail
+# A resumed stage names the checkpoint of this stage's own mdrun. The build, the solvation and the two equilibration
+# legs already happened in this directory, so only the production leg re-runs -- appending to the trajectory it was
+# writing rather than replacing it.
+if [ -n "${MDRUN_CONTINUE:-}" ]; then
+  ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm md -cpi "$MDRUN_CONTINUE" -append ${MDRUN_FLAGS:--ntomp 8} -v
+  exit 0
+fi
 # The interpreter the application runs under, and the checkout it imports from; the water box below is a published
 # file read where it lives, so nothing has to be linked or copied into the stage.
 PYTHON="${PYTHON:-python}"

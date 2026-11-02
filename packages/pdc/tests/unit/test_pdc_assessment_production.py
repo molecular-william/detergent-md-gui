@@ -46,7 +46,9 @@ def test_the_assessment_leg_solvates_minimises_and_equilibrates_nothing():
     assert 'pdc_solvate' not in lines and 'gmx solvate' not in lines, "solvation is the minimisation leg's"
     assert 'minimisation.mdp' not in lines and 'minimization.mdp' not in lines
     assert 'equilibration.mdp' not in lines, 'the three legs in front of this stage are the equilibration'
-    assert lines.count('gmx grompp') == 1 and lines.count('gmx mdrun') == 1, 'one production run, and one only'
+    fresh = '\n'.join(line for line in lines.splitlines() if '-cpi' not in line)
+    assert fresh.count('gmx grompp') == 1 and fresh.count('gmx mdrun') == 1, \
+        'one production run, and one only; the resume branch continues that same run'
     assert 'assessment.mdp' in lines
 
 

@@ -15,7 +15,7 @@ from dashboard.execution.mdp import PROFILES
 from detergent_pdc.execution.adapters import pdc, pdc_solvation
 from detergent_pdc.execution.scripts import pdc_solvate
 
-from tests.harness.pdc_fixtures import inputs_dir, prepared_run, script_of, stage_dir
+from tests.harness.pdc_fixtures import inputs_dir, prepared_run, run_script, script_of, stage_dir
 
 TEMPLATE = {
     'name': 'DDM',
@@ -156,3 +156,39 @@ def test_a_topology_without_a_molecules_section_records_no_counts(tmp_path):
     topology.write_text('#include "martini.itp"\n\n[ system ]\nname\n')
 
     assert pdc_solvate.molecules(topology) == {}
+
+
+def test_a_resumed_assessment_re_runs_the_production_leg_and_its_trjconv(tmp_path):
+    """Resume names `prod/run.cpt`: the copy and grompp are behind it, so only that mdrun and the post-step re-run."""
+    checkpoint = tmp_path / 'prod' / 'run.cpt'
+
+    done = run_script(script_of(ASSESSMENT), tmp_path, environment={'MDRUN_CONTINUE': str(checkpoint)})
+
+    assert done.returncode == 0, done.stderr
+    assert f'+ gmx mdrun -deffnm prod/run -cpi {checkpoint} -append -ntomp 8 -v' in done.stderr
+    assert 'grompp' not in done.stderr, 'the resumed assessment does not rebuild its tpr'
+    assert 'cp -f' not in done.stderr and 'mkdir' not in done.stderr
+    assert '+ gmx trjconv -f prod/run.xtc -s prod/run.tpr -pbc mol -center -o prod/whole.xtc' in done.stderr, \
+        'the whole-system trajectory must include the appended frames'
+
+
+def test_the_assessment_without_a_continue_checkpoint_runs_the_commands_it_always_did(tmp_path):
+    """Without `MDRUN_CONTINUE` the trace is today's: copy, grompp from the NPT checkpoint, mdrun, trjconv."""
+    run = prepared_run(tmp_path, settings={'assessment_ns': 100})
+    stage = stage_dir(run, ASSESSMENT)
+    previous = stage_dir(run, 'NPT equilibration')
+    for name in ('system.gro', 'system.top', 'system.cpt'):
+        (previous / name).write_text('system\n0\n   1.00000   1.00000   1.00000\n')
+
+    done = run_script(script_of(ASSESSMENT), stage)
+
+    assert done.returncode == 0, done.stderr
+    for command in ('+ cp -f ../05_npt/system.gro ../05_npt/system.top .',
+                    '+ mkdir -p prod',
+                    '+ cp -f ../../inputs/assessment.mdp .',
+                    '+ gmx grompp -f assessment.mdp -p system.top -c system.gro -t ../05_npt/system.cpt '
+                    '-o prod/run.tpr -maxwarn 1',
+                    '+ gmx mdrun -deffnm prod/run -ntomp 8 -v',
+                    '+ gmx trjconv -f prod/run.xtc -s prod/run.tpr -pbc mol -center -o prod/whole.xtc'):
+        assert command in done.stderr, (command, done.stderr)
+    assert '-cpi' not in done.stderr and '-append' not in done.stderr

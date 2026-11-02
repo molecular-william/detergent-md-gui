@@ -141,7 +141,16 @@ def mdrun_command_flags(settings, stage, flavour=None):
         if str(settings.get(key) or 'auto') == 'auto': continue
         bracket = ' '.join(part for part in bracket.split()
                            if part != flag and not part.startswith(flag + 'fft'))
-    return launcher, f'{thread_flags} {bracket}'.strip()
+    # The checkpoint cadence is a run setting with no default: a run that names none emits nothing, so GROMACS'
+    # own 15 minutes stands and the command is the one every earlier run produced, byte for byte.
+    flags = f'{thread_flags} {bracket}'.strip()
+    cpt = settings.get('mdrun_cpt')
+    if cpt is not None:
+        minutes = float(cpt)
+        if minutes != int(minutes) or not 1 <= minutes <= 100000:
+            raise ValueError('mdrun_cpt must be a whole number of minutes between 1 and 100000')
+        flags += f' -cpt {int(minutes)}'
+    return launcher, flags
 
 
 STAGE_DEFS = (
@@ -156,13 +165,16 @@ STAGE_DEFS = (
           ('run.gro', 'run.tpr', 'run.edr', 'run.log')),
     Stage('AA NVT equilibration', '04_nvt/run.sh',
           ('../03_minimization/run.gro', '../03_minimization/system.top', 'run.mdp'),
-          ('run.gro', 'run.tpr', 'run.edr', 'run.log', 'run.cpt', 'run.xtc')),
+          ('run.gro', 'run.tpr', 'run.edr', 'run.log', 'run.cpt', 'run.xtc'),
+          checkpoint='run.cpt'),
     Stage('AA NPT equilibration', '05_npt/run.sh',
           ('../04_nvt/run.gro', '../04_nvt/system.top', 'run.mdp', '../04_nvt/run.cpt'),
-          ('run.gro', 'run.tpr', 'run.edr', 'run.log', 'run.cpt', 'run.xtc')),
+          ('run.gro', 'run.tpr', 'run.edr', 'run.log', 'run.cpt', 'run.xtc'),
+          checkpoint='run.cpt'),
     Stage('AA NPT production', '06_production/run.sh',
           ('../05_npt/run.gro', '../05_npt/system.top', 'run.mdp', '../05_npt/run.cpt'),
-          ('run.gro', 'run.tpr', 'run.edr', 'run.log', 'run.cpt', 'run.xtc')),
+          ('run.gro', 'run.tpr', 'run.edr', 'run.log', 'run.cpt', 'run.xtc'),
+          checkpoint='run.cpt'),
     Stage('AA reference publication', '07_reference/run.sh',
           ('../06_production/run.xtc', '../06_production/run.tpr', '../06_production/run.gro'),
           ('lig.gro', 'lig.xtc', 'lig.tpr', 'reference.json')),
@@ -197,6 +209,9 @@ SETTING_SPECS={'aa_nvt_ps':('AA NVT duration',1,1000000),'aa_npt_ps':('AA NPT du
                # is a form bound rather than a statement about any machine -- the check that matters is against
                # the devices that exist, at prepare.
                'mdrun_gpu':('mdrun GPU device',0,64),
+               # Minutes between checkpoint saves, a count rather than a duration; there is deliberately no default,
+               # so a run that names none leaves GROMACS' own cadence in force and writes no flag.
+               'mdrun_cpt':('Checkpoint interval (minutes)',1,100000),
                'temperature_k':('Temperature',200,500),'pressure_bar':('Pressure',.1,100),
                'output_interval_ps':('Trajectory output interval',.002,100000),
                'box_nm':('Box edge',1.0,20),'aa_seed':('AA random seed',1,2147483646)}
@@ -225,7 +240,8 @@ def normalize_settings(settings=None, profile='standard'):
         settings, stage_defaults(profile)['values'], specs=SETTING_SPECS, choices=CHOICE_SPECS,
         object_message='AA settings must be an object', unknown_prefix='Unknown AA setting: ',
         bool_message='AA settings must be numeric',
-        integrals={'mdrun_gpu':'mdrun_gpu must be an integer', 'aa_seed':'AA seed must be an integer'})
+        integrals={'mdrun_gpu':'mdrun_gpu must be an integer', 'mdrun_cpt':'mdrun_cpt must be an integer',
+                   'aa_seed':'AA seed must be an integer'})
     if result['output_interval_ps']>result['aa_production_ps']:raise ValueError('Output interval exceeds AA production duration')
     # The temperature a run starts from belongs to the force field: each parameterisation assumes one, and the
     # reference protocol this project reproduces runs each force field at its own. A caller who names a
@@ -428,7 +444,18 @@ mv neutral.gro system.gro
         # why runs/ was empty. The CPU budget is mdrun_ranks x mdrun_ntomp instead, checked against the
         # machine by mdrun_launch; a capability-aware probe that offers -ntmpi on a thread-MPI build is the
         # remaining piece.
-        scripts.append(f'cp ../{prev}/system.top system.top\ngmx grompp -f run.mdp -c ../{prev}/{coord}{checkpoint} -p system.top -o run.tpr\n{launcher}gmx mdrun -deffnm run {mdrun_flags} -v\n')
+        # A continue re-enters one stage with MDRUN_CONTINUE naming that stage's final checkpoint (`run.cpt`); the
+        # leg then skips `grompp` and appends to the trajectory it already wrote. Without that variable the script
+        # takes the same branch it always did, so an ordinary run's commands do not move.
+        grompp = f'gmx grompp -f run.mdp -c ../{prev}/{coord}{checkpoint} -p system.top -o run.tpr'
+        mdrun = f'{launcher}gmx mdrun -deffnm run {mdrun_flags} -v'
+        continuation = ('if [ -n "${MDRUN_CONTINUE:-}" ] && [ "$MDRUN_CONTINUE" -ef "$(pwd -P)/run.cpt" ]; then\n'
+                        f'  {launcher}gmx mdrun -deffnm run -cpi "$MDRUN_CONTINUE" -append {mdrun_flags} -v\n'
+                        'else\n'
+                        f'  {grompp}\n  {mdrun}\n'
+                        'fi\n')
+        scripts.append(f'cp ../{prev}/system.top system.top\n'
+                       + (f'{grompp}\n{mdrun}\n' if kind == 'em' else continuation))
     scripts.append('''printf 'Solute\\nSolute\\n' | gmx trjconv -f ../06_production/run.xtc -s ../06_production/run.tpr -n ../common/solute.ndx -pbc mol -center -o lig.xtc
 printf 'Solute\\n' | gmx trjconv -f ../06_production/run.xtc -s ../06_production/run.tpr -n ../common/solute.ndx -dump 0 -o lig.gro
 printf 'Solute\\n' | gmx convert-tpr -s ../06_production/run.tpr -n ../common/solute.ndx -o lig.tpr

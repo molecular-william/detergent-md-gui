@@ -12,6 +12,13 @@
 # -ntomp is valid for every build.
 set -euxo pipefail
 
+# A resumed stage names the checkpoint of this leg's own mdrun. The copy, the solvation and the grompp in front of it
+# already happened in this directory, so only the mdrun re-runs -- from that checkpoint, appending to its trajectory.
+if [ -n "${MDRUN_CONTINUE:-}" ]; then
+  ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm system -cpi "$MDRUN_CONTINUE" -append ${MDRUN_FLAGS:--ntomp 8} -v
+  exit 0
+fi
+
 # The interpreter the application runs under, and the repository it imports from. `python` on the stage PATH is this
 # workspace's virtualenv (`tools.search_path` puts it first); a caller that exports PYTHON/PROJECT_ROOT wins.
 PYTHON="${PYTHON:-python}"
