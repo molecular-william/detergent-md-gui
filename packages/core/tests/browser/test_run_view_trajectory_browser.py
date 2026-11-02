@@ -89,7 +89,8 @@ def segments_answer(run_id):
 def default_arguments(run_id):
     """The arguments the block must default to for the run's latest system: `beads` for a coarse trajectory, raw."""
     return {'trajectory': LATEST, 'structure': STRUCTURES[run_id], 'start_ns': None, 'end_ns': None,
-            'interval_ns': None, 'atoms': 'beads', 'pbc': 'none', 'center': False, 'fit': 'none', 'group': None}
+            'interval_ns': None, 'atoms': 'beads', 'pbc': 'none', 'boxcenter': 'tric', 'center': False,
+            'fit': 'none', 'group': None}
 
 
 def legacy_arguments(run_id):
@@ -377,7 +378,7 @@ def test_the_submit_says_build_when_no_attempt_matches(dashboard, live_page):
     assert errors == [], errors
 
 
-def test_submit_sends_the_ten_key_body_for_the_chosen_controls(dashboard, live_page):
+def test_submit_sends_the_eleven_key_body_for_the_chosen_controls(dashboard, live_page):
     """The form's values, exactly: the server validates this body, so a key in the wrong place is a refusal."""
     page, errors, state = open_run(dashboard, live_page, ENGINE_RUN)
     expect(series(page)).to_contain_text('3 models')
@@ -394,6 +395,7 @@ def test_submit_sends_the_ten_key_body_for_the_chosen_controls(dashboard, live_p
     page.locator('#run-view-form-start-A').fill('1.5')
     page.locator('#run-view-form-end-A').fill('12')
     page.locator('#run-view-form-pbc-A').select_option('mol')
+    page.locator('#run-view-form-boxcenter-A').select_option('zero')
     page.locator('#run-view-form-center-A').check()
     page.locator('#run-view-form-fit-A').select_option('rot+trans')
     page.locator('#run-view-form-group-A').select_option('fragment:B')
@@ -401,12 +403,46 @@ def test_submit_sends_the_ten_key_body_for_the_chosen_controls(dashboard, live_p
 
     expect(series(page)).to_contain_text('CA atoms only')
     expect(series(page)).to_contain_text('PBC mol')
-    expect(series(page)).to_contain_text('centred on fragment B')
+    expect(series(page)).to_contain_text('centred on fragment B at the zero box centre')
     expect(series(page)).to_contain_text('rotation-and-translation fit on fragment B')
     expect(series(page)).to_contain_text('one model every 0.5 ns')
     assert state['posted'] == [{'trajectory': LATEST, 'structure': STRUCTURES[ENGINE_RUN], 'start_ns': 1.5,
-                                'end_ns': 12, 'interval_ns': 0.5, 'atoms': 'ca', 'pbc': 'mol', 'center': True,
-                                'fit': 'rot+trans', 'group': 'fragment:B'}], state['posted']
+                                'end_ns': 12, 'interval_ns': 0.5, 'atoms': 'ca', 'pbc': 'mol',
+                                'boxcenter': 'zero', 'center': True, 'fit': 'rot+trans', 'group': 'fragment:B'}], \
+        state['posted']
+    assert errors == [], errors
+
+
+def test_cluster_and_the_box_centre_are_offered_and_sent(dashboard, live_page):
+    """`cluster` is a selectable PBC mode with its tpr caveat, and Box centre names where the box is centred."""
+    page, errors, state = open_run(dashboard, live_page, ENGINE_RUN)
+    expect(series(page)).to_contain_text('3 models')
+    page.locator('#run-view-build-A').click()
+
+    pbc = page.locator('#run-view-form-pbc-A')
+    expect(pbc.locator('option')).to_have_count(7)
+    expect(pbc.locator('option[value="res"]')).to_contain_text('each residue')
+    expect(pbc.locator('option[value="atom"]')).to_contain_text('each atom')
+    expect(pbc.locator('option[value="cluster"]')).to_contain_text('centre of mass')
+    expect(pbc.locator('option[value="cluster"]')).to_contain_text('.tpr')
+    expect(page.locator('#run-view-form-boxcenter-A')).to_have_value('tric')
+    expect(page.locator('#run-view-form-boxcenter-A option')).to_have_count(3)
+    expect(page.locator('#run-view-form-boxcenter-A option[value="rect"]')).to_contain_text('half the diagonal')
+    hint = page.locator('#run-view-recompute-A > p.hint')
+    expect(hint).to_contain_text('cluster')
+    expect(hint).to_contain_text('.tpr')
+
+    pbc.select_option('cluster')
+    page.locator('#run-view-form-boxcenter-A').select_option('rect')
+    page.locator('#run-view-form-center-A').check()
+    page.locator('#run-view-submit-A').click()
+
+    expect(series(page)).to_contain_text('PBC cluster')
+    expect(series(page)).to_contain_text('centred on the solute at the rect box centre')
+    posted = state['posted'][0]
+    assert posted['pbc'] == 'cluster', posted
+    assert posted['boxcenter'] == 'rect', posted
+    assert posted['center'] is True, posted
     assert errors == [], errors
 
 
@@ -461,6 +497,27 @@ def test_a_legacy_attempt_is_found_played_and_named_as_a_frame_step(dashboard, l
     assert errors == [], errors
 
 
+def test_an_attempt_without_a_box_centre_is_still_found_and_played(dashboard, live_page):
+    """An attempt written before `boxcenter` existed is the tric default, so the default form finds and plays it."""
+    old = dict(default_arguments(ENGINE_RUN))
+    old.pop('boxcenter')
+    page, errors, state = open_run(dashboard, live_page, ENGINE_RUN, tasks=[series_task(ENGINE_RUN, old)])
+
+    expect(series(page)).to_contain_text('3 models')
+    expect(page.locator('#run-view-submit-A')).to_have_text('Recompute frames')
+
+    # The form it was found by holds the normalised default, not a blank select.
+    page.locator('#run-view-build-A').click()
+    expect(page.locator('#run-view-form-boxcenter-A')).to_have_value('tric')
+
+    page.locator('#run-view-loop-A').check()
+    page.locator('#run-view-play-A').click()
+    page.wait_for_function(
+        "() => document.querySelector('#run-view-time-A').textContent.includes('model 2/3')", timeout=30000)
+    assert measured(page)['frames'] == 3
+    assert errors == [], errors
+
+
 def test_the_group_control_shows_only_when_the_centre_or_the_fit_needs_it(dashboard, live_page):
     """Group is hidden for a raw view and offered as soon as Centre or a fit would act on one."""
     page, errors, state = open_run(dashboard, live_page, ENGINE_RUN)
@@ -478,7 +535,7 @@ def test_the_group_control_shows_only_when_the_centre_or_the_fit_needs_it(dashbo
     expect(group).to_be_visible()
     page.locator('#run-view-form-fit-A').select_option('none')
     expect(group).to_be_hidden()
-    expect(page.locator('#run-view-form-pbc-A option')).to_have_count(4)
+    expect(page.locator('#run-view-form-pbc-A option')).to_have_count(7)
     assert errors == [], errors
 
 

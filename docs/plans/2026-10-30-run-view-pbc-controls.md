@@ -259,3 +259,40 @@ Landed in four disjoint lanes, one integrator running the tiers and the docs.
   detergent/water/ion; a protein chain spans residues, so a chain crossing the boundary unwraps per residue and can
   differ from `gmx trjconv -pbc mol`. Recorded as a `ponytail:` note in `_declare_molecule_bonds`; the differential
   fixture is one residue and does not exercise it.
+
+### Follow-up (2026-11-02): res, atom, cluster and the box centre
+
+The user asked for the rest of the `gmx trjconv` family after the first slice: `-pbc res|atom|cluster` and the
+`-boxcenter` modes. The manual is
+<https://manual.gromacs.org/current/onlinehelp/gmx-trjconv.html#gmx-trjconv>; every semantic below was measured
+against the installed GROMACS 2026.3 before it was implemented.
+
+- **`pbc: res`** makes each `(resname, resid)` residue whole, then wraps each residue's centre into the canonical
+  cell. A plain `wrap(compound='residues')` is not enough: it leaves a residue split across the boundary split
+  (measured). Unwrap + wrap matched `gmx trjconv -pbc res` at **0.0 Å**.
+- **`pbc: atom`** is `wrap(compound='atoms')`; **0.0 Å** against GROMACS.
+- **`pbc: cluster`** is the one treatment MDAnalysis does not provide. GROMACS refuses it without a `.tpr` for
+  `-s`. The producer writes only the sampled frames, with every atom and its original time, to a temporary XTC; writes
+  an `[ view ]` index group from the view's selection before the `atoms` trimming; runs
+  `gmx trjconv -s <tpr> -f <slice> -o <out> -pbc cluster -n <ndx> -boxcenter <mode>` with `view\nSystem\n` on
+  stdin; and reads the output back. Cluster is frame-local, so clustering the sample equals clustering the whole file
+  and then sampling: measured **0.0 Å** between the two. The `.tpr` is staged only for `cluster`
+  (`<stem>.tpr`, then `run.tpr`, then `topol.tpr` beside the trajectory) so every other mode keeps its staged set and
+  signature; a run without one is refused at queue time with a sentence, which the route answers 400. The temporary
+  slice, index and output are removed in a `finally`, because the worker publishes every new file in the work
+  directory.
+- **`boxcenter` (`tric|rect|zero`)** is a new argument, default `tric`. It names the point `centre` moves the
+  group's **geometric** centre to: half the sum of the box vectors (`triclinic_vectors`), half the box diagonal, or
+  the origin. Measured **0.0 Å** against `gmx trjconv -center -boxcenter tric|rect`, and for `zero` on a fixture
+  whose centred centre does not land exactly on the boundary (GROMACS then picks the upper periodic image, which is a
+  box-vector boundary case rather than a different rule). Through the cluster call, `boxcenter` is passed to GROMACS.
+  For a PBC-only view it is recorded but applies no shift: measured on an orthorhombic box, GROMACS 2026.3 shows no
+  `boxcenter` effect without `-center`.
+- The panel now offers `res`, `atom`, `cluster` and a **Box centre** select; the payload has eleven keys
+  (`…, pbc, boxcenter, center, …`). An attempt recorded before `boxcenter` existed normalises to `tric`, so it stays
+  findable and playable.
+- Evidence: the slow tier is **25 passed**, including the new differentials for `res`, `atom`, `centre`
+  (`tric`/`rect`/`zero`) and `cluster`; fast **2,287 + 1 xfailed**, browser **260**, ruff clean, mutation 10/1,
+  2,573 collected. `-ur` and the remaining `trjconv` options are still not offered.
+- Cost: `cluster` adds one sequential read of the trajectory up to the last sampled frame (it writes only the sampled
+  frames), the same pass the producer already makes for `nojump`.

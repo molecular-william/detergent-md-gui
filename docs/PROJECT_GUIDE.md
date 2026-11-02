@@ -310,19 +310,25 @@ a CG structure is sized from the model's own size classes and coloured by type f
 a coarse-grained file is `inferBonds: 'none'` even without CONECT, and only an all-atom file with no CONECT is
 left to the viewer's inference. A file is drawn as a static structure until the reader asks for frames: the
 **Trajectory** block (`static/js/run-view-trajectory.js`) offers one segment at a time and reads the newest
-`frame-series` attempt whose ten recorded arguments match its form. `run-frames.pdb` is fetched only when Play is
+`frame-series` attempt whose eleven recorded arguments match its form. `run-frames.pdb` is fetched only when Play is
 pressed — never on mount — and Play/Pause, frame seek, −1/+1, speed, loop and a `t = <ns> · model <i>/<n>`
 readout come from that attempt's `frames.json`. **Frame options** is a disclosure, not an action: the one submit
 builds, and its label says Build frames until an attempt matches and Recompute frames when one does. The form
 takes segment, atoms, **ns per frame** (a blank aims at about 120 models), start/end ns, **PBC**
-(`none|mol|whole|nojump`), **Centre**, **Fit** (`none|trans|rot+trans`) and the **Group** the centre or fit acts on
-(`protein|solute|fragment:<letter>`). The producer converts the interval with the trajectory's own time step and
-records the cadence it actually got, so a request finer than one frame is reported as one frame, never as the
-wish. `pbc`/`centre`/`fit` are view modifications made in process with MDAnalysis transforms: `frames.json` records
-the `view`, `run-frames.pdb` carries a `VIEW MODIFICATIONS` REMARK, the trajectory itself is never rewritten, and
-`-pbc mol -center` and `-pbc nojump` are pinned by a differential test against `gmx trjconv`. `trjconv`'s `res`,
-`atom` and `cluster` are deliberately not offered: the first two rarely say more than `mol`/`whole` for a display,
-and `cluster` pulls separate micelles together, which is not a view of this run. Submitting
+(`none|mol|res|atom|whole|nojump|cluster`), **Box centre** (`tric|rect|zero`), **Centre**, **Fit**
+(`none|trans|rot+trans`) and the **Group** the centre or fit acts on (`protein|solute|fragment:<letter>`). The
+producer converts the interval with the trajectory's own time step and records the cadence it actually got, so a
+request finer than one frame is reported as one frame, never as the wish. `pbc`/`centre`/`fit` are view
+modifications: `frames.json` records the `view`, `run-frames.pdb` carries a `VIEW MODIFICATIONS` REMARK, and the
+trajectory itself is never rewritten. `mol`/`res`/`atom`/`whole`/`nojump` are MDAnalysis transforms in process;
+`cluster` is the one treatment GROMACS alone provides, so the producer writes the sampled frames to a temporary XTC,
+clusters it with `gmx trjconv -pbc cluster` and reads the result back, removing the temporary files. A `cluster`
+request stages the trajectory's `.tpr` (`<stem>.tpr`, then `run.tpr`, then `topol.tpr` beside it) and is refused at
+queue time with a sentence when the run holds none. `boxcenter` names the point `centre` moves the group's
+geometric centre to (half the box-vector sum, half the diagonal, or the origin) and is passed to the cluster call;
+it does not shift a PBC-only view (measured against GROMACS 2026.3). `-pbc mol -center`, `res`, `atom`, `nojump`,
+centre (`tric`/`rect`/`zero`) and `cluster` are pinned by differential tests against `gmx trjconv`; `-ur` and the
+remaining `trjconv` options are not offered. Submitting
 arguments that already have an attempt reuses it (`200`), and changed ones queue a new attempt (`202`). An old
 attempt recorded with `stride`/`assembled`/`fit: protein|beads` is read as the view it described (a frame step,
 `pbc mol` + centre, a rigid fit) and is still found and played, labelled as built with a frame step. A series

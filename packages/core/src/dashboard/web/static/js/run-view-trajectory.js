@@ -23,9 +23,10 @@
 import { api } from './shared.js';
 import { isCoarseGrained } from './run-view-structure.js';
 
-//: The ten keys a frame-series attempt records its arguments under -- the form, the lookup for an existing attempt
+//: The eleven keys a frame-series attempt records its arguments under -- the form, the lookup for an existing attempt
 //: and the POST body are all this one list, so a key cannot be added to one of them and forgotten in another.
-const ARGS = ['trajectory', 'structure', 'start_ns', 'end_ns', 'interval_ns', 'atoms', 'pbc', 'center', 'fit', 'group'];
+const ARGS = ['trajectory', 'structure', 'start_ns', 'end_ns', 'interval_ns', 'atoms', 'pbc', 'boxcenter',
+  'center', 'fit', 'group'];
 
 //: One times speed: ten frames a second, the rate nglview's own Play uses and the one a reader can follow. A speed of
 //: 2 halves the frame interval and 0.5 doubles it; it is the interval, not a multiplier of anything else.
@@ -123,9 +124,21 @@ export function trajectoryMarkup(side) {
               <select id="${id('run-view-form-pbc')}">
                 <option value="none" selected>none — the file as the run wrote it</option>
                 <option value="mol">mol — gather each molecule split across the boundary</option>
+                <option value="res">res — put each residue back in the box</option>
+                <option value="atom">atom — put each atom back in the box</option>
                 <option value="whole">whole — gather each molecule split across the boundary</option>
                 <option value="nojump">nojump — remove jumps over the window (history-dependent)</option>
+                <option value="cluster">cluster — gather the group's atoms around their centre of mass
+                  (needs the run's .tpr)</option>
               </select>
+            </label>
+            <label for="${id('run-view-form-boxcenter')}">Box centre
+              <select id="${id('run-view-form-boxcenter')}">
+                <option value="tric" selected>tric — half the sum of the box vectors</option>
+                <option value="rect">rect — half the diagonal of the box</option>
+                <option value="zero">zero — the origin</option>
+              </select>
+              <span class="hint">Where Centre puts the group, and where cluster gathers it.</span>
             </label>
             <label for="${id('run-view-form-fit')}">Fit
               <select id="${id('run-view-form-fit')}">
@@ -151,13 +164,17 @@ export function trajectoryMarkup(side) {
         </form>
         <p class="hint">ns per frame is a request: the server converts it with the trajectory's own time step and
           records the cadence it actually got. A blank interval aims at roughly 120 models, and a blank start and end
-          mean the whole file. PBC, Centre, Fit and Group change the view of the frames, never the run: mol/whole
-          gather a molecule split across the boundary, nojump removes jumps over the whole window (it is
-          history-dependent), Centre puts the group in the middle of the box, and Fit is a translation or a rotation
-          and translation on that group. The server caps one build at ${MAX_MODELS} models and about 250 MB, and
-          refuses a bigger one. This panel does not count the trajectory's frames -- counting a 2.6 GB file takes
-          about a minute -- so it cannot predict a build's size. Changing a control here is what makes the build a
-          new attempt; a matching one already built is reused and shown instead.</p>
+          mean the whole file. PBC, Box centre, Centre, Fit and Group change the view of the frames, never the run:
+          mol/whole gather a molecule split across the boundary, res/atom put each residue/each atom back in the box,
+          cluster gathers the chosen group's atoms around their centre of mass -- it needs the run's .tpr, so the
+          server refuses it with a sentence when the run has none -- and nojump removes jumps over the whole window
+          (it is history-dependent). Box centre names where the middle of the box is for Centre (and for cluster):
+          tric is half the sum of the box vectors, rect half the diagonal, zero the origin. Centre puts the group
+          there, and Fit is a translation or a rotation and translation on that group. The server caps one build at
+          ${MAX_MODELS} models and about 250 MB, and refuses a bigger one. This panel does not count the trajectory's
+          frames -- counting a 2.6 GB file takes about a minute -- so it cannot predict a build's size. Changing a
+          control here is what makes the build a new attempt; a matching one already built is reused and shown
+          instead.</p>
       </div>
     </div>`;
 }
@@ -173,13 +190,14 @@ export function defaultArguments(entry, runType) {
     interval_ns: null,
     atoms: isCoarseGrained(entry.trajectory, runType) ? 'beads' : 'all',
     pbc: 'none',
+    boxcenter: 'tric',
     center: false,
     fit: 'none',
     group: null,
   };
 }
 
-//: A payload as the ten arguments. An old attempt's keys are read as the view they described rather than relabelled:
+//: A payload as the eleven arguments. An old attempt's keys are read as the view they described rather than relabelled:
 //: `assembled` meant `pbc: 'mol'` plus a centre, `fit: 'protein'` a rigid fit on the protein, and `fit: 'beads'` a
 //: rigid fit on one mapping fragment. `legacy` keeps what the old keys said, so the sentence can name the frame step
 //: the attempt was actually built with instead of pretending it was asked for in nanoseconds.
@@ -193,6 +211,9 @@ function recordedArguments(payload) {
     stride: Number.isInteger(source.stride) && source.stride > 0 ? source.stride : null,
   };
   args.pbc = has('pbc') ? source.pbc : (source.assembled === true ? 'mol' : 'none');
+  // A payload written before the box centre existed was always built at the tric default, so normalising a missing
+  // key to it is what keeps such an attempt findable by the default form.
+  args.boxcenter = ['tric', 'rect', 'zero'].includes(source.boxcenter) ? source.boxcenter : 'tric';
   args.center = has('center') ? source.center === true : source.assembled === true;
   const stated = has('group') && source.group != null ? source.group : null;
   if (source.fit === 'protein') {
@@ -286,7 +307,16 @@ function buildSentence(args, entry, frames) {
     : (args.atoms === 'ca' ? 'CA atoms only' : 'all atoms (water left out)'));
   const on = groupName(args.group);
   if (args.pbc && args.pbc !== 'none') parts.push(`PBC ${args.pbc}`);
-  if (args.center) parts.push(on ? `centred on ${on}` : 'centred');
+  // A non-default box centre is part of the view for a centre and for cluster (which passes it to gmx), so the
+  // sentence names it in both cases rather than only when Centre happens to be on.
+  const boxCentre = args.boxcenter && args.boxcenter !== 'tric' ? `the ${args.boxcenter} box centre` : null;
+  if (args.center) {
+    parts.push(boxCentre
+      ? (on ? `centred on ${on} at ${boxCentre}` : `centred at ${boxCentre}`)
+      : (on ? `centred on ${on}` : 'centred'));
+  } else if (args.pbc === 'cluster' && boxCentre) {
+    parts.push(`at ${boxCentre}`);
+  }
   if (args.fit === 'trans') parts.push(`translation-only fit${on ? ` on ${on}` : ''}`);
   else if (args.fit === 'rot+trans') parts.push(`rotation-and-translation fit${on ? ` on ${on}` : ''}`);
   if (args.legacy && args.legacy.frameStep) parts.push('built with a frame step');
@@ -339,6 +369,7 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
   const startInput = $(id('run-view-form-start'));
   const endInput = $(id('run-view-form-end'));
   const pbcPick = $(id('run-view-form-pbc'));
+  const boxcenterPick = $(id('run-view-form-boxcenter'));
   const centerBox = $(id('run-view-form-center'));
   const fitPick = $(id('run-view-form-fit'));
   const groupPick = $(id('run-view-form-group'));
@@ -462,6 +493,7 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
       interval_ns: numberOrNull(intervalInput.value),
       atoms: atomsPick.value,
       pbc: pbcPick.value,
+      boxcenter: boxcenterPick.value,
       center: centerBox.checked,
       fit: fitPick.value,
       group: groupNeeded() ? (groupPick.value || null) : null,
@@ -473,7 +505,9 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
     intervalInput.value = args.interval_ns == null ? '' : String(args.interval_ns);
     startInput.value = args.start_ns == null ? '' : String(args.start_ns);
     endInput.value = args.end_ns == null ? '' : String(args.end_ns);
-    pbcPick.value = ['none', 'mol', 'whole', 'nojump'].includes(args.pbc) ? args.pbc : 'none';
+    pbcPick.value = ['none', 'mol', 'res', 'atom', 'whole', 'nojump', 'cluster'].includes(args.pbc)
+      ? args.pbc : 'none';
+    boxcenterPick.value = ['tric', 'rect', 'zero'].includes(args.boxcenter) ? args.boxcenter : 'tric';
     centerBox.checked = !!args.center;
     fitPick.value = ['none', 'trans', 'rot+trans'].includes(args.fit) ? args.fit : 'none';
     setGroupValue(args.group);
@@ -481,7 +515,7 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
   }
 
   // The group is needed exactly when the centre or the fit acts on one; otherwise the control is hidden and the body
-  // sends null, so a default build's recorded arguments stay the ten default ones.
+  // sends null, so a default build's recorded arguments stay the eleven default ones.
   const groupNeeded = () => fitPick.value !== 'none' || centerBox.checked;
 
   function showGroupRow(on) {
@@ -876,7 +910,7 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
       selectSeries();
     });
   }
-  for (const element of [atomsPick, pbcPick, groupPick]) {
+  for (const element of [atomsPick, pbcPick, boxcenterPick, groupPick]) {
     element.addEventListener('change', () => {
       updateSubmit();
       selectSeries();

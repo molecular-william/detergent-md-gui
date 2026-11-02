@@ -14,7 +14,7 @@ JID = '123456abcdef'
 TRAJECTORY = 'stages/3_nvt/system.xtc'
 STRUCTURE = 'stages/3_nvt/system.gro'
 PAYLOAD = {'trajectory': TRAJECTORY, 'structure': STRUCTURE, 'interval_ns': 0.5,
-           'pbc': 'mol', 'center': True, 'fit': 'rot+trans', 'group': 'protein'}
+           'pbc': 'mol', 'center': True, 'boxcenter': 'rect', 'fit': 'rot+trans', 'group': 'protein'}
 
 
 def write(root, relative, text='', size=0):
@@ -168,3 +168,26 @@ def test_the_trajectory_endpoint_carries_each_segments_identity(dashboard):
     assert nvt['trajectory'] == TRAJECTORY
     assert nvt['identity'] == segments.identity(run / TRAJECTORY)
     assert all('identity' in entry for entry in body['segments'] if entry.get('trajectory'))
+
+
+def test_a_pbc_cluster_request_without_a_tpr_is_a_400_and_creates_no_task(dashboard, monkeypatch):
+    """`cluster` is the one mode that needs a run input, and the queue names what is missing rather than starting."""
+    coordinator, _ = seed(dashboard)
+    monkeypatch.setattr(coordinator.analysis_coordinator, 'run', lambda *args: None)
+
+    response = dashboard.client.post(f'/api/jobs/{JID}/frame-series', json=dict(PAYLOAD, pbc='cluster'))
+
+    assert response.status_code == 400, response.get_data(as_text=True)
+    assert 'no .tpr' in response.get_json()['error'], response.get_json()
+    assert tasks(coordinator) == []
+
+
+def test_a_pbc_cluster_request_queues_when_the_run_holds_its_tpr(dashboard, monkeypatch):
+    coordinator, run = seed(dashboard)
+    monkeypatch.setattr(coordinator.analysis_coordinator, 'run', lambda *args: None)
+    tpr = write(run, 'stages/3_nvt/system.tpr', size=10)
+
+    response = dashboard.client.post(f'/api/jobs/{JID}/frame-series', json=dict(PAYLOAD, pbc='cluster'))
+
+    assert response.status_code == 202, response.get_data(as_text=True)
+    assert tpr.is_file()

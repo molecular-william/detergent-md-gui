@@ -11,26 +11,31 @@ so the chosen trajectory is part of the analysis signature and a changed file is
 series. `sources` is the strict half (it runs before an attempt exists, so a bad request is a 400 and no task);
 `run` is the producer (it reads the staged copies the worker made).
 
-The view is a view, never a rewrite: `pbc`, `center`, `fit` and `group` move the coordinates for display with
-MDAnalysis's in-process transforms -- `pbc` and `center` are the operations `gmx trjconv` performs (a differential
-test pins them), and `fit` superposes every sampled frame on the first one. `structures.series_pdb` writes a REMARK
-naming what was done. An old attempt's `assembled`, `fit: protein|beads` and `fragment` arguments are read as the view
-they described and are recorded as such rather than relabelled.
+The view is a view, never a rewrite: `pbc`, `center`, `boxcenter`, `fit` and `group` move the coordinates for display
+with MDAnalysis's in-process transforms -- `pbc` and `center` are the operations `gmx trjconv` performs (a differential
+test pins them), `boxcenter` is where centring puts the group, and `fit` superposes every sampled frame on the first
+one. `pbc: cluster` is the one treatment MDAnalysis does not provide, so it runs `gmx trjconv -pbc cluster` over the
+sampled frames with a temporary run input and index group. `structures.series_pdb` writes a REMARK naming what was done.
+An old attempt's `assembled`, `fit: protein|beads` and `fragment` arguments are read as the view they described and are
+recorded as such rather than relabelled.
 """
 import json
 import math
+import subprocess
 from pathlib import Path
 
 import numpy as np
 
 from ... import features, files
+from ...execution import tools
 from . import layout, segments, structures
 
 try:
     import MDAnalysis as mda
     from MDAnalysis import transformations as mda_transforms
+    from MDAnalysis.lib.mdamath import triclinic_vectors
 except ImportError:  # a frame series needs a trajectory reader; `run` refuses in its own words
-    mda = mda_transforms = None
+    mda = mda_transforms = triclinic_vectors = None
 
 #: The most models one series may hold. A viewer loads the whole file, so this is the cap that keeps a long
 #: trajectory from publishing a file no browser should be handed.
@@ -43,9 +48,11 @@ AUTO_MODELS = 120
 #: The bytes one atom contributes to the estimate: a HETATM record plus its share of a CONECT record.
 BYTES_PER_ATOM = 120
 
-#: The PBC treatments this producer performs in process. `res`, `atom` and `cluster` are deliberately absent: the
-#: panel does not ask for them, and `cluster` is the one operation MDAnalysis does not provide.
-PBC_MODES = ('none', 'mol', 'whole', 'nojump')
+#: The PBC treatments this producer performs. All but `cluster` are in-process MDAnalysis transforms; `cluster` is
+#: the one GROMACS alone provides (`gmx trjconv -pbc cluster` needs a `.tpr`), so it is a subprocess.
+PBC_MODES = ('none', 'mol', 'res', 'atom', 'whole', 'nojump', 'cluster')
+#: Where `-center` puts the group: half the sum of the box vectors, half the box diagonal, or the origin.
+BOXCENTERS = ('tric', 'rect', 'zero')
 #: The fits the view offers; `trans` removes translation only, `rot+trans` the Kabsch rotation too.
 FIT_MODES = ('none', 'trans', 'rot+trans')
 #: The fits an attempt built before `trans`/`rot+trans` could be written with; both meant a rigid superposition.
@@ -122,8 +129,16 @@ def _group_argument(payload):
     raise ValueError(f"group must be 'protein', 'solute' or 'fragment:<letter>', not {value!r}")
 
 
+def _boxcenter(payload):
+    """Where `-center` puts the group; an old attempt that never sent it gets GROMACS' own default."""
+    value = payload.get('boxcenter', 'tric')
+    if not isinstance(value, str) or value not in BOXCENTERS:
+        raise ValueError(f"boxcenter must be one of {', '.join(BOXCENTERS)}, not {value!r}")
+    return value
+
+
 def _view(payload):
-    """The PBC/centre/fit/group request, with old attempts' keys read as the view they described.
+    """The PBC/centre/boxcentre/fit/group request, with old attempts' keys read as the view they described.
 
     The new keys win; a key an old attempt never sent is filled from `assembled`, `fit: protein|beads` and `fragment`.
     The tuple returned beside the view names the old keys that supplied it, so `frames.json` and the file can say a
@@ -168,7 +183,7 @@ def _view(payload):
             group = f'fragment:{fragment}'
         else:
             group = 'solute'
-    return {'pbc': pbc, 'center': center, 'fit': fit, 'group': group}, tuple(legacy)
+    return {'pbc': pbc, 'center': center, 'boxcenter': _boxcenter(payload), 'fit': fit, 'group': group}, tuple(legacy)
 
 
 def _run_relative(payload, field):
@@ -253,6 +268,21 @@ def _spelling(run_dir, path):
         return None
 
 
+def _trajectory_tpr(root, trajectory):
+    """The run input `gmx trjconv -pbc cluster` reads, beside the chosen trajectory.
+
+    A `.tpr` records the molecule split the trajectory alone does not: prefer the trajectory's own stem, then a
+    production `run.tpr`, then a `topol.tpr`. Returns `(run-relative spelling, path)`, or `(None, None)`.
+    """
+    directory = Path(trajectory).parent
+    for name in (f'{Path(trajectory).stem}.tpr', 'run.tpr', 'topol.tpr'):
+        relative = (directory / name).as_posix()
+        path = Path(root) / relative
+        if path.is_file():
+            return relative, path
+    return None, None
+
+
 def sources(run_dir, payload=None):
     """The files this request reads: the chosen trajectory and structure, and the run's writer inputs when present.
 
@@ -271,6 +301,14 @@ def sources(run_dir, payload=None):
         if found is None or not _inside(run_dir, found):
             raise ValueError(f'the {field} {relative!r} is not a file inside this run: a frame series reads the '
                              'paths the run trajectory endpoint reports')
+        entries[relative] = found
+    if settings['view']['pbc'] == 'cluster':
+        # `gmx trjconv -pbc cluster` reads the molecule split from a run input; it is the only pbc mode that stages
+        # more than the chosen pair, and a run without one is refused here rather than when a worker starts.
+        relative, found = _trajectory_tpr(run_dir, settings['trajectory'])
+        if found is None or not _inside(run_dir, found):
+            raise ValueError(f'the run holds no .tpr for the trajectory {settings["trajectory"]!r}, and pbc '
+                             "'cluster' needs one: gmx trjconv reads the molecule split from a run input file")
         entries[relative] = found
     # The run's own mapping, topologies and protein chains: the writer needs them for beads, fragments and bonds, and
     # they are recorded outputs rather than paths a request names, so a stage's symlink into `inputs/` is still this
@@ -361,12 +399,14 @@ def _protein_atoms(universe, protein_topologies):
 
 
 def _group_selection(universe, view, written, subunits, protein):
-    """The atoms the view's `group` names, cut to the atoms this file writes, and the fragment it names.
+    """The atoms the view's `group` names, and the fragment it names.
 
     `protein` is the run's own protein moleculetypes, `solute` is what the writer keeps -- the same water and ion
     exclusion `structures.series_pdb` applies by residue name -- and `fragment:<letter>` is the run's mapping, the
-    selection an old `fit: beads` named. A selection that holds no atom this file writes is refused rather than
-    centred or fitted on everything, because that would answer a different question with the same picture.
+    selection an old `fit: beads` named. `written=None` keeps the whole selection, which is what a cluster's index
+    group holds; otherwise it is cut to the atoms this file writes. A selection that holds no atom this file writes
+    is refused rather than centred or fitted on everything, because that would answer a different question with the
+    same picture.
     """
     target = None
     group = view['group']
@@ -392,7 +432,7 @@ def _group_selection(universe, view, written, subunits, protein):
             raise ValueError(f"The run's own mapping places no bead in fragment '{target}', so there is nothing to "
                              f'centre or fit on: it states {words}')
         missing = 'the fragment selection holds no atom this series writes: centre or fit something the file shows'
-    selection = selection[np.isin(selection, written)]
+    selection = selection[np.isin(selection, written)] if written is not None else selection
     if not len(selection):
         raise ValueError(missing)
     return selection, target
@@ -464,6 +504,65 @@ def _box(universe, structure):
     return np.array([*values[:3], 90.0, 90.0, 90.0])
 
 
+def _boxcenter_point(dimensions, mode):
+    """The point `gmx trjconv -boxcenter` centres on, in ångström: `tric`, `rect` or `zero`."""
+    values = np.asarray(dimensions, dtype=float)
+    if mode == 'zero':
+        return np.zeros(3)
+    if mode == 'rect':
+        return values[:3] / 2.0
+    # Half the sum of the box vectors is the triclinic cell's centre. `center_in_box(point=...)` cannot be handed an
+    # array (MDAnalysis tests its truth value), so a centre is a translation by the difference from the group's mean.
+    return triclinic_vectors(values).sum(axis=0) / 2.0
+
+
+def _write_slice(path, universe, indices):
+    """The sampled frames alone, every atom and its original time, for a `gmx trjconv` that only wants those."""
+    wanted = set(indices)
+    with mda.Writer(str(path), n_atoms=len(universe.atoms)) as writer:
+        for index, _ in enumerate(universe.trajectory[indices[0]:indices[-1] + 1], start=indices[0]):
+            if index in wanted:
+                writer.write(universe.atoms)
+
+
+def _write_ndx(path, group_atoms):
+    """One index group, 1-based, named `view`: the selection `-pbc cluster` clusters before the file is cut down."""
+    members = [str(int(index) + 1) for index in group_atoms]
+    rows = ['[ view ]'] + [' '.join(members[start:start + 15]) for start in range(0, len(members), 15)]
+    path.write_text('\n'.join(rows) + '\n')
+
+
+def _clustered(work, universe, settings, group_atoms, indices, temps):
+    """`gmx trjconv -pbc cluster` over the sampled frames, read back as a universe of the full system.
+
+    Cluster is the one treatment MDAnalysis does not provide and GROMACS refuses without a run input, so the slice
+    and its index group are staged in the work directory and removed by `run` once the models are read. The group is
+    the view's selection before the file's `atoms` subsetting: `-pbc cluster` moves the whole system.
+    """
+    gmx = tools.tool_path('gmx')
+    if gmx is None:
+        raise ValueError("gmx is not available, and pbc 'cluster' is the one treatment MDAnalysis does not provide: "
+                         'install GROMACS (config/tools.json declares it) or ask for another pbc mode')
+    trajectory = settings['trajectory']
+    _, tpr = _trajectory_tpr(work, trajectory)
+    if tpr is None:
+        raise ValueError(f'the run holds no .tpr for the trajectory {trajectory!r}, and pbc \'cluster\' needs one: '
+                         'gmx trjconv reads the molecule split from a run input file')
+    sliced = work / 'frame-series-cluster-input.xtc'
+    index = work / 'frame-series-cluster-view.ndx'
+    clustered = work / 'frame-series-cluster-output.xtc'
+    temps.extend((sliced, index, clustered))
+    _write_slice(sliced, universe, indices)
+    _write_ndx(index, group_atoms)
+    done = subprocess.run([gmx, 'trjconv', '-s', str(tpr), '-f', str(sliced), '-o', str(clustered),
+                           '-pbc', 'cluster', '-n', str(index), '-boxcenter', settings['view']['boxcenter']],
+                          cwd=str(work), input='view\nSystem\n', capture_output=True, text=True)
+    if done.returncode != 0:
+        detail = (done.stderr or done.stdout).strip().splitlines()
+        raise ValueError(f'gmx trjconv -pbc cluster failed: {detail[-1] if detail else "no output"}')
+    return mda.Universe(str(work / settings['structure']), str(clustered))
+
+
 def _frame_atoms(universe, positions, written):
     """One frame as the `read_gro`-shaped dicts `structures.series_pdb` takes, in nanometres.
 
@@ -497,7 +596,25 @@ def _note(trajectory, stride, cadence_ns, legacy):
 
 
 def run(work, payload):
-    """Sample the chosen trajectory into `run-frames.pdb`, and record the arguments and the timeline in `frames.json`."""
+    """Sample the chosen trajectory into `run-frames.pdb`, and record the arguments and the timeline in `frames.json`.
+
+    A `cluster` view stages its own slice, index and output beside the series; they are removed whether the build
+    succeeds or not, because the worker publishes every new file in the work directory as an output.
+    """
+    temps = []
+    try:
+        return _build(work, payload, temps)
+    finally:
+        leftovers = [*Path(work).glob('frame-series-cluster-*'),
+                     *Path(work).glob('.frame-series-cluster-*')]  # MDAnalysis' offset sidecars are dotted
+        for path in [*temps, *leftovers]:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _build(work, payload, temps):
     if mda is None:
         raise RuntimeError('MDAnalysis is not installed; a frame series cannot read a trajectory')
     work = Path(work)
@@ -540,24 +657,37 @@ def run(work, payload):
                 topology = None
     protein = _protein_atoms(universe, protein_topologies)
     centred = view['center'] or view['fit'] != 'none'
+    cluster = view['pbc'] == 'cluster'
+    # The cluster's index group is the selection before the file's `atoms` subsetting; a centre or fit needs the
+    # selection cut to the atoms the file writes. `cluster` alone still needs the grouping selection.
+    cluster_group = _group_selection(universe, view, None, subunits, protein)[0] if cluster else None
     selection, target = _group_selection(universe, view, written, subunits, protein) if centred else (None, None)
+    source_indices = list(indices)
+    if cluster:
+        universe = _clustered(work, universe, settings, cluster_group, source_indices, temps)
+        indices = list(range(len(source_indices)))  # the clustered file holds only the sampled frames
     box = _box(universe, structure)
-    if box is None and (view['pbc'] != 'none' or view['center']):
+    if box is None and (view['pbc'] not in ('none', 'cluster') or view['center']):
         raise ValueError(f"this view needs a box: pbc '{view['pbc']}' and centre both move atoms by it, and neither "
                          'the trajectory nor the structure states one')
     if box is not None and (universe.dimensions is None or not np.all(np.asarray(universe.dimensions[:3]) > 0)):
         universe.dimensions = box
-    unwrap = wrap = nojump = centre_transform = fit_transform = None
+    unwrap = wrap = nojump = fit_transform = None
     if view['pbc'] in ('mol', 'whole'):
         # MDAnalysis's unwrap moves bonded fragments; a `.gro` states none, so the molecule groups are declared.
         _declare_molecule_bonds(universe, _molecules(universe))
         unwrap = mda_transforms.unwrap(universe.atoms)
         if view['pbc'] == 'mol':
             wrap = mda_transforms.wrap(universe.atoms, compound='fragments')
+    elif view['pbc'] == 'res':
+        # One residue is one unbonded fragment: make each whole, then put each residue's centre back in the box.
+        _declare_molecule_bonds(universe, _molecules(universe))
+        unwrap = mda_transforms.unwrap(universe.atoms)
+        wrap = mda_transforms.wrap(universe.atoms, compound='residues')
+    elif view['pbc'] == 'atom':
+        wrap = mda_transforms.wrap(universe.atoms, compound='atoms')
     elif view['pbc'] == 'nojump':
         nojump = mda_transforms.NoJump()
-    if view['center']:
-        centre_transform = mda_transforms.center_in_box(universe.atoms[selection])
     frames, times, rmsds, reference = [], [], [], None
     wanted = iter(indices)
     wanted_index = next(wanted, None)
@@ -575,8 +705,10 @@ def run(work, payload):
                 nojump(timestep)
         if index != wanted_index:
             continue
-        if centre_transform is not None:
-            centre_transform(timestep)
+        if view['center']:
+            dimensions = timestep.dimensions if timestep.dimensions is not None else box
+            shift = _boxcenter_point(dimensions, view['boxcenter']) - universe.atoms.positions[selection].mean(axis=0)
+            universe.atoms.positions = universe.atoms.positions + shift
         rmsd = None
         if view['fit'] != 'none':
             if reference is None:
@@ -609,7 +741,7 @@ def run(work, payload):
     size = output.stat().st_size
     trajectory_identity, structure_identity = segments.identity(trajectory), segments.identity(structure)
     files.atomic_json(work / 'frames.json', {
-        'args': payload, 'models': models, 'atoms': atoms, 'times_ns': times, 'indices': indices,
+        'args': payload, 'models': models, 'atoms': atoms, 'times_ns': times, 'indices': source_indices,
         'trajectory': settings['trajectory'], 'structure': settings['structure'],
         'trajectory_identity': trajectory_identity, 'structure_identity': structure_identity,
         'bytes': size, 'cadence_ns': cadence_ns, 'interval_ns': settings['interval_ns'], 'stride': stride,

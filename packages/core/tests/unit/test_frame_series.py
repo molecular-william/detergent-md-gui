@@ -91,7 +91,7 @@ def _turned(positions, degrees, shift=(0.0, 0.0, 0.0)):
     return np.asarray(positions, dtype=float) @ rotation.T + np.asarray(shift, dtype=float)
 
 
-DEFAULTS = {'pbc': 'none', 'center': False, 'fit': 'none', 'group': 'solute'}
+DEFAULTS = {'pbc': 'none', 'center': False, 'boxcenter': 'tric', 'fit': 'none', 'group': 'solute'}
 
 
 def test_a_series_holds_the_frames_the_interval_asks_for_and_states_their_times(tmp_path):
@@ -119,6 +119,7 @@ def test_a_series_holds_the_frames_the_interval_asks_for_and_states_their_times(
     assert record['cadence_ns'] == pytest.approx(0.02)
     assert record['interval_ns'] == 0.02 and record['stride'] == 2
     assert record['view'] == DEFAULTS and record['legacy'] == []
+    assert record['view']['boxcenter'] == 'tric', 'an attempt that never sent boxcenter did not record the default'
     assert record['fit'] is None
     assert result['interval_ns'] == 0.02 and result['stride'] == 2
     assert result['view'] == DEFAULTS
@@ -453,6 +454,36 @@ def test_centre_uses_the_trajectorys_triclinic_box_vectors(tmp_path):
     assert _models(work / 'run-frames.pdb')[0].mean(axis=0) == pytest.approx(expected, abs=1e-2)
 
 
+def test_boxcenter_rect_and_zero_move_the_group_to_their_own_centre(tmp_path):
+    """`rect` is half the box diagonal, `zero` the origin; both are recorded and named in the file."""
+    work = tmp_path / 'work'
+    _crossing(work)
+
+    frame_series.run(work, _payload(center=True, group='solute', boxcenter='rect'))
+    record = json.loads((work / 'frames.json').read_text())
+    assert record['view']['boxcenter'] == 'rect'
+    assert _models(work / 'run-frames.pdb')[0].mean(axis=0) == pytest.approx([15.0, 15.0, 15.0], abs=1e-2)
+    assert 'boxcenter rect' in (work / 'run-frames.pdb').read_text()
+
+    frame_series.run(work, _payload(center=True, group='solute', boxcenter='zero'))
+    assert _models(work / 'run-frames.pdb')[0].mean(axis=0) == pytest.approx([0.0, 0.0, 0.0], abs=1e-2)
+    text = (work / 'run-frames.pdb').read_text()
+    assert 'centred the solute group at the origin (boxcenter zero)' in text
+
+
+def test_boxcenter_does_nothing_without_centre(tmp_path):
+    work = tmp_path / 'work'
+    _crossing(work)
+    frame_series.run(work, _payload(pbc='mol'))
+    expected = _models(work / 'run-frames.pdb')
+
+    frame_series.run(work, _payload(pbc='mol', boxcenter='rect'))
+
+    assert _models(work / 'run-frames.pdb') == pytest.approx(expected, abs=0.0), \
+        'boxcenter moved a wrapped series that was not centred'
+    assert 'boxcenter' not in (work / 'run-frames.pdb').read_text()
+
+
 def test_a_pbc_or_centre_request_without_a_box_is_refused(tmp_path):
     work = tmp_path / 'work'
     _trajectory(work, _moved(2), resindex=[0] * 4, resnames=['DDM'], resids=[1])
@@ -553,6 +584,41 @@ def test_sources_are_the_chosen_pair_and_the_writer_inputs_the_run_holds(tmp_pat
     assert entries['stages/02_system/detergent_CG.itp'] == root / 'stages/02_system/detergent_CG.itp'
 
 
+def test_a_cluster_request_stages_the_run_input_beside_the_trajectory(tmp_path):
+    root = _run_tree(tmp_path / 'run')
+    tpr = root / 'stages/4_CG_sim/prod/lig_CG.tpr'
+    tpr.write_bytes(b'tpr bytes')
+
+    entries = frame_series.sources(root, dict(PAYLOAD_STAGES, pbc='cluster'))
+
+    assert entries['stages/4_CG_sim/prod/lig_CG.tpr'] == tpr
+
+    plain = frame_series.sources(root, dict(PAYLOAD_STAGES, pbc='mol'))
+    assert 'stages/4_CG_sim/prod/lig_CG.tpr' not in plain, 'a non-cluster request staged a tpr it never reads'
+
+
+def test_a_cluster_request_without_a_run_input_is_refused_at_queue_time(tmp_path):
+    root = _run_tree(tmp_path / 'run')
+
+    with pytest.raises(ValueError) as refused:
+        frame_series.sources(root, dict(PAYLOAD_STAGES, pbc='cluster'))
+
+    message = str(refused.value)
+    assert 'no .tpr' in message and 'cluster' in message, message
+
+
+def test_the_run_input_falls_back_to_run_then_topol(tmp_path):
+    root = _run_tree(tmp_path / 'run')
+    directory = root / 'stages/4_CG_sim/prod'
+    (directory / 'run.tpr').write_bytes(b'tpr bytes')
+    assert frame_series.sources(root, dict(PAYLOAD_STAGES, pbc='cluster'))[
+        'stages/4_CG_sim/prod/run.tpr'] == directory / 'run.tpr'
+    (directory / 'run.tpr').unlink()
+    (directory / 'topol.tpr').write_bytes(b'tpr bytes')
+    assert frame_series.sources(root, dict(PAYLOAD_STAGES, pbc='cluster'))[
+        'stages/4_CG_sim/prod/topol.tpr'] == directory / 'topol.tpr'
+
+
 def test_missing_writer_inputs_are_not_an_error(tmp_path):
     root = tmp_path / 'run'
     (root / 'stages/4_CG_sim/prod').mkdir(parents=True)
@@ -647,8 +713,9 @@ def test_the_hook_and_the_producer_agree_on_the_staged_keys(tmp_path):
     (_payload(stride=1.5), 'stride'),
     (_payload(stride=True), 'stride'),
     (_payload(stride='slow'), 'stride'),
-    (_payload(pbc='res'), 'pbc'),
-    (_payload(pbc='cluster'), 'pbc'),
+    (_payload(pbc='compact'), 'pbc'),
+    (_payload(boxcenter='compact'), 'boxcenter'),
+    (_payload(boxcenter=None), 'boxcenter'),
     (_payload(center='yes'), 'center'),
     (_payload(fit='all'), 'fit'),
     (_payload(fit=None), 'fit'),
@@ -761,10 +828,20 @@ def _gmx_models(path):
     return np.asarray(blocks, dtype=float)
 
 
-def _gmx_fixture(directory):
-    """The same crossing molecule as `_crossing`, plus a topology file `gmx trjconv -pbc mol` can read."""
+def _gmx_fixture(directory, *, cross=True):
+    """The crossing molecule as `_crossing`, or a compact one, plus a topology file `gmx trjconv` can read.
+
+    The compact variant stays away from the boundary: `gmx trjconv -center -boxcenter zero` answers an atom on a box
+    face with the upper image, which is a case the differential check deliberately does not ask about.
+    """
     directory = Path(directory)
-    _crossing(directory)
+    if cross:
+        _crossing(directory)
+    else:
+        frames = [np.array([[2.0, 2.0, 2.0], [3.0, 2.0, 2.0], [4.0, 2.0, 2.0], [5.0, 2.0, 2.0]]),
+                  np.array([[6.0, 2.0, 2.0], [7.0, 2.0, 2.0], [8.0, 2.0, 2.0], [9.0, 2.0, 2.0]])]
+        _trajectory(directory, frames, names=NAMES, resindex=[0] * 4, resnames=['ALA'], resids=[1],
+                    box=(30.0, 30.0, 30.0))
     (directory / 'topol.top').write_text(TOPOLOGY)
     (directory / 'grompp.mdp').write_text(MDP)
     _gmx(directory, 'grompp', '-f', 'grompp.mdp', '-c', 'traj.gro', '-p', 'topol.top', '-o', 'topol.tpr',
@@ -812,3 +889,129 @@ def test_pbc_nojump_matches_gmx_trjconv(tmp_path):
     deviation = float(np.abs(ours - reference).max())
     assert ours.shape == reference.shape
     assert deviation <= 0.001, f'the same atoms differ by {deviation:.6f} Å from gmx trjconv'
+
+
+def _gmx_cluster(directory):
+    """`gmx trjconv -pbc cluster` on the whole fixture, with the same index group the producer builds."""
+    (directory / 'view.ndx').write_text('[ view ]\n1 2 3 4\n')
+    done = subprocess.run([GMX, 'trjconv', '-s', 'topol.tpr', '-f', 'traj.xtc', '-o', 'reference.pdb',
+                           '-pbc', 'cluster', '-n', 'view.ndx'],
+                          cwd=str(directory), input='view\nSystem\n', capture_output=True, text=True)
+    assert done.returncode == 0, f'trjconv -pbc cluster failed:\n{done.stdout}\n{done.stderr}'
+    return _gmx_models(directory / 'reference.pdb')
+
+
+def _clustered_producer(directory, work, **view):
+    """The producer with a `.tpr` staged beside the trajectory, as `sources` would stage it for cluster."""
+    work = Path(work)
+    work.mkdir(parents=True, exist_ok=True)
+    for name in ('traj.xtc', 'traj.gro'):
+        shutil.copy2(Path(directory) / name, work / name)
+    shutil.copy2(Path(directory) / 'topol.tpr', work / 'traj.tpr')
+    payload = {'trajectory': 'traj.xtc', 'structure': 'traj.gro'}
+    payload.update(view)
+    frame_series.run(work, payload)
+    return _models(work / 'run-frames.pdb')
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(GMX is None, reason='gmx is not resolvable from config/tools.json; the trjconv differential check '
+                                        'needs GROMACS')
+@pytest.mark.parametrize('mode', ['res', 'atom'])
+def test_pbc_res_and_atom_match_gmx_trjconv(tmp_path, mode):
+    directory = tmp_path / 'gmx'
+    _gmx_fixture(directory)
+    _gmx(directory, 'trjconv', '-s', 'topol.tpr', '-f', 'traj.xtc', '-o', 'reference.pdb', '-pbc', mode)
+    reference = _gmx_models(directory / 'reference.pdb')
+
+    ours = _producer(directory, tmp_path / 'work', pbc=mode)
+
+    deviation = float(np.abs(ours - reference).max())
+    assert ours.shape == reference.shape
+    assert deviation <= 0.001, f'pbc {mode} differs by {deviation:.6f} Å from gmx trjconv'
+    assert f'pbc {mode}' in (tmp_path / 'work' / 'run-frames.pdb').read_text()
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(GMX is None, reason='gmx is not resolvable from config/tools.json; the trjconv differential check '
+                                        'needs GROMACS')
+@pytest.mark.parametrize('boxcenter', ['tric', 'rect'])
+def test_centre_boxcenter_matches_gmx_trjconv(tmp_path, boxcenter):
+    directory = tmp_path / 'gmx'
+    _gmx_fixture(directory)
+    _gmx(directory, 'trjconv', '-s', 'topol.tpr', '-f', 'traj.xtc', '-o', 'reference.pdb',
+         '-pbc', 'mol', '-center', '-boxcenter', boxcenter)
+    reference = _gmx_models(directory / 'reference.pdb')
+
+    ours = _producer(directory, tmp_path / 'work', pbc='mol', center=True, boxcenter=boxcenter)
+
+    deviation = float(np.abs(ours - reference).max())
+    assert ours.shape == reference.shape
+    assert deviation <= 0.001, f'centre with boxcenter {boxcenter} differs by {deviation:.6f} Å from gmx trjconv'
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(GMX is None, reason='gmx is not resolvable from config/tools.json; the trjconv differential check '
+                                        'needs GROMACS')
+def test_centre_boxcenter_zero_matches_gmx_trjconv(tmp_path):
+    """A molecule away from the boundary: a centred COM exactly on one is the case GROMACS answers with an upper image."""
+    directory = tmp_path / 'gmx'
+    _gmx_fixture(directory, cross=False)
+    _gmx(directory, 'trjconv', '-s', 'topol.tpr', '-f', 'traj.xtc', '-o', 'reference.pdb',
+         '-pbc', 'mol', '-center', '-boxcenter', 'zero')
+    reference = _gmx_models(directory / 'reference.pdb')
+
+    ours = _producer(directory, tmp_path / 'work', pbc='mol', center=True, boxcenter='zero')
+
+    deviation = float(np.abs(ours - reference).max())
+    assert ours.shape == reference.shape
+    assert deviation <= 0.001, f'centre with boxcenter zero differs by {deviation:.6f} Å from gmx trjconv'
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(GMX is None, reason='gmx is not resolvable from config/tools.json; the trjconv differential check '
+                                        'needs GROMACS')
+def test_pbc_cluster_matches_gmx_trjconv_and_leaves_no_temp_files(tmp_path):
+    directory = tmp_path / 'gmx'
+    _gmx_fixture(directory)
+    reference = _gmx_cluster(directory)
+
+    work = tmp_path / 'work'
+    ours = _clustered_producer(directory, work, pbc='cluster', group='solute')
+
+    deviation = float(np.abs(ours - reference).max())
+    assert ours.shape == reference.shape
+    assert deviation <= 0.001, f'pbc cluster differs by {deviation:.6f} Å from gmx trjconv'
+    text = (work / 'run-frames.pdb').read_text()
+    assert 'pbc cluster' in text, 'the file does not say it clustered the frames'
+    assert not list(work.glob('frame-series-cluster-*')), 'a cluster temp file was published as an output'
+    assert (work / 'run-frames.pdb').is_file() and (work / 'frames.json').is_file()
+    # MDAnalysis' own `.xtc_offsets.npz`/`.lock` sidecars are dotted too; a file named for the cluster build is
+    # the producer's temporary and must not survive.
+    assert not [path for path in work.iterdir() if 'frame-series-cluster' in path.name]
+
+
+@pytest.mark.skipif(GMX is None, reason='this check asserts the refusal an installed gmx would otherwise satisfy')
+def test_a_cluster_request_without_a_run_input_is_refused(tmp_path):
+    work = tmp_path / 'work'
+    _crossing(work)
+
+    with pytest.raises(ValueError) as refused:
+        frame_series.run(work, _payload(pbc='cluster'))
+
+    message = str(refused.value)
+    assert 'no .tpr' in message and 'cluster' in message, message
+    assert not list(work.glob('frame-series-cluster-*')), 'a refused cluster left a temp file behind'
+
+
+def test_a_cluster_request_without_gmx_is_refused_with_a_sentence(tmp_path, monkeypatch):
+    work = tmp_path / 'work'
+    _crossing(work)
+    monkeypatch.setattr(frame_series.tools, 'tool_path', lambda *args, **kwargs: None)
+
+    with pytest.raises(ValueError) as refused:
+        frame_series.run(work, _payload(pbc='cluster'))
+
+    message = str(refused.value)
+    assert 'gmx is not available' in message and 'cluster' in message, message
+    assert not list(work.glob('frame-series-cluster-*')), 'a refused cluster left a temp file behind'

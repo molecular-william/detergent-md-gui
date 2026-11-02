@@ -566,7 +566,9 @@ def _view_modifications(view):
     if pbc != 'none':
         parts.append(f'pbc {pbc} (atoms moved between periodic images, never a rewritten trajectory)')
     if view.get('center'):
-        parts.append(f'centred {_group_phrase(view.get("group"))} at the box centre')
+        boxcenter = view.get('boxcenter', 'tric')
+        where = 'the origin' if boxcenter == 'zero' else 'the box centre'
+        parts.append(f'centred {_group_phrase(view.get("group"))} at {where} (boxcenter {boxcenter})')
     fit = view.get('fit', 'none')
     if fit != 'none':
         parts.append(f'fit {fit} against {_group_phrase(view.get("group"))} of the first sampled frame')
