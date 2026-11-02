@@ -219,8 +219,10 @@ Browser:
 
 ## Files
 
-- New: `packages/pdc/src/detergent_pdc/conformations/{__init__,library,extract,select,sources}.py`,
-  `docs/design/drafts/2026-11-02-conformation-library.html`.
+- New: `packages/pdc/src/detergent_pdc/conformations/{__init__,library,extract,select,sources}.py`.
+- Draft (landed 2026-11-02): `docs/design/drafts/2026-11-02-conformation-library.html` with
+  `2026-11-02-conformation-library.png` (default state), `-on.png` (two runs pooled) and `-empty.png` (no eligible
+  runs). It is a design record, not wired up.
 - Changed: `packages/pdc/src/detergent_pdc/execution/adapters/pdc_placement.py` (`profiles`, draws, record),
   `.../execution/scripts/pdc_build.py` (load, validate, stamp), `.../execution/pdc_preview.py` (resolve, record),
   `.../execution/adapters/pdc.py` (setting, validation, prepare, inputs), the pdc New run panel and its browser test,
