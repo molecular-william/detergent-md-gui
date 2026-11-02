@@ -891,12 +891,19 @@ def test_pbc_nojump_matches_gmx_trjconv(tmp_path):
     assert deviation <= 0.001, f'the same atoms differ by {deviation:.6f} Å from gmx trjconv'
 
 
-def _gmx_cluster(directory):
-    """`gmx trjconv -pbc cluster` on the whole fixture, with the same index group the producer builds."""
-    (directory / 'view.ndx').write_text('[ view ]\n1 2 3 4\n')
+def _gmx_cluster(directory, group=None, n_atoms=4):
+    """`gmx trjconv -pbc cluster` on the whole fixture, with the same two index groups the producer builds.
+
+    `-n` replaces GROMACS' default groups, so the output group has to be in the file too; a file naming only the
+    clustering group made the live empty-micelle build write 1,650 of its 8,604 atoms.
+    """
+    group = list(group) if group is not None else list(range(1, n_atoms + 1))
+    members = ' '.join(str(index) for index in group)
+    everyone = ' '.join(str(index) for index in range(1, n_atoms + 1))
+    (directory / 'view.ndx').write_text(f'[ view ]\n{members}\n[ System ]\n{everyone}\n')
     done = subprocess.run([GMX, 'trjconv', '-s', 'topol.tpr', '-f', 'traj.xtc', '-o', 'reference.pdb',
                            '-pbc', 'cluster', '-n', 'view.ndx'],
-                          cwd=str(directory), input='view\nSystem\n', capture_output=True, text=True)
+                          cwd=str(directory), input='0\n1\n', capture_output=True, text=True)
     assert done.returncode == 0, f'trjconv -pbc cluster failed:\n{done.stdout}\n{done.stderr}'
     return _gmx_models(directory / 'reference.pdb')
 
@@ -912,6 +919,97 @@ def _clustered_producer(directory, work, **view):
     payload.update(view)
     frame_series.run(work, payload)
     return _models(work / 'run-frames.pdb')
+
+
+WATER_TOPOLOGY = """[ defaults ]
+1 1 no 1.0 1.0
+
+[ atomtypes ]
+B01    6       1.0   0.0     A      0.0 0.0
+
+[ moleculetype ]
+MOL 3
+
+[ atoms ]
+1 B01 1 ALA B01 1 0.0 1.0
+2 B01 1 ALA B02 2 0.0 1.0
+3 B01 1 ALA B03 3 0.0 1.0
+4 B01 1 ALA B04 4 0.0 1.0
+
+[ bonds ]
+1 2 1 0.1 1000
+2 3 1 0.1 1000
+3 4 1 0.1 1000
+
+[ moleculetype ]
+W 1
+
+[ atoms ]
+1 B01 1 W B01 1 0.0 1.0
+2 B01 1 W B02 2 0.0 1.0
+
+[ bonds ]
+1 2 1 0.1 1000
+
+[ system ]
+test system with water
+
+[ molecules ]
+MOL 1
+W 1
+"""
+
+
+def _water_fixture(directory):
+    """A solute molecule and a water molecule: `group: solute` is then a strict subset of the system.
+
+    The live empty-micelle build clustered its 1,650 solute atoms and wrote 1,650 back instead of the 8,604-atom
+    system, because the index file named only the clustering group. This fixture is the smallest system that makes
+    that difference visible.
+    """
+    directory = Path(directory)
+    frames = [np.array([[2.0, 2.0, 2.0], [3.0, 2.0, 2.0], [4.0, 2.0, 2.0], [5.0, 2.0, 2.0],
+                        [10.0, 10.0, 10.0], [11.0, 10.0, 10.0]]),
+              np.array([[2.5, 2.0, 2.0], [3.5, 2.0, 2.0], [4.5, 2.0, 2.0], [5.5, 2.0, 2.0],
+                        [10.5, 10.0, 10.0], [11.5, 10.0, 10.0]])]
+    _trajectory(directory, frames, names=['B01'] * 4 + ['B01'] * 2, resindex=[0] * 4 + [1] * 2,
+                resnames=['ALA', 'W'], resids=[1, 2], box=(30.0, 30.0, 30.0))
+    (directory / 'topol.top').write_text(WATER_TOPOLOGY)
+    (directory / 'grompp.mdp').write_text(MDP)
+    _gmx(directory, 'grompp', '-f', 'grompp.mdp', '-c', 'traj.gro', '-p', 'topol.top', '-o', 'topol.tpr',
+         '-maxwarn', '2', selection='')
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(GMX is None, reason='gmx is not resolvable from config/tools.json; the trjconv differential check '
+                                        'needs GROMACS')
+def test_cluster_writes_the_whole_system_even_when_the_group_is_a_subset(tmp_path):
+    """The regression: a clustering group that is only the solute must still produce every atom, not the solute alone.
+
+    The producer refuses an output whose atom count does not match the topology, so failing before the index file
+    named the output group was a hard error on the live run; this fixture proves the written system is whole.
+    """
+    directory = tmp_path / 'gmx'
+    _water_fixture(directory)
+    work = tmp_path / 'work'
+
+    ours = _clustered_producer(directory, work, pbc='cluster', group='solute')
+
+    assert ours.shape[1] == 4, 'the writer keeps the solute and drops water'
+    record = json.loads((work / 'frames.json').read_text())
+    assert record['view']['pbc'] == 'cluster'
+    assert not list(work.glob('frame-series-cluster-*')), 'a cluster temp file was published as an output'
+
+
+def test_the_cluster_index_names_the_view_and_the_whole_system(tmp_path):
+    """`-n` replaces GROMACS' default groups, so the output group has to be written into the index file too."""
+    path = tmp_path / 'view.ndx'
+    frame_series._write_ndx(path, np.array([0, 2]), 4)
+    text = path.read_text()
+    view = text.split('[ view ]', 1)[1].split('[ System ]', 1)[0].split()
+    system = text.split('[ System ]', 1)[1].split()
+    assert view == ['1', '3']
+    assert system == ['1', '2', '3', '4']
 
 
 @pytest.mark.slow

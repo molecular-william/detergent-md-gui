@@ -525,11 +525,32 @@ def _write_slice(path, universe, indices):
                 writer.write(universe.atoms)
 
 
-def _write_ndx(path, group_atoms):
-    """One index group, 1-based, named `view`: the selection `-pbc cluster` clusters before the file is cut down."""
-    members = [str(int(index) + 1) for index in group_atoms]
-    rows = ['[ view ]'] + [' '.join(members[start:start + 15]) for start in range(0, len(members), 15)]
+def _write_ndx(path, group_atoms, n_atoms):
+    """Two index groups, 1-based: `view` is the selection `-pbc cluster` gathers, `System` the whole system it writes.
+
+    `-n` replaces GROMACS' own default groups with the file's ("There is one group in the index"), so a file naming
+    only the selection made the output prompt fall back to that same group: the trajectory it wrote held the
+    selection's atoms, not the system's (measured on the live empty micelle: 1,650 of 8,604, and the producer then
+    refused the file). The output group has to be in the file too, and the caller asks for group 0 then 1.
+    """
+    def block(indices):
+        members = [str(int(index) + 1) for index in indices]
+        return [' '.join(members[start:start + 15]) for start in range(0, len(members), 15)]
+
+    rows = ['[ view ]', *block(group_atoms), '[ System ]', *block(range(n_atoms))]
     path.write_text('\n'.join(rows) + '\n')
+
+
+def _gmx_failure(done):
+    """The sentence GROMACS printed after `Fatal error:`, not the boilerplate line that follows it."""
+    lines = (done.stdout + '\n' + done.stderr).splitlines()
+    for position, line in enumerate(lines):
+        if 'Fatal error:' in line:
+            for following in lines[position + 1:]:
+                if following.strip():
+                    return following.strip()
+    spoken = [line.strip() for line in lines if line.strip()]
+    return spoken[-1] if spoken else 'no output'
 
 
 def _clustered(work, universe, settings, group_atoms, indices, temps):
@@ -553,14 +574,20 @@ def _clustered(work, universe, settings, group_atoms, indices, temps):
     clustered = work / 'frame-series-cluster-output.xtc'
     temps.extend((sliced, index, clustered))
     _write_slice(sliced, universe, indices)
-    _write_ndx(index, group_atoms)
+    _write_ndx(index, group_atoms, len(universe.atoms))
+    # Group 0 is `view` (what is clustered) and group 1 is `System` (what is written); the index file replaced
+    # GROMACS' own defaults, so the output group has to be named in it or the whole system is not written.
     done = subprocess.run([gmx, 'trjconv', '-s', str(tpr), '-f', str(sliced), '-o', str(clustered),
                            '-pbc', 'cluster', '-n', str(index), '-boxcenter', settings['view']['boxcenter']],
-                          cwd=str(work), input='view\nSystem\n', capture_output=True, text=True)
+                          cwd=str(work), input='0\n1\n', capture_output=True, text=True)
     if done.returncode != 0:
-        detail = (done.stderr or done.stdout).strip().splitlines()
-        raise ValueError(f'gmx trjconv -pbc cluster failed: {detail[-1] if detail else "no output"}')
-    return mda.Universe(str(work / settings['structure']), str(clustered))
+        raise ValueError(f'gmx trjconv -pbc cluster failed: {_gmx_failure(done)}')
+    read = mda.Universe(str(work / settings['structure']), str(clustered))
+    if len(read.atoms) != len(universe.atoms):
+        raise ValueError(f'gmx trjconv -pbc cluster wrote {len(read.atoms)} atoms of a {len(universe.atoms)}-atom '
+                         'system: the clustering group must name whole molecules, and its output group is the whole '
+                         'system (check the .ndx groups the producer writes)')
+    return read
 
 
 def _frame_atoms(universe, positions, written):

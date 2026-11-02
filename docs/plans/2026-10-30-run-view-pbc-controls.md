@@ -296,3 +296,27 @@ against the installed GROMACS 2026.3 before it was implemented.
   2,573 collected. `-ur` and the remaining `trjconv` options are still not offered.
 - Cost: `cluster` adds one sequential read of the trajectory up to the last sampled frame (it writes only the sampled
   frames), the same pass the producer already makes for `nojump`.
+
+### Incident and fix (2026-11-02): the cluster index named only the clustering group
+
+The first live cluster build (run `b920391735dd`, payload `pbc: cluster`, `center: true`, `group: solute`, 8,604
+atoms) failed with "The topology and XTC trajectory files don't have the same number of atoms! 8604 / 1650".
+
+Cause: `gmx trjconv -n` **replaces** GROMACS' default group table with the file's own ("There is one group in the
+index"). The producer's index file named only `[ view ]`, the clustering selection, so the output-group prompt had no
+`System` to resolve to and kept the clustering selection; the written trajectory held the 1,650 solute atoms, not the
+8,604-atom system, and the universe read refused it. My earlier check missed it because the fixture's `view` group was
+the whole system, so the two selections had the same atom count.
+
+Fix: `_write_ndx` writes `[ view ]` and `[ System ]` (all atoms), the call answers group `0` then `1`, a failed
+`trjconv` reports the sentence after `Fatal error:` rather than the boilerplate tail, and `_clustered` refuses an
+output whose atom count is not the system's with a sentence naming the whole-molecule requirement.
+
+Evidence:
+- `test_cluster_writes_the_whole_system_even_when_the_group_is_a_subset` — a new water+solute fixture where the
+  clustering group is a strict subset; the build now writes the whole system and still drops water from the PDB.
+- `test_the_cluster_index_names_the_view_and_the_whole_system` — the index file's two groups, 1-based.
+- The exact failed payload re-run on the live run's own files (staged by symlink into a temp dir, run data untouched):
+  **120 models, 8,604 atoms, 38.9 s**, no cluster temp files left behind.
+- Tiers after the fix: fast **2,288 + 1 xfailed**, browser **260**, slow **26**, ruff clean, mutation 10/1,
+  2,575 collected.

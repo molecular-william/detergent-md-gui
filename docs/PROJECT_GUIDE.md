@@ -322,7 +322,9 @@ request finer than one frame is reported as one frame, never as the wish. `pbc`/
 modifications: `frames.json` records the `view`, `run-frames.pdb` carries a `VIEW MODIFICATIONS` REMARK, and the
 trajectory itself is never rewritten. `mol`/`res`/`atom`/`whole`/`nojump` are MDAnalysis transforms in process;
 `cluster` is the one treatment GROMACS alone provides, so the producer writes the sampled frames to a temporary XTC,
-clusters it with `gmx trjconv -pbc cluster` and reads the result back, removing the temporary files. A `cluster`
+clusters it with `gmx trjconv -pbc cluster` and reads the result back, removing the temporary files. Its index file
+names both the clustering group (`view`) and `System`, because `-n` replaces GROMACS' own group table and an output
+group that is not in the file silently becomes the clustering selection. A `cluster`
 request stages the trajectory's `.tpr` (`<stem>.tpr`, then `run.tpr`, then `topol.tpr` beside it) and is refused at
 queue time with a sentence when the run holds none. `boxcenter` names the point `centre` moves the group's
 geometric centre to (half the box-vector sum, half the diagonal, or the origin) and is passed to the cluster call;

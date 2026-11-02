@@ -91,6 +91,11 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   for that mode. `-pbc mol -center`, `res`, `atom`, `nojump`, `centre` (`tric`/`rect`/`zero`) and `cluster` are
   pinned by `gmx trjconv` differential tests. Never use `gmx trjconv -pbc cluster` to pull separate micelles
   together.
+- **`-n` replaces GROMACS' group table.** `gmx trjconv -n` uses only the index file's own groups, so an index naming
+  only the clustering group made the output prompt fall back to it: the first cluster build on `b920391735dd` wrote
+  1,650 solute atoms of an 8,604-atom system and the producer refused the file. The index file now names `view` and
+  `System`, the call answers group 0 then group 1, and `_clustered` refuses an output whose atom count is not the
+  system's. Pinned by `test_cluster_writes_the_whole_system_even_when_the_group_is_a_subset`.
 - **A rebuilt extension must set its own duration.** `restart_mdp(..., length_ps=)` overwrites `nsteps`; the old path
   left the assessment's 100 ns in place.
 - **A protein-only default must not become an empty-micelle request.** `create_job` clears `prepare_protein` for a pdc
@@ -115,9 +120,9 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   evidence, not as a live run.
 - Frame-series producer (2026-10-30): 44 s for the whole 100 ns, 2.5 GB extension trajectory after one sequential
   pass; random `.xtc` access cost 1.7 s a frame, which is why the producer never indexes frames at random.
-- Tests (measured 2026-11-02, after the full PBC set): 2,573 collected; fast **2,287 passed, 1 xfailed**; browser
-  **260 passed**; slow **25 passed**; `ruff check packages tests conftest.py` clean; mutation signal 10 caught / 1
-  survived. `pytest.ini` owns tier counts; do not copy moving counts into this file.
+- Tests (measured 2026-11-02, after the full PBC set and the cluster index fix): 2,575 collected; fast **2,288
+  passed, 1 xfailed**; browser **260 passed**; slow **26 passed**; `ruff check packages tests conftest.py` clean;
+  mutation signal 10 caught / 1 survived. `pytest.ini` owns tier counts; do not copy moving counts into this file.
 
 ## Landed slices, newest first
 
@@ -126,7 +131,8 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   view options `pbc` (`none|mol|res|atom|whole|nojump|cluster`), **box centre** (`tric|rect|zero`), `centre`, `fit`
   and `group`, each pinned by a `gmx trjconv` differential test; old `stride`/`assembled` attempts stay playable and
   labelled as frame-step builds. `cluster` is the one mode that shells out to `gmx`, on a temporary slice of the
-  sampled frames with a staged `.tpr`.
+  sampled frames with a staged `.tpr`; its index file names both the clustering group and `System`, because `-n`
+  replaces GROMACS' own group table (the fix for the first live cluster build writing 1,650 of 8,604 atoms).
 - **2026-10-30 Martini 3 set tracked**: the published lipidome ITPs, the sugar reference and the licence are in git
   (18 MB), so a clone installs the force field without a download; benchmark material and the workbook stay untracked.
 - **2026-10-30 tools layout**: Fast-Forward moved from `resources/parameterizers/` to `tools/fast_forward`, so all
