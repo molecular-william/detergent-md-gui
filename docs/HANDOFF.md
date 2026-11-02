@@ -172,5 +172,6 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
 - Rules, invariants, verify commands: `AGENTS.md`.
 - Repo layout, source ownership, run contracts, module notes: `docs/PROJECT_GUIDE.md`.
 - Scoring, linkage, carbohydrate evidence and limits: `docs/DDM_CALIBRATION.md`.
-- Plans: every plan lives under `docs/plans/`; `docs/design/` holds design records, not plans.
+- Plans: every plan lives under `docs/plans/`, which is **local to the checkout and untracked** (except its
+  `README.md`); `docs/design/drafts/` is untracked too. `docs/design/` holds design records, not plans.
 - Superseded measurements are intentionally not kept here; use the code, manifests and run records as the record.

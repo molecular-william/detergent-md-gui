@@ -211,8 +211,10 @@ above say what each needs. Nothing is downloaded or installed by a run.
 * [docs/PROJECT_GUIDE.md](docs/PROJECT_GUIDE.md) — dashboard operation, paths, persistence, migration, testing.
 * [docs/HANDOFF.md](docs/HANDOFF.md) — current state, open items and recent slices.
 * [docs/DDM_CALIBRATION.md](docs/DDM_CALIBRATION.md) — DDM scientific status, scoring contract, known gaps.
-* [docs/design/](docs/design/) — dated design records: intent at their date, not the current rules.
-* [docs/plans/](docs/plans/) — every implementation plan: scope, tasks and execution records.
+* [docs/design/](docs/design/) — dated design records: intent at their date, not the current rules; its
+  `drafts/` working files are local to the checkout and untracked.
+* [docs/plans/](docs/plans/) — every implementation plan: scope, tasks and execution records. The directory
+  is local to the checkout and untracked apart from its `README.md`, which states the convention.
 * [docs/superpowers/specs/](docs/superpowers/specs/) — the protein-detergent panel specification.
 * [docs/research/](docs/research/) — carbohydrate mapping and validation operations.
 

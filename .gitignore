@@ -31,8 +31,11 @@ htmlcov/
 .DS_Store
 # GROMACS writes this into whichever directory mdrun is started from.
 mdout.mdp
-# Rendered design drafts; the HTML source beside each one is the artifact.
-docs/design/drafts/*.png
+# Working notes are local to the checkout, not repository history: plans state what was decided here, and design
+# drafts are the HTML review artifacts behind it. `docs/plans/README.md` states the convention and stays tracked.
+docs/plans/*
+!docs/plans/README.md
+docs/design/drafts/
 .idea/
 .vscode/
 
