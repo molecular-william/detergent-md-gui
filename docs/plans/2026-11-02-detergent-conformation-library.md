@@ -255,11 +255,13 @@ Browser:
 ## Files
 
 - New: `packages/pdc/src/detergent_pdc/conformations/{__init__,library,extract,select,sources}.py`.
-- Drafts (landed 2026-11-02): the component draft `docs/design/drafts/2026-11-02-conformation-library.html` (states:
-  default, two runs pooled, no eligible runs) and the in-context draft
+- Drafts (landed 2026-11-02): the compact component draft
+  `docs/design/drafts/2026-11-02-conformation-library.html` (the card alone, states: one rigid conformation, build
+  from runs, existing library) and the in-context draft
   `docs/design/drafts/2026-11-02-conformation-library-in-form.html` (the whole New run form with the shape card among
-  the Detergent, Membrane protein and Run configuration cards, and the stored-library mode). Screenshots sit beside
-  each; they are gitignored by the repository's `docs/design/drafts/*.png` rule. Design records, not wired up.
+  the Detergent, Membrane protein and Run configuration cards). Both are labels-and-controls only: no per-option
+  prose. Screenshots sit beside each but are gitignored by the repository's `docs/design/drafts/*.png` rule. Design
+  records, not wired up.
 - Changed: `packages/pdc/src/detergent_pdc/execution/adapters/pdc_placement.py` (`profiles`, draws, record),
   `.../execution/scripts/pdc_build.py` (load, validate, stamp), `.../execution/pdc_preview.py` (resolve, record),
   `.../execution/adapters/pdc.py` (setting, validation, prepare, inputs), the pdc New run panel and its browser test,

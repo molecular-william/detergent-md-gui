@@ -54,13 +54,11 @@
     place-items: center; color: var(--muted); font-size: 12px; margin: 4px 0 10px; }
 
   /* ---- the shape card's own controls ------------------------------------------------------------------------ */
-  .shape-choice { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; }
-  .shape-choice legend { padding: 0; margin: 0 0 2px; font-size: 12px; color: var(--muted); }
-  .shape-card { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 10px;
-    padding: 11px 12px; background: #fff; cursor: pointer; }
+  .shape-choice { border: 0; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .shape-card { display: flex; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 8px;
+    padding: 7px 10px; background: #fff; cursor: pointer; }
   .shape-card:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; background: #f7fbff; }
-  .shape-card strong { display: block; font-size: 13.5px; }
-  .shape-card .hint { display: block; margin: 2px 0 0; }
+  .shape-card strong { font-size: 13px; }
   .shape-card > span { min-width: 0; flex: 1 1 auto; }
   /* the app sheets style inputs as full-width controls; these are ordinary radio/checkbox marks */
   .demo-form .shape-card > input[type="radio"], .demo-form .stored-library > input[type="radio"],
@@ -93,12 +91,10 @@
   .stored-library .tag { grid-column: 4; grid-row: 1; justify-self: end; font-size: 10.5px; font-weight: 700;
     letter-spacing: .04em; text-transform: uppercase; color: var(--accent); background: #eef4ff; border-radius: 999px;
     padding: 2px 8px; }
-  .shape-summary { border-left: 3px solid var(--accent); background: #f7fbff; padding: 9px 12px;
-    border-radius: 0 8px 8px 0; margin: 12px 0 0; }
-  .shape-empty { border: 1px dashed #c4d0dc; border-radius: 10px; padding: 16px; background: #fff; text-align: center; }
-  .shape-empty strong { display: block; margin-bottom: 4px; }
-  .shape-details { margin-top: 10px; }
-  .shape-details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--accent); }
+  .shape-summary { border-left: 3px solid var(--accent); background: #f7fbff; padding: 7px 10px;
+    border-radius: 0 8px 8px 0; margin: 10px 0 0; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
   .preview-library { border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; background: #f7fbff;
     margin: 10px 0 0; font-size: 12px; line-height: 1.5; }
   .preview-library code { font-size: 11.5px; overflow-wrap: anywhere; }
@@ -148,8 +144,6 @@
               <label>Detergent template<select><option>DDM · registered-template</option></select></label>
             </div>
             <label style="display:block;margin-top:10px">Model<select><option>DDM · saved candidate (current revision)</option></select></label>
-            <p class="hint">The build stamps this detergent's coarse-grained beads; the shape card below says where each
-              copy's conformation comes from.</p>
           </section>
 
           <!-- 2 · MEMBRANE PROTEIN ---------------------------------------------------------------------------- -->
@@ -189,59 +183,48 @@
           <!-- 4 · DETERGENT SHAPE (new) ----------------------------------------------------------------------- -->
           <section class="card demo-new" aria-labelledby="d4">
             <span class="eyebrow">DETERGENT SHAPE</span>
-            <h3 id="d4">Where each detergent's shape comes from</h3>
+            <h3 id="d4">Shape source</h3>
             <fieldset class="shape-choice">
-              <legend>Shape source</legend>
+              <legend class="visually-hidden">Shape source</legend>
               <label class="shape-card">
                 <input type="radio" name="shape-source" value="single" checked>
-                <span><strong>One rigid conformation</strong>
-                  <span class="hint">The template's coordinates, rotated onto every site. This is what every build does
-                    today.</span></span>
+                <span><strong>One rigid conformation</strong></span>
               </label>
               <label class="shape-card">
                 <input type="radio" name="shape-source" value="build">
-                <span><strong>Build a library from micelle-only runs</strong>
-                  <span class="hint">Reads one or several completed, protein-free pdc runs of this detergent, selects
-                    2,000 conformations, and stores the result for this and later runs.</span></span>
+                <span><strong>Build from runs</strong></span>
               </label>
               <label class="shape-card">
                 <input type="radio" name="shape-source" value="stored">
-                <span><strong>Existing library</strong>
-                  <span class="hint">Uses a library already in this workspace, by key and digest. The source runs need
-                    not be here.</span></span>
+                <span><strong>Existing library</strong></span>
               </label>
             </fieldset>
 
             <!-- state: off ------------------------------------------------------------------------------------- -->
-            <div class="shape-body" data-body="off">
-              <p class="hint" role="status">No library is used for this build: the belt's detergents are the template's
-                one conformation.</p>
-            </div>
+            <div class="shape-body" data-body="off"></div>
 
             <!-- state: build ----------------------------------------------------------------------------------- -->
             <div class="shape-body" data-body="build" hidden>
-              <p class="hint">Micelle-only runs to pool. Only completed pdc runs with no protein, for this detergent,
-                are listed.</p>
               <div class="eligible-runs">
                 <label class="eligible-run">
                   <input type="checkbox" checked>
                   <code>b920391735dd</code>
                   <span class="where">DDM empty micelle · 100 ns</span>
-                  <span class="meta">120 written frames · 8,604 atoms · recorded 2026-10-30</span>
+                  <span class="meta">120 written frames · 8,604 atoms</span>
                   <span class="tag">eligible</span>
                 </label>
                 <label class="eligible-run">
                   <input type="checkbox" checked>
                   <code>8f2c1a4e9d3b</code>
                   <span class="where">DDM empty micelle · 300 ns</span>
-                  <span class="meta">180 written frames · 8,604 atoms · recorded 2026-11-01</span>
+                  <span class="meta">180 written frames · 8,604 atoms</span>
                   <span class="tag">eligible</span>
                 </label>
                 <label class="eligible-run">
                   <input type="checkbox">
                   <code>4iar-DDM-run</code>
                   <span class="where">4IAR + DDM complex</span>
-                  <span class="meta">has a protein: a protein-contacted ensemble, not a micelle-only one</span>
+                  <span class="meta">has a protein</span>
                   <span class="tag warn">not eligible</span>
                 </label>
               </div>
@@ -253,54 +236,28 @@
                   <span class="setting-control"><input type="number" value="0" step="1"></span>
                 </label>
               </div>
-              <p class="hint">Exactly 2,000 entries, chosen to span the shapes the runs sampled. The builder refuses a
-                pool smaller than the size rather than shrinking it; add a run or lower the size.</p>
-              <p class="hint shape-summary" role="status"><strong>Will be built once, then stored.</strong> 2,000
-                conformations from 2 runs (b920391735dd, 8f2c1a4e9d3b), selection seed 0. The key and digest are
-                recorded on the run, and the library appears under <em>Existing library</em> afterwards.</p>
-              <details class="shape-details">
-                <summary>How the library is built and stored</summary>
-                <p class="hint">Each source trajectory is read once: whole detergent molecules from the production
-                  frames are made whole, checked against the mapping's bond geometry, turned into a local frame (head at
-                  the origin, head-ward axis along +z) and described by length, radius of gyration, reach and radial
-                  spread. The candidates are split into 2,000 strata over those descriptors, one representative per
-                  stratum.</p>
-                <p class="hint">The result is
-                  <code>workspace/dashboard/conformations/DDM/&lt;key&gt;/library.json</code> plus
-                  <code>library.sha256</code>. It is not tracked in git and can be copied into another workspace; a
-                  copied library is accepted when its digest matches.</p>
-              </details>
+              <p class="hint shape-summary" role="status"><strong>2,000 conformations from 2 runs</strong>, seed 0.
+                Built once, then stored.</p>
             </div>
 
             <!-- state: stored ---------------------------------------------------------------------------------- -->
             <div class="shape-body" data-body="stored" hidden>
-              <p class="hint">Libraries in this workspace for DDM. Selecting one records its key and digest on the run;
-                no source run is needed.</p>
               <div class="stored-libraries">
                 <label class="stored-library">
                   <input type="radio" name="stored-library" checked>
                   <code>3fa9c2e71b04d865</code>
-                  <span class="where">2,000 conformations · from b920391735dd, 8f2c1a4e9d3b</span>
-                  <span class="meta">digest 5d0a…c1e8 · 1.9 MB · built with the same detergent and mapping</span>
+                  <span class="where">2,000 · b920391735dd, 8f2c1a4e9d3b</span>
+                  <span class="meta">digest 5d0a…c1e8 · 1.9 MB</span>
                   <span class="tag">stored</span>
                 </label>
                 <label class="stored-library">
                   <input type="radio" name="stored-library">
                   <code>9c02b41d77ae5f20</code>
-                  <span class="where">2,000 conformations · from 8f2c1a4e9d3b</span>
-                  <span class="meta">digest 8e11…49bd · 1.9 MB · built with the same detergent and mapping</span>
+                  <span class="where">2,000 · 8f2c1a4e9d3b</span>
+                  <span class="meta">digest 8e11…49bd · 1.9 MB</span>
                   <span class="tag">stored</span>
                 </label>
               </div>
-              <p class="hint">A build from runs adds its result here. To bring one from another workspace, copy the
-                library's directory into <code>workspace/dashboard/conformations/DDM/</code>; a missing or edited
-                library is refused, never silently rebuilt.</p>
-              <details class="shape-details">
-                <summary>What the run records</summary>
-                <p class="hint">The mode (<code>reference</code>), the key, the digest and the source run ids the
-                  library names. If the file is later deleted, a run prepared from it is refused with "copy the
-                  original back" — the provenance is the digest, not a rebuild.</p>
-              </details>
             </div>
           </section>
 
