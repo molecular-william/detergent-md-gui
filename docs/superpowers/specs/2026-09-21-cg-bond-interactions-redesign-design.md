@@ -169,9 +169,8 @@ editing function and parameters, and saving a new state without mutating its
 source.
 
 Acceptance requires the existing non-browser suite and browser suite to pass,
-JavaScript syntax checks to pass, `git diff --check` to pass, and GitNexus
-`detect-changes --scope all` to report a clean graph after the implementation
-commit.
+JavaScript syntax checks to pass, and `git diff --check` to pass after the
+implementation commit.
 
 ## Non-goals
 

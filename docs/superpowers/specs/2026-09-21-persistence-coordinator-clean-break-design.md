@@ -96,9 +96,9 @@ canonical inputs.
 - API tests use fresh SQLite workspaces and contain no `jobs.json` patches.
 - Reset tests prove only the approved generated paths are removed and source
   assets remain unchanged.
-- GitNexus impact checks cover `Store` (critical), `Paths` (medium),
-  `Coordinator`, `queue_analysis`, `run_analysis`, and every direct database
-  caller before implementation edits.
+- Caller reviews cover `Store` (critical), `Paths` (medium), `Coordinator`,
+  `queue_analysis`, `run_analysis`, and every direct database caller before
+  implementation edits.
 
 ## Non-goals
 

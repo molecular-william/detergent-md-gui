@@ -79,7 +79,7 @@ readable by the new release.
   source-hash changes, and immutable output publication.
 - Browser tests run against a fresh workspace and assert only current tabs,
   routes, and storage keys are used.
-- GitNexus impact checks cover route helpers, `dashboard.web.routes.models`,
+- Caller reviews cover route helpers, `dashboard.web.routes.models`,
   analysis worker entry points, and the deleted compatibility symbols before
   implementation edits.
 

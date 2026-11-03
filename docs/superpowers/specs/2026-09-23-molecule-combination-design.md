@@ -269,10 +269,9 @@ disabled actions, preview generation, duplicate-save handling, tab persistence,
 responsive layout, and stale asynchronous responses. JavaScript syntax checks,
 the focused dashboard suite, and the existing browser suite remain required.
 
-Before editing existing symbols, run GitNexus impact analysis. Before any
-commit, run `node .gitnexus/run.cjs detect-changes --scope all --repo .`,
-review affected processes, run `git diff --check`, and report any unresolved
-high-risk or unknown graph findings.
+Before editing an existing symbol, read its callers and keep their behaviour
+pinned by tests. Before any commit, run `git diff --check` and the tiers that
+own the changed paths, and report any unresolved failure.
 
 ## Scope boundary
 

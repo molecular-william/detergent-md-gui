@@ -84,7 +84,7 @@ current worker process group.
   missing shared AA reference blocks admission.
 - Existing command-construction, cancellation, failure-recovery, and
   manifest-provenance tests are updated to the current layout.
-- GitNexus impact checks cover `Stage`, `stage_tables`, `execution_root`,
+- Caller reviews cover `Stage`, `stage_tables`, `execution_root`,
   `workflow.run`, `cg_adapter.prepare`, and coordinator run admission before
   implementation edits.
 

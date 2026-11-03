@@ -187,6 +187,11 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
 
 ## Landed slices, newest first
 
+- **2026-11-03 GitNexus removed**: the generated context block is gone from `AGENTS.md` and `CLAUDE.md` (which now
+  points at `AGENTS.md`), the six `.claude/skills/gitnexus-*` trees are deleted, the local `.gitnexus/` index and its
+  `.gitignore` entry are gone, and `test_agents_contract.py` no longer splits or asserts a generated block. Callers
+  are found by search and pinned by tests, not by a graph.
+
 - **2026-11-03 One stored frame series, and the Run view figures subpanel removed**: the Trajectory block's build now
   replaces `analyses/frame-series/run-frames.pdb` + `frames.json` in place instead of minting an attempt per
   arguments set. `Kind.stable_directory` is the declaration; the coordinator keeps one `frame-series` record and the

@@ -21,7 +21,6 @@ runs/*
 !runs/.gitkeep
 
 # Local developer and tool state.
-.gitnexus/
 .env
 .env.*
 !.env.example
