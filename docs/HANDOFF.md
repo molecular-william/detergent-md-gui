@@ -99,7 +99,8 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   continues. The 11,821-attempt incident happened because skipped analyses were requeued; the coordinator treats a
   skipped kind as current by signature.
 - **An analysis signature is code plus inputs.** `pdc_view.py` and pdc source changes mint a new attempt; a completed
-  analysis is not reused for different sources. `frame-series` adds the chosen trajectory through `Kind.source_hook`.
+  analysis is not reused for different sources. `frame-series` adds the chosen trajectory through `Kind.source_hook`;
+  a changed signature there rebuilds its one stored series rather than minting a second attempt.
 - **`analysis/runs/segments.py` still names the pdc stage order** for the segment table; the film that consumed it is
   retired.
 - **A view is not dynamics.** `pbc`, `centre` (`boxcenter`) and `fit` move sampled frames without touching the
