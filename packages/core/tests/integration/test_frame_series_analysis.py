@@ -1,10 +1,10 @@
-"""Queueing a frame series through the real route: the payload, the signature, the identity, and the refusals.
+"""Queueing a frame series through the real route: the payload, the one stored series, the identity, and the refusals.
 
 The producer never runs here: a no-op worker stands in for the subprocess, which is what keeps this fast, and what the
-producer does with its frames is pinned in the unit test. What this file pins is the seam the panel uses -- the queue
-route's own validation, the payload the attempt records, the signature that makes identical arguments free and changed
-arguments or changed trajectory bytes a new attempt, and the identity `/trajectory` now carries so a series can say
-which bytes it sampled.
+producer does with its frames is pinned in the unit test. What this file pins is the seam the panel uses -- the route's
+own validation, the one `frame-series` record a run keeps, the rule that identical arguments publish nothing new while
+changed arguments replace the stored series, and the identity `/trajectory` carries so a series can say which bytes it
+sampled. That the replacement itself is atomic is pinned by the worker test in `test_frame_series.py`.
 """
 import json
 
@@ -87,7 +87,8 @@ def test_the_same_arguments_are_the_same_attempt(dashboard, monkeypatch):
     assert len(tasks(coordinator)) == 1
 
 
-def test_a_changed_argument_is_a_new_attempt(dashboard, monkeypatch):
+def test_a_changed_argument_replaces_the_one_stored_series(dashboard, monkeypatch):
+    """The run keeps one series: another arguments set is a rebuild of it, not a second attempt beside it."""
     coordinator, _ = seed(dashboard)
     monkeypatch.setattr(coordinator.analysis_coordinator, 'run', lambda *args: None)
     first = dashboard.client.post(f'/api/jobs/{JID}/frame-series', json=PAYLOAD)
@@ -96,12 +97,12 @@ def test_a_changed_argument_is_a_new_attempt(dashboard, monkeypatch):
     changed = dashboard.client.post(f'/api/jobs/{JID}/frame-series', json=dict(PAYLOAD, interval_ns=1.0))
 
     assert changed.status_code == 202
-    assert changed.get_json()['id'] != first.get_json()['id']
-    assert [task['payload'] for task in tasks(coordinator)] == [PAYLOAD, dict(PAYLOAD, interval_ns=1.0)]
+    assert changed.get_json()['id'] == first.get_json()['id'], 'a rebuild minted a second record'
+    assert [task['payload'] for task in tasks(coordinator)] == [dict(PAYLOAD, interval_ns=1.0)]
 
 
-def test_changed_trajectory_bytes_at_the_same_path_are_a_new_attempt(dashboard, monkeypatch):
-    """The chosen trajectory is part of the signature: a replaced file is a different series, not the same one."""
+def test_changed_trajectory_bytes_replace_the_same_stored_series(dashboard, monkeypatch):
+    """The chosen trajectory is part of the signature: replaced bytes rebuild the series in place."""
     coordinator, run = seed(dashboard)
     monkeypatch.setattr(coordinator.analysis_coordinator, 'run', lambda *args: None)
     first = dashboard.client.post(f'/api/jobs/{JID}/frame-series', json=PAYLOAD)
@@ -111,8 +112,26 @@ def test_changed_trajectory_bytes_at_the_same_path_are_a_new_attempt(dashboard, 
     again = dashboard.client.post(f'/api/jobs/{JID}/frame-series', json=PAYLOAD)
 
     assert again.status_code == 202
-    assert again.get_json()['id'] != first.get_json()['id']
-    assert len(tasks(coordinator)) == 2
+    assert again.get_json()['id'] == first.get_json()['id']
+    assert len(tasks(coordinator)) == 1
+
+
+def test_the_stored_record_names_the_one_directory_and_keeps_its_outputs(dashboard, monkeypatch):
+    """A rebuild reuses the record, and the previous build's published files stay named while it runs."""
+    coordinator, _ = seed(dashboard)
+    monkeypatch.setattr(coordinator.analysis_coordinator, 'run', lambda *args: None)
+    first = dashboard.client.post(f'/api/jobs/{JID}/frame-series', json=PAYLOAD).get_json()
+    settle(coordinator)
+    published = ['analyses/frame-series/run-frames.pdb', 'analyses/frame-series/frames.json']
+    coordinator.analysis_coordinator.update(JID, first['id'], outputs=published)
+
+    changed = dashboard.client.post(f'/api/jobs/{JID}/frame-series', json=dict(PAYLOAD, interval_ns=1.0))
+
+    record = changed.get_json()
+    assert record['stable'] is True
+    assert record['directory'] == 'analyses/frame-series'
+    assert record['outputs'] == published, 'the running rebuild forgot the series a failure would leave on disk'
+    assert record['status'] == 'queued'
 
 
 def test_an_invalid_payload_is_a_400_and_creates_no_task(dashboard, monkeypatch):
@@ -126,8 +145,8 @@ def test_an_invalid_payload_is_a_400_and_creates_no_task(dashboard, monkeypatch)
     assert tasks(coordinator) == [], 'a refused payload must create no attempt'
 
 
-def test_a_changed_view_is_a_new_attempt(dashboard, monkeypatch):
-    """The view arguments are part of the signature: asking for different coordinates is a different series."""
+def test_a_changed_view_replaces_the_same_stored_series(dashboard, monkeypatch):
+    """The view arguments are part of the signature: different coordinates rebuild the same stored series."""
     coordinator, _ = seed(dashboard)
     monkeypatch.setattr(coordinator.analysis_coordinator, 'run', lambda *args: None)
     first = dashboard.client.post(f'/api/jobs/{JID}/frame-series', json=PAYLOAD)
@@ -137,7 +156,8 @@ def test_a_changed_view_is_a_new_attempt(dashboard, monkeypatch):
                                     json=dict(PAYLOAD, pbc='none', center=False, group='solute'))
 
     assert changed.status_code == 202
-    assert changed.get_json()['id'] != first.get_json()['id']
+    assert changed.get_json()['id'] == first.get_json()['id']
+    assert changed.get_json()['directory'] == 'analyses/frame-series'
 
 
 LEGACY = {'trajectory': TRAJECTORY, 'structure': STRUCTURE, 'stride': 2, 'assembled': True,

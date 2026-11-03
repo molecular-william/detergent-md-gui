@@ -61,6 +61,10 @@ class Kind:
     payload: tuple[str, ...] = ()
     #: Payload-driven sources the pattern list cannot name, validated and resolved against the run root.
     source_hook: Callable | None = None
+    #: A kind that keeps one published series per run instead of one per attempt: the run-relative directory its
+    #: producer's files are published into, replaced in place by every build. `None` means the ordinary immutable
+    #: attempt tree under `analyses/<kind>/<signature>/<attempt>/`.
+    stable_directory: str | None = None
 
 
 TABLE: dict[str, Kind] = {row.name: row for row in (
@@ -156,7 +160,8 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         records_gmx_version=True),
     # On demand only: a series is a view a person asks for with arguments, not a cadence a run owes. Its sources are
     # the payload's own files -- a chosen segment and structure -- so the pattern list is empty and `source_hook`
-    # resolves and validates them, which is what makes the chosen trajectory part of the analysis signature.
+    # resolves and validates them, which is what makes the chosen trajectory part of the analysis signature. It is
+    # also the one kind that keeps a single series per run: the panel plays one file, and every build replaces it.
     Kind(
         'frame-series',
         (),
@@ -165,7 +170,7 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         "A series plays the run's own trajectory as a sampled view for inspection; it measures nothing and does not "
         "establish convergence.",
         "nm and ns; frames sampled over the trajectory's own time",
-        source_hook=frame_series.sources),
+        source_hook=frame_series.sources, stable_directory='analyses/frame-series'),
 )}
 
 

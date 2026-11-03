@@ -18,6 +18,8 @@ from pathlib import Path
 import MDAnalysis as mda
 import numpy as np
 import pytest
+from dashboard.analysis import worker
+from dashboard.analysis.kinds import Kind
 from dashboard.analysis.runs import frame_series, segments
 from dashboard.execution import tools
 
@@ -1113,3 +1115,51 @@ def test_a_cluster_request_without_gmx_is_refused_with_a_sentence(tmp_path, monk
     message = str(refused.value)
     assert 'gmx is not available' in message and 'cluster' in message, message
     assert not list(work.glob('frame-series-cluster-*')), 'a refused cluster left a temp file behind'
+
+
+def test_a_stable_kind_replaces_its_series_in_place_and_keeps_it_on_failure(tmp_path, monkeypatch):
+    """The worker's half of "one stored series per run": the producer's files land in the kind's one directory.
+
+    `execute` is the subprocess the coordinator starts, so calling it here is the same path a real build takes. The
+    second build writes different bytes and replaces the pair; the third raises before publishing and leaves the
+    second build's bytes -- and its record -- exactly where they were.
+    """
+    run = tmp_path / 'run'
+    (run / 'stages').mkdir(parents=True)
+
+    def produce(work, payload):
+        if payload.get('fail'):
+            raise ValueError('the trajectory was replaced mid-build')
+        (work / 'run-frames.pdb').write_text(payload['body'])
+        (work / 'frames.json').write_text(json.dumps({'args': payload}))
+        return {'files': ['run-frames.pdb', 'frames.json']}
+
+    monkeypatch.setitem(worker.TABLE, 'stable-fixture',
+                        Kind('stable-fixture', (), produce, 'Stable fixture', 'in place', 'unit',
+                             stable_directory='analyses/stable-fixture'))
+    request = run / 'analyses' / 'stable-fixture' / 'request.json'
+    request.parent.mkdir(parents=True)
+
+    def build(payload):
+        request.write_text(json.dumps({'run': str(run), 'kind': 'stable-fixture', 'payload': payload,
+                                       'code_signature': 'fixture'}))
+        worker.execute(request)
+
+    build({'body': 'first pair'})
+    directory = run / 'analyses' / 'stable-fixture'
+    assert (directory / 'run-frames.pdb').read_text() == 'first pair'
+    assert json.loads((directory / 'frames.json').read_text())['args'] == {'body': 'first pair'}
+    result = json.loads((directory / 'result.json').read_text())
+    assert result['output_directory'] == '.', 'a stable kind must not publish under a content hash'
+    assert {'run-frames.pdb', 'frames.json'} <= set(result['outputs_sha256'])
+    assert not (directory / 'output').exists(), 'a stable kind minted an attempt tree'
+    assert not list(directory.glob('.*.tmp')), 'a publish left its temporary file behind'
+
+    build({'body': 'second pair'})
+    assert (directory / 'run-frames.pdb').read_text() == 'second pair'
+    assert json.loads((directory / 'frames.json').read_text())['args'] == {'body': 'second pair'}
+
+    with pytest.raises(ValueError):
+        build({'fail': True})
+    assert (directory / 'run-frames.pdb').read_text() == 'second pair', 'a failed rebuild replaced the series'
+    assert json.loads((directory / 'frames.json').read_text())['args'] == {'body': 'second pair'}

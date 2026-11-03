@@ -238,7 +238,8 @@ function sameArguments(left, right) {
 }
 
 //: The newest matching attempt of this kind in a status. The list is in append order, so the last match is the newest
-//: -- which is what "the newest attempt whose args equal the form" means, without a second server route for it.
+//: -- which is what "the newest attempt whose args equal the form" means, without a second server route for it. This
+//: is the fallback for a series built before the run kept one: its attempts are read from their own directories.
 function newest(tasks, statuses, args) {
   let found = null;
   for (const task of tasks) {
@@ -247,6 +248,14 @@ function newest(tasks, statuses, args) {
     if (!sameArguments(recordedArguments(task.payload), args)) continue;
     found = task;
   }
+  return found;
+}
+
+//: The one stored series of this run, when it has one. The server keeps a single `frame-series` record for it and
+//: replaces its published files in place, so the latest build is the series whatever arguments it was built with.
+function stableSeries(tasks) {
+  let found = null;
+  for (const task of tasks) if (task && task.kind === 'frame-series' && task.stable) found = task;
   return found;
 }
 
@@ -603,9 +612,16 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
       return;
     }
     const args = formArguments(entry);
-    const inflight = newest(tasks, ['queued', 'running'], args);
-    const built = newest(tasks, ['completed', 'failed', 'cancelled'], args);
-    submitButton.textContent = inflight ? 'Building frames…' : (built ? 'Recompute frames' : 'Build frames');
+    const stored = stableSeries(tasks);
+    // The stored series is the run's one build, so it is what the button offers to recompute; a form that names other
+    // arguments is a new build that replaces it, and the label says so.
+    const inflight = stored
+      ? (['queued', 'running'].includes(stored.status) ? stored : null)
+      : newest(tasks, ['queued', 'running'], args);
+    const built = stored || newest(tasks, ['completed', 'failed', 'cancelled'], args);
+    const matches = stored ? sameArguments(recordedArguments(stored.payload), args) : true;
+    submitButton.textContent = inflight ? 'Building frames…'
+      : (built && matches ? 'Recompute frames' : 'Build frames');
     submitButton.disabled = !!inflight;
     if (inflight) setFormNote(`This build is ${inflight.status}. The button waits for it.`);
   }
@@ -668,6 +684,11 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
       playButton.disabled = true;
       return;
     }
+    const stored = stableSeries(tasks);
+    if (stored) {
+      await selectStored(stored, entry, token, prefill);
+      return;
+    }
     const inflight = newest(tasks, ['queued', 'running'], args);
     const completed = newest(tasks, ['completed'], args);
     const failed = newest(tasks, ['failed', 'cancelled'], args);
@@ -694,7 +715,30 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
     updateSubmit();
   }
 
-  async function showSeries(task, entry, token, prefill) {
+  // The run's one stored series: Play reads it whatever it was built with, and the form only decides what the next
+  // Build replaces it with. A settled failure does not hide the last good build -- its files are still on disk and
+  // the record says what went wrong.
+  async function selectStored(task, entry, token, prefill) {
+    if (task.status === 'queued' || task.status === 'running') {
+      seriesLine.textContent = '';
+      setNote(`Building frames from ${entry.name}. This page asks again until the build settles.`);
+      playButton.disabled = true;
+      updateSubmit();
+      ensurePolling();
+      return;
+    }
+    if (task.status === 'completed') {
+      await showSeries(task, entry, token, prefill);
+      return;
+    }
+    if (outputNamed(task, 'frames.json') && outputNamed(task, 'run-frames.pdb')) {
+      await showSeries(task, entry, token, prefill, task);
+      return;
+    }
+    await showFailure(task, entry, token);
+  }
+
+  async function showSeries(task, entry, token, prefill, failure = null) {
     const framesPath = outputNamed(task, 'frames.json');
     const pdbPath = outputNamed(task, 'run-frames.pdb');
     if (!framesPath || !pdbPath) {
@@ -717,7 +761,10 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
       return;
     }
     if (token !== formToken) return;
-    const args = recordedArguments(task.payload);
+    // The record of the build on disk wins over the task's own payload: after a failed rebuild the payload names the
+    // arguments that never published, while `frames.json` still describes the series Play is handed. A record that
+    // states no arguments at all defers to the payload rather than claiming every default.
+    const args = recordedArguments(frames.args && Object.keys(frames.args).length ? frames.args : task.payload);
     const times = Array.isArray(frames.times_ns) ? frames.times_ns : [];
     current = {task, entry, frames, pdbPath, args, times};
     // A series is older than the trajectory when the digest the build recorded is not the one the segment reports
@@ -728,7 +775,16 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
     seriesLine.textContent = (stale
       ? 'This series was built from an older copy of the segment\'s trajectory, so it may not show what the run '
         + 'holds now. ' : '') + seriesSentence(args, entry, frames);
-    setNote(stale ? 'Open Frame options and build again to rebuild it from the trajectory on disk.' : '');
+    const notes = [];
+    if (failure) {
+      notes.push(`The rebuild ${failure.status}${failure.error ? `: ${failure.error}` : '.'} `
+        + 'The stored series is the last successful build.');
+    }
+    if (stale) notes.push('Open Frame options and build again to rebuild it from the trajectory on disk.');
+    if (!sameArguments(args, formArguments(entry))) {
+      notes.push('The frame options differ from this build: Build replaces the stored series with them.');
+    }
+    setNote(notes.join(' '));
     playButton.disabled = false;
     if (prefill) {
       if (typeof args.group === 'string' && args.group.startsWith('fragment:')) await loadFragments();

@@ -302,7 +302,7 @@ Background polling updates individual status fields every five seconds. Forms, e
 Each run card shows the workflow stages from its manifest and indexes files created inside the run directory. Artifact links are path-checked; SVG files are previewed in the card. The default `snapshots` analysis stays retired: a run holds only the structures and trajectories its own stages wrote, and a frame series is on demand — `frame-series` samples a chosen segment into one multi-model PDB (`analysis/runs/frame_series.py`), never on a cadence.
 
 ### Run view
-One run, its structures and its figures, registered in **both** workspaces and scoped per
+One run, its structures and its CG chain segments, registered in **both** workspaces and scoped per
 workspace by `web/sections.py`'s `run_types` (validation: `aa_only`, `aa_cg`, `cg_composition`, `osmotic`;
 protein-detergent: `pdc`). The panel asks `/api/jobs` for each in-scope type by name (`?run_type=`), so it
 renders this workspace's runs rather than narrowing a page. AA and CG structures come from the artifact route;
@@ -311,11 +311,15 @@ a CG structure is sized from the model's own size classes and coloured by type f
 (`static/js/run-view-structure.js`): a file carrying CONECT is drawn from those records and never guessed at,
 a coarse-grained file is `inferBonds: 'none'` even without CONECT, and only an all-atom file with no CONECT is
 left to the viewer's inference. A file is drawn as a static structure until the reader asks for frames: the
-**Trajectory** block (`static/js/run-view-trajectory.js`) offers one segment at a time and reads the newest
-`frame-series` attempt whose eleven recorded arguments match its form. `run-frames.pdb` is fetched only when Play is
-pressed — never on mount — and Play/Pause, frame seek, −1/+1, speed, loop and a `t = <ns> · model <i>/<n>`
-readout come from that attempt's `frames.json`. **Frame options** is a disclosure, not an action: the one submit
-builds, and its label says Build frames until an attempt matches and Recompute frames when one does. The form
+**Trajectory** block (`static/js/run-view-trajectory.js`) offers one segment at a time and plays the run's one
+stored `frame-series`: `analyses/frame-series/run-frames.pdb` and `frames.json`, replaced in place by every build
+whatever arguments it was given (one record, `stable: true`, in `/api/jobs/<id>/analyses`). `run-frames.pdb` is
+fetched only when Play is pressed — never on mount — and Play/Pause, frame seek, −1/+1, speed, loop and a
+`t = <ns> · model <i>/<n>` readout come from that build's `frames.json`. **Frame options** is a disclosure, not an
+action: the one submit builds, its label says Build frames while the form names other arguments than the stored
+build and Recompute frames when they match, and the block says so when the stored series was built with other
+arguments. A series built before this change, in `analyses/frame-series/<signature>/<attempt>/`, is still found by
+matching the form's arguments. The form
 takes segment, atoms, **ns per frame** (a blank aims at about 120 models), start/end ns, **PBC**
 (`none|mol|res|atom|whole|nojump|cluster`), **Box centre** (`tric|rect|zero`), **Centre**, **Fit**
 (`none|trans|rot+trans`) and the **Group** the centre or fit acts on (`protein|solute|fragment:<letter>`). The
@@ -354,7 +358,7 @@ bonds ]`/`[ constraints ]` written as CONECT (the topology located by
 `02_system/detergent_CG.itp` for a pdc one; a single-molecule run still falls back to the manifest's
 `FINAL_ITP`); a `.pdb` is refused to the artifact route.
 
-The analysis subprocess reads a work directory holding only the patterns its kind declares (`kinds.py`), so a role the layout can resolve is still invisible there until the kind copies the files. A kind whose sources its request decides declares `Kind.source_hook` instead: `frame-series` stages the chosen trajectory and structure plus the writer's topology/mapping inputs, and the queue hashes them, so changed bytes are a new attempt rather than a stale series.
+The analysis subprocess reads a work directory holding only the patterns its kind declares (`kinds.py`), so a role the layout can resolve is still invisible there until the kind copies the files. A kind whose sources its request decides declares `Kind.source_hook` instead: `frame-series` stages the chosen trajectory and structure plus the writer's topology/mapping inputs, and the queue hashes them, so changed bytes are a new signature rather than a stale series. A kind that keeps one published series per run declares `Kind.stable_directory` instead (`frame-series`: `analyses/frame-series`): the coordinator gives it one record and that directory, a build replaces the pair in place through `files.atomic_copy` with `frames.json` last, and a failed build leaves the previous pair untouched.
 
 Analysis graphs expand inline: ff_assess PNG plots and a Plot SASA action that generates an image from measured AA/CG XVG data. Original XVG data are preserved; SVG artifacts remain previewable. Reads use byte offsets and bounded chunks; the display keeps up to 256 KB.
 

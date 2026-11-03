@@ -139,18 +139,33 @@ def execute(request_path):
             print(f'Skipped: {nothing_to_do}', flush=True)
             sys.exit(workflow.SKIPPED_EXIT_CODE)
         files.atomic_json(work/'analysis-metadata.json', analysis_metadata.describe(kind, result))
-        progress('Publishing immutable results')
-        source_key = hashlib.sha256(json.dumps([sources,request.get('payload',{}),request.get('code_signature')],sort_keys=True).encode()).hexdigest()
-        output = attempt/'output'/source_key; output.mkdir(parents=True)
+        stable = TABLE[kind].stable_directory
+        progress('Publishing results' if stable else 'Publishing immutable results')
+        produced = []
         for path in files.safe_files(work):
             relative = str(path.relative_to(work))
             if relative in baseline:
                 if files.sha256(path) != baseline[relative]: raise ValueError('Analysis modified its source copy: ' + relative)
                 continue
-            target = output/relative; target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, target)
-        files.atomic_json(attempt/'result.json', {'result': result, 'output_directory':str(output.relative_to(attempt)), 'sources_sha256': sources,
-                          'outputs_sha256': files.hashes(output), 'tools':versions, 'wall_seconds': time.monotonic()-started})
+            produced.append((path, relative))
+        if stable:
+            # One series per run: the coordinator names this attempt after the kind's stable directory, so the
+            # producer's files replace the previous build's in place instead of landing under a content hash. The
+            # JSON record goes last, so a reader that finds it has the pair it describes.
+            for path, relative in sorted(produced, key=lambda item: (item[1].endswith('.json'), item[1])):
+                files.atomic_copy(path, attempt/relative)
+            output_directory = '.'
+            outputs_sha256 = {relative: files.sha256(attempt/relative) for _, relative in produced}
+        else:
+            source_key = hashlib.sha256(json.dumps([sources,request.get('payload',{}),request.get('code_signature')],sort_keys=True).encode()).hexdigest()
+            output = attempt/'output'/source_key; output.mkdir(parents=True)
+            for path, relative in produced:
+                target = output/relative; target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, target)
+            output_directory = str(output.relative_to(attempt))
+            outputs_sha256 = files.hashes(output)
+        files.atomic_json(attempt/'result.json', {'result': result, 'output_directory':output_directory, 'sources_sha256': sources,
+                          'outputs_sha256': outputs_sha256, 'tools':versions, 'wall_seconds': time.monotonic()-started})
         progress('Completed')
 
 

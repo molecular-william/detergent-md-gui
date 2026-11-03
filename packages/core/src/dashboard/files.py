@@ -19,6 +19,25 @@ def atomic_json(path, value):
         if os.path.exists(name): os.unlink(name)
 
 
+def atomic_copy(source, target):
+    """Copy one file into place atomically: a reader sees the old bytes or the new ones, never a half-written file.
+
+    The temporary name is a dot-file in the target's own directory, so `os.replace` is a rename on one filesystem.
+    Used where a published artifact is replaced in place rather than created once under a content hash.
+    """
+    source, target = Path(source), Path(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix='.' + target.name, suffix='.tmp', dir=target.parent)
+    try:
+        with os.fdopen(fd, 'wb') as out, source.open('rb') as stream:
+            while chunk := stream.read(1024 * 1024):
+                out.write(chunk)
+            out.flush(); os.fsync(out.fileno())
+        os.replace(name, target)
+    finally:
+        if os.path.exists(name): os.unlink(name)
+
+
 def write_json_exclusive(path, value):
     """Create a JSON file atomically; raise FileExistsError if it already exists.
 

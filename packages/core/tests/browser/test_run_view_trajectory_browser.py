@@ -108,9 +108,25 @@ def series_task(run_id, args, attempt='a1', *, status='completed'):
 
 
 def finish(task):
-    """A settled attempt's outputs, at the one place the worker writes them."""
+    """A settled attempt's outputs, at the one place the worker writes them.
+
+    The stable record is the run's one stored series: its files sit in its own directory, not in an attempt's
+    `outputs/`.
+    """
     task['status'] = 'completed'
-    task['outputs'] = [f"{task['directory']}/outputs/run-frames.pdb", f"{task['directory']}/outputs/frames.json"]
+    nested = '' if task.get('stable') else '/outputs'
+    task['outputs'] = [f"{task['directory']}{nested}/run-frames.pdb",
+                       f"{task['directory']}{nested}/frames.json"]
+    return task
+
+
+def stable_task(run_id, args, *, status='completed', outputs=True):
+    """The run's one stored series, as `/analyses` reports it after the in-place change."""
+    task = {'id': 'task-stable', 'kind': 'frame-series', 'stable': True, 'signature': 'signature-stable',
+            'payload': args, 'status': status, 'created_at': '2026-10-20T10:00:00+00:00',
+            'directory': 'analyses/frame-series'}
+    if outputs:
+        task['outputs'] = ['analyses/frame-series/run-frames.pdb', 'analyses/frame-series/frames.json']
     return task
 
 
@@ -159,9 +175,19 @@ def answer_analyses(route, state):
 
 
 def answer_post(route, state):
-    """A build accepted: the attempt joins the run's list as `queued`, and the next read settles it."""
+    """A build accepted: the attempt joins the run's list as `queued`, and the next read settles it.
+
+    A run that keeps one stored series reuses its record instead: the same row goes back to `queued` with the new
+    arguments, and the previous outputs stay on it until the build settles.
+    """
     body = route.request.post_data_json
     state['posted'].append(body)
+    stable = next((task for task in state['tasks'] if task.get('stable')), None)
+    if stable is not None:
+        stable.update(payload=body, status='queued', signature='signature-stable-rebuild')
+        state['promote'] = True
+        route.fulfill(status=202, json=stable)
+        return
     task = series_task(state['run_id'], body, 'a2', status='queued')
     state['tasks'].append(task)
     state['promote'] = True
@@ -575,6 +601,56 @@ def test_a_build_still_in_flight_waits_instead_of_queuing_a_second(dashboard, li
     expect(page.locator('#run-view-submit-A')).to_have_text('Building frames…')
     expect(page.locator('#run-view-form-note-A')).to_contain_text('queued')
     assert not state['posted'], 'a second attempt was queued for a build the run is already running'
+    assert errors == [], errors
+
+
+def test_the_stored_series_plays_whatever_arguments_the_form_holds(dashboard, live_page):
+    """One stored series is Play's one file; the form describes the next build, not a different series to look up."""
+    stored = dict(default_arguments(ENGINE_RUN), interval_ns=1.0)
+    page, errors, state = open_run(dashboard, live_page, ENGINE_RUN, tasks=[stable_task(ENGINE_RUN, stored)])
+    expect(series(page)).to_contain_text('3 models')
+    expect(page.locator('#run-view-trajectory-note-A')).to_contain_text('Build replaces the stored series')
+    expect(page.locator('#run-view-play-A')).to_be_enabled()
+
+    page.locator('#run-view-play-A').click()
+    page.wait_for_function("() => document.querySelector('#run-view-viewer-A').runViewStage.compList.length === 2")
+    assert any('/artifacts/analyses/frame-series/run-frames.pdb?inline=1' in url for url in state['requests']), \
+        'Play did not fetch the stored series'
+    assert errors == [], errors
+
+
+def test_a_rebuild_replaces_the_one_file_and_the_block_reads_it(dashboard, live_page):
+    """A build with other arguments replaces the stored pair; no second task or attempt is minted for it."""
+    page, errors, state = open_run(dashboard, live_page, ENGINE_RUN,
+                                   tasks=[stable_task(ENGINE_RUN, default_arguments(ENGINE_RUN))])
+    expect(series(page)).to_contain_text('3 models')
+    # What the next build publishes: the same path, different content.
+    state['frames']['a1'] = frames_json(ENGINE_RUN, times=(0.0, 1.0, 2.0, 3.0, 4.0), size=3_100_000)
+
+    page.locator('#run-view-build-A').click()
+    page.locator('#run-view-form-atoms-A').select_option('ca')
+    page.locator('#run-view-submit-A').click()
+
+    expect(series(page)).to_contain_text('5 models')
+    expect(series(page)).to_contain_text('CA atoms only')
+    assert any('/artifacts/analyses/frame-series/frames.json?inline=1' in url for url in state['requests']), \
+        'the rebuilt series was not read from its stable path'
+    assert len(state['tasks']) == 1, state['tasks']
+    assert [task['status'] for task in state['tasks']] == ['completed'], state['tasks']
+    page.locator('#run-view-play-A').click()
+    page.wait_for_function("() => document.querySelector('#run-view-viewer-A').runViewStage.compList.length === 2")
+    assert errors == [], errors
+
+
+def test_a_failed_rebuild_still_plays_the_stored_series(dashboard, live_page):
+    """A rebuild that failed before publishing leaves the last good series on disk and playable."""
+    failed = stable_task(ENGINE_RUN, default_arguments(ENGINE_RUN), status='failed')
+    failed['error'] = 'the trajectory was replaced mid-build'
+    page, errors, state = open_run(dashboard, live_page, ENGINE_RUN, tasks=[failed], log='boom')
+
+    expect(series(page)).to_contain_text('3 models')
+    expect(page.locator('#run-view-trajectory-note-A')).to_contain_text('last successful build')
+    expect(page.locator('#run-view-play-A')).to_be_enabled()
     assert errors == [], errors
 
 

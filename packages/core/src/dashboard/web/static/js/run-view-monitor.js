@@ -1,5 +1,5 @@
 // One monitor of the Run view: a run selected from a combo, its structure on a canvas, and its own "what this run
-// holds" / "CG chain segments" / "figures" panels below the canvas, collapsed.
+// holds" / "CG chain segments" panels below the canvas, collapsed.
 //
 // Two of these sit side by side (`run-view.js` builds them), which is why everything here is scoped to `side`: every
 // element id in this file is written `#<name>-<side>`, resolved once through `id()`, and never a bare `#run-view-…`
@@ -40,24 +40,20 @@ export function createMonitor({root, side, runs, onPick}) {
   const segmentsCount = $(id('run-view-segments-count'));
   const viewer = $(id('run-view-viewer'));
   const readoutHost = $(id('run-view-readout'));
-  const figures = $(id('run-view-figures'));
-  const figuresNote = $(id('run-view-figures-note'));
-  const figuresCount = $(id('run-view-figures-count'));
   const legend = $(id('run-view-legend'));
 
   let selected = null;               // the run this monitor holds
   let structures = [];
   let sizeClasses = null;
 
-  // The counts in the three summaries are read off the panels themselves rather than tracked separately, so a
+  // The counts in the two summaries are read off the panels themselves rather than tracked separately, so a
   // collapsed panel still says how much is behind it and no second bookkeeping can disagree with the first.
   function refreshCounts() {
     holdsCount.textContent = holds.querySelectorAll('tr').length ? `(${holds.querySelectorAll('tr').length})` : '';
     const segments = segmentsBody.querySelectorAll('tr').length;
     segmentsCount.textContent = segments ? `(${segments})` : '';
-    figuresCount.textContent = figures.querySelectorAll('li').length ? `(${figures.querySelectorAll('li').length})` : '';
   }
-  for (const host of [holds, segmentsBody, figures, figuresNote]) {
+  for (const host of [holds, segmentsBody]) {
     new MutationObserver(refreshCounts).observe(host, {childList: true, subtree: true, characterData: true});
   }
 
@@ -123,13 +119,6 @@ function monitorMarkup(side) {
         </div>
       </div>
     </details>
-    <details class="card run-view-sub" id="run-view-figures-details-${side}">
-      <summary>figures <span class="count" id="run-view-figures-count-${side}"></span></summary>
-      <div class="body">
-        <ul id="run-view-figures-${side}" class="run-view-figures"></ul>
-        <p class="hint" id="run-view-figures-note-${side}"></p>
-      </div>
-    </details>
   </div>`;
 }
 
@@ -192,7 +181,7 @@ function chooser(root, side, runs, onPick) {
     query = '';
     box.dataset.open = 'false';
     // Once. This used to call onPick here *and* above the field updates, so every pick opened the run twice: two
-    // artifact walks, two `/figures` reads and two NGL loads for one choice.
+    // artifact walks and two NGL loads for one choice.
     if (onPick) onPick(job);
   }
 
@@ -261,7 +250,6 @@ function chooser(root, side, runs, onPick) {
       .sort((first, second) => first.rank - second.rank || second.path.localeCompare(first.path));
 
     renderHolds(job);
-    loadFigures(job);
     sizeClasses = await loadSizeClasses(job);
     if (!structures.length) {
       what.textContent = 'This run holds no structure file this viewer can open (.gro or .pdb under stages/).';
@@ -367,47 +355,6 @@ function chooser(root, side, runs, onPick) {
     segmentsTable.hidden = true;
     segmentsWrap.hidden = !why;
     segmentsNote.textContent = why;
-  }
-
-  async function loadFigures(job) {
-    figures.replaceChildren();
-    let entries = [];
-    // Declared out here, read in here: `body` is scoped to the `try`, and a line after it that reached for
-    // `body.superseded` threw a ReferenceError -- which aborted `loadRun` before it drew anything at all.
-    let superseded = 0;
-    try {
-      const body = await api(`/api/jobs/${encodeURIComponent(job.id)}/figures`);
-      entries = body.artifacts || [];
-      superseded = Number(body.superseded) || 0;
-    } catch (error) {
-      figuresNote.textContent = `This run's figures could not be read: ${error.message}`;
-      return;
-    }
-    if (!entries.length) {
-      figuresNote.textContent = 'This run published no figure. Every figure the workspace holds belongs to the run '
-        + 'that drew it, and this one drew none.';
-      return;
-    }
-    figures.replaceChildren(...entries.map(entry => {
-      const item = document.createElement('li');
-      const link = document.createElement('a');
-      link.href = `/api/jobs/${encodeURIComponent(job.id)}/artifacts/`
-        + entry.path.split('/').map(encodeURIComponent).join('/') + '?inline=1';
-      link.target = '_blank';
-      link.rel = 'noopener';
-      const code = document.createElement('code');
-      code.textContent = entry.path;
-      link.append(code);
-      item.append(link);
-      return item;
-    }));
-    // One set per analysis, not one per attempt: the route answers with what the run currently publishes, and says
-    // how many of its own earlier sets it left out -- a reader who wants those can open them in the Runs gallery.
-    figuresNote.textContent = `${entries.length} figure${entries.length === 1 ? '' : 's'}, straight from the stages `
-      + 'that wrote them, opened inline through the run artifact route.'
-      + (superseded ? ` ${superseded} superseded set${superseded === 1 ? '' : 's'} of the same analyses stay in this `
-                      + "run's own analysis tree." : '')
-      + ' The zoomable, pannable gallery stays in the Runs panel.';
   }
 
   // ------------------------------------------------------------------------------------- structures and the readout

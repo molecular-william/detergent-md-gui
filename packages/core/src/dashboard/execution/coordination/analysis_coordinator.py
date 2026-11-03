@@ -207,18 +207,33 @@ class AnalysisCoordinator:
                  [(name, files.sha256(path)) for name, path in code_files]],
                 sort_keys=True).encode()).hexdigest()
             tasks = job.get('analyses', [])
-            for task in reversed(tasks):
-                if automatic and task.get('kind') == kind and task['status'] in ('queued', 'running', 'completed',
-                                                                                 'skipped'):
-                    return task, 200 if task['status'] in ('completed', 'skipped') else 202
-                if task.get('signature') == signature and task['status'] in ('queued', 'running', 'completed',
-                                                                            'skipped'):
-                    # A skip is an answer, not an absence: the same sources and code will skip again. Reusing it is
-                    # what stops a run whose producer cannot succeed from re-queueing itself every twenty seconds
-                    # forever. A changed source or code file changes the signature, so a later attempt is still
-                    # allowed; a person's Recompute asks through the same door and gets the same answer while nothing
-                    # has changed.
-                    return task, 200 if task['status'] in ('completed', 'skipped') else 202
+            stable = analysis.TABLE[kind].stable_directory
+            record = None
+            if stable is not None:
+                # One record per run for this kind: a build replaces the published series and reuses this record, so
+                # the analyses list holds the current build rather than one row -- and one directory -- per request.
+                # Attempt records written before the kind became stable are left alone; the panel falls back to them.
+                record = next((task for task in reversed(tasks)
+                               if task.get('kind') == kind and task.get('stable')), None)
+                if record is not None and record['status'] in ('queued', 'running'):
+                    return record, 202
+                if record is not None and record.get('signature') == signature \
+                        and record['status'] in ('completed', 'skipped'):
+                    # The same arguments over the same bytes are the same series: nothing is rebuilt.
+                    return record, 200
+            else:
+                for task in reversed(tasks):
+                    if automatic and task.get('kind') == kind and task['status'] in ('queued', 'running', 'completed',
+                                                                                     'skipped'):
+                        return task, 200 if task['status'] in ('completed', 'skipped') else 202
+                    if task.get('signature') == signature and task['status'] in ('queued', 'running', 'completed',
+                                                                                'skipped'):
+                        # A skip is an answer, not an absence: the same sources and code will skip again. Reusing it
+                        # is what stops a run whose producer cannot succeed from re-queueing itself every twenty
+                        # seconds forever. A changed source or code file changes the signature, so a later attempt is
+                        # still allowed; a person's Recompute asks through the same door and gets the same answer
+                        # while nothing has changed.
+                        return task, 200 if task['status'] in ('completed', 'skipped') else 202
             if any(key[0] == jid for key in list(owner.ANALYSIS_WORKERS)):
                 raise RunBusy('An analysis is already active for this run')
             if len(owner.ANALYSIS_WORKERS) + sum(owner.externally_busy(item) for item in owner.database().all()) >= owner.limits()['max_concurrent_analyses']:
@@ -229,11 +244,24 @@ class AnalysisCoordinator:
             if resources.usage(owner.run_path(job)) + copied_bytes > owner.limits()['max_run_bytes']:
                 raise CapacityFull('Analysis workspace exceeds the per-run storage limit')
             resources.admit(owner.storage_report(), len(owner.WORKERS) + len(owner.ANALYSIS_WORKERS), copied_bytes)
-            aid = uuid.uuid4().hex[:12]
-            task = {'id': aid, 'kind': kind, 'signature': signature, 'payload': payload,
-                    'status': 'queued', 'created_at': owner.now(),
-                    'directory': f'analyses/{kind}/{signature}/{aid}'}
-            tasks.append(task)
+            if stable is not None:
+                if record is None:
+                    record = {'id': uuid.uuid4().hex[:12], 'kind': kind, 'stable': True}
+                    tasks.append(record)
+                # The previous build's `outputs` stay on the record: a rebuild that fails before publishing leaves the
+                # old series on disk, and the panel can still play it while the record says what went wrong.
+                record.update(signature=signature, payload=payload, status='queued', created_at=owner.now(),
+                              directory=stable)
+                record.pop('error', None)
+                record.pop('ended_at', None)
+                task = record
+            else:
+                aid = uuid.uuid4().hex[:12]
+                task = {'id': aid, 'kind': kind, 'signature': signature, 'payload': payload,
+                        'status': 'queued', 'created_at': owner.now(),
+                        'directory': f'analyses/{kind}/{signature}/{aid}'}
+                tasks.append(task)
+            aid = task['id']
             owner.database().update(jid, analyses=tasks)
             worker = owner.Worker()
             owner.ANALYSIS_WORKERS[(jid, aid)] = worker
@@ -246,6 +274,7 @@ class AnalysisCoordinator:
             job = owner.lookup(jid)
             task = next(task for task in job['analyses'] if task['id'] == aid)
             attempt = owner.run_path(job) / task['directory']
+            stable = analysis.TABLE[task['kind']].stable_directory is not None
             extras = {}
 
             def write(_record, **fields):
@@ -291,7 +320,7 @@ class AnalysisCoordinator:
                                               'environment': recorded_environment(),
                                               'log': task['directory'] + '/console.log'},
                                      on_exit=finish):
-                    attempt.mkdir(parents=True, exist_ok=False)
+                    attempt.mkdir(parents=True, exist_ok=stable)
                     files.atomic_json(attempt / 'request.json', request)
                     with (attempt / 'console.log').open('w') as output:
                         try:

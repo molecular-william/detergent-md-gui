@@ -4,64 +4,16 @@ State and open items for this repository. Rules live in `AGENTS.md`; subsystem b
 `docs/PROJECT_GUIDE.md`; scoring science in `docs/DDM_CALIBRATION.md`. Read this before touching the DDM CG chain,
 the protein-detergent pipeline or the coordinator. This file keeps only what is current and the evidence behind it.
 
-## Next task (2026-11-03): save the recomputed frames in place; delete the Run view figures subpanel
+## Next task: none chosen; both 2026-11-03 requests landed
 
-The user's two requests, verbatim: *"I would like the trajectory computed by 'Recompute frames' to be saved in-place.
-Moreover, delete the 'figures' subpanel in 'Run view'."* Nothing is implemented yet. Read `docs/PROJECT_GUIDE.md`
-("Run view", "Analysis evidence") before touching either.
+The two requests from 2026-11-03 are implemented (see *Landed slices*): a Run view **Recompute frames** now replaces
+one stored `analyses/frame-series/run-frames.pdb` + `frames.json` pair per run, and the Run view's **figures**
+subpanel is gone. The panel's Play always reads the stored pair; a failed rebuild keeps the previous pair, and a
+series written before the change (an attempt under `analyses/frame-series/<signature>/<attempt>/`) is still found by
+matching the form's arguments. What is left here is the open-items table below; the two that still need a decision
+are the pdc resume-before-the-final-mdrun case and the cloud-vs-rough belt measurement.
 
-### 1. Recompute frames: save the trajectory in place
-
-**Verified current behaviour.** The Run view's Trajectory block queues a `frame-series` analysis through
-`POST /api/jobs/<id>/frame-series` (`web/static/js/run-view-trajectory.js`, the form's Build/**Recompute frames**
-button). The producer `analysis/runs/frame_series.py` samples the chosen trajectory into `run-frames.pdb` and
-`frames.json` in its work directory, and the coordinator publishes an attempt under
-`analyses/frame-series/<signature>/<attempt>/` (`execution/coordination/analysis_coordinator.py`). A Recompute with
-the same arguments mints a **second attempt beside the first**; the newer one wins for the panel and the older set
-stays on disk, and the route reports how many sets it superseded. Different arguments give a different signature and
-therefore a different directory. Play fetches the saved file; nothing is recomputed on Play.
-
-**The user's decision (2026-11-03): one series for the whole run.** The run holds a single stored frame series at one
-stable path — put it in the run's own analysis tree (`analyses/frame-series/…`), not beside a stage's trajectory and
-never over the trajectory itself, which stays immutable. Any Build/Recompute replaces that series whatever arguments
-it was built with; the panel's Play always reads the one file, and `frames.json` records the arguments of the current
-build. Two consequences to state in the panel and its record: switching pbc/fit/interval and back means rebuilding,
-and two Run view monitors on different views share the file, so the last build wins. Attempt directories written
-before this change stay readable through the existing lookup — do not delete them.
-
-Acceptance:
-- one `run-frames.pdb` + `frames.json` per run, replaced atomically, so a failed recompute leaves the previous series
-  readable;
-- a build with different arguments replaces it rather than minting an attempt or a second signature directory;
-- `GET /api/jobs/<id>/analyses` and the Run view read that one series, and its record still carries the view, legacy
-  marker and cadence;
-- tests: same-argument recompute, changed-argument rebuild (replaces), interrupted rebuild keeps the old file, the
-  panel plays the replaced file, and no new attempt entry is minted for this kind after the change;
-- a before/after note in the plan's record and a screenshot of the Trajectory block.
-
-Files likely touched: `analysis/runs/frame_series.py`, `execution/coordination/analysis_coordinator.py`,
-`web/routes/analyses.py`, `web/static/js/run-view-trajectory.js`, `tests/unit/test_frame_series.py`,
-`tests/integration/test_frame_series_analysis.py`, and the browser test that drives the block.
-
-### 2. Delete the figures subpanel in Run view
-
-`web/static/js/run-view-monitor.js` renders a third collapsed subpanel per side —
-`<details class="card run-view-sub" id="run-view-figures-details-…">` with a `figures` summary, a list of figure
-links and a note. Delete the whole subpanel and its machinery: the template block, the `run-view-figures`,
-`run-view-figures-note` and `run-view-figures-count` handles, the `refreshCounts` line that counts its list, its
-entry in the MutationObserver list, the `loadFigures(job)` call in `loadRun`, and the `loadFigures` function. Drop the
-`.run-view-figures` rules in `web/static/run-view.css` if nothing else uses them.
-
-**Keep**: the Runs panel's own figures gallery and `GET /api/jobs/<id>/figures` (the Runs card and its figure viewer
-read them), and `web/static/js/figures.js`.
-
-Tests to update, all in `packages/core/tests/browser/`: `test_run_view_browser.py` asserts the three disclosure
-panels (`holds`, `segments`, `figures`), lists figures (`#run-view-figures-A`) and expects a `figures` button in the
-layout test; `test_lazy_loading.py` counts exactly one `/figures?` request from the panel. Both must stop expecting
-the panel. `test_dom_ids.py` must stay green (no module may name an id the markup no longer has).
-
-Acceptance: no figures subpanel in either Run view monitor, the other two subpanels and their counts unchanged, no
-`/figures` request from the Run view, the Runs gallery untouched, browser tests and `test_dom_ids.py` green.
+**Plan of record:** `docs/plans/2026-11-03-frame-series-in-place.md` (untracked, local to the checkout).
 
 The detergent conformation library landed on 2026-11-02 (see *Landed slices*). The plan of record and its
 implementation contract stay in this checkout but are untracked:
@@ -96,16 +48,18 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   `references/M3-Lipid-Parameters`, so a clone installs the force field without a download; the first CG reader
   installs one copy at `workspace/dashboard/martini3` and records the upstream commit and per-file digests. The rest
   of `references/` (PDFs, partial clones, benchmark material) stays untracked.
-- **Run view.** Static structures, the CG segment table, figures, and the on-demand Trajectory block: a
-  `frame-series` attempt is built from eleven arguments (segment, atoms, ns per frame, start/end, `pbc`, `boxcenter`,
-  `center`, `fit`, `group`), played back from a server-written multi-model PDB, fetched only on Play. `pbc` is
-  `none|mol|res|atom|whole|nojump|cluster`; `cluster` alone shells out to `gmx trjconv` and stages the trajectory's
-  `.tpr`, refusing at queue time without one. The form is behind the **Frame options** disclosure; the one submit
-  labels itself Build or Recompute. An older attempt recorded with `stride`/`assembled`/`fit: protein|beads` is still
-  found and played as the view it described. `/trajectory` answers
-  run-root paths with each playable segment's `identity`; a `.pdb` structure is served by the artifact route. Caps are
-  240 models / ~250 MB. `config/dashboard.json` admits 40 GiB per run (the deleted `00b9ae6db23f` was 34.08 GiB,
-  which the former 30 GiB limit could not analyse).
+- **Run view.** Static structures, the CG segment table, and the on-demand Trajectory block: the run holds one
+  stored `frame-series` at `analyses/frame-series/run-frames.pdb` + `frames.json`, built from eleven arguments
+  (segment, atoms, ns per frame, start/end, `pbc`, `boxcenter`, `center`, `fit`, `group`) and replaced in place by
+  every build; Play fetches the PDB only then. `pbc` is `none|mol|res|atom|whole|nojump|cluster`; `cluster` alone
+  shells out to `gmx trjconv` and stages the trajectory's `.tpr`, refusing at queue time without one. The form is
+  behind the **Frame options** disclosure; the one submit labels itself Build or Recompute. An older attempt under
+  `analyses/frame-series/<signature>/<attempt>/` -- with `stride`/`assembled`/`fit: protein|beads` -- is still found
+  by matching the form's arguments and played as the view it described. The figures subpanel is gone; the Runs
+  gallery is the one place a run's figures are browsed. `/trajectory` answers run-root paths with each playable
+  segment's `identity`; a `.pdb` structure is served by the artifact route. Caps are 240 models / ~250 MB.
+  `config/dashboard.json` admits 40 GiB per run (the deleted `00b9ae6db23f` was 34.08 GiB, which the former 30 GiB
+  limit could not analyse).
 - **Detergent conformations.** A pdc run may stamp its detergents from a fixed-size library taken from micelle-only
   runs: `detergent_pdc/conformations/` writes `<workspace>/conformations/<residue>/<key>/library.json` plus
   `library.sha256` (K = 2000 whole molecules, stratified split, pure numpy), `pdc.prepare` records it as the
@@ -173,6 +127,11 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
 - **The player's files are views with a record.** `frames.json` carries the trajectory identity, the arguments, the
   effective cadence, the `view` and any `legacy` marker; `series_pdb`'s REMARKs state a fit and any PBC/centre view.
   The series PDB is fetched only on Play.
+- **One run, one frame series.** `frame-series` declares `Kind.stable_directory = 'analyses/frame-series'`: the
+  coordinator keeps one record (`stable: true`, the same id across rebuilds) and the worker replaces
+  `run-frames.pdb` then `frames.json`, each through `files.atomic_copy`; a failed build publishes neither, so the
+  previous pair stays. Any arguments set replaces the pair -- there is no attempt directory to mint. Attempts under
+  `analyses/frame-series/<signature>/<attempt>/` written before this change stay readable as the panel's fallback.
 - **Never kill DSH.** The first listener on 3080 is DSH; the dashboard is 5000 and is a systemd user service.
 - **Resume continues one stage's last mdrun, never an earlier one.** `continue_plan` names the first stage that is
   not completed/reused/skipped and the first existing checkpoint its declaration names; a stage that died before
@@ -226,6 +185,15 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   caught / 1 survived. `pytest.ini` owns tier counts; do not copy moving counts into this file.
 
 ## Landed slices, newest first
+
+- **2026-11-03 One stored frame series, and the Run view figures subpanel removed**: the Trajectory block's build now
+  replaces `analyses/frame-series/run-frames.pdb` + `frames.json` in place instead of minting an attempt per
+  arguments set. `Kind.stable_directory` is the declaration; the coordinator keeps one `frame-series` record and the
+  worker publishes through `files.atomic_copy`, `frames.json` last. The panel always plays the stored pair, says so
+  when the form names other arguments, and still plays the last good pair after a failed rebuild; attempts written
+  before the change are still matched by the form's arguments. The third Run view subpanel (**figures**) and its
+  `loadFigures` machinery are gone -- the Runs gallery and `GET /api/jobs/<id>/figures` stay. Plan:
+  `docs/plans/2026-11-03-frame-series-in-place.md`.
 
 - **2026-11-02 Resume from a checkpoint**: the Runs table gains **Resume** beside Delete, offered only for a
   `failed`/`cancelled` run whose stopped stage left its own mdrun checkpoint. It keeps the run id and the stage

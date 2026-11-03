@@ -1,4 +1,4 @@
-"""The Run view panel, driven in a browser: one run, its own structures, its segments, its figures.
+"""The Run view panel, driven in a browser: one run, its own structures and its CG chain segments.
 
 Every run here is a fixture this test builds in its own workspace -- nothing reads the developer's `workspace/`,
 which holds surviving runs as evidence rather than as a fixture. The structures are the *shape* a live run has
@@ -233,9 +233,9 @@ def open_panel(page, live_page, workspace='detergent-validation', run=None):
 
     def ready(page):
         expect(page.locator('#runview')).to_be_visible()
-        # The three sub-panels below each canvas sit collapsed -- that is the layout's own claim, and a reader opens the
+        # The two sub-panels below each canvas sit collapsed -- that is the layout's own claim, and a reader opens the
         # one they want. A test that reads or clicks inside one opens it first, through the same `<details>` element.
-        for panel in ('holds-details', 'segments-details', 'figures-details'):
+        for panel in ('holds-details', 'segments-details'):
             page.locator(f'#run-view-{panel}-A').evaluate('el => { el.open = true; }')
 
     return browser.open_panel(page, live_page.base_url, f'/{workspace}/run-view{query}', ready=ready)
@@ -644,7 +644,7 @@ def test_cg_beads_are_drawn_at_the_radius_their_own_size_class_has(dashboard, li
     assert errors == []
 
 
-# ---------------------------------------------------------------------------------------------------------- figures
+# ---------------------------------------------------------------------------------------------------- bead families
 
 
 #: Martini 3's polarity families as `ngl-beads.js` colours them. This fixture's moleculetype types every bead
@@ -707,31 +707,6 @@ def test_a_cg_run_colours_its_beads_by_family_and_only_then_shows_the_legend(das
     wait_for_component(page, atoms=5, drawn='stages/07_reference/lig.gro', fresh=True)
     atomistic = page.locator('#run-view-viewer-A').evaluate(MEASURE_FAMILY)
     assert atomistic['hidden'] is True, 'an all-atom structure got a bead legend'
-    assert errors == []
-
-
-def test_figures_are_listed_and_opened_inline_through_the_artifact_route(dashboard, live_page):
-    seed(dashboard)
-    page, errors = live_page
-    open_panel(page, live_page, run=CG_RUN)
-    wait_for_component(page, atoms=8)
-
-    link = page.locator('#run-view-figures-A a')
-    expect(link).to_have_count(1)
-    href = link.get_attribute('href')
-    assert href == f'/api/jobs/{CG_RUN}/artifacts/stages/5_assessment/score_matrix_LIG1.png?inline=1', href
-    assert link.get_attribute('target') == '_blank'
-    expect(page.locator('#run-view-figures-note-A')).to_contain_text('zoomable')
-    assert errors == []
-
-
-def test_a_run_with_no_figure_says_so_instead_of_showing_an_empty_list(dashboard, live_page):
-    seed(dashboard)
-    page, errors = live_page
-    open_panel(page, live_page, run=AA_RUN)
-    wait_for_component(page, atoms=5)
-    expect(page.locator('#run-view-figures-A a')).to_have_count(0)
-    expect(page.locator('#run-view-figures-note-A')).to_contain_text('published no figure')
     assert errors == []
 
 
@@ -1003,13 +978,14 @@ def test_the_canvas_is_taller_than_the_old_height_and_ngl_fills_its_host(dashboa
     assert errors == []
 
 
-def test_the_run_view_is_two_monitors_each_with_a_combo_and_three_panels_below(dashboard, live_page):
-    """The shape that was asked for, asserted as the page: two monitors, a combo and three panels on each.
+def test_the_run_view_is_two_monitors_each_with_a_combo_and_two_panels_below(dashboard, live_page):
+    """The shape that was asked for, asserted as the page: two monitors, a combo and two panels on each.
 
     Adopted from the draft that was judged and re-pointed at the panel it became. Two canvases side by side, a
-    "choose a run" combo above each, and "what this run holds" / "CG chain segments" / "figures" below each one,
-    collapsed -- the collapse is the claim, and a reader opens the one they want. Only completed runs are ever
-    offered, which the host's own requests say rather than its intentions.
+    "choose a run" combo above each, and "what this run holds" / "CG chain segments" below each one, collapsed --
+    the collapse is the claim, and a reader opens the one they want. Only completed runs are ever offered, which
+    the host's own requests say rather than its intentions. The figures sub-panel is gone: the Runs gallery is the
+    one place a run's figures are browsed, so this page asks for none.
     """
     seed(dashboard)
     page, errors = live_page
@@ -1030,12 +1006,15 @@ def test_the_run_view_is_two_monitors_each_with_a_combo_and_three_panels_below(d
     assert canvas['A']['x'] < canvas['B']['x'], 'the monitors are side by side, not stacked'
     for side in ('A', 'B'):
         assert page.locator(f'#run-view-choose-{side}').input_value(), f'monitor {side} holds no run'
-        for panel in ('holds', 'segments', 'figures'):
+        assert page.locator(f'.monitor[data-side="{side}"] .run-view-sub').count() == 2, \
+            f'monitor {side} shows a third sub-panel'
+        for panel in ('holds', 'segments'):
             details = page.locator(f'#run-view-{panel}-details-{side}')
             assert details.evaluate('el => el.open') is False, f'{panel}-{side} opened itself'
             assert details.bounding_box()['y'] >= canvas[side]['y'], f'{panel}-{side} is not below the canvas'
     assert asked and all('status=completed' in url for url in asked if '/api/jobs?' in url), \
         'only completed runs are offered'
+    assert not any('/figures?' in url for url in asked), 'the Run view asked for figures it no longer draws'
     assert errors == []
 
 

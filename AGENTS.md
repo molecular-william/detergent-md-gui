@@ -61,6 +61,8 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
   head site.
 - A run's progress counts mdrun legs from the stage log and its ETA is GROMACS' own text; `percent` is `null` until a
   leg prints.
+- A run holds one frame series at `analyses/frame-series/` (`Kind.stable_directory`): each build replaces the pair
+  through `files.atomic_copy`, `frames.json` last, and a failed build leaves the previous pair.
 - `GET /api/jobs/<id>/structure?path=` writes the run's own bonds and constraints as CONECT and refuses a `.pdb`; a file
   carrying CONECT is never distance-guessed.
 - A revision's terms name beads by their export name (`B01` is the first bead, virtual sites included), so anything
