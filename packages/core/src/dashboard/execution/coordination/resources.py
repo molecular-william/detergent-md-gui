@@ -5,6 +5,9 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
+#: `max_concurrent_runs` is the ceiling per GPU, not across the host: the device is the resource two simulations
+#: contend for, so a run on a free GPU starts beside one on a busy GPU. A host that reports no device answers as
+#: device 0, which keeps its runs one at a time.
 DEFAULTS = {'max_concurrent_runs': 1, 'max_concurrent_analyses': 2,
             'min_free_bytes': 1073741824, 'max_run_bytes': 21474836480,
             'max_total_bytes': 107374182400, 'reserve_per_job_bytes': 1073741824,
@@ -18,7 +21,7 @@ def policy(path):
         if not isinstance(data, dict) or set(data)-set(result): raise ValueError('Unknown dashboard resource policy')
         result.update(data)
     if any(type(v) is not int or v <= 0 for v in result.values()): raise ValueError('Resource limits must be positive integers')
-    if result['max_concurrent_runs']*8 > (__import__('os').cpu_count() or 1): raise ValueError('Run concurrency exceeds available CPU threads (8 per run)')
+    if result['max_concurrent_runs']*8 > (__import__('os').cpu_count() or 1): raise ValueError('Per-GPU run concurrency exceeds available CPU threads (8 per run)')
     return result
 
 

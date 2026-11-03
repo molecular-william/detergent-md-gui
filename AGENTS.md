@@ -61,6 +61,8 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
   head site.
 - A run's progress counts mdrun legs from the stage log and its ETA is GROMACS' own text; `percent` is `null` until a
   leg prints.
+- Simulation admission is per GPU: `Coordinator.admit_device` compares the run's own `mdrun_gpu`, and
+  `max_concurrent_runs` is a per-device ceiling, so runs on different GPUs start together.
 - A run holds one frame series at `analyses/frame-series/` (`Kind.stable_directory`): each build replaces the pair
   through `files.atomic_copy`, `frames.json` last, and a failed build leaves the previous pair.
 - `GET /api/jobs/<id>/structure?path=` writes the run's own bonds and constraints as CONECT and refuses a `.pdb`; a file

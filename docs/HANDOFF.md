@@ -135,6 +135,10 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   `analyses/frame-series/<signature>/<attempt>/` written before this change stay readable as the panel's fallback.
   Switching the segment combo changes the form, never the stored series: the block names the segment the build
   sampled (from `frames.json`'s arguments) and says the selected segment or options differ.
+- **Admission is per GPU.** `Coordinator.admit_device` reads the run's own `settings.mdrun_gpu` and refuses only
+  while that device already holds `max_concurrent_runs` active runs; a run on another device starts beside it, and
+  the refusal names the GPU. A worker with no readable row counts on device 0, and a host reporting no devices
+  answers as device 0, so the old one-at-a-time behaviour survives where devices cannot be told apart.
 - **A Python change is live only after the dashboard restarts.** The transient unit keeps its imported modules for
   its whole life while `static/` is read per request, so a server started before a code change serves the new browser
   script against the old engine. Measured 2026-11-03: the unit started at 10:41, the frame-series change landed at
@@ -193,6 +197,12 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   caught / 1 survived. `pytest.ini` owns tier counts; do not copy moving counts into this file.
 
 ## Landed slices, newest first
+
+- **2026-11-03 Per-GPU run admission**: `Coordinator.admit_device` replaced the host-wide
+  `max_concurrent_runs` counter at all four start sites (create, admit, resume/continue, waiting); the setting is now
+  a per-device ceiling, so two runs on different `mdrun_gpu` devices start together. The refusal is "This GPU is
+  busy. Either wait for the run to stop or choose a free GPU." Pinned by
+  `integration/test_run_gpu_capacity.py`.
 
 - **2026-11-03 GitNexus removed**: the generated context block is gone from `AGENTS.md` and `CLAUDE.md` (which now
   points at `AGENTS.md`), the six `.claude/skills/gitnexus-*` trees are deleted, the local `.gitnexus/` index and its

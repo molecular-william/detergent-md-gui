@@ -297,6 +297,12 @@ each section from the registry and `tabs.js` mounts it by DOM id. The rendered w
 naming it in the path (and a remembered workspace a module switch hid is never followed).
 
 ### Runs
+Run admission is per GPU: `Coordinator.admit_device` reads the device the run's own `settings.mdrun_gpu` names and
+refuses a start only while that device already holds `max_concurrent_runs` active runs, answering "This GPU is busy.
+Either wait for the run to stop or choose a free GPU." A run on another device starts alongside; a host that reports
+no devices answers as device 0, so its runs stay one at a time. `max_concurrent_runs` is therefore a ceiling per
+device, not across the host.
+
 Background polling updates individual status fields every five seconds. Forms, expanded details, mapping edits, and scroll position are not rebuilt. Terminal runs can be manually deleted from their run card; active workers are protected. Tabs, form values, and mapping drafts are remembered in browser storage. Elapsed time is reported only when recorded; ETA is shown only when present in current GROMACS output. Legacy runs without timestamps show "Not recorded".
 
 Each run card shows the workflow stages from its manifest and indexes files created inside the run directory. Artifact links are path-checked; SVG files are previewed in the card. The default `snapshots` analysis stays retired: a run holds only the structures and trajectories its own stages wrote, and a frame series is on demand — `frame-series` samples a chosen segment into one multi-model PDB (`analysis/runs/frame_series.py`), never on a cadence.

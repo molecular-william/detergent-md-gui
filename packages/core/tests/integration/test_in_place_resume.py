@@ -216,6 +216,8 @@ def test_resume_admission_preserves_terminal_run_on_rejection(resume_service, mo
     try:
         response = client.post('/api/jobs/123456abcdef/resume', json={'stage': 'second'})
         assert response.status_code == 409, response.json
+        if blocker == 'capacity':
+            assert 'This GPU is busy' in response.json['error'], response.json
         assert owner.lookup(job['id']) == job
         assert files.hashes(root) == before
     finally:

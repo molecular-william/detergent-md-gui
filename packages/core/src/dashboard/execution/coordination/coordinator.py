@@ -116,8 +116,7 @@ class Coordinator:
             if any(other.get('reference_run_id') == jid or other.get('resume_of') == jid
                    for other in self.database().all() if other.get('id') != jid):
                 raise DependencyRetained('The run has retained consumers; resume the consumers or clone this run')
-            if len(self.WORKERS) + sum(self.externally_busy(item) for item in self.database().all()) >= self.limits()['max_concurrent_runs']:
-                raise CapacityFull('Simulation capacity is busy; wait for a run to stop')
+            self.admit_device(job)
             try:
                 resources.check_worker(self.run_path(job), self.RUNS, self.limits())
             except (OSError, ValueError) as exc:
@@ -174,6 +173,40 @@ class Coordinator:
             with self.lease(path): return False
         except ValueError: return True
 
+
+    @staticmethod
+    def device_of(job):
+        """The CUDA ordinal a run's own mdrun names; 0 when its settings name none (every adapter's default)."""
+        settings = job.get('settings') if isinstance(job, dict) else None
+        try:
+            return int((settings if isinstance(settings, dict) else {}).get('mdrun_gpu', 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def busy_devices(self):
+        """Which device each active run holds: this coordinator's workers, and another process's live leases.
+
+        A worker whose row has gone (a test's stand-in, or a deleted run) is counted on device 0, which is what a
+        run that names no device would use anyway: an unreadable claim must not read as a free GPU.
+        """
+        busy = {}
+        for jid in list(self.WORKERS):
+            busy.setdefault(self.device_of(self.database().get(jid) or {}), []).append(jid)
+        for job in self.database().all():
+            if self.externally_busy(job):
+                busy.setdefault(self.device_of(job), []).append(job['id'])
+        return busy
+
+    def admit_device(self, job):
+        """Refuse a run only while its own GPU is at `max_concurrent_runs`; a different GPU starts alongside.
+
+        The device is the one the run's own settings name (`mdrun_gpu`), which is the device its mdrun will use.
+        A host that reports no devices answers the same way -- every run names index 0 -- so its runs keep the old
+        one-at-a-time behaviour. Callers hold `JOBS_LOCK`, so the look and the registration cannot interleave.
+        """
+        busy = self.busy_devices().get(self.device_of(job), [])
+        if len(busy) >= self.limits()['max_concurrent_runs']:
+            raise CapacityFull('This GPU is busy. Either wait for the run to stop or choose a free GPU.')
 
     def reconcile(self):
         for job in self.database().all():
@@ -570,7 +603,7 @@ class Coordinator:
             return self.admit_jobs([parent,job],parent,result=job)
         worker = self.Worker()
         with self.JOBS_LOCK:
-            if len(self.WORKERS)+sum(self.externally_busy(j) for j in self.database().all()) >= self.limits()['max_concurrent_runs']: raise CapacityFull('Simulation capacity is busy; wait for a run to stop')
+            self.admit_device(job)
             source_id = resume_of or reference_run_id
             required = 2*resources.usage(self.RUNS/source_id) if source_id else 0
             if required > self.limits()['max_run_bytes']: raise CapacityFull('Source copies exceed the per-run storage limit')
@@ -599,7 +632,7 @@ class Coordinator:
 
     def admit_jobs(self, records,first,result=None):
         with self.JOBS_LOCK:
-            if len(self.WORKERS)+sum(self.externally_busy(j) for j in self.database().all())>=self.limits()['max_concurrent_runs']:raise CapacityFull('Simulation capacity is busy; wait for a run to stop')
+            self.admit_device(first)
             copies=[]
             for job in records:
                 required=2*resources.usage(self.RUNS/job['resume_of']) if job.get('resume_of') else 0
@@ -623,7 +656,10 @@ class Coordinator:
                                ended_at=self.now(),error='AA source did not complete; clone with a new source',stage='AA source unavailable')
                     continue
                 if source['status']!='completed':continue
-                if len(self.WORKERS)+sum(self.externally_busy(j) for j in self.database().all())>=self.limits()['max_concurrent_runs']:continue
+                try:
+                    self.admit_device(job)
+                except CapacityFull:
+                    continue
                 try:
                     _,reference=aa_references.resolve(self.RUNS,source['id'],molecule_snapshot=job['molecule_snapshot'],settings=job['settings'])
                     resources.admit(self.storage_report(),len(self.WORKERS)+len(self.ANALYSIS_WORKERS))
