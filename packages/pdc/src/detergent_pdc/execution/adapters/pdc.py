@@ -86,9 +86,11 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             # means one plain CG MD leg after NPT, no assessment/removal/extension/final assessment.
             'remove_out_of_micelle': True,
             # The device this run's mdrun uses. Here rather than in the AA half's vocabulary because a pdc run has
-            # no AA half and this is the only table its own normalizer reads; the value is one index, and the
-            # default keeps every existing run's command byte-identical.
-            'mdrun_gpu': 0}
+            # no AA half and this is the only table its own normalizer reads; the value is one index.
+            'mdrun_gpu': 0,
+            # A checkpoint every ten minutes of wall time, the project's cadence: a failed leg loses at most that
+            # much sampling to Restart, and every pdc run records the number its mdrun was given.
+            'mdrun_cpt': 10}
 _PROTEIN_LIMIT = 50
 # Values a spec allows as a fraction but that the builders use as counts or seeds.
 # Canonical settings that are counts, not sizes: a supplied value is stored as an `int`, so the run's record says `120`

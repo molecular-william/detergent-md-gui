@@ -187,6 +187,9 @@ DEFAULTS=dict(aa_nvt_ps=100,aa_npt_ps=1000,aa_production_ps=10000,
               temperature_k=forcefields.entry().temperature_k,
               pressure_bar=1,output_interval_ps=10,box_nm=aa_box.DEFAULT_EDGE_NM,aa_seed=20260917,
               mdrun_ntomp=8,mdrun_ranks=1,mdrun_nb='auto',mdrun_pme='auto',mdrun_gpu=0,
+              # A checkpoint every ten minutes of wall time: the user's cadence for this project, recorded by every
+              # run so a failed leg loses at most that much sampling to Restart.
+              mdrun_cpt=10,
               box_shape=aa_box.DEFAULT_SHAPE,
               force_field=forcefields.DEFAULT)
 # Choices are a separate shape rather than a third element of the numeric tuple, which unpacks as (label, lo,

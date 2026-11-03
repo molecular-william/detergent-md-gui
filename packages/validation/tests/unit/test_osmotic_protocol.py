@@ -52,6 +52,8 @@ def test_the_defaults_are_the_papers_durations_and_a_temperature_that_says_where
     assert values['osmotic_equilibration_ps'] == pytest.approx(10000.0)    # 10 ns
     assert values['temperature_k'] == pytest.approx(308.15)                # Ebrahimi & Sadeghi 2016
     assert 'osmotic' in osmotic.stage_defaults()['sources']
+    # The project's checkpoint cadence travels with every run type, a series included.
+    assert values['mdrun_cpt'] == 10
 
 
 def test_settings_are_range_checked_and_a_ragged_duration_is_refused():

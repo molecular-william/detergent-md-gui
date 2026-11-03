@@ -256,7 +256,7 @@ DEFAULTS = dict(temperature_k=308.15,
                 osmotic_production_ps=osmotic_mdp.DEFAULT_PRODUCTION_PS,
                 osmotic_equilibration_ps=osmotic_mdp.DEFAULT_EQUILIBRATION_PS,
                 osmotic_output_interval_ps=osmotic_mdp.DEFAULT_OUTPUT_INTERVAL_PS,
-                mdrun_ntomp=4, mdrun_ranks=1, mdrun_gpu=0,
+                mdrun_ntomp=4, mdrun_ranks=1, mdrun_gpu=0, mdrun_cpt=10,
                 # **The retry ceiling, and a series' policy on a condition that ends failed.** Three is the house
                 # ceiling -- `attempts_max = 3` in `pdc.DEFAULTS` and the loop bound in `pdc_extension.py`. Both are
                 # advertised because a setting the adapter does not name is dropped by the queueing routes without
@@ -271,6 +271,8 @@ SETTING_SPECS = {
     'mdrun_ranks': ('mdrun MPI ranks', 1, 72),
     # An index into the devices the host reports; `0` keeps the command every existing series produces.
     'mdrun_gpu': ('mdrun GPU device', 0, 64),
+    # Minutes between checkpoint saves, the project's ten; a series' conditions each write their own.
+    'mdrun_cpt': ('Checkpoint interval (minutes)', 1, 100000),
     # A count, not a duration: an attempt either happened or did not, so a fractional value is refused rather than
     # silently floored (see `normalize_settings`). The runner also carries a default, for a script run by hand.
     'osmotic_attempts_max': ('Attempts before a condition ends failed', 1, 10),
@@ -499,7 +501,8 @@ def normalize_settings(settings=None, profile='standard'):
     # index would run on one nobody chose. Checked after the series, so a ragged series is refused first -- the
     # order these checks have always had.
     coerce_integers(result, {'osmotic_attempts_max': 'osmotic_attempts_max must be a whole number of attempts',
-                             'mdrun_gpu': 'mdrun_gpu must be a whole device index'})
+                             'mdrun_gpu': 'mdrun_gpu must be a whole device index',
+                             'mdrun_cpt': 'mdrun_cpt must be a whole number of minutes'})
     # Threads and ranks are counts too, but they have always been floored rather than refused; only the attempt
     # ceiling and the device index carry a message.
     for key in ('mdrun_ntomp', 'mdrun_ranks'):

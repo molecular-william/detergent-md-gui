@@ -125,9 +125,10 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   `continue_checkpoint` for that stage only and records it in that stage's environment; the fields are cleared when
   the stage completes, so a later stage cannot inherit a spent checkpoint. The scripts skip the work before the
   final mdrun **including its `grompp`**, run `-cpi … -append`, and re-run their post-step.
-- **`mdrun_cpt` has no adapter default.** Absent means no `-cpt` flag, so an untouched run's command is byte-identical
-  to before the setting existed and GROMACS' 15 minutes applies; the forms prefill 15 so a panel run records what it
-  showed.
+- **`mdrun_cpt` defaults to ten minutes.** It is a `DEFAULTS` entry in the AA, pdc and osmotic tables, so every run
+  records the cadence and its `mdrun` carries `-cpt 10` unless the caller names another; the forms prefill 10. A bare
+  settings dict handed straight to `mdrun_command_flags` still emits no flag, which is why an old unit-level
+  expectation of the untouched command remains true.
 - **A conformation library is pinned, never swapped.** `library.json` is canonical bytes and `library.sha256` is the
   verifier; the key is the first 16 hex of the canonical spec over the detergent signature and the sorted
   `(run_id, trajectory_identity)` pairs, so a rebuild from the same sources names the same directory. A run records
@@ -176,10 +177,9 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   the trajectory, log and energy file grow. `Stage.checkpoint`/`resumes_in_place` declare what each stage can
   continue from (pdc legs `system.cpt`, assessment `prod/run.cpt`, extension `('prod/run.cpt','run.cpt')`, CG
   `md.cpt`, AA `run.cpt`, AA reference `3-run.cpt`; the osmotic series resumes itself). The old picker is renamed
-  **Restart from stage** (button **Restart**) and keeps its archive-and-re-run behaviour. `mdrun_cpt` (minutes, no
-  adapter default, 15 prefilled in the forms) is emitted as `-cpt` by `aa.mdrun_command_flags`, so a run that names
-  none keeps its exact command and GROMACS' 15 minutes. A run holds 3–8 current checkpoints (4–6 for pdc), ~38–100
-  kB each.
+  **Restart from stage** (button **Restart**) and keeps its archive-and-re-run behaviour. `mdrun_cpt` (minutes,
+  default 10, prefilled 10 in the forms) is emitted as `-cpt` by `aa.mdrun_command_flags`. A run holds 3–8 current
+  checkpoints (4–6 for pdc), ~38–100 kB each.
 
 - **2026-11-02 Detergent conformation library**: a pdc run may now stamp each detergent from a library of whole
   molecules taken from micelle-only runs instead of repeating one template. `detergent_pdc/conformations/` validates

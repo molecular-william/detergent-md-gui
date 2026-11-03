@@ -365,8 +365,8 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         'ref_t': 300, 'tau_t': 1.0, 'ref_p': 1.0, 'tau_p': 12.0, 'compressibility': 4.5e-5,
         'mdrun_ntomp': 8, 'mdrun_ranks': 1, 'mdrun_nb': 'auto',
         # The checkpoint cadence is a run setting with a stated default, so the panel sends the number it shows:
-        # fifteen minutes is GROMACS' own default and the run's command records it rather than relying on it.
-        'mdrun_cpt': 15,
+        # ten minutes is this project's cadence and the run's command records it rather than relying on a default.
+        'mdrun_cpt': 10,
         # The device the run will use, as an ordinary setting: `mdrun_gpu` is the CUDA ordinal the panel selected.
         'mdrun_gpu': 0,
     }, posted
