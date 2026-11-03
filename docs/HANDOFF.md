@@ -4,13 +4,72 @@ State and open items for this repository. Rules live in `AGENTS.md`; subsystem b
 `docs/PROJECT_GUIDE.md`; scoring science in `docs/DDM_CALIBRATION.md`. Read this before touching the DDM CG chain,
 the protein-detergent pipeline or the coordinator. This file keeps only what is current and the evidence behind it.
 
-## Next task (none assigned)
+## Next task (2026-11-03): save the recomputed frames in place; delete the Run view figures subpanel
 
-The detergent conformation library landed on 2026-11-02 (see *Landed slices*); no next slice has been chosen. The
-*Open items* table below is the list to pick from. The plan of record and its implementation contract stay in this
-checkout but are untracked: `docs/plans/2026-11-02-detergent-conformation-library.md` and
-`docs/plans/2026-11-02-conformation-library-contract.md` (the pinned interfaces the four lanes were built against);
-the approved look is `docs/design/drafts/2026-11-02-conformation-library-in-form.html` with screenshots beside it.
+The user's two requests, verbatim: *"I would like the trajectory computed by 'Recompute frames' to be saved in-place.
+Moreover, delete the 'figures' subpanel in 'Run view'."* Nothing is implemented yet. Read `docs/PROJECT_GUIDE.md`
+("Run view", "Analysis evidence") before touching either.
+
+### 1. Recompute frames: save the trajectory in place
+
+**Verified current behaviour.** The Run view's Trajectory block queues a `frame-series` analysis through
+`POST /api/jobs/<id>/frame-series` (`web/static/js/run-view-trajectory.js`, the form's Build/**Recompute frames**
+button). The producer `analysis/runs/frame_series.py` samples the chosen trajectory into `run-frames.pdb` and
+`frames.json` in its work directory, and the coordinator publishes an attempt under
+`analyses/frame-series/<signature>/<attempt>/` (`execution/coordination/analysis_coordinator.py`). A Recompute with
+the same arguments mints a **second attempt beside the first**; the newer one wins for the panel and the older set
+stays on disk, and the route reports how many sets it superseded. Different arguments give a different signature and
+therefore a different directory. Play fetches the saved file; nothing is recomputed on Play.
+
+**Recommended reading of "in-place" (confirm with the user before coding).** The same arguments write over the same
+stored series instead of minting a second attempt beside it: one `run-frames.pdb` + `frames.json` per frame-series
+signature, replaced atomically by a Recompute, and the panel's Play reads that one file. A build whose arguments
+change keeps its own signature and its own directory, so nothing unrelated is overwritten. The alternatives the user
+may have meant are (a) write the series beside the run's own trajectory (`stages/…/prod/`) rather than in the
+analysis tree, or (b) replace the trajectory itself — that one contradicts "simulation outputs are immutable" and
+must be refused rather than implemented. Ask before choosing (a) or (b); the rest of this section assumes the
+signature-in-place reading.
+
+Acceptance for the recommended reading:
+- a Recompute with the same arguments replaces the stored series in place (one directory, one file set; no second
+  attempt and no "superseded" count for this kind);
+- a build with *different* arguments gets its own signature and directory, and `frames.json` names the arguments it
+  was built with;
+- `GET /api/jobs/<id>/analyses` and the Run view read the same single series; the record still carries the view,
+  legacy marker and cadence it carries today;
+- an interrupted recompute leaves the previous series readable (atomic replace), and the tests cover a same-argument
+  recompute, a changed-argument build, and the panel reading the replaced file.
+- Capture a before/after note in the plan's record and a screenshot of the Trajectory block.
+
+Files likely touched: `analysis/runs/frame_series.py`, `execution/coordination/analysis_coordinator.py`,
+`web/routes/analyses.py`, `web/static/js/run-view-trajectory.js`, `tests/unit/test_frame_series.py`,
+`tests/integration/test_frame_series_analysis.py`, and the browser test that drives the block.
+
+### 2. Delete the figures subpanel in Run view
+
+`web/static/js/run-view-monitor.js` renders a third collapsed subpanel per side —
+`<details class="card run-view-sub" id="run-view-figures-details-…">` with a `figures` summary, a list of figure
+links and a note. Delete the whole subpanel and its machinery: the template block, the `run-view-figures`,
+`run-view-figures-note` and `run-view-figures-count` handles, the `refreshCounts` line that counts its list, its
+entry in the MutationObserver list, the `loadFigures(job)` call in `loadRun`, and the `loadFigures` function. Drop the
+`.run-view-figures` rules in `web/static/run-view.css` if nothing else uses them.
+
+**Keep**: the Runs panel's own figures gallery and `GET /api/jobs/<id>/figures` (the Runs card and its figure viewer
+read them), and `web/static/js/figures.js`.
+
+Tests to update, all in `packages/core/tests/browser/`: `test_run_view_browser.py` asserts the three disclosure
+panels (`holds`, `segments`, `figures`), lists figures (`#run-view-figures-A`) and expects a `figures` button in the
+layout test; `test_lazy_loading.py` counts exactly one `/figures?` request from the panel. Both must stop expecting
+the panel. `test_dom_ids.py` must stay green (no module may name an id the markup no longer has).
+
+Acceptance: no figures subpanel in either Run view monitor, the other two subpanels and their counts unchanged, no
+`/figures` request from the Run view, the Runs gallery untouched, browser tests and `test_dom_ids.py` green.
+
+The detergent conformation library landed on 2026-11-02 (see *Landed slices*). The plan of record and its
+implementation contract stay in this checkout but are untracked:
+`docs/plans/2026-11-02-detergent-conformation-library.md` and
+`docs/plans/2026-11-02-conformation-library-contract.md`; the resume slice's plan is
+`docs/plans/2026-11-02-resume-from-checkpoints.md`.
 
 Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9ae6db23f` was deleted by the user on
 2026-10-30**; anything that still names it is history, not a live run.
