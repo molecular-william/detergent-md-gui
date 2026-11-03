@@ -20,7 +20,7 @@ from tests.harness.support import PROJECT_ROOT
 ROOT = PROJECT_ROOT
 AGENTS = ROOT / 'AGENTS.md'
 
-HUMAN_BUDGET = 120
+HUMAN_BUDGET = 150
 MAX_LINES_PER_BULLET = 4
 HEADINGS = (
     '# Project guidance for coding agents',

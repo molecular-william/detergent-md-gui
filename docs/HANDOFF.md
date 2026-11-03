@@ -21,25 +21,23 @@ the same arguments mints a **second attempt beside the first**; the newer one wi
 stays on disk, and the route reports how many sets it superseded. Different arguments give a different signature and
 therefore a different directory. Play fetches the saved file; nothing is recomputed on Play.
 
-**Recommended reading of "in-place" (confirm with the user before coding).** The same arguments write over the same
-stored series instead of minting a second attempt beside it: one `run-frames.pdb` + `frames.json` per frame-series
-signature, replaced atomically by a Recompute, and the panel's Play reads that one file. A build whose arguments
-change keeps its own signature and its own directory, so nothing unrelated is overwritten. The alternatives the user
-may have meant are (a) write the series beside the run's own trajectory (`stages/…/prod/`) rather than in the
-analysis tree, or (b) replace the trajectory itself — that one contradicts "simulation outputs are immutable" and
-must be refused rather than implemented. Ask before choosing (a) or (b); the rest of this section assumes the
-signature-in-place reading.
+**The user's decision (2026-11-03): one series for the whole run.** The run holds a single stored frame series at one
+stable path — put it in the run's own analysis tree (`analyses/frame-series/…`), not beside a stage's trajectory and
+never over the trajectory itself, which stays immutable. Any Build/Recompute replaces that series whatever arguments
+it was built with; the panel's Play always reads the one file, and `frames.json` records the arguments of the current
+build. Two consequences to state in the panel and its record: switching pbc/fit/interval and back means rebuilding,
+and two Run view monitors on different views share the file, so the last build wins. Attempt directories written
+before this change stay readable through the existing lookup — do not delete them.
 
-Acceptance for the recommended reading:
-- a Recompute with the same arguments replaces the stored series in place (one directory, one file set; no second
-  attempt and no "superseded" count for this kind);
-- a build with *different* arguments gets its own signature and directory, and `frames.json` names the arguments it
-  was built with;
-- `GET /api/jobs/<id>/analyses` and the Run view read the same single series; the record still carries the view,
-  legacy marker and cadence it carries today;
-- an interrupted recompute leaves the previous series readable (atomic replace), and the tests cover a same-argument
-  recompute, a changed-argument build, and the panel reading the replaced file.
-- Capture a before/after note in the plan's record and a screenshot of the Trajectory block.
+Acceptance:
+- one `run-frames.pdb` + `frames.json` per run, replaced atomically, so a failed recompute leaves the previous series
+  readable;
+- a build with different arguments replaces it rather than minting an attempt or a second signature directory;
+- `GET /api/jobs/<id>/analyses` and the Run view read that one series, and its record still carries the view, legacy
+  marker and cadence;
+- tests: same-argument recompute, changed-argument rebuild (replaces), interrupted rebuild keeps the old file, the
+  panel plays the replaced file, and no new attempt entry is minted for this kind after the change;
+- a before/after note in the plan's record and a screenshot of the Trajectory block.
 
 Files likely touched: `analysis/runs/frame_series.py`, `execution/coordination/analysis_coordinator.py`,
 `web/routes/analyses.py`, `web/static/js/run-view-trajectory.js`, `tests/unit/test_frame_series.py`,
