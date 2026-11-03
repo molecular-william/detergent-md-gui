@@ -765,16 +765,20 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
     // arguments that never published, while `frames.json` still describes the series Play is handed. A record that
     // states no arguments at all defers to the payload rather than claiming every default.
     const args = recordedArguments(frames.args && Object.keys(frames.args).length ? frames.args : task.payload);
+    // The series was built from one segment. Switching the combo changes the form and the segment on screen, never the
+    // stored build, so the sentence must name the segment the build sampled -- not the one selected now.
+    const source = playable.find(candidate => candidate.trajectory === args.trajectory)
+      || {name: String(args.trajectory || '').split('/').pop() || 'its source', identity: null};
     const times = Array.isArray(frames.times_ns) ? frames.times_ns : [];
     current = {task, entry, frames, pdbPath, args, times};
-    // A series is older than the trajectory when the digest the build recorded is not the one the segment reports
-    // now. Only compared when both sides state one: an older answer states neither, and calling that stale would
-    // accuse a file nothing has changed.
-    const stale = entry.identity && frames.trajectory_identity
-      && String(frames.trajectory_identity) !== String(entry.identity);
+    // A series is older than the trajectory when the digest the build recorded is not the one the source segment
+    // reports now. Only compared when both sides state one: an older answer states neither, and calling that stale
+    // would accuse a file nothing has changed.
+    const stale = source.identity && frames.trajectory_identity
+      && String(frames.trajectory_identity) !== String(source.identity);
     seriesLine.textContent = (stale
-      ? 'This series was built from an older copy of the segment\'s trajectory, so it may not show what the run '
-        + 'holds now. ' : '') + seriesSentence(args, entry, frames);
+      ? 'This series was built from an older copy of that trajectory, so it may not show what the run '
+        + 'holds now. ' : '') + seriesSentence(args, source, frames);
     const notes = [];
     if (failure) {
       notes.push(`The rebuild ${failure.status}${failure.error ? `: ${failure.error}` : '.'} `
@@ -782,7 +786,8 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
     }
     if (stale) notes.push('Open Frame options and build again to rebuild it from the trajectory on disk.');
     if (!sameArguments(args, formArguments(entry))) {
-      notes.push('The frame options differ from this build: Build replaces the stored series with them.');
+      notes.push('The selected segment or frame options differ from this build: Build replaces the stored series '
+        + 'with them.');
     }
     setNote(notes.join(' '));
     playButton.disabled = false;

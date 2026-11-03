@@ -619,6 +619,24 @@ def test_the_stored_series_plays_whatever_arguments_the_form_holds(dashboard, li
     assert errors == [], errors
 
 
+def test_switching_the_segment_keeps_the_stored_series_and_describes_its_own_build(dashboard, live_page):
+    """The run's one series outlives the segment combo, and names the segment it sampled, not the one selected now."""
+    page, errors, state = open_run(dashboard, live_page, ENGINE_RUN,
+                                   tasks=[stable_task(ENGINE_RUN, default_arguments(ENGINE_RUN))])
+    expect(series(page)).to_contain_text('3 models')
+    expect(series(page)).to_contain_text('Built from CG extension MD')
+
+    page.locator('#run-view-segment-A').select_option('0')
+
+    expect(series(page)).to_contain_text('3 models')
+    expect(series(page)).to_contain_text('Built from CG extension MD')
+    expect(series(page)).not_to_contain_text('Minimisation')
+    expect(series(page)).not_to_contain_text('older copy')
+    expect(page.locator('#run-view-trajectory-note-A')).to_contain_text('selected segment or frame options differ')
+    expect(page.locator('#run-view-play-A')).to_be_enabled()
+    assert errors == [], errors
+
+
 def test_a_rebuild_replaces_the_one_file_and_the_block_reads_it(dashboard, live_page):
     """A build with other arguments replaces the stored pair; no second task or attempt is minted for it."""
     page, errors, state = open_run(dashboard, live_page, ENGINE_RUN,
@@ -671,7 +689,7 @@ def test_a_series_older_than_the_trajectory_says_so_and_points_at_the_options(da
     """A built series whose trajectory digest is not the segment's is played, but it is named as an old copy."""
     page, errors, state = open_run(dashboard, live_page, ENGINE_RUN, identity='older-copy')
 
-    expect(series(page)).to_contain_text('older copy of the segment')
+    expect(series(page)).to_contain_text('older copy of that trajectory')
     note = page.locator('#run-view-trajectory-note-A')
     expect(note).to_contain_text('Frame options')
     expect(note).not_to_contain_text('Recompute frames')

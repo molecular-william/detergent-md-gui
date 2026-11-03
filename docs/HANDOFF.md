@@ -133,6 +133,13 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   `run-frames.pdb` then `frames.json`, each through `files.atomic_copy`; a failed build publishes neither, so the
   previous pair stays. Any arguments set replaces the pair -- there is no attempt directory to mint. Attempts under
   `analyses/frame-series/<signature>/<attempt>/` written before this change stay readable as the panel's fallback.
+  Switching the segment combo changes the form, never the stored series: the block names the segment the build
+  sampled (from `frames.json`'s arguments) and says the selected segment or options differ.
+- **A Python change is live only after the dashboard restarts.** The transient unit keeps its imported modules for
+  its whole life while `static/` is read per request, so a server started before a code change serves the new browser
+  script against the old engine. Measured 2026-11-03: the unit started at 10:41, the frame-series change landed at
+  11:11, and a 11:20 build wrote an attempt-shaped record (`stable` absent) that the new panel could not recognise as
+  a stored series. Check the unit's start time against the commit before blaming a build.
 - **Never kill DSH.** The first listener on 3080 is DSH; the dashboard is 5000 and is a systemd user service.
 - **Resume continues one stage's last mdrun, never an earlier one.** `continue_plan` names the first stage that is
   not completed/reused/skipped and the first existing checkpoint its declaration names; a stage that died before
