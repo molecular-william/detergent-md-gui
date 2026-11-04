@@ -94,64 +94,74 @@
       <label class="new-pdc-backmap">Back-map to atomistic (CG2AT2)<input name="backmap" type="checkbox" checked></label>
       <p class="hint new-pdc-backmap-note" role="status">On: the extended CG state is converted to atomistic with CG2AT2 (<code>-o align</code>). Off: the back-map stage records <code>skipped</code> and the run stops coarse-grained, with no atomistic structure produced.</p>
       <details id="new-advanced"><summary>Other run options</summary>
-        <p class="hint">These are the CG production legs' numbers. Every field starts as the reviewed profile's
-          own; changing one overrides it for this run only and the manifest records what was used. The equilibration
-          and restart profiles keep their own values.</p>
-
-        <h4 class="new-pdc-option-title">Output cadence</h4>
-        <div class="settings-grid">
-          <label>Log interval (steps)<span class="setting-control"><input name="nstlog" type="number" min="1" max="1000000" step="1"></span></label>
-          <label>Energy interval (steps)<span class="setting-control"><input name="nstenergy" type="number" min="1" max="1000000" step="1"></span></label>
-          <label>Trajectory interval (steps)<span class="setting-control"><input name="nstxtcout" type="number" min="1" max="1000000" step="1"></span></label>
-          <label>Trajectory precision<span class="setting-control"><input name="xtc_precision" type="number" min="1" max="1000000" step="any"></span></label>
-          <label>Centre-of-mass removal (steps)<span class="setting-control"><input name="nstcomm" type="number" min="1" max="1000000" step="1"></span></label>
+        <div class="new-pdc-options">
+          <section class="new-pdc-option-group">
+            <h4 class="new-pdc-option-title">Output cadence</h4>
+            <div class="new-pdc-option-rows">
+              <label>Log interval (steps)<span class="setting-control"><input name="nstlog" type="number" min="1" max="1000000" step="1"></span></label>
+              <label>Energy interval (steps)<span class="setting-control"><input name="nstenergy" type="number" min="1" max="1000000" step="1"></span></label>
+              <label>Trajectory interval (steps)<span class="setting-control"><input name="nstxtcout" type="number" min="1" max="1000000" step="1"></span></label>
+              <label>Trajectory precision<span class="setting-control"><input name="xtc_precision" type="number" min="1" max="1000000" step="any"></span></label>
+              <label>Centre-of-mass removal (steps)<span class="setting-control"><input name="nstcomm" type="number" min="1" max="1000000" step="1"></span></label>
+            </div>
+          </section>
+          <section class="new-pdc-option-group">
+            <h4 class="new-pdc-option-title">Neighbour search and cutoffs</h4>
+            <div class="new-pdc-option-rows">
+              <label>Neighbour list rebuild (steps)<span class="setting-control"><input name="nstlist" type="number" min="1" max="10000" step="1"></span></label>
+              <label>Verlet buffer tolerance<span class="setting-control"><input name="verlet_buffer_tolerance" type="number" min="0" max="0.1" step="0.001"></span></label>
+              <label>Neighbour cut-off (nm)<span class="setting-control"><input name="rlist" type="number" min="0.1" max="5" step="0.05"></span></label>
+              <label>Coulomb cut-off (nm)<span class="setting-control"><input name="rcoulomb" type="number" min="0.1" max="5" step="0.05"></span></label>
+              <label>van der Waals cut-off (nm)<span class="setting-control"><input name="rvdw" type="number" min="0.1" max="5" step="0.05"></span></label>
+            </div>
+          </section>
+          <section class="new-pdc-option-group">
+            <h4 class="new-pdc-option-title">Thermostat and barostat</h4>
+            <div class="new-pdc-option-rows">
+              <label>Temperature (K)<span class="setting-control"><input name="ref_t" type="number" min="200" max="500" step="0.01"></span></label>
+              <label>Thermostat coupling (ps)<span class="setting-control"><input name="tau_t" type="number" min="0.01" max="100" step="any"></span></label>
+              <label>Pressure (bar)<span class="setting-control"><input name="ref_p" type="number" min="0.1" max="100" step="0.1"></span></label>
+              <label>Barostat coupling (ps)<span class="setting-control"><input name="tau_p" type="number" min="0.1" max="100" step="0.1"></span></label>
+              <label>Compressibility (bar⁻¹)<span class="setting-control"><input name="compressibility" type="number" min="0" max="1" step="any"></span></label>
+            </div>
+          </section>
+          <section class="new-pdc-option-group">
+            <h4 class="new-pdc-option-title">Salt, seed and box</h4>
+            <div class="new-pdc-option-rows">
+              <label>Salt concentration (M)<span class="setting-control"><input name="salt_molar" type="number" min="0" max="5" step="0.01"></span></label>
+              <label>Random seed<span class="setting-control"><input name="pdc_seed" type="number" min="1" max="2147483646" step="1" required></span></label>
+              <label>Box margin (nm)<span class="setting-control"><input name="box_margin_nm" type="number" min="0.5" max="10" step="0.1"></span></label>
+              <label>Initial z box (nm)<span class="setting-control"><input name="initial_z_nm" type="number" min="1" max="50" step="0.1"></span></label>
+              <label>Micelle contact distance (nm)<span class="setting-control"><input name="contact_nm" type="number" min="0.1" max="2" step="0.1"></span></label>
+              <label>Removal threshold (fraction)<span class="setting-control"><input name="selection_threshold_fraction" type="number" min="0" max="1" step="0.01"></span></label>
+            </div>
+          </section>
+          <section class="new-pdc-option-group">
+            <h4 class="new-pdc-option-title">Execution</h4>
+            <div class="new-pdc-option-rows">
+              <label>GPU device (CUDA id)<span class="setting-control"><select name="mdrun_gpu" class="new-pdc-gpu-device"></select></span></label>
+              <label>mdrun threads<span class="setting-control"><input name="mdrun_ntomp" type="number" min="1" max="72" step="1"></span></label>
+              <label>mdrun ranks<span class="setting-control"><input name="mdrun_ranks" type="number" min="1" max="72" step="1"></span></label>
+              <label>Checkpoint interval (minutes)<span class="setting-control"><input name="mdrun_cpt" type="number" min="1" max="100000" step="1" value="10"></span></label>
+              <label>Nonbonded scheme<span class="setting-control"><select name="mdrun_nb"><option value="auto">auto · profile decides</option><option value="cpu">CPU</option><option value="gpu">GPU</option></select></span></label>
+            </div>
+            <p class="hint new-pdc-gpu-note" role="status"></p>
+          </section>
         </div>
-        <p class="hint"><code>nstxtcout</code> is the compressed-trajectory stride; newer profiles spell the same
-          option <code>nstxout-compressed</code>. Full-precision <code>nstxout</code>, <code>nstvout</code> and
-          <code>nstfout</code> stay off, as the profiles state.</p>
-
-        <h4 class="new-pdc-option-title">Neighbour search and cutoffs</h4>
-        <div class="settings-grid">
-          <label>Neighbour list rebuild (steps)<span class="setting-control"><input name="nstlist" type="number" min="1" max="10000" step="1"></span></label>
-          <label>Verlet buffer tolerance<span class="setting-control"><input name="verlet_buffer_tolerance" type="number" min="0" max="0.1" step="0.001"></span></label>
-          <label>Neighbour cut-off (nm)<span class="setting-control"><input name="rlist" type="number" min="0.1" max="5" step="0.05"></span></label>
-          <label>Coulomb cut-off (nm)<span class="setting-control"><input name="rcoulomb" type="number" min="0.1" max="5" step="0.05"></span></label>
-          <label>van der Waals cut-off (nm)<span class="setting-control"><input name="rvdw" type="number" min="0.1" max="5" step="0.05"></span></label>
-        </div>
-
-        <h4 class="new-pdc-option-title">Thermostat and barostat</h4>
-        <div class="settings-grid">
-          <label>Temperature (K)<span class="setting-control"><input name="ref_t" type="number" min="200" max="500" step="0.01"></span></label>
-          <label>Thermostat coupling (ps)<span class="setting-control"><input name="tau_t" type="number" min="0.01" max="100" step="any"></span></label>
-          <label>Pressure (bar)<span class="setting-control"><input name="ref_p" type="number" min="0.1" max="100" step="0.1"></span></label>
-          <label>Barostat coupling (ps)<span class="setting-control"><input name="tau_p" type="number" min="0.1" max="100" step="0.1"></span></label>
-          <label>Compressibility (bar⁻¹)<span class="setting-control"><input name="compressibility" type="number" min="0" max="1" step="any"></span></label>
-        </div>
-
-        <h4 class="new-pdc-option-title">Salt, seed and box</h4>
-        <div class="settings-grid">
-          <label>Salt concentration (M)<span class="setting-control"><input name="salt_molar" type="number" min="0" max="5" step="0.01"></span></label>
-          <label>Random seed<span class="setting-control"><input name="pdc_seed" type="number" min="1" max="2147483646" step="1" required></span></label>
-          <label>Box margin (nm)<span class="setting-control"><input name="box_margin_nm" type="number" min="0.5" max="10" step="0.1"></span></label>
-          <label>Initial z box (nm)<span class="setting-control"><input name="initial_z_nm" type="number" min="1" max="50" step="0.1"></span></label>
-          <label>Micelle contact distance (nm)<span class="setting-control"><input name="contact_nm" type="number" min="0.1" max="2" step="0.1"></span></label>
-          <label>Removal threshold (fraction)<span class="setting-control"><input name="selection_threshold_fraction" type="number" min="0" max="1" step="0.01"></span></label>
-        </div>
-        <p class="hint">The seed defaults to today's date (YYYYMMDD). Detergents are placed at random in the
-          self-assembly style, so two builds are comparable only when both record the seed they placed with;
-          clearing it stops the run rather than letting one be chosen for it.</p>
-
-        <h4 class="new-pdc-option-title">Execution</h4>
-        <div class="settings-grid">
-          <label>GPU device (CUDA id)<span class="setting-control"><select name="mdrun_gpu" class="new-pdc-gpu-device"></select></span></label>
-          <label>mdrun threads<span class="setting-control"><input name="mdrun_ntomp" type="number" min="1" max="72" step="1"></span></label>
-          <label>mdrun ranks<span class="setting-control"><input name="mdrun_ranks" type="number" min="1" max="72" step="1"></span></label>
-          <label>Checkpoint interval (minutes)<span class="setting-control"><input name="mdrun_cpt" type="number" min="1" max="100000" step="1" value="10"></span></label>
-          <label>Nonbonded scheme<span class="setting-control"><select name="mdrun_nb"><option value="auto">auto · profile decides</option><option value="cpu">CPU</option><option value="gpu">GPU</option></select></span></label>
-        </div>
-        <p class="hint new-pdc-gpu-note" role="status"></p>
-        <p class="hint">The GPU list follows the CUDA ordinal, not nvidia-smi's index. The bus address stays in the
-          run's record so the chosen device can be checked.</p>
+        <details class="new-pdc-options-notes">
+          <summary>What these numbers mean</summary>
+          <p class="hint">These are the CG production legs' numbers. Every field starts as the reviewed profile's own;
+            changing one overrides it for this run only and the manifest records what was used. The equilibration and
+            restart profiles keep their own values.</p>
+          <p class="hint"><code>nstxtcout</code> is the compressed-trajectory stride; newer profiles spell the same
+            option <code>nstxout-compressed</code>. Full-precision <code>nstxout</code>, <code>nstvout</code> and
+            <code>nstfout</code> stay off, as the profiles state.</p>
+          <p class="hint">The seed defaults to today's date (YYYYMMDD). Detergents are placed at random in the
+            self-assembly style, so two builds are comparable only when both record the seed they placed with;
+            clearing it stops the run rather than letting one be chosen for it.</p>
+          <p class="hint">The GPU list follows the CUDA ordinal, not nvidia-smi's index. The bus address stays in the
+            run's record so the chosen device can be checked.</p>
+        </details>
       </details>
       <label>Run label <input name="label" maxlength="160" placeholder="Optional label for this run"></label>
     </section>

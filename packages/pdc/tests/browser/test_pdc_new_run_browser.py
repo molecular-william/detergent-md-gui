@@ -58,7 +58,7 @@ def serve_catalogue(page, proteins=None):
 
 def enter_seed(page, value):
     """The seed lives in the advanced block, whose summary names it, so it is opened before it is filled."""
-    page.locator('#new-advanced summary').click()
+    page.locator('#new-advanced > summary').click()
     page.locator('[name=pdc_seed]').fill(value)
 
 
@@ -207,11 +207,36 @@ def test_the_seed_defaults_to_today_and_the_gate_still_names_it_when_cleared(das
     expect(page.locator('#review-status')).to_have_text('Inputs ready')
 
     # Emptied by hand, the gate names the seed again. The seed lives in the collapsed advanced block.
-    page.locator('#new-advanced summary').click()
+    page.locator('#new-advanced > summary').click()
     page.locator('[name=pdc_seed]').fill('')
     expect(page.locator('#launch-blocker')).to_contain_text('Choose a random seed')
     expect(page.locator('#start-run')).to_be_disabled()
     expect(page.locator('#review-status')).to_have_text('Action required')
+    assert errors == [], errors
+
+
+def test_the_other_run_options_are_compact_when_expanded(dashboard, live_page):
+    """The expanded block is a form to scan: 26 fields in two columns, not a page of stacked controls."""
+    page, errors = live_page
+    open_panel(page, live_page.base_url)
+    page.locator('#new-advanced > summary').click()
+
+    block = page.locator('#new-advanced')
+    expect(block).to_be_visible()
+    assert page.locator('#new-advanced .new-pdc-option-group').count() == 5
+    assert page.locator('#new-advanced [name]').count() == 26
+    height = block.bounding_box()['height']
+    assert height < 800, f'the expanded block is {height:.0f} px tall; a scan should fit under 800'
+
+    # A row keeps its label and control on one line: the input sits inside the label's own vertical band.
+    first = page.locator('#new-advanced .new-pdc-option-rows > label').first
+    label_box, input_box = first.bounding_box(), first.locator('input').bounding_box()
+    assert label_box['y'] <= input_box['y']
+    assert input_box['y'] + input_box['height'] <= label_box['y'] + label_box['height'] + 1
+
+    # And it folds back to the label-above-control shape rather than widening a phone.
+    page.set_viewport_size({'width': 390, 'height': 900})
+    browser.assert_no_horizontal_scroll(page)
     assert errors == [], errors
 
 

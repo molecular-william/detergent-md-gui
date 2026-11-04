@@ -98,11 +98,31 @@
    own Start run button, which two existing browser tests then could not click -- so the preview scrolls with the
    column and the review keeps the sticky position it had. The plan's decision 3 is reversed on that measurement. */
 @media(max-width:700px){#run-form .new-pdc-pair{grid-template-columns:1fr}}
-/* "Other run options": one collapsed block, several groups of numbers. The group heading is quieter than the card's
-   h3 and separated by the same rule the settings rows already use, so the block reads as a list of groups rather than
-   a wall of fields. */
-#run-form .new-pdc-option-title{margin:14px 0 4px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
-#run-form .new-pdc-option-title:first-of-type{margin-top:10px}
+/* "Other run options": one collapsed block, five groups of numbers. The expanded state is compact on purpose -- the
+   panel is a form a reader scans, not a page to scroll -- so a group's label and control share a line and the groups
+   flow into two columns when the form has width. The long explanations live in one closed note, and the narrow break
+   puts the label above the control again. Measured in the live panel: 667 px at the 716 px form width against 1,332 px before. */
+#run-form .new-pdc-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(19rem,1fr));gap:0 22px;align-items:start}
+#run-form .new-pdc-option-group{break-inside:avoid;min-width:0}
+#run-form .new-pdc-option-title{margin:10px 0 4px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+#run-form .new-pdc-option-group:first-child .new-pdc-option-title{margin-top:2px}
+#run-form .new-pdc-option-rows{display:grid;gap:3px}
+#run-form .new-pdc-option-rows>label{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  margin:0;padding:1px 0;font-size:12.5px;font-weight:400;line-height:1.25}
+#run-form .new-pdc-option-rows .setting-control{flex:0 0 8.2rem;min-width:0}
+#run-form .new-pdc-option-rows label:has(select) .setting-control{flex-basis:12.5rem}
+#run-form .new-pdc-option-rows .setting-control input,#run-form .new-pdc-option-rows .setting-control select{
+  width:100%;max-width:none;margin:0;padding:3px 6px;font-size:12.5px;border-radius:5px}
+#run-form .new-pdc-option-rows .setting-control input[type=number]{font-variant-numeric:tabular-nums}
+#run-form .new-pdc-option-rows+.new-pdc-gpu-note:empty{display:none}
+#run-form .new-pdc-options-notes{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+#run-form .new-pdc-options-notes summary{font-size:12px;font-weight:600}
+#run-form .new-pdc-options-notes p{margin:6px 0;font-size:12px}
+@media(max-width:640px){
+  #run-form .new-pdc-option-rows>label{flex-wrap:wrap}
+  #run-form .new-pdc-option-rows .setting-control,
+  #run-form .new-pdc-option-rows label:has(select) .setting-control{flex:1 1 100%}
+}
 /* --- The detergent shape card -----------------------------------------------------------------------------------
    One header row (eyebrow and the three-way segmented control) and only the chosen mode's body: the eligible-run
    rows a build needs, or the stored libraries a reference needs. `single` has no body, so the card is today's form.
