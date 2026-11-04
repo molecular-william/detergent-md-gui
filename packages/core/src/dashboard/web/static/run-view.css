@@ -104,6 +104,10 @@
 .run-view-trajectory-pick label { font-size: 12px; color: var(--muted) }
 .run-view-trajectory-pick select { flex: 1 1 160px; min-width: 0; max-width: 100% }
 .run-view-series { margin: 8px 0 0; font-size: 12px }
+/* The selected segment's own frame count and span: numbers a reader compares between two monitors, so they do not
+   move under the glyphs, and they sit above the series line they explain. */
+.run-view-segment-meta { margin: 6px 0 0; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted) }
+.run-view-segment-meta:empty { display: none }
 /* A failed build prints the last lines of its log, and a log is lines: the white space is the message. */
 .run-view-trajectory > .hint { white-space: pre-wrap }
 .run-view-trajectory .transport-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px }
@@ -120,3 +124,15 @@
 .run-view-form-grid select, .run-view-form-grid input[type="number"] { width: 100%; min-width: 0; box-sizing: border-box }
 .run-view-form-grid > .run-view-form-check { flex-direction: row; align-items: center; gap: 6px }
 .run-view-form-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 8px }
+
+/* ---------------------------------------------------------------- the analysis card
+   Under the Trajectory block, per monitor: the run's figures, the three controls that queue them, the task lines
+   while something is in flight, and the assessment's distance diagnostics. The figure viewer's own rules live in
+   `dashboard.css` (`.analysis-plots`, `.figure-viewport`), because it is the same viewer the Runs page used. */
+.run-view-analysis { margin-top: 12px; min-width: 0 }
+.run-view-analysis-title { margin: 0 0 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted) }
+.run-view-analysis-note { overflow-wrap: anywhere }
+.run-view-analysis .analysis-tasks p { margin: 4px 0; font-size: 12px }
+.run-view-analysis .analysis-tasks button { margin-left: 8px }
+.run-view-analysis .analysis-plots { margin-top: 12px }

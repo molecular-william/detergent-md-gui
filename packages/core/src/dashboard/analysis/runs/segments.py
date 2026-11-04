@@ -15,9 +15,11 @@ count changes. This module reports that structure -- `group` is the merge unit -
 the whole run, and it drops a trajectory that is byte-for-byte another segment's copy (`5_assessment` re-declares the
 extension's) so a film does not play the same nanometres twice.
 
-Nothing here opens a trajectory: `frames` is not claimed, because counting frames in a compressed xtc means walking the
-whole file (43 s for 2.6 GB through `gmx check`). The panels read frame times from the loaded file, which is where the
-viewer already has them.
+Nothing here opens a trajectory. The frame count and the span are read by `trajectory_header`, from the file's own
+header: counting a compressed xtc's frames means walking the whole file (43 s for 2.6 GB through `gmx check`), while
+opening the header and seeking the last frame took 0.045 s and 0.001 s on a live 1.7 GB, 45,001-frame extension. The
+route answering `/api/jobs/<id>/trajectory` reads that header per playable segment; this module only says which files
+are segments and opens none of them.
 """
 from __future__ import annotations
 

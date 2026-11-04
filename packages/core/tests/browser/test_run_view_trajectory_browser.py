@@ -78,11 +78,11 @@ def segments_answer(run_id):
     structure = STRUCTURES[run_id]
     return {'id': run_id, 'run_type': RUN_TYPES[run_id], 'why': None, 'boundaries': [], 'segments': [
         {'name': 'Minimisation', 'structure': structure, 'trajectory': EARLIER, 'atoms': 8, 'group': 1,
-         'identity': 'earlier-copy'},
+         'identity': 'earlier-copy', 'frames': 1000, 'time_ns': 99.5},
         {'name': 'CG extension MD', 'structure': structure, 'trajectory': LATEST, 'atoms': 8, 'group': 2,
-         'identity': 'latest-copy'},
+         'identity': 'latest-copy', 'frames': 45001, 'time_ns': 900.0},
         {'name': 'Final assessment', 'structure': structure, 'trajectory': LATEST, 'atoms': 8,
-         'duplicate_of': 'CG extension MD'},
+         'duplicate_of': 'CG extension MD', 'frames': 45001, 'time_ns': 900.0},
     ]}
 
 
@@ -219,14 +219,23 @@ def open_panel(page, live_page, workspace, run_id):
     return browser.open_panel(page, live_page.base_url, f'/{workspace}/run-view?run={run_id}', ready=ready)
 
 
-def open_run(dashboard, live_page, run_id, *, identity='latest-copy', tasks=None, why=None, log='', hold=False):
-    """The run, its stubbed answers and the record of what the block asked for."""
+def open_run(dashboard, live_page, run_id, *, identity='latest-copy', tasks=None, why=None, log='', hold=False,
+             recorded=True):
+    """The run, its stubbed answers and the record of what the block asked for.
+
+    `recorded` is the trajectory header read: `False` stubs an answer whose `frames`/`time_ns` are null, the state a
+    header the server could not read puts the readout in.
+    """
     seed(dashboard)
     page, errors = live_page
     # The build poll is the one thing this panel would otherwise wait two seconds for; the seam is the same one
     # `bonded-parameterization.js` carries for its own poll.
     page.add_init_script('window.__runViewPollMs = 25')
     answer = segments_answer(run_id)
+    if not recorded:
+        for entry in answer['segments']:
+            entry['frames'] = None
+            entry['time_ns'] = None
     if why is not None:
         answer = {'id': run_id, 'run_type': RUN_TYPES[run_id], 'why': why, 'segments': []}
     state = {
@@ -249,6 +258,10 @@ def series(page):
 
 def time_line(page):
     return page.locator('#run-view-time-A')
+
+
+def segment_line(page, side='A'):
+    return page.locator(f'#run-view-segment-meta-{side}')
 
 
 def measured(page):
@@ -290,6 +303,24 @@ def test_mount_shows_the_published_series_and_downloads_no_frames(dashboard, liv
     # The run's latest system is the default: the last playable entry, and not the copy of its trajectory.
     expect(page.locator('#run-view-segment-A option')).to_have_count(2)
     expect(page.locator('#run-view-segment-A')).to_have_value('1')
+    assert errors == [], errors
+
+
+def test_the_segment_line_states_the_selected_segments_frames_and_span(dashboard, live_page):
+    """The header's own numbers, last frame minus first: 45,001 frames at 20 ps read 900 ns, not 900.02."""
+    page, errors, _state = open_run(dashboard, live_page, ENGINE_RUN)
+
+    expect(segment_line(page)).to_have_text('45,001 frames · 900 ns')
+    page.locator('#run-view-segment-A').select_option('0')
+    expect(segment_line(page)).to_have_text('1,000 frames · 99.5 ns')
+    assert errors == [], errors
+
+
+def test_a_segment_whose_header_cannot_be_read_says_so(dashboard, live_page):
+    """A null answer is printed as not recorded -- never as zero frames, and never as an invented span."""
+    page, errors, _state = open_run(dashboard, live_page, ENGINE_RUN, recorded=False)
+
+    expect(segment_line(page)).to_have_text('Frames and time not recorded for this segment.')
     assert errors == [], errors
 
 

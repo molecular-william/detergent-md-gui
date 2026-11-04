@@ -73,11 +73,10 @@ FEATURE = features.Feature(
         'tabs': ('runs', 'run-view', 'new-run', 'complexes'),
         'panel_labels': {'new-run': 'Protein-Detergent Simulations'},
         'run_types': ('pdc',),
-        # This workspace's New run form and its heading sentence are this feature's fragments, and its gallery has
-        # no figures to open yet: the shell renders what the record names, with no feature vocabulary of its own.
+        # This workspace's New run form and its heading sentence are this feature's fragments: the shell renders what
+        # the record names, with no feature vocabulary of its own.
         'form_fragment': 'fragments/new-run-pdc.html',
         'form_blurb': 'fragments/new-run-pdc-blurb.html',
-        'gallery_note': 'fragments/run-view-no-figures.html',
     }),
     panels=(('complexes', ('Complexes', '\u2b21')),),
     blurbs=(('complexes', 'build and inspect a system'),),

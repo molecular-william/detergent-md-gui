@@ -114,9 +114,10 @@
 </section>
 {# The Run view panel. One section, rendered in both workspaces and hidden unless this workspace opened it;
    the run types it offers arrive from the registry (`run_view_scope`), so the module never has to work out
-   which workspace it was mounted in. It draws a run's own stage files through the artifact route, lists its
-   figures, and draws a run's CG chain as segments (`/api/jobs/<id>/trajectory`: which legs share one system,
-   and where the system is rebuilt), with the stage chain itself supplied by whichever feature owns that run type.
+   which workspace it was mounted in. It draws a run's own stage files through the artifact route, draws its CG
+   chain as segments (`/api/jobs/<id>/trajectory`: which legs share one system, and where the system is rebuilt),
+   and each monitor's Analysis card draws that run's own figures and queues its analyses, with the stage chain
+   itself supplied by whichever feature owns that run type.
    Every id below is read by `run-view.js` and styled by `run-view.css`;
    `packages/core/tests/integration/test_dom_ids.py` fails if an id is rendered and read by nothing. #}
 <section id="runview" class="panel" role="tabpanel" aria-labelledby="tab-runview"{% if panel != 'run-view' %} hidden{% endif %}>
@@ -124,10 +125,6 @@
     <div><h2>Run view</h2><p>Two runs side by side, each drawn from what its own run wrote — a coarse-grained run and
       the atomistic reference it was measured against, so a mapping can be read next to the thing it was checked
       against.</p></div>
-    {# A workspace may state why its gallery has nothing to open, as a fragment path in its section record
-       (`workspace.gallery_note`); the control is then drawn disabled with that reason. `data-go` stays, so enabling
-       it is a one-attribute change when a figure lands. A workspace that states none renders the open control. #}
-    <button type="button" class="secondary" data-go="runs"{% if workspace.gallery_note %}{% include workspace.gallery_note ignore missing %}{% endif %}>Open the zoomable figures in Runs</button>
   </div>
   <script type="application/json" id="run-view-scope">{{ run_view_scope | tojson }}</script>
   {# The host's own controls: the run list is the two combos inside the monitors, so what is left here is what acts
@@ -418,7 +415,6 @@
         <details class="job-artifacts"><summary>Artifacts</summary><div class="resource-content"><p class="hint artifact-summary"></p><div class="toolbar"><label>Find artifact<input class="artifact-search" type="search"></label><button class="secondary artifacts-prev">Previous files</button><span class="artifacts-page"></span><button class="secondary artifacts-next">Next files</button></div><div class="artifact-list"></div></div></details>
         <details class="job-records"><summary>Commands and stage records</summary><div class="resource-content"><p class="job-validation hint">Scientific validation: not established. Completion proves execution only.</p><pre class="job-command"></pre><div class="job-stages"></div></div></details>
         <details class="job-console"><summary>Console</summary><div class="resource-content console-host"></div></details>
-        <details class="job-analysis"><summary>Analysis graphs</summary><div class="resource-content"><p class="hint">Choose a figure, then zoom or pan. A completed analysis does not establish model validity.</p><div class="toolbar"><button type="button" class="secondary analysis-recompute">Recompute</button><button type="button" class="secondary analysis-overview" hidden>Trajectory overview</button><button type="button" class="secondary analysis-rescore" hidden>Re-score assessment</button></div><div class="analysis-tasks" aria-live="polite"></div><div class="analysis-diagnostics"></div><div class="analysis-plots"></div></div></details>
       </div>
     </td></tr>
   </tbody>

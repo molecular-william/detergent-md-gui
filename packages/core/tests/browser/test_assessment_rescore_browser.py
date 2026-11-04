@@ -1,12 +1,13 @@
-"""The Analysis graphs panel's second control: 'Re-score assessment'.
+"""The Run view Analysis card's second control: 'Re-score assessment'.
 
 Two things this pins. It is *offered* only for a run whose recorded stages include the assessment -- the control is
 not a run-type badge, because a run whose stage 5 never ran has no directory to write a second attempt into. And it
 really asks: the request is a POST to the assessment's own route, and the answer -- how many references the attempt
-will score with, and which revision they came from -- reaches `#notice`, or the server's refusal does.
+will score with, and which revision they came from -- reaches the card's own note, or the server's refusal does.
 
-What the server does with the request is pinned in `test_assessment_rescore.py`; here it is asked whether the panel
-makes it rather than only drawing a control. The response is routed, so no run is actually re-scored.
+The control moved here with the Analysis card; the Runs page no longer draws it. What the server does with the
+request is pinned in `test_assessment_rescore.py`; here it is asked whether the panel makes it rather than only
+drawing a control. The response is routed, so no run is actually re-scored.
 """
 import re
 
@@ -35,6 +36,12 @@ def seed(dashboard):
                            'stages': [{'name': name, 'status': 'completed'} for name in names]})
 
 
+def open_view(page, live_page, run_id):
+    page.goto(f'{live_page.base_url}/detergent-validation/run-view?run={run_id}')
+    expect(page.locator('#runview')).to_be_visible()
+    return page
+
+
 def test_the_panel_asks_for_a_rescore_and_reports_what_it_will_score_with(dashboard, live_page):
     seed(dashboard)
     page, errors = live_page
@@ -46,17 +53,16 @@ def test_the_panel_asks_for_a_rescore_and_reports_what_it_will_score_with(dashbo
                             'revision': 2})
 
     page.route(re.compile(rf'/api/jobs/{ASSESSED}/assessment/rescore$'), rescore)
-    page.goto(f'{live_page.base_url}/detergent-validation/runs')
-    card = page.locator(f'.job[data-id="{ASSESSED}"]')
-    card.locator('.job-analysis summary').click()
+    open_view(page, live_page, ASSESSED)
 
-    button = card.get_by_role('button', name='Re-score assessment', exact=True)
+    button = page.locator('#run-view-analysis-rescore-A')
     expect(button).to_be_visible()
     button.click()
 
-    expect(page.locator('#notice')).to_contain_text('stages/5_assessment@1')
-    expect(page.locator('#notice')).to_contain_text('28 reference histograms')
-    expect(page.locator('#notice')).to_contain_text('28 of them pairwise')
+    note = page.locator('#run-view-analysis-note-A')
+    expect(note).to_contain_text('stages/5_assessment@1')
+    expect(note).to_contain_text('28 reference histograms')
+    expect(note).to_contain_text('28 of them pairwise')
     assert asked == ['POST'], 'the panel drew a control that asked nothing'
     assert errors == [], errors
 
@@ -65,15 +71,12 @@ def test_the_control_is_offered_only_for_a_run_that_ran_the_assessment(dashboard
     """A run without stage 5 has nothing to re-score, so the control is absent rather than refused on press."""
     seed(dashboard)
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/detergent-validation/runs')
 
-    assessed = page.locator(f'.job[data-id="{ASSESSED}"]')
-    assessed.locator('.job-analysis summary').click()
-    expect(assessed.get_by_role('button', name='Re-score assessment', exact=True)).to_be_visible()
+    open_view(page, live_page, ASSESSED)
+    expect(page.locator('#run-view-analysis-rescore-A')).to_be_visible()
 
-    unassessed = page.locator(f'.job[data-id="{UNASSESSED}"]')
-    unassessed.locator('.job-analysis summary').click()
-    expect(unassessed.get_by_role('button', name='Re-score assessment', exact=True)).to_be_hidden()
+    open_view(page, live_page, UNASSESSED)
+    expect(page.locator('#run-view-analysis-rescore-A')).to_be_hidden()
     assert errors == [], errors
 
 
@@ -86,12 +89,10 @@ def test_a_refusal_reaches_the_notice_rather_than_a_console_error(dashboard, liv
                "bead pair), so it has nothing to score this run against")
     page.route(re.compile(rf'/api/jobs/{ASSESSED}/assessment/rescore$'),
                lambda route: route.fulfill(status=409, json={'error': refusal}))
-    page.goto(f'{live_page.base_url}/detergent-validation/runs')
-    card = page.locator(f'.job[data-id="{ASSESSED}"]')
-    card.locator('.job-analysis summary').click()
+    open_view(page, live_page, ASSESSED)
+    page.locator('#run-view-analysis-rescore-A').click()
 
-    card.get_by_role('button', name='Re-score assessment', exact=True).click()
-
-    expect(page.locator('#notice')).to_contain_text('13 AA reference histogram(s)')
-    expect(page.locator('#notice')).to_contain_text('55 expected')
+    note = page.locator('#run-view-analysis-note-A')
+    expect(note).to_contain_text('13 AA reference histogram(s)')
+    expect(note).to_contain_text('55 expected')
     assert errors == [], errors

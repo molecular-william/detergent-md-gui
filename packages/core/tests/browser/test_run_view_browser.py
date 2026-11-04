@@ -984,8 +984,9 @@ def test_the_run_view_is_two_monitors_each_with_a_combo_and_two_panels_below(das
     Adopted from the draft that was judged and re-pointed at the panel it became. Two canvases side by side, a
     "choose a run" combo above each, and "what this run holds" / "CG chain segments" below each one, collapsed --
     the collapse is the claim, and a reader opens the one they want. Only completed runs are ever offered, which
-    the host's own requests say rather than its intentions. The figures sub-panel is gone: the Runs gallery is the
-    one place a run's figures are browsed, so this page asks for none.
+    the host's own requests say rather than its intentions. The Analysis card that draws a monitor's figures is not
+    one of the two collapsible panels: it is always open, beside the trajectory it belongs to, and there is no door
+    out to a Runs gallery any more.
     """
     seed(dashboard)
     page, errors = live_page
@@ -1014,22 +1015,8 @@ def test_the_run_view_is_two_monitors_each_with_a_combo_and_two_panels_below(das
             assert details.bounding_box()['y'] >= canvas[side]['y'], f'{panel}-{side} is not below the canvas'
     assert asked and all('status=completed' in url for url in asked if '/api/jobs?' in url), \
         'only completed runs are offered'
-    assert not any('/figures?' in url for url in asked), 'the Run view asked for figures it no longer draws'
+    assert page.locator('#runview button[data-go="runs"]').count() == 0, \
+        'the Runs gallery door is still drawn although the figures are here'
     assert errors == []
 
 
-def test_the_figures_button_is_disabled_where_there_are_no_pdc_figures(dashboard, live_page):
-    """The Runs gallery has no protein-detergent plots yet, so the door is drawn closed in that workspace only."""
-    seed(dashboard)
-    page, errors = live_page
-    open_panel(page, live_page, workspace='protein-detergent', run=PDC_RUN)
-
-    button = page.locator('#runview button[data-go="runs"]')
-    expect(button).to_be_disabled()
-    assert 'No protein-detergent analysis figures yet' in (button.get_attribute('title') or '')
-
-    open_panel(page, live_page)
-    validation = page.locator('#runview button[data-go="runs"]')
-    expect(validation).to_be_enabled()
-    assert not (validation.get_attribute('title') or '')
-    assert errors == []

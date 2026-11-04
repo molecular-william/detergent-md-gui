@@ -59,12 +59,12 @@ def test_every_registered_extension_module_is_served(tmp_path):
 
 
 def test_every_section_fragment_is_in_its_features_template_package():
-    """A workspace may name its form, its blurb and its gallery note as fragments; each must exist to render."""
+    """A workspace may name its form and its blurb as fragments; each must exist to render."""
     for feature in features.ensure():
         if not feature.section:
             continue
         record = feature.section[1]
-        for key in ('form_fragment', 'form_blurb', 'gallery_note'):
+        for key in ('form_fragment', 'form_blurb'):
             named = record.get(key)
             if named:
                 assert (feature.templates / named).is_file(), f'{feature.name}: {key} names a missing fragment {named}'

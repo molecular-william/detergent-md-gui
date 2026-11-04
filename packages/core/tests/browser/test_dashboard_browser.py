@@ -42,7 +42,7 @@ def test_tab_switch_preserves_form_and_mapping_edits(dashboard, live_page):
     assert errors == []
 
 
-def test_clone_resume_and_analysis_controls(dashboard, live_page):
+def test_clone_and_resume_controls(dashboard, live_page):
     from dashboard import files
     jobs = [{'id': f'{i:012x}', 'label': f'Run {i}', 'detergent': 'DDM', 'method': 'fast_forward', 'profile': 'draft-smoke', 'status': 'completed', 'created': dashboard.coordinator.now(), 'settings': {'temperature_k': 310}} for i in range(22)]
     dashboard.coordinator.database().replace(jobs)
@@ -51,15 +51,12 @@ def test_clone_resume_and_analysis_controls(dashboard, live_page):
         files.atomic_json(run/'manifest.json', {'stages': [], 'input_snapshot_sha256': {'input.txt': 'hash'}})
         (run/'result.gro').write_text('artifact')
     newest = jobs[-1]
-    worker = dashboard.coordinator.Worker(); dashboard.coordinator.ANALYSIS_WORKERS[(newest['id'], 'task')] = worker
-    dashboard.coordinator.database().update(newest['id'], analyses=[{'id': 'task', 'kind': 'stability', 'status': 'running', 'directory': 'analyses/stability/test'}])
     page, errors = live_page
     page.goto(live_page.base_url)
     first = page.locator('.job').first
-    first.locator('.job-analysis summary').click()
-    first.get_by_role('button', name='Cancel analysis', exact=True).click()
-    expect(first.locator('.analysis-tasks')).to_contain_text('cancelling')
-    assert worker.cancel.is_set(); dashboard.coordinator.ANALYSIS_WORKERS.clear()
+    # The analysis panel is no longer on this card: the figures, the controls that queue them and the task list all
+    # live in the Run view's Analysis card now.
+    expect(first.locator('.job-analysis')).to_have_count(0)
     first.locator('.job-clone').click()
     expect(page.locator('#new')).to_be_visible()
     expect(page.locator('[name=temperature_k]')).to_have_value('310')
@@ -291,31 +288,3 @@ def test_mapping_editor_disables_save_for_an_identical_saved_mapping(live_page):
     expect(page.locator('#save-mapping-editor')).to_be_disabled()
 
 
-def test_the_analysis_panel_asks_for_a_recompute_and_says_what_follows(dashboard, live_page):
-    """The button is the only way a person can ask a finished run for the analyses its code has moved past.
-
-    It posts the request and reports both halves of the answer: what started, and what is waiting behind an analysis
-    that is already running. The server's own behaviour is pinned in `test_analysis_recompute.py`; here it is asked
-    whether the panel really makes the request rather than only drawing a control.
-    """
-    job = {'id': 'abcdef123456', 'label': 'Recompute', 'detergent': 'DDM', 'method': 'fast_forward',
-           'profile': 'draft-smoke', 'status': 'completed', 'stage': 'complete', 'run_type': 'aa_cg',
-           'created': dashboard.coordinator.now(), 'analyses': []}
-    dashboard.coordinator.database().replace([job])
-    page, errors = live_page
-    asked = []
-
-    def recompute(route):
-        asked.append(route.request.method)
-        route.fulfill(json={'queued': ['abc123'], 'owed': ['bonded-cross-check']})
-
-    page.route(re.compile(r'/api/jobs/abcdef123456/analyses/recompute$'), recompute)
-    page.goto(live_page.base_url)
-    first = page.locator('.job').first
-    first.locator('.job-analysis summary').click()
-    button = first.get_by_role('button', name='Recompute', exact=True)
-    expect(button).to_be_enabled()
-    button.click()
-    expect(page.locator('#notice')).to_contain_text('1 analysis queued, 1 to follow')
-    assert asked == ['POST'], 'the panel drew a control that asked nothing'
-    assert errors == []

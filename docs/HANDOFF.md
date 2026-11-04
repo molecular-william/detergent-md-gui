@@ -4,98 +4,16 @@ State and open items for this repository. Rules live in `AGENTS.md`; subsystem b
 `docs/PROJECT_GUIDE.md`; scoring science in `docs/DDM_CALIBRATION.md`. Read this before touching the DDM CG chain,
 the protein-detergent pipeline or the coordinator. This file keeps only what is current and the evidence behind it.
 
-## Next task (2026-11-04): put the analysis graph in Run view, and label the selected segment
+## Next task
 
-The user's two requests, verbatim: *"I would like these analysis graphs to be moved to 'Run view' instead, and I
-would like there to be a number showing the number of frames and total time in nanoseconds of the selected
-segment."* Nothing is implemented yet. Ask one round of numbered questions (below) before code: the word "moved" is
-ambiguous, and the frame/time convention is the user's to confirm. This is a cross-layer change (route, Run view,
-tests): after the answers, write the plan in `docs/plans/` before code.
+None named. The user's 2026-11-04 request -- move the analysis graphs to Run view, and state the selected segment's
+frame count and total ns -- is implemented (see *Landed slices*); the plan of record is
+`docs/plans/2026-11-04-analysis-graphs-in-run-view.md`. The open items table below is the queue.
 
-### Current behaviour (verified)
-
-- The **trajectory overview** ([`analysis/runs/trajectory_overview.py`](../packages/core/src/dashboard/analysis/runs/trajectory_overview.py))
-  is queued from the Runs card's analysis toolbar (`runs.js` `.analysis-overview`) and drawn in that card's
-  **Analysis graphs** panel (`<details class="job-analysis">` → `.analysis-plots` → `RunFigureViewer`,
-  `figures.js`, fed by `GET /api/jobs/<id>/figures`). The figure is one PNG; the task record also lists
-  `trajectory-overview.json`. A completed live example: run `6c36b3c610f3`, task `cd9ffce69b46`.
-- **Run view** is two monitors (`run-view.js`, `run-view-monitor.js`), each with its own run, structure canvas and
-  **Trajectory** block (`run-view-trajectory.js`). The block's segment combo (`#run-view-segment-<side>`) lists the
-  playable segments from `GET /api/jobs/<id>/trajectory`; the answer carries `name`, `structure`, `trajectory`,
-  `atoms`, `identity` and the two URLs, and **no frame count or duration**. The block already fetches
-  `GET /api/jobs/<id>/analyses` for its series lookup (`loadTasks`), so a Run view analysis card needs no second
-  request for the task list.
-- The Run view **figures** subpanel was deliberately removed on 2026-11-03 (a list of figure links). This task is a
-  different thing — one analysis figure for the selected run — so do not resurrect `loadFigures` and that list.
-
-### Reading frames and time cheaply (measured 2026-11-04)
-
-`segments.py` deliberately never opens a trajectory because walking a 2.6 GB `.xtc` costs ~43 s. Header-only reading is
-cheap: `mda.Universe(gro, whole.xtc)` on the 1.7 GB, 45,001-frame extension took **0.045 s**; it reports
-`len(trajectory) == 45001`, `dt == 20.0 ps`, `totaltime == 900000 ps`, first time 0.0, and seeking the last frame took
-0.001 s. For `6c36b3c610f3` the honest segment number is **45,001 frames / 900 ns** (last−first). **Do not** use
-`frames × dt` (900.02 ns) or read every frame. A tiny per-process cache keyed by `(path, size, mtime)` is enough if
-two monitors ask at once.
-
-### The change (shape, not final decisions)
-
-1. **Segment metadata.** Add `frames` and `time_ns` to each playable entry from `/api/jobs/<id>/trajectory` (the route
-   is `web/routes/runs.py:406`); null, with the panel saying so, when the header cannot be read. Keep the reader out of
-   `segments.segments` (or update that module's "nothing opens a trajectory" note with the measured header cost).
-2. **Run view readout.** Show the selected segment's numbers in the Trajectory block, e.g. `45,001 frames · 900 ns`,
-   updating on every combo change and independently in both monitors. Decide whether it lives beside the segment
-   select, the series line, or the time readout.
-3. **Analysis graph in Run view.** Show the run's latest completed `trajectory-overview` figure in that monitor (for
-   the monitor's own run). Reuse the analysis task list the block already fetches; fetch the PNG through the artifact
-   route. A run with no overview gets a sentence, not an empty box. Decide whether the figure belongs in a new card
-   below Trajectory or inside the Trajectory block.
-
-### Open questions — ask the user, one round
-
-1. Does "analysis graphs" mean only the **trajectory overview**, or every analysis figure (FF score matrices, SASA,
-   mapping overlays, …)?
-2. Should the Runs card **keep** its Analysis graphs panel, or should the overview appear only in Run view ("moved")?
-3. Where should the figure sit in Run view: a new **Analysis** card under the Trajectory block, or inside the
-   Trajectory block after Play?
-4. Frame/time convention: **45,001 frames · 900 ns** (last−first, matching GROMACS) or frames × dt (900.02 ns)?
-   How many decimals should the ns show?
-5. If a trajectory header cannot be read, show "not recorded" in the readout, or hide the readout for that segment?
-
-### Acceptance (once answered)
-
-- `GET /api/jobs/<id>/trajectory` carries `frames` and `time_ns` for every playable segment; a segment whose header
-  cannot be read carries `null` and no invented number; the endpoint does not walk frames.
-- The Run view Trajectory block shows the selected segment's frame count and total ns; both monitors are independent;
-  switching segment updates it without reloading the analysis data.
-- The run's latest completed `trajectory-overview` figure is visible in Run view for the selected run; switching runs
-  swaps it; a run with no overview says so; no new `/figures` request (the `/analyses` answer already carries the
-  output paths) and no `/figures` regression.
-- The Runs card and the Runs gallery still render every figure they did before, unless question 2 says otherwise.
-- `test_dom_ids.py` stays green; no horizontal scroll at 390 px; browser step changes and run switching covered.
-
-### Files likely touched
-
-`packages/core/src/dashboard/web/routes/runs.py` (segment metadata), `analysis/runs/segments.py` or a small header
-reader beside it, `web/static/js/run-view-trajectory.js` (readout + analysis card), `web/static/js/run-view-monitor.js`
-and `web/static/run-view.css` if the card changes the layout, and the tests: a unit test for the header reader, an
-integration test for the endpoint's new fields, and the Run view browser file (`test_run_view_trajectory_browser.py`)
-for the readout and the figure. Name a new test module `test_run_*` (or a `browser/test_run_view_*`) so
-`tests/harness/areas.py` keeps mapping it.
-
-### Live state for the check
-
-The dashboard was restarted on 2026-11-04 at 13:18 (PID 3821620) and the overview for `6c36b3c610f3` is published and
-visible in the Runs card: 92 molecules in one aggregate, free 0, Rg 2.13 nm, 900 ns. Use that run for the live check;
-`b920391735dd` or a fixture is the alternative.
-
-The detergent conformation library landed on 2026-11-02 (see *Landed slices*). The plan of record and its
-implementation contract stay in this checkout but are untracked:
-`docs/plans/2026-11-02-detergent-conformation-library.md` and
-`docs/plans/2026-11-02-conformation-library-contract.md`; the resume slice's plan is
-`docs/plans/2026-11-02-resume-from-checkpoints.md`.
-
-Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9ae6db23f` was deleted by the user on
-2026-10-30**; anything that still names it is history, not a live run.
+The dashboard was restarted on 2026-11-04 at 13:56 for the Python half (the trajectory header reader). Live checks:
+`6c36b3c610f3` states `45,001 frames · 900 ns` on its CG extension and draws its trajectory-overview figure in Run
+view; `b920391735dd` is the protein-free alternative. `00b9ae6db23f` was deleted by the user on 2026-10-30 and is
+history, not a live run.
 
 ## Current state (2026-11-02)
 
@@ -128,11 +46,14 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   shells out to `gmx trjconv` and stages the trajectory's `.tpr`, refusing at queue time without one. The form is
   behind the **Frame options** disclosure; the one submit labels itself Build or Recompute. An older attempt under
   `analyses/frame-series/<signature>/<attempt>/` -- with `stride`/`assembled`/`fit: protein|beads` -- is still found
-  by matching the form's arguments and played as the view it described. The figures subpanel is gone; the Runs
-  gallery is the one place a run's figures are browsed. The `trajectory-overview` figure is currently drawn in the
-  Runs card's **Analysis graphs** panel; the next task moves or mirrors it into this panel and adds the selected
-  segment's frame and time readout. `/trajectory` answers run-root paths with each playable
-  segment's `identity`; a `.pdb` structure is served by the artifact route. Caps are 240 models / ~250 MB.
+  by matching the form's arguments and played as the view it described. Each monitor has its own **Analysis** card
+  under the Trajectory block: the run's current figures (every kind, through `GET /api/jobs/<id>/figures` and
+  `RunFigureViewer`), the three controls that queue analyses (Recompute, Trajectory overview, Re-score assessment),
+  the task list and the assessment's distance diagnostics. The Runs card draws no figures and offers no analysis
+  button; the Run view's gallery door and pdc's `gallery_note` are gone. `/trajectory` answers run-root paths with
+  each playable segment's `identity`, `frames` and `time_ns`; the Trajectory block states the selected segment's
+  `45,001 frames · 900 ns` and "not recorded" when the header cannot be read. A `.pdb` structure is served by the
+  artifact route. Caps are 240 models / ~250 MB.
   `config/dashboard.json` admits 40 GiB per run (the deleted `00b9ae6db23f` was 34.08 GiB, which the former 30 GiB
   limit could not analyse).
 - **Detergent conformations.** A pdc run may stamp its detergents from a fixed-size library taken from micelle-only
@@ -151,6 +72,7 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
 | item | state | next |
 | --- | --- | --- |
 | run-layout migration | applied 2026-10-27 (`legacy_layout.json` on every then-existing run); `936b74bd3fa8`, `00b9ae6db23f` deleted by the user | verify the migrated runs still render and resolve analyses |
+| analysis progress visibility | queued and watched only in Run view now: the Runs card's Analysis graphs panel is gone | decide whether the Runs card needs a one-line "analysis running" pointer |
 | Overall Run view progress | the card bar is the current stage's fraction; timeline/plan skips show settings | decide whether a true run-level percentage is wanted |
 | cloud vs rough belt | open measurement, not a task | one protein, one seed, two 100 ns legs; compare removal fraction/aggregation/belt thickness before adopting a belt criterion |
 | `pytest-socket` | not installed; no test enforces the no-outbound-HTTPS audit | add with `--allow-hosts=127.0.0.1,localhost` |
@@ -164,6 +86,7 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
 
 ## Invariants and incidents worth keeping
 
+- **A removed disclosure breaks every Runs card.** `runs.js`'s creation loop opens the card's `<details>` by class; when the analysis panel was deleted from the template, the loop's fourth name resolved to nothing and `detail.open` threw before the Clone handler was bound -- every card rendered, and no button on any of them worked. The loop now names only the three details the template has; a card's binding block must not look up an element the shell no longer renders.
 - **A trajectory URL is the run-root spelling.** `segments.relative()` keeps `stages/` because `/structure` and
   `/artifacts` resolve from the run root; a `.pdb` structure is named by the artifact route instead. The route test
   fetches every URL it answers rather than matching shapes -- a shape check stayed green while every URL 404'd.
@@ -273,6 +196,16 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
 
 ## Landed slices, newest first
 
+- **2026-11-04 Analysis card in Run view, and the segment readout**: the Runs card's **Analysis graphs** panel is
+  gone; each Run view monitor's Analysis card draws that run's own figures, queues its analyses and lists its tasks,
+  with the distance diagnostics beside them. `GET /api/jobs/<id>/trajectory` gained `frames` and `time_ns`, read from
+  the trajectory header by `analysis/runs/trajectory_header.py` (0.045 s to open a live 1.7 GB, 45,001-frame
+  extension, 0.001 s to seek its last frame; never a frame walk, cached per process by path/size/mtime). `time_ns` is
+  last frame time minus first, so the live extension reads 900 ns, not `frames × dt` (900.02). A header that cannot
+  be read answers `null` and the panel prints "Frames and time not recorded for this segment." The Run view heading's
+  "Open the zoomable figures in Runs" door and pdc's `gallery_note` fragment were removed. Tests: unit
+  `test_trajectory_header.py`, the `/trajectory` fields pinned in `test_frame_series_analysis.py`, a new
+  `browser/test_run_view_analysis_browser.py`, and the figure/rescore/overview browser tests moved to Run view.
 - **2026-11-04 Trajectory overview**: a new on-demand analysis kind, `trajectory-overview`, samples the run's latest
   playable segment (at most 200 frames, one sequential pass) and publishes a 2×3 PNG plus a JSON record: RMSD and
   radius of gyration of the protein -- or of the detergent assembly in an empty micelle -- the largest detergent

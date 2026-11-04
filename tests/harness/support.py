@@ -135,13 +135,16 @@ def write_aa_fixture(root, molecule_id='Fixture'):
 
 
 def cg_fixture_run(root, positions, names=('B01', 'B02', 'B03', 'B04'), frames=3, residue='SUCR',
-                   topology=None, run_dir=None):
+                   topology=None, run_dir=None, frame_ps=0.0):
     """A minimal CG consumer: its topology, its structure, and a trajectory at the given coordinates.
 
     `positions` are nanometres, the way a GROMACS trajectory carries them. MDAnalysis holds ångström, so the
     trajectory is written at ten times that: a reader that forgets the conversion is caught by the tests
     instead of passing on a round-tripped number that never changed unit. The structure is written by hand
     because a GRO line's fixed columns are part of what a reader has to parse.
+
+    `frame_ps` is the time between frames the file states, in ps. It defaults to 0.0 -- every frame at t = 0, which is
+    what a reader that only loads positions needs; a header read asks for the span, so it writes a real cadence.
 
     Returns `(run directory, trajectory path, structure path, topology path)`.
     """
@@ -168,7 +171,8 @@ def cg_fixture_run(root, positions, names=('B01', 'B02', 'B03', 'B04'), frames=3
     universe = mda.Universe.empty(len(names), trajectory=True)
     universe.atoms.positions = np.asarray(positions, dtype=float) * 10.0
     with mda.Writer(str(trajectory), n_atoms=len(names)) as writer:
-        for _ in range(frames):
+        for frame in range(frames):
+            universe.trajectory.ts.time = frame * frame_ps
             writer.write(universe)
     return run_dir, trajectory, structure, topology_path
 

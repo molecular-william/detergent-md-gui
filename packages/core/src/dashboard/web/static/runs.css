@@ -62,7 +62,6 @@
 .run-resources > details[open] { flex-basis:100%; order:1; }
 .run-resources > details[open] > summary { background:#edf3ff; }
 .run-resources > details > .resource-content { padding:12px; border:1px solid var(--line); border-top:0; border-radius:0 0 6px 6px; }
-.run-resources .figure-viewport, .run-resources .analysis-plots { max-width:100%; }
 .run-resources #console-panel { margin:0; padding:0; }
 .run-resources #console-panel .toolbar { margin-top:0; }
 #runs[data-view=dense] .run-row > td { padding:8px 10px; }

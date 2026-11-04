@@ -373,10 +373,10 @@ under the run's `contact_nm`, and Temperature/Pressure/Potential read from the s
 distance is minimum-image: `whole.xtc` keeps molecules whole but does not cluster the micelle, so raw distances across
 a box face would report one micelle as fragments. The record states the box and the PBC treatment. Each panel keeps its raw samples
 faint and thin under a thick opaque moving average (5% of the plotted points, 2–25 samples, stated in the legend and
-recorded under `smoothing` in the JSON). Its runs-card button posts `/api/jobs/<id>/trajectory-overview`; a run
-holding no trajectory is answered by the producer's own skip.
+recorded under `smoothing` in the JSON). Its Run view Analysis card's button posts
+`/api/jobs/<id>/trajectory-overview`; a run holding no trajectory is answered by the producer's own skip.
 
-Analysis graphs expand inline: ff_assess PNG plots and a Plot SASA action that generates an image from measured AA/CG XVG data. Original XVG data are preserved; SVG artifacts remain previewable. Reads use byte offsets and bounded chunks; the display keeps up to 256 KB.
+Analysis graphs expand inline in the Run view's Analysis card: the run's current figures, ff_assess PNG plots and a Plot SASA action that generates an image from measured AA/CG XVG data. The Runs card no longer draws them. Original XVG data are preserved; SVG artifacts remain previewable. Reads use byte offsets and bounded chunks; the display keeps up to 256 KB.
 
 ### Console
 Select a run, pause display updates, copy the visible excerpt, or download its full log. New runs download a stage-log ZIP. Pausing affects the display only.
@@ -485,7 +485,7 @@ RDKit, already present in the local environment, draws the 2D structure from Swi
 Carbohydrate validation is separate from mapping approval and is queued through the API rather than from a dashboard panel: `POST /api/jobs/<id>/carbohydrate-validation` takes the published `tc4` representation or the deterministic `physical_only_ring_constrained` derivative, which removes TC4 sites while retaining physical bead ownership and 1.15-scaled ring constraints. The controls that used to offer this from CG Bead Assignment were removed; the analysis, the queue route and the report endpoints are unchanged. A setup check is diagnostic-only. An evidence run requires cited targets and paper-aligned sampling before it can report `evidence_complete`.
 
 ### Analysis evidence
-POST /api/jobs/<id>/observables reads the mapped trajectory and fitted ITP, excludes defined interactions, and writes analysis/unparameterized_observables.json with units, frame count, means, standard deviations, and 5th/95th percentiles. The dashboard exposes this from the Analysis graphs section.
+POST /api/jobs/<id>/observables reads the mapped trajectory and fitted ITP, excludes defined interactions, and writes analysis/unparameterized_observables.json with units, frame count, means, standard deviations, and 5th/95th percentiles. The dashboard exposes this from the Run view's Analysis card.
 
 POST /api/jobs/<id>/surfaces runs the local GROMACS sasa -q command on the energy-minimized AA structure and mapped CG frame, preserving both source PDB surfaces, SASA XVG files, checksums, parameters, and an XY comparison SVG. This is a geometric comparison only and remains scientifically unvalidated.
 
@@ -654,7 +654,7 @@ The owed kinds are worked through **one at a time**, because `queue` takes one a
 with `RunBusy` while the first holds the worker. `analysis_coordinator.drain` queues what it can and names the rest in
 `owed`; `analysis_coordinator.chain` drains again when an attempt settles, which is how a three-kind list finishes with
 nobody pressing anything. A *failed* attempt does not chain -- the kind is not current by signature, so draining from it
-would queue itself again -- and waits for `POST /api/jobs/<id>/analyses/recompute`, the Analysis graphs panel's
+would queue itself again -- and waits for `POST /api/jobs/<id>/analyses/recompute`, the Run view Analysis card's
 Recompute button. That route asks the same resolver, so it cannot request a set the run does not owe, and `queue`
 fingerprints the analysis code, so pressing it after a code change starts fresh attempts and pressing it with nothing
 changed starts none. `owed` is what the panel reports as still waiting.

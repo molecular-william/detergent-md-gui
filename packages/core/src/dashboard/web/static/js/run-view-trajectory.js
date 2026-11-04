@@ -5,9 +5,10 @@
 //
 // **The viewer cannot read a trajectory.** This vendored NGL has no XTC/TRR parser (`grep -c XTC ngl.js` = 0), so
 // playback is a server-written multi-model PDB. That file is big -- roughly 0.9 MB a model for an 11,708-atom system,
-// which is 110 MB at 120 models -- and a run cannot count its own frames cheaply (43 s for a 2.6 GB xtc through
-// `gmx check`). So it is fetched when the reader presses Play and never on mount. The small `frames.json` beside it
-// is what the summary and the time readout are read from, and fetching that is cheap.
+// which is 110 MB at 120 models -- and it is fetched when the reader presses Play and never on mount. The small
+// `frames.json` beside it is what the summary and the time readout are read from, and fetching that is cheap. The
+// *selected segment's* own frame count and span come from `/api/jobs/<id>/trajectory`, which reads the trajectory's
+// header (0.045 s on a 1.7 GB file, measured) -- never a frame walk.
 //
 // **One trajectory at a time.** A run's system can be rebuilt mid-run (a protein-detergent run removes detergents and
 // re-solvates what is left), so the segments of `/api/jobs/<id>/trajectory` are not one file. The block plays the
@@ -81,6 +82,7 @@ export function trajectoryMarkup(side) {
         <button type="button" id="${id('run-view-build')}" aria-expanded="false"
                 aria-controls="${id('run-view-recompute')}" disabled>Frame options</button>
       </div>
+      <p class="run-view-segment-meta" id="${id('run-view-segment-meta')}" role="status"></p>
       <p class="run-view-series" id="${id('run-view-series')}" aria-live="polite"></p>
       <div class="transport-controls" role="group" aria-label="Playback">
         <button type="button" id="${id('run-view-play')}" aria-pressed="false" disabled>Play</button>
@@ -171,8 +173,9 @@ export function trajectoryMarkup(side) {
           (it is history-dependent). Box centre names where the middle of the box is for Centre (and for cluster):
           tric is half the sum of the box vectors, rect half the diagonal, zero the origin. Centre puts the group
           there, and Fit is a translation or a rotation and translation on that group. The server caps one build at
-          ${MAX_MODELS} models and about 250 MB, and refuses a bigger one. This panel does not count the trajectory's
-          frames -- counting a 2.6 GB file takes about a minute -- so it cannot predict a build's size. Changing a
+          ${MAX_MODELS} models and about 250 MB, and refuses a bigger one. The segment line above states the
+          trajectory's frame count from its header, but a build's size also depends on which atoms are kept, so this
+          panel does not predict it. Changing a
           control here is what makes the build a new attempt; a matching one already built is reused and shown
           instead.</p>
       </div>
@@ -278,6 +281,14 @@ const nsText = value => {
   return String(Number(number.toPrecision(4)));
 };
 
+//: The segment readout states whole ns when the span is whole and one decimal otherwise -- a 900 ns run reads
+//: "900 ns", not "900.0", and a 100.5 ns one keeps its half.
+const segmentNs = value => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return Number.isInteger(number) ? String(number) : number.toFixed(1);
+};
+
 const ordinal = number => {
   const whole = Math.abs(Math.round(Number(number) || 0));
   const tens = whole % 100;
@@ -362,6 +373,7 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
   const $ = selector => root.querySelector(selector);
   const note = $(id('run-view-trajectory-note'));
   const pick = $(id('run-view-segment'));
+  const segmentNote = $(id('run-view-segment-meta'));
   const buildButton = $(id('run-view-build'));
   const seriesLine = $(id('run-view-series'));
   const playButton = $(id('run-view-play'));
@@ -489,6 +501,29 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
     }));
     pick.disabled = !playable.length;
     if (playable.length) pick.value = String(playable.length - 1);
+    writeSegmentMeta();
+  }
+
+  // The selected segment's own size and length, read from the trajectory's header by the server. It sits under the
+  // picker so a reader comparing systems sees them without pressing Play. A header that could not be read says so:
+  // printing nothing would look like a segment with no frames, and a number this panel made up would be worse.
+  function writeSegmentMeta() {
+    const entry = entryNow();
+    if (!entry) {
+      segmentNote.textContent = '';
+      return;
+    }
+    const frames = Number(entry.frames);
+    const known = Number.isFinite(frames) && frames > 0;
+    const span = entry.time_ns == null ? null : segmentNs(entry.time_ns);
+    if (!known && span === null) {
+      segmentNote.textContent = 'Frames and time not recorded for this segment.';
+      return;
+    }
+    const parts = [];
+    if (known) parts.push(`${frames.toLocaleString('en-US')} frame${frames === 1 ? '' : 's'}`);
+    parts.push(span === null ? 'total time not recorded' : `${span} ns`);
+    segmentNote.textContent = parts.join(' · ');
   }
 
   // The arguments the form holds now: what a submit sends, and what a series is looked up by. `group` is null when
@@ -946,6 +981,7 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
   // ----------------------------------------------------------------------------------------------------- wiring
 
   pick.addEventListener('change', () => {
+    writeSegmentMeta();
     selectSeries({prefill: true});
   });
 
@@ -1026,6 +1062,7 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
       structureComponent = null;
       pick.replaceChildren();
       pick.disabled = true;
+      segmentNote.textContent = '';
       buildButton.disabled = true;
       playButton.disabled = true;
       submitButton.disabled = true;
@@ -1056,6 +1093,7 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
       submitButton.textContent = 'Build frames';
       if (!playable.length) {
         seriesLine.textContent = '';
+        segmentNote.textContent = '';
         setNote(answer.why || 'This run offers no trajectory to play.');
         return;
       }

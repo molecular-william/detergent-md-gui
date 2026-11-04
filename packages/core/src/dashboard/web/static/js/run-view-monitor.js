@@ -17,6 +17,7 @@ import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, applyBeadRadii, renderB
 import { conectCount, dropBonds, inStage, isCoarseGrained, loadParameters, structureExtension,
          structureRank } from './run-view-structure.js';
 import { createTrajectory, trajectoryMarkup } from './run-view-trajectory.js';
+import { analysisMarkup, createAnalysis } from './run-view-analysis.js';
 import { runViewExtensionFor } from './run-view-extension.js';
 
 //: The route pages the artifact index and caps `limit` at 100, so every request here states its own limit.
@@ -71,6 +72,11 @@ export function createMonitor({root, side, runs, onPick}) {
     decorate,
   });
 
+  // The Analysis card under the Trajectory block: the run's figures, the controls that queue the analyses, and the
+  // assessment's distance diagnostics. It reads the job record the monitor already holds and asks its own two routes,
+  // so neither the artifact index nor the segment table can stall it.
+  const analysis = createAnalysis({root, side});
+
 // The monitor's own markup, built here rather than in the page template: two of everything is the layout, and the
 // ids are the only thing that differs between the two. The `<details>` are collapsed, which is what "minimizable and
 // minimized by default" asked for, and each summary carries the count of what is behind it.
@@ -93,6 +99,7 @@ function monitorMarkup(side) {
       <div id="run-view-readout-${side}" class="run-view-readout"></div>
     </div>
     ${trajectoryMarkup(side)}
+    ${analysisMarkup(side)}
     <details class="card run-view-sub" id="run-view-holds-details-${side}">
       <summary>what this run holds <span class="count" id="run-view-holds-count-${side}"></span></summary>
       <div class="body">
@@ -219,6 +226,7 @@ function chooser(root, side, runs, onPick) {
     // Before anything of the run is read: a fetch still in flight for the run this monitor is leaving must land in
     // nothing, and the series on the stage belongs to that run rather than to this one.
     trajectory.reset();
+    analysis.setRun(job);
     viewer.hidden = false;
     // Who this monitor is holding, in one line: the id, what the run is called, the molecule it is about and the
     // day it ran. It was the list that used to say this, and the list is two combos now.

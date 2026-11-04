@@ -26,10 +26,12 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_
     expect(page.locator('.job')).to_have_count(1)
     assert not any(u.startswith(('/api/mappings','/api/molecules')) for u in urls)
     page.evaluate("window.tabEvents=[]; document.addEventListener('dashboard:tab', event => tabEvents.push(event.detail.id))")
-    page.locator('.job-analysis summary').click()
-    expect(page.locator('.figure-tabs [role=tab]')).to_have_count(1)
+    # The analysis panel is gone from this card: the figures, the controls that queue them and the task list are the
+    # Run view's Analysis card, so a refresh here must ask for no figure at all. That card's own request is pinned in
+    # `test_run_view_analysis_browser.py`.
+    expect(page.locator('.job-analysis')).to_have_count(0)
     for _ in range(2): page.evaluate('window.refreshJobs()')
-    assert len([u for u in urls if '/figures?' in u]) == 1
+    assert not any('/figures?' in u for u in urls), urls
     assert not any('/artifacts?' in u for u in urls)
     page.locator('#tab-new').click()
     expect(page.locator('#run-mapping option')).to_have_count(2)

@@ -1,7 +1,5 @@
 import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResource, guarded, DROP, panelIds } from './shared.js';
 import { createConsoleViewer } from './console.js';
-import { RunFigureViewer } from './figures.js';
-import { renderDistanceDiagnostics } from './runs-diagnostics.js';
 
 // Owns run cards, filtering, artifact loading, and polling. Form changes are callbacks.
 // D1's line: the numbers the run card states, read from the summary the view projects off the published comparison --
@@ -39,7 +37,7 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
     const ids = new Set(jobs.map(job => job.id));
     for (const [id, card] of cards) if (!ids.has(id)) {
       if (card.contains($('#console-panel'))) { consoleViewer.detach(); }
-      card.figureViewer?.destroy(); card.remove(); cards.delete(id);
+      card.remove(); cards.delete(id);
     }
     for (const option of $$('#console-run option')) if (option.value && option.value !== consoleViewer.selectedRun && !ids.has(option.value)) option.remove();
     // Console selection can refer to a run on another page.
@@ -49,8 +47,10 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
       if (!card) {
         card = $('#job-template').content.firstElementChild.cloneNode(true);
         card.dataset.id = job.id; cards.set(job.id, card); $('#jobs').append(card);
-        const legacyDetails = {artifacts: 0, records: 1, analysis: 2};
-        for (const kind of ['artifacts', 'records', 'console', 'analysis']) {
+        // The card's three remaining disclosures. The analysis panel is gone: its figures, queue buttons and task list
+        // are the Run view's Analysis card, which owns its own state rather than reading this card's storage.
+        const legacyDetails = {artifacts: 0, records: 1};
+        for (const kind of ['artifacts', 'records', 'console']) {
           const detail = $('.job-' + kind, card);
           const legacy = legacyDetails[kind];
           detail.open = storage.get(`resource.${job.id}.${kind}`, legacy !== undefined ? storage.get(`details.${job.id}.${legacy}`, false) : false);
@@ -100,8 +100,8 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
         $('.artifacts-prev',card).onclick = () => { card.artifactPage--; refreshArtifactViews(card,job).catch(error=>notice(error.message)); };
         $('.artifacts-next',card).onclick = () => { card.artifactPage++; refreshArtifactViews(card,job).catch(error=>notice(error.message)); };
         $('.artifact-search',card).oninput = () => { card.artifactPage = 1; refreshArtifactViews(card,job).catch(error=>notice(error.message)); };
-        for (const detail of ['.job-artifacts','.job-analysis']) $(detail,card).addEventListener('toggle', () => {
-          if ($(detail,card).open) refreshArtifactViews(card,card.job, true).catch(error=>notice(error.message));
+        $('.job-artifacts',card).addEventListener('toggle', () => {
+          if ($('.job-artifacts',card).open) refreshArtifactViews(card,card.job).catch(error=>notice(error.message));
         });
         $('.job-records',card).addEventListener('toggle',()=>{if($('.job-records',card).open)refreshRecords(card,card.job);});
         $('.job-delete', card).onclick = async event => {
@@ -112,7 +112,7 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
             invalidateResource('/api/references'); invalidateResource('/api/storage');
             onDeleted(job.id);
             cards.delete(job.id); if (consoleViewer.selectedRun === job.id) consoleViewer.select('');
-            card.figureViewer?.destroy(); card.remove(); notice('Run deleted.'); await refreshJobs();
+            card.remove(); notice('Run deleted.'); await refreshJobs();
           } catch (error) { notice(error.message); button.disabled = false; }
         };
         if (![...$('#console-run').options].some(option=>option.value === job.id)) { const option = document.createElement('option'); option.value = job.id; option.textContent = `${job.detergent} · ${job.id}`; $('#console-run').append(option); }
@@ -134,13 +134,6 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
       const validate = $('.job-validate', card);
       validate.hidden = !(job.run_type === 'aa_cg' && job.status === 'completed');
       setText(validate, consistencyLine(job) || 'Mapping validation');
-      // Stage 5 is the one output a *stage* wrote that a reader can ask for again, and only a run that ran it has one
-      // to re-score. Drawn from the recorded stage list rather than from the run type, because that list is what says
-      // the run holds an assessment: a run type whose assessment never ran has no directory to write a second into.
-      // Its state is set on every render beside the status, like the comparison control above; the handler is bound
-      // once, in the tasks block, where the run id it closes over is fixed.
-      const rescore = $('.analysis-rescore', card);
-      if (rescore) rescore.hidden = !(job.stages || []).some(stage => stage.name === 'CG assessment (ff_assess)');
       setText($('.job-stage', card), job.stage || 'Queued');
       // A run that declared itself a stub says so on the card, next to the status it
       // would otherwise share with a run that really executed the stage.
@@ -228,79 +221,6 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
         }
         card.dataset.stages = stageKey;
       }
-      const tasksKey = JSON.stringify([job.analyses || [], job.artifact_revision, job.stages]);
-      if (card.dataset.tasks !== tasksKey) {
-        // Sole writer of the task list. The diagnostics box beside it has its own host and its own module; sharing
-        // this one made the two erase each other on the same refresh.
-        const taskList = $('.analysis-tasks',card); taskList.replaceChildren();
-        // The button asks the run for the analyses it owes; `queue` fingerprints the analysis code, so it recomputes
-        // what a change has invalidated and leaves what is already current alone. Bound once per card: this block
-        // re-runs whenever the task list changes.
-        const recompute = $('.analysis-recompute',card);
-        if (recompute && !recompute.dataset.bound) {
-          recompute.dataset.bound = '1';
-          recompute.onclick = async () => {
-            recompute.disabled = true;
-            try {
-              const answer = await post(`/api/jobs/${job.id}/analyses/recompute`, {});
-              const queued = (answer.queued || []).length, owed = (answer.owed || []).length;
-              notice(queued ? `${queued} analysis${queued === 1 ? '' : 'es'} queued${owed ? `, ${owed} to follow` : ''}`
-                            : owed ? `Nothing new queued: ${owed} still waiting to start`
-                                   : 'Every analysis this run owes is already current');
-              await refreshJobs();
-            } catch (error) { notice(error.message); }
-            finally { recompute.disabled = false; }
-          };
-        }
-        // A first look at the trajectory a completed run wrote: queued on demand, because it samples the trajectory
-        // and costs a pass over it. A run with nothing to play answers `skipped` with the producer's own reason.
-        const overview = $('.analysis-overview',card);
-        if (overview && !overview.dataset.bound) {
-          overview.dataset.bound = '1';
-          overview.onclick = async () => {
-            overview.disabled = true;
-            try {
-              await post(`/api/jobs/${job.id}/trajectory-overview`, {});
-              notice('Trajectory overview queued');
-              await refreshJobs();
-            } catch (error) { notice(error.message); }
-            finally { overview.disabled = false; }
-          };
-        }
-        if (overview) overview.hidden = !['completed','failed','cancelled'].includes(job.status);
-        for (const task of job.analyses || []) {
-          const row = document.createElement('p'); row.textContent = `${task.kind} · ${task.status} · ${task.progress || task.error || ''}`;
-          if (['queued','running','cancelling'].includes(task.status)) {
-            const cancel = document.createElement('button'); cancel.className = 'secondary'; cancel.textContent = 'Cancel analysis'; cancel.disabled = task.status === 'cancelling';
-            cancel.onclick = async () => { try { await post(`/api/jobs/${job.id}/analyses/${task.id}/cancel`,{}); await refreshJobs(); } catch(error) { notice(error.message); } }; row.append(cancel);
-          }
-          const link = document.createElement('a'); link.href = `/api/jobs/${job.id}/artifacts/${task.directory}/console.log`; link.textContent = ' Analysis log'; row.append(link);
-          taskList.append(row);
-        }
-        // The assessment's own second control, beside Recompute and deliberately a different request: Recompute
-        // re-queues *analyses*, while the score matrix and the distance distributions are the work of stage 5 and were
-        // written once when the run ran. This asks the server for a second attempt, and reports what that attempt will
-        // score with -- the reference count is the whole answer to "was it worth pressing" -- or the server's refusal,
-        // which says why the run cannot be re-scored at all.
-        const rescore = $('.analysis-rescore', card);
-        if (rescore && !rescore.dataset.bound) {
-          rescore.dataset.bound = '1';
-          rescore.onclick = async () => {
-            rescore.disabled = true;
-            try {
-              const answer = await post(`/api/jobs/${job.id}/assessment/rescore`, {});
-              const histograms = `${answer.references} reference histogram${answer.references === 1 ? '' : 's'}`;
-              notice(`Re-scoring ${answer.directory} with ${histograms}`
-                     + `${answer.pairs ? `, ${answer.pairs} of them pairwise` : ''}, from parameterization revision ${answer.revision}`);
-              await refreshJobs();
-            } catch (error) { notice(error.message); }
-            finally { rescore.disabled = false; }
-          };
-        }
-        card.dataset.tasks = tasksKey;
-        if ($('.job-artifacts',card).open || $('.job-analysis',card).open) refreshArtifactViews(card,job).catch(error=>notice(error.message));
-      }
-
     }
     const consoleCard = cards.get(consoleViewer.selectedRun);
     if (consoleCard && $('.job-console', consoleCard).open && !consoleCard.contains($('#console-panel'))) consoleViewer.mount(consoleCard);
@@ -325,13 +245,11 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
     finally { if(card.recordsPending===key)card.recordsPending=null; }
   }
   let runPage = 1, jobsGeneration = 0, jobsEtag = '', pollDelay = 5000;
-  async function refreshArtifactViews(card,job,force=false) {
+  async function refreshArtifactViews(card,job) {
+    if(!$('.job-artifacts',card).open) return;
     const generation = (card.artifactGeneration || 0)+1; card.artifactGeneration = generation;
-    if($('.job-artifacts',card).open) {
     const query = new URLSearchParams({page:card.artifactPage || 1, limit:25, search:$('.artifact-search',card).value});
-    // One refresh feeds both panels of a card -- the artifact list and the analysis figures --
-    // so this guard has to be per call, not per panel: sharing a generation between them drops
-    // the answer the other panel is waiting for. It stays a counter of its own for that reason.
+    // A search or page typed while a fetch is in flight must not be overwritten by the answer to the older question.
     const result = await api(`/api/jobs/${job.id}/artifacts?${query}`);
     if (generation !== card.artifactGeneration) return;
     const list = $('.artifact-list',card); list.replaceChildren();
@@ -343,16 +261,6 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
     setText($('.artifact-summary',card),`${result.total} matching files`);
     setText($('.artifacts-page',card),`Page ${result.page}`);
     $('.artifacts-prev',card).disabled = result.page <= 1; $('.artifacts-next',card).disabled = result.page*result.limit >= result.total;
-    }
-    if ($('.job-analysis',card).open && (force || !card.figureViewer || card.figureRevision!==job.artifact_revision)) {
-      const media = await api(`/api/jobs/${job.id}/figures${force?'?refresh=1':''}`);
-      if (generation !== card.artifactGeneration) return;
-      const figures = media.artifacts;
-      card.figureRevision=media.revision;
-      if(!card.figureViewer)card.figureViewer=new RunFigureViewer($('.analysis-plots',card),job.id);
-      card.figureViewer.update(figures);
-      renderDistanceDiagnostics(card, job).catch(() => {});
-    }
   }
   async function refreshJobs(conditional=false) {
     const query = new URLSearchParams({view:'summary',page:runPage,limit:20,status:$('#run-status-filter').value,search:$('#run-search').value});

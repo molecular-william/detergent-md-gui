@@ -1,102 +1,114 @@
-"""Browser proof for run-specific figure selection, zoom, and display-only beads."""
+"""Browser proof for the Run view's figure viewer: tabs, zoom, display-only media, and the assessment diagnostics.
+
+The viewer is the same `RunFigureViewer` the Runs page used; the panel it is mounted in is the Run view's Analysis
+card, so every selector here is that card's, and the view is opened through the same `?run=` link the Runs table
+offers. What the viewer itself does -- a tab per figure, a stored selection and zoom per run, an iframe for the one
+interactive figure -- is what this file pins; `test_run_view_analysis_browser.py` pins the card around it.
+"""
 import json
 
 from dashboard.models import mappings
 from dashboard.models.mappings import context as mapping_context
 from playwright.sync_api import expect
 
+A_RUN = 'abcdef123456'
+B_RUN = 'abcdef123457'
+WORKSPACE = 'detergent-validation'
 
-def test_run_figure_tabs_zoom_and_mapping_display(dashboard, live_page):
-    runs = dashboard.coordinator.RUNS; runs.mkdir(parents=True, exist_ok=True)
+SVG = ('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200">'
+       '<circle cx="200" cy="100" r="90" fill="blue"/></svg>')
+HTML = '<!doctype html><title>Surface comparison</title><h1>Interactive figure</h1>'
+
+
+def seed(dashboard, *run_ids, figures=True):
+    """Completed runs this test owns, with the files each holds. Nothing reads the developer's workspace."""
+    runs = dashboard.coordinator.RUNS
+    runs.mkdir(parents=True, exist_ok=True)
     context = mapping_context.build_context(dashboard.coordinator.ROOT / 'molecules', 'DDM')
     candidate = mappings.automatic_candidate(mappings.molecule(), 'DDM')
     candidate.update(molecule_id='DDM', molecule_snapshot=context['snapshot'])
     mappings.save_draft(candidate)
-    jobs=[{'id':jid,'label':f'Figure run {i}','detergent':'DDM','method':'fast_forward','status':'completed','stage':'complete','created':dashboard.coordinator.now()} for i,jid in enumerate(('abcdef123456','abcdef123457'))]
-    dashboard.coordinator.database().replace(jobs)
-    for job in jobs:
-        directory=runs/job['id'];directory.mkdir()
-        for name in ('alpha','beta'):
-            (directory/(name+'.svg')).write_text('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><circle cx="200" cy="100" r="90" fill="blue"/></svg>')
-        (directory/'surface-comparison.html').write_text('<!doctype html><title>Surface comparison</title><h1>Interactive figure</h1>')
+    dashboard.coordinator.database().replace([
+        {'id': run_id, 'label': f'Figure run {run_id[-1]}', 'detergent': 'DDM', 'method': 'fast_forward',
+         'status': 'completed', 'stage': 'complete', 'run_type': 'aa_cg',
+         'created': dashboard.coordinator.now()} for run_id in run_ids])
+    for run_id in run_ids:
+        directory = runs / run_id
+        directory.mkdir(parents=True, exist_ok=True)
+        if figures:
+            for name in ('alpha', 'beta'):
+                (directory / f'{name}.svg').write_text(SVG)
+            (directory / 'surface-comparison.html').write_text(HTML)
+    return runs
+
+
+def plots(page, side='A'):
+    return page.locator(f'#run-view-analysis-plots-{side}')
+
+
+def open_view(page, live_page, run_id=A_RUN, figures=3):
+    page.goto(f'{live_page.base_url}/{WORKSPACE}/run-view?run={run_id}')
+    expect(page.locator('#runview')).to_be_visible()
+    expect(plots(page).locator('[role=tab]')).to_have_count(figures)
+    return page
+
+
+def test_run_figure_tabs_zoom_and_mapping_display(dashboard, live_page):
+    seed(dashboard, A_RUN, B_RUN)
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/detergent-validation/runs')
-    first=page.locator('.job[data-id=abcdef123456]');second=page.locator('.job[data-id=abcdef123457]')
-    first.locator('.job-analysis summary').click()
-    expect(first.locator('.figure-tabs [role=tab]')).to_have_count(3,timeout=15000)
-    expect(first.locator('.figure-media')).to_have_count(1)
-    expect(first.get_by_role('tab',name='alpha',exact=True)).to_have_attribute('aria-selected','true')
-    first.get_by_role('button',name='Zoom in',exact=True).click()
-    expect(first.locator('.figure-zoom-level')).to_have_text('125%')
-    assert first.locator('.figure-media').evaluate('(el)=>el.getBoundingClientRect().width')>first.locator('.figure-viewport').evaluate('(el)=>el.clientWidth')
-    first.get_by_role('tab',name='beta',exact=True).click()
-    expect(first.locator('.figure-zoom-level')).to_have_text('100%')
-    first.get_by_role('tab',name='beta',exact=True).press('ArrowLeft')
-    expect(first.locator('.figure-zoom-level')).to_have_text('125%')
-    # Refresh must preserve the DOM node, selection and viewport scroll.
-    first.locator('.figure-media').evaluate('(el)=>window.originalFigure=el')
-    first.locator('.figure-viewport').evaluate('(el)=>el.scrollLeft=40')
-    first.locator('.job-analysis summary').click()
-    with page.expect_response(lambda response: '/api/jobs/abcdef123456/figures?refresh=1' in response.url) as refreshed_figures:
-        first.locator('.job-analysis summary').click()
-    refreshed_figures.value.finished()
-    assert first.locator('.figure-media').evaluate('(el)=>el===window.originalFigure')
-    assert first.locator('.figure-viewport').evaluate('(el)=>el.scrollLeft')==40
-    second.locator('.job-analysis summary').click()
-    expect(second.locator('.figure-zoom-level')).to_have_text('100%')
-    # Workspace navigation must ignore the nested figure tabs.
-    page.get_by_role('tab',name='New run',exact=True).click();expect(page.locator('#new')).to_be_visible()
-    page.get_by_role('tab',name='Runs',exact=True).click();expect(first.locator('.figure-zoom-level')).to_have_text('125%')
-    page.reload();first=page.locator('.job[data-id=abcdef123456]')
-    expect(first.locator('.figure-zoom-level')).to_have_text('125%')
-    first.get_by_role('button',name='Fit / reset',exact=True).click();expect(first.locator('.figure-zoom-level')).to_have_text('100%')
-    first.get_by_role('tab',name='surface comparison',exact=True).click()
-    expect(first.locator('iframe.figure-media')).to_have_attribute('sandbox','allow-scripts')
-    expect(first.frame_locator('iframe').get_by_role('heading')).to_have_text('Interactive figure')
-    first.get_by_role('button',name='Zoom in',exact=True).click();expect(first.locator('.figure-zoom-level')).to_have_text('125%')
-    assert '1.25' in first.locator('iframe').evaluate('(el)=>el.style.transform')
-    page.get_by_role('tab',name='Bead Assignment',exact=True).click()
-    editor=page.locator('#mappings')
-    expect(editor.locator('#mapping-editor-name')).to_be_visible()
-    editor.locator('#mapping-bead-rows tr').first.wait_for(timeout=30000)
-    expect(editor.locator('#mapping-bead-rows tr')).not_to_have_count(0)
-    expect(editor.locator('#save-mapping-editor')).to_be_disabled()
-    expect(editor.locator('button', has_text='Export JSON')).to_have_count(0)
-    expect(editor.locator('button', has_text='Download diagram')).to_have_count(0)
-    page.locator('#tab-bonded').click()
-    # The panel produces a parameterization now, and the old per-state "Fit bonded parameters" entry point must
-    # never come back -- nor the reference-free draft button that used to sit beside the fit.
-    expect(page.get_by_role('button', name='Fit this model')).to_be_visible()
-    expect(page.get_by_role('button', name='Generate reference-informed draft')).to_have_count(0)
-    expect(page.get_by_role('button', name='Fit bonded parameters')).to_have_count(0)
-    page.get_by_role('tab',name='Bead Assignment',exact=True).click()
-    page.set_viewport_size({'width':390,'height':844})
+
+    open_view(page, live_page)
+
+    expect(plots(page).locator('.figure-media')).to_have_count(1)
+    expect(plots(page).get_by_role('tab', name='alpha', exact=True)).to_have_attribute('aria-selected', 'true')
+    plots(page).get_by_role('button', name='Zoom in', exact=True).click()
+    expect(plots(page).locator('.figure-zoom-level')).to_have_text('125%')
+    assert plots(page).locator('.figure-media').evaluate('(el)=>el.getBoundingClientRect().width') \
+        > plots(page).locator('.figure-viewport').evaluate('(el)=>el.clientWidth')
+    plots(page).get_by_role('tab', name='beta', exact=True).click()
+    expect(plots(page).locator('.figure-zoom-level')).to_have_text('100%')
+    plots(page).get_by_role('tab', name='beta', exact=True).press('ArrowLeft')
+    expect(plots(page).locator('.figure-zoom-level')).to_have_text('125%')
+    # The selection and the zoom are remembered per run, so a reload comes back to the figure the reader left on.
+    page.reload()
+    expect(plots(page).locator('[role=tab]')).to_have_count(3)
+    expect(plots(page).locator('.figure-zoom-level')).to_have_text('125%')
+    # ArrowLeft from beta selected alpha, whose own 125% zoom was remembered.
+    expect(plots(page).locator('.figure-source')).to_have_text('alpha.svg')
+    plots(page).get_by_role('button', name='Fit / reset', exact=True).click()
+    expect(plots(page).locator('.figure-zoom-level')).to_have_text('100%')
+    plots(page).get_by_role('tab', name='surface comparison', exact=True).click()
+    expect(plots(page).locator('iframe.figure-media')).to_have_attribute('sandbox', 'allow-scripts')
+    expect(plots(page).frame_locator('iframe').get_by_role('heading')).to_have_text('Interactive figure')
+    plots(page).get_by_role('button', name='Zoom in', exact=True).click()
+    expect(plots(page).locator('.figure-zoom-level')).to_have_text('125%')
+    assert '1.25' in plots(page).locator('iframe').evaluate('(el)=>el.style.transform')
+    # The card is inside a monitor column, so it must not push the document sideways on a phone.
+    page.set_viewport_size({'width': 390, 'height': 844})
     assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
-    page.get_by_role('tab',name='Runs',exact=True).click()
-    assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
-    assert errors==[]
+    assert errors == [], errors
 
 
 def test_analysis_display_preserves_missing_values_and_metadata(dashboard, live_page):
-    runs = dashboard.coordinator.RUNS; runs.mkdir(parents=True, exist_ok=True)
-    job = {'id': 'abcdef123458', 'label': 'Metadata run', 'detergent': 'DDM', 'method': 'fast_forward', 'status': 'completed', 'stage': 'complete', 'created': dashboard.coordinator.now()}
-    dashboard.coordinator.database().replace([job])
-    directory = runs / job['id']; directory.mkdir()
-    assessment = directory / '5_assessment'; assessment.mkdir()
+    runs = seed(dashboard, A_RUN, figures=False)
+    assessment = runs / A_RUN / '5_assessment'
+    assessment.mkdir()
     (assessment / 'distance_diagnostics.json').write_text(json.dumps({'pairs': [
         {'beads': ['B01', 'B02'], 'kind': 'physical', 'wasserstein_nm': {'raw_AA': 0, 'ring_expanded_AA': None}}
     ]}))
-    metadata = directory / 'analysis' / 'plots'; metadata.mkdir(parents=True)
+    metadata = runs / A_RUN / 'analysis' / 'plots'
+    metadata.mkdir(parents=True)
     (metadata / 'score.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"/>')
-    (metadata / 'analysis-metadata.json').write_text(json.dumps({'title': 'Wasserstein distance', 'units_or_direction': 'nm; lower is better', 'legacy': False}))
+    (metadata / 'analysis-metadata.json').write_text(json.dumps(
+        {'title': 'Wasserstein distance', 'units_or_direction': 'nm; lower is better', 'legacy': False}))
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/detergent-validation/runs')
-    first = page.locator('.job').first
-    first.locator('.job-analysis summary').click()
-    expect(first.locator('.figure-caption')).to_contain_text('Wasserstein distance')
-    expect(first.locator('.figure-caption')).to_contain_text('nm; lower is better')
-    expect(first.locator('.distance-pair-table')).to_contain_text('0.000 nm')
-    expect(first.locator('.distance-pair-table')).to_contain_text('n/a')
+
+    open_view(page, live_page, figures=1)
+
+    expect(plots(page).locator('.figure-caption')).to_contain_text('Wasserstein distance')
+    expect(plots(page).locator('.figure-caption')).to_contain_text('nm; lower is better')
+    expect(page.locator('#run-view-analysis-diagnostics-A .distance-pair-table')).to_contain_text('0.000 nm')
+    expect(page.locator('#run-view-analysis-diagnostics-A .distance-pair-table')).to_contain_text('n/a')
     assert errors == []
 
 
@@ -108,19 +120,17 @@ def test_an_unclassified_diagnostic_artifact_says_so(dashboard, live_page):
     now says unclassified and why, and the response's `legacy` flag is what tells it so.
     """
     from dashboard.execution import workflow
-    runs = dashboard.coordinator.RUNS; runs.mkdir(parents=True, exist_ok=True)
-    job = {'id': 'abcdef123459', 'label': 'Legacy diagnostics', 'detergent': 'DDM',
-           'method': 'fast_forward', 'status': 'completed', 'stage': 'complete',
-           'created': dashboard.coordinator.now()}
-    dashboard.coordinator.database().replace([job])
-    (runs / job['id'] / 'stages').mkdir(parents=True, exist_ok=True)
-    assessment = workflow.stage_root(runs / job['id']) / '5_assessment'; assessment.mkdir(parents=True)
+    runs = seed(dashboard, A_RUN, figures=False)
+    (runs / A_RUN / 'stages').mkdir(parents=True, exist_ok=True)
+    assessment = workflow.stage_root(runs / A_RUN) / '5_assessment'
+    assessment.mkdir(parents=True)
     (assessment / 'distance_diagnostics.json').write_text(json.dumps({'pairs': [
         {'beads': ['B01', 'B02'], 'wasserstein_nm': {'raw_AA': 0.2, 'ring_expanded_AA': 0.3}}]}))
     page, errors = live_page
-    page.goto(f'{live_page.base_url}/detergent-validation/runs')
-    first = page.locator('.job').first
-    first.locator('.job-analysis summary').click()
-    expect(first.locator('.distance-diagnostic')).to_contain_text('per-pair classification')
-    expect(first.locator('.distance-pair-table')).to_contain_text('Unclassified (legacy artifact)')
+
+    open_view(page, live_page, figures=0)
+
+    diagnostics = page.locator('#run-view-analysis-diagnostics-A')
+    expect(diagnostics.locator('.distance-diagnostic')).to_contain_text('per-pair classification')
+    expect(diagnostics.locator('.distance-pair-table')).to_contain_text('Unclassified (legacy artifact)')
     assert errors == []

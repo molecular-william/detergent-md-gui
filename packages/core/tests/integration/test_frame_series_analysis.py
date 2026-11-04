@@ -8,7 +8,10 @@ sampled. That the replacement itself is atomic is pinned by the worker test in `
 """
 import json
 
+import pytest
 from dashboard.analysis.runs import segments
+
+from tests.harness.support import cg_fixture_run
 
 JID = '123456abcdef'
 TRAJECTORY = 'stages/3_nvt/system.xtc'
@@ -188,6 +191,26 @@ def test_the_trajectory_endpoint_carries_each_segments_identity(dashboard):
     assert nvt['trajectory'] == TRAJECTORY
     assert nvt['identity'] == segments.identity(run / TRAJECTORY)
     assert all('identity' in entry for entry in body['segments'] if entry.get('trajectory'))
+    # The seeded trajectory is 200 bytes of text, so its header cannot be read: the endpoint says so rather than
+    # inventing a frame count, and the panel prints "not recorded".
+    assert all('frames' in entry and 'time_ns' in entry for entry in body['segments'])
+    assert nvt['frames'] is None and nvt['time_ns'] is None
+
+
+def test_the_trajectory_endpoint_states_a_segments_frames_and_span(dashboard, tmp_path):
+    """The readout's numbers: frame count from the header, span as the last frame's time minus the first."""
+    coordinator, run = seed(dashboard)
+    _root, trajectory, structure, _topology = cg_fixture_run(
+        tmp_path, ((0.1, 0.2, 0.3), (0.4, 0.5, 0.6), (1.0, 1.1, 1.2), (1.3, 1.4, 1.5)),
+        names=('B01', 'B02', 'B03', 'B04'), frames=3, frame_ps=100.0)
+    (run / TRAJECTORY).write_bytes(trajectory.read_bytes())
+    (run / STRUCTURE).write_text(structure.read_text())
+
+    body = dashboard.client.get(f'/api/jobs/{JID}/trajectory').get_json()
+
+    nvt = next(entry for entry in body['segments'] if entry['name'] == 'NVT equilibration')
+    assert nvt['frames'] == 3
+    assert nvt['time_ns'] == pytest.approx(0.2), 'three frames 100 ps apart span 0.2 ns, last minus first'
 
 
 def test_a_pbc_cluster_request_without_a_tpr_is_a_400_and_creates_no_task(dashboard, monkeypatch):
