@@ -368,8 +368,10 @@ The analysis subprocess reads a work directory holding only the patterns its kin
 
 The on-demand **trajectory overview** (`analysis/runs/trajectory_overview.py`) samples the run's latest playable
 segment -- at most 200 frames in one sequential pass -- and publishes a 2×3 figure and a JSON record: RMSD and radius
-of gyration of the protein (the detergent assembly when the run has none), the largest detergent aggregate under the
-run's `contact_nm`, and Temperature/Pressure/Potential read from the sibling EDR. Each panel keeps its raw samples
+of gyration of the protein (the largest detergent aggregate when the run has none), the largest detergent aggregate
+under the run's `contact_nm`, and Temperature/Pressure/Potential read from the sibling EDR. Every inter-molecular
+distance is minimum-image: `whole.xtc` keeps molecules whole but does not cluster the micelle, so raw distances across
+a box face would report one micelle as fragments. The record states the box and the PBC treatment. Each panel keeps its raw samples
 faint and thin under a thick opaque moving average (5% of the plotted points, 2–25 samples, stated in the legend and
 recorded under `smoothing` in the JSON). Its runs-card button posts `/api/jobs/<id>/trajectory-overview`; a run
 holding no trajectory is answered by the producer's own skip.

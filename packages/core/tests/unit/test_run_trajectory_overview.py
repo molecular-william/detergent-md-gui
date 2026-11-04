@@ -14,14 +14,15 @@ import pytest
 from dashboard.analysis.runs import trajectory_overview
 
 
-def write_run(root, *, frames=5, contact_nm=0.6):
+def write_run(root, *, frames=5, contact_nm=0.6, positions=None):
     stage = Path(root) / 'stages' / '08_extension' / 'prod'
     stage.mkdir(parents=True)
     universe = mda.Universe.empty(6, n_residues=3, atom_resindex=[0, 0, 1, 1, 2, 2], trajectory=True)
     universe.add_TopologyAttr('names', ['B01', 'B02'] * 3)
     universe.add_TopologyAttr('resnames', ['DDM', 'DDM', 'DDM'])
     universe.add_TopologyAttr('resids', [1, 2, 3])
-    positions = np.array([[0, 0, 0], [0.3, 0, 0], [0.1, 0.2, 0], [0.4, 0.2, 0], [50, 50, 50], [50.3, 50, 50]])
+    positions = np.array(positions if positions is not None else
+                         [[0, 0, 0], [0.3, 0, 0], [0.1, 0.2, 0], [0.4, 0.2, 0], [50, 50, 50], [50.3, 50, 50]])
     with mda.Writer(str(stage / 'run.xtc'), n_atoms=6) as writer:
         for frame in range(frames):
             universe.atoms.positions = positions + frame * 0.01
@@ -46,7 +47,7 @@ def test_the_overview_measures_the_segment_and_records_its_own_limits(tmp_path):
     assert result['largest_aggregate'] == 2, 'the two touching molecules are one aggregate'
     assert (tmp_path / 'trajectory-overview.png').is_file()
     record = json.loads((tmp_path / 'trajectory-overview.json').read_text())
-    assert record['subject'] == 'detergent assembly'
+    assert record['subject'] == 'largest detergent aggregate'
     assert record['frames_in_file'] == 5 and record['stride'] == 1
     assert record['aggregates']['largest_mean'] == 2
     assert record['aggregates']['count_mean'] == 2, 'two aggregates: the touching pair and the distant molecule'
@@ -55,7 +56,8 @@ def test_the_overview_measures_the_segment_and_records_its_own_limits(tmp_path):
     assert 'no .edr' in record['energy_absent']
     assert record['smoothing']['frames'] == trajectory_overview._window(5) == 2
     assert record['scientifically_validated'] is False
-    assert set(record['series']) == {'times_ns', 'rmsd_nm', 'gyration_nm', 'aggregate_largest', 'aggregates'}
+    assert set(record['series']) == {'times_ns', 'rmsd_nm', 'gyration_nm', 'aggregate_largest',
+                                     'aggregates', 'aggregate_free'}
 
 
 def test_the_contact_distance_is_read_from_the_run_settings(tmp_path):
@@ -100,3 +102,16 @@ def test_the_moving_average_uses_only_the_points_it_has_at_the_ends():
     assert averaged[0] == pytest.approx(5)
     assert averaged[1] == pytest.approx(10 / 3)
     assert averaged[3] == pytest.approx(5)
+
+
+def test_a_micelle_across_the_box_face_is_one_aggregate(tmp_path):
+    """The same two touching molecules, with one of them on the far face of a 10 nm box, are still one aggregate."""
+    write_run(tmp_path, positions=[[1, 2, 0], [3, 2, 0], [99, 2, 0], [97, 2, 0], [50, 90, 50], [50.3, 90, 50]])
+
+    trajectory_overview.run(tmp_path)
+
+    record = json.loads((tmp_path / 'trajectory-overview.json').read_text())
+    assert record['pbc']['treatment'].startswith('minimum image')
+    assert record['aggregates']['largest_mean'] == 2, 'the raw distance across the face is ~9.8 nm'
+    assert record['aggregates']['free_mean'] == 1
+    assert record['gyration_nm']['mean'] < 0.5, 'the aggregate is compact once its two halves are one image'

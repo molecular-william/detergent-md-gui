@@ -206,7 +206,11 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   Runs analysis toolbar gains a **Trajectory overview** button; a run with nothing to play answers `skipped` with
   the producer's reason. Each panel draws the raw samples at low alpha under a thick opaque moving average (5% of
   the plotted points, 2–25 samples), whose window is named in the legend and recorded under `smoothing`. Measured on `6c36b3c610f3` (900 ns, 92 DDM molecules): 28 s, largest aggregate 62.8 mean
-  (74.1 in the second half), Rg 3.9 nm, T 300.00 K / P 0.99 bar / potential -192,666 kJ/mol.
+  (74.1 in the second half), Rg 3.9 nm, T 300.00 K / P 0.99 bar / potential -192,666 kJ/mol. A minimum-image
+  follow-up on the same run corrected that first reading: the 1.7 GB `whole.xtc` is `-pbc mol -center` on the whole
+  system, not a clustered micelle, so the raw distances split one 92-molecule micelle into face fragments (largest
+  26–92, Rg 2.25–5.36 nm). With minimum-image distances and a fixed first-frame aggregate the answer is one
+  92-molecule aggregate at every sampled frame, free 0, Rg 2.13 nm (±0.005), 42 s.
 - **2026-11-03 Per-GPU run admission**: `Coordinator.admit_device` replaced the host-wide
   `max_concurrent_runs` counter at all four start sites (create, admit, resume/continue, waiting); the setting is now
   a per-device ceiling, so two runs on different `mdrun_gpu` devices start together. The refusal is "This GPU is

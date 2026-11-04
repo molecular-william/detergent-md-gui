@@ -1,9 +1,15 @@
 """The first look at a completed trajectory: RMSD, radius of gyration, aggregation and energy.
 
 One sequential pass over the run's latest playable segment, sampled to at most `MAX_FRAMES` frames. The questions are
-the ones a reader asks before any modelling claim: did the protein (or, in an empty micelle, the detergent assembly)
-stay where it started, how large is it, how many detergent molecules stay in one aggregate, and do the temperature,
-pressure and potential hold still.
+the ones a reader asks before any modelling claim: did the protein (or, in an empty micelle, the largest detergent
+aggregate) keep its shape, how large is it, how many detergent molecules stay in one aggregate, and do the
+temperature, pressure and potential hold still.
+
+Every inter-molecular distance is minimum-image. The run's `whole.xtc` makes molecules whole and centres the whole
+system, but it does not cluster the micelle; a micelle across a box face would otherwise read as two fragments and
+its radius of gyration would span two periodic images. Measured on a 9.4 nm box: the raw reading swung the largest
+aggregate between 26 and 92 molecules and Rg between 2.25 and 5.36 nm, while the minimum-image answer was one
+92-molecule aggregate with Rg 2.09-2.15 nm at every sampled frame.
 
 Nothing here decides whether a run is scientifically valid. The output is a figure, a JSON record of the series it
 drew, and a sentence saying what was measured and on how many sampled frames.
@@ -22,10 +28,9 @@ from .statistics import block_summary
 
 try:
     import MDAnalysis as mda
-    from MDAnalysis import transformations as mda_transforms
     from scipy.spatial.distance import cdist
 except ImportError:  # a trajectory overview needs a reader and a distance matrix; `run` refuses in its own words
-    mda = mda_transforms = cdist = None
+    mda = cdist = None
 
 #: The most frames one overview reads. A 900 ns CG leg writes 45,000 frames; sampling 200 of them keeps the pass
 #: short while still showing the shape of the series.
@@ -147,15 +152,26 @@ def _molecules(universe, protein):
     return groups
 
 
-def _aggregates(molecule_sizes, positions, threshold):
-    """The size of each connected aggregate of molecules, by the minimum distance between any two of their beads.
+def _minimum_image(delta, box):
+    """Fold a displacement into the periodic cell: the shortest vector between two equivalent positions."""
+    return delta - np.round(delta / box) * box
+
+
+def _aggregates(molecule_sizes, positions, threshold, box):
+    """The connected aggregates of molecules, by the minimum-image distance between any two of their beads.
 
     Two molecules belong to one aggregate when their closest beads are within `threshold` nanometres: the same
     contact distance the run's own placement uses (`contact_nm`), so the number means what the build meant by it.
+    The distances are minimum-image: `whole.xtc` keeps molecules whole but does not cluster the micelle, so a micelle
+    across a box face has its two halves on opposite faces of the same cell. A raw distance would call those halves
+    separate aggregates -- measured on a 9.4 nm box, that turned one 92-molecule micelle into fragments of 26, 25,
+    22 and 19. The box is the reader's responsibility; this function states it in its one argument.
     """
     offsets = np.cumsum([0, *molecule_sizes])
     labels = np.repeat(np.arange(len(molecule_sizes)), molecule_sizes)
-    distances = cdist(positions, positions)
+    delta = positions[:, None, :] - positions[None, :, :]
+    delta = _minimum_image(delta, box)
+    distances = np.sqrt((delta ** 2).sum(axis=-1))
     distances[labels[:, None] == labels[None, :]] = np.inf
     starts = offsets[:-1]
     nearest = np.minimum.reduceat(np.minimum.reduceat(distances, starts, axis=0), starts, axis=1)
@@ -174,11 +190,46 @@ def _aggregates(molecule_sizes, positions, threshold):
                 root, other = find(first), find(second)
                 if root != other:
                     parent[other] = root
-    sizes = {}
+    groups = {}
     for index in range(len(molecule_sizes)):
-        root = find(index)
-        sizes[root] = sizes.get(root, 0) + 1
-    return sorted(sizes.values(), reverse=True)
+        groups.setdefault(find(index), []).append(index)
+    return sorted(groups.values(), key=len, reverse=True)
+
+
+def _unwrap(positions, groups, box):
+    """Move whole molecules into one periodic image around their common centre, by minimum image.
+
+    `positions` is the full coordinate array in ångström and `groups` are the atom indices of the molecules to
+    bring together. Only the molecules of the aggregate are moved; their internal geometry is untouched.
+    """
+    moved = positions.copy()
+    centres = np.array([positions[group].mean(axis=0) for group in groups])
+    # Anchor on a real molecule, not on the mean of wrapped centres: a cluster split symmetrically about the box
+    # face has a mean in the middle, where both halves look local and neither is moved. The shift is a whole number
+    # of boxes towards the anchor; a cluster wider than half a box is not one image and would need a graph walk.
+    anchor = centres[0]
+    shifts = -np.round((centres - anchor) / box) * box
+    for group, shift in zip(groups, shifts):
+        moved[group] += shift
+    return moved
+
+
+def _radius_of_gyration(positions):
+    """Rg in nanometres from ångström coordinates already brought into one periodic image."""
+    return float(np.sqrt(((positions - positions.mean(axis=0)) ** 2).sum(axis=1).mean()) / 10.0)
+
+
+def _kabsch_rmsd(mobile, reference):
+    """RMSD in nanometres after the optimal rigid superposition: translation and rotation removed."""
+    mobile = np.asarray(mobile, dtype=float)
+    reference = np.asarray(reference, dtype=float)
+    centred_m = mobile - mobile.mean(axis=0)
+    centred_r = reference - reference.mean(axis=0)
+    left, _, right = np.linalg.svd(centred_m.T @ centred_r)
+    sign = np.sign(np.linalg.det(left @ right))
+    rotation = left @ np.diag([1.0, 1.0, sign]) @ right
+    fitted = centred_m @ rotation
+    return float(np.sqrt(((fitted - centred_r) ** 2).sum(axis=1).mean()) / 10.0)
 
 
 def _xvg_columns(path):
@@ -304,29 +355,34 @@ def run(work, payload=None):
     stride = max(1, math.ceil(frames / MAX_FRAMES))
     indices = list(range(0, frames, stride))
 
-    protein, label = _protein(universe, work)
-    if protein is None:
-        water = np.asarray([index for index, name in enumerate(universe.atoms.resnames)
-                            if str(name).strip().upper() in structures.WATER_RESIDUES], dtype=int)
-        selection = np.setdiff1d(np.arange(len(universe.atoms), dtype=int), water)
-        if not len(selection):
-            raise ValueError('this segment holds only solvent, so there is nothing to measure')
-        subject = 'detergent assembly'
-    else:
-        selection, subject = protein, 'protein'
-
-    mobile = universe.atoms[selection]
     universe.trajectory[indices[0]]
-    reference = mda.Merge(mobile)
-    reference.atoms.positions = mobile.positions.copy()
-    fit = mda_transforms.fit_rot_trans(mobile, reference.atoms)
-
+    box = np.asarray(universe.dimensions[:3], dtype=float)
+    protein, _ = _protein(universe, work)
     molecules = _molecules(universe, protein)
     molecule_sizes = [len(group) for group in molecules]
     detergent_atoms = np.concatenate(molecules) if molecules else np.array([], dtype=int)
     threshold = float((_manifest(work).get('settings') or {}).get('contact_nm') or 0.6)
 
-    times, rmsds, gyrations, largest, counts = [], [], [], [], []
+    # The subject is one thing: the protein, or -- in an empty micelle -- the aggregate the detergents form. The
+    # aggregate is chosen once, on the first sampled frame, and those molecules are tracked for the whole segment;
+    # aggregation itself is still measured on every detergent in every frame.
+    if protein is not None:
+        selection = protein
+        groups = [protein]
+        subject = 'protein'
+    else:
+        if not len(molecules):
+            raise ValueError('this segment holds no protein and no detergent, so there is nothing to measure')
+        first = _aggregates(molecule_sizes, universe.atoms.positions[detergent_atoms] / 10.0, threshold,
+                            box / 10.0)
+        if not first:
+            raise ValueError('this segment holds detergent molecules but no aggregate to measure')
+        groups = [molecules[index] for index in first[0]]
+        selection = np.concatenate(groups)
+        subject = 'largest detergent aggregate'
+
+    reference = _unwrap(universe.atoms.positions, groups, box)[selection]
+    times, rmsds, gyrations, largest, counts, free = [], [], [], [], [], []
     # One sequential pass, not random seeks: a compressed XTC seeks from its start for every random frame (measured
     # on a live 2.5 GB file: 1.7 s a frame), while the same frames read in order cost the whole file once.
     wanted = iter(indices)
@@ -335,24 +391,28 @@ def run(work, payload=None):
         if index != next_wanted:
             continue
         next_wanted = next(wanted, None)
-        fit(timestep)
         times.append(round(float(universe.trajectory.time) / 1000.0, 4))
-        # MDAnalysis states positions and radii in ångström; the record and the figure state nanometres, and the
-        # contact distance is the run's own nanometre setting. One conversion at the reading, not at every label.
-        deviation = mobile.positions - reference.atoms.positions
-        rmsds.append(round(float(np.sqrt((deviation ** 2).sum(axis=1).mean()) / 10.0), 6))
-        gyrations.append(round(float(mobile.radius_of_gyration() / 10.0), 6))
+        positions = universe.atoms.positions
+        box = np.asarray(universe.dimensions[:3], dtype=float)
+        # One periodic image for the subject's molecules before its shape is measured; MDAnalysis states positions
+        # in ångström, so every length leaves this block in nanometres.
+        subject_positions = _unwrap(positions, groups, box)[selection]
+        rmsds.append(round(_kabsch_rmsd(subject_positions, reference), 6))
+        gyrations.append(round(_radius_of_gyration(subject_positions), 6))
         if len(molecules):
-            sizes = _aggregates(molecule_sizes, universe.atoms.positions[detergent_atoms] / 10.0, threshold)
-            largest.append(sizes[0] if sizes else 0)
-            counts.append(len(sizes))
+            aggregates = _aggregates(molecule_sizes, positions[detergent_atoms] / 10.0, threshold,
+                                     box / 10.0)
+            largest.append(len(aggregates[0]) if aggregates else 0)
+            counts.append(len(aggregates))
+            free.append(len(molecules) - len(aggregates[0]) if aggregates else len(molecules))
         else:
             largest.append(0)
             counts.append(0)
+            free.append(0)
 
     energy, energy_reason = _energy(work, trajectory)
     series = {'times_ns': times, 'rmsd_nm': rmsds, 'gyration_nm': gyrations,
-              'aggregate_largest': largest, 'aggregates': counts}
+              'aggregate_largest': largest, 'aggregates': counts, 'aggregate_free': free}
     segment = _segment(work)
     labels_for_figure = {'segment': segment['name'] if segment else trajectory.stem,
                          'subject': subject,
@@ -376,12 +436,15 @@ def run(work, payload=None):
         'subject': subject,
         'molecules': len(molecules),
         'contact_nm': threshold,
+        'pbc': {'treatment': 'minimum image (molecules whole, micelle not clustered)',
+                'box_nm': [round(float(value) / 10.0, 3) for value in box]},
         'rmsd_nm': {'mean': round(float(np.mean(rmsds)), 6), 'se': block_summary(rmsds)['stderr'],
                     'second_half_mean': round(float(np.mean(rmsds[second_half:])), 6)},
         'gyration_nm': {'mean': round(float(np.mean(gyrations)), 6), 'se': block_summary(gyrations)['stderr'],
                         'second_half_mean': round(float(np.mean(gyrations[second_half:])), 6)},
         'aggregates': {'largest_mean': round(float(np.mean(largest)), 3) if largest else None,
                        'largest_second_half_mean': round(float(np.mean(largest[second_half:])), 3) if largest else None,
+                       'free_mean': round(float(np.mean(free)), 3) if free else None,
                        'count_mean': round(float(np.mean(counts)), 3) if counts else None},
         'energy': energy,
         'energy_absent': energy_reason,
@@ -390,8 +453,9 @@ def run(work, payload=None):
                       if energy and energy.get('terms') else None},
         'series': series,
         'scientifically_validated': False,
-        'note': ('A first-look record of one sampled segment; it measures the sampled frames and says nothing about '
-                 'convergence or model validity.'),
+        'note': ('A first-look record of one sampled segment. Distances are minimum-image; the radius of gyration is '
+                 'the subject\'s (the aggregate in an empty micelle), not every detergent in the box. It measures the '
+                 'sampled frames and says nothing about convergence or model validity.'),
     }
     files.atomic_json(work / 'trajectory-overview.json', record)
     return {'files': ['trajectory-overview.png', 'trajectory-overview.json'],
