@@ -34,6 +34,26 @@ MAX_FRAMES = 200
 ENERGY_TERMS = ('Temperature', 'Pressure', 'Potential')
 #: How many energy points the record keeps, so the JSON stays a summary rather than a second copy of the EDR.
 ENERGY_POINTS = 600
+#: The moving average drawn over the raw samples: a centred window of about this fraction of the plotted points,
+#: floored at two samples and capped so a long energy series keeps its shape instead of flattening to one line.
+SMOOTHING_FRACTION = 0.05
+
+
+def _window(length):
+    """The moving-average window for a series of `length` points."""
+    return max(2, min(25, round(length * SMOOTHING_FRACTION)))
+
+
+def _moving_average(values, window):
+    """A centred moving average, averaging only the points that exist at each end (never zero-padding them away)."""
+    values = np.asarray(list(values), dtype=float)
+    if values.size < 2:
+        return values.copy()
+    half = max(0, (max(1, min(int(window), values.size)) - 1) // 2)
+    cumulative = np.concatenate(([0.0], np.cumsum(values)))
+    return np.array([(cumulative[min(values.size, index + half + 1)] - cumulative[max(0, index - half)])
+                     / (min(values.size, index + half + 1) - max(0, index - half))
+                     for index in range(values.size)])
 
 
 def _manifest(work):
@@ -235,8 +255,14 @@ def _draw(path, series, labels, energy, reason):
     (rmsd_axis, gyration_axis, cluster_axis), (temperature_axis, pressure_axis, potential_axis) = axes
 
     def line(axis, times, values, colour, title, ylabel):
-        axis.plot(times, values, color=colour, linewidth=1.2)
+        # The raw samples stay visible at low alpha; the moving average is the line a reader reads. Both are the
+        # same data -- the window is stated in the legend -- so the picture never hides the points behind the trend.
+        window = _window(len(values))
+        axis.plot(times, values, color=colour, linewidth=0.8, alpha=.3, label='sampled')
+        axis.plot(times, _moving_average(values, window), color=colour, linewidth=2.2, alpha=1.0,
+                  label=f'moving average ({window} samples)')
         axis.set(title=title, xlabel='Time (ns)', ylabel=ylabel)
+        axis.legend(fontsize=7, frameon=False)
         axis.grid(alpha=.18)
 
     line(rmsd_axis, series['times_ns'], series['rmsd_nm'], '#2455b0',
@@ -244,23 +270,22 @@ def _draw(path, series, labels, energy, reason):
     line(gyration_axis, series['times_ns'], series['gyration_nm'], '#169186',
          f"Radius of gyration of the {labels['subject']}", 'Rg (nm)')
     if series['aggregate_largest']:
-        cluster_axis.plot(series['times_ns'], series['aggregate_largest'], color='#8a5a12', linewidth=1.2)
-        cluster_axis.set(title=f"Largest aggregate ({labels['detergent']} molecules)",
-                         xlabel='Time (ns)', ylabel='molecules')
+        line(cluster_axis, series['times_ns'], series['aggregate_largest'], '#8a5a12',
+             f"Largest aggregate ({labels['detergent']} molecules)", 'molecules')
     else:
         cluster_axis.text(.5, .5, 'no detergent molecules in this segment', ha='center', va='center')
-    cluster_axis.grid(alpha=.18)
+        cluster_axis.grid(alpha=.18)
 
     for axis, term, colour in ((temperature_axis, 'Temperature', '#b03a48'),
                                (pressure_axis, 'Pressure', '#6a4ea8'),
                                (potential_axis, 'Potential', '#2f6b3a')):
         entry = (energy or {}).get('terms', {}).get(term)
         if entry:
-            axis.plot([t / 1000 for t in entry['time_ps']], entry['values'], color=colour, linewidth=1.0)
-            axis.set(title=f"{term} · mean {entry['mean']:g}", xlabel='Time (ns)', ylabel=term)
+            line(axis, [t / 1000 for t in entry['time_ps']], entry['values'], colour,
+                 f"{term} · mean {entry['mean']:g}", term)
         else:
             axis.text(.5, .5, reason or 'not available', ha='center', va='center', wrap=True, fontsize=9)
-        axis.grid(alpha=.18)
+            axis.grid(alpha=.18)
 
     fig.suptitle(f"Trajectory overview · {labels['segment']}", fontsize=13)
     fig.savefig(path, dpi=150)
@@ -360,6 +385,9 @@ def run(work, payload=None):
                        'count_mean': round(float(np.mean(counts)), 3) if counts else None},
         'energy': energy,
         'energy_absent': energy_reason,
+        'smoothing': {'fraction': SMOOTHING_FRACTION, 'frames': _window(len(times)),
+                      'energy_samples': _window(len(next(iter(energy['terms'].values()))['values']))
+                      if energy and energy.get('terms') else None},
         'series': series,
         'scientifically_validated': False,
         'note': ('A first-look record of one sampled segment; it measures the sampled frames and says nothing about '

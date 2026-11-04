@@ -204,7 +204,8 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
   aggregate by the run's own `contact_nm`, and Temperature/Pressure/Potential from the sibling EDR. Energy columns
   are mapped by their XVG legend, because `gmx energy` writes them in the EDR's order, not the selection order. The
   Runs analysis toolbar gains a **Trajectory overview** button; a run with nothing to play answers `skipped` with
-  the producer's reason. Measured on `6c36b3c610f3` (900 ns, 92 DDM molecules): 28 s, largest aggregate 62.8 mean
+  the producer's reason. Each panel draws the raw samples at low alpha under a thick opaque moving average (5% of
+  the plotted points, 2–25 samples), whose window is named in the legend and recorded under `smoothing`. Measured on `6c36b3c610f3` (900 ns, 92 DDM molecules): 28 s, largest aggregate 62.8 mean
   (74.1 in the second half), Rg 3.9 nm, T 300.00 K / P 0.99 bar / potential -192,666 kJ/mol.
 - **2026-11-03 Per-GPU run admission**: `Coordinator.admit_device` replaced the host-wide
   `max_concurrent_runs` counter at all four start sites (create, admit, resume/continue, waiting); the setting is now

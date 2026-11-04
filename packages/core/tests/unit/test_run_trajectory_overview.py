@@ -53,6 +53,7 @@ def test_the_overview_measures_the_segment_and_records_its_own_limits(tmp_path):
     assert record['rmsd_nm']['mean'] < 1e-3, 'a rigid translation was not fitted away'
     assert record['energy'] is None
     assert 'no .edr' in record['energy_absent']
+    assert record['smoothing']['frames'] == trajectory_overview._window(5) == 2
     assert record['scientifically_validated'] is False
     assert set(record['series']) == {'times_ns', 'rmsd_nm', 'gyration_nm', 'aggregate_largest', 'aggregates'}
 
@@ -90,3 +91,12 @@ def test_energy_columns_are_mapped_by_their_legend(tmp_path, monkeypatch):
     assert terms['Pressure']['mean'] == 1.0
     assert terms['Potential']['mean'] == pytest.approx(-190500.0)
     assert terms['Temperature']['values'] == [299.5, 300.5], 'the legend, not the first data column'
+
+
+def test_the_moving_average_uses_only_the_points_it_has_at_the_ends():
+    """A centred window at an edge averages the points that exist, never padding the ends with zero."""
+    assert list(trajectory_overview._moving_average([2, 2, 2, 2], 3)) == pytest.approx([2, 2, 2, 2])
+    averaged = trajectory_overview._moving_average([0, 10, 0, 10], 3)
+    assert averaged[0] == pytest.approx(5)
+    assert averaged[1] == pytest.approx(10 / 3)
+    assert averaged[3] == pytest.approx(5)
