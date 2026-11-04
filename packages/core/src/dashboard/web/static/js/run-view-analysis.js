@@ -166,12 +166,16 @@ export function createAnalysis({root, side}) {
 
   async function queue(path, body, sentence) {
     if (!job) return;
+    const mine = token;
     let text;
     try { text = sentence(await post(path, body)); }
-    catch (error) { setNote(error.message); return; }
+    catch (error) { if (mine === token) setNote(error.message); return; }
+    await reload({fresh: true});
+    // A reader who switched runs while the request was in flight gets no sentence about the run they left: the token
+    // is bumped by every `setRun`, and a delayed answer writing onto the new run's card names the wrong run.
+    if (mine !== token) return;
     // The sentence is written after the refresh the queue caused: the refresh's own answer (a figure count, the task
     // list) is a state, and the sentence about what was just queued is the news, so the news wins for that turn.
-    await reload({fresh: true});
     setNote(text);
   }
 
