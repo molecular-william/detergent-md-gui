@@ -198,6 +198,14 @@ Live checks use `b920391735dd` (the empty micelle, 100 ns) or a fixture. **`00b9
 
 ## Landed slices, newest first
 
+- **2026-11-04 Trajectory overview**: a new on-demand analysis kind, `trajectory-overview`, samples the run's latest
+  playable segment (at most 200 frames, one sequential pass) and publishes a 2×3 PNG plus a JSON record: RMSD and
+  radius of gyration of the protein -- or of the detergent assembly in an empty micelle -- the largest detergent
+  aggregate by the run's own `contact_nm`, and Temperature/Pressure/Potential from the sibling EDR. Energy columns
+  are mapped by their XVG legend, because `gmx energy` writes them in the EDR's order, not the selection order. The
+  Runs analysis toolbar gains a **Trajectory overview** button; a run with nothing to play answers `skipped` with
+  the producer's reason. Measured on `6c36b3c610f3` (900 ns, 92 DDM molecules): 28 s, largest aggregate 62.8 mean
+  (74.1 in the second half), Rg 3.9 nm, T 300.00 K / P 0.99 bar / potential -192,666 kJ/mol.
 - **2026-11-03 Per-GPU run admission**: `Coordinator.admit_device` replaced the host-wide
   `max_concurrent_runs` counter at all four start sites (create, admit, resume/continue, waiting); the setting is now
   a per-device ceiling, so two runs on different `mdrun_gpu` devices start together. The refusal is "This GPU is

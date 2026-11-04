@@ -252,6 +252,22 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
             finally { recompute.disabled = false; }
           };
         }
+        // A first look at the trajectory a completed run wrote: queued on demand, because it samples the trajectory
+        // and costs a pass over it. A run with nothing to play answers `skipped` with the producer's own reason.
+        const overview = $('.analysis-overview',card);
+        if (overview && !overview.dataset.bound) {
+          overview.dataset.bound = '1';
+          overview.onclick = async () => {
+            overview.disabled = true;
+            try {
+              await post(`/api/jobs/${job.id}/trajectory-overview`, {});
+              notice('Trajectory overview queued');
+              await refreshJobs();
+            } catch (error) { notice(error.message); }
+            finally { overview.disabled = false; }
+          };
+        }
+        if (overview) overview.hidden = !['completed','failed','cancelled'].includes(job.status);
         for (const task of job.analyses || []) {
           const row = document.createElement('p'); row.textContent = `${task.kind} · ${task.status} · ${task.progress || task.error || ''}`;
           if (['queued','running','cancelling'].includes(task.status)) {

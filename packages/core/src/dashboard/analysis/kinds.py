@@ -14,7 +14,7 @@ place rather than because someone remembered four.
 from dataclasses import dataclass
 from typing import Callable
 
-from .runs import bartender_fit, bonded_estimate, dihedral_fit, frame_series, observability
+from .runs import bartender_fit, bonded_estimate, dihedral_fit, frame_series, observability, trajectory_overview
 
 
 def sources_only(function: Callable) -> Callable:
@@ -171,6 +171,16 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         "establish convergence.",
         "nm and ns; frames sampled over the trajectory's own time",
         source_hook=frame_series.sources, stable_directory='analyses/frame-series'),
+    # On demand: the first look at a completed trajectory. It samples one segment, so it is queued by a person
+    # rather than owed by every run; the source hook picks the run's latest playable segment and stages exactly it.
+    Kind(
+        'trajectory-overview',
+        (),
+        trajectory_overview.run,
+        "Trajectory overview",
+        "A first look at one segment: RMSD, radius of gyration, the largest detergent aggregate, and energy.",
+        "nm and ns; the sampled series and their block-averaged means",
+        source_hook=trajectory_overview.sources),
 )}
 
 

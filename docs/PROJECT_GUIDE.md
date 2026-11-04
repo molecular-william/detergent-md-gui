@@ -366,6 +366,12 @@ bonds ]`/`[ constraints ]` written as CONECT (the topology located by
 
 The analysis subprocess reads a work directory holding only the patterns its kind declares (`kinds.py`), so a role the layout can resolve is still invisible there until the kind copies the files. A kind whose sources its request decides declares `Kind.source_hook` instead: `frame-series` stages the chosen trajectory and structure plus the writer's topology/mapping inputs, and the queue hashes them, so changed bytes are a new signature rather than a stale series. A kind that keeps one published series per run declares `Kind.stable_directory` instead (`frame-series`: `analyses/frame-series`): the coordinator gives it one record and that directory, a build replaces the pair in place through `files.atomic_copy` with `frames.json` last, and a failed build leaves the previous pair untouched.
 
+The on-demand **trajectory overview** (`analysis/runs/trajectory_overview.py`) samples the run's latest playable
+segment -- at most 200 frames in one sequential pass -- and publishes a 2×3 figure and a JSON record: RMSD and radius
+of gyration of the protein (the detergent assembly when the run has none), the largest detergent aggregate under the
+run's `contact_nm`, and Temperature/Pressure/Potential read from the sibling EDR. Its runs-card button posts
+`/api/jobs/<id>/trajectory-overview`; a run holding no trajectory is answered by the producer's own skip.
+
 Analysis graphs expand inline: ff_assess PNG plots and a Plot SASA action that generates an image from measured AA/CG XVG data. Original XVG data are preserved; SVG artifacts remain previewable. Reads use byte offsets and bounded chunks; the display keeps up to 256 KB.
 
 ### Console

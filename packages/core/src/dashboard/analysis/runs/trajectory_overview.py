@@ -1,0 +1,372 @@
+"""The first look at a completed trajectory: RMSD, radius of gyration, aggregation and energy.
+
+One sequential pass over the run's latest playable segment, sampled to at most `MAX_FRAMES` frames. The questions are
+the ones a reader asks before any modelling claim: did the protein (or, in an empty micelle, the detergent assembly)
+stay where it started, how large is it, how many detergent molecules stay in one aggregate, and do the temperature,
+pressure and potential hold still.
+
+Nothing here decides whether a run is scientifically valid. The output is a figure, a JSON record of the series it
+drew, and a sentence saying what was measured and on how many sampled frames.
+"""
+import json
+import math
+import subprocess
+from pathlib import Path
+
+import numpy as np
+
+from ... import features, files
+from ...execution import tools
+from . import frame_series, segments, structures
+from .statistics import block_summary
+
+try:
+    import MDAnalysis as mda
+    from MDAnalysis import transformations as mda_transforms
+    from scipy.spatial.distance import cdist
+except ImportError:  # a trajectory overview needs a reader and a distance matrix; `run` refuses in its own words
+    mda = mda_transforms = cdist = None
+
+#: The most frames one overview reads. A 900 ns CG leg writes 45,000 frames; sampling 200 of them keeps the pass
+#: short while still showing the shape of the series.
+MAX_FRAMES = 200
+#: The `gmx energy` terms the figure draws, in the order the XVG columns appear.
+ENERGY_TERMS = ('Temperature', 'Pressure', 'Potential')
+#: How many energy points the record keeps, so the JSON stays a summary rather than a second copy of the EDR.
+ENERGY_POINTS = 600
+
+
+def _manifest(work):
+    """The run's manifest, or `{}`: a missing record is a state, not a reason to refuse the overview."""
+    try:
+        data = json.loads((Path(work) / 'manifest.json').read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _run_type(work):
+    return _manifest(work).get('run_type')
+
+
+def _segment(run_dir):
+    """The latest playable segment of the run, or `None` when it offers no trajectory."""
+    answer = segments.segments(Path(run_dir), _run_type(run_dir))
+    playable = [entry for entry in answer.get('segments', [])
+                if entry.get('trajectory') and not entry.get('duplicate_of')]
+    return playable[-1] if playable else None
+
+
+def sources(run_dir, payload=None):
+    """Stage the latest segment's trajectory, structure and its energy file; nothing else from the run.
+
+    The producer finds the pair again by scanning the staged tree, so the hook and the producer cannot disagree
+    about *which* segment this overview describes without disagreeing about the run itself: the staged tree holds
+    exactly the one trajectory the hook chose.
+    """
+    run_dir = Path(run_dir)
+    chosen = _segment(run_dir)
+    if chosen is None:
+        return {}
+    entries = frame_series.sources(run_dir, {'trajectory': chosen['trajectory'],
+                                             'structure': chosen['structure']})
+    trajectory = segments.present(run_dir, chosen['trajectory'])
+    if trajectory is not None:
+        directory = trajectory.parent
+        for name in (f'{trajectory.stem}.edr', 'run.edr'):
+            edr = directory / name
+            if edr.is_file():
+                entries[str(edr.relative_to(run_dir))] = edr
+                break
+    return entries
+
+
+def _chosen(work):
+    """The staged trajectory this overview reads: the largest `.xtc`, with its sibling structure."""
+    trajectory = max((path for path in Path(work).rglob('*.xtc') if path.is_file()),
+                     key=lambda path: (path.stat().st_size, str(path)))
+    directory = trajectory.parent
+    structures_found = sorted(path for path in directory.glob('*.gro') if path.is_file())
+    if not structures_found:
+        raise ValueError(f'the run stages no structure beside {trajectory.name}, so its atoms cannot be read')
+    preferred = [path for path in structures_found if path.name in ('run.gro', 'system.gro')]
+    return trajectory, (preferred or structures_found)[0]
+
+
+def _protein(universe, work):
+    """The protein's atom indices: the moleculetypes' own count, else MDAnalysis' protein selection."""
+    try:
+        topologies = features.protein_topologies(work) or []
+    except (OSError, ValueError):
+        topologies = []
+    leading = sum(len(row.get('atoms') or ()) for row in topologies)
+    if topologies and 0 < leading <= len(universe.atoms):
+        return np.arange(leading, dtype=int), 'protein'
+    try:
+        selected = universe.select_atoms('protein')
+    except (AttributeError, ValueError):
+        selected = None
+    if selected is not None and len(selected):
+        return np.asarray(selected.indices, dtype=int), 'protein'
+    return None, None
+
+
+def _molecules(universe, protein):
+    """Every non-water residue outside the protein, one array of atom indices each, in file order."""
+    water = structures.WATER_RESIDUES
+    protein = set(int(index) for index in (protein if protein is not None else ()))
+    groups = []
+    for residue in universe.residues:
+        name = str(residue.resname).strip().upper()
+        if name in water:
+            continue
+        indices = np.asarray(residue.atoms.indices, dtype=int)
+        if len(protein) and all(int(index) in protein for index in indices):
+            continue
+        groups.append(indices)
+    return groups
+
+
+def _aggregates(molecule_sizes, positions, threshold):
+    """The size of each connected aggregate of molecules, by the minimum distance between any two of their beads.
+
+    Two molecules belong to one aggregate when their closest beads are within `threshold` nanometres: the same
+    contact distance the run's own placement uses (`contact_nm`), so the number means what the build meant by it.
+    """
+    offsets = np.cumsum([0, *molecule_sizes])
+    labels = np.repeat(np.arange(len(molecule_sizes)), molecule_sizes)
+    distances = cdist(positions, positions)
+    distances[labels[:, None] == labels[None, :]] = np.inf
+    starts = offsets[:-1]
+    nearest = np.minimum.reduceat(np.minimum.reduceat(distances, starts, axis=0), starts, axis=1)
+
+    parent = list(range(len(molecule_sizes)))
+
+    def find(index):
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    for first in range(len(molecule_sizes)):
+        for second in range(first + 1, len(molecule_sizes)):
+            if nearest[first, second] <= threshold:
+                root, other = find(first), find(second)
+                if root != other:
+                    parent[other] = root
+    sizes = {}
+    for index in range(len(molecule_sizes)):
+        root = find(index)
+        sizes[root] = sizes.get(root, 0) + 1
+    return sorted(sizes.values(), reverse=True)
+
+
+def _xvg_columns(path):
+    """One XVG file's data rows and the legend each column carries.
+
+    `gmx energy` writes its columns in the energy file's own term order, not in the order they were selected -- a
+    request for Temperature, Pressure, Potential came back as Potential, Temperature, Pressure -- so a reader that
+    trusted the request order would label every curve with the term next to it.
+    """
+    labels, rows = [], []
+    for line in Path(path).read_text().splitlines():
+        line = line.strip()
+        if line.startswith('@ s') and 'legend' in line:
+            labels.append(line.split('legend', 1)[1].strip().strip('"'))
+            continue
+        if not line or line.startswith(('#', '@')):
+            continue
+        try:
+            values = [float(value) for value in line.split()]
+        except ValueError:
+            continue
+        if len(values) >= 2:
+            rows.append(values)
+    return labels, rows
+
+
+def _energy(work, trajectory):
+    """Temperature, pressure and potential from the sibling EDR, or None with the reason it is absent."""
+    directory = trajectory.parent
+    candidates = [directory / f'{trajectory.stem}.edr', directory / 'run.edr',
+                  *sorted(directory.glob('*.edr'))]
+    edr = next((path for path in candidates if path.is_file()), None)
+    if edr is None:
+        return None, 'no .edr is staged beside the trajectory'
+    gmx = tools.tool_path('gmx')
+    if gmx is None:
+        return None, 'gmx is not available, so the .edr cannot be read'
+    output = Path(work) / '.trajectory-overview-energy.xvg'
+    try:
+        done = subprocess.run([gmx, 'energy', '-f', str(edr), '-o', str(output)],
+                              input='\n'.join([*ENERGY_TERMS, '0', '']), capture_output=True, text=True)
+        if done.returncode != 0 or not output.is_file():
+            return None, f'gmx energy refused the .edr: {(done.stdout + done.stderr).strip().splitlines()[-1:]}'
+        labels, rows = _xvg_columns(output)
+    finally:
+        output.unlink(missing_ok=True)
+    if not rows:
+        return None, 'gmx energy wrote no data'
+    times = [row[0] for row in rows]
+    step = max(1, math.ceil(len(rows) / ENERGY_POINTS))
+    series = {}
+    for term in ENERGY_TERMS:
+        if term not in labels:
+            continue
+        index = labels.index(term) + 1
+        values = [row[index] for row in rows]
+        summary = block_summary(values)
+        series[term] = {'mean': round(float(np.mean(values)), 6),
+                        'se': round(float(summary.get('stderr') or 0.0), 6),
+                        'time_ps': [round(times[position], 4) for position in range(0, len(values), step)],
+                        'values': [round(values[position], 6) for position in range(0, len(values), step)]}
+    if not series:
+        return None, f'gmx energy wrote no {", ".join(ENERGY_TERMS)} column'
+    return {'source': edr.name, 'terms': series}, None
+
+
+def _draw(path, series, labels, energy, reason):
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    fig = Figure(figsize=(14, 8), layout='constrained')
+    FigureCanvasAgg(fig)
+    axes = fig.subplots(2, 3)
+    (rmsd_axis, gyration_axis, cluster_axis), (temperature_axis, pressure_axis, potential_axis) = axes
+
+    def line(axis, times, values, colour, title, ylabel):
+        axis.plot(times, values, color=colour, linewidth=1.2)
+        axis.set(title=title, xlabel='Time (ns)', ylabel=ylabel)
+        axis.grid(alpha=.18)
+
+    line(rmsd_axis, series['times_ns'], series['rmsd_nm'], '#2455b0',
+         f"RMSD of the {labels['subject']} (fit on it)", 'RMSD (nm)')
+    line(gyration_axis, series['times_ns'], series['gyration_nm'], '#169186',
+         f"Radius of gyration of the {labels['subject']}", 'Rg (nm)')
+    if series['aggregate_largest']:
+        cluster_axis.plot(series['times_ns'], series['aggregate_largest'], color='#8a5a12', linewidth=1.2)
+        cluster_axis.set(title=f"Largest aggregate ({labels['detergent']} molecules)",
+                         xlabel='Time (ns)', ylabel='molecules')
+    else:
+        cluster_axis.text(.5, .5, 'no detergent molecules in this segment', ha='center', va='center')
+    cluster_axis.grid(alpha=.18)
+
+    for axis, term, colour in ((temperature_axis, 'Temperature', '#b03a48'),
+                               (pressure_axis, 'Pressure', '#6a4ea8'),
+                               (potential_axis, 'Potential', '#2f6b3a')):
+        entry = (energy or {}).get('terms', {}).get(term)
+        if entry:
+            axis.plot([t / 1000 for t in entry['time_ps']], entry['values'], color=colour, linewidth=1.0)
+            axis.set(title=f"{term} · mean {entry['mean']:g}", xlabel='Time (ns)', ylabel=term)
+        else:
+            axis.text(.5, .5, reason or 'not available', ha='center', va='center', wrap=True, fontsize=9)
+        axis.grid(alpha=.18)
+
+    fig.suptitle(f"Trajectory overview · {labels['segment']}", fontsize=13)
+    fig.savefig(path, dpi=150)
+
+
+def run(work, payload=None):
+    """Measure one run's latest segment and write `trajectory-overview.png` and `.json`."""
+    if mda is None or cdist is None:
+        raise RuntimeError('MDAnalysis and scipy are required for a trajectory overview')
+    work = Path(work)
+    trajectory, structure = _chosen(work)
+    universe = mda.Universe(str(structure), str(trajectory))
+    frames = len(universe.trajectory)
+    if frames < 1:
+        raise ValueError(f'{trajectory.name} holds no frames')
+    stride = max(1, math.ceil(frames / MAX_FRAMES))
+    indices = list(range(0, frames, stride))
+
+    protein, label = _protein(universe, work)
+    if protein is None:
+        water = np.asarray([index for index, name in enumerate(universe.atoms.resnames)
+                            if str(name).strip().upper() in structures.WATER_RESIDUES], dtype=int)
+        selection = np.setdiff1d(np.arange(len(universe.atoms), dtype=int), water)
+        if not len(selection):
+            raise ValueError('this segment holds only solvent, so there is nothing to measure')
+        subject = 'detergent assembly'
+    else:
+        selection, subject = protein, 'protein'
+
+    mobile = universe.atoms[selection]
+    universe.trajectory[indices[0]]
+    reference = mda.Merge(mobile)
+    reference.atoms.positions = mobile.positions.copy()
+    fit = mda_transforms.fit_rot_trans(mobile, reference.atoms)
+
+    molecules = _molecules(universe, protein)
+    molecule_sizes = [len(group) for group in molecules]
+    detergent_atoms = np.concatenate(molecules) if molecules else np.array([], dtype=int)
+    threshold = float((_manifest(work).get('settings') or {}).get('contact_nm') or 0.6)
+
+    times, rmsds, gyrations, largest, counts = [], [], [], [], []
+    # One sequential pass, not random seeks: a compressed XTC seeks from its start for every random frame (measured
+    # on a live 2.5 GB file: 1.7 s a frame), while the same frames read in order cost the whole file once.
+    wanted = iter(indices)
+    next_wanted = next(wanted, None)
+    for index, timestep in enumerate(universe.trajectory[indices[0]:indices[-1] + 1], start=indices[0]):
+        if index != next_wanted:
+            continue
+        next_wanted = next(wanted, None)
+        fit(timestep)
+        times.append(round(float(universe.trajectory.time) / 1000.0, 4))
+        # MDAnalysis states positions and radii in ångström; the record and the figure state nanometres, and the
+        # contact distance is the run's own nanometre setting. One conversion at the reading, not at every label.
+        deviation = mobile.positions - reference.atoms.positions
+        rmsds.append(round(float(np.sqrt((deviation ** 2).sum(axis=1).mean()) / 10.0), 6))
+        gyrations.append(round(float(mobile.radius_of_gyration() / 10.0), 6))
+        if len(molecules):
+            sizes = _aggregates(molecule_sizes, universe.atoms.positions[detergent_atoms] / 10.0, threshold)
+            largest.append(sizes[0] if sizes else 0)
+            counts.append(len(sizes))
+        else:
+            largest.append(0)
+            counts.append(0)
+
+    energy, energy_reason = _energy(work, trajectory)
+    series = {'times_ns': times, 'rmsd_nm': rmsds, 'gyration_nm': gyrations,
+              'aggregate_largest': largest, 'aggregates': counts}
+    segment = _segment(work)
+    labels_for_figure = {'segment': segment['name'] if segment else trajectory.stem,
+                         'subject': subject,
+                         'detergent': _manifest(work).get('detergent')
+                                      or next((str(universe.residues[index].resname)
+                                               for index in range(len(universe.residues))
+                                               if str(universe.residues[index].resname).strip().upper()
+                                               not in structures.WATER_RESIDUES), 'detergent')}
+    figure = work / 'trajectory-overview.png'
+    _draw(figure, series, labels_for_figure, energy,
+          (energy_reason if energy is None else '') or 'not available')
+
+    second_half = len(times) // 2
+    record = {
+        'segment': labels_for_figure['segment'],
+        'trajectory': str(trajectory.relative_to(work)),
+        'structure': str(structure.relative_to(work)),
+        'frames_sampled': len(indices),
+        'frames_in_file': frames,
+        'stride': stride,
+        'subject': subject,
+        'molecules': len(molecules),
+        'contact_nm': threshold,
+        'rmsd_nm': {'mean': round(float(np.mean(rmsds)), 6), 'se': block_summary(rmsds)['stderr'],
+                    'second_half_mean': round(float(np.mean(rmsds[second_half:])), 6)},
+        'gyration_nm': {'mean': round(float(np.mean(gyrations)), 6), 'se': block_summary(gyrations)['stderr'],
+                        'second_half_mean': round(float(np.mean(gyrations[second_half:])), 6)},
+        'aggregates': {'largest_mean': round(float(np.mean(largest)), 3) if largest else None,
+                       'largest_second_half_mean': round(float(np.mean(largest[second_half:])), 3) if largest else None,
+                       'count_mean': round(float(np.mean(counts)), 3) if counts else None},
+        'energy': energy,
+        'energy_absent': energy_reason,
+        'series': series,
+        'scientifically_validated': False,
+        'note': ('A first-look record of one sampled segment; it measures the sampled frames and says nothing about '
+                 'convergence or model validity.'),
+    }
+    files.atomic_json(work / 'trajectory-overview.json', record)
+    return {'files': ['trajectory-overview.png', 'trajectory-overview.json'],
+            'figure': 'trajectory-overview.png', 'frames': len(indices), 'molecules': len(molecules),
+            'rmsd_nm': record['rmsd_nm']['mean'], 'gyration_nm': record['gyration_nm']['mean'],
+            'largest_aggregate': record['aggregates']['largest_mean']}

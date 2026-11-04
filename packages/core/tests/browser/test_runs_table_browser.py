@@ -1,4 +1,6 @@
 """Runs layout and inline resources, against an isolated dashboard database."""
+import re
+
 from dashboard import files
 from playwright.sync_api import expect
 
@@ -238,4 +240,36 @@ def test_a_skipped_stage_shows_why_it_had_nothing_to_do(dashboard, live_page):
     expect(step.locator('.timeline-dot')).to_have_text('–')
     assert reason in step.get_attribute('aria-label'), step.get_attribute('aria-label')
     assert reason in step.get_attribute('title')
+    assert errors == [], errors
+
+
+def test_the_analysis_toolbar_queues_a_trajectory_overview(dashboard, live_page):
+    """The overview is on demand: one button in the analysis toolbar, one POST, and the notice says it queued."""
+    runs = dashboard.coordinator.RUNS
+    job_id = '00000000000d'
+    dashboard.coordinator.database().replace([{
+        'id': job_id, 'label': 'Overview candidate', 'detergent': 'DDM', 'method': 'fast_forward',
+        'status': 'completed', 'stage': 'complete', 'created': '2026-09-16T10:00:00+00:00',
+        'started_at': '2026-09-16T10:00:00+00:00', 'layout_version': 2, 'run_type': 'pdc'}])
+    directory = runs / job_id
+    (directory / 'logs').mkdir(parents=True)
+    files.atomic_json(directory / 'manifest.json',
+                      {'stage_plan': ['CG simulation'], 'stages': [{'name': 'CG simulation', 'status': 'completed'}]})
+
+    page, errors = live_page
+    posted = []
+    page.route(re.compile(rf'/api/jobs/{job_id}/trajectory-overview$'),
+               lambda route: (posted.append(route.request.post_data),
+                              route.fulfill(status=202, json={'id': 'task', 'kind': 'trajectory-overview',
+                                                              'status': 'queued'})))
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
+
+    card = page.locator(f'.job[data-id="{job_id}"]')
+    card.locator('.job-analysis > summary').click()
+    button = card.locator('.analysis-overview')
+    expect(button).to_be_visible()
+    button.click()
+
+    expect(page.locator('#notice')).to_contain_text('Trajectory overview queued')
+    assert posted == ['{}'], posted
     assert errors == [], errors
