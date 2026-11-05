@@ -8,7 +8,8 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 The remaining ponytail-audit groups are in `docs/plans/2026-11-05-ponytail-audit-remainder.md`: B's three safe
 endpoints are gone and `/api/mappings/review` + `/api/evidence/evaluate` were kept by the user's choice; E is
-live-path consolidation, F is the review-store fallout.
+live-path consolidation (only the safe rotation merge landed; the box, skip-wording and MDP-oracle merges are
+behaviour changes), F is the review-store fallout.
 The 2026-11-04 analysis-graph request is implemented (see *Landed slices*). The open items table below is the queue.
 
 The dashboard was restarted on 2026-11-04 at 13:56 for the Python half (the trajectory header reader). Live checks:
@@ -196,6 +197,12 @@ history, not a live run.
   caught / 1 survived. `pytest.ini` owns tier counts; do not copy moving counts into this file.
 
 ## Landed slices, newest first
+
+- **2026-11-05 Audit group E, the safe rotation merge**: `pdc_build`'s private `_rotation` is gone; the build stamps
+  through `pdc_placement.alignment` (now public), the one copy of the map the placement gate also uses. The other E
+  items are not landed: merging the preview's box rule changes preview behaviour, the `planned_skips`/adapter merge
+  changes UI wording, and rewriting the MDP parity oracles into literal expected maps is a test-authoring change
+  rather than a deletion. Checks: fast 2392 passed + 1 xfailed, browser 282 passed, slow 25 passed.
 
 - **2026-11-05 Audit group B, the safe endpoint trim**: `/api/migration/inventory`,
   `/api/migration/delete-obsolete`, the duplicate `GET /api/compositions` and

@@ -17,7 +17,7 @@ from pathlib import Path
 import detergent_pdc
 import numpy as np
 import pytest
-from detergent_pdc.execution.adapters import pdc
+from detergent_pdc.execution.adapters import pdc, pdc_placement
 from detergent_pdc.execution.scripts import pdc_build
 
 from tests.harness.pdc_fixtures import candidate_file, system_stage, write_cg_pdb
@@ -231,7 +231,7 @@ def test_a_library_entry_is_stamped_head_on_the_site_and_turned_by_its_azimuth()
     assert [atom['residue_id'] for atom in atoms] == [11, 11, 12, 12], 'one residue per molecule, after the protein'
     assert all(atom['residue'] == 'DDM' for atom in atoms)
     for index, (centre, direction, twist) in enumerate(zip(centres, directions, twists)):
-        rotation = pdc_build._rotation(np.array([0.0, 0.0, 1.0]), np.asarray(direction, dtype=float))
+        rotation = pdc_placement.alignment(np.array([0.0, 0.0, 1.0]), np.asarray(direction, dtype=float))
         about_z = np.array([[np.cos(twist), -np.sin(twist), 0.0],
                             [np.sin(twist), np.cos(twist), 0.0], [0.0, 0.0, 1.0]])
         expected = np.asarray(centre) + (rotation @ about_z @ entry.T).T
@@ -378,7 +378,7 @@ def test_the_build_stamps_the_librarys_drawn_entries(tmp_path, monkeypatch):
         twist = record['twists'][index]
         about_z = np.array([[np.cos(twist), -np.sin(twist), 0.0],
                             [np.sin(twist), np.cos(twist), 0.0], [0.0, 0.0, 1.0]])
-        rotation = pdc_build._rotation(np.array([0.0, 0.0, 1.0]), direction)
+        rotation = pdc_placement.alignment(np.array([0.0, 0.0, 1.0]), direction)
         assert np.allclose(tail, head + rotation @ about_z @ entry[0], atol=2e-3), \
             'the drawn body and its azimuth are the coordinates the build writes'
 

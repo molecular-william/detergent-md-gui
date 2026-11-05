@@ -144,7 +144,7 @@ def stamp(draft: dict, centres, directions, *, first_residue: int = 900, entries
 
     `entries` and `twists` are a conformation library's draw: one `(n, 3)` array of head-anchored, +z offsets and one
     azimuth per molecule, in site order. A bead then lands at `centre + R @ Rz(twist) @ bead`, with `R` this module's
-    `_rotation(+z, direction)`: the site is still the head anchor, the names and residue numbers are still the
+    `alignment(+z, direction)`: the site is still the head anchor, the names and residue numbers are still the
     topology's, and only the body's shape and its azimuth come from the library. Both must be given or neither, and
     an entry whose bead count differs from `draft['beads']` is refused before an atom is written -- a body that does
     not fit the model would be a structure `grompp` rejects. `entries=None` is the template path, unchanged.
@@ -186,7 +186,7 @@ def stamp(draft: dict, centres, directions, *, first_residue: int = 900, entries
         for index, (centre, direction) in enumerate(zip(centres, directions), start=1):
             target = np.asarray(direction, dtype=float)
             target = target / np.linalg.norm(target)
-            rotation = _rotation(axis, target)
+            rotation = pdc_placement.alignment(axis, target)
             residue_id = first_residue + index
             for bead in beads:
                 position = np.asarray(centre, dtype=float) + rotation @ (positions[bead['name']] - middle) \
@@ -204,7 +204,7 @@ def stamp(draft: dict, centres, directions, *, first_residue: int = 900, entries
         target = target / np.linalg.norm(target)
         cosine, sine = float(np.cos(twist)), float(np.sin(twist))
         about_z = np.array([[cosine, -sine, 0.0], [sine, cosine, 0.0], [0.0, 0.0, 1.0]])
-        rotation = _rotation(upward, target) @ about_z
+        rotation = pdc_placement.alignment(upward, target) @ about_z
         residue_id = first_residue + index
         for bead, offset in zip(beads, np.asarray(entry, dtype=float)):
             position = np.asarray(centre, dtype=float) + rotation @ offset
@@ -213,24 +213,6 @@ def stamp(draft: dict, centres, directions, *, first_residue: int = 900, entries
     return atoms
 
 
-def _rotation(axis, target):
-    """The rotation taking one unit vector onto another, including the antiparallel case."""
-    import numpy as np
-
-    cross = np.cross(axis, target)
-    sine = float(np.linalg.norm(cross))
-    cosine = float(np.dot(axis, target))
-    if sine < 1e-9:
-        if cosine > 0:
-            return np.eye(3)
-        # Opposite directions: any perpendicular axis turns the molecule by 180 degrees.
-        perpendicular = np.array([1.0, 0.0, 0.0]) if abs(axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
-        perpendicular = perpendicular - axis * np.dot(perpendicular, axis)
-        perpendicular = perpendicular / np.linalg.norm(perpendicular)
-        return 2.0 * np.outer(perpendicular, perpendicular) - np.eye(3)
-    cross = cross / sine
-    skew = np.array([[0.0, -cross[2], cross[1]], [cross[2], 0.0, -cross[0]], [-cross[1], cross[0], 0.0]])
-    return np.eye(3) + sine * skew + (1.0 - cosine) * (skew @ skew)
 
 
 def molecule_name(topology_text: str) -> str:

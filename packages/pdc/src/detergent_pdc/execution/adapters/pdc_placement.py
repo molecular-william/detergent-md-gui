@@ -264,7 +264,7 @@ def body_beads(site, direction, profile, twist=0.0) -> np.ndarray:
     target = np.asarray(direction, dtype=float).reshape(3)
     span = float(np.linalg.norm(target))
     target = target / span if span > 1e-12 else np.array([0.0, 0.0, 1.0])
-    rotation = _alignment(profile['axis'], target)
+    rotation = alignment(profile['axis'], target)
     if twist:
         rotation = rotation @ _about_z(twist)
     return site + profile['offsets'] @ rotation.T
@@ -280,7 +280,7 @@ def _about_z(twist):
     return np.array([[cosine, -sine, 0.0], [sine, cosine, 0.0], [0.0, 0.0, 1.0]])
 
 
-def _alignment(axis, target):
+def alignment(axis, target):
     """The minimal rotation taking one unit vector onto another, including the antiparallel case.
 
     The same map `pdc_build.stamp` applies to a molecule, written here because the gate has to measure the body the
