@@ -6,8 +6,9 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next task
 
-The remaining ponytail-audit groups are in `docs/plans/2026-11-05-ponytail-audit-remainder.md`: group B waits on
-the user's decisions about five clientless endpoints, E is live-path consolidation, F is the review-store fallout.
+The remaining ponytail-audit groups are in `docs/plans/2026-11-05-ponytail-audit-remainder.md`: B's three safe
+endpoints are gone and `/api/mappings/review` + `/api/evidence/evaluate` were kept by the user's choice; E is
+live-path consolidation, F is the review-store fallout.
 The 2026-11-04 analysis-graph request is implemented (see *Landed slices*). The open items table below is the queue.
 
 The dashboard was restarted on 2026-11-04 at 13:56 for the Python half (the trajectory header reader). Live checks:
@@ -195,6 +196,13 @@ history, not a live run.
   caught / 1 survived. `pytest.ini` owns tier counts; do not copy moving counts into this file.
 
 ## Landed slices, newest first
+
+- **2026-11-05 Audit group B, the safe endpoint trim**: `/api/migration/inventory`,
+  `/api/migration/delete-obsolete`, the duplicate `GET /api/compositions` and
+  `GET /api/compositions/<id>` reads, and `/api/temporary/cleanup` are gone; the write routes and
+  `/api/cg-models` reads remain. `test_request_bodies.py` now pins the optional-body contract on
+  `/api/jobs/<id>/resume` instead of the migration routes. `/api/mappings/review` and
+  `/api/evidence/evaluate` were deliberately kept. Checks: fast 2392 passed + 1 xfailed, browser 282 passed.
 
 - **2026-11-05 Audit remainder, batches D/A/C**: tooling hygiene (the deprecated singleton patch leaves
   `tests/harness/plugin.py`; the three package `test` extras and the root one go, with `pytest>=8` now pinned in

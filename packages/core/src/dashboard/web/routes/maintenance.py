@@ -1,11 +1,9 @@
 """Maintenance HTTP endpoints."""
 import time
 
-from dashboard.cli import migration
-from flask import Blueprint, abort, current_app, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 
-from ...execution.coordination import temporary
-from .common import coordinator, json_object
+from .common import coordinator
 
 blueprint = Blueprint('maintenance', __name__)
 
@@ -18,29 +16,3 @@ def storage_api():
         cached = (key, time.monotonic(), c.storage_report())
         current_app.extensions['storage_display'] = cached
     return jsonify(cached[2])
-
-
-@blueprint.post('/api/temporary/cleanup')
-def temporary_cleanup():
-    c = coordinator()
-    with c.JOBS_LOCK:
-        result=temporary.cleanup(c.database().all(), c.RUNS, c.database())
-    return jsonify(results=result)
-
-
-@blueprint.post('/api/migration/inventory')
-def migration_inventory():
-    data=json_object(optional=True); root=data.get('root')
-    if not isinstance(root, str): abort(400, 'root is required')
-    try: return jsonify(migration.inventory(root))
-    except (OSError, ValueError) as exc: abort(400, str(exc))
-
-
-@blueprint.post('/api/migration/delete-obsolete')
-def migration_delete_obsolete():
-    data=json_object(optional=True)
-    try: return jsonify(migration.delete_approved(data.get('report') or {}, data.get('root'), bool(data.get('confirm'))))
-    except (OSError, ValueError) as exc: abort(409, str(exc))
-
-
-

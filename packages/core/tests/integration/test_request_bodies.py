@@ -12,18 +12,14 @@ body: they get an empty object, which is what `or {}` did, instead of an abort o
 
 def test_a_route_that_tolerates_a_body_gets_an_empty_object(dashboard):
     """No body, no content type: the route's own validation answers, not the parser."""
-    response = dashboard.client.post('/api/migration/inventory')
-    assert response.status_code == 400
-    assert response.json['error'] == 'root is required'
+    response = dashboard.client.post('/api/jobs/doesnotexist/resume')
+    assert response.status_code == 404, 'the parser returned a body, so the route reached its own lookup'
 
 
 def test_a_non_object_body_is_not_a_server_error(dashboard):
     """A list body is not an object: each route answers with its own failure, not a 500."""
-    for path, allowed in (('/api/migration/inventory', {400}),
-                          ('/api/migration/delete-obsolete', {400, 409})):
-        response = dashboard.client.post(path, json=[])
-        assert response.status_code in allowed, (path, response.status_code)
-        assert response.json['error']
+    response = dashboard.client.post('/api/jobs/doesnotexist/resume', json=[])
+    assert response.status_code == 404, 'a list body is an empty object, not a server error'
 
 
 def test_the_parameterization_delete_still_requires_confirmation(dashboard):

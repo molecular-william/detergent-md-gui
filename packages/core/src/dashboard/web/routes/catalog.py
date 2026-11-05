@@ -40,19 +40,6 @@ def composition_create_api():
         abort(status, str(exc))
 
 
-@blueprint.get('/api/compositions/<composition_id>')
-def composition_detail_api(composition_id):
-    try:
-        return jsonify(compositions.composition_detail(composition_id))
-    except (ValueError, KeyError, OSError, FileNotFoundError) as exc:
-        abort(404, str(exc))
-
-
-@blueprint.get('/api/compositions')
-def composition_list():
-    return jsonify(compositions=compositions.all_compositions())
-
-
 @blueprint.get('/api/cg-models')
 def cg_model_list_api():
     return jsonify(models=cg_models.list_models(request.args.get('view', 'summary')))
