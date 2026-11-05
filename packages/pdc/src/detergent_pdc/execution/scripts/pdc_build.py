@@ -629,6 +629,12 @@ def build(stage: Path) -> int:
     # the stamping reads the same file later. A library that cannot be read or does not match this run's detergent
     # stops the stage the way a template that cannot build does -- before martinize2 runs or anything is placed.
     model = _detergent_model(stage)
+    if model is not None:
+        # The report's opening claim is about a build with no detergent model. A build that has one -- from a mapping
+        # or from a CG-only molecule's own folder -- stamps real beads and writes `system.top`, and must not say
+        # "one point per molecule" about itself.
+        report['detergent_representation'] = "the run's detergent model beads"
+        report['limitations'] = list(LIMITATIONS[1:])
     try:
         library = _conformation_library(settings, model, template)
     except (ImportError, ValueError, OSError) as exc:

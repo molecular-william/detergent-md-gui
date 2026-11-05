@@ -198,6 +198,29 @@ export function createMappings() {
     validateEditor();
   }
 
+  // Which algorithms can map the molecule now in the editor, asked of the same route Generate posts to. One request
+  // per non-default option; the answer is the server's own reason, and a failed request leaves the option offered,
+  // because "unavailable" is a statement about the molecule and a failed request is not one.
+  async function checkAlgorithms(context, generation) {
+    const select = $('#mapping-algorithm');
+    if (!select) return;
+    const [fallback] = [...select.options];
+    for (const option of [...select.options]) {
+      if (option === fallback) continue;
+      try {
+        const answer = await post('/api/mappings/automatic/preview',
+          {molecule_id: context.molecule_id, molecule_snapshot: context.snapshot, algorithm: option.value});
+        if (generation !== editorGeneration) return;
+        option.disabled = !answer.available;
+        option.title = answer.available ? '' : (answer.reasons || []).join(' ');
+        if (option.disabled && select.value === option.value) select.value = fallback.value;
+      } catch (error) {
+        option.disabled = false;
+        option.title = '';
+      }
+    }
+  }
+
   async function loadMoleculeEditor(moleculeId) {
     if (!moleculeId) { editorMessage('Select a molecule to begin.'); return; }
     const generation = ++editorGeneration;
@@ -237,6 +260,9 @@ export function createMappings() {
       // comes up the way it was left without a second request to undo a default.
       restoreAtomLabels();
       renderEditor();
+      // An algorithm that cannot map this molecule is offered disabled, with the server's own reason as its title:
+      // a reader learns that before pressing Generate, and the server's refusal is still the one that decides.
+      checkAlgorithms(source.context, generation);
       
       editorMessage(`${source.context.name || moleculeId} loaded · ${source.context.atoms.length} atoms · ${source.context.source_quality.bond_order} bond graph`);
       const filter = $('#mapping-candidate-filter');
@@ -264,6 +290,52 @@ export function createMappings() {
       moleculeEditor = createEditor(moleculeEditor.context, candidate);
       renderEditor();
     };
+    // Import: the one door a local pre-parameterized molecule comes in through. The browser reads the files and
+    // posts their text; the server validates them with the catalogue's own checks, so a folder it accepts here is a
+    // folder the catalogue lists, and a refusal names the issue without writing anything.
+    const importDialog = $('#import-molecule-dialog');
+    const importForm = $('#import-molecule-form');
+    const importStatus = $('#import-molecule-status');
+    const importFile = async name => {
+      const file = importForm?.elements[name]?.files?.[0];
+      return file ? {file, text: await file.text()} : null;
+    };
+    if (importDialog && importForm && $('#import-molecule')) {
+      $('#import-molecule').onclick = () => { importForm.reset(); setText(importStatus, ''); importDialog.showModal(); };
+      $('#import-molecule-cancel').onclick = () => importDialog.close();
+      importForm.onsubmit = async event => {
+        event.preventDefault();
+        const id = String(importForm.elements.id.value || '').trim();
+        setText(importStatus, 'Validating…');
+        try {
+          const topology = await importFile('topology');
+          const coordinates = await importFile('coordinates');
+          if (!topology || !coordinates) throw new Error('Choose a topology and its coordinates.');
+          const payload = {id, kind: importForm.elements.kind.value,
+                           topology: {name: topology.file.name, text: topology.text},
+                           coordinates: {name: coordinates.file.name, text: coordinates.text}};
+          const metadata = await importFile('metadata');
+          if (metadata) {
+            try { payload.metadata = JSON.parse(metadata.text); }
+            catch (error) { throw new Error(`metadata.json is not JSON: ${error.message}`); }
+          }
+          const answer = await post('/api/molecules/import', payload);
+          importDialog.close();
+          invalidateResource('/api/molecules');
+          const select = $('#mapping-molecule');
+          const imported = answer?.molecule?.id || id;
+          if (select) {
+            select.replaceChildren();
+            await loadMoleculeList();
+            if ([...select.options].some(option => option.value === imported)) {
+              select.value = imported;
+              await loadMoleculeEditor(imported);
+            }
+          }
+          notice(`Imported ${answer?.molecule?.name || imported}.`);
+        } catch (error) { setText(importStatus, error.message); }
+      };
+    }
     $('#add-bead').onclick = () => {
       if (!moleculeEditor) { editorMessage('Select a molecule to begin.'); return; }
       try { addBead(moleculeEditor); persistEditor(); renderEditor(); }
@@ -361,7 +433,11 @@ export function createMappings() {
     const select = $('#mapping-molecule'); if (!select || select.options.length) return;
     const result = await cachedApi('/api/molecules', {maxAge: 10000});
     select.replaceChildren();
-    for (const item of result.molecules || []) select.append(new Option(item.name || item.id, item.id));
+    // A coarse-grained molecule has no all-atom atoms to bead: its record says `kind: 'cg'`, and the editor is a
+    // reader of AA atom indices. It is offered where it is used (pdc's detergent templates), never here.
+    for (const item of (result.molecules || []).filter(record => record.kind !== 'cg')) {
+      select.append(new Option(item.name || item.id, item.id));
+    }
     if (select.options.length) { select.value = select.options[0].value; await loadMoleculeEditor(select.value); }
   }
 

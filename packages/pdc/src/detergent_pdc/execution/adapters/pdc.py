@@ -414,6 +414,7 @@ def _templates(root):
         missing = [name for name in ('coordinates', 'topology')
                    if not (path.parent / str(record.get(name, ''))).is_file()]
         beads = record.get('beads') or [{}]
+        cg = _cg_molecule(path.parent)
         templates.append({'id': f'{molecule}:{record.get("residue") or molecule}',
                           'name': record.get('name') or molecule,
                           'residue': record.get('residue') or molecule,
@@ -424,6 +425,9 @@ def _templates(root):
                           'missing_files': missing,
                           'limitations': (['the template names files that are missing: ' + ', '.join(missing)]
                                           if missing else
+                                          ['the build places the molecule\'s own beads: this CG-only molecule is used '
+                                           'without a mapping and without a conformation library']
+                                          if cg else
                                           ['the template states one bead at its own origin and no bead shape: a build '
                                            'with a mapping takes its beads from the mapping, and a build without one '
                                            'places one centre per molecule'])})
@@ -701,6 +705,42 @@ def skipped_stages(settings: dict, *, has_protein: bool) -> dict:
     return skipped
 
 
+def _cg_molecule(folder):
+    """Whether a template's molecule folder states itself as a coarse-grained-only molecule.
+
+    `metadata.kind == 'cg'` is the statement, and nothing else is read as one: a folder whose bead types look
+    coarse-grained but whose metadata does not say so keeps every earlier behaviour, because a build that guessed
+    would be simulating a molecule nobody classified.
+    """
+    path = Path(folder)/'metadata.json'
+    if path.is_symlink() or not path.is_file():
+        return False
+    try:
+        metadata = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return False
+    return isinstance(metadata, dict) and metadata.get('kind') == 'cg'
+
+
+def _cg_draft(folder):
+    """The detergent draft a CG molecule folder supplies: its beads, positions and topology, with no mapping.
+
+    The folder is validated through the catalogue's own `inspect`, so a pdc build accepts exactly the folders the
+    catalogue lists; `cg_model` is the one reader of its `[ atoms ]` and `.gro`, and its positions are already
+    relative to the molecule's centroid, which is the frame `pdc_build.stamp` re-centres against anyway.
+    """
+    from dashboard.models.molecules import aa as aa_molecules
+    folder = Path(folder)
+    record = aa_molecules.inspect(folder.parent, folder.name, generate_metadata=False)
+    capability = record['capabilities']['cg']
+    if not record['valid'] or not capability['executable']:
+        raise ValueError('; '.join(record['issues'] or capability['blockers']))
+    model = aa_molecules.cg_model(folder)
+    return {'molecule_id': model['molecule_id'], 'residue': model['residue'], 'beads': model['beads'],
+            'topology': model['topology'], 'terms': 0, 'reference_terms': 0, 'fallback_terms': 0,
+            'net_charge': model['charge'], 'inputs': model['inputs']}
+
+
 def _limitations(model):
     """What a build does not claim, said by what it actually did.
 
@@ -713,7 +753,14 @@ def _limitations(model):
     And a detergent simulated with its *fitted* bonded terms and one whose terms were looked up in the Martini 3
     references are different systems, so the sentence names which was built and, for a fit, the revision it came from:
     a reader must never have to open `detergent_CG.itp` to find out whether it holds fitted or reference terms.
+
+    A CG-only molecule is a third case: its beads and terms are its own folder's, with no mapping to name and no
+    conformation library to match, and saying "one centre per molecule" of it would be false in the other direction.
     """
+    if model.get('kind') == 'cg':
+        return [f"the detergent is the CG-only molecule {model.get('molecule')} ({model.get('residue')}), read from "
+                "its own topology and coordinates: no mapping was given and no conformation library was used, so its "
+                "bonded terms are the folder's own and no fitted parameterization was consumed"]
     if not model.get('mapping'):
         return ['the detergent is one centre per molecule: no mapping was given, and the shipped templates carry no bead '
                 'shape']
@@ -753,7 +800,9 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     detergent is a real coarse-grained molecule (its beads' centres computed from the atomistic structure, and its
     topology either the mapping's own current parameterization -- when it was fitted -- or the terms derived from the
     Martini 3 references and the geometry); without it, the build records that it is centres-only and the stage stops
-    where it always did, rather than pretending a dot is a molecule.
+    where it always did, rather than pretending a dot is a molecule. The exception is a template whose molecule
+    folder states `kind: "cg"`: that molecule's own `[ atoms ]` and `.gro` are the model, so it builds real beads
+    without a mapping, and the record states that it consumed neither a mapping nor a conformation library.
 
     A build with a template and no protein is the design spec's empty micelle: the protein stages are skipped, so an
     absence that is a choice is told apart from one that is an oversight -- an oversight has no template at all.
@@ -839,14 +888,17 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     else:
         (inputs / 'protein.pdb').write_text('; no protein: this is an empty-micelle build\n')
     (inputs / 'system_EMPTY.top').write_text(_empty_topology())
-    # The detergent's coarse-grained model, derived from the run's own mapping: the topology the system will include
-    # and the bead geometry the placement stamps. A build without a mapping is recorded as centres-only. The
-    # workspace is resolved here because two records below are read from it: the mapping's own store entry and, when
-    # the run names one, the conformation library.
+    # The detergent's coarse-grained model: derived from the run's own mapping, or -- for a CG-only molecule -- read
+    # from the folder the template names. Either way this is the topology the system will include and the bead
+    # geometry the placement stamps. A build with neither is recorded as centres-only. The workspace is resolved here
+    # because two records below are read from it: the mapping's own store entry and, when the run names one, the
+    # conformation library.
     workspace = paths.current().workspace
     model = {'mapping': None, 'terms': 0, 'reference_terms': 0, 'fallback_terms': 0,
              'source': 'no mapping: the detergent is one centre per molecule'}
-    mapping_tail_beads = []
+    model_tail_beads = []
+    tail_beads_source = ("the run's own mapping: beads of the aliphatic carbon series, because the template names no "
+                         'tail roles')
     if mapping is not None:
         from dashboard.models.mappings import store
         from detergent_pdc.models.molecules import detergent_cg
@@ -884,15 +936,36 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         # The mapping answers for itself when the template cannot: a bead of the aliphatic carbon series is a tail
         # bead, and the sugar and polar series are not. This is what lets the criterion judge a run whose template is
         # still the skeleton -- one bead, no roles -- instead of refusing it.
-        mapping_tail_beads = [str(bead['name']) for bead in draft.get('beads', [])
-                              if re.fullmatch(r'C[1-5][a-z]?', str(bead.get('type') or ''))]
+        model_tail_beads = [str(bead['name']) for bead in draft.get('beads', [])
+                            if re.fullmatch(r'C[1-5][a-z]?', str(bead.get('type') or ''))]
+    elif _cg_molecule(template_path.parent):
+        # The mapping-free branch: the chosen detergent is a first-class `cg` molecule, and its own folder is the
+        # model. The same draft shape a mapping derives is synthesized from `[ atoms ]` and the `.gro`, so the build
+        # stage reads one geometry file either way; what a mapping would add -- a fitted parameterization and a
+        # conformation library matched bead for bead -- is stated as a limitation rather than invented.
+        folder = template_path.parent
+        draft = _cg_draft(folder)
+        (inputs / DETERGENT_TOPOLOGY).write_text(draft['topology'])
+        (inputs / DETERGENT_GEOMETRY).write_text(json.dumps(draft, indent=2, sort_keys=True))
+        model = {'mapping': None, 'kind': 'cg', 'molecule': folder.name, 'residue': draft['residue'],
+                 'beads': len(draft['beads']), 'terms': 0, 'reference_terms': 0, 'fallback_terms': 0,
+                 'source': f'the CG molecule {folder.name}, read from its own topology and coordinates'}
+        topology_file = folder / draft['inputs']['topology']
+        if _contains(root, topology_file):
+            references.append(run_inputs.published_tree('detergent_model', folder,
+                                                        label=f'molecules/{folder.name}', repo_root=root))
+        else:
+            references.append(run_inputs.absolute('detergent_model', topology_file, label=f'molecules/{folder.name}'))
+        model_tail_beads = [str(bead['name']) for bead in draft['beads']
+                            if re.fullmatch(r'C[1-5][a-z]?', str(bead.get('type') or ''))]
+        tail_beads_source = ("the CG molecule's own topology: beads of the aliphatic carbon series, because the "
+                             'template names no tail roles')
     numbers['detergent_model'] = model
-    if not numbers['tail_beads'] and mapping_tail_beads:
-        # The template is the long-term home for this, but the skeleton names no roles: the run's own mapping answers
+    if not numbers['tail_beads'] and model_tail_beads:
+        # The template is the long-term home for this, but the skeleton names no roles: the run's own model answers
         # instead, and the settings record which source was used so a reader knows what the criterion was told.
-        numbers['tail_beads'] = mapping_tail_beads
-        numbers['tail_beads_source'] = ("the run's own mapping: beads of the aliphatic carbon series, because the "
-                                        'template names no tail roles')
+        numbers['tail_beads'] = model_tail_beads
+        numbers['tail_beads_source'] = tail_beads_source
     # The shapes this build stamps, when it names a library. Resolved after the model it is matched against and before
     # the settings file every stage reads, so the file the build stage re-verifies names exactly the library this
     # preparation validated. The store is read in place and recorded by path and digest like every other input; the
@@ -1100,8 +1173,8 @@ PROTOCOL = protocol.Protocol(
     name='pdc',
     stage_contract=stage_contract,
     stages=stages,
-    settings_specs=lambda: SETTING_SPECS,
-    choice_specs=lambda: CHOICE_SPECS,
+    settings_specs=lambda: devices.published_settings(SETTING_SPECS),
+    choice_specs=lambda: devices.published_choices(CHOICE_SPECS),
     stage_defaults=stage_defaults,
     normalize_settings=normalize_settings,
     readiness=_protocol_readiness,

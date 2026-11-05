@@ -179,9 +179,12 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     const result=await guarded('molecules', () => cachedApi('/api/molecules',{maxAge:10000}));
     if(result===DROP)return;
     moleculeRecords=result.molecules;
+    // This form builds all-atom and AA-to-CG runs from an atomistic topology. A CG-only molecule (`kind: 'cg'`) is
+    // a pdc detergent, and offering it here would offer a run the adapter refuses; pdc has its own picker.
+    const atomistic=moleculeRecords.filter(record=>record.kind!=='cg');
     select.replaceChildren(new Option('Select a molecule directory',''));
-    for(const record of moleculeRecords) select.append(new Option(`${record.name} · ${record.path}${record.valid?'':' · needs attention'}`,record.id));
-    if(chosen&&!moleculeRecords.some(record=>record.id===chosen)) select.append(new Option(`Unavailable directory · ${chosen}`,chosen));
+    for(const record of atomistic) select.append(new Option(`${record.name} · ${record.path}${record.valid?'':' · needs attention'}`,record.id));
+    if(chosen&&!atomistic.some(record=>record.id===chosen)) select.append(new Option(`Unavailable directory · ${chosen}`,chosen));
     select.value=chosen;
     showMolecule(moleculeRecords.find(record=>record.id===select.value));
     form.elements.detergent.value=select.value;

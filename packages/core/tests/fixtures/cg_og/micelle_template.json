@@ -1,0 +1,45 @@
+{
+  "name": "OG",
+  "residue": "OG",
+  "coordinates": "molecule.gro",
+  "topology": "molecule.itp",
+  "beads": [
+    {
+      "name": "TAIL1",
+      "type": "C1",
+      "position": [
+        -0.47,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "TAIL2",
+      "type": "C1",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "HEAD",
+      "type": "P1",
+      "position": [
+        0.47,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "headgroup": [
+    0,
+    0,
+    0
+  ],
+  "tail_direction": [
+    0,
+    0,
+    -1
+  ]
+}

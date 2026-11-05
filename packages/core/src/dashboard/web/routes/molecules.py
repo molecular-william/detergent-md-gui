@@ -1,5 +1,11 @@
 """Molecules HTTP endpoints."""
+import hashlib
 import json
+import os
+import re
+import shutil
+import tempfile
+from pathlib import Path
 
 from flask import Blueprint, abort, jsonify, request
 
@@ -13,6 +19,127 @@ from ...models.molecules import detergent_registry
 from .common import coordinator
 
 blueprint = Blueprint('molecules', __name__)
+
+#: The import contract: at most 8 MiB per submitted file, a plain file name, and a folder id the catalogue accepts.
+IMPORT_LIMIT = 8 * 1024 * 1024
+IMPORT_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_. -]{0,99}')
+#: A CG folder's files are its contract's names -- `molecule.itp` + `molecule.gro` -- so the submitted names are
+#: provenance rather than the spellings on disk. An AA folder keeps the names it was given, because discovery pairs
+#: an `.itp` with its coordinates by name and there is no reason to rewrite a user's file.
+CG_TOPOLOGY = 'molecule.itp'
+CG_COORDINATES = 'molecule.gro'
+
+
+def _import_file(payload, *, field, suffixes):
+    """One submitted file: its validated name, its text and its bytes.
+
+    The name is a name, not a path: a separator, a `..` anywhere or a leading dot is refused before the file is
+    written, and the extension is checked against the kind so a `.pdb` is never read as a CG structure. The size is
+    the decoded text's, because that is the bytes on disk; the request body may be larger only by JSON quoting.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError(f'{field} must be an object with name and text')
+    name, text = payload.get('name'), payload.get('text')
+    if (not isinstance(name, str) or not IMPORT_NAME.fullmatch(name) or '..' in name
+            or Path(name).name != name):
+        raise ValueError(f'{field}.name must be a plain file name, not a path')
+    if Path(name).suffix.lower() not in suffixes:
+        raise ValueError(f'{field}.name must end in ' + ' or '.join(suffixes))
+    if not isinstance(text, str):
+        raise ValueError(f'{field}.text must be the file\'s text')
+    data = text.encode('utf-8')
+    if len(data) > IMPORT_LIMIT:
+        raise ValueError(f'{field}: {name} is {len(data)} bytes, over the 8 MiB input limit')
+    return name, text, data
+
+
+def _import_metadata(payload, *, kind, molecule_id, sources):
+    """The `metadata.json` an import writes, or `None` when an AA import leaves generation to the catalogue.
+
+    A CG import always writes one: `kind` is what classifies the folder, and the sources it records are the only
+    place the submitted file names and digests survive the canonical folder names. An AA import with no metadata
+    writes none, so the catalogue's own `ensure_metadata` produces the record it produces for any unlabelled folder.
+    """
+    metadata = payload.get('metadata')
+    if metadata is None:
+        return None if kind == 'aa' else {'kind': 'cg', 'name': molecule_id, 'sources': sources}
+    if not isinstance(metadata, dict):
+        raise ValueError('metadata must be a JSON object when given')
+    if metadata.get('kind', kind) != kind:
+        raise ValueError(f"metadata.kind says {metadata.get('kind')!r}, but this import is {kind!r}")
+    record = {**metadata, 'kind': kind}
+    if kind == 'cg':
+        record.setdefault('name', molecule_id)
+        record['sources'] = sources
+    text = json.dumps(record, indent=2, allow_nan=False)
+    if len(text.encode('utf-8')) > IMPORT_LIMIT:
+        raise ValueError('metadata.json exceeds the 8 MiB input limit')
+    return record
+
+
+@blueprint.post('/api/molecules/import')
+def import_molecule_api():
+    """Write one validated molecule folder from submitted topology/coordinate text.
+
+    The body is `{id, kind: 'aa'|'cg', topology: {name, text}, coordinates: {name, text}, metadata?}`. Validation
+    happens in a hidden directory under `molecules/` through the catalogue's own `inspect`, so an import is accepted
+    exactly when the catalogue would list it; only then is the folder renamed into `molecules/<id>`. A refusal names
+    the issue and leaves the tree as it was: the temporary folder is removed, and an existing `molecules/<id>` is
+    never replaced.
+    """
+    # The application's 1 MiB body cap is for form posts; two submitted molecules are up to 8 MiB each, plus JSON
+    # quoting. The per-file limit is enforced on the decoded text above, so this only has to admit the envelope.
+    request.max_content_length = 5 * IMPORT_LIMIT
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        abort(400, 'Expected a JSON object describing the molecule to import')
+    try:
+        molecule_id = aa_molecules.validate_id(payload.get('id'))
+        kind = payload.get('kind')
+        if kind not in ('aa', 'cg'):
+            raise ValueError("kind must be 'aa' or 'cg'")
+        topology_name, topology_text, topology_bytes = _import_file(
+            payload.get('topology'), field='topology', suffixes=('.itp',))
+        coordinates_name, coordinates_text, coordinates_bytes = _import_file(
+            payload.get('coordinates'), field='coordinates', suffixes=('.gro', '.pdb') if kind == 'aa' else ('.gro',))
+        sources = {'topology': {'name': topology_name, 'sha256': hashlib.sha256(topology_bytes).hexdigest()},
+                   'coordinates': {'name': coordinates_name, 'sha256': hashlib.sha256(coordinates_bytes).hexdigest()}}
+        metadata = _import_metadata(payload, kind=kind, molecule_id=molecule_id, sources=sources)
+    except ValueError as exc:
+        abort(400, str(exc))
+    root = coordinator().ROOT / 'molecules'
+    root.mkdir(parents=True, exist_ok=True)
+    target = root / molecule_id
+    if target.exists() or target.is_symlink():
+        abort(409, f'molecules/{molecule_id} already exists: an import never replaces a molecule folder')
+    # The temporary folder is a sibling of the target so the rename is one filesystem operation. Its name is hidden
+    # and refuses the catalogue's id shape, so a crash before the rename leaves nothing the catalogue would list.
+    temporary = Path(tempfile.mkdtemp(prefix='.import-', dir=root))
+    try:
+        folder = temporary / molecule_id
+        folder.mkdir()
+        if kind == 'cg':
+            topology_name, coordinates_name = CG_TOPOLOGY, CG_COORDINATES
+        (folder / topology_name).write_text(topology_text)
+        (folder / coordinates_name).write_text(coordinates_text)
+        if metadata is not None:
+            (folder / 'metadata.json').write_text(json.dumps(metadata, indent=2, allow_nan=False))
+        record = aa_molecules.inspect(temporary, molecule_id, generate_metadata=(kind == 'aa' and metadata is None))
+        required = record['capabilities']['cg']['executable'] if kind == 'cg' else record['executable']
+        if not record['valid'] or not required:
+            issue = '; '.join(record['issues']) or '; '.join(record['capabilities'][
+                'cg' if kind == 'cg' else 'aa_cg']['blockers'])
+            raise ValueError(issue or 'the imported files did not validate')
+        try:
+            os.replace(folder, target)
+        except OSError as exc:
+            abort(409, f'molecules/{molecule_id} was not imported: {exc}')
+    except ValueError as exc:
+        abort(400, f'molecules/{molecule_id} was not imported: {exc}')
+    finally:
+        shutil.rmtree(temporary, ignore_errors=True)
+    return jsonify(molecule=record), 201
+
 
 @blueprint.get('/api/references')
 def references_api():

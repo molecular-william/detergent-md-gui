@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from pathlib import Path
 
 import pytest
@@ -519,3 +520,60 @@ def test_the_executor_records_a_prepare_time_skip_without_a_directory(tmp_path):
     entry = json.loads((run / 'manifest.json').read_text())['stages'][0]
     assert entry['name'] == 'Protein preparation' and entry['status'] == 'skipped'
     assert 'no protein' in entry['reason'] and entry['command'] == []
+
+
+# --- A CG-only molecule as the detergent (imports, item 5) ---------------------------------------------------------
+
+#: The checked-in small Martini 3 molecule the import lane adds. A pdc build uses its own folder as the detergent
+#: model, so no mapping and no test needs the developer's `molecules/` tree.
+CG_FIXTURE = PROJECT_ROOT / 'packages/core/tests/fixtures/cg_og'
+CG_TEMPLATE = 'molecules/OG/micelle_template.json'
+
+
+def cg_tree(tmp_path: Path) -> Path:
+    (tmp_path / 'molecules').mkdir(exist_ok=True)
+    shutil.copytree(CG_FIXTURE, tmp_path / 'molecules' / 'OG')
+    return tmp_path
+
+
+def test_a_cg_only_molecule_is_the_detergent_model_without_a_mapping(tmp_path):
+    """The folder's own `[ atoms ]` and `.gro` supply the draft a mapping would otherwise derive."""
+    run = prepared_run(tmp_path, template=CG_TEMPLATE, project_root=cg_tree(tmp_path), protein=None,
+                       settings={'aggregation_number': 4})
+
+    settings = settings_of(run)
+    model = settings['detergent_model']
+    assert model['kind'] == 'cg' and model['mapping'] is None
+    assert model['residue'] == 'OG' and model['beads'] == 3
+    manifest = json.loads((run / 'manifest.json').read_text())
+    assert any(entry['role'] == 'detergent_model' for entry in manifest['inputs'])
+    stated = ' '.join(manifest['limitations'])
+    assert 'no mapping' in stated and 'no conformation library' in stated
+    assert 'one centre per molecule' not in stated
+    geometry = json.loads((inputs_dir(run) / pdc.DETERGENT_GEOMETRY).read_text())
+    assert [bead['name'] for bead in geometry['beads']] == ['TAIL1', 'TAIL2', 'HEAD']
+    assert [bead['type'] for bead in geometry['beads']] == ['C1', 'C1', 'P1']
+    assert geometry['beads'][0]['position'] == pytest.approx([-0.47, 0.0, 0.0])
+    assert geometry['beads'][2]['position'] == pytest.approx([0.47, 0.0, 0.0])
+    assert settings['tail_beads'] == ['TAIL1', 'TAIL2']
+    assert "CG molecule's own topology" in settings['tail_beads_source']
+    assert (inputs_dir(run) / pdc.DETERGENT_TOPOLOGY).read_text().rstrip() == (
+        CG_FIXTURE / 'molecule.itp').read_text().rstrip()
+
+
+def test_a_cg_only_molecule_builds_system_top(tmp_path):
+    """A protein-free build stamps the molecule's own beads and writes `[ molecules ]`."""
+    run = prepared_run(tmp_path, template=CG_TEMPLATE, project_root=cg_tree(tmp_path), protein=None,
+                       settings={'aggregation_number': 4})
+    stage = system_stage(run)
+
+    assert pdc_build.build(stage) == 0
+
+    top = (stage / 'system.top').read_text()
+    assert re.search(r'^\[ molecules \]$', top, re.M)
+    assert re.search(r'^OG\s+4$', top, re.M), top
+    report = json.loads((stage / 'prepare_report.json').read_text())
+    assert report['valid'] and report['placed_detergents'] == 4
+    assert report['detergent_representation'] != 'one centre per molecule'
+    assert report['detergent_model']['kind'] == 'cg'
+    assert report['atoms'] == 4 * 3

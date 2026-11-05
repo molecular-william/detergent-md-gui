@@ -91,6 +91,12 @@ def _gro(text):
 
 
 def _itp(text):
+    """One moleculetype's name, its atoms as `(residue, name, type)` in file order, and its charge sum.
+
+    The atom numbering is read as the contiguity rule it is: a row must be the next number, so a gap or a reordered
+    file is refused rather than silently accepted. A mass column after the charge is checked when the file states
+    one -- a nonfinite mass is a topology `grompp` cannot integrate, and a coarse-grained bead has no other check.
+    """
     section = ''; atoms = []; molecule_types = []; charge = 0
     for raw in text.splitlines():
         line = raw.split(';',1)[0].strip()
@@ -104,7 +110,9 @@ def _itp(text):
                 raise ValueError('molecule.itp: invalid atom numbering or incomplete atom definition')
             q = float(parts[6])
             if not math.isfinite(q): raise ValueError('molecule.itp: nonfinite charge')
-            charge += q; atoms.append((parts[3], parts[4]))
+            if len(parts) > 7 and not math.isfinite(float(parts[7])):
+                raise ValueError('molecule.itp: nonfinite mass')
+            charge += q; atoms.append((parts[3], parts[4], parts[1]))
     if len(molecule_types) != 1 or not atoms:
         raise ValueError('molecule.itp: expected one moleculetype and a nonempty atoms section')
     return molecule_types[0], atoms, charge
@@ -194,14 +202,120 @@ def ensure_metadata(folder, molecule_id, expanded, topology_type, charge):
         os.unlink(temporary)
 
 
+def cg_model(folder, *, discovered=None):
+    """One coarse-grained molecule folder's own model, validated the way the catalogue validates a molecule.
+
+    This is the reader a `cg` folder and a pdc build share. The folder states its inputs the way every molecule
+    does (`discover`), its topology is one moleculetype (`topology_tree`/`_itp`, which also enforces contiguous
+    numbering, finite charges and masses, and a charge sum), and its `.gro` must name the same beads in the same
+    order with finite positions. Only two fields the catalogue does not need are added for the consumer: the beads
+    with their positions, shifted so the molecule's centroid is the origin (a placement stamps the molecule's own
+    body), and the residue the topology names, which is what the coordinates and `[ molecules ]` are written with.
+    """
+    from ...analysis.runs import structures
+    folder = Path(folder)
+    inputs = discovered or discover(folder)
+    expanded, dependencies = topology_tree(folder, inputs['topology'])
+    molecule_type, atoms, charge = _itp(expanded)
+    # The catalogue's other moleculetype reader, for the bonded terms this one does not look at: a `[ bonds ]` or
+    # `[ constraints ]` row nothing can read is a broken detergent definition, and its names and types must agree
+    # with the charge-carrying rows above or one of the two readings is wrong.
+    declared = structures.read_moleculetype_text(expanded, source=inputs['topology'])
+    if (declared['atoms'] != [name for _, name, _ in atoms]
+            or declared['types'] != [bead_type for _, _, bead_type in atoms]):
+        raise ValueError('molecule.itp: its atoms cannot be read two ways')
+    coordinate_bytes = _read(folder/inputs['coordinates'])
+    coordinates = structures.read_gro(folder/inputs['coordinates'])
+    if [(atom['residue'], atom['name']) for atom in coordinates] != [(residue, name) for residue, name, _ in atoms]:
+        raise ValueError('Coordinates and ITP atom counts, residue names, or atom order do not match')
+    if not all(math.isfinite(value) for atom in coordinates for value in atom['position']):
+        raise ValueError('Coordinates are nonfinite')
+    centroid = [sum(atom['position'][axis] for atom in coordinates) / len(coordinates) for axis in range(3)]
+    beads = [{'name': name, 'residue': molecule_type[:5], 'type': bead_type,
+              'position': [value - centre for value, centre in zip(atom['position'], centroid)]}
+             for atom, (_, name, bead_type) in zip(coordinates, atoms)]
+    return {'molecule_id': folder.name, 'molecule_type': molecule_type, 'residue': molecule_type[:5],
+            'beads': beads, 'topology': expanded, 'charge': charge,
+            'inputs': inputs, 'dependencies': dependencies, 'coordinate_bytes': coordinate_bytes}
+
+
+def _declared_metadata(folder):
+    """The `metadata.json` a folder states, as an object, before its inputs are validated; `{}` when absent.
+
+    `kind` is read here first because it decides which validator runs, and `cg` is only ever explicit: a folder
+    whose bead types look coarse-grained but whose metadata does not say so stays on the all-atom path, where the
+    force-field gate reports what it cannot check rather than a guess being made from a type column.
+    """
+    path = folder/'metadata.json'
+    if not path.exists() and not path.is_symlink():
+        return {}
+    value = json.loads(_read(path))
+    if not isinstance(value, dict):
+        raise ValueError('metadata.json: expected an object')
+    return value
+
+
+def _cg_metadata(metadata, molecule_id, model):
+    """A `cg` folder's metadata: the kind, and whatever else it states has to agree with the topology."""
+    name = metadata.get('name')
+    if name is not None and (not isinstance(name, str) or not name.strip() or len(name) > 160):
+        raise ValueError('metadata.json: name must be a nonempty string, at most 160 characters')
+    if metadata.get('molecule_type') is not None and metadata['molecule_type'] != model['molecule_type']:
+        raise ValueError('Metadata molecule_type does not match the ITP')
+    charge = metadata.get('net_charge')
+    if charge is not None:
+        if isinstance(charge, bool) or not isinstance(charge, (int, float)) or not math.isfinite(charge):
+            raise ValueError('metadata.json: finite numeric net_charge is required when stated')
+        if abs(charge - model['charge']) > 1e-4:
+            raise ValueError('Metadata net_charge does not match the ITP')
+    return str(name or molecule_id)
+
+
+def _cg_result(result, folder, molecule_id, metadata):
+    """Fill a `cg` record: its model, its digests, and the run types it is not an input for."""
+    model = cg_model(folder)
+    inputs = model['inputs']
+    result['inputs'] = inputs
+    content = dict(model['dependencies'])
+    content[inputs['coordinates']] = model['coordinate_bytes']
+    content['metadata.json'] = _read(folder/'metadata.json')
+    result['sha256'] = {name: hashlib.sha256(value).hexdigest() for name, value in content.items()}
+    topology_parent = Path(inputs['topology']).parent
+    result['reference_sha256'] = {
+        **{('molecule.itp' if name == inputs['topology'] else Path(name).relative_to(topology_parent).as_posix()):
+           hashlib.sha256(value).hexdigest() for name, value in model['dependencies'].items()},
+        'molecule.gro': hashlib.sha256(model['coordinate_bytes']).hexdigest()}
+    name = _cg_metadata(metadata, molecule_id, model)
+    # A CG-only molecule is a detergent model, not an all-atom source: the bead editor and both AA run types must
+    # read a stated refusal rather than a force field it does not have. The reason is the same sentence in both
+    # capabilities because it is the same fact about the folder.
+    blocker = ('a coarse-grained (cg) molecule is not an all-atom topology: it is a pdc detergent, not an '
+               'aa_only or aa_cg source')
+    result.update(name=name, metadata=metadata, atom_count=len(model['beads']), valid=True, executable=False,
+                  kind='cg', cg_residue_name=metadata.get('cg_molecule_type') or model['residue'],
+                  blockers=[blocker])
+    result['capabilities'] = {'aa_only': {'executable': False, 'blockers': [blocker]},
+                              'aa_cg': {'executable': False, 'blockers': [blocker]},
+                              'cg': {'executable': True, 'blockers': []}}
+    return result
+
+
 def inspect(root, molecule_id, *, generate_metadata=True):
     validate_id(molecule_id)
     root = Path(root); folder = root / molecule_id
     if root.is_symlink() or folder.is_symlink() or not folder.is_dir():
         raise ValueError('Molecule directory is unavailable or is a symlink')
-    result = {'id': molecule_id, 'name': molecule_id, 'path': f'molecules/{molecule_id}',
+    result = {'id': molecule_id, 'name': molecule_id, 'path': f'molecules/{molecule_id}', 'kind': 'aa',
               'valid': False, 'executable': False, 'issues': [], 'blockers': [], 'sha256': {}}
+    kind = 'aa'
     try:
+        declared = _declared_metadata(folder)
+        kind = declared.get('kind', 'aa')
+        if kind not in ('aa', 'cg'):
+            raise ValueError("metadata.json: kind must be 'aa' or 'cg'")
+        result['kind'] = kind
+        if kind == 'cg':
+            return _cg_result(result, folder, molecule_id, declared)
         inputs = discover(folder)
         result['inputs'] = inputs
         expanded, dependencies = topology_tree(folder, inputs['topology'])
@@ -209,7 +323,8 @@ def inspect(root, molecule_id, *, generate_metadata=True):
         coordinate_bytes = _read(folder/inputs['coordinates'])
         coordinate_text = coordinate_bytes.decode()
         coords = _gro(pdb_gro(coordinate_text) if inputs['coordinate_format'] == 'pdb' else coordinate_text)
-        if topology_atoms != [(residue, name) for residue, name, _ in coords]:
+        if ([(residue, name) for residue, name, _ in topology_atoms]
+                != [(residue, name) for residue, name, _ in coords]):
             raise ValueError('Coordinates and ITP atom counts, residue names, or atom order do not match')
         metadata_path = folder / 'metadata.json'
         if generate_metadata:
@@ -238,6 +353,13 @@ def inspect(root, molecule_id, *, generate_metadata=True):
         result.update(name=metadata['name'], metadata=metadata, atom_count=len(coords), valid=True)
     except (OSError, ValueError, IndexError, TypeError, UnicodeError) as exc:
         result['issues'].append(str(exc))
+    if kind == 'cg':
+        # A CG folder that failed validation still reports the two AA run types as refused, with the actual issue
+        # rather than the capability sentence: the reader is looking at a broken file, not at the wrong run type.
+        result['blockers'] = list(result['issues'])
+        result['capabilities'] = {name: {'executable': False, 'blockers': result['blockers']}
+                                  for name in ('aa_only', 'aa_cg', 'cg')}
+        return result
     result['blockers'] = list(result['issues'])
     if result['valid']:
         # Every valid molecule is a candidate for the generic CG workflow.
@@ -293,6 +415,12 @@ def catalogue(root, *, generate_metadata=False):
 
 def selection(root, molecule_id, run_type='aa_cg'):
     record = inspect(root, molecule_id, generate_metadata=True)
+    if run_type == 'cg':
+        capability = record['capabilities']['cg']
+        if not capability['executable']: raise ValueError('; '.join(capability['blockers']))
+        fields = ('id', 'name', 'path', 'kind', 'metadata', 'sha256', 'atom_count', 'inputs', 'reference_sha256',
+                  'cg_residue_name')
+        return {key: record[key] for key in fields}
     if run_type=='aa_only':
         capability=record['capabilities']['aa_only']
         if not capability['executable']: raise ValueError('; '.join(capability['blockers']))
@@ -307,5 +435,9 @@ def selection(root, molecule_id, run_type='aa_cg'):
 
 
 def verify_selection(root, snapshot):
-    if selection(root, snapshot['id'], 'aa_only' if snapshot.get('adapter')=='aa-charmm36' else 'aa_cg') != snapshot:
+    # The snapshot's own kind decides the run type it was selected as: a `cg` record carries no adapter, and asking
+    # the AA branch about it would report a molecule whose files are fine as a changed molecule.
+    run_type = 'cg' if snapshot.get('kind') == 'cg' else (
+        'aa_only' if snapshot.get('adapter') == 'aa-charmm36' else 'aa_cg')
+    if selection(root, snapshot['id'], run_type) != snapshot:
         raise ValueError('Molecule files changed since this run was queued; select the molecule again')

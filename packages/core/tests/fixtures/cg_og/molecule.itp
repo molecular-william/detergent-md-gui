@@ -1,0 +1,13 @@
+; a small Martini 3 detergent written for the CG import and pdc tests
+
+[ moleculetype ]
+OG 1
+
+[ atoms ]
+ 1 C1 1 OG TAIL1 1 0.0 72.0
+ 2 C1 1 OG TAIL2 2 0.0 72.0
+ 3 P1 1 OG HEAD  3 0.0 54.0
+
+[ bonds ]
+ 1 2 1 0.47 1250
+ 2 3 1 0.47 1250

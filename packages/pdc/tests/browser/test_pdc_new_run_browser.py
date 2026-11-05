@@ -216,8 +216,15 @@ def test_the_seed_defaults_to_today_and_the_gate_still_names_it_when_cleared(das
 
 
 def test_the_other_run_options_are_compact_when_expanded(dashboard, live_page):
-    """The expanded block is a form to scan: 26 fields in two columns, not a page of stacked controls."""
+    """The expanded block is a form to scan: 26 fields in two columns, not a page of stacked controls.
+
+    A host with a device is stated, so the count is the full form and not the machine this runs on: a host with
+    no GPU hides the device control and one field goes with it.
+    """
     page, errors = live_page
+    page.route('**/api/run/devices', lambda route: route.fulfill(
+        json={'devices': [{'index': 0, 'name': 'NVIDIA GeForce RTX 4090', 'memory_mib': 24564, 'uuid': 'GPU-aaaa'}],
+              'in_use': {}}))
     open_panel(page, live_page.base_url)
     page.locator('#new-advanced > summary').click()
 
@@ -241,19 +248,25 @@ def test_the_other_run_options_are_compact_when_expanded(dashboard, live_page):
 
 
 def test_every_other_run_option_has_a_default(dashboard, live_page):
-    """Nothing in the collapsed block is blank on first load, even on a host whose device probe answers nothing."""
+    """Nothing in the collapsed block is blank on first load, and a host with no device offers no device control."""
     page, errors = live_page
     serve_catalogue(page, proteins=CATALOG['proteins'])
     page.route('**/api/run/devices', lambda route: route.fulfill(json={'devices': [], 'in_use': {}}))
     open_panel(page, live_page.base_url)
+    page.wait_for_function(
+        "() => document.querySelector('.new-pdc-gpu-device')?.closest('label')?.hidden === true", timeout=30000)
     page.locator('#new-advanced').evaluate('(el) => el.open = true')
 
     values = page.evaluate("""() => Object.fromEntries(
         [...document.querySelectorAll('#new-advanced [name]')].map(el => [el.name, el.value]))""")
     assert values, 'the block renders no inputs'
     assert {name: value for name, value in values.items() if value in ('', None)} == {}, values
-    assert values['mdrun_gpu'] == '0', "a host that reports no device still offers the command's default"
+    # No GPU means no device choice: the select keeps its element but loses its name, so the payload cannot carry
+    # `mdrun_gpu`, and the offload scheme no longer offers the `gpu` option beside it.
+    assert 'mdrun_gpu' not in values, values
     assert values['mdrun_nb'] == 'auto'
+    assert page.evaluate(
+        "Array.from(document.querySelectorAll('[name=mdrun_nb] option')).every(o => o.value !== 'gpu')")
     assert errors == [], errors
 
 

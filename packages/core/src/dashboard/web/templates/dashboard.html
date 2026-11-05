@@ -220,6 +220,7 @@
         <div class="mapping-selectors">
           <label>Molecule<select id="mapping-molecule" aria-label="Molecule"></select></label>
           <label>Candidate<select id="mapping-candidate-filter" aria-label="Candidate"><option value="">New local draft</option></select></label>
+          <button type="button" class="secondary" id="import-molecule">Import molecule…</button>
         </div>
         <div class="mapping-selection-row">
           <p id="mapping-selection-count" role="status">no bead selected</p>
@@ -254,6 +255,27 @@
       </div>
     </div>
   </section>
+  <dialog id="import-molecule-dialog" aria-label="Import molecule">
+    <form id="import-molecule-form">
+      <h3>Import a molecule</h3>
+      <p class="hint">A pre-parameterized all-atom topology (ITP + GRO/PDB), or a Martini CG molecule (ITP + GRO).
+        The server validates the files with the catalogue's own checks and never replaces an existing folder.</p>
+      <label>Folder id<input name="id" required maxlength="80" pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,79}"
+        placeholder="LMNG"></label>
+      <label>Kind<select name="kind">
+        <option value="aa">All-atom topology: ITP + GRO/PDB</option>
+        <option value="cg">Martini CG molecule: ITP + GRO</option>
+      </select></label>
+      <label>Topology (.itp)<input type="file" name="topology" accept=".itp" required></label>
+      <label>Coordinates<input type="file" name="coordinates" accept=".gro,.pdb" required></label>
+      <label>metadata.json (optional)<input type="file" name="metadata" accept=".json"></label>
+      <div class="toolbar">
+        <button type="button" class="secondary" id="import-molecule-cancel">Cancel</button>
+        <button type="submit">Import</button>
+      </div>
+      <p id="import-molecule-status" class="hint" role="status"></p>
+    </form>
+  </dialog>
 </section>
 {# A feature's panels come from its own distribution: the loop is the registry, so this file never names a
    feature, and a panel a feature did not ship simply does not exist. A feature with no template for a
