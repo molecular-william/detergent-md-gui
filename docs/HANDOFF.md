@@ -219,6 +219,8 @@ after the check; this host reports three GPUs, so the no-GPU path is pinned by t
   the walk costs 28 ms for all 15 runs.
   Follow-up (18:00): the run card's View run link moved from the title cell into the doors row beside Artifacts,
   the stage records and the console (`docs/design/drafts/2026-11-05-runs-card-doors.png`).
+  Follow-up (18:02): the table's Run/progress column widened 39% -> 43%, Status 11% -> 9% and Method 8% -> 6%
+  (8% wrapped the `completed` badge onto two lines).
   Corrections found while building: there was no 3D bead highlight to preserve (one was added), and the CONECT
   layout was measured on the vendored NGL (a single block after the models binds every frame) rather than assumed.
 

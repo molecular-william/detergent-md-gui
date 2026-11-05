@@ -6,10 +6,10 @@
 .runs-view-controls button[aria-pressed=true] { color:#fff; background:#2455b0; border-color:#2455b0; }
 .run-table-scroll { overflow:auto; border:1px solid var(--line); border-radius:10px; background:#fff; }
 .run-table { table-layout:fixed; min-width:1320px; font-size:13px; }
-.run-table .col-identity { width:39%; }
-.run-table .col-status { width:11%; }
+.run-table .col-identity { width:43%; }
+.run-table .col-status { width:9%; }
 .run-table .col-molecule { width:6%; }
-.run-table .col-method { width:8%; }
+.run-table .col-method { width:6%; }
 .run-table .col-created { width:10%; }
 .run-table .col-duration { width:8%; }
 .run-table .col-actions { width:18%; }
