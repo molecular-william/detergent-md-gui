@@ -4,7 +4,7 @@ import threading
 from pathlib import Path
 
 from dashboard.execution import assessment_rescore
-from flask import Blueprint, abort, jsonify, request
+from flask import Blueprint, abort, jsonify
 
 from ...analysis.runs import layout
 from .common import coordinator, json_object
@@ -203,49 +203,3 @@ def assessment_directories(root):
             elif suffix.startswith('@') and suffix[1:].isdigit():
                 attempts.append((int(suffix[1:]), path))
     return sorted(attempts, reverse=True)
-
-
-def assessment_directory(root):
-    """The assessment stage directory a run wrote, newest layout first, or its CG spelling when neither is there."""
-    for name in layout.ASSESSMENT_DIRECTORIES:
-        path = Path(root) / name
-        if path.is_dir():
-            return path
-    return Path(root) / layout.ASSESSMENT_DIRECTORIES[-1]
-
-
-# Validation-flavoured, still engine-owned pending confirmation of its consumers.
-@blueprint.get('/api/compare')
-def compare_api():
-    c = coordinator()
-    ids = request.args.get('ids','').split(',')
-    if not 2 <= len(ids) <= 4 or len(set(ids)) != len(ids): abort(400, 'Choose 2–4 different runs')
-    comparisons = []
-    for jid in ids:
-        job = c.lookup(jid); root = layout.stage_root(c.run_path(job)); reports = {}
-        for name in ('validation.json','numerical_stability.json','refinement_score.json','experimental_targets.json'):
-            candidates = [(assessment_directory(root) if name == 'validation.json' else root/'analysis')/name]
-            candidates += [c.run_path(job)/p for t in job.get('analyses',[]) if t['status']=='completed' for p in t.get('outputs',[]) if Path(p).name==name]
-            for path in reversed(candidates):
-                if path.is_file():
-                    try: reports[name] = {'source':str(path.relative_to(c.run_path(job))), 'data':json.loads(path.read_text())}
-                    except (OSError, ValueError): pass
-                    break
-        sasa = {}
-        for label in ('AA','CG'):
-            path = root/f'6_SASA/{label}/SASA-{label}.xvg'
-            if path.is_file():
-                try:
-                    import math
-                    count, mean = 0, 0.0
-                    with path.open() as stream:
-                        for line in stream:
-                            if not line.strip() or line.lstrip().startswith(('#','@')): continue
-                            value = float(line.split()[1])
-                            if not math.isfinite(value) or value < 0: raise ValueError('Invalid SASA measurement')
-                            count += 1; mean += (value-mean)/count
-                    if count: sasa[label] = {'mean_nm2':mean,'frames':count, 'source':str(path.relative_to(c.run_path(job)))}
-                except (ValueError, IndexError): pass
-        comparisons.append({'id':jid,'label':job.get('label',jid),'status':job['status'],'settings':job.get('settings',{}),'reports':reports,'sasa':sasa,'scientifically_validated':False})
-    return jsonify(runs=comparisons, interpretation='Native units only. Different settings and sampling durations are not directly comparable. Missing values remain missing.')
-

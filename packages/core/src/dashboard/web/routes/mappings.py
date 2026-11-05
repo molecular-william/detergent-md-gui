@@ -116,25 +116,6 @@ def automatic_mapping_preview():
     return jsonify(mapping_suggestions.generate_baseline(context, mapping_references.load_index(coordinator().ROOT)))
 
 
-@blueprint.post('/api/mappings/suggest-bead')
-def mapping_suggest_bead():
-    payload = json_object()
-    if not isinstance(payload.get('atom_ids'), list):
-        abort(400, 'atom_ids must be a list')
-    context = payload_context(payload, require_molecule=True)
-    return jsonify(mapping_suggestions.suggest_bead(context, payload['atom_ids'], mapping_references.load_index(coordinator().ROOT)))
-
-
-# Validation-flavoured, still engine-owned pending confirmation of its consumers.
-@blueprint.post('/api/mappings/ring-site/preview')
-def mapping_ring_site_preview():
-    payload = json_object()
-    if not isinstance(payload.get('parents'), list):
-        abort(400, 'parents must be a list')
-    context = payload_context(payload, require_molecule=True)
-    return jsonify(mappings.ring_site_preview(payload.get('mapping') or {}, context, payload['parents']))
-
-
 @blueprint.post('/api/mappings/drafts')
 def mapping_save():
     """Save a candidate. A second save of the same assignment answers 409, naming the mapping that already holds it.

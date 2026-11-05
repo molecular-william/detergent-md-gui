@@ -867,26 +867,3 @@ def _initial_box(points, margin_nm, initial_z_nm):
     from detergent_pdc.execution.adapters.pdc_box import initial_box
 
     return initial_box([list(point) for point in points], margin_nm=margin_nm, initial_z_nm=initial_z_nm)
-
-
-def _outward(middle, centers):
-    """Each detergent's outward direction: the way out of the cloud, which is the way its head faces.
-
-    The lattice's directions are its shell's own radial vectors (`pack_micelle` builds the centres as the middle
-    plus `radius * direction`) and its tube's are the meridian directions (`_tube_sites`), and this is the same
-    convention expressed for a cloud of sites: the direction is the way out of it. `pdc_build.stamp` aims the
-    detergent's head end along whichever direction it is handed, so a direction pointing inward would face the head
-    at the micelle.
-
-    The **self-assembly sampler no longer uses this** (2026-10-21): drawing one radial for every detergent made the
-    whole cloud point one way, so `_self_assemble` draws each direction from its own seed and flips it outward
-    instead. What remains here is the convention itself, named and tested, for anything that has a cloud of sites and
-    needs the heads facing out of it.
-    """
-    if not len(centers):
-        return np.empty((0, 3))
-    offsets = np.asarray(centers, dtype=float) - np.asarray(middle, dtype=float)
-    norms = np.linalg.norm(offsets, axis=1, keepdims=True)
-    directions = offsets / np.where(norms > 1e-9, norms, 1.0)
-    directions[norms[:, 0] <= 1e-9] = np.array([0.0, 0.0, 1.0])
-    return directions

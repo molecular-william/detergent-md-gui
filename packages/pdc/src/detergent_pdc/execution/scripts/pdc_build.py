@@ -125,7 +125,7 @@ def stamp(draft: dict, centres, directions, *, first_residue: int = 900, entries
 
     The placement's direction is the way *out* of the micelle -- away from the protein and into the water the next
     stage adds (`pack_micelle`'s own shell and, for a stated membrane, the tube's meridian direction at each site;
-    `pdc_placement._outward` for a self-assembled cloud). A
+    for a self-assembled cloud, each site's own offset from the cloud's centre). A
     micelle's heads face that water and its tails fill the core, so the molecule's own axis is taken **head-ward**:
     from the mean of its tail beads to the mean of its head beads. Taken the other way round it put every head bead
     0.317 nm inside its detergent's centre and every tail 0.845 nm outside it -- a micelle inside out, which is what

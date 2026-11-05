@@ -1,4 +1,4 @@
-"""Catalogue endpoints: compositions, CG models, references, fragments, evidence."""
+"""Catalogue endpoints: compositions, CG models, references, evidence."""
 from pathlib import Path
 
 from flask import Blueprint, abort, jsonify, request, send_file
@@ -7,7 +7,6 @@ from ...models import catalog as cg_models
 from ...models import compositions
 from ...models.mappings import references as mapping_references
 from ...models.molecules import evidence
-from ...models.molecules import registry as model_registry
 from .common import coordinator, json_object
 
 blueprint = Blueprint('catalog', __name__)
@@ -84,29 +83,6 @@ def plotly_asset():
     except (ImportError, OSError, RuntimeError):
         abort(503, 'The local Plotly bundle is unavailable')
     return send_file(path, mimetype='application/javascript', max_age=3600)
-
-
-@blueprint.get('/api/model-references')
-def model_reference_list():
-    records = model_registry.references()
-    return jsonify(references=records, integrity=[model_registry.check_reference(r) | {'id': r['id']} for r in records])
-
-
-@blueprint.post('/api/model-references')
-def model_reference_create():
-    try: return jsonify(model_registry.register_reference(json_object())), 201
-    except (ValueError, OSError) as exc: abort(400, str(exc))
-
-
-@blueprint.get('/api/model-fragments')
-def model_fragment_list():
-    return jsonify(fragments=model_registry.fragments())
-
-
-@blueprint.post('/api/model-fragments')
-def model_fragment_create():
-    try: return jsonify(model_registry.register_fragment(json_object())), 201
-    except (ValueError, OSError) as exc: abort(400, str(exc))
 
 
 # Validation-flavoured, still engine-owned pending confirmation of its consumers.

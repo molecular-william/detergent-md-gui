@@ -1,7 +1,7 @@
 from dashboard.models import mappings
 from dashboard.models.mappings.context import build_context
 
-from tests.harness.mapping_fixtures import write_fixture
+from tests.harness.support import write_aa_fixture as write_fixture
 
 
 def test_nonring_site_is_advisory_not_automatic_sugar_scaling(tmp_path):

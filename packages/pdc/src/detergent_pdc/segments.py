@@ -34,10 +34,6 @@ STAGES = (
      'the atomistic complex converted back from the CG one'),
 )
 
-#: The stages a timed reel covers, in order; the final assessment re-declares the extension's trajectory.
-TIMELINE_STAGES = ('Energy minimisation', 'NVT equilibration', 'NPT equilibration',
-                   'CG assessment MD', 'CG extension MD')
-
 #: The directories only a protein-detergent run writes; `04_nvt` alone is not a marker (an AA-only run has one).
 MARKERS = ('08_extension', '06_assessment', '02_system', '03_minimisation', '07_micelle_assessment',
            '09_final_assessment', '10_backmap', '4_extension', '2_assessment', '3_nvt', '1_system')

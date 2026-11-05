@@ -25,9 +25,8 @@ def test_two_applications_isolate_jobs_models_and_workers(tmp_path):
     assert clients[1].get('/api/mappings').json['candidates'] == []
     assert clients[0].get('/api/mappings/'+mapping['file']).status_code == 200
     assert clients[1].get('/api/mappings/'+mapping['file']).status_code == 404
-    result = clients[0].post('/api/model-fragments', json={'name': 'First only'})
-    assert result.status_code == 201
-    assert clients[1].get('/api/model-fragments').json == {'fragments': []}
+    assert clients[0].get('/api/mappings').json['candidates']
+    assert clients[1].get('/api/mappings').json['candidates'] == []
     with apps[0].app_context():
         assert sorted(m['name'] for m in mappings.list_candidates()) == ['Only first workspace', mapping.get('name')]
 

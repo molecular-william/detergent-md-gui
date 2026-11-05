@@ -149,17 +149,6 @@ def test_mapping_validation_reports_duplicate_content_without_matching_name(dash
     assert result.json['duplicate_file'] == saved.json['file']
 
 
-def test_suggestion_and_ring_site_endpoints(dashboard):
-    client = dashboard.client
-    context = client.get('/api/mappings/context?molecule_id=DDM').json['context']
-    suggestion = client.post('/api/mappings/suggest-bead', json={'molecule_id': 'DDM', 'molecule_snapshot': context['snapshot'], 'atom_ids': [1, 2, 3]} )
-    assert suggestion.status_code == 200
-    assert suggestion.json['suggestions']
-    ring = client.post('/api/mappings/ring-site/preview', json={'molecule_id': 'DDM', 'molecule_snapshot': context['snapshot'], 'mapping': {'beads': [{'name': 'A', 'size': 'S', 'atoms': [1]}, {'name': 'B', 'size': 'S', 'atoms': [2]}, {'name': 'C', 'size': 'S', 'atoms': [3]}]}, 'parents': ['A', 'B', 'C']})
-    assert ring.status_code == 200
-    assert ring.json['bead']['type'] == 'TC4'
-
-
 def test_the_draft_delete_route_defers_to_the_store(dashboard):
     """The store's validator decides what may be unlinked, not a route-level pattern.
 

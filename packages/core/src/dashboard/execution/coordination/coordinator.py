@@ -361,10 +361,6 @@ class Coordinator:
                         status,error='failed',f'Manifest finalization failed: {exc}'
                 self.database().update(jid,status=status,stage='complete' if status=='completed' else self.lookup(jid).get('stage','input'),ended_at=self.now(),error=error,
                            reference_eligible=bool(status=='completed' and job.get('run_type')=='aa_only'))
-                # The one place a condition becomes terminally `failed`, after its retries are exhausted. A series
-                # that asked to stop ends here; a series that carries on is left exactly as the route left it.
-                if status == 'failed':
-                    features.run_failed(self, jid)
                 self.artifact_index(self.lookup(jid), refresh=True)
             finally:
                 if worker.lease_file: worker.lease_file.close()
@@ -734,11 +730,3 @@ class Coordinator:
             self.database().update(jid, status='cancelling')
             worker.cancel.set()
             return self.lookup(jid), 202
-
-
-
-    def _series_stop_reason(settings):
-        """Why a sibling was cancelled, naming the condition that ended the series where its molality is known."""
-        molality = settings.get('osmotic_molality')
-        named = f'{float(molality):g} molal' if isinstance(molality, (int, float)) else 'a sibling condition'
-        return f'Series stopped: the {named} condition ended failed, so this condition was not run'

@@ -718,9 +718,9 @@ def summary(mapping) -> dict:
 def published() -> list:
     """The engines as JSON-safe dicts, for the panel's select.
 
-    The same argument `analysis.kinds.published` makes for the analyses control: the vocabulary gets one
-    home, so a fourth engine is one edit here and the panel cannot invent one or render a name the job
-    would refuse. `needs_reference` is what decides whether the panel's AA-reference picker is required.
+    One home for the vocabulary, so a fourth engine is one edit here and the panel cannot invent one or
+    render a name the job would refuse. `needs_reference` is what decides whether the panel's AA-reference
+    picker is required.
     """
     # Every engine left fits to an ensemble, so `needs_reference` is true for each of them. The key stays because
     # it is the panel's contract (`/engines` is what makes the AA-reference picker required), and a caller that reads

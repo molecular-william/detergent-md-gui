@@ -3,7 +3,7 @@ from dashboard.models import mappings
 from dashboard.models.mappings import store as mapping_store
 from dashboard.models.mappings.context import build_context
 
-from tests.harness.mapping_fixtures import write_fixture
+from tests.harness.support import write_aa_fixture as write_fixture
 
 
 def test_partial_draft_can_save_but_cannot_export(tmp_path, monkeypatch):

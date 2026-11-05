@@ -211,32 +211,6 @@ def for_every_run() -> tuple[str, ...]:
     return tuple(name for name, row in TABLE.items() if row.runs_for_every_run)
 
 
-#: The body keys each kind's queue route validates, read off `web/routes/analyses.py`'s `queue_analysis` rather than
-#: from what a producer would like to receive. Only `carbohydrate-validation` has a body contract: it aborts without
-#: a tier, a representation mode, a mapping snapshot, a molecule id and a target dataset. Every other kind's route
-#: hands the body to the worker untouched -- any object, or none at all -- so its row leaves `payload` empty and
-#: `published()` reports `payload: None`, which is what lets the control offer a bare button for it.
-#:
-#: This is a declaration, not a derivation, because the route states its contract as inline `abort`s rather than as
-#: data the analysis layer could read (the route is also the layer above this one, so importing it here would invert
-#: the dependency). `packages/core/tests/unit/test_kinds_published.py` parses the route and fails if the two answer
-#: differently, so the mapping cannot drift from the route it names.
-def published() -> list[dict]:
-    """The whole table as JSON-safe dicts, one per kind, in table order.
-
-    This is what the Analyses control reads (`GET /api/analysis-kinds`): the UI must not keep a second copy of the
-    vocabulary, so a kind added to the table appears in the control without a second edit. Every value is a plain
-    JSON type -- the row's name, its title as the label and its ideal result as the summary, `sources` and
-    `default_for_run_types` as `list[str]`, the `runs_for_every_run` flag as `bool`, and the route's body contract
-    as `list[str]` or `None` -- so no tuple, callable or other dashboard object can reach the response.
-    """
-    return [{'name': row.name, 'label': row.title, 'inputs': list(row.sources),
-             'payload': list(row.payload) if row.payload else None,
-             'runs_for_every_run': row.runs_for_every_run,
-             'default_for_run_types': list(row.default_for_run_types), 'summary': row.ideal_result}
-            for row in TABLE.values()]
-
-
 def default_for(run_type: str) -> list[str]:
     """The kinds a run of `run_type` gets without anyone asking, in table order.
 

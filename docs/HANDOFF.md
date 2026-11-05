@@ -196,6 +196,21 @@ history, not a live run.
 
 ## Landed slices, newest first
 
+- **2026-11-05 Ponytail audit cleanup**: dead surface removed after a parallel seven-lane audit. Deleted:
+  `validation/analysis/runs/draft_geometry.py` (+its test), the unused bonded interaction-editor chain in
+  `models/bonded/__init__.py`, pdc's `protein_frame`/`_outward`/`TIMELINE_STAGES`, `kinds.published()` with its four
+  tests, the `/api/compare` route and `assessment_directory`, `cli/migrate_models.py`, the validation refinement
+  blueprint (cancelled panel), `/api/model-references`+`/api/model-fragments`, the clientless suggest-bead and
+  ring-site routes, the `sugar_ensemble` report path (the consistency analyses keep the arithmetic they call), the
+  superseded `osmotic_box.water_beads`/`solute_molecules`, the committed `detergent_md_gui.egg-info/`, the duplicate
+  `tests/harness/mapping_fixtures.py`, and 16 dead CSS rules. The legacy sibling-series failure hook
+  (`feature.on_run_failed`, `Coordinator._series_stop_reason`, `test_osmotic_series_stop.py`) is gone: a series is
+  one run now. Five findings were kept after verification: the schema<3 depiction/export path is exercised by the
+  export/diagram API tests, the MDP parity oracles pin the reviewed profiles, the pdc `planned_skips`/box merges
+  would change UI wording or preview behaviour, `/#<panel>` bookmarks are deliberate compatibility, and the
+  diagram/export routes are documented. Checks: fast tier 2398 passed + 1 xfailed, browser 282 passed, slow 25
+  passed; ruff clean over the changed trees.
+
 - **2026-11-04 Analysis card in Run view, and the segment readout**: the Runs card's **Analysis graphs** panel is
   gone; each Run view monitor's Analysis card draws that run's own figures, queues its analyses and lists its tasks,
   with the distance diagnostics beside them. `GET /api/jobs/<id>/trajectory` gained `frames` and `time_ns`, read from

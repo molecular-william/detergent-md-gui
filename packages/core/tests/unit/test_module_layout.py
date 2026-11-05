@@ -75,7 +75,6 @@ NEW_MODULES = (
     'detergent_validation.analysis.runs.surfaces',
     'dashboard.web.routes.common', 'dashboard.web.routes.mappings',
     'detergent_validation.web.routes.bonded', 'dashboard.web.routes.catalog',
-    'detergent_validation.web.routes.refinement',
 )
 
 

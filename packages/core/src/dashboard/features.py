@@ -82,8 +82,6 @@ class Feature:
     create_settings: Mapping[str, Callable] = field(default_factory=dict)
     #: `{run type: (data, root) -> readiness answer}` for a run type whose adapter asks its own question.
     readiness: Mapping[str, Callable] = field(default_factory=dict)
-    #: `(coordinator, job) -> object` called when a run ends failed: the series stop, a cleanup the run type owns.
-    on_run_failed: Callable | None = None
     #: `() -> None` callbacks that add the feature's run layout (stage directories, roles, review order, topology).
     layout: tuple = ()
     #: `(job, manifest) -> {stage name: reason}` for the stages a queued run of this type will not run.
@@ -358,14 +356,6 @@ def planned_skips(job, manifest=None):
             if answer:
                 return answer
     return {}
-
-
-def run_failed(coordinator, jid):
-    """Tell every feature a run ended failed, so a run type can close what it opened (an osmotic series)."""
-    job = coordinator.lookup(jid)
-    for feature in ensure():
-        if feature.on_run_failed is not None:
-            feature.on_run_failed(coordinator, job)
 
 
 def register(app):

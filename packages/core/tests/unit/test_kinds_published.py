@@ -1,27 +1,19 @@
-"""The kind table as the other two layers read it: `published()` and `default_for(run_type)`.
+"""The kind table as the layers read it: `default_for(run_type)` and the queue route's payload contract.
 
-The web layer's `GET /api/analysis-kinds` serialises `published()` and the coordinator queues `default_for(run_type)`
-beside `for_every_run()` when a run's stages finish, so both are seam functions rather than conveniences: a key that
-changes shape here is a change to the control, and a name that leaves `default_for` is an analysis an AA-CG run stops
-publishing without anyone noticing.
+The coordinator queues `default_for(run_type)` beside `for_every_run()` when a run's stages finish, so a name that
+leaves `default_for` is an analysis an AA-CG run stops publishing without anyone noticing.
 
-Two of these tests are about not being a second copy of a truth that lives elsewhere. The `payload` a kind publishes
+One of these tests is about not being a second copy of a truth that lives elsewhere. The `payload` a kind declares
 is what its queue route (`web/routes/analyses.py::queue_analysis`) actually validates, and the route is read here --
-its source is parsed -- rather than restated, so the two cannot drift: a branch the route gains, or a body key it
-stops reading, fails this file and points at the declaration in `kinds.Kind.payload`.
+its source is parsed -- rather than restated, so the two cannot drift.
 """
 import ast
 import inspect
-import json
 import textwrap
 
 import pytest
 from dashboard import features
 from dashboard.analysis import kinds
-
-#: The keys of one published row, as the seam block in the plan names them. Written literally rather than derived:
-#: this is the contract the web layer serialises, so it must be read here in the words both sides agreed on.
-SEAM_KEYS = {'name', 'label', 'inputs', 'payload', 'runs_for_every_run', 'default_for_run_types', 'summary'}
 
 
 def _payload_keys_read(node, name='payload'):
@@ -64,54 +56,6 @@ def _validator_payload_keys():
         assert isinstance(function, ast.FunctionDef), f'{name}: the validator is no longer a plain function'
         found[name] = _payload_keys_read(function, 'body')
     return found
-
-
-def test_published_writes_the_whole_table_in_order_with_exactly_the_seam_keys():
-    rows = kinds.published()
-    assert [row['name'] for row in rows] == list(kinds.TABLE)
-    assert len(rows) == len(kinds.TABLE)
-    for row in rows:
-        assert set(row) == SEAM_KEYS, f'{row["name"]}: keys {sorted(set(row) ^ SEAM_KEYS)} differ from the seam'
-
-
-def test_every_value_a_published_row_carries_is_a_plain_json_type():
-    """No dashboard object leaks into the response the control reads: a tuple is not what a template can index."""
-    rows = kinds.published()
-    for row in rows:
-        name = row['name']
-        assert isinstance(name, str) and isinstance(row['label'], str) and isinstance(row['summary'], str), name
-        assert isinstance(row['runs_for_every_run'], bool), name
-        for key in ('inputs', 'default_for_run_types'):
-            assert isinstance(row[key], list) and all(isinstance(item, str) for item in row[key]), f'{name}: {key}'
-        assert row['payload'] is None or (
-            isinstance(row['payload'], list) and row['payload']
-            and all(isinstance(item, str) for item in row['payload'])), f'{name}: payload'
-    assert json.loads(json.dumps(rows)) == rows, 'published() carries something json cannot write and read back'
-
-
-def test_a_published_row_reads_the_table_rather_than_a_second_copy_of_it():
-    published = {row['name']: row for row in kinds.published()}
-    for name, row in kinds.TABLE.items():
-        entry = published[name]
-        assert entry['label'] == row.title, name
-        assert entry['inputs'] == list(row.sources), name
-        assert entry['summary'] == row.ideal_result, name
-        assert entry['runs_for_every_run'] == row.runs_for_every_run, name
-        assert entry['default_for_run_types'] == list(row.default_for_run_types), name
-
-
-def test_every_published_payload_is_the_payload_its_queue_route_validates():
-    """A wrong `payload` is a button the control offers and the worker refuses, so it is read off the route."""
-    validator_keys = _validator_payload_keys()
-    published = {row['name']: row['payload'] for row in kinds.published()}
-    for name in kinds.TABLE:
-        expected = sorted(validator_keys.get(name, ())) or None
-        actual = sorted(published[name]) if published[name] is not None else None
-        assert actual == expected, (
-            f'{name}: the row says {actual}, the feature validator reads {expected}. '
-            'Read `web/routes/analyses.py::queue_analysis` and change the declaration, not this test.')
-    # And the other direction: a branch the table does not carry is a kind the control cannot name its arguments for.
-    assert set(validator_keys) == {name for name, payload in published.items() if payload is not None}
 
 
 def test_the_only_kind_with_a_payload_is_the_validation_report():

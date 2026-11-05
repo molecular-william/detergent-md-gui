@@ -55,11 +55,9 @@ how a dashboard gains a workspace; the engine never imports one.
   templates/dashboard.html and the shell's static JS. cli/ owns the `detergent-dashboard` and `detergent-import-run`
   console scripts.
 
-detergent-validation (`packages/validation/src/detergent_validation/`): web/routes/ (bonded, osmotic, refinement,
-targets, the analyses payload and the comparison/diagnostics endpoints), execution/adapters/osmotic.py with
+detergent-validation (`packages/validation/src/detergent_validation/`): web/routes/ (bonded, osmotic, targets, the analyses payload and the comparison/diagnostics endpoints), execution/adapters/osmotic.py with
 osmotic_box/osmotic_mdp and the series runner,
-analysis/runs/ (mapping_consistency, transferability, overlap, surfaces, refinement, osmotic_pressure, consistency,
-draft_geometry),
+analysis/runs/ (mapping_consistency, transferability, overlap, surfaces, refinement, osmotic_pressure, consistency),
 analysis/validation/ (report, targets, osmotic, geometry, transfer), analysis/sugar_ensemble.py, evidence.py (the
 carbohydrate evidence sections and profile), and kinds.py (carbohydrate-validation, mapping-consistency,
 osmotic-pressure, overlap, refinement-score, surfaces, targets).

@@ -34,7 +34,7 @@ def test_a_box_the_size_of_the_solvation_tile_asks_for_the_tile_s_beads():
                                                                        / osmotic_box.WATER_TILE_NM ** 3)
     assert bead * osmotic_box.solvent_density_beads_per_nm3() == pytest.approx(1.0)
     # And the paper's box, which is about 5.3 tiles wide, lands in the low thousands of beads.
-    assert 2000 <= osmotic_box.water_beads() <= 2300, osmotic_box.water_beads()
+    assert 2000 <= osmotic_box.plan_condition(0.0)['water_beads'] <= 2300
 
 
 def test_the_water_mass_is_the_count_times_four_waters():
@@ -120,11 +120,6 @@ def test_a_molality_outside_the_papers_range_is_refused_with_the_bound_named():
         osmotic_box.plan_condition(3.0)
     with pytest.raises(ValueError, match='outside the paper'):
         osmotic_box.plan_condition(-0.5)
-
-
-def test_a_solute_that_cannot_fit_is_refused_rather_than_silently_shrunk():
-    with pytest.raises(ValueError, match='displaces'):
-        osmotic_box.water_beads(displaced_nm3=osmotic_box.box_volume_nm3() + 1.0)
 
 
 def test_the_confinement_is_the_quarter_box_and_its_constant_is_the_papers():

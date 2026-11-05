@@ -8,7 +8,7 @@ from . import evidence as evidence_tables
 from . import kinds as kind_rows
 from .execution.adapters import osmotic as osmotic_adapter
 from .web.routes import analyses as analyses_routes
-from .web.routes import bonded, osmotic, refinement, targets
+from .web.routes import bonded, osmotic, targets
 
 PACKAGE = Path(__file__).resolve().parent
 
@@ -48,54 +48,9 @@ def _admission(data):
                          'the mapping candidate records the run it was made from')
 
 
-def _stop_reason(settings):
-    """Why a sibling was cancelled, naming the condition that ended the series where its molality is known."""
-    molality = settings.get('osmotic_molality')
-    named = f'{float(molality):g} molal' if isinstance(molality, (int, float)) else 'a sibling condition'
-    return f'Series stopped: the {named} condition ended failed, so this condition was not run'
-
-
-def _on_run_failed(coordinator, job):
-    """End a series when one condition ends failed and the series asked to stop.
-
-    A sibling the coordinator owns a worker for is stopped through that worker's cancel event -- only the current
-    worker owns its subprocess groups, and a stored PID must never be signalled. A queued sibling this server will
-    not start is marked cancelled and says why. Either way the conditions that did not run are recorded on the
-    failed run as the gap they are.
-    """
-    with coordinator.JOBS_LOCK:
-        job = coordinator.lookup(job['id'])
-        if job.get('run_type') != 'osmotic' or job.get('status') != 'failed':
-            return []
-        settings = job.get('settings') or {}
-        series_id = settings.get('series_id')
-        if not series_id or str(settings.get('series_on_failure') or 'carry_on') != 'stop':
-            return []
-        stopped = []
-        for sibling in coordinator.database().all():
-            if sibling.get('id') == job['id']:
-                continue
-            if (sibling.get('settings') or {}).get('series_id') != series_id:
-                continue
-            if sibling.get('status') not in ('queued', 'waiting', 'running'):
-                continue
-            if sibling['id'] in coordinator.WORKERS:
-                coordinator.WORKERS[sibling['id']].cancel.set()
-                coordinator.database().update(sibling['id'], status='cancelling')
-            elif sibling.get('status') in ('queued', 'waiting'):
-                coordinator.database().update(sibling['id'], status='cancelled', stage='Series stopped',
-                                              ended_at=coordinator.now(), error=_stop_reason(settings))
-            else:
-                continue
-            stopped.append({'id': sibling['id'], 'molality': (sibling.get('settings') or {}).get('osmotic_molality')})
-        if stopped:
-            coordinator.database().update(job['id'], series_stopped=stopped)
-        return stopped
-
-
 FEATURE = features.Feature(
     name='validation',
-    blueprints=(bonded.blueprint, osmotic.blueprint, refinement.blueprint, targets.blueprint,
+    blueprints=(bonded.blueprint, osmotic.blueprint, targets.blueprint,
                 analyses_routes.blueprint),
     protocols={'osmotic': _osmotic_protocol},
     kinds=kind_rows.KINDS,
@@ -134,5 +89,4 @@ FEATURE = features.Feature(
     styles=('osmotic.css',),
     panel_modules={'validation': ('js/mapping-validation.js', 'createMappingValidation'),
                    'osmotic-pressure': ('js/osmotic.js', 'createOsmoticSeries')},
-    on_run_failed=_on_run_failed,
 )

@@ -31,7 +31,6 @@ nav[role=tablist] {
   display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 14px 0 14px 10px;
   border-bottom: 0; border-left: 1px solid var(--line); position: sticky; top: 0; max-height: 100vh; overflow: auto;
 }
-nav[role=tablist] .tab-group { font-size: 10px; letter-spacing: 1.6px; color: var(--muted); font-weight: 700; margin: 14px 8px 4px; padding-right: 8px }
 nav[role=tablist] button {
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   background: transparent; color: var(--muted); border-radius: 8px 0 0 8px;
@@ -63,18 +62,16 @@ nav[role=tablist] button .tab-glyph { width: 18px; flex: 0 0 18px; text-align: c
    two-column grid for the same container and loses to this rule only because this sheet is linked after it --
    the same arrangement `new-run.css` has with the measure. */
 .run-view-stage { grid-column: span 8 }
-.run-view-notes { grid-column: span 12 }
 
 /* Every workspace is one column by 1100 px (its own stylesheet says so at 980 or 900), so the spans go with it:
    a span of eight in a one-column grid is eight implicit columns, which is how a layout breaks by accident. */
 @media (max-width: 1100px) {
   .app-shell { grid-template-columns: minmax(0, 1fr) 64px }
-  nav[role=tablist] .tab-group { visibility: hidden; height: 0; margin: 0; padding: 0 }
   nav[role=tablist] button { justify-content: center; padding: 10px 4px }
   nav[role=tablist] button .tab-text { display: none }
   .new-run-inputs, .new-run-settings, .mapping-editor-diagram-column, .mapping-editor-controls,
   .bonded-columns > *, .composition-sidebar, .composition-preview,
-  .run-view-stage, .run-view-notes { grid-column: span 12 }
+  .run-view-stage { grid-column: span 12 }
 }
 
 @media (max-width: 900px) {
@@ -86,7 +83,6 @@ nav[role=tablist] button .tab-glyph { width: 18px; flex: 0 0 18px; text-align: c
     flex-direction: row; gap: 6px; border-left: 0; border-bottom: 1px solid var(--line);
     padding: 0; margin-bottom: 20px; max-height: none; overflow-x: auto; white-space: nowrap;
   }
-  nav[role=tablist] .tab-group { display: none }
   nav[role=tablist] button { width: auto; justify-content: flex-start; padding: 12px 18px; border-radius: 8px 8px 0 0; border-bottom: 3px solid transparent }
   nav[role=tablist] button[aria-selected=true] { border-bottom-color: var(--accent); border-right-color: transparent }
   nav[role=tablist] button .tab-text { display: inline }

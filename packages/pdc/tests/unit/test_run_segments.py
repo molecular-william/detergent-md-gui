@@ -9,7 +9,6 @@ is a boundary, and a duplicate says which segment it repeats.
 from pathlib import Path
 
 from dashboard.analysis.runs import layout, segments
-from detergent_pdc import segments as pdc_segments
 
 GRO = 'system {count}\n{count:5d}\n    1DDM      S1A     1   0.100   0.200   0.300\n   8.00000   8.00000   8.00000\n'
 
@@ -136,18 +135,3 @@ def test_the_layout_names_the_pdc_production_trajectory(tmp_path):
 
     assert role == 'pdc_trajectory'
     assert trajectory.name == 'whole.xtc' and structure.name == 'run.gro'
-
-
-def test_the_timeline_names_exactly_the_two_production_stages_in_order():
-    """The reel covers the two production stages and nothing else: equilibrium legs and the duplicate stay out.
-
-    It is one tuple, read by the producer, so the timeline's order is a property of the run's stages rather than a
-    second list a caller keeps in step.
-    """
-    assert isinstance(pdc_segments.TIMELINE_STAGES, tuple)
-    assert pdc_segments.TIMELINE_STAGES == ('Energy minimisation', 'NVT equilibration', 'NPT equilibration',
-                                            'CG assessment MD', 'CG extension MD')
-    order = [name for name, *_ in pdc_segments.STAGES]
-    positions = [order.index(name) for name in pdc_segments.TIMELINE_STAGES]
-    assert positions == sorted(positions), 'the timeline is not in the run\'s stage order'
-    assert 'Final assessment' not in pdc_segments.TIMELINE_STAGES

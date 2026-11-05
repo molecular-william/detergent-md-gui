@@ -48,16 +48,6 @@ def solvent_density_beads_per_nm3():
     return WATER_TILE_BEADS / WATER_TILE_NM ** 3
 
 
-def water_beads(*, displaced_nm3=0.0):
-    """How many W beads fill the box, less what the solute displaces.
-
-    `gmx solvate` tiles a coordinate file rather than computing a density, so this is a prediction of what it will
-    place, and the manifest should carry the count it actually placed. A prediction is not a substitute for the count.
-    """
-    available = box_volume_nm3() - float(displaced_nm3)
-    if available <= 0:
-        raise ValueError(f'the solute displaces {displaced_nm3} nm3 of a {box_volume_nm3():.2f} nm3 box')
-    return int(available * solvent_density_beads_per_nm3())
 
 
 def water_kg(bead_count):
@@ -83,13 +73,6 @@ def _molecules_for(molality, water_bead_count):
     return int(round(molality * present * AVOGADRO))
 
 
-def solute_molecules(molality, *, displaced_nm3=0.0):
-    """The solute count for a molality, given how much of the box the solute itself takes up.
-
-    One half of the relation, not the whole answer: the displaced volume depends on the count. Use `plan_condition`,
-    which solves the two together.
-    """
-    return _molecules_for(molality, water_beads(displaced_nm3=displaced_nm3))
 
 
 def solute_volume_nm3(bead_radii_nm):

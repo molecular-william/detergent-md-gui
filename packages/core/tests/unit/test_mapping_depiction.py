@@ -1,7 +1,7 @@
 from dashboard.models.mappings import depiction
 from dashboard.models.mappings.context import build_context
 
-from tests.harness.mapping_fixtures import write_fixture
+from tests.harness.support import write_aa_fixture as write_fixture
 
 
 def test_empty_mapping_does_not_remove_structure(tmp_path):

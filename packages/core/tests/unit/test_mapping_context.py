@@ -1,6 +1,6 @@
 from dashboard.models.mappings.context import build_context
 
-from tests.harness.mapping_fixtures import write_fixture
+from tests.harness.support import write_aa_fixture as write_fixture
 
 
 def test_context_keeps_atom_ids_and_source_changes(tmp_path):

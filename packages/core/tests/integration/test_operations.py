@@ -143,15 +143,11 @@ class OperationsTests(unittest.TestCase):
                 task=self.wait_task(aid)
         self.assertEqual(task['status'],'cancelled')
 
-    def test_targets_and_comparison_keep_missing_values(self):
+    def test_targets_keep_missing_values(self):
         response=self.client.post('/api/jobs/'+self.job['id']+'/targets',json={'targets':[{'kind':'density','value':1,'uncertainty':.1,'unit':'g/cm3'}]})
         task=self.wait_task(response.get_json()['id']); self.assertEqual(task['status'],'completed',task.get('error'))
         target=self.client.get('/api/jobs/'+self.job['id']+'/targets').get_json()['targets'][0]
         self.assertNotIn('measured',target)
-        second=dict(self.job,id='abcdef123456'); self.dashboard.coordinator.database().insert(second)
-        result=self.client.get('/api/compare?ids=123456abcdef,abcdef123456').get_json()
-        self.assertEqual(result['runs'][1]['sasa'],{})
-        self.assertFalse(result['runs'][0]['scientifically_validated'])
 
     def test_storage_refuses_overcommit_and_never_deletes(self):
         report=self.dashboard.coordinator.storage_report(); report['disk_free_bytes']=0
