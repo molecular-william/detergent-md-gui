@@ -211,6 +211,9 @@ after the check; this host reports three GPUs, so the no-GPU path is pinned by t
   (`25674f2`); local AA and CG-only molecules import through `/api/molecules/import`, and pdc uses a CG-only
   molecule as a detergent without a mapping (`99bbd03`). Focus doc `docs/plans/2026-11-05-feature-round.md`.
   Checks: fast 2437 passed + 1 xfailed, browser 287 passed, slow 25 passed, ruff clean; live checks in *Next task*.
+  Follow-up (17:35): an all-atom file now states its atoms' own elements in the PDB element column instead of the
+  bead stand-in `C`, so the Run view colours LMNG by chemistry (C grey, O red, H white); `619ab118abd6`'s rebuilt
+  series holds 17,688 H / 9,447 C / 4,422 O and the live viewer draws red oxygen.
   Corrections found while building: there was no 3D bead highlight to preserve (one was added), and the CONECT
   layout was measured on the vendored NGL (a single block after the models binds every frame) rather than assumed.
 

@@ -674,7 +674,10 @@ CONECT, locating the topology by `analysis/runs/layout.recorded_topology` -- an 
 `stages/common/molecule/molecule.itp` entry point, whose single quoted `#include` `structures.read_moleculetype` follows (refusing
 `..` and symlinks), a CG or pdc run through its own directory -- and naming it from the manifest's `FINAL_ITP`. A
 `.pdb` is refused. Readers never distance-guess a file that carries CONECT, and a coarse-grained file is
-`inferBonds: 'none'` even without it.
+`inferBonds: 'none'` even without it. The element column is the run type's: an `aa_only` run's atoms state their own
+chemical elements (`structures.atom_element`, read from the atom names) and no Martini family, so a viewer colours
+C grey, O red and H white; a coarse-grained file keeps the size-class stand-ins and the family code, which is what a
+bead's radius and colour come from.
 
 ### Re-scoring the assessment (`execution/assessment_rescore.py`)
 

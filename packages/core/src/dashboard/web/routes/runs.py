@@ -495,6 +495,8 @@ def run_structure_api(jid):
         # run without them (every single-molecule run) gets the same file it always did.
         text = structures.structure_pdb(path, topology=moleculetype, subunits=structures.read_subunits(run_dir),
                                       protein_topologies=features.protein_topologies(run_dir),
+                                      # An aa_only run's structure is atoms; every other run type's is beads.
+                                      atomistic=job.get('run_type') == 'aa_only',
                                       title=f'{path.name} (run {jid})')
     except (OSError, ValueError) as error:
         abort(400, f'{path.name} could not be read for the viewer: {error}')

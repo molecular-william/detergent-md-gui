@@ -243,3 +243,30 @@ def test_a_runs_mapped_structure_carries_the_fragments_its_mapping_states(dashbo
     mapping.unlink()
     plain = dashboard.client.get(f'/api/jobs/{JOB_ID}/structure?path={MAPPED}').get_data(as_text=True)
     assert 'CHAIN LETTERS' not in plain, 'a run whose mapping is gone still claims fragments'
+
+
+def test_an_all_atom_runs_structure_states_the_atoms_own_elements(dashboard):
+    """The structure route serves an atomistic file with its chemistry in the element column, not a bead stand-in.
+
+    Measured on `619ab118abd6` before this change: every atom of the 157-atom molecule was written `C`, so the viewer
+    drew it as grey spheres regardless of what the atom was.
+    """
+    root = dashboard.coordinator.RUNS / '00000000bbbb'
+    structure = root / 'stages/07_reference/lig.gro'
+    structure.parent.mkdir(parents=True)
+    lines = ['atomistic solute', f'{3:5d}']
+    for serial, name in enumerate(('C1', 'O1', 'H1'), start=1):
+        lines.append(gro_atom_line(1, 'LIG', name, serial, (serial * 0.1, 0.0, 0.0)))
+    lines.append('   4.00000   4.00000   4.00000')
+    structure.write_text('\n'.join(lines) + '\n')
+    dashboard.coordinator.database().insert({'id': '00000000bbbb', 'run_type': 'aa_only', 'status': 'completed',
+                                             'stage': 'complete', 'molecule_id': 'DDM',
+                                             'created': '2026-10-22T19:00:00+00:00'})
+
+    response = dashboard.client.get('/api/jobs/00000000bbbb/structure?path=stages/07_reference/lig.gro')
+
+    assert response.status_code == 200, response.get_data(as_text=True)
+    text = response.get_data(as_text=True)
+    records = [line for line in text.splitlines() if line.startswith('HETATM')]
+    assert [line[76:78].strip() for line in records] == ['C', 'O', 'H'], records
+    assert 'ALL-ATOM SYSTEM AS SET UP' in text

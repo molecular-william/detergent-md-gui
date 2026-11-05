@@ -762,6 +762,9 @@ def _build(work, payload, temps):
     text = structures.series_pdb(frames, topology=topology, detergent_residue=None, subunits=subunits,
                                  include_water=False, times_ns=times, protein_topologies=protein_topologies or None,
                                  view=view, fit=fit_record,
+                                 # An aa_only run's frames are atoms: their element column is the chemistry a
+                                 # viewer colours from, not a bead size class.
+                                 atomistic=manifest.get('run_type') == 'aa_only',
                                  title=f'{trajectory.name} frame series', note=note)
     output = work / 'run-frames.pdb'
     output.write_text(text)

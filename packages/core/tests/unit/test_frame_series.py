@@ -1275,3 +1275,34 @@ def test_a_stable_kind_replaces_its_series_in_place_and_keeps_it_on_failure(tmp_
         build({'fail': True})
     assert (directory / 'run-frames.pdb').read_text() == 'second pair', 'a failed rebuild replaced the series'
     assert json.loads((directory / 'frames.json').read_text())['args'] == {'body': 'second pair'}
+
+
+def _atoms(names):
+    """Three atoms of one residue, shaped as the writer reads them."""
+    return [{'name': name, 'residue': 'LIG', 'residue_id': 1, 'position': (0.1 * index, 0.0, 0.0)}
+            for index, name in enumerate(names)]
+
+
+def test_an_all_atom_series_states_each_atoms_own_element():
+    """A PDB's element column is what a viewer colours and sizes from; an all-atom file must state the chemistry.
+
+    Measured on `619ab118abd6` before this change: every one of the 157 atoms a model carried was written `C`, so NGL
+    drew a molecule of grey spheres whatever the atom was. The size-class stand-in belongs to a coarse-grained file.
+    """
+    text = structures.series_pdb([_atoms(['C1', 'O1', 'H1'])], atomistic=True, title='atoms')
+    records = [line for line in text.splitlines() if line.startswith('HETATM')]
+
+    assert [line[76:78].strip() for line in records] == ['C', 'O', 'H'], records
+    assert all(line[60:66].strip() == '0.00' for line in records), 'an all-atom file claims a Martini family'
+    assert 'ALL-ATOM SYSTEM AS SET UP' in text
+    assert 'ELEMENTS ARE THE ATOMS OWN CHEMICAL ELEMENTS' in text
+
+
+def test_a_coarse_grained_series_keeps_the_size_class_stand_in():
+    """The same names in a bead file are beads, not atoms: its element column stays the model's size-class stand-in."""
+    text = structures.series_pdb([_atoms(['C1', 'O1', 'H1'])], atomistic=False, title='beads')
+    records = [line for line in text.splitlines() if line.startswith('HETATM')]
+
+    assert [line[76:78].strip() for line in records] == ['C', 'C', 'C'], records
+    assert 'COARSE-GRAINED SYSTEM AS SET UP' in text
+    assert 'ELEMENTS ARE RADIUS STAND-INS' in text
