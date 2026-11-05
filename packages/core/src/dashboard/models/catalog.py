@@ -2,7 +2,7 @@
 from . import compositions, mappings
 
 
-def list_models(view='summary'):
+def list_models():
     rows = []
     for item in mappings.list_candidates(summary=True):
         rows.append({'kind': 'mapping', 'id': item.get('file'), 'name': item.get('name') or item.get('file'),

@@ -171,19 +171,3 @@ def probe_tool(executable):
             PROBE_ANSWERS.clear()
         PROBE_ANSWERS[identity] = answer
     return answer
-
-
-def update_mdp(path, changes):
-    lines = path.read_text().splitlines()
-    normalized = lambda x: x.strip().lower().replace('_', '-')
-    changes = {normalized(k): str(v) for k, v in changes.items()}
-    seen = set()
-    for i, line in enumerate(lines):
-        key = normalized(line.split('=', 1)[0])
-        if key in changes:
-            lines[i] = f'{key} = {changes[key]}'
-            seen.add(key)
-    lines.extend(f'{k} = {v}' for k, v in changes.items() if k not in seen)
-    path.write_text('\n'.join(lines) + '\n')
-
-

@@ -23,11 +23,6 @@ from .runs import layout
 from .runs import references as aa_references
 
 
-def known(kind: str) -> bool:
-    """Whether the worker accepts this kind. The table is the registration, so this is its one answer."""
-    return kind in TABLE
-
-
 def _stage_alias(relative):
     """A stage-relative path with its stage directory replaced by the stage's own registered key.
 

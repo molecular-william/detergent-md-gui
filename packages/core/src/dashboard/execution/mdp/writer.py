@@ -12,9 +12,9 @@ rendered with a missing one. The writer does not guess a derivation: duration to
 stage today (`round`, `ceil`, `max(1, round(...))`), and that arithmetic belongs to the adapter that knows which leg
 it is preparing.
 
-Formatting is the format today's runs were prepared with (`environment.update_mdp` and `aa.mdp`): floats as `%.12g`,
+Formatting is the format today's runs were prepared with: floats as `%.12g`,
 integers verbatim, booleans as `yes`/`no`, and an empty string as an empty value -- `define = ` with the trailing
-space, which is what `update_mdp` writes for a cleared define.
+space, which is how a cleared `define` is written.
 
 """
 from dataclasses import dataclass

@@ -1,12 +1,12 @@
 """Molecule-scoped CG runs must consume a shared AA reference."""
 import copy
 import json
-from pathlib import Path
 
 import pytest
 from dashboard.execution.adapters import cg
 from dashboard.execution.adapters.cg_names import CGNames
 from dashboard.execution.environment import TUTORIAL_TEMPLATE
+from dashboard.execution.mdp import PROFILES
 from dashboard.models import mappings
 from dashboard.models.mappings.context import as_structure, build_context
 from dashboard.models.molecules import draft as draft_model
@@ -68,12 +68,11 @@ def test_the_atomistic_half_still_integrates_at_two_femtoseconds():
     assert mdp_value(AA_MDPS / 'md.mdp', 'dt') == pytest.approx(0.002)
 
 
-def test_the_timestep_is_stamped_on_the_atomistic_half_only(tmp_path):
+def test_each_halves_timestep_is_the_reviewed_profile():
     """Stamping `dt` on both halves is what put 2 fs on the coarse-grained MDPs of run `abd5bf461c49`."""
-    aa_dir, cg_dir = tmp_path / 'aa', tmp_path / 'cg'
-    assert cg.mdp_integration(aa_dir, aa_dir, 25000)['dt'] == 0.002
-    assert 'dt' not in cg.mdp_integration(cg_dir, aa_dir, 25000), \
-        'the coarse-grained half keeps its template timestep'
+    assert PROFILES['aa-nvt-v1'].settings['dt'] == 0.002
+    assert PROFILES['cg-equilibration-v1'].settings['dt'] == 0.005
+    assert PROFILES['cg-production-v1'].settings['dt'] == 0.02
 
 
 def test_the_temperature_is_the_runs_setting_and_is_rounded_for_ff_inter():
@@ -132,17 +131,10 @@ def test_the_cg_templates_prescribe_the_barostat_both_papers_use():
         assert values['compressibility'] == '4.5e-5', "the papers' water compressibility, not GROMACS' default"
 
 
-def test_the_cg_half_keeps_the_barostat_its_template_carries():
-    """`mdp_integration` decides durations, logging and the timestep. Pressure coupling is not its business.
-
-    It used to stamp `pcoupl = no` on both mdps of the coarse-grained half -- over a template that asks for
-    C-rescale and Parrinello-Rahman at 1 bar -- so every CG production run this project has done was NVT with
-    `ref_p` and `compressibility` dead keys, and the published protocol had never been executed once.
-    """
-    changes = cg.mdp_integration(Path('/run/4_CG_sim/inputs'), Path('/run/1_AA-reference'), 25000)
-
-    assert 'pcoupl' not in changes, 'the template states the barostat; this must not override it'
-    assert changes['nsteps'] == 25000, 'the timestep and the step count are what it is for'
+def test_the_cg_profiles_keep_the_barostat_their_templates_carry():
+    """The coarse-grained half is not NVT: its profiles state the two barostats the protocol describes."""
+    assert PROFILES['cg-equilibration-v1'].settings['pcoupl'] == 'c-rescale'
+    assert PROFILES['cg-production-v1'].settings['pcoupl'] == 'parrinello-rahman'
 
 
 def test_the_cg_equilibration_integrates_more_finely_than_its_production():
@@ -160,14 +152,6 @@ def test_the_cg_equilibration_integrates_more_finely_than_its_production():
     assert equil['dt'] == '0.005', 'the equilibration step'
     assert production['dt'] == '0.02', "the paper's production step, which the standing decision fixes at 20 fs"
     assert float(equil['dt']) < float(production['dt'])
-
-
-def test_neither_cg_template_has_its_timestep_stamped_by_the_adapter():
-    """Side by side with the barostat: what a template states, the adapter leaves alone."""
-    changes = cg.mdp_integration(Path('/run/4_CG_sim/inputs'), Path('/run/1_AA-reference'), 1000)
-
-    assert 'dt' not in changes, 'the CG half keeps its template dt; only the atomistic half is stamped'
-    assert cg.mdp_integration(Path('/run/1_AA-reference'), Path('/run/1_AA-reference'), 1000)['dt'] == 0.002
 
 
 def test_maltose_mapping_validation_uses_its_bound_molecule():

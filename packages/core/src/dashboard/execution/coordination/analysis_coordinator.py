@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 
 from dashboard import files, paths
+from dashboard.analysis import kinds
 from dashboard.analysis import worker as analysis
 from dashboard.analysis.runs import layout
 
@@ -189,7 +190,7 @@ class AnalysisCoordinator:
 
     def queue(self, jid, kind, payload, *, automatic=False):
         owner = self.owner
-        if not analysis.known(kind):
+        if not kinds.known(kind):
             raise RunNotFound('Unknown analysis')
         if not isinstance(payload, dict):
             raise InvalidRequest('Expected an object')

@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 from dashboard.execution.adapters import aa, cg
+from dashboard.execution.mdp import PROFILES, render
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
@@ -34,6 +35,14 @@ PROFILE = settings(max_examples=40, deadline=None,
 NUMERIC_KEYS = ('nstlist', 'verlet-buffer-tolerance', 'ref-t', 'tau-t', 'dt', 'nsteps', 'nstenergy',
                 'nstlog', 'tau-p', 'ref-p')
 KINDS = ('em', 'ions', 'nvt', 'npt', 'production')
+AA_PROFILE = {'em': 'aa-em-v1', 'ions': 'aa-ions-v1', 'nvt': 'aa-nvt-v1',
+              'npt': 'aa-npt-v1', 'production': 'aa-production-v1'}
+
+
+def aa_text(settings, kind):
+    """The reviewed profile rendered with the run values its adapter supplies."""
+    profile = AA_PROFILE[kind]
+    return render(profile, aa.mdp_values(settings, profile))
 # What an integrating kind must carry for the loop below not to pass over an empty file: the
 # timestep decision, the duration, and the coupling the template states.
 INTEGRATING_KEYS = ('dt', 'nsteps', 'ref-t', 'tau-t')
@@ -60,7 +69,7 @@ def keys_of(text):
        production=st.floats(min_value=10, max_value=100000, allow_nan=False, allow_infinity=False))
 def test_every_key_in_a_written_mdp_appears_exactly_once(kind, temperature, production):
     """A duplicate key is what `grompp` refuses as `doubly defined`, before anything runs."""
-    text = aa.mdp(settings_for(temperature, production), kind)
+    text = aa_text(settings_for(temperature, production), kind)
     keys = keys_of(text)
     duplicates = sorted({key for key in keys if keys.count(key) > 1})
 
@@ -78,7 +87,7 @@ def test_a_value_read_back_through_the_reader_is_the_value_that_went_in(kind, te
     no temperature and no timestep -- so the test states which keys the integrating kinds must carry,
     which is what keeps the loop from passing vacuously over an empty file.
     """
-    text = aa.mdp(settings_for(temperature, production), kind)
+    text = aa_text(settings_for(temperature, production), kind)
     path = Path(tmp_path) / f'{kind}.mdp'
     path.write_text(text)
     keys = keys_of(text)
@@ -104,23 +113,20 @@ def test_the_integrator_duration_and_step_count_agree(temperature, production):
     """
     dt = 0.002
     adapter_settings = settings_for(temperature, production)
-    text = aa.mdp(adapter_settings, 'production')
+    text = aa_text(adapter_settings, 'production')
     steps = float(cg_read(text, 'nsteps'))
 
     assert steps >= 1, 'a run always integrates at least one step'
     assert abs(float(cg_read(text, 'dt')) * steps - production) <= dt / 2 + 1e-9
 
 
-@PROFILE
-@given(folder=st.sampled_from(('aa', 'cg')), steps=st.integers(min_value=0, max_value=10**9))
-def test_the_timestep_and_the_barostat_stay_where_the_decisions_put_them(folder, steps):
-    """The timestep is stamped on the atomistic half only, and `pcoupl` is never stamped at all."""
-    aa_dir = Path('/run/1_AA-reference')
-    changes = cg.mdp_integration(aa_dir if folder == 'aa' else Path('/run/4_CG_sim/inputs'), aa_dir, steps)
-
-    assert changes['nsteps'] == steps
-    assert ('dt' in changes) is (folder == 'aa'), 'only the atomistic half is stamped with a timestep'
-    assert 'pcoupl' not in changes, 'the template states the barostat; this must not override it'
+def test_each_profile_states_its_halves_timestep_and_barostat():
+    """The timestep and the barostat are the reviewed profile's, not a stamp applied at prepare time."""
+    assert PROFILES['aa-nvt-v1'].settings['dt'] == 0.002
+    assert PROFILES['cg-equilibration-v1'].settings['dt'] == 0.005
+    assert PROFILES['cg-production-v1'].settings['dt'] == 0.02
+    assert PROFILES['cg-equilibration-v1'].settings['pcoupl'] == 'c-rescale'
+    assert PROFILES['cg-production-v1'].settings['pcoupl'] == 'parrinello-rahman'
 
 
 def cg_read(text, key):

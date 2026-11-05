@@ -11,7 +11,7 @@ import math
 import MDAnalysis as mda
 import numpy as np
 import pytest
-from dashboard.analysis import worker
+from dashboard.analysis import kinds
 from dashboard.analysis.runs import dihedral_fit
 
 R_GAS = dihedral_fit.R_GAS
@@ -460,7 +460,7 @@ def test_the_dihedral_fit_kind_is_registered_in_all_four_places():
     """
     from dashboard.analysis.kinds import TABLE
     row = TABLE['dihedral-fit']
-    assert worker.known('dihedral-fit') and row.name == 'dihedral-fit'
+    assert kinds.known('dihedral-fit') and row.name == 'dihedral-fit'
     assert list(row.sources) == [
         '2_mapping/mapped.gro', '2_mapping/mapped.xtc', '2_mapping/model.json',
         '3_initial_CG/*_ff_inter.itp', '3_initial_CG/*initial*.itp']

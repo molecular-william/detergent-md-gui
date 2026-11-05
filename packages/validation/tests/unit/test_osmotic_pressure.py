@@ -204,11 +204,11 @@ def test_the_kind_is_registered_in_all_four_places():
     The fourth is the dispatch arm, which used to have no name to look up -- its source was read for the branch, a
     text check that a comment can fool. It is `row.run` now, so the arm is compared with the function it must be.
     """
-    from dashboard.analysis import worker
+    from dashboard.analysis import kinds
     from dashboard.analysis.kinds import TABLE
 
     row = TABLE['osmotic-pressure']
-    assert worker.known('osmotic-pressure') and row.name == 'osmotic-pressure'
+    assert kinds.known('osmotic-pressure') and row.name == 'osmotic-pressure'
     assert list(row.sources) == ['01_simulate/osmotic_condition.json', '01_simulate/plumed.dat',
                                  '01_simulate/solvated.gro', '01_simulate/prod/md_whole.xtc']
     note, units = row.ideal_result, row.units_or_direction

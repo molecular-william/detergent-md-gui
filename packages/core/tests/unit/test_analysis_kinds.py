@@ -12,12 +12,12 @@ fail on the current code for their own reasons -- an unknown kind is given an in
 the evidence sections sit in the kind vocabulary where nothing checks them.
 """
 import pytest
-from dashboard.analysis import worker
+from dashboard.analysis import kinds
 
 
 def test_the_table_covers_every_kind_the_worker_accepts():
     from dashboard.analysis.kinds import TABLE
-    assert all(worker.known(name) for name in TABLE), 'every row is reachable through the worker'
+    assert all(kinds.known(name) for name in TABLE), 'every row is reachable through the worker'
 
 
 def test_every_row_carries_all_four_facets():

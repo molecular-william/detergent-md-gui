@@ -14,7 +14,6 @@ from . import verdict
 from .context import as_structure
 from .graph import validate
 from .identity import candidate_identity, content_identity
-from .schema import check_schema
 
 
 class DuplicateMapping(ValueError):
@@ -42,11 +41,6 @@ def _validate_filename(value):
 
 def _repository(root=None):
     return JsonRepository(root or storage_root(), '{id}', _validate_filename)
-
-
-def reviews_root():
-    """Where immutable review records live: under the drafts root, never beside it."""
-    return storage_root() / 'reviews'
 
 
 def candidate_paths():
@@ -140,53 +134,10 @@ def _identical_mapping(draft, exclude=None):
     return None
 
 
-def generate_variants(data, limit=8):
-    """Generate bounded deterministic label variants with explicit provenance."""
-    check_schema(data)
-    if not isinstance(limit, int) or limit < 1 or limit > 32:
-        raise ValueError('Variant limit must be between 1 and 32')
-    variants = []
-    labels = ('d', 'a', 'e', 'v')
-    for index, bead in enumerate(data['beads']):
-        for label in labels:
-            if len(variants) >= limit: break
-            if bead.get('label') == label: continue
-            candidate = json.loads(json.dumps(data)); candidate['name'] = f"{data['name']} · {bead['name']}={label}"
-            candidate['beads'][index]['label'] = label
-            candidate['parent_candidate'] = data.get('file') or data.get('name')
-            candidate['transformation'] = {'type': 'label_variant', 'bead_index': index, 'label': label}
-            variants.append(save_draft(candidate))
-        if len(variants) >= limit: break
-    return variants
 
 
-def record_review(data, state, reviewer='', notes='', *, context=None):
-    """Persist an immutable review record; never mutate packaged candidates."""
-    if state not in ('draft', 'needs-review', 'approved', 'rejected'):
-        raise ValueError('Invalid review state')
-    check_schema(data, allow_empty=bool(data.get('schema_version') == 3)); validation = validate(data, context=context, allow_partial=bool(data.get('schema_version') == 3))
-    if state == 'approved' and not validation['can_approve']:
-        raise ValueError('Cannot approve mapping: ' + '; '.join(item['message'] for item in verdict.blocking(validation['issues'], 'can_approve')))
-    source = data.get('file', data.get('name', 'candidate'))
-    safe = re.sub(r'[^A-Za-z0-9_.-]', '_', str(source))[:120]
-    storage_root().mkdir(parents=True, exist_ok=True)
-    reviews = reviews_root(); reviews.mkdir(exist_ok=True)
-    record = {'candidate': source, 'state': state, 'reviewer': str(reviewer)[:160],
-              'notes': str(notes)[:2000], 'reviewed_at': datetime.now(timezone.utc).isoformat(),
-              'validation': validation, 'scientifically_validated': False}
-    filename = f'{safe}-{uuid.uuid4().hex[:10]}.json'
-    _repository(reviews).write(filename, record, replace=False)
-    return record
 
 
-def list_reviews():
-    """Every readable review record, read through this store's own repository.
-
-    A record whose name the validator refuses, or whose JSON does not parse, is skipped:
-    the review list is a view of what is there, and one bad file must not blank it.
-    """
-    directory = reviews_root()
-    return _repository(directory).list(skip_invalid=True) if directory.is_dir() else []
 
 
 def delete_draft(name):

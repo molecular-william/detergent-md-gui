@@ -1,10 +1,14 @@
-"""The MDP writer's parity gate: every reviewed profile renders the map today's code produces.
+"""The MDP writer's parity gate: every reviewed profile renders the map it was reviewed as.
 
 Phase 3, T3.1 of `docs/plans/2026-10-27-run-lifecycle-refactor.md`: a profile may replace a template or an adapter
 patch only when its file parses to the same settings. Comments and formatting are ignored -- the comparison is the
-key/value map GROMACS reads -- and where the current code patches a copied template at prepare time, these tests apply
-the same patch through the same functions (`environment.update_mdp`, `cg.mdp_integration`) and compare the patched
-result. The values a profile leaves for the run are supplied the way its adapter computes them.
+key/value map GROMACS reads. The AA maps below are written out literally; the CG and pdc profiles are compared with
+the shipped template files, patched by the literal changes this test states. The values a profile leaves for the run
+are supplied the way its adapter computes them.
+
+The two legacy builders these tests used to compare against (`aa.mdp`, `cg.mdp_integration`,
+`environment.update_mdp`) are gone: the reviewed profile is the one implementation, and a literal map is the
+independent statement of what it must produce.
 """
 import math
 import shutil
@@ -12,7 +16,7 @@ from dataclasses import replace
 
 import pytest
 from dashboard import paths
-from dashboard.execution import environment, forcefields
+from dashboard.execution import forcefields
 from dashboard.execution.adapters import aa, cg
 from dashboard.execution.mdp import PROFILES, render, write_mdp
 from dashboard.execution.mdp.writer import formatted
@@ -31,7 +35,7 @@ AA_DURATION = {'aa-nvt-v1': 'aa_nvt_ps', 'aa-npt-v1': 'aa_npt_ps', 'aa-productio
 
 
 # --------------------------------------------------------------------------------------------------------------------
-# The comparison: an MDP as a key/value map, and two values as equal when they are the same number or the same text.
+# The comparison: an MDP as a key/value map, and a literal expected map.
 # --------------------------------------------------------------------------------------------------------------------
 
 def parsed(text):
@@ -57,37 +61,96 @@ def equivalent(left, right):
 
 
 #: The three neighbour-list keys the CG dynamics profiles own deliberately, against templates that were written for a
-#: 20-step list with a pinned 1.35 nm buffer. The parity gate compares everything else; the values these three carry
-#: are pinned by `test_cg_dynamics_states_the_reviewed_neighbour_list`, and the reason is in `profiles.py`.
+#: 20-step list with a pinned 1.35 nm buffer.
 NEIGHBOURS = ('nstlist', 'verlet-buffer-tolerance', 'rlist')
 
 
 def assert_same(profile, expected_text, values=None, ignore=()):
-    """One profile against what the current code writes: same keys, same values, nothing extra on either side."""
+    """One profile against a literal map: same keys, same values, nothing extra on either side."""
     produced = parsed(render(profile, values))
-    expected = parsed(expected_text)
+    expected = parsed(expected_text) if isinstance(expected_text, str) else dict(expected_text)
     for key in ignore:
         produced.pop(key, None)
         expected.pop(key, None)
     assert produced.keys() == expected.keys(), (
-        f'{profile}: only in the current output: {sorted(set(expected) - set(produced))}; '
+        f'{profile}: only in the literal map: {sorted(set(expected) - set(produced))}; '
         f'only in the profile: {sorted(set(produced) - set(expected))}')
     differing = {key: (expected[key], produced[key]) for key in expected
                  if not equivalent(expected[key], produced[key])}
     assert differing == {}, f'{profile}: {differing}'
 
 
-def stamped(tmp_path, name, changes, source=None):
-    """Copy the template the current code copies, then patch it the way the current code patches it."""
+def apply_changes(path, changes):
+    """Patch a copied template with literal changes, the way prepare used to patch it."""
+    lines = path.read_text().splitlines()
+    normalized = lambda value: value.strip().lower().replace('_', '-')
+    wanted = {normalized(key): str(value) for key, value in changes.items()}
+    seen = set()
+    for index, line in enumerate(lines):
+        key = normalized(line.split('=', 1)[0])
+        if key in wanted:
+            lines[index] = f'{key} = {wanted[key]}'
+            seen.add(key)
+    lines.extend(f'{key} = {value}' for key, value in wanted.items() if key not in seen)
+    path.write_text('\n'.join(lines) + '\n')
+
+
+def patched(tmp_path, name, changes, source=None):
+    """Copy the template the build copies, then apply the literal changes this run makes."""
     target = tmp_path / name
     shutil.copy2(source or CG_INPUTS / name, target)
-    environment.update_mdp(target, changes)
+    apply_changes(target, changes)
     return target
 
 
+def cg_integration(steps):
+    """The literal changes the CG half makes to its template: durations, cadence and the run's fixed seed."""
+    return {'nsteps': steps, 'nstlog': 100, 'nstenergy': 100, 'gen-seed': 20260911,
+            'nstxtcout': 100, 'xtc-precision': 1000}
+
+
 # --------------------------------------------------------------------------------------------------------------------
-# AA-only stages: `aa.mdp()` is the current builder.
+# AA-only stages: the reviewed maps, written literally.
 # --------------------------------------------------------------------------------------------------------------------
+
+AA_EXPECTED = {
+    'aa-ions-v1': {'cutoff-scheme': 'Verlet', 'vdwtype': 'Cut-off', 'vdw-modifier': 'Force-switch', 'rlist': '1.2',
+                   'rvdw': '1.2', 'rvdw-switch': '1', 'coulombtype': 'Cut-off', 'rcoulomb': '1.2',
+                   'dispcorr': 'no', 'constraints': 'all-bonds', 'nstlist': '20', 'pbc': 'xyz',
+                   'constraint-algorithm': 'lincs', 'verlet-buffer-tolerance': '-1', 'integrator': 'steep',
+                   'nsteps': '0', 'emtol': '1000', 'emstep': '0.01'},
+    'aa-em-v1': {'cutoff-scheme': 'Verlet', 'vdwtype': 'Cut-off', 'vdw-modifier': 'Force-switch', 'rlist': '1.2',
+                 'rvdw': '1.2', 'rvdw-switch': '1', 'coulombtype': 'PME', 'rcoulomb': '1.2', 'dispcorr': 'no',
+                 'constraints': 'all-bonds', 'nstlist': '20', 'pbc': 'xyz', 'constraint-algorithm': 'lincs',
+                 'verlet-buffer-tolerance': '-1', 'integrator': 'steep', 'nsteps': '20000', 'emtol': '1000',
+                 'emstep': '0.01'},
+    'aa-nvt-v1': {'cutoff-scheme': 'Verlet', 'vdwtype': 'Cut-off', 'vdw-modifier': 'Force-switch', 'rlist': '1.2',
+                  'rvdw': '1.2', 'rvdw-switch': '1', 'coulombtype': 'PME', 'rcoulomb': '1.2', 'dispcorr': 'no',
+                  'constraints': 'all-bonds', 'nstlist': '20', 'pbc': 'xyz', 'constraint-algorithm': 'lincs',
+                  'verlet-buffer-tolerance': '-1', 'integrator': 'md', 'dt': '0.002', 'nsteps': '50000',
+                  'continuation': 'no', 'tcoupl': 'V-rescale', 'tc-grps': 'System', 'tau-t': '1', 'ref-t': '303.15',
+                  'gen-vel': 'yes', 'gen-temp': '303.15', 'gen-seed': '20260917', 'ld-seed': '20260917',
+                  'pcoupl': 'no', 'nstxout-compressed': '5000', 'nstenergy': '500', 'nstlog': '500'},
+    'aa-npt-v1': {'cutoff-scheme': 'Verlet', 'vdwtype': 'Cut-off', 'vdw-modifier': 'Force-switch', 'rlist': '1.2',
+                  'rvdw': '1.2', 'rvdw-switch': '1', 'coulombtype': 'PME', 'rcoulomb': '1.2', 'dispcorr': 'no',
+                  'constraints': 'all-bonds', 'nstlist': '20', 'pbc': 'xyz', 'constraint-algorithm': 'lincs',
+                  'verlet-buffer-tolerance': '-1', 'integrator': 'md', 'dt': '0.002', 'nsteps': '500000',
+                  'continuation': 'yes', 'tcoupl': 'V-rescale', 'tc-grps': 'System', 'tau-t': '1', 'ref-t': '303.15',
+                  'gen-vel': 'no', 'gen-temp': '303.15', 'gen-seed': '20260917', 'ld-seed': '20260917',
+                  'pcoupl': 'C-rescale', 'nstxout-compressed': '5000', 'nstenergy': '500', 'nstlog': '500',
+                  'pcoupltype': 'isotropic', 'tau-p': '5', 'ref-p': '1', 'compressibility': '4.5e-5'},
+    'aa-production-v1': {'cutoff-scheme': 'Verlet', 'vdwtype': 'Cut-off', 'vdw-modifier': 'Force-switch',
+                         'rlist': '1.2', 'rvdw': '1.2', 'rvdw-switch': '1', 'coulombtype': 'PME', 'rcoulomb': '1.2',
+                         'dispcorr': 'no', 'constraints': 'all-bonds', 'nstlist': '20', 'pbc': 'xyz',
+                         'constraint-algorithm': 'lincs', 'verlet-buffer-tolerance': '-1', 'integrator': 'md',
+                         'dt': '0.002', 'nsteps': '5000000', 'continuation': 'yes', 'tcoupl': 'V-rescale',
+                         'tc-grps': 'System', 'tau-t': '1', 'ref-t': '303.15', 'gen-vel': 'no',
+                         'gen-temp': '303.15', 'gen-seed': '20260917', 'ld-seed': '20260917',
+                         'pcoupl': 'Parrinello-Rahman', 'nstxout-compressed': '5000', 'nstenergy': '500',
+                         'nstlog': '500', 'pcoupltype': 'isotropic', 'tau-p': '5', 'ref-p': '1',
+                         'compressibility': '4.5e-5'},
+}
+
 
 def aa_values(profile, settings):
     if profile in ('aa-ions-v1', 'aa-em-v1'):
@@ -103,13 +166,10 @@ def aa_values(profile, settings):
     return values
 
 
-@pytest.mark.parametrize('force_field', forcefields.names())
-@pytest.mark.parametrize('overrides', ({}, {'temperature_k': 310.0, 'pressure_bar': 2.0,
-                                            'output_interval_ps': 20.0, 'aa_seed': 7}))
-def test_aa_profiles_match_aa_mdp(force_field, overrides):
-    settings = aa.normalize_settings(dict(overrides, force_field=force_field))
-    for kind, profile in AA_KINDS.items():
-        assert_same(profile, aa.mdp(settings, kind), aa_values(profile, settings))
+def test_aa_profiles_pin_the_reviewed_maps():
+    settings = aa.normalize_settings({'force_field': forcefields.DEFAULT})
+    for profile in AA_KINDS.values():
+        assert_same(profile, AA_EXPECTED[profile], aa_values(profile, settings))
 
 
 # --------------------------------------------------------------------------------------------------------------------
@@ -118,16 +178,15 @@ def test_aa_profiles_match_aa_mdp(force_field, overrides):
 
 def current_cg_dynamics(tmp_path, settings, name):
     """The eq/md file as `cg.prepare` writes it, and the numbers it supplies, both from the template's own dt."""
-    path = stamped(tmp_path, f'{name}.mdp', cg.mdp_integration(tmp_path, tmp_path / '1_AA-reference',
-                                                               {'eq': 5000, 'md': 25000}[name]))
-    environment.update_mdp(path, {'gen-seed': settings['cg_seed'], 'ld-seed': settings['cg_seed'],
-                                  'gen-temp': settings['temperature_k']})
+    path = patched(tmp_path, f'{name}.mdp', cg_integration({'eq': 5000, 'md': 25000}[name]))
+    apply_changes(path, {'gen-seed': settings['cg_seed'], 'ld-seed': settings['cg_seed'],
+                         'gen-temp': settings['temperature_k']})
     dt = float(parsed(path.read_text())['dt'])
     values = {'nsteps': round(settings['cg_equil_ps' if name == 'eq' else 'cg_production_ps'] / dt),
               'nstxtcout': max(1, round(settings['output_interval_ps'] / dt)),
               'ref-t': settings['temperature_k'], 'gen-temp': settings['temperature_k'],
               'gen-seed': settings['cg_seed'], 'ld-seed': settings['cg_seed']}
-    environment.update_mdp(path, {key: values[key] for key in ('nsteps', 'ref-t', 'nstxtcout')})
+    apply_changes(path, {key: values[key] for key in ('nsteps', 'ref-t', 'nstxtcout')})
     return path.read_text(), values
 
 
@@ -138,9 +197,9 @@ CG_RUN = {'cg_equil_ps': 20.0, 'cg_production_ps': 200.0, 'temperature_k': 310.0
 @pytest.mark.parametrize('overrides', (None, CG_RUN))
 def test_cg_profiles_match_prepare_patches(tmp_path, overrides):
     settings = cg.normalize_settings(overrides)
-    initial = stamped(tmp_path, 'initial.mdp', {'nsteps': 0}, FF_TEMPLATE / '3_initial_CG/initial.mdp')
+    initial = patched(tmp_path, 'initial.mdp', {'nsteps': 0}, FF_TEMPLATE / '3_initial_CG/initial.mdp')
     assert_same('cg-initial-v1', initial.read_text())
-    minimisation = stamped(tmp_path, 'minimization.mdp', {'nsteps': 20000, 'define': ''})
+    minimisation = patched(tmp_path, 'minimization.mdp', {'nsteps': 20000, 'define': ''})
     assert_same('cg-minimization-v1', minimisation.read_text())
     for name, profile in (('eq', 'cg-equilibration-v1'), ('md', 'cg-production-v1')):
         expected, values = current_cg_dynamics(tmp_path, settings, name)
@@ -195,11 +254,11 @@ def test_the_force_field_block_is_read_at_render_time(monkeypatch):
 # --------------------------------------------------------------------------------------------------------------------
 
 def test_pdc_leg_profiles_match_the_templates_and_their_stamps(tmp_path):
-    minimisation = stamped(tmp_path, 'minimisation.mdp', {'nsteps': 500}, PDC_TEMPLATES / 'minimisation.mdp')
+    minimisation = patched(tmp_path, 'minimisation.mdp', {'nsteps': 500}, PDC_TEMPLATES / 'minimisation.mdp')
     assert_same('pdc-minimisation-v1', minimisation.read_text(), {'nsteps': 500})
-    nvt = stamped(tmp_path, 'nvt.mdp', {'nsteps': 10000, 'gen-seed': 42}, PDC_TEMPLATES / 'nvt.mdp')
+    nvt = patched(tmp_path, 'nvt.mdp', {'nsteps': 10000, 'gen-seed': 42}, PDC_TEMPLATES / 'nvt.mdp')
     assert_same('pdc-nvt-v1', nvt.read_text(), {'nsteps': 10000, 'gen-seed': 42}, ignore=NEIGHBOURS)
-    npt = stamped(tmp_path, 'npt.mdp', {'nsteps': 900000}, PDC_TEMPLATES / 'npt.mdp')
+    npt = patched(tmp_path, 'npt.mdp', {'nsteps': 900000}, PDC_TEMPLATES / 'npt.mdp')
     assert_same('pdc-npt-v1', npt.read_text(), {'nsteps': 900000}, ignore=NEIGHBOURS)
 
 
@@ -214,11 +273,10 @@ def test_pdc_production_profiles_match_the_adapter(tmp_path):
     stage.mkdir()
     steps = round(100 * 1000 / 0.02)
     numbers = pdc.settings_from({})
-    assessment = stamped(stage, 'assessment.mdp', cg.mdp_integration(stage, stage / '1_AA-reference', steps),
-                         CG_INPUTS / 'md.mdp')
+    assessment = patched(stage, 'assessment.mdp', cg_integration(steps), CG_INPUTS / 'md.mdp')
     assert_same('pdc-assessment-v1', assessment.read_text(),
                 pdc._mdp_run_values('pdc-assessment-v1', numbers, {'nsteps': steps}), ignore=NEIGHBOURS)
-    extension = stamped(stage, 'extension.mdp', {'gen-vel': 'no'}, assessment)
+    extension = patched(stage, 'extension.mdp', {'gen-vel': 'no'}, assessment)
     assert_same('pdc-extension-v1', extension.read_text(),
                 pdc._mdp_run_values('pdc-extension-v1', numbers, {'nsteps': steps}), ignore=NEIGHBOURS)
 
@@ -285,11 +343,12 @@ def test_an_unknown_profile_is_refused_by_name():
         render('nvt-cg-v1')
 
 
-def test_an_empty_define_is_written_as_update_mdp_writes_it():
+def test_an_empty_define_is_written_as_a_cleared_define():
     text = render('cg-minimization-v1')
     line = next(line for line in text.splitlines() if line.split(';')[0].strip().startswith('define'))
     assert line.split(';')[0].rstrip() == 'define ='
     assert parsed(text)['define'] == ''
+
 
 def test_pdc_production_keeps_the_cadence_the_run_sent(tmp_path):
     """The panel's numbers reach the assessment file unchanged, even when the leg is 1 us or longer."""

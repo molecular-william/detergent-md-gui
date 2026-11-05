@@ -11,13 +11,12 @@ from dashboard.models.molecules import registry as model_registry
 
 
 class DetergentModelTests(unittest.TestCase):
-    def test_reference_hash_and_duplicate(self):
+    def test_reference_hash_matches_the_recorded_source(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); source=root/'x.itp'; source.write_text('model')
+            first={'id':'a'*16, 'source_path':str(source), 'sha256':model_registry.files.sha256(source)}
             with patch.object(model_registry, 'storage_root', return_value=root/'registry'):
-                first=model_registry.register_reference({'source_path':str(source),'force_field':{'name':'martini3'}})
                 self.assertTrue(model_registry.check_reference(first)['ok'])
-                with self.assertRaises(ValueError): model_registry.register_reference({'source_path':str(source)})
                 source.write_text('changed')
                 self.assertFalse(model_registry.check_reference(first)['ok'])
 
@@ -25,8 +24,10 @@ class DetergentModelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); source=root/'x'; source.write_text('x')
             with patch.object(model_registry, 'storage_root', return_value=root/'registry'), patch.object(compositions, 'storage_root', return_value=root/'compositions'):
-                a=model_registry.register_fragment({'name':'head','reference_ids':[],'topology':{'beads':['A']}})
-                b=model_registry.register_fragment({'name':'tail','reference_ids':[],'topology':{'beads':['B']}})
+                fragments=root/'registry'/'fragments'; fragments.mkdir(parents=True)
+                a={'id':'a'*16,'name':'head','topology':{'beads':['A']}}
+                b={'id':'b'*16,'name':'tail','topology':{'beads':['B']}}
+                (fragments/f"{a['id']}.json").write_text(json.dumps(a)); (fragments/f"{b['id']}.json").write_text(json.dumps(b))
                 record=compositions.create({'fragments':[a['id'],b['id']], 'attachments':[{'left_fragment':a['id'],'right_fragment':b['id'],'left_atom':1,'right_atom':2}]})
                 before=json.loads((root/'compositions'/f"{record['id']}.json").read_text())
                 self.assertEqual(before['snapshot_hash'], record['snapshot_hash'])

@@ -560,7 +560,7 @@ def _assessment_mdp(inputs: Path, settings: dict) -> int:
     plain CG MD leg and both durations are folded into this one.
 
     The duration is converted into steps with the reviewed profile's own `dt`, and the profile states the integration
-    settings `cg.mdp_integration` used to patch in, so the coarse-grained half of a solved CG run and this stage cannot
+    settings the reviewed profile states, so the coarse-grained half of a solved CG run and this stage cannot
     disagree about the timestep.
     """
     profile = 'pdc-assessment-v1'
@@ -674,7 +674,7 @@ def _contains(root, path) -> bool:
         return False
 
 
-def _skipped_stages(numbers: dict, protein_path) -> dict:
+def skipped_stages(settings: dict, *, has_protein: bool) -> dict:
     """The stages the run's own settings say will not run, with the reason each records.
 
     A stage here gets no directory, no script and no `skip.json`: `workflow.run` records it `skipped` from the
@@ -682,21 +682,21 @@ def _skipped_stages(numbers: dict, protein_path) -> dict:
     settings-driven skip at run time, because deciding it there would leave a stage directory nothing runs.
     """
     skipped = {}
-    if protein_path is None:
+    if not has_protein:
         skipped['Protein preparation'] = 'the run has no protein, so there is nothing to prepare'
-    elif not numbers['prepare_protein']:
+    elif not settings.get('prepare_protein', True):
         skipped['Protein preparation'] = 'the run does not ask for protein preparation, so this stage has nothing to do'
     for name in ('Energy minimisation', 'NVT equilibration', 'NPT equilibration'):
-        if int(float(numbers[LEGS[name]['setting']])) == 0:
+        if float(settings.get(LEGS[name]['setting'], 1)) == 0:
             skipped[name] = LEGS[name]['reason']
-    if not numbers.get('remove_out_of_micelle', True):
+    if not settings.get('remove_out_of_micelle', True):
         for name in ('Micelle assessment', 'CG extension MD', 'Final assessment'):
             skipped[name] = ('the run switched out-of-micelle removal off, so there is no assessment to make'
                              if name == 'Micelle assessment' else
                              'the run switched out-of-micelle removal off, so there is nothing to extend or assess')
-    if protein_path is None:
+    if not has_protein:
         skipped['Back-mapping (CG2AT2)'] = 'the run has no protein, so there is nothing to align'
-    elif not numbers.get('backmap', True):
+    elif not settings.get('backmap', True):
         skipped['Back-mapping (CG2AT2)'] = 'the run switched back-mapping off, so this stage has nothing to do'
     return skipped
 
@@ -808,7 +808,7 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
 
     # The stages the run's own settings say will not run. They get no directory, no script and no `skip.json`: the
     # executor records each one `skipped` from this mapping, with its reason, and the run carries on.
-    skipped = _skipped_stages(numbers, protein_path)
+    skipped = skipped_stages(numbers, has_protein=protein_path is not None)
     inputs = run_dir / INPUTS_DIRECTORY
     inputs.mkdir(parents=True, exist_ok=True)
     stage_root = run_dir / STAGES_DIRECTORY

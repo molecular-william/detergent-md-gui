@@ -1,16 +1,10 @@
 """The candidate store owns its own layout.
 
-Two routes stepped around it. The refinement reader built its own repository over the
-reviews directory with `lambda value: value` as the record-id validator -- the store's own
-validator there checks nothing but the shape of a name, and a permissive one replaced it.
-The draft delete route carried a route-level regex and unlinked a path it built from the
-storage root itself, so what may be deleted was decided in two places.
-
-Both go through the store now: list_reviews() and delete_draft() are the only doors, and
-they use the same validator and the same containment check as every other record.
+The draft delete route used to carry a route-level regex and unlink a path it built from the
+storage root itself, so what may be deleted was decided in two places. It goes through the
+store now: `delete_draft()` is the only door, and it uses the same validator and the same
+containment check as every other record.
 """
-import json
-
 import pytest
 from dashboard.models.mappings import store as candidate_store
 
@@ -49,16 +43,3 @@ def test_delete_draft_removes_a_draft_inside_the_root(drafts):
     assert not draft.exists()
     with pytest.raises(KeyError):
         candidate_store.delete_draft('mapping_candidate_x.json')
-
-
-def test_reviews_are_read_through_the_store_validator(drafts):
-    reviews = candidate_store.reviews_root()
-    reviews.mkdir()
-    (reviews / 'good-19.json').write_text(json.dumps({'candidate': 'a', 'state': 'draft'}))
-    (reviews / 'with space.json').write_text('{}')
-    (reviews / 'broken.json').write_text('not json')
-    assert [record['candidate'] for record in candidate_store.list_reviews()] == ['a']
-
-
-def test_no_reviews_directory_is_an_empty_list_not_an_error(drafts):
-    assert candidate_store.list_reviews() == []

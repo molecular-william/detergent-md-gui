@@ -6,10 +6,8 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next task
 
-The remaining ponytail-audit groups are in `docs/plans/2026-11-05-ponytail-audit-remainder.md`: B's three safe
-endpoints are gone and `/api/mappings/review` + `/api/evidence/evaluate` were kept by the user's choice; E is
-live-path consolidation (only the safe rotation merge landed; the box, skip-wording and MDP-oracle merges are
-behaviour changes), F is the review-store fallout.
+The audit remainder is implemented except group 4 (`automatic_candidate` vs `generate_baseline`: the user asked how
+they differ and has not chosen). The plan in `docs/plans/2026-11-05-ponytail-audit-remainder.md` records what landed.
 The 2026-11-04 analysis-graph request is implemented (see *Landed slices*). The open items table below is the queue.
 
 The dashboard was restarted on 2026-11-04 at 13:56 for the Python half (the trajectory header reader). Live checks:
@@ -197,6 +195,15 @@ history, not a live run.
   caught / 1 survived. `pytest.ini` owns tier counts; do not copy moving counts into this file.
 
 ## Landed slices, newest first
+
+- **2026-11-05 Audit remainder: decisions 1-3 and 5-9**: the pdc preview box now passes the build's
+  `belt_reach_nm`; the run card and the prepare record read one `pdc.skipped_stages`; the MDP parity oracles
+  (`aa.mdp`, `cg.mdp_integration`, `environment.update_mdp`) are gone and `test_mdp_writer` pins literal AA maps
+  and literal template patches; the review workflow (route + `record_review`/`list_reviews`/`generate_variants`),
+  `ring_site_preview` and the model-registry writers are retired, their tests replaced or removed; the
+  `/api/mappings/validation-targets` route is gone (the representations test remains); `worker.known` folded into
+  `kinds.known`, its callers updated; `catalog.list_models` no longer takes the ignored `view` parameter.
+  Checks: fast 2385 passed + 1 xfailed, browser 282 passed, slow 25 passed.
 
 - **2026-11-05 Audit group E, the safe rotation merge**: `pdc_build`'s private `_rotation` is gone; the build stamps
   through `pdc_placement.alignment` (now public), the one copy of the map the placement gate also uses. The other E

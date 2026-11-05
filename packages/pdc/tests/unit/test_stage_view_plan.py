@@ -59,7 +59,7 @@ def test_the_run_card_predicts_the_settings_skips_before_the_stage_records_them(
              'settings': {'prepare_protein': False, 'remove_out_of_micelle': False, 'backmap': True,
                           'minimisation_steps': 200000, 'nvt_ps': 500, 'npt_ps': 4500}}
     skips = pdc_view.planned_skips(empty)
-    assert skips['Protein preparation'].startswith('empty micelle')
+    assert 'no protein' in skips['Protein preparation']
     assert set(skips) >= {'Micelle assessment', 'CG extension MD', 'Final assessment'}
     assert 'backmap' not in skips['Back-mapping (CG2AT2)']
     assert 'Back-mapping (CG2AT2)' in skips

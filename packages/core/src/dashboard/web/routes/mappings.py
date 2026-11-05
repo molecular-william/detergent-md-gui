@@ -4,7 +4,6 @@ import zipfile
 
 from flask import Blueprint, Response, abort, jsonify, request, send_file
 
-from ...analysis.validation import carbohydrate_targets
 from ...models import mappings
 from ...models.mappings import (
     depiction,
@@ -73,17 +72,6 @@ def mapping_representations():
     ])
 
 
-# Validation-flavoured, still engine-owned pending confirmation of its consumers.
-@blueprint.get('/api/mappings/validation-targets')
-def carbohydrate_validation_targets():
-    molecule_id = request.args.get('molecule_id')
-    if not molecule_id: abort(400, 'molecule_id is required')
-    try:
-        return jsonify(carbohydrate_targets.catalog(coordinator().ROOT, molecule_id))
-    except ValueError as exc:
-        abort(404, str(exc))
-
-
 @blueprint.get('/api/mappings/<name>')
 def mapping_api(name):
     context = query_context(request.args.get('molecule_id'))
@@ -130,20 +118,6 @@ def mapping_save():
         return jsonify(mappings.save_draft(payload, context=context, in_place=bool(payload.get('in_place')))), 201
     except mappings.DuplicateMapping as exc:
         return jsonify(error=str(exc), existing=exc.existing), 409
-
-
-@blueprint.post('/api/mappings/review')
-def mapping_review():
-    payload = json_object()
-    state = payload.get('state')
-    if state not in ('draft', 'needs-review', 'approved'):
-        abort(400, 'Review state must be draft, needs-review, or approved')
-    context = payload_context(payload)
-    try:
-        record = mappings.record_review(payload, state, payload.get('reviewer', ''), payload.get('notes', ''), context=context)
-    except (ValueError, OSError) as exc:
-        return jsonify(error=str(exc)), 409
-    return jsonify(**record)
 
 
 @blueprint.delete('/api/mappings/drafts/<name>')

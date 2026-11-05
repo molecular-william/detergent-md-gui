@@ -1,7 +1,7 @@
 """Catalogue endpoints: compositions, CG models, references, evidence."""
 from pathlib import Path
 
-from flask import Blueprint, abort, jsonify, request, send_file
+from flask import Blueprint, abort, jsonify, send_file
 
 from ...models import catalog as cg_models
 from ...models import compositions
@@ -42,7 +42,7 @@ def composition_create_api():
 
 @blueprint.get('/api/cg-models')
 def cg_model_list_api():
-    return jsonify(models=cg_models.list_models(request.args.get('view', 'summary')))
+    return jsonify(models=cg_models.list_models())
 
 
 @blueprint.get('/api/cg-models/<kind>/<identifier>')

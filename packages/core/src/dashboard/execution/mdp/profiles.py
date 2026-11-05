@@ -7,13 +7,13 @@ records only which reviewed profile it used (the `version`, e.g. `cg-equilibrati
 
 Sources, in the order a reader needs them:
 
-* AA (`aa-*`): `dashboard/execution/adapters/aa.py:mdp()` is the ruleset this table reproduces; the force-field block is
+* AA (`aa-*`): the versioned single-solute protocol this table is the review of; the force-field block is
   the registry entry's own (`dashboard.execution.forcefields`), read at render time and not copied here.
 * CG (`cg-*`): `resources/templates/small_mols_fast_forward/` -- `3_initial_CG/initial.mdp` and
-  `4_CG_sim/inputs/{minimization,eq,md}.mdp` -- as `cg.prepare` patches them and `cg.mdp_integration` states the
+  `4_CG_sim/inputs/{minimization,eq,md}.mdp` -- as `cg.prepare` patches them; the profile states the
   timestep, the output strides and the seed.
 * PDC (`pdc-*`): `resources/templates/protein_detergent/{minimisation,nvt,npt}.mdp` for the three legs, the pdc
-  legs' genion fix-up tpr, and the CG production template plus `cg.mdp_integration` for the assessment and
+  legs' genion fix-up tpr, and the CG production template for the assessment and
   extension legs. The two `pdc-restart-*` profiles are the raw CG templates; `prepare` writes them from here when
   the run asks for the removal path, for the system it rebuilds.
 * Osmotic (`osmotic-*`): `detergent_validation/execution/adapters/osmotic_mdp.py:osmotic_mdps` -- the CG templates with the
@@ -29,7 +29,7 @@ from .writer import Profile
 # AA-only stages.
 # --------------------------------------------------------------------------------------------------------------------
 
-# The protocol's own knobs, common to every AA stage (`aa.mdp`'s `common` before the force-field block).
+# The protocol's own knobs, common to every AA stage (the common block before the force-field block).
 _AA_PROTOCOL = {
     'nstlist': 20,
     'pbc': 'xyz',
@@ -190,10 +190,10 @@ _CG_EQUILIBRATION_COMMENTS = {
     **_MARTINI_COMMENTS,
     'dt': '5 fs: the standing coarse-grained EQUILIBRATION timestep (production is 20 fs)',
     'nsteps': "the run's duration in steps, at this file's dt",
-    'nstlog': 'cg.mdp_integration: the log every 100 steps',
-    'nstenergy': 'cg.mdp_integration: energies every 100 steps',
+    'nstlog': 'the log every 100 steps',
+    'nstenergy': 'energies every 100 steps',
     'nstxtcout': "the run's output interval in steps (`output_interval_ps`), at this file's dt",
-    'xtc-precision': 'cg.mdp_integration: coarse-grained beads need the extra precision',
+    'xtc-precision': 'coarse-grained beads need the extra precision',
     'xtc-grps': 'unset: every group is written',
     'ref-t': "the run's temperature (K)",
     'pcoupl': 'the equilibration barostat both Martini 3 papers describe',
@@ -218,7 +218,7 @@ _CG_PRODUCTION_COMMENTS = {
 }
 
 _CG_TEMPLATE = 'resources/templates/small_mols_fast_forward'
-_CG_PREPARE_SOURCE = (f'{_CG_TEMPLATE}/4_CG_sim/inputs/{{eq,md}}.mdp as cg.mdp_integration and cg.prepare patch it: '
+_CG_PREPARE_SOURCE = (f'{_CG_TEMPLATE}/4_CG_sim/inputs/{{eq,md}}.mdp as cg.prepare writes it from this table: '
                       'the timestep, the output strides and the seed')
 
 CG_PROFILES = (
@@ -361,7 +361,7 @@ _IONS_COMMENTS = {
     'epsilon-r': 'water dielectric, as everywhere else in the CG pipeline',
 }
 
-# The production leg: the CG production template with `cg.mdp_integration`'s patches.
+# The production leg: the CG production template with the prepared patches.
 _PDC_PRODUCTION_SETTINGS = {
     'title': 'Martini', 'integrator': 'md', 'dt': 0.02, 'nsteps': None, 'nstcomm': None, 'comm-grps': 'System',
     'comm-mode': 'Linear', 'nstxout': 0, 'nstvout': 0, 'nstfout': 0, 'nstlog': None, 'nstenergy': None,
@@ -397,7 +397,7 @@ _PDC_PRODUCTION_COMMENTS = {
     'pcoupl': 'parrinello-rahman at 1 bar: the production barostat',
     'pcoupltype': 'isotropic pressure coupling',
     'gen-vel': 'no: the extension continues the trajectory it was given',
-    'gen-seed': "cg.mdp_integration's fixed seed: this stage does not take the run's seed",
+    'gen-seed': "the fixed seed the leg's profile states: this stage does not take the run's seed",
     'continuation': 'yes: continues the assessment state',
 }
 
@@ -408,7 +408,7 @@ PDC_PRODUCTION_PROFILES = (
             source='the pdc legs\' genion fix-up (steep, no steps, reaction field), written by pdc.prepare',
             version='pdc-ions-v1'),
     Profile(settings=dict(_PDC_PRODUCTION_SETTINGS), comments=_PDC_PRODUCTION_COMMENTS,
-            source=f'{_CG_TEMPLATE}/4_CG_sim/inputs/md.mdp as cg.mdp_integration patches it (the CG branch)',
+            source=f'{_CG_TEMPLATE}/4_CG_sim/inputs/md.mdp as cg.prepare patches it (the CG branch)',
             version='pdc-assessment-v1'),
     # The extension's file is the assessment's, continued: `pdc.prepare` writes it from this profile at the
     # assessment's step count, and gen-vel is already `no`. Registered separately because that is the name a run

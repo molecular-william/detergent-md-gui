@@ -118,33 +118,3 @@ def require_usable(data, context, *, operation):
     if not result[gate]:
         raise ValueError('Mapping is incomplete or structurally invalid: ' + '; '.join(item['message'] for item in result['issues']))
     return result
-
-
-def ring_site_preview(data, context, parents):
-    """Propose a massless TC4 site for three physical beads."""
-    if not isinstance(parents, list) or len(parents) != 3 or len(set(parents)) != 3:
-        raise ValueError('Select three distinct parent beads')
-    byname = {bead.get('name'): bead for bead in data.get('beads', [])}
-    selected = []
-    for name in parents:
-        bead = byname.get(name)
-        if not bead or bead.get('virtual_site') or not bead.get('atoms'):
-            raise ValueError('Ring interaction parents must be nonempty physical beads')
-        selected.append(bead)
-    used = {bead.get('name') for bead in data.get('beads', [])}
-    number = len(data.get('beads', [])) + 1
-    site_name = f'VS{number}'
-    while site_name in used:
-        number += 1; site_name = f'VS{number}'
-    physical_edges = {frozenset((edge['a'], edge['b'])) for edge in context.get('bonds', [])}
-    atom_ids = set().union(*(set(bead['atoms']) for bead in selected))
-    induced_edges = [edge for edge in physical_edges if edge <= atom_ids]
-    ring_like = len(induced_edges) >= len(atom_ids) if atom_ids else False
-    verified_ring = next((ring for ring in data.get('rings', [])
-                          if set(ring.get('beads', [])) == set(parents)), None)
-    warnings = []
-    if not ring_like and verified_ring is None:
-        warnings.append({'code': 'not_ring_like', 'message': 'Selected bead parents do not enclose a detected AA graph cycle.'})
-    proposal = {'name': site_name, 'size': 'T', 'type': 'TC4', 'atoms': [],
-                'virtual_site': {'function': 1, 'parents': list(parents)}}
-    return {'bead': proposal, 'ring': verified_ring, 'warnings': warnings}

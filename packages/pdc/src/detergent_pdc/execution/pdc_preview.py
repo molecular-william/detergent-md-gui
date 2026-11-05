@@ -480,8 +480,9 @@ def _box(points, placement, frame, margin_nm, initial_z_nm):
     """
     initial = pdc_box.initial_box(points or placement['centers'], margin_nm=margin_nm, initial_z_nm=initial_z_nm)
     if frame is not None and placement['band'] is not None:
+        belt_reach_nm = placement['band'].get('belt_reach_nm') or 0.0
         return pdc_box.membrane_box(points, half_thickness_nm=frame.half_thickness_nm, margin_nm=margin_nm,
-                                    initial_z_nm=initial_z_nm)
+                                    initial_z_nm=initial_z_nm, belt_reach_nm=belt_reach_nm)
     return pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=margin_nm)
 
 
