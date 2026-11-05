@@ -14,7 +14,21 @@ from tests.harness.support import PROJECT_ROOT
 
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from dashboard.execution import devices  # noqa: E402
 from dashboard.execution.adapters.aa import mdrun_command_flags, mdrun_launch, normalize_settings  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def gpu_host(monkeypatch):
+    """A host with one GPU, recorded: the bracket and the offload choices are what this file judges.
+
+    The builder asks `devices.present()`; forcing it here keeps the assertions off the machine that runs them,
+    and the no-GPU half is stated by its own test below.
+    """
+    devices.clear_cache()
+    monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [{'index': 0, 'name': 'GPU'}])
+    yield
+    devices.clear_cache()
 
 
 def flags(settings):
@@ -85,3 +99,12 @@ def test_a_choice_survives_normalization_and_the_numeric_ranges_still_apply():
         normalize_settings({'mdrun_nb': 1})  # a number is not a choice
     with pytest.raises(ValueError, match='must be between'):
         normalize_settings({'mdrun_ntomp': 999})
+
+
+def test_without_a_gpu_the_bracket_and_the_gpu_scheme_are_gone(monkeypatch):
+    """A GPU-less host gets neither half of the GPU command, and an explicit gpu scheme is refused."""
+    monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [])
+    assert mdrun_command_flags({}, 'em', 'mpi') == ('', '-ntomp 8')
+    assert mdrun_command_flags({}, 'production', 'mpi') == ('', '-ntomp 8')
+    with pytest.raises(ValueError, match='needs a GPU on this host'):
+        mdrun_launch({'mdrun_nb': 'gpu'}, 'mpi')

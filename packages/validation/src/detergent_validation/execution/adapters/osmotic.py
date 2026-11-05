@@ -746,11 +746,11 @@ PROTOCOL = protocol.Protocol(
     name='osmotic',
     stage_contract=_protocol_stage_contract,
     stages=_protocol_stages,
-    settings_specs=lambda: SETTING_SPECS,
+    settings_specs=lambda: devices.published_settings(SETTING_SPECS),
     stage_defaults=stage_defaults,
     normalize_settings=lambda settings=None, profile='standard': normalize_settings(settings, profile),
     readiness=_protocol_readiness,
     prepare=_protocol_prepare,
     tool_report=tool_metadata,
-    choice_specs=lambda: CHOICE_SPECS,
+    choice_specs=lambda: devices.published_choices(CHOICE_SPECS),
 )

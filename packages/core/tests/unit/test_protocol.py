@@ -9,7 +9,21 @@ import subprocess
 from collections.abc import Mapping
 
 import pytest
-from dashboard.execution import protocol, tools
+from dashboard.execution import devices, protocol, tools
+
+
+@pytest.fixture(autouse=True)
+def gpu_host(monkeypatch):
+    """The published vocabulary below is judged on a host with a GPU, so the machine running it cannot decide.
+
+    Dropping the device setting is the no-GPU change, and it has its own test rather than being inferred from
+    whichever host happens to run the suite.
+    """
+    devices.clear_cache()
+    monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [{'index': 0, 'name': 'GPU'}])
+    yield
+    devices.clear_cache()
+
 
 RUN_TYPES = ('aa_only', 'aa_cg', 'cg_composition')
 """The run types whose contract is molecule-scoped, which is what the shape assertions below can be stated over.
@@ -184,3 +198,15 @@ def test_shared_settings_take_the_tighter_bound():
     with pytest.raises(ValueError):
         adapter.normalize_settings({'output_interval_ps': 0.0015}, 'standard')
     assert adapter.normalize_settings({'output_interval_ps': 5}, 'standard')['output_interval_ps'] == 5
+
+
+def test_a_host_without_a_gpu_publishes_no_device_choice(monkeypatch):
+    """No GPU means no `mdrun_gpu` key and no `gpu` option, so a form cannot offer one and the route cannot keep it."""
+    monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [])
+    for run_type in ('aa_only', 'aa_cg', 'pdc', 'osmotic'):
+        adapter = protocol.adapter_for(run_type)
+        assert 'mdrun_gpu' not in adapter.settings_specs(), run_type
+        for key in ('mdrun_nb', 'mdrun_pme'):
+            published = adapter.choice_specs().get(key)
+            if published is not None:
+                assert 'gpu' not in published[1], (run_type, key)

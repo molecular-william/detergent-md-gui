@@ -115,3 +115,41 @@ def test_a_read_that_fails_keeps_device_0_and_does_not_claim_the_host_has_none(d
     expect(page.locator('#run-gpu-device')).to_be_enabled()
     expect(page.locator('#run-gpu-note')).to_have_text(
         'The GPU devices could not be read; the command keeps device 0.')
+
+
+def test_a_host_with_no_gpu_offers_no_device_control_and_posts_none(dashboard, live_page):
+    """A host that reports no devices has no device to choose: the control is gone, and the form posts no device.
+
+    "No GPU" is an answer the panel received, so it is not the failed-read case below: there is no select to leave
+    disabled and no note claiming the command keeps device 0. The offload scheme loses its `gpu` option too, and
+    the run's payload names no `mdrun_gpu` for the route to drop.
+    """
+    page, errors = live_page
+    dashboard.coordinator.database().replace([])
+    url = f'{live_page.base_url}/'
+    submissions = []
+    page.route('**/api/defaults?*', lambda route: route.fulfill(
+        json={'values': {'mdrun_ntomp': 8, 'mdrun_ranks': 1}, 'sources': {'AA': 'test'}, 'profile': 'standard'}))
+    page.route('**/api/readiness?*', lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+    page.route('**/api/run/devices', lambda route: route.fulfill(json={'devices': [], 'in_use': {}}))
+    page.add_init_script("localStorage.setItem('ddm.form', JSON.stringify({run_type:'aa_only',molecule_id:'DDM'}))")
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
+    page.wait_for_function(
+        "() => document.querySelector('#run-gpu-device').closest('label').hidden === true", timeout=30000)
+
+    expect(page.locator('#run-gpu-device')).to_be_hidden()
+    expect(page.locator('#run-gpu-note')).to_have_text('')
+    schemes = page.evaluate(
+        "Array.from(document.querySelectorAll('[name=mdrun_nb] option, [name=mdrun_pme] option')).map(o => o.value)")
+    assert 'gpu' not in schemes, schemes
+
+    def submit(route):
+        submissions.append(route.request.post_data_json)
+        route.fulfill(status=201, json={'id': '333333333333'})
+
+    page.route(url, submit)
+    expect(page.locator('#start-run')).to_be_enabled()
+    page.locator('#start-run').click()
+    expect(page.locator('#notice')).to_have_text('Run queued.')
+    assert submissions and 'mdrun_gpu' not in submissions[0], submissions
+    assert errors == []

@@ -7,6 +7,11 @@
 // choosing, and whether several ranks will share it -- and it is a note, never a gate: a busy device is a fact
 // to see, not a reason to stop a run.
 //
+// A host that reports no devices has no device choice to make, so the control is gone rather than disabled: the
+// label is hidden, the select loses its name (so the form posts no `mdrun_gpu` and the route's own default stands),
+// and the offload schemes lose their `gpu` option beside it. A read that *failed* is not that answer -- unknown is
+// not "none" -- so it keeps the control with device 0 and says what happened.
+//
 // The option text is `index - name - memory MiB`, because the index is what the run records and the name is
 // what a reader recognises; a device whose memory the driver does not report (a MIG slice) states no memory
 // rather than a zero. The index is the CUDA ordinal, which is what `-gpu_id` names; the title carries the PCI bus
@@ -19,13 +24,33 @@ export function createGpuDevice({ select, note, ranks = () => 1, saved = () => u
   const rankCount = () => Math.max(1, Number(ranks()) || 1);
   const chosen = () => Number(select.value);
 
+  function hide(gone) {
+    const label = select.closest('label');
+    if (label) label.hidden = gone;
+    select.hidden = gone;
+    // A hidden control still posts its value, and the adapter no longer publishes `mdrun_gpu` on this host, so the
+    // name is what makes the difference between "the default stands" and "the form claimed a device".
+    if (gone) select.removeAttribute('name');
+    else select.name = 'mdrun_gpu';
+    // An offload scheme is a GPU control too, and the adapter drops its `gpu` option from the published choices.
+    if (gone) {
+      for (const name of ['mdrun_nb', 'mdrun_pme']) {
+        const scheme = select.form?.elements[name];
+        if (!scheme) continue;
+        for (const option of [...scheme.options]) if (option.value === 'gpu') option.remove();
+      }
+    }
+  }
+
   function paint() {
     if (!note) return;
     // A read that failed is not a host without devices. The loader owns that sentence, and it says which happened;
-    // this one is only for an answer -- "the host reports none" -- that the panel actually received.
+    // this one is only for an answer the panel actually received.
     if (state.failed) return;
     if (!state.devices.length) {
-      setText(note, 'No GPU detected on this host; the command keeps device 0.');
+      // There is no device to describe. The control is hidden, so the note must not say the command keeps device 0:
+      // on this host it keeps none.
+      setText(note, '');
       return;
     }
     const index = chosen();
@@ -59,7 +84,8 @@ export function createGpuDevice({ select, note, ranks = () => 1, saved = () => u
         state.failed ? 'Device 0 (devices could not be read)' : 'No GPU detected', '0'));
     }
     // A failed read keeps the control usable with device 0, because the command keeps it anyway -- disabling it
-    // would drop `mdrun_gpu` from the form and leave a run whose device nobody can see.
+    // would drop `mdrun_gpu` from the form and leave a run whose device nobody can see. An answer of none hides it.
+    hide(!state.devices.length && !state.failed);
     select.disabled = !state.devices.length && !state.failed;
     const keep = String(wanted ?? '');
     select.value = indices.includes(keep) ? keep : (indices[0] || '0');

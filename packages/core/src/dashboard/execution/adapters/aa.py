@@ -35,7 +35,12 @@ def gpu_flags(settings):
     run names one device and the panel says when several ranks share it. `0` is the default rather than
     `auto`, and deliberately: `auto` would let GROMACS pick a different device than every existing run used,
     and the point of the setting is to make the device visible and choosable, not to move the work silently.
+
+    A host that reports no device produces no flag at all: there is no index to name and nothing to offload, so
+    every generated command keeps GROMACS' own CPU default instead of asking for a GPU that is not there.
     """
+    if not devices.present():
+        return ''
     choice = settings.get('mdrun_gpu')
     index = 0 if choice in (None, '') else int(choice)
     if index < 0:
@@ -108,6 +113,10 @@ def mdrun_launch(settings, flavour=None):
         choice = str(settings.get(key) or 'auto')
         if choice not in CHOICE_SPECS[key][1]:
             raise ValueError(f'{key} must be one of {", ".join(CHOICE_SPECS[key][1])}')
+        # A scheme that asks for a device is refused on a host that reports none, before a command is written:
+        # the route no longer offers the option, but an old job retried here would still carry it in its settings.
+        if choice == 'gpu' and not devices.present():
+            raise ValueError(f'{key} gpu needs a GPU on this host')
         if key == 'mdrun_pme' and choice == 'gpu' and str(settings.get('mdrun_nb') or 'auto') != 'gpu':
             raise ValueError('mdrun_pme gpu needs mdrun_nb gpu: GROMACS runs PME on the GPU only when the '
                              'nonbonded scheme is on the GPU too')
@@ -129,8 +138,10 @@ def mdrun_command_flags(settings, stage, flavour=None):
     """
     launcher, thread_flags = mdrun_launch(settings, flavour)
     # The device is read here, from the setting, and nowhere else: the constants above are the default the
-    # scripts' own fallbacks state, not a second opinion about which device this run uses.
-    bracket = gpu_flags(settings) if stage == 'em' else f'{gpu_flags(settings)} -pme gpu -pmefft gpu'
+    # scripts' own fallbacks state, not a second opinion about which device this run uses. A host with no GPU
+    # gets no device and no offload flag -- not even the PME pair the dynamics bracket has always added.
+    device_flags = gpu_flags(settings)
+    bracket = device_flags if stage == 'em' or not device_flags else f'{device_flags} -pme gpu -pmefft gpu'
     for key, flag in (('mdrun_nb', '-nb'), ('mdrun_pme', '-pme')):
         if str(settings.get(key) or 'auto') == 'auto': continue
         bracket = ' '.join(part for part in bracket.split()
@@ -464,11 +475,11 @@ PROTOCOL = protocol.Protocol(
     name='aa_only',
     stage_contract=_protocol_stage_contract,
     stages=_protocol_stages,
-    settings_specs=lambda: SETTING_SPECS,
+    settings_specs=lambda: devices.published_settings(SETTING_SPECS),
     stage_defaults=stage_defaults,
     normalize_settings=lambda settings=None, profile='standard': normalize_settings(settings, profile),
     readiness=_protocol_readiness,
     prepare=_protocol_prepare,
     tool_report=tool_metadata,
-    choice_specs=lambda: CHOICE_SPECS,
+    choice_specs=lambda: devices.published_choices(CHOICE_SPECS),
 )

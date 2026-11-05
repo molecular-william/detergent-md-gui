@@ -872,7 +872,7 @@ def protocol_settings_specs():
     when it merges the halves, and the tighter bound: the AA half's `output_interval_ps` floor is 0.002 against the CG
     half's 0.001, so a form offering the CG one would take a value the normalizer then refuses.
     """
-    return {**SETTING_SPECS, **aa.SETTING_SPECS}
+    return devices.published_settings({**SETTING_SPECS, **aa.SETTING_SPECS})
 
 
 PROTOCOL = protocol.Protocol(
@@ -887,5 +887,5 @@ PROTOCOL = protocol.Protocol(
     tool_report=tool_metadata,
     # The AA half's choices travel with it: this run type accepts `force_field` and `mdrun_nb` because it prepares an
     # atomistic reference of its own, and `normalize_settings` takes them from the AA half.
-    choice_specs=lambda: aa.CHOICE_SPECS,
+    choice_specs=lambda: devices.published_choices(aa.CHOICE_SPECS),
 )

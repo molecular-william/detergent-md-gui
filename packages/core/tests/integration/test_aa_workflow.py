@@ -3,7 +3,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from dashboard.execution import workflow
+from dashboard.execution import devices, workflow
 from dashboard.models.molecules import aa as aa_molecules
 
 from tests.harness.support import PROJECT_ROOT
@@ -28,6 +28,7 @@ def test_aa_preparation_has_only_aa_stages_and_consistent_temperature(tmp_path,m
     from dashboard.execution.adapters import aa
     molecule_root=PROJECT_ROOT/'molecules'
     selected=aa_molecules.selection(molecule_root,'DDM',run_type='aa_only')
+    monkeypatch.setattr(devices,'detect',lambda *arguments,**keywords:[{'index':0,'name':'GPU'}])
     monkeypatch.setattr(aa,'tool_metadata',lambda:{'gmx':{'path':'gmx','version_output':'test'}})
     monkeypatch.setattr(aa,'gromacs_flavour',lambda *arguments,**keywords:'mpi')
     aa.prepare_run(tmp_path,molecule_root,selected,{'temperature_k':315,'aa_nvt_ps':1,'aa_npt_ps':1,'aa_production_ps':2,'output_interval_ps':1,'box_nm':4.0})
@@ -48,6 +49,21 @@ def test_aa_preparation_has_only_aa_stages_and_consistent_temperature(tmp_path,m
         assert '-gpu_id 0 -nb gpu -pin on' in script
         assert '-pme gpu' in script and '-pmefft gpu' in script
     assert workflow.resumable_stages(tmp_path)==[aa.STAGES[0][0]]
+
+
+def test_a_run_prepared_without_a_gpu_has_no_gpu_flags(tmp_path,monkeypatch):
+    """A host that reports no device writes no device into any generated stage script."""
+    from dashboard.execution.adapters import aa
+    molecule_root=PROJECT_ROOT/'molecules'
+    selected=aa_molecules.selection(molecule_root,'DDM',run_type='aa_only')
+    monkeypatch.setattr(devices,'detect',lambda *arguments,**keywords:[])
+    monkeypatch.setattr(aa,'tool_metadata',lambda:{'gmx':{'path':'gmx','version_output':'test'}})
+    monkeypatch.setattr(aa,'gromacs_flavour',lambda *arguments,**keywords:'mpi')
+    aa.prepare_run(tmp_path,molecule_root,selected,{'box_nm':4.0,'mdrun_gpu':1})
+    for stage in ('03_minimization','04_nvt','05_npt','06_production'):
+        script=(tmp_path/'stages'/stage/'run.sh').read_text()
+        for flag in ('-gpu_id','-nb gpu','-pme gpu','-pmefft gpu'):
+            assert flag not in script, (stage, flag)
 
 
 def test_aa_settings_do_not_require_cg_duration():

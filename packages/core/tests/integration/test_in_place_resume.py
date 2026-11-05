@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 from dashboard import files
-from dashboard.execution import workflow
+from dashboard.execution import devices, workflow
 
 
 def _stage_run(root):
@@ -217,7 +217,10 @@ def test_resume_admission_preserves_terminal_run_on_rejection(resume_service, mo
         response = client.post('/api/jobs/123456abcdef/resume', json={'stage': 'second'})
         assert response.status_code == 409, response.json
         if blocker == 'capacity':
-            assert 'This GPU is busy' in response.json['error'], response.json
+            # The refusal names the contended resource: a device when the host reports one, the host itself when it
+            # does not. Which one this test sees is the host's answer, not the test's, so both are accepted by kind.
+            expected = 'This GPU is busy' if devices.present() else 'A simulation is already running'
+            assert expected in response.json['error'], response.json
         assert owner.lookup(job['id']) == job
         assert files.hashes(root) == before
     finally:

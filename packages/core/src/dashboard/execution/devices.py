@@ -7,17 +7,19 @@ record for one index says. The panel, the refusal at prepare and a run's own met
 from the same reading rather than from a second probe of their own.
 
 Every answer has an honest empty form -- no `nvidia-smi`, no devices, nothing running -- and none of
-them raises. A host without a GPU is a host whose runs must not be refused for it: the command these
-runs produce has always named a device, and mdrun is the thing that speaks when one is asked for and
-cannot be had. What *is* refused is naming a device this host reported and does not have, and that
-refusal belongs at prepare (`require`), where a run that would have failed three stages in is not yet
-built.
+them raises. A host without a GPU is a host whose runs must not be refused for it, and `present()` is
+the one answer that keeps a device out of the panel, the adapter tables and the generated command
+(see `adapters/aa.py:gpu_flags`). What *is* refused is naming a device this host reported and does not
+have, and that refusal belongs at prepare (`require`), where a run that would have failed three stages
+in is not yet built.
 """
 import ctypes
+import json
 import shutil
 import subprocess
 import time
 
+from .. import paths
 from .environment import environment
 
 #: The tool, resolved on the search path. Absent on a CPU-only host, which is an answer and not an error.
@@ -177,6 +179,61 @@ def detect(timeout=10):
             device['index'] = position
     _CACHE['devices'] = (now + CACHE_SECONDS, found)
     return [dict(device) for device in found]
+
+
+def present():
+    """Whether this host offers mdrun a GPU: `detect()` reported at least one device, unless the config says none.
+
+    This is the one question the panel, the adapter tables and the flag builder ask about the *host*, and it is
+    answered from the same 30 s cached probe `detect` already makes -- `clear_cache` still forgets it. `False` is
+    the ordinary answer on a CPU-only host: no control is offered, no adapter advertises a device setting, and no
+    generated command names one. `detect` cannot tell a host with no `nvidia-smi` from one whose probe cannot talk
+    to its driver; `gpu_policy()` is where an operator states which it is.
+    """
+    return gpu_policy() != 'none' and bool(detect())
+
+
+def gpu_policy():
+    """`config/dashboard.json`'s `gpus` key: `"auto"` (probe the host) or `"none"` (state that it has no device).
+
+    The probe answers `[]` both for a host with no `nvidia-smi` and for one whose driver call fails, so a host whose
+    devices exist but cannot be listed would otherwise lose every GPU control and every GPU flag. `"none"` says so
+    deliberately. A missing file or an unreadable value is `"auto"`: the probe is the default, never a silent "none".
+    The answer is cached with the same 30 s window as the device list, and `clear_cache` forgets both.
+    """
+    now = time.monotonic()
+    remembered = _CACHE.get('gpus')
+    if remembered and remembered[0] > now:
+        return remembered[1]
+    choice = 'auto'
+    try:
+        data = json.loads((paths.PROJECT_ROOT / 'config/dashboard.json').read_text())
+        if isinstance(data, dict) and data.get('gpus') in ('auto', 'none'):
+            choice = data['gpus']
+    except (OSError, ValueError):
+        pass
+    _CACHE['gpus'] = (now + CACHE_SECONDS, choice)
+    return choice
+
+
+def published_settings(specs):
+    """One adapter's numeric settings, without the device setting on a host that reports no GPU."""
+    if present():
+        return specs
+    return {key: spec for key, spec in specs.items() if key != 'mdrun_gpu'}
+
+
+def published_choices(choices):
+    """One adapter's choice settings, with no `gpu` option on a host that reports no GPU.
+
+    The two offload schemes stay published so a form's explicit `cpu` still reaches the run; only the option that
+    would ask mdrun for a device this host does not have is removed.
+    """
+    if present():
+        return choices
+    return {key: (label, tuple(option for option in options if option != 'gpu'))
+            if key in ('mdrun_nb', 'mdrun_pme') else (label, options)
+            for key, (label, options) in choices.items()}
 
 
 def in_use(timeout=10):

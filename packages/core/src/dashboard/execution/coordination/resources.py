@@ -13,13 +13,22 @@ DEFAULTS = {'max_concurrent_runs': 1, 'max_concurrent_analyses': 2,
             'max_total_bytes': 107374182400, 'reserve_per_job_bytes': 1073741824,
             'retention_days': 90}
 
+#: Keys the same config file may carry that are not limits. `gpus` answers the host probe: "auto" asks it, "none"
+#: says this host has no device (see `execution/devices.py:gpu_policy`). They are validated here so a file carrying
+#: one is a process config, not an unknown key; `policy()` still answers only the limits, so a reader of a run's
+#: limits never sees a device policy among them.
+NON_LIMITS = {'gpus': ('auto', 'none')}
+
 
 def policy(path):
     result = dict(DEFAULTS)
     if Path(path).is_file():
         data = json.loads(Path(path).read_text())
-        if not isinstance(data, dict) or set(data)-set(result): raise ValueError('Unknown dashboard resource policy')
-        result.update(data)
+        if not isinstance(data, dict) or set(data)-set(result)-set(NON_LIMITS): raise ValueError('Unknown dashboard resource policy')
+        for key, allowed in NON_LIMITS.items():
+            if key in data and data[key] not in allowed:
+                raise ValueError(f'{key} must be one of {", ".join(allowed)}')
+        result.update({key: value for key, value in data.items() if key in result})
     if any(type(v) is not int or v <= 0 for v in result.values()): raise ValueError('Resource limits must be positive integers')
     if result['max_concurrent_runs']*8 > (__import__('os').cpu_count() or 1): raise ValueError('Per-GPU run concurrency exceeds available CPU threads (8 per run)')
     return result

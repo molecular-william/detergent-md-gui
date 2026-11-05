@@ -29,8 +29,10 @@ DEFAULT_DYNAMICS = DEFAULT_BRACKET + ' -pme gpu -pmefft gpu'
 
 
 @pytest.fixture(autouse=True)
-def clean_cache():
+def clean_cache(monkeypatch):
+    """These tests describe a host with a GPU unless the test says otherwise; the probe is never the machine's."""
     devices.clear_cache()
+    monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [{'index': 0, 'name': 'GPU'}])
     yield
     devices.clear_cache()
 
@@ -140,8 +142,11 @@ def test_prepare_does_not_refuse_when_the_host_reports_no_devices(tmp_path, monk
     manifest = json.loads((tmp_path / 'manifest.json').read_text())
     assert manifest['settings']['mdrun_gpu'] == 3
     assert manifest['environment']['devices'] == []
-    # And the command still names the device it was asked for -- mdrun is what refuses, not this adapter.
-    assert '-gpu_id 3 ' in (tmp_path / 'stages/04_nvt/run.sh').read_text()
+    # The setting is recorded, but a host that reports no device contributes no flag to any stage.
+    for stage in ('03_minimization', '04_nvt', '05_npt', '06_production'):
+        script = (tmp_path / 'stages' / stage / 'run.sh').read_text()
+        assert '-gpu_id' not in script and '-nb gpu' not in script, stage
+        assert '-pme gpu' not in script and '-pmefft gpu' not in script, stage
 
 
 def test_a_chosen_device_is_in_the_aa_stage_commands(tmp_path, monkeypatch):
@@ -171,3 +176,30 @@ def test_a_pdc_runs_own_settings_build_the_flags_its_scripts_read():
     from detergent_pdc import __file__ as pdc_file
     script = Path(pdc_file).resolve().parent / 'execution/scripts/pdc_assessment.sh'
     assert '${MDRUN_FLAGS:-' in script.read_text()
+
+
+def test_a_host_without_a_gpu_emits_no_device_or_offload_flag(monkeypatch):
+    """Every bracket -- minimisation, dynamics and the CG launchers' `md` -- leaves the GPU flags out entirely."""
+    monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [])
+    for stage in ('em', 'production', 'md'):
+        flags = aa.mdrun_command_flags({'mdrun_gpu': 2}, stage, 'mpi')[1]
+        assert '-gpu_id' not in flags and '-nb' not in flags, (stage, flags)
+        assert '-pme' not in flags and '-pmefft' not in flags, (stage, flags)
+
+
+def test_a_host_without_a_gpu_publishes_no_device_setting(monkeypatch):
+    """The queue route keeps only advertised keys, so dropping the key is what keeps `mdrun_gpu` off the run."""
+    monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [])
+    for adapter in (aa.PROTOCOL, cg.PROTOCOL, pdc.PROTOCOL, osmotic.PROTOCOL):
+        assert 'mdrun_gpu' not in adapter.settings_specs(), adapter.name
+        for key in ('mdrun_nb', 'mdrun_pme'):
+            published = adapter.choice_specs().get(key)
+            if published is not None:
+                assert 'gpu' not in published[1], (adapter.name, key)
+
+
+def test_an_explicit_gpu_scheme_is_refused_without_a_gpu(monkeypatch):
+    """A retried GPU run still carries its scheme in settings; a GPU-less host must refuse rather than write it."""
+    monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [])
+    with pytest.raises(ValueError, match='needs a GPU on this host'):
+        aa.mdrun_launch({'mdrun_nb': 'gpu'}, 'mpi')

@@ -106,6 +106,28 @@ def test_a_host_that_reports_nothing_records_the_index_and_no_name(tmp_path, mon
     assert manifest['settings']['mdrun_gpu'] == 0
 
 
+def test_a_stage_on_a_host_without_a_gpu_records_no_gpu(tmp_path, monkeypatch):
+    """A device nobody reported is not recorded as index 0 with an empty name: the record says null."""
+    monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [])
+    monkeypatch.setattr(devices, 'in_use', lambda *arguments, **keywords: {})
+    prepared_run(tmp_path, monkeypatch)
+    (tmp_path / 'logs').mkdir()
+
+    def execute(command, **kwargs):
+        directory = kwargs['cwd']
+        (directory / 'system.gro').write_text('completed solvation output')
+        (directory / 'system.top').write_text('[ system ]\n')
+        return subprocess.CompletedProcess(command, 0)
+
+    workflow.run(tmp_path, tmp_path / 'logs/console.log', execute=execute,
+                 stop_after=aa.STAGES[0][0])
+    stage = json.loads((tmp_path / 'manifest.json').read_text())['stages'][0]
+    assert stage['resource_usage']['gpu'] is None
+    # And neither bracket names a device or an offload scheme the host cannot offer.
+    assert '-gpu_id' not in stage['environment']['MDRUN_FLAGS']
+    assert '-pme gpu' not in stage['environment']['MDRUN_FLAGS_PME']
+
+
 def test_the_run_view_names_the_device_from_the_manifest():
     """The run's summary reads the name from its own record, not from the form that asked for it."""
     manifest = {'settings': {'mdrun_gpu': 1}, 'environment': {'devices': DEVICES},

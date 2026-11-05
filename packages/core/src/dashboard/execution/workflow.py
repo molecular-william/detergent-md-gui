@@ -520,7 +520,10 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
             gpu_index = int(stage_settings.get('mdrun_gpu') or 0)
 
             def finish_stage(record):
-                record['resource_usage'] = {'wall_seconds': __import__('time').monotonic()-tick, 'openmp_threads': int(stage_settings.get('mdrun_ntomp') or 8), 'mpi_ranks': int(stage_settings.get('mdrun_ranks') or 1), 'gromacs_flavour': gromacs_flavour, 'gpu': devices.usage(gpu_index), 'output_bytes': sum(p.stat().st_size for p in files.safe_files(stage_dir))}
+                record['resource_usage'] = {'wall_seconds': __import__('time').monotonic()-tick, 'openmp_threads': int(stage_settings.get('mdrun_ntomp') or 8), 'mpi_ranks': int(stage_settings.get('mdrun_ranks') or 1), 'gromacs_flavour': gromacs_flavour,
+                                        # A host that reports no device records no device, not index 0 with an empty name.
+                                        'gpu': devices.usage(gpu_index) if devices.present() else None,
+                                        'output_bytes': sum(p.stat().st_size for p in files.safe_files(stage_dir))}
                 record['ended_at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
                 files.atomic_json(manifest, data)
 

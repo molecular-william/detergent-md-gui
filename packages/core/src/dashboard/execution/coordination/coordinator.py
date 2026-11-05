@@ -19,7 +19,7 @@ from ...models import compositions, mappings
 from ...models.mappings import context as mapping_context
 from ...models.molecules import aa as aa_molecules
 from ...web import views
-from .. import protocol, run_inputs, workflow
+from .. import devices, protocol, run_inputs, workflow
 from ..adapters import aa, cg
 from . import admission, resources, temporary
 from .analysis_coordinator import AnalysisCoordinator
@@ -206,7 +206,11 @@ class Coordinator:
         """
         busy = self.busy_devices().get(self.device_of(job), [])
         if len(busy) >= self.limits()['max_concurrent_runs']:
-            raise CapacityFull('This GPU is busy. Either wait for the run to stop or choose a free GPU.')
+            # A host with no GPU still answers as one device, but the refusal must not claim a GPU exists there.
+            message = ('This GPU is busy. Either wait for the run to stop or choose a free GPU.'
+                       if devices.present() else
+                       'A simulation is already running on this host. Wait for it to stop before starting another.')
+            raise CapacityFull(message)
 
     def reconcile(self):
         for job in self.database().all():

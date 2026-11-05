@@ -66,6 +66,82 @@ def test_a_host_without_the_tool_reports_no_devices(monkeypatch):
     assert devices.describe(0) is None
 
 
+def test_present_is_true_only_when_the_host_reports_a_device(monkeypatch):
+    """The answer every control and every flag depends on: a device was reported, or none was."""
+    recorded(monkeypatch, SINGLE)
+    assert devices.present() is True
+    devices.clear_cache()
+    recorded(monkeypatch, '')
+    assert devices.present() is False
+
+
+def test_present_shares_the_one_cached_probe(monkeypatch):
+    """`present()` asks the same 30 s reading `detect` does rather than probing the host a second time."""
+    calls = []
+
+    def run(arguments, timeout):
+        calls.append(arguments)
+        return SINGLE
+
+    monkeypatch.setattr(devices, '_run', run)
+    monkeypatch.setattr(devices, '_cuda_bus_order', lambda timeout=5: [])
+    assert devices.present() and devices.present()
+    assert devices.detect()
+    assert len(calls) == 1
+
+
+def test_published_tables_lose_the_gpu_half_only_without_a_device(monkeypatch):
+    """What an adapter publishes: the same tables on a GPU host, minus the device and its `gpu` options on a CPU one."""
+    specs = {'mdrun_gpu': ('mdrun GPU device', 0, 64), 'mdrun_ntomp': ('mdrun OpenMP threads per rank', 1, 72)}
+    choices = {'mdrun_nb': ('Nonbonded scheme', ('auto', 'cpu', 'gpu')),
+               'box_shape': ('Box shape', ('cube',))}
+    recorded(monkeypatch, SINGLE)
+    assert devices.published_settings(specs) == specs
+    assert devices.published_choices(choices) == choices
+    devices.clear_cache()
+    recorded(monkeypatch, '')
+    assert devices.published_settings(specs) == {'mdrun_ntomp': ('mdrun OpenMP threads per rank', 1, 72)}
+    assert devices.published_choices(choices) == {'mdrun_nb': ('Nonbonded scheme', ('auto', 'cpu')),
+                                                  'box_shape': ('Box shape', ('cube',))}
+
+
+def test_a_config_that_states_no_gpu_hides_a_device_the_probe_reports(monkeypatch, tmp_path):
+    """`gpus: "none"` is the operator's answer for a probe that cannot see this host's devices.
+
+    The probe still reports the device here, so this is an override rather than a different host: the same file
+    must also stay a valid process config, with its non-limit key kept out of the limits a storage report prints.
+    """
+    from dashboard.execution.coordination import resources
+    recorded(monkeypatch, SINGLE)
+    config = tmp_path/'config'
+    config.mkdir()
+    (config/'dashboard.json').write_text('{"gpus": "none", "max_concurrent_runs": 2}')
+    monkeypatch.setattr(devices.paths, 'PROJECT_ROOT', tmp_path)
+
+    assert devices.detect(), 'the probe still sees a device'
+    assert devices.gpu_policy() == 'none'
+    assert devices.present() is False
+    assert devices.published_settings({'mdrun_gpu': ('mdrun GPU device', 0, 64)}) == {}
+    limits = resources.policy(config/'dashboard.json')
+    assert limits['max_concurrent_runs'] == 2 and 'gpus' not in limits
+
+
+def test_a_config_that_says_auto_leaves_the_probe_in_charge(monkeypatch, tmp_path):
+    recorded(monkeypatch, SINGLE)
+    config = tmp_path/'config'
+    config.mkdir()
+    (config/'dashboard.json').write_text('{"gpus": "auto"}')
+    monkeypatch.setattr(devices.paths, 'PROJECT_ROOT', tmp_path)
+    assert devices.gpu_policy() == 'auto' and devices.present() is True
+
+
+def test_a_config_that_names_no_policy_key_probes_the_host(monkeypatch, tmp_path):
+    """A missing file, or no `gpus` key, is the probe: the override is never the silent default."""
+    recorded(monkeypatch, SINGLE)
+    monkeypatch.setattr(devices.paths, 'PROJECT_ROOT', tmp_path)
+    assert devices.gpu_policy() == 'auto' and devices.present() is True
+
+
 def test_a_line_that_does_not_parse_is_skipped_not_raised(monkeypatch):
     recorded(monkeypatch, 'not a device line\n' + SINGLE + '0, GPU with no uuid, 100, , bus\n')
     found = devices.detect()

@@ -6,7 +6,19 @@ execute: `run_job` is replaced with a no-op, which leaves the admitted worker re
 active simulation is in while it runs.
 """
 import pytest
+from dashboard.execution import devices
 from dashboard.execution.coordination import errors
+
+GPU = {'index': 0, 'name': 'NVIDIA GeForce RTX 4090'}
+
+
+@pytest.fixture(autouse=True)
+def gpu_host(monkeypatch):
+    """The coordinator asks `devices.present()` when it words a refusal, so the host is stated, never probed."""
+    devices.clear_cache()
+    monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [dict(GPU)])
+    yield
+    devices.clear_cache()
 
 
 def record(owner, jid, gpu):
@@ -55,3 +67,21 @@ def test_the_device_is_read_from_the_run_its_own_settings_name(dashboard, monkey
     with pytest.raises(errors.CapacityFull):
         owner.admit_jobs([second], second)
     assert owner.busy_devices() == {1: ['aaaaaaaaaaaa']}
+
+
+def test_a_host_without_a_gpu_is_refused_without_claiming_one(dashboard, monkeypatch):
+    """Admission keeps its one-at-a-time fallback, but the refusal must not name a GPU this host does not have."""
+    monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [])
+    owner = dashboard.coordinator
+    monkeypatch.setattr(owner, 'run_job', lambda *args, **kwargs: None)
+    first = record(owner, 'aaaaaaaaaaaa', 0)
+    owner.admit_jobs([first], first)
+
+    second = record(owner, 'bbbbbbbbbbbb', 0)
+    with pytest.raises(errors.CapacityFull) as refused:
+        owner.admit_jobs([second], second)
+
+    message = str(refused.value)
+    assert 'GPU' not in message, message
+    assert message == ('A simulation is already running on this host. '
+                       'Wait for it to stop before starting another.')
