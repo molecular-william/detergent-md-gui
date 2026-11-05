@@ -130,8 +130,7 @@ separators), with `json_sha256` and `mappings.identity` both built on it. Stored
 migrated by `dashboard/cli/migrate_digests.py`, which rewrites a record only when re-serializing its own body
 reproduces the stored digest and leaves the rest as it found them.
 
-molecules/, references/, and resources/ remain canonical input sources. Reference indexing copies metadata and
-hashes; it does not make another canonical copy of the original reference files. Each run records the inputs and
+molecules/, references/, and resources/ remain canonical input sources. A molecule folder is registered by its presence; `POST /api/molecules/import` (`web/routes/molecules.py`) validates submitted `.itp`/coordinates text through the catalogue's own `inspect()` in a hidden sibling directory and renames it into `molecules/<ID>/` only when accepted, never replacing an existing folder. A folder whose `metadata.json` states `"kind": "cg"` is a Martini CG molecule: `models/molecules/aa.py` records `capabilities.cg`, refuses it to `aa_only`/`aa_cg`, and pdc may use it as a detergent without a mapping (`pdc.prepare` builds the draft from its own `[ atoms ]` and `.gro`). Reference indexing copies metadata and hashes; it does not make another canonical copy of the original reference files. Each run records the inputs and
 code it actually used: shared inputs by path and sha256 in `inputs/inputs.json`, generated data by value in
 `inputs/`, and the repository scripts and helpers by digest in `stage_scripts`/`python_modules`.
 
@@ -323,10 +322,14 @@ fetched only when Play is pressed — never on mount — and Play/Pause, frame s
 action: the one submit builds, its label says Build frames while the form names other arguments than the stored
 build and Recompute frames when they match, and the block says so when the stored series was built with other
 arguments. A series built before this change, in `analyses/frame-series/<signature>/<attempt>/`, is still found by
-matching the form's arguments. The form
+matching the form's arguments. The PDB writes its bonds once, in one `CONECT` block after the last `ENDMDL` (`structures.series_pdb`), measured on the vendored
+NGL to bind every model; a series with no resolvable topology says it carries no bonds rather than inventing them. The form
 takes segment, atoms, **ns per frame** (a blank aims at about 120 models), start/end ns, **PBC**
 (`none|mol|res|atom|whole|nojump|cluster`), **Box centre** (`tric|rect|zero`), **Centre**, **Fit**
-(`none|trans|rot+trans`) and the **Group** the centre or fit acts on (`protein|solute|fragment:<letter>`). The
+(`none|trans|rot+trans`) and the **Group** the centre or fit acts on (`protein|solute|fragment:<letter>`). **Align trajectory** is
+the old snapshots panel's "fit the frames" control: checked, it sends `fit: rot+trans` on `solute` and disables the two picks, so the
+body cannot carry a fit the reader cannot see; unchecked, the picks govern exactly as before. The form states the arguments of the
+next build, so a stored series built with a fit is described by its own summary line rather than by leaving the box checked. The
 producer converts the interval with the trajectory's own time step and records the cadence it actually got, so a
 request finer than one frame is reported as one frame, never as the wish. `pbc`/`centre`/`fit` are view
 modifications: `frames.json` records the `view`, `run-frames.pdb` carries a `VIEW MODIFICATIONS` REMARK, and the
@@ -434,6 +437,15 @@ A sugar concentration series is **one run owning N concentrations** (`settings.m
 
 ### CG Bead Assignment
 Compare two candidates against the original DDM coordinates and bond graph. Drag or use arrow keys to rotate the atom view; edit bead names, sizes, and atom indices; add or remove beads; export JSON or save a new draft. The bead assignment is drawn in three dimensions only — the 3D NGL overlay, one translucent sphere per bead at the mean of its atoms (the 2D depiction went 2026-10-12, `aa318e0`); the server's RDKit depiction stays because the mapping export bundle embeds its SVG. A new draft never overwrites its parent and remains unvalidated.
+
+The automatic candidate is built by a per-mapping algorithm choice (`mappings/algorithms`): `connectivity`, the sugar-template-first
+path, or `spectral`, a port of the cg_param_m3 mapping half (weighted adjacency, eigenvector centrality, three pairing rounds under
+the bead cap, lone-atom contraction; the ring/sugar layer stays authoritative and supplies the virtual sites). Both are gated by
+`graph.validate`: a candidate with a disconnected bead or one its size cannot carry answers `{available: false, reasons}` instead of
+being returned, and the select disables an algorithm the server refuses for the molecule, with its reason. Atoms are no longer
+picked in the 3D view -- the atom field and the row selection are the whole editing surface, and selecting a row draws a halo over
+exactly that bead's atoms. **Import molecule** posts a local ITP plus coordinates to `/api/molecules/import`; the folder appears in
+the select only after the server's own validation accepted it.
 
 Mapping checks cover heavy-atom coverage, duplicate assignments, unknown atoms, hydrogens, empty groups, disconnected groups, nominal bead sizes (R=4, S=3, T=2), and the ±1 per 10 heavy-atom mismatch guideline. Branching/shape exceptions need scientific justification. These checks do not validate bead chemistry, symmetry, bonded parameters, or physical behaviour. The original DDM candidates have structural findings; the connected smoke draft fixes coverage and connectivity but is still not a production model.
 
@@ -658,7 +670,9 @@ fingerprints the analysis code, so pressing it after a code change starts fresh 
 changed starts none. `owed` is what the panel reports as still waiting.
 
 `GET /api/jobs/<id>/structure?path=<run-relative .gro>` writes the run's own `[ bonds ]` and `[ constraints ]` as
-CONECT, locating the topology by `analysis/runs/layout.cg_topology` and naming it from the manifest's `FINAL_ITP`. A
+CONECT, locating the topology by `analysis/runs/layout.recorded_topology` -- an `aa_only` run through its
+`stages/common/molecule/molecule.itp` entry point, whose single quoted `#include` `structures.read_moleculetype` follows (refusing
+`..` and symlinks), a CG or pdc run through its own directory -- and naming it from the manifest's `FINAL_ITP`. A
 `.pdb` is refused. Readers never distance-guess a file that carries CONECT, and a coarse-grained file is
 `inferBonds: 'none'` even without it.
 
@@ -879,5 +893,9 @@ an offload scheme, and `em` keeps PME on the CPU as it always did. `execution/de
 the CUDA ordinal as `index`, keeps `nvidia-smi`'s row as `nvml_index`, and carries `bus_id` so the two enumerations
 can be checked. `detect()` is cached for 30 s per process; `in_use()`, `describe()` and `require()` read the same
 record, and prepare refuses an index the host reports and does not have, by name, with the devices that do exist.
+A host that reports no device is a host with no device setting: `devices.present()` gates the adapter tables
+(`devices.published_settings`/`published_choices` drop `mdrun_gpu` and the `gpu` offload option), `aa.gpu_flags` writes no flag, the
+select hides itself and loses its `name`, and a stage records `resource_usage.gpu: null`; `config/dashboard.json`'s non-limit key
+`gpus: "auto"|"none"` states the answer when the probe cannot see the host (`devices.gpu_policy`).
 `GET /api/run/devices` feeds the New run select and its sharing note; `views.gpu_name` puts the device's name in the
 run view, read from the manifest rather than from the form.

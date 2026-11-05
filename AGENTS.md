@@ -16,7 +16,8 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 
 ## Where things are
 - AA to CG: `execution/adapters/aa.py` then `cg.py` (the only CG pipeline), then Fast_Forward, then GROMACS; any
-  molecule with a compatible AA topology runs it, and `molecules/DDM` is the reference example.
+  molecule with a compatible AA topology runs it, and `molecules/DDM` is the reference example. A `kind: "cg"` molecule
+  (`molecules/aa.py`) is a pdc detergent only: never an `aa_only`/`aa_cg` source, never a bead-editor entry.
 - Protein-detergent: `pdc.py` owns the ten stages, each running a repository `pdc_*.sh`; placement science is
   `micelle/`. Osmotic: `osmotic.py` with `osmotic_box.py`/`osmotic_mdp.py`.
 - Tools resolve through `config/tools.json` and `execution/tools.py`: a declared path is verified or resolves to
@@ -64,7 +65,8 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 - Simulation admission is per GPU: `Coordinator.admit_device` compares the run's own `mdrun_gpu`, and
   `max_concurrent_runs` is a per-device ceiling, so runs on different GPUs start together.
 - A run holds one frame series at `analyses/frame-series/` (`Kind.stable_directory`): each build replaces the pair
-  through `files.atomic_copy`, `frames.json` last, and a failed build leaves the previous pair.
+  through `files.atomic_copy`, `frames.json` last, and a failed build leaves the previous pair. The PDB carries one
+  `CONECT` block after the last `ENDMDL` (`structures.series_pdb`), measured to bind every model in the viewer.
 - `GET /api/jobs/<id>/structure?path=` writes the run's own bonds and constraints as CONECT and refuses a `.pdb`; a file
   carrying CONECT is never distance-guessed.
 - A revision's terms name beads by their export name (`B01` is the first bead, virtual sites included), so anything
@@ -76,7 +78,7 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 - `mdrun_gpu`, `mdrun_ntomp`, `mdrun_ranks` and `mdrun_cpt` are the run's, not its reference's: `cg.run_settings` keeps
   them and `aa.mdrun_command_flags` is the only builder, so a stage script states neither a device nor an offload
   scheme. Each stage records `resource_usage.gpu`; the index is the CUDA ordinal, with the NVML row and PCI bus id
-  beside it. An index the host lacks is refused at prepare; a host reporting none is not.
+  beside it. A host with no device (`devices.present`) offers no GPU setting and writes no GPU flag.
 - A run setting is advertised in `SETTING_SPECS` or `CHOICE_SPECS` in the same edit: `web/routes/runs.py` keeps only
   advertised keys, so an unadvertised setting is dropped without a word and the run silently uses the default.
 - Provenance is the `inputs.json` record and `stage_scripts` digests, not a copy: the one Martini 3 set lives at

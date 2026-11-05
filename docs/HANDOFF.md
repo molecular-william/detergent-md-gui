@@ -6,14 +6,15 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next task
 
-The audit remainder is implemented except group 4 (`automatic_candidate` vs `generate_baseline`: the user asked how
-they differ and has not chosen). The plan in `docs/plans/2026-11-05-ponytail-audit-remainder.md` records what landed.
-The 2026-11-04 analysis-graph request is implemented (see *Landed slices*). The open items table below is the queue.
+The 2026-11-05 nine-point round is implemented and committed (items 1-6, 8, 9; there was no item 7). Its plan is
+`docs/plans/2026-11-05-feature-round.md`, which carries the decisions, the per-lane evidence and the two corrections
+found while building. The open items table below is the queue; the two the round left behind are the first two rows.
 
-The dashboard was restarted on 2026-11-04 at 13:56 for the Python half (the trajectory header reader). Live checks:
-`6c36b3c610f3` states `45,001 frames · 900 ns` on its CG extension and draws its trajectory-overview figure in Run
-view; `b920391735dd` is the protein-free alternative. `00b9ae6db23f` was deleted by the user on 2026-10-30 and is
-history, not a live run.
+The dashboard was restarted on 2026-11-05 at 17:12 for the whole round. Live checks: LMNG's automatic candidate is
+23 connected beads with the branch bead `[11,22,46]` (connectivity and spectral agree on the bead count, differ on
+the grouping); run `619ab118abd6`'s rebuilt AA series carries 160 CONECT records over 201 models and the viewer draws
+160 bonds; the import dialog created and validated `molecules/ZZIMPORTCHECK` from fixture text, which was removed
+after the check; this host reports three GPUs, so the no-GPU path is pinned by tests only (`gpu-device.js` stubs).
 
 ## Current state (2026-11-02)
 
@@ -71,6 +72,9 @@ history, not a live run.
 
 | item | state | next |
 | --- | --- | --- |
+| Align trajectory's initial state | the form prefills defaults, so a stored series built with `fit: rot+trans` opens with the box unchecked while its summary line says the fit | decide whether Frame options should prefill the stored build's arguments instead of the defaults |
+| CG-only molecules beyond pdc | a `kind: cg` folder works as a pdc detergent without a mapping; compositions, osmotic and CG conformation libraries still assume a mapping | separate slice if wanted (`docs/plans/2026-11-05-feature-round.md`, *Not in this round*) |
+| `pdc_preview.py` wording | prepare/build describe a no-mapping CG molecule correctly; the preview still says "one centre per molecule" for any no-mapping build | align the preview's sentence with `_limitations` |
 | run-layout migration | applied 2026-10-27 (`legacy_layout.json` on every then-existing run); `936b74bd3fa8`, `00b9ae6db23f` deleted by the user | verify the migrated runs still render and resolve analyses |
 | analysis progress visibility | queued and watched only in Run view now: the Runs card's Analysis graphs panel is gone | decide whether the Runs card needs a one-line "analysis running" pointer |
 | Overall Run view progress | the card bar is the current stage's fraction; timeline/plan skips show settings | decide whether a true run-level percentage is wanted |
@@ -195,6 +199,19 @@ history, not a live run.
   caught / 1 survived. `pytest.ini` owns tier counts; do not copy moving counts into this file.
 
 ## Landed slices, newest first
+
+- **2026-11-05 Nine-point feature round (items 1-6, 8, 9)**: a host with no GPU now offers no device setting, no
+  `-gpu_id`/offload flag and no device control (`devices.present`, `config/dashboard.json`'s `gpus`), commits
+  `80c1157`; clicking a bead's atoms field no longer loses the selection, and Group into bead plus 3D picking are
+  gone with a selection halo in their place (`13382b1`); the automatic mapping is branch-safe (LMNG `[11,22,46]`,
+  23 beads, max span 3.84 A) and a second algorithm ports cg_param_m3's mapping half behind a per-mapping select and
+  a `graph.validate` gate (`d8ca4b4`); Frame options has the restored **Align trajectory** control and an all-atom
+  series now carries one CONECT block, with `layout.aa_topology` and a followed `#include` finding the moleculetype
+  (`25674f2`); local AA and CG-only molecules import through `/api/molecules/import`, and pdc uses a CG-only
+  molecule as a detergent without a mapping (`99bbd03`). Focus doc `docs/plans/2026-11-05-feature-round.md`.
+  Checks: fast 2437 passed + 1 xfailed, browser 287 passed, slow 25 passed, ruff clean; live checks in *Next task*.
+  Corrections found while building: there was no 3D bead highlight to preserve (one was added), and the CONECT
+  layout was measured on the vendored NGL (a single block after the models binds every frame) rather than assumed.
 
 - **2026-11-05 Audit remainder: decisions 1-3 and 5-9**: the pdc preview box now passes the build's
   `belt_reach_nm`; the run card and the prepare record read one `pdc.skipped_stages`; the MDP parity oracles
