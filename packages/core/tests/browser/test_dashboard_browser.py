@@ -232,18 +232,18 @@ def test_the_selectors_sit_above_the_diagram_side_by_side(live_page):
     molecule = page.locator('#mapping-molecule').bounding_box()
     candidate = page.locator('#mapping-candidate-filter').bounding_box()
     count = page.locator('#mapping-selection-count').bounding_box()
-    group = page.locator('#group-into-bead').bounding_box()
+    clear = page.locator('#clear-all-mapping').bounding_box()
     diagram = page.locator('#mapping-editor-overlay3d').bounding_box()
 
     assert abs(molecule['y'] - candidate['y']) < 4, 'the two comboboxes share a row'
     assert molecule['x'] < candidate['x'], 'Molecule then Candidate, left to right'
     assert molecule['width'] <= 0.55 * diagram['width'], 'and each is narrower than the column'
     for label, box in (('molecule', molecule), ('candidate', candidate),
-                       ('count', count), ('Group into bead', group)):
+                       ('count', count), ('Clear all', clear)):
         assert box['y'] < diagram['y'], f'{label} sits above the diagram'
-    # The count and its buttons share the row; the button box starts a little higher because of its
+    # The count and the button share the row; the button box starts a little higher because of its
     # padding, so compare with a tolerance rather than ordering their tops.
-    assert abs(count['y'] - group['y']) < 24, 'the count and its buttons share a row'
+    assert abs(count['y'] - clear['y']) < 24, 'the count and its button share a row'
     assert errors == []
 
 

@@ -212,7 +212,7 @@
 <section id="mappings" class="panel" role="tabpanel" aria-labelledby="tab-mappings"{% if panel != 'bead-assignment' %} hidden{% endif %}>
   <div class="section-heading"><div><h2>Design and screen CG mappings</h2><p>Assign heavy atoms to local beads and watch the overlay update live.</p></div></div>
   <section class="card molecule-mapping-workspace" aria-labelledby="molecule-mapping-title">
-    <div class="section-heading"><div><h3 id="molecule-mapping-title">Molecule-scoped bead editor</h3><p class="hint">Select heavy atoms on the molecule, group them into beads, and save a new mapping draft when the structure is ready.</p></div></div>
+    <div class="section-heading"><div><h3 id="molecule-mapping-title">Molecule-scoped bead editor</h3><p class="hint">Edit a bead's atoms in the table, and save a new mapping draft when the structure is ready.</p></div></div>
     <p id="mapping-editor-status" class="hint" role="status">Choose molecule.</p>
     <p id="mapping-editor-warnings" class="mapping-warning" role="status" hidden></p>
     <div class="mapping-editor-layout">
@@ -222,9 +222,8 @@
           <label>Candidate<select id="mapping-candidate-filter" aria-label="Candidate"><option value="">New local draft</option></select></label>
         </div>
         <div class="mapping-selection-row">
-          <p id="mapping-selection-count" role="status">0 heavy atoms selected</p>
+          <p id="mapping-selection-count" role="status">no bead selected</p>
           <div class="toolbar">
-            <button type="button" id="group-into-bead">Group into bead</button>
             <button type="button" class="secondary" id="clear-all-mapping">Clear all</button>
           </div>
         </div>
@@ -240,6 +239,12 @@
         </div>
         <section class="validation" aria-live="polite"><h3>Checks</h3><p id="mapping-validation-summary" class="validation-summary"></p><ul id="mapping-validation-issues" class="validation-issues"></ul></section>
         <div class="toolbar mapping-primary-actions">
+          <label class="mapping-algorithm-pick">Algorithm
+            <select id="mapping-algorithm" aria-label="Bead mapping algorithm">
+              <option value="connectivity">Connectivity: sugar templates, then chains</option>
+              <option value="spectral">Spectral: cg_param_m3 partition</option>
+            </select>
+          </label>
           <button type="button" class="secondary" id="generate-automatic">Generate automatic candidate</button>
           <button type="button" id="save-mapping-editor" disabled>Save as new</button>
           <button type="button" id="save-mapping-inplace" disabled>Save in-place</button>

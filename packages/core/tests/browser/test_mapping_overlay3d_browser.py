@@ -47,22 +47,6 @@ CENTRES = """(el) => {
   return out;
 }"""
 
-# A canvas point where the picker finds the bead component, so a click there is a click on a sphere.
-BEAD_POINT = """(el) => {
-  const stage = el.overlayStage, canvas = stage.viewer.renderer.domElement;
-  const rect = canvas.getBoundingClientRect();
-  for (let iy = 2; iy < 30; iy += 1) {
-    for (let ix = 2; ix < 30; ix += 1) {
-      const x = rect.width * ix / 30, y = rect.height * iy / 30;
-      const pick = stage.pickingControls.pick(x, y);
-      if (pick && pick.atom && ['R', 'S', 'T'].includes(String(pick.atom.resname || '').trim())) {
-        return {x: rect.left + x, y: rect.top + y};
-      }
-    }
-  }
-  return null;
-}"""
-
 
 def _seed_candidate(dashboard):
     """A scoped candidate in the fixture's workspace, saved the way the panel saves one."""
@@ -239,23 +223,65 @@ def test_the_spheres_are_drawn_at_the_radius_their_own_size_class_has(dashboard,
     assert errors == []
 
 
-def test_clicking_a_sphere_selects_the_atoms_that_bead_maps(dashboard, live_page):
+def test_clicking_a_sphere_leaves_the_bead_assignment_alone(dashboard, live_page):
+    """A 3D click is a look, not an edit: atom picking went with the "Group into bead" button.
+
+    The click is aimed through the viewer's own picker at a bead sphere, which is the point the removed listener
+    acted on. What must not move is what a reader can check: the bead table's atom lists.
+    """
     page, errors = live_page
     _seed_candidate(dashboard)
     _open_editor(page, live_page)
 
-    assert '0 heavy atoms selected' in page.locator('#mapping-selection-count').text_content()
+    fields = page.locator('#mapping-bead-rows input[aria-label$=" atoms"]')
+    before = fields.evaluate_all('(inputs) => inputs.map(input => input.value)')
+    assert before, 'the bead table holds no atom fields to compare'
     # Scrolled into view first: this point is in viewport coordinates, and an element far down the page would
     # otherwise be clicked about a thousand pixels away from where the sphere is.
     page.locator(OVERLAY).scroll_into_view_if_needed()
     evidence = _drawn(page, CLICK_EVIDENCE)
     assert evidence, 'no sphere was found to click'
     page.mouse.click(evidence['point'][0], evidence['point'][1])
-    try:
-        page.wait_for_function("() => !/^0 /.test(document.querySelector('#mapping-selection-count').textContent)",
-                               timeout=8000)
-    except Exception:
-        events = page.locator(OVERLAY).evaluate('(el) => el.__events')
-        raise AssertionError(f'click did not select: {evidence} events={events} '
-                             f'status={page.locator("#mapping-editor-status").text_content()!r}')
+
+    assert fields.evaluate_all('(inputs) => inputs.map(input => input.value)') == before, evidence
+    assert 'no bead selected' in page.locator('#mapping-selection-count').text_content()
+    assert errors == []
+
+
+HIGHLIGHT = """(el) => {
+  // The halo is the molecule component's representation carrying an explicit colour, so this read names it by what
+  // distinguishes it from the ball+stick and the labels rather than by its position in the list.
+  const molecule = el.overlayStage?.compList?.[0];
+  if (!molecule) return null;
+  return (molecule.reprList || []).map(repr => repr.parameters || {})
+    .filter(parameters => 'colorValue' in parameters)
+    .map(parameters => ({sele: parameters.sele, opacity: parameters.opacity}));
+}"""
+
+
+def test_the_selected_beads_atoms_are_highlighted_and_the_halo_goes_on_deselect(dashboard, live_page):
+    """The row selection is now the only selection: it says which bead, and shows that bead's atoms in 3D.
+
+    With atom picking removed, the halo is how a reader sees what the ids they are typing mean. It is drawn from the
+    loaded structure -- no request, no rebuild -- and it must be exactly the bead's atoms, not the molecule's.
+    """
+    page, errors = live_page
+    _seed_candidate(dashboard)
+    _open_editor(page, live_page)
+
+    first = page.locator('#mapping-bead-rows tr').first
+    atoms = [int(value) for value in first.locator('input.atoms-input').input_value().split()]
+    assert atoms, 'the first bead maps no atoms to highlight'
+    first.click(position={'x': 3, 'y': 3})          # row padding: selects without touching a field
+
+    expected = ' or '.join(f'@{atom_id - 1}' for atom_id in atoms)
+    highlight = _drawn(page, HIGHLIGHT,
+                       ready=lambda value: value and any(item['sele'] == expected for item in value))
+    assert highlight, 'the selected bead left no halo'
+    assert abs(highlight[0]['opacity'] - 0.3) < 1e-6, highlight
+    assert not page.locator('#mapping-selection-count').text_content().startswith('no bead')
+
+    first.click(position={'x': 3, 'y': 3})          # the same click again drops the selection
+    _drawn(page, HIGHLIGHT, ready=lambda value: value == [])
+    assert 'no bead selected' in page.locator('#mapping-selection-count').text_content()
     assert errors == []

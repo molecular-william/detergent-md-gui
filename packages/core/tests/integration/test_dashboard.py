@@ -156,7 +156,7 @@ class DashboardTests(unittest.TestCase):
     def test_mapping_editor_exposes_only_the_compact_authoring_actions(self):
         page = self.client.get('/').get_data(as_text=True)
         self.assertNotIn('Reference and building-block registry', page)
-        self.assertIn('id="group-into-bead"', page)
+        self.assertNotIn('id="group-into-bead"', page)
         self.assertIn('id="clear-all-mapping"', page)
         self.assertIn('id="generate-automatic"', page)
         self.assertIn('id="save-mapping-editor"', page)

@@ -14,43 +14,16 @@ export function createEditor(context, candidate = null) {
       connections: [],
       provenance: {origin: 'manual', references: []},
     }),
-    selectedAtoms: new Set(),
-    selectedBead: null,          // the table row the bead buttons act on
+    selectedBead: null,          // the table row the bead buttons act on, and what the 3D view highlights
     dirty: false,
   };
 }
 
-export function toggleAtom(editor, id) {
-  const atom = editor.context.atoms.find(item => item.id === id);
-  if (!atom?.heavy) return editor;
-  if (editor.selectedAtoms.has(id)) editor.selectedAtoms.delete(id); else editor.selectedAtoms.add(id);
-  editor.dirty = true;
-  return editor;
-}
-
-export function clearSelection(editor) { editor.selectedAtoms.clear(); return editor; }
-
 export function clearMapping(editor) {
   editor.candidate = {...editor.candidate, beads: [], rings: [], connections: [], bonded_options: {}, bonded_overrides: []};
-  clearSelection(editor);
   editor.selectedBead = null;
   editor.dirty = true;
   return editor;
-}
-
-export function groupAtoms(editor, atomIds, bead, {confirmed = false} = {}) {
-  const ids = new Set(atomIds);
-  if (!ids.size) throw new Error('Select one or more heavy atoms first.');
-  const known = new Map(editor.context.atoms.map(atom => [atom.id, atom]));
-  if ([...ids].some(id => !known.get(id)?.heavy)) throw new Error('Only known heavy atoms can be assigned.');
-  const next = structuredClone(editor.candidate);
-  const prior = next.beads.filter(item => !item.virtual_site && item.atoms.some(id => ids.has(id)));
-  if (prior.length && !confirmed) return {requiresConfirmation: true, prior: prior.map(item => item.name), candidate: next};
-  for (const item of next.beads) if (!item.virtual_site) item.atoms = item.atoms.filter(id => !ids.has(id));
-  const created = {...bead, atoms: [...ids].sort((a, b) => a - b)};
-  next.beads = next.beads.filter(item => item.virtual_site || item.atoms.length || prior.length === 0);
-  next.beads.push(created);
-  editor.candidate = next; clearSelection(editor); editor.dirty = true; return editor;
 }
 
 export function addBead(editor, name = '') {

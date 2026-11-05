@@ -93,9 +93,10 @@ def test_add_and_delete_beads_sit_below_the_table_and_act_on_the_selection(dashb
     table = page.locator('#mapping-bead-rows').bounding_box()
     assert add.bounding_box()['y'] >= table['y'] + table['height'] - 1, (table, add.bounding_box())
 
-    # Clicking a row selects it; the button acts on that selection.
+    # Clicking a row selects it; the button acts on that selection. The click lands on the row's own padding rather
+    # than a cell's control, because a click on a control is that control's business and must not choose the row.
     first = rows.first
-    first.click()
+    first.click(position={'x': 3, 'y': 3})
     expect(first).to_have_attribute('aria-selected', 'true')
     expect(delete).to_be_enabled()
 
@@ -110,6 +111,66 @@ def test_add_and_delete_beads_sit_below_the_table_and_act_on_the_selection(dashb
     delete.click()
     expect(rows).to_have_count(before)
     expect(delete).to_be_disabled()
+    assert errors == []
+
+
+def test_clicking_a_beads_atoms_field_keeps_it_selected_and_edits_the_bead(dashboard, live_page):
+    """A click in the row's own Atoms field is the reader editing that bead, not choosing it.
+
+    The row's click handler used to toggle the selection and rebuild every row, which destroyed the input that had
+    just been clicked and took the focus with it. `fill()` focuses without clicking, which is why the tier never saw
+    it; this clicks first, types through the keyboard, and reads the bead's own atom list back out of the stored
+    draft rather than out of the field it typed into.
+    """
+    candidate = seed_candidate(dashboard)
+    page, errors = live_page
+    open_editor(page, live_page)
+
+    rows = page.locator('#mapping-bead-rows tr')
+    expect(rows).to_have_count(len(candidate['beads']))
+    index = next(position for position, bead in enumerate(candidate['beads']) if bead.get('atoms'))
+    row = rows.nth(index)
+    # The row's own padding still chooses the bead: every cell holds a control, so the corner is the only part of
+    # the row that is the row.
+    row.click(position={'x': 3, 'y': 3})
+    expect(row).to_have_attribute('aria-selected', 'true')
+
+    atoms = row.locator('input[aria-label$=" atoms"]')
+    before = atoms.input_value()
+    atoms.click()
+    # Read at once rather than through `expect`: the defect is a synchronous re-render, and a waiting assertion
+    # would report a timeout instead of the row losing the selection it was holding.
+    assert row.get_attribute('aria-selected') == 'true', 'clicking the Atoms field dropped the bead selection'
+    page.keyboard.press('End')
+    page.keyboard.type(' 99')
+    expect(atoms).to_have_value(f'{before} 99')
+
+    snapshot = candidate['molecule_snapshot']['snapshot_sha256']
+    stored = page.evaluate(f"() => JSON.parse(localStorage.getItem('ddm.mapping.v3.{MOLECULE}.{snapshot}'))")
+    assert stored['beads'][index]['atoms'] == candidate['beads'][index]['atoms'] + [99], stored['beads'][index]
+    assert errors == []
+
+
+def test_a_rows_remove_button_removes_the_bead_without_selecting_it_again(dashboard, live_page):
+    """The row's × changes the candidate; it must not also reach the row's selection handler.
+
+    It used to: the removal rendered the table, the click then bubbled to the removed row's handler and selected the
+    name that no longer existed, leaving the delete button enabled with nothing on screen to delete.
+    """
+    candidate = seed_candidate(dashboard, 'DDM')
+    page, errors = live_page
+    open_editor(page, live_page, 'DDM')
+
+    rows = page.locator('#mapping-bead-rows tr')
+    expect(rows).to_have_count(len(candidate['beads']))
+    # The last row is a tail bead, so no interaction site depends on it and its removal is offered.
+    row = rows.last
+    row.click(position={'x': 3, 'y': 3})
+    expect(page.locator('#delete-selected-bead')).to_be_enabled()
+
+    row.get_by_role('button', name='Remove bead').click()
+    expect(rows).to_have_count(len(candidate['beads']) - 1)
+    expect(page.locator('#delete-selected-bead')).to_be_disabled()
     assert errors == []
 
 

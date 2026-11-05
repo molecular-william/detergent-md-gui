@@ -1,6 +1,6 @@
 import { $, storage, setText, post, cachedApi, invalidateResource, guarded, DROP, api, notice, panelIds } from './shared.js';
 import { setupBondedWorkspace } from './bonded.js';
-import { createEditor, toggleAtom, clearSelection, clearMapping, groupAtoms, addBead, renameBead, removeBead } from './mapping-state.js';
+import { createEditor, clearMapping, addBead, renameBead, removeBead } from './mapping-state.js';
 import { mountOverlay3d } from './mapping-ngl.js';
 
 // Candidate edits and local drafts stay inside this workspace.
@@ -61,7 +61,20 @@ export function createMappings() {
     target.hidden = !warnings.length;
   }
   function editorMessage(message) { setText($('#mapping-editor-status'), message); renderWarnings(); }
-  function editorSelection() { setText($('#mapping-selection-count'), `${moleculeEditor?.selectedAtoms.size || 0} heavy atoms selected`); }
+  function editorSelection() {
+    // What the row selection means now that atoms are no longer picked in 3D: the selected bead, its size, and a
+    // halo over exactly the atoms it maps. The halo is also the only feedback a reader gets while typing ids into
+    // the row, so it is refreshed from this one place, on every render and every field edit.
+    const bead = moleculeEditor && moleculeEditor.selectedBead
+      ? moleculeEditor.candidate.beads.find(entry => entry.name === moleculeEditor.selectedBead) : null;
+    const raw = bead ? (bead.virtual_site ? bead.virtual_site.parents : bead.atoms) : [];
+    const atoms = (raw || []).map(Number).filter(id => Number.isInteger(id) && id > 0);
+    const label = !bead ? 'no bead selected'
+      : `${bead.name} · ${atoms.length} atom${atoms.length === 1 ? '' : 's'}`
+        + (bead.virtual_site ? ' (virtual site parents)' : '');
+    setText($('#mapping-selection-count'), label);
+    moleculeOverlay?.highlight?.(atoms);
+  }
 
   function updateBeadField(index, field, value) {
     const bead = moleculeEditor?.candidate.beads[index];
@@ -101,7 +114,12 @@ export function createMappings() {
       const chosen = moleculeEditor?.selectedBead === bead.name;
       row.classList.toggle('selected', chosen);
       row.setAttribute('aria-selected', String(chosen));
-      row.addEventListener('click', () => selectBead(bead.name));
+      row.addEventListener('click', event => {
+        // A click on the row's own control belongs to that control: rebuilding the table here would destroy the
+        // input the reader just focused, and the remove button would re-select the bead it just removed.
+        if (event.target.closest('input, select, button, label')) return;
+        selectBead(bead.name);
+      });
       const fields = ['name', 'size', 'type', 'atoms'];
       for (const field of fields) {
         const cell = document.createElement('td');
@@ -125,7 +143,8 @@ export function createMappings() {
       const removeButton = document.createElement('button');
       removeButton.type = 'button'; removeButton.className = 'secondary'; removeButton.textContent = '×';
       removeButton.setAttribute('aria-label', `Remove bead ${bead.name}`);
-      removeButton.onclick = () => {
+      removeButton.onclick = event => {
+        event.stopPropagation();
         try { removeBead(moleculeEditor, bead.name); renderEditor(); }
         catch (error) { editorMessage(error.message); }
       };
@@ -213,11 +232,7 @@ export function createMappings() {
         : (catalogue.candidates?.[0] ? await loadMapping(catalogue.candidates[0].file) : null);
       if (generation !== editorGeneration) return;
       moleculeEditor = createEditor(source.context, candidate);
-      // A bead ticked in the overlay is the same edit as one picked before it: the callback calls the editor rather
-      // than keeping a selection of its own.
-      moleculeOverlay = mountOverlay3d($('#mapping-editor-overlay3d'), source.context, id => {
-        toggleAtom(moleculeEditor, id); persistEditor(); editorSelection();
-      });
+      moleculeOverlay = mountOverlay3d($('#mapping-editor-overlay3d'), source.context);
       // The reader's choice of numbers is restored onto the fresh overlay before the first draw, so a reloaded page
       // comes up the way it was left without a second request to undo a default.
       restoreAtomLabels();
@@ -236,26 +251,6 @@ export function createMappings() {
     } catch (error) {
       if (generation === editorGeneration) editorMessage(error.message);
     } finally { if (generation === editorGeneration) workspace?.setAttribute('aria-busy', 'false'); }
-  }
-
-  function makeDialog(title, submitText, fields = []) {
-    const dialog = document.createElement('dialog'); dialog.setAttribute('aria-label', title);
-    const form = document.createElement('form'); form.method = 'dialog';
-    const heading = document.createElement('h3'); heading.textContent = title; form.append(heading);
-    for (const field of fields) {
-      const label = document.createElement('label'); label.textContent = field.label;
-      const input = document.createElement('input'); input.name = field.name; input.value = field.value || '';
-      label.append(input); form.append(label);
-    }
-    const actions = document.createElement('div'); actions.className = 'toolbar';
-    const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'Cancel';
-    cancel.onclick = () => dialog.close('cancel');
-    const submit = document.createElement('button'); submit.type = 'submit'; submit.textContent = submitText;
-    actions.append(cancel, submit); form.append(actions); dialog.append(form);
-    document.body.append(dialog);
-    dialog.addEventListener('close', () => dialog.remove(), {once: true});
-    dialog.showModal();
-    return {dialog, form};
   }
 
   function setupMoleculeEditorControls() {
@@ -321,30 +316,6 @@ export function createMappings() {
         notice(`Mapping saved in place as ${result.file}.`);
       } catch (error) { editorMessage(error.message); }
     };
-    $('#group-into-bead').onclick = () => {
-      if (!moleculeEditor?.selectedAtoms.size) return editorMessage('Select one or more heavy atoms first.');
-      const modal = makeDialog('Create bead', 'Create bead', [{name: 'name', label: 'Bead name', value: `B${(moleculeEditor.candidate.beads.length + 1).toString().padStart(2, '0')}`}]);
-      modal.form.addEventListener('submit', event => {
-        event.preventDefault();
-        const name = new FormData(modal.form).get('name');
-        try {
-          const size = moleculeEditor.selectedAtoms.size >= 4 ? 'R' : moleculeEditor.selectedAtoms.size === 3 ? 'S' : 'T';
-          const result = groupAtoms(moleculeEditor, moleculeEditor.selectedAtoms, {name, size, type: null});
-          if (result?.requiresConfirmation) {
-            modal.dialog.close();
-            const confirm = makeDialog('Move assigned atoms', 'Confirm move');
-            confirm.form.insertAdjacentHTML('afterbegin', `<p>Atoms already belong to ${result.prior.join(', ')}. Move them?</p>`);
-            confirm.form.addEventListener('submit', event2 => {
-              event2.preventDefault();
-              groupAtoms(moleculeEditor, moleculeEditor.selectedAtoms, {name, size, type: null}, {confirmed: true});
-              renderEditor(); confirm.dialog.close();
-            });
-            return;
-          }
-          renderEditor(); modal.dialog.close();
-        } catch (error) { editorMessage(error.message); }
-      });
-    };
     $('#save-mapping-editor').onclick = async () => {
       if (!moleculeEditor) return;
       try {
@@ -370,13 +341,17 @@ export function createMappings() {
     $('#generate-automatic').onclick = async () => {
       if (!moleculeEditor) return;
       const button = $('#generate-automatic'); button.disabled = true;
+      // The algorithm is a per-mapping choice, so it travels with the request rather than being remembered on the
+      // server; an unavailable one answers with its reasons and the draft keeps the mapping it already had.
+      const algorithm = $('#mapping-algorithm')?.value || 'connectivity';
       try {
-        const result = await post('/api/mappings/automatic/preview', {molecule_id: moleculeEditor.context.molecule_id, molecule_snapshot: moleculeEditor.context.snapshot});
+        const result = await post('/api/mappings/automatic/preview', {molecule_id: moleculeEditor.context.molecule_id, molecule_snapshot: moleculeEditor.context.snapshot, algorithm});
         if (!result.available) throw new Error(`Automatic candidate unavailable: ${(result.reasons || []).join(' ')}`);
         moleculeEditor.candidate = result.candidate;
+        moleculeEditor.selectedBead = null;
         renderWarnings();
-        clearSelection(moleculeEditor); renderEditor();
-        editorMessage('Generated an automatic candidate for local review.');
+        renderEditor();
+        editorMessage(`Generated an automatic candidate for local review (${algorithm} algorithm).`);
       } catch (error) { editorMessage(error.message); }
       finally { button.disabled = false; }
     };
