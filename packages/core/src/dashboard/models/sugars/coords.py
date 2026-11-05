@@ -102,7 +102,23 @@ def _ordered_rings(structure, found):
     return ordered
 
 
-def _walk(atoms, adjacency, component):
+def components(adjacency, nodes):
+    """The connected components of a node set, lowest id first."""
+    parts, remaining = [], set(nodes)
+    while remaining:
+        seed = min(remaining)
+        part = {seed}; frontier = [seed]
+        while frontier:
+            node = frontier.pop()
+            for neighbour in sorted(adjacency[node] & remaining):
+                if neighbour not in part:
+                    part.add(neighbour); frontier.append(neighbour)
+        remaining -= part
+        parts.append(part)
+    return parts
+
+
+def _walk(adjacency, component):
     """Component atoms in connectivity order, starting from an endpoint when one exists."""
     if len(component) == 1:
         return [next(iter(component))]
@@ -127,37 +143,79 @@ def _balanced(order):
     return groups
 
 
+def _arms(adjacency, component, vertex):
+    """The arms leaving a branch atom: (the atom bonded to it, every atom of that arm)."""
+    rest = component - {vertex}
+    arms = []
+    for root in sorted(adjacency[vertex] & rest):
+        if any(root in arm for _root, arm in arms): continue
+        arm = {root}; frontier = [root]
+        while frontier:
+            node = frontier.pop()
+            for other in sorted(adjacency[node] & rest):
+                if other not in arm:
+                    arm.add(other); frontier.append(other)
+        arms.append((root, arm))
+    return arms
+
+
+def _chunks(adjacency, component):
+    """One connected component as connected chunks of at most four heavy atoms.
+
+    A chain is cut into balanced contiguous pieces, the way it always was. A branch is never crossed:
+    at a heavy-degree three or four atom the vertex closes one bead with the atom bonded to it in each
+    of its shortest, equally long arms -- its symmetric arms -- and every longer arm is partitioned as
+    a chain of its own. Walking a branch one neighbour at a time and slicing that walk is what put
+    LMNG's two headgroup linkers and a chain end in one bead: the walk reached the end of one arm, left
+    the other arms for last, and the balanced cut then ran over the concatenation, so the bead's atoms
+    were not one connected group.
+    """
+    edges = sum(len(adjacency[node] & component) for node in component) // 2
+    branches = sorted(node for node in component if len(adjacency[node] & component) >= 3)
+    if edges >= len(component) or not branches:
+        # A ring the templates did not cover stays a draft the caller notes; a plain chain is cut into
+        # contiguous pieces of equal size.
+        return _balanced(_walk(adjacency, component))
+    vertex = branches[0]
+    arms = _arms(adjacency, component, vertex)
+    shortest = min(len(arm) for _root, arm in arms)
+    bead = {vertex}
+    for root, arm in arms:
+        if len(arm) == shortest and len(bead) < 4:
+            bead.add(root)
+    chunks = [bead]
+    for part in components(adjacency, component - bead):
+        chunks.extend(_chunks(adjacency, part))
+    return chunks
+
+
+def fragment_bead(atoms, group, prefix, number):
+    """One bead outside the rings: its name, size and type from the atoms it actually holds."""
+    size = 'R' if len(group) >= 4 else 'S' if len(group) == 3 else 'T'
+    apolar = all(atoms[node]['element'] == 'C' for node in group)
+    return {'name': f'{prefix}{number}', 'size': size,
+            'type': ('' if size == 'R' else size) + ('C1' if apolar else 'P1'),
+            'atoms': sorted(group)}
+
+
 def remainder_beads(atoms, adjacency, assigned):
     """Beads for the heavy atoms no ring claimed, named for the chemistry they actually carry.
 
     A pure-carbon acyclic component is an alkyl TAIL, a component carrying a heteroatom is a LINK, a
     component containing a ring is a RING the templates did not cover, and a single isolated atom is
     reported as itself. Each component is divided into as few beads as the four-heavy-atom convention
-    allows and the division is balanced, so a chain never ends in a one-atom bead -- which is what
-    produced a lone oxygen named TAIL3 for sucrose. Returns the beads and the notes the candidate must
-    carry, because a RING here is an admission rather than a result.
+    allows, never across a branch (`_chunks`) and balanced within a chain, so a chain never ends in a
+    one-atom bead -- which is what produced a lone oxygen named TAIL3 for sucrose. Returns the beads
+    and the notes the candidate must carry, because a RING here is an admission rather than a result.
     """
-    remaining = set(atoms) - set(assigned)
     beads, notes, counts = [], [], {}
-    while remaining:
-        seed = min(remaining)
-        component = {seed}; frontier = [seed]
-        while frontier:
-            node = frontier.pop()
-            for neighbour in sorted(adjacency[node] & remaining):
-                if neighbour not in component:
-                    component.add(neighbour); frontier.append(neighbour)
-        remaining -= component
+    for component in components(adjacency, set(atoms) - set(assigned)):
         edges = sum(len(adjacency[node] & component) for node in component) // 2
         prefix = ('RING' if edges >= len(component)
                   else 'LINK' if any(atoms[node]['element'] != 'C' for node in component) else 'TAIL')
-        for group in _balanced(_walk(atoms, adjacency, component)):
+        for group in _chunks(adjacency, component):
             counts[prefix] = counts.get(prefix, 0) + 1
-            size = 'R' if len(group) >= 4 else 'S' if len(group) == 3 else 'T'
-            apolar = all(atoms[node]['element'] == 'C' for node in group)
-            beads.append({'name': f'{prefix}{counts[prefix]}', 'size': size,
-                          'type': ('' if size == 'R' else size) + ('C1' if apolar else 'P1'),
-                          'atoms': sorted(group)})
+            beads.append(fragment_bead(atoms, group, prefix, counts[prefix]))
         if prefix == 'RING':
             notes.append(f'{len(component)} heavy atoms form a ring the templates do not cover; it is '
                          f'drafted as {prefix}{counts[prefix]} and needs a verified template')
@@ -167,7 +225,15 @@ def remainder_beads(atoms, adjacency, assigned):
     return beads, notes
 
 
-def candidate(structure, name):
+def ring_layer(structure, name):
+    """The beads for the rings this structure carries, and the heavy atoms they claim.
+
+    A recognized pyranose or furanose is mapped by the paper's fragments, in the reference's residue
+    order; a ring no template covers is mapped by the general rules and the layer carries a warning.
+    None when the structure has no ring at all. This is the one ring layer: the automatic candidate
+    adds the remainder to it, and the spectral algorithm keeps it as the rings' authority and
+    partitions only the atoms it did not claim.
+    """
     atoms, adj = graph(structure)
     found = identify(structure)
     sugars = _ordered_rings(structure, found)
@@ -219,19 +285,32 @@ def candidate(structure, name):
                              'virtual_site': ring_beads[-1]['name'], 'carbons': ring['carbons'],
                              'ring_oxygen': ring['oxygen'], 'scale': 1.15})
         warnings.append(warning)
-    # Remaining components are handled only after sugar/linker ownership is fixed.
-    remaining_beads, remainder_notes = remainder_beads(atoms, adj, assigned)
-    beads.extend(remaining_beads)
-    connections = [[beads[a-1]['name'],beads[b-1]['name']] for a,b in physical_edges({'beads':beads}, structure)]
     reference_record = None if not found else {
         'entry': found['entry'], 'stereochemistry': found['stereochemistry'],
         'unambiguous': found['unambiguous'], 'order_basis': found['order_basis'],
         'covers_whole_molecule': found['covers_whole_molecule'],
         'outside_atoms': found['outside_atoms'], 'basis': found['basis']}
-    return {'name':f'{name} carbohydrate paper draft', 'beads':beads,'rings':ring_records,
-            'connections':connections,'schema_version':2,'source_structure':structure.get('source',''),
+    return {'beads': beads, 'rings': ring_records, 'assigned': assigned,
+            'warnings': warnings, 'reference': reference_record}
+
+
+def connections_for(beads, structure):
+    """The CG edges the AA bond graph implies: every bond whose two ends sit in different beads."""
+    return [[beads[a-1]['name'],beads[b-1]['name']] for a,b in physical_edges({'beads':beads}, structure)]
+
+
+def candidate(structure, name):
+    layer = ring_layer(structure, name)
+    if layer is None: return None
+    atoms, adj = graph(structure)
+    # Remaining components are handled only after sugar/linker ownership is fixed.
+    remaining_beads, remainder_notes = remainder_beads(atoms, adj, layer['assigned'])
+    beads = layer['beads'] + remaining_beads
+    warnings = layer['warnings']
+    return {'name':f'{name} carbohydrate paper draft', 'beads':beads,'rings':layer['rings'],
+            'connections':connections_for(beads, structure),'schema_version':2,'source_structure':structure.get('source',''),
             'status':'candidate-unvalidated','martini_version':'3',
-            'reference':reference_record,
+            'reference':layer['reference'],
             'algorithm':'Recognized pyranose and furanose rings, numbered in the reference residue order when the connectivity identifies a reference entry; canonical fragment pairs; diols first; higher-carbon bridge ownership; sugar first, then remaining graph.',
             'provenance':{'paper_doi':'10.1021/acs.jctc.2c00757','sugar_topology':'references/martini_v3.0.0_sugars_v2.itp'},
             'limitations':['Templates cover hexopyranoses and hydroxymethyl furanoses; a ring neither claims is mapped with the paper general fragment rules and flagged in these limitations',

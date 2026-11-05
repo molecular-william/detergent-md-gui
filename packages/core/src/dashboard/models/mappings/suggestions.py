@@ -3,9 +3,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from .. import sugars as carbohydrates
-from . import schema
-from .context import as_structure
+from .algorithms import DEFAULT as DEFAULT_ALGORITHM
+from .algorithms import generate
 
 
 def _candidate_types(index, atom_count):
@@ -43,43 +42,11 @@ def suggest_bead(context: dict, atom_ids: list[int], index: dict) -> dict:
     return {"suggestions": suggestions, "warnings": warnings}
 
 
-def generate_baseline(context: dict, index: dict) -> dict:
-    """Generate one deterministic preview; never writes a candidate file."""
-    if not context.get("capabilities", {}).get("automatic", {}).get("available"):
-        return {"available": False, "candidate": None,
-                "reasons": context.get("capabilities", {}).get("automatic", {}).get("reasons", [])}
-    structure = as_structure(context)
-    try:
-        candidate = carbohydrates.candidate(structure, context["molecule_id"])
-    except (ValueError, KeyError) as exc:
-        return {"available": False, "candidate": None, "reasons": [str(exc)]}
-    if candidate is None:
-        groups = schema.fragment_groups(structure)
-        beads = []
-        for index_number, group in enumerate(groups, 1):
-            suggestion = suggest_bead(context, group, index)["suggestions"][0]
-            size = suggestion["size"]
-            beads.append({"name": f"BEAD{index_number:02d}", "size": size,
-                          "type": suggestion["type"], "atoms": group,
-                          "suggestion": suggestion})
-        candidate = {"name": f"{context['molecule_id']} generic graph draft", "beads": beads,
-                     "rings": [], "connections": [], "schema_version": 3,
-                     "molecule_id": context["molecule_id"],
-                     "molecule_snapshot": deepcopy(context["snapshot"]),
-                     "status": "candidate-unvalidated", "martini_version": "3",
-                     "source_structure": context.get("path", ""),
-                     "limitations": ["No verified molecule-specific sugar or fragment template matched."]}
-    else:
-        candidate = deepcopy(candidate)
-        candidate["schema_version"] = 3
-        candidate["molecule_id"] = context["molecule_id"]
-        candidate["molecule_snapshot"] = deepcopy(context["snapshot"])
-    algorithm = {"name": "in-house-sugar-first-graph", "version": "1",
-                 "parameters": {"max_group_heavy_atoms": 4, "tie_break": "ascending-aa-id"},
-                 "reference_index_sha256": index.get("index_sha256")}
-    candidate["provenance"] = {**candidate.get("provenance", {}), "origin": "automatic",
-                                "algorithm": algorithm, "references": [
-                                    reference for bead in candidate.get("beads", [])
-                                    for reference in bead.get("suggestion", {}).get("references", [])]}
-    candidate.pop("file", None); candidate.pop("sha256", None); candidate.pop("validation", None)
-    return {"available": True, "candidate": candidate, "reasons": []}
+def generate_baseline(context: dict, index: dict, algorithm: str = DEFAULT_ALGORITHM) -> dict:
+    """Generate one deterministic preview; never writes a candidate file.
+
+    The candidate itself is one of `algorithms`' builders, and `algorithms.generate` refuses to hand back
+    a document this project's own validator rejects (`{available, reasons}` is what the route and the
+    editor already read). `algorithm` defaults to the sugar-first connectivity path.
+    """
+    return generate(context, index, algorithm)

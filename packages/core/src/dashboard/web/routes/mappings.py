@@ -99,9 +99,20 @@ def mapping_validate():
 
 @blueprint.post('/api/mappings/automatic/preview')
 def automatic_mapping_preview():
+    """One automatic candidate: which algorithm, and why when it cannot be built.
+
+    `algorithm` is a name from `mappings.algorithms` (the connectivity path when it is absent). An
+    algorithm that is unknown or cannot map this molecule answers `{available: false, reasons}`, which
+    is the shape the editor already reads, so an unavailable choice can be shown disabled with its
+    reason rather than failing the request.
+    """
     payload = json_object()
     context = payload_context(payload, require_molecule=True)
-    return jsonify(mapping_suggestions.generate_baseline(context, mapping_references.load_index(coordinator().ROOT)))
+    algorithm = payload.get('algorithm')
+    if algorithm is not None and not isinstance(algorithm, str):
+        abort(400, 'An algorithm must be named by string')
+    return jsonify(mapping_suggestions.generate_baseline(
+        context, mapping_references.load_index(coordinator().ROOT), algorithm or mapping_suggestions.DEFAULT_ALGORITHM))
 
 
 @blueprint.post('/api/mappings/drafts')

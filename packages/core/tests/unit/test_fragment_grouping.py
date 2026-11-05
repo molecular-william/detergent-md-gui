@@ -34,17 +34,22 @@ def test_the_automatic_candidate_groups_through_the_same_function(monkeypatch):
 
 
 def test_the_suggestion_fallback_groups_through_the_same_function(monkeypatch):
-    """The fallback is reached when no verified template matches; it asks the one grouping."""
+    """The fallback is reached when no verified template matches; it asks the one grouping.
+
+    The group is four connected atoms because the preview is now gated: a candidate this project's own
+    validator rejects is never returned, and a one-atom "bead" is exactly that.
+    """
     from dashboard.models.mappings import context as mapping_context
-    from dashboard.models.mappings import suggestions as module
+    from dashboard.models.mappings.algorithms import connectivity
     from dashboard.models.molecules.packaged import SOURCE
 
     context = mapping_context.build_context(SOURCE.parent, 'DDM')
     context = {**context, 'capabilities': {'automatic': {'available': True}}}
-    monkeypatch.setattr(module.carbohydrates, 'candidate', lambda *args, **kwargs: None)
-    monkeypatch.setattr(schema, 'fragment_groups', lambda structure: [[1]])
-    result = module.generate_baseline(context, {})
-    assert result['available'] is True and result['candidate']['beads'][0]['atoms'] == [1]
+    monkeypatch.setattr(connectivity, 'carbohydrate_candidate', lambda *args, **kwargs: None)
+    monkeypatch.setattr(schema, 'fragment_groups', lambda structure: [[1, 2, 3, 4]])
+    result = suggestions.generate_baseline(context, {})
+    assert result['available'] is True, result['reasons']
+    assert result['candidate']['beads'][0]['atoms'] == [1, 2, 3, 4]
 
 
 def test_the_suggestions_module_keeps_no_grouping_of_its_own():

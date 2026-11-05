@@ -138,6 +138,22 @@ def _chemical_projection(chemical: dict, atoms: list[dict]):
         return None
 
 
+def chemical_bond_orders(context: dict):
+    """The validated chemical projection's bond orders by atom-id pair, or None when there is none.
+
+    `_chemical_projection` accepts a source only when its atom names equal the topology's name for
+    every atom, in order, so a context it accepted is one where RDKit index i is AA atom id i + 1.
+    That binding is what an algorithm starting from a SMILES needs, and this is its record: the bond
+    orders it wrote. Nothing is re-parsed and no index is guessed -- a context without the projection
+    says so by returning None.
+    """
+    if context.get('source_quality', {}).get('bond_order') != 'chemical':
+        return None
+    orders = {(bond['a'], bond['b']): bond.get('order', 1.0) for bond in context.get('bonds', [])
+              if bond.get('order_source') == 'chemical'}
+    return orders or None
+
+
 def as_structure(context: dict) -> dict:
     """Return the legacy {'atoms','bonds','source','bond_source'} adapter shape.
 
