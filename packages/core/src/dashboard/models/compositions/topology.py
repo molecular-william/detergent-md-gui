@@ -391,23 +391,3 @@ def render_gro(result: dict) -> str:
         lines.append(f"    1{result['mapping']['residue_name'][:5]:<5}{atom['name'][:5]:>5}{index:5d}{x:8.3f}{y:8.3f}{z:8.3f}")
     lines.append("   3.00000   3.00000   3.00000")
     return "\n".join(lines) + "\n"
-
-
-def parse_composite_itp(text: str) -> dict:
-    atoms = []
-    in_atoms = False
-    for raw in text.splitlines():
-        line = raw.split(";", 1)[0].strip()
-        if line.startswith("["):
-            in_atoms = line.strip("[] ").lower() == "atoms"
-            continue
-        if in_atoms and line:
-            parts = line.split()
-            if len(parts) >= 8 and parts[0].isdigit():
-                atoms.append({"index": int(parts[0]), "type": parts[1], "name": parts[4], "mass": float(parts[7])})
-    return {"atoms": atoms}
-
-
-def parse_composite_gro(text: str) -> dict:
-    rows = text.splitlines()
-    return {"atom_count": int(rows[1]) if len(rows) > 1 else 0}

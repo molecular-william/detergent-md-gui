@@ -228,10 +228,6 @@ def owners(record) -> list:
     return [item for item in listed or [] if isinstance(item, dict) and item.get('mapping_hash')]
 
 
-def owned_by(record, mapping) -> bool:
-    """Whether this mapping has claimed the record. A record nobody has claimed reads as everyone's."""
-    listed = owners(record)
-    return not listed or any(item['mapping_hash'] == owner_entry(mapping)['mapping_hash'] for item in listed)
 
 
 def claim(mapping) -> dict:

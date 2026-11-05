@@ -93,17 +93,6 @@ def pressure_bar(force_kj_nm, area_nm2):
     return force / area * KJ_MOL_NM2_TO_BAR
 
 
-def divide(force_kj_nm, area_nm2, *, force_run_id, area_run_id):
-    """A pressure, refusing a force and an area that did not come from the same run.
-
-    Both are properties of one condition -- the force is its trajectory's, the area its own record's -- and a
-    quotient of the two from different runs is a number that looks like a measurement and is not one. Both ids are
-    named in the refusal so the mistake is visible rather than inferred.
-    """
-    if str(force_run_id) != str(area_run_id):
-        raise ValueError(f'Force is from run {force_run_id} and the area from run {area_run_id}; '
-                         'an osmotic pressure needs both from the same condition')
-    return pressure_bar(force_kj_nm, area_nm2)
 
 
 def _structure_and_trajectory(run_dir):

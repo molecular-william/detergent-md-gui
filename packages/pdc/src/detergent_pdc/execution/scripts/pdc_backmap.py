@@ -22,13 +22,13 @@ cannot do its job, not one with nothing to do.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import shutil
 import sys
 from pathlib import Path
 
+from dashboard import files
 from detergent_pdc.execution.adapters.pdc import SETTINGS_NAME
 from detergent_pdc.execution.scripts import cg2at_fragment as fragment
 
@@ -50,10 +50,6 @@ def settings(stage: Path) -> dict:
     if not path.is_file():
         raise SystemExit(f'{path} is missing: this stage reads the run\'s decisions from it')
     return json.loads(path.read_text())
-
-
-def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def mirror(tree: Path, out: Path) -> Path:
@@ -118,10 +114,10 @@ def stage_inputs(stage: Path, project_root: Path) -> dict:
     structure = stage / 'cg2at_input.gro'
     structure.write_text(fragment.renamed_gro(run_gro.read_text(), residue, names))
 
-    record = {'mapping': str(mapping_path), 'mapping_sha256': digest(mapping_path), 'residue': residue,
+    record = {'mapping': str(mapping_path), 'mapping_sha256': files.sha256(mapping_path), 'residue': residue,
               'library': str(library), 'force_field': str(force_field), 'structure': str(structure),
               'atoms': written['atoms'], 'beads': written['beads'], 'renamed': written['renamed'],
-              'fragment': {f'{residue}.{ext}': digest(installed / f'{residue}.{ext}') for ext in ('pdb', 'itp')},
+              'fragment': {f'{residue}.{ext}': files.sha256(installed / f'{residue}.{ext}') for ext in ('pdb', 'itp')},
               'topology': str(topology), 'coordinates': str(coordinates),
               'box_nm': run_gro.read_text().splitlines()[-1].split()[:3]}
     (stage / OUTPUT_NAME).write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')

@@ -1,7 +1,7 @@
 """`mdrun_gpu`: the device is a setting, and one builder is what writes it into every command.
 
-The device was a literal in three places -- `aa.MDRUN_GPU_NONBONDED_FLAGS`, the pdc stage scripts' fallbacks and
-the AA reference / CG launcher scripts -- which meant a run could record one device and execute another. It is one
+The device was a literal in three places -- a module constant, the pdc stage scripts' fallbacks and the AA
+reference / CG launcher scripts -- which meant a run could record one device and execute another. It is one
 integer setting now, `0` by default, and `aa.mdrun_command_flags` is the only thing that turns it into `-gpu_id`.
 
 Two claims carry the acceptance:
@@ -40,12 +40,6 @@ def two_devices(monkeypatch):
     monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [
         {'index': 0, 'name': 'NVIDIA GeForce RTX 4090', 'memory_mib': 24564, 'uuid': 'GPU-aaaa'},
         {'index': 1, 'name': 'NVIDIA A100-SXM4-40GB', 'memory_mib': 40960, 'uuid': 'GPU-bbbb'}])
-
-
-def test_the_constants_are_the_default_bracket():
-    """The constants stay for the callers that read them, and they mean device 0 -- no more and no less."""
-    assert aa.MDRUN_GPU_NONBONDED_FLAGS == '-gpu_id 0 -nb gpu -pin on'
-    assert aa.MDRUN_GPU_PME_FLAGS == f'{DEFAULT_BRACKET} -pme gpu -pmefft gpu'
 
 
 @pytest.mark.parametrize('flavour', ['mpi', 'thread-mpi'])

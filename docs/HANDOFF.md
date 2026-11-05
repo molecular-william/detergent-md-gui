@@ -6,9 +6,9 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next task
 
-None named. The user's 2026-11-04 request -- move the analysis graphs to Run view, and state the selected segment's
-frame count and total ns -- is implemented (see *Landed slices*); the plan of record is
-`docs/plans/2026-11-04-analysis-graphs-in-run-view.md`. The open items table below is the queue.
+The remaining ponytail-audit groups are in `docs/plans/2026-11-05-ponytail-audit-remainder.md`: group B waits on
+the user's decisions about five clientless endpoints, E is live-path consolidation, F is the review-store fallout.
+The 2026-11-04 analysis-graph request is implemented (see *Landed slices*). The open items table below is the queue.
 
 The dashboard was restarted on 2026-11-04 at 13:56 for the Python half (the trajectory header reader). Live checks:
 `6c36b3c610f3` states `45,001 frames · 900 ns` on its CG extension and draws its trajectory-overview figure in Run
@@ -195,6 +195,20 @@ history, not a live run.
   caught / 1 survived. `pytest.ini` owns tier counts; do not copy moving counts into this file.
 
 ## Landed slices, newest first
+
+- **2026-11-05 Audit remainder, batches D/A/C**: tooling hygiene (the deprecated singleton patch leaves
+  `tests/harness/plugin.py`; the three package `test` extras and the root one go, with `pytest>=8` now pinned in
+  `requirements-dashboard-tests.txt`; stale ruff excludes, `support.py`'s `__all__`/re-export, the unread
+  `bartender_source` key and the duplicate `pdc` marker are gone). Dead API removed: the metadata legacy describer
+  and evidence forwarder, `series_of`/`conditions_of`, `divide`, `plan_and_build`, `PAPER_MOLALITIES` and the
+  route's registry alias, the `_adapter_defaults` shape branch, the GPU bracket constants, `Coordinator.public_job`,
+  `run_inputs.run_output`, `worker.source_paths`, `aa.verify_prepared`, `owned_by`, `parse_composite_*`,
+  `LEGACY_IDENTITY_VERSION`, and `stage_environment`'s test-only `extras`. The pdc stage scripts digest through
+  `dashboard.files.sha256`. Browser: `modules.js` and `run-view.js` use the shared `api`/`post`/`notice`/`storage`,
+  and `setBeadRadiusScale`, `downloadBlob`, `beadFamilyCode`, `isStructurePath` and `saveForm` are gone. Kept:
+  `automatic_candidate`/`new_draft` (a 40-call fixture migration, not a mechanical delete), the duplicated
+  `kinds.known`/`worker.known` accessor, and `catalog.list_models(view=)`. Checks: fast 2392 passed + 1 xfailed,
+  browser 282 passed, slow 25 passed, ruff clean.
 
 - **2026-11-05 Ponytail audit cleanup**: dead surface removed after a parallel seven-lane audit. Deleted:
   `validation/analysis/runs/draft_geometry.py` (+its test), the unused bonded interaction-editor chain in

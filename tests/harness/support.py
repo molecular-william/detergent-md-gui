@@ -12,8 +12,6 @@ from pathlib import Path
 from dashboard import paths as dashboard_paths
 from werkzeug.serving import WSGIRequestHandler
 
-from tests.harness.factory import Dashboard, build
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 #: The dashboard package itself. It lives at `packages/core/src/dashboard` in this repository and in
@@ -40,11 +38,6 @@ DDM_CLASSES = {'S1A': 'S', 'S1B': 'S', 'S1C': 'S', 'S1VS': 'T', 'S2A': 'S', 'S2B
 #: both from a mapping bead's `size`, so a fixture that states a class states it the way a run's file does.
 DDM_TYPES = {'R': 'C1', 'S': 'SP1r', 'T': 'TC4'}
 DDM_MASSES = {'R': 72, 'S': 54, 'T': 36}
-
-__all__ = ['PROJECT_ROOT', 'FAST_FORWARD_ROOT', 'Dashboard', 'build', 'physical_mapping',
-           'write_aa_fixture', 'cg_fixture_run', 'QuietHandler', 'fast_forward_source',
-           'DDM_BEADS', 'DDM_BONDS', 'DDM_CONSTRAINTS', 'DDM_CLASSES', 'DDM_TYPES', 'DDM_MASSES',
-           'DDM_PLACEMENT', 'ddm_moleculetype', 'ddm_system_gro', 'gro_atom_line']
 
 
 #: One DDM molecule's eleven beads, in nanometres, in the order the moleculetype lists them. These are the

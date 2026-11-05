@@ -22,10 +22,10 @@ def a_plan(molality=0.5):
 
 
 def test_the_build_writes_the_mdps_the_reference_the_index_and_the_manifest(tmp_path):
-    record = osmotic.plan_and_build(tmp_path, molality=1.0, temperature=308.15, bead_radii_nm=RADII,
-                                    solute_beads_per_molecule=BEADS,
-                                    solute_atoms=range(1, 977), reference_atom=4001,
-                                    solvent_atoms=range(977, 4001))
+    plan = osmotic_box.plan_condition(1.0, bead_radii_nm=RADII, solute_beads_per_molecule=BEADS)
+    record = osmotic.build(tmp_path, plan=plan, temperature=308.15,
+                           solute_atoms=range(1, 977), reference_atom=4001,
+                           solvent_atoms=range(977, 4001))
 
     for name in ('minimization.mdp', 'eq.mdp', 'md.mdp', 'reference.itp', 'index.ndx', osmotic.MANIFEST):
         assert (tmp_path / name).is_file(), name
@@ -39,7 +39,7 @@ def test_the_build_writes_the_mdps_the_reference_the_index_and_the_manifest(tmp_
 def test_the_manifest_carries_the_area_so_the_analysis_never_recomputes_it(tmp_path):
     """Dividing a force by an area the build never agreed to is how a series ends up internally consistent and
     wrong. The record says so in its own words, and the analysis reads it rather than deriving it."""
-    record = osmotic.plan_and_build(tmp_path, molality=0.5, temperature=308.15)
+    record = osmotic.build(tmp_path, plan=osmotic_box.plan_condition(0.5), temperature=308.15)
 
     assert record['dividing_area_nm2'] == pytest.approx(5.04156 ** 2)
     assert 'must not recompute' in record['note']
@@ -51,7 +51,7 @@ def test_the_manifest_carries_the_area_so_the_analysis_never_recomputes_it(tmp_p
 def test_the_reference_bead_cannot_interact(tmp_path):
     """Zero sigma and zero epsilon is no van der Waals; zero charge is no Coulomb. A reference that interacted would
     perturb the very slab it is measuring, and nothing in a run log would say so."""
-    osmotic.plan_and_build(tmp_path, molality=1.0, temperature=308.15)
+    osmotic.build(tmp_path, plan=osmotic_box.plan_condition(1.0), temperature=308.15)
     itp = (tmp_path / 'reference.itp').read_text()
 
     # The atomtype block comes before the moleculetype that uses it: GROMACS resolves a type as it reads the
@@ -131,7 +131,8 @@ def test_the_mdps_written_are_the_ones_that_were_tested(tmp_path):
     """One source of truth: the adapter must not keep its own copy of the method."""
     from detergent_validation.execution.adapters import osmotic_mdp
 
-    record = osmotic.plan_and_build(tmp_path, molality=1.0, temperature=308.15, production_ps=500000.0)
+    record = osmotic.build(tmp_path, plan=osmotic_box.plan_condition(1.0), temperature=308.15,
+                           production_ps=500000.0)
     expected = osmotic_mdp.osmotic_mdps(temperature=308.15, solute_molecules=record['solute_molecules'],
                                         production_ps=500000.0)
 

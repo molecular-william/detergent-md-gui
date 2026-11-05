@@ -12,11 +12,11 @@ and a reader can check it against one file.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
 from pathlib import Path
 
+from dashboard import files
 from dashboard.analysis.runs import structures as pdc_view
 from detergent_pdc.execution.adapters import pdc_assessment
 from micelle import output as micelle_output
@@ -24,10 +24,6 @@ from micelle import output as micelle_output
 ASSESSMENT_NAME = 'assessment.json'
 KEPT_NAME = 'kept.gro'
 REMOVED_NAME = 'removed.json'
-
-
-def digest(path: Path) -> str:
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def system_structure(structure: Path, detergent_residue: str):
@@ -104,7 +100,7 @@ def main(argv=None) -> int:
                if detergent['name'] not in kept_names]
 
     (stage / ASSESSMENT_NAME).write_text(json.dumps(
-        {**verdict, 'structure': str(structure), 'structure_sha256': digest(structure),
+        {**verdict, 'structure': str(structure), 'structure_sha256': files.sha256(structure),
          'detergent_residue': detergent_residue, 'tail_beads': sorted(tail_beads),
          'protein_beads': len(protein), 'detergents_present': len(molecules)}, indent=2, sort_keys=True))
     # The kept structure is the restart's input, so it is the *dry* one: the protein, when there is one, and the

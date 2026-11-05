@@ -67,9 +67,10 @@ def test_the_series_carries_its_concentrations_in_order_and_each_gets_its_own_di
     settings = osmotic.normalize_settings({'molalities': [0.5, 1.0, 2.5]})
 
     assert settings['molalities'] == [0.5, 1.0, 2.5]
-    assert [condition['directory'] for condition in osmotic.conditions_of(settings)] == \
+    conditions = osmotic.series_conditions(settings['molalities'])
+    assert [condition['directory'] for condition in conditions] == \
            ['00_0.5molal', '01_1molal', '02_2.5molal']
-    assert [condition['molality'] for condition in osmotic.conditions_of(settings)] == [0.5, 1.0, 2.5]
+    assert [condition['molality'] for condition in conditions] == [0.5, 1.0, 2.5]
 
 
 def test_a_lone_molality_in_the_series_list_is_a_one_condition_series():
@@ -114,17 +115,13 @@ def test_the_refusal_names_both_shapes_so_a_caller_knows_what_to_send():
 
 
 def test_a_reader_tells_an_old_record_from_a_series_by_its_settings():
-    """The marker, one-sided: only a series carries `molalities`, and only an old record carries the scalar.
-
-    `series_of` is the reader -- the concentrations for a series, `None` for a record that predates the shape -- so
-    the two shapes are not left looking identical in the store.
-    """
+    """The marker, one-sided: only a series carries `molalities`, and only an old record carries the scalar."""
     new = osmotic.normalize_settings({'molalities': [0.5, 1.0]})
     old = {'osmotic_molality': 0.5, 'series_id': '108c31827410'}
 
     assert 'molalities' not in old and 'osmotic_molality' not in new
-    assert [condition['molality'] for condition in osmotic.series_of(new)] == [0.5, 1.0]
-    assert osmotic.series_of(old) is None
+    assert osmotic.refuse_legacy_shape(old) is not None
+    assert osmotic.refuse_legacy_shape(new) is None
 
 
 def test_the_shared_admission_refuses_an_osmotic_payload_that_names_no_series():

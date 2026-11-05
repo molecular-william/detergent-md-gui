@@ -25,18 +25,11 @@ from flask import Blueprint, abort, jsonify, request
 
 blueprint = Blueprint('osmotic', __name__)
 
-#: The molalities Ebrahimi & Sadeghi measured -- documentation, and **not a default any more**. The panel's own note
-#: in the template names this set as the source of its six rows, and the panel always sends its own five (it skips
-#: the 0.0 control, which is the same for every sugar); nothing fills it in behind a caller's back. See
-#: `_requested_molalities` for why the default had to go.
-PAPER_MOLALITIES = (0.0, 0.5, 1.0, 1.5, 2.0, 2.5)
-
-
 def _requested_molalities(data):
     """The concentrations the caller named, or a 400 that names the shape this run type accepts.
 
-    **No default, and that is the point.** `PAPER_MOLALITIES` used to be filled in here, which made a payload that
-    named none and a payload that asked for those six indistinguishable -- and left behind a series whose
+    **No default, and that is the point.** A default used to be filled in here, which made a payload that named no
+    concentrations and a payload that asked for the paper's six indistinguishable -- and left behind a series whose
     concentrations nobody had named. A payload with no `molalities` is the shape the hand-queued one-condition runs
     had, so it is refused with the run type's own reason rather than defaulted.
     """
@@ -265,10 +258,6 @@ MOLECULE_FOR_SERIES = 'Maltose'
 # `prepare` can copy the molecule, its topology and the water tile. What is missing is named.
 
 #: The carbohydrate vocabulary now lives in the run type itself (`osmic.carbohydrate_names`), because it is the
-#: gate that decides whether a molecule may be a series' solute as well as the list the panel offers. This route
-#: renders the answer; it does not own the list, so there is no second copy to disagree with the gate.
-CARBOHYDRATE_REGISTRY = osmotic.CARBOHYDRATE_REGISTRY
-
 #: Where a molecule's solute files sit: under the selected workspace, beside `runs/`. Resolved here and never
 #: typed into a field -- a free-text filesystem path in a browser form is the wrong control for it.
 SOLUTE_DIRECTORY = 'osmotic'
@@ -356,15 +345,8 @@ def _sugar_record(coordinator_object, molecule_id, folder_exists):
 
 
 def _adapter_defaults(adapter):
-    """A run type's own defaults, in whichever shape it publishes them."""
-    try:
-        published = adapter.stage_defaults('standard')
-    except TypeError:
-        published = adapter.stage_defaults()
-    published = published or {}
-    if isinstance(published.get('values'), dict):
-        return dict(published['values'])
-    return dict(published)
+    """The osmotic run type's own defaults."""
+    return dict(adapter.stage_defaults('standard')['values'])
 
 
 def failure_policy(adapter):

@@ -115,7 +115,6 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   //: stamped with come from one answer rather than from a control the panel would have to keep in step.
   // Persist all controls, including disabled values inherited from a reference.
   function formValues() { return Object.fromEntries([...form.elements].filter(el=>el.name).map(el=>[el.name,el.value])); }
-  function saveForm() { storage.set('form',formValues()); }
   let referenceRecords = [], referenceGeneration = 0, lockedReference = null;
   let referencesLoaded=false, mappingsLoaded=false, mounted=false, mounting=null;
   // The shared cache drops a resource when something changes it elsewhere; these flags

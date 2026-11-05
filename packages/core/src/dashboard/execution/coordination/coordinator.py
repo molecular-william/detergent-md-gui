@@ -303,21 +303,6 @@ class Coordinator:
                                      analysis_active=any(key[0] == job['id'] for key in list(self.ANALYSIS_WORKERS)))
 
 
-    def public_job(self, job, summary=False):
-        """The browser's view of a run.
-
-        The routes assemble this directly through dashboard/web/views.py now; this stays
-        as the coordinator's own answer to the same question until the last callers go.
-        """
-        run_dir = self.run_path(job) if views.usable_run_id(job) else None
-        if run_dir is None:
-            return views.run_view(job, summary=summary)
-        return views.run_view(job, run_dir=run_dir,
-                              manifest=self.MANIFEST_CACHE.read(run_dir / 'manifest.json'),
-                              ownership=self.ownership(job), busy=self.externally_busy(job),
-                              console_log=self.log_path(job), summary=summary)
-
-
     @application_context
     def run_job(self, jid, worker=None):
         worker = worker or self.Worker()

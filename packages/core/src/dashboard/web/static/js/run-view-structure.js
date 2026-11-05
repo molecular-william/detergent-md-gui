@@ -37,10 +37,6 @@ export function structureExtension(path) {
   return match ? match[1].toLowerCase() : null;
 }
 
-export function isStructurePath(path) {
-  return structureExtension(path) !== null;
-}
-
 export function isCoarseGrainedPath(path) {
   const text = String(path || '');
   return CG_PATH_HINTS.some(hint => text.includes(hint));

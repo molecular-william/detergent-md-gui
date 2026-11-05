@@ -43,12 +43,6 @@ def gpu_flags(settings):
     return f'-gpu_id {index} -nb gpu -pin on'
 
 
-# The default bracket, kept for the callers that read the constant (the pdc scripts' fallback and the
-# manifest's recorded environment). It is the same string it has always been: device 0, nonbonded on the GPU.
-MDRUN_GPU_NONBONDED_FLAGS=gpu_flags({})
-MDRUN_GPU_PME_FLAGS=f'{MDRUN_GPU_NONBONDED_FLAGS} -pme gpu -pmefft gpu'
-
-
 def gromacs_flavour(binary=None, *, report=None):
     """Which mdrun this build is: 'mpi', 'thread-mpi' or 'unknown'.
 

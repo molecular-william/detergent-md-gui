@@ -88,18 +88,6 @@ def test_a_molecule_beyond_a_wall_pushes_on_that_wall_and_not_the_other():
     assert (up, down) == (0.0, pytest.approx(PAPER_FORCE_CONSTANT * excursion))
 
 
-def test_a_force_and_an_area_from_different_runs_are_refused_and_both_are_named():
-    """The failure this refusal exists for: two numbers that each came from a real run and together mean nothing."""
-    with pytest.raises(ValueError) as refusal:
-        op.divide(1.0, AREA_NM2, force_run_id='3767b3975adc', area_run_id='a557054e5b51')
-    assert '3767b3975adc' in str(refusal.value)
-    assert 'a557054e5b51' in str(refusal.value)
-
-
-def test_the_same_run_s_force_and_area_divide():
-    assert op.divide(1.0, AREA_NM2, force_run_id='x', area_run_id='x') == pytest.approx(op.pressure_bar(1.0, AREA_NM2))
-
-
 def test_the_walls_are_read_from_the_file_the_simulation_ran_with(tmp_path):
     """The grouping is not re-derived: it is read out of the run's own `plumed.dat`, so the analysis and the walls
     cannot disagree about what a molecule is. The centre and the constant come from the same file for the same

@@ -19,7 +19,7 @@
 // fail, and both failure modes it exists for (a selection matching nothing, an inference quietly adding bonds)
 // render as a plausible picture with a clean console.
 
-import { $, api, panelIds } from './shared.js';
+import { $, api, panelIds, storage } from './shared.js';
 import { createMonitor } from './run-view-monitor.js';
 
 // The seam a feature's module imports to register its run type's file conventions and stage chain. Re-exported here
@@ -46,23 +46,22 @@ export function createRunView() {
   let loaded = false;
 
   function remember() {
-    try {
-      const state = JSON.parse(localStorage.getItem(STATE_KEY) || '{}') || {};
-      state.pair = monitors.map(monitor => (monitor.run() || {}).id || '');
-      state.collapsed = {};
-      // Keyed by the element's own id rather than by its position: a block inserted above the sub-panels -- the
-      // trajectory block's argument form is one -- would otherwise move every remembered state onto its neighbour,
-      // and a reader's layout would open the wrong panel. An id nothing remembers is a panel at its default, closed.
-      monitors.forEach(monitor => [...monitor.root.querySelectorAll('details[id]')].forEach(details => {
-        state.collapsed[details.id] = !details.open;
-      }));
-      localStorage.setItem(STATE_KEY, JSON.stringify(state));
-    } catch (error) {
-      /* a browser that refuses storage is a browser whose state is not remembered, not a panel that fails */
-    }
+    const state = storage.get(STATE_KEY, {});
+    state.pair = monitors.map(monitor => (monitor.run() || {}).id || '');
+    state.collapsed = {};
+    // Keyed by the element's own id rather than by its position: a block inserted above the sub-panels -- the
+    // trajectory block's argument form is one -- would otherwise move every remembered state onto its neighbour,
+    // and a reader's layout would open the wrong panel. An id nothing remembers is a panel at its default, closed.
+    monitors.forEach(monitor => [...monitor.root.querySelectorAll('details[id]')].forEach(details => {
+      state.collapsed[details.id] = !details.open;
+    }));
+    storage.set(STATE_KEY, state);
   }
 
   function recalled() {
+    const remembered = storage.get(STATE_KEY, null);
+    if (remembered) return remembered;
+    // The pre-`storage` key carried no prefix; read it once so an open reader keeps its layout.
     try {
       return JSON.parse(localStorage.getItem(STATE_KEY) || '{}') || {};
     } catch (error) {

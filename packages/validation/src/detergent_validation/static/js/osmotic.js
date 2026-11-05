@@ -15,9 +15,8 @@ import { $, $$, setText, notice, api, cachedApi, post } from '/static/js/shared.
 
 //: The panel's default series: the five measured points Ebrahimi & Sadeghi report for maltose at 308.15 K. The
 //: 0.0 control is skipped on purpose -- it is the same for every sugar, so it is not this series' business to
-//: run it, and `+ Add a concentration` puts it back for a run that wants it. The route's own fallback
-//: (`routes/osmotic.PAPER_MOLALITIES`) still names all six; the panel always sends its own set, so this five is
-//: what is queued.
+//: run it, and `+ Add a concentration` puts it back for a run that wants it. The route fills in nothing behind
+//: a caller; the panel sends this set, so this five is what is queued.
 const DEFAULT_SERIES = [0.5, 1.0, 1.5, 2.0, 2.5];
 //: `osmotic_box.MOLALITY_RANGE`, as `osmotic_molality`'s own spec enforces it. The catalogue states it; this is
 //: only for a panel whose catalogue has not arrived.

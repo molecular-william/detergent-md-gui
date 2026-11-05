@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 import pytest
+from dashboard import files
 from detergent_pdc.execution.adapters import pdc
 from detergent_pdc.execution.scripts import pdc_assess
 
@@ -109,7 +110,7 @@ def test_a_micelle_is_judged_and_what_survives_is_written(tmp_path):
 
     assert record['verdict'] is True and record['largest_cluster'] == 2
     assert record['detergents_present'] == 3 and record['protein_beads'] == 3
-    assert record['structure_sha256'] == pdc_assess.digest(stage / 'prod' / 'run.gro')
+    assert record['structure_sha256'] == files.sha256(stage / 'prod' / 'run.gro')
     assert int(kept[1]) == 3 + 6, 'the protein beads and the two detergents that are in the micelle'
     assert removed['removed'] == [{'name': 'DDM3', 'residue_id': 3, 'beads': 3, 'tail_beads': 2}]
     assert removed['fraction_removed'] == pytest.approx(1 / 3, abs=1e-6)

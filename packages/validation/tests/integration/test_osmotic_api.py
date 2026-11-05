@@ -20,8 +20,6 @@ tests pass only on a machine where those records happened to exist.
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from detergent_validation.web.routes import osmotic as route
-
 SERIES = '/api/osmotic/series'
 
 
@@ -226,16 +224,6 @@ def test_a_series_with_no_molality_at_all_is_refused(dashboard, tmp_path):
     assert r.status_code == 400
     assert 'molalities' in r.get_data(as_text=True)
 
-
-def test_the_papers_six_are_a_documented_set_and_not_a_default():
-    """The paper's molalities are the common case, not a fallback: the route fills nothing in behind a caller.
-
-    The constant stays, because the panel's own note names it as the source of its six rows -- and the panel sends
-    its own five regardless. That nothing is completed from it is asserted where it is observable, at the route:
-    `test_a_payload_that_names_no_concentrations_is_refused_and_names_the_new_shape` posts no concentrations and
-    gets the shape reason rather than these six.
-    """
-    assert route.PAPER_MOLALITIES == (0.0, 0.5, 1.0, 1.5, 2.0, 2.5)
 
 
 # --- the panel's reader: GET /api/osmotic/conditions -----------------------------------------------------------

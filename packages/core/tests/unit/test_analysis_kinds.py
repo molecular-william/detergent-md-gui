@@ -81,10 +81,9 @@ def test_the_evidence_section_descriptions_are_not_analysis_kinds():
     feature that owns the report registers them, checked against that profile rather than among the kinds.
     """
     from dashboard import features
-    from dashboard.analysis import metadata
     from dashboard.analysis.kinds import TABLE
 
-    sections = metadata.evidence_sections()
+    sections = features.evidence_sections()
     assert set(sections) == set(features.molecule_profiles()['carbohydrate'])
     assert not set(sections) & set(TABLE), 'an evidence section is not an analysis kind'
     for name, (title, ideal, units) in sections.items():

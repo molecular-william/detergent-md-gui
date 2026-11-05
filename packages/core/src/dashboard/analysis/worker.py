@@ -23,10 +23,6 @@ from .runs import layout
 from .runs import references as aa_references
 
 
-def source_paths(root, kind):
-    return list(source_entries(root,kind).values())
-
-
 def known(kind: str) -> bool:
     """Whether the worker accepts this kind. The table is the registration, so this is its one answer."""
     return kind in TABLE

@@ -140,14 +140,6 @@ def absolute(role, path, *, label):
                   sha256=files.sha256(source), size=source.stat().st_size)
 
 
-def run_output(role, run_id, path, *, label, runs_root=None, sha256=None):
-    """A file another run published, like an AA reference. The bytes are never copied."""
-    root = _base('run', runs_root=runs_root)
-    source = root / str(run_id) / str(path)
-    if source.is_symlink() or not source.is_file():
-        raise ValueError(f'a referenced run output is not a regular file: {source}')
-    return _entry(role=role, label=label, kind='run-output', root='runs', path=_relative(source, root),
-                  sha256=sha256 or files.sha256(source), size=source.stat().st_size)
 
 
 def generated_entries(run_dir):

@@ -14,6 +14,7 @@
 # MDAnalysis' own DSSP and the route the Martini 3 tutorial documents is never
 # taken (`unit/test_pdc_cg_step.py` covers both). It is declared here because this
 # file is the repository's one requirements file.
+pytest>=8
 pytest-xdist>=3.6,<4
 playwright>=1.40
 vermouth>=0.15

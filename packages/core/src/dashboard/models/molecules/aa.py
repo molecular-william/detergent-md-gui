@@ -309,9 +309,3 @@ def selection(root, molecule_id, run_type='aa_cg'):
 def verify_selection(root, snapshot):
     if selection(root, snapshot['id'], 'aa_only' if snapshot.get('adapter')=='aa-charmm36' else 'aa_cg') != snapshot:
         raise ValueError('Molecule files changed since this run was queued; select the molecule again')
-
-
-def verify_prepared(aa_directory, snapshot):
-    if 'adapter_sources' not in snapshot:
-        raise ValueError('No packaged adapter sources recorded; prepared input verification is unavailable for this molecule')
-    files.verify(aa_directory, snapshot['adapter_sources'])

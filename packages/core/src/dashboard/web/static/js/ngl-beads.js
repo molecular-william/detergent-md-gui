@@ -135,13 +135,8 @@ export const SIZE_ELEMENTS = {C: 'R', N: 'S', H: 'T'};
 //: The one scale knob's default. `1` draws the model's own radius, which is the honest default for a reader who
 //: wants the model's numbers; `3.75` is what the composition preview reads its beads at, and `0.3` is what the run
 //: view and the New Run preview draw at, so a bonded pair reads as two beads rather than one lump. It never changes
-//: what the table above states. Set it through `setBeadRadiusScale`, or per call through `applyBeadRadii`'s `scale`.
-export let BEAD_RADIUS_SCALE = 1;
-
-export function setBeadRadiusScale(value) {
-  const scale = Number(value);
-  BEAD_RADIUS_SCALE = Number.isFinite(scale) && scale > 0 ? scale : 1;
-}
+//: what the table above states. Callers that draw at another size pass `applyBeadRadii`'s `scale`.
+export const BEAD_RADIUS_SCALE = 1;
 
 //: `ball+stick` draws the ball at `atomRadius x radiusScale x aspectRatio` and the stick at
 //: `atomRadius x radiusScale` -- measured in this vendored build by reading the two buffers the representation

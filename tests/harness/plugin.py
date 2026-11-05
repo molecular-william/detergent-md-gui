@@ -27,7 +27,6 @@ if 'DASHBOARD_MARTINI3' not in os.environ:
 
 import pytest
 from dashboard import paths
-from dashboard.app import default_coordinator
 
 from tests.harness import areas, factory, modules
 from tests.harness.support import PROJECT_ROOT
@@ -47,21 +46,13 @@ def dashboard(tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def isolated_workspace(tmp_path, monkeypatch):
-    """Deprecated: the import-time singleton, patched for tests that still drive it.
+def isolated_workspace(tmp_path):
+    """Point module-level path resolution at a test workspace.
 
-    New tests take the `dashboard` fixture instead. This stays until the files that import
-    `default_coordinator` have migrated, because it is what keeps them isolated meanwhile.
+    New tests take the `dashboard` fixture, which points `paths` at the same workspace for the duration.
+    This autouse half exists for tests that do not build an application but still reach a store.
     """
     selected = paths.Paths(project_root=PROJECT_ROOT, workspace=tmp_path/'workspace')
-    web = default_coordinator
-    monkeypatch.setitem(web.app.config, 'PATHS', selected)
-    monkeypatch.setitem(web.app.config, 'DISABLE_COORDINATOR', True)
-    for name, value in {
-        'ROOT': PROJECT_ROOT, 'DATA': selected.database, 'RUNS': selected.runs,
-        'UPLOADS': selected.uploads, 'WORKERS': {}, 'ANALYSIS_WORKERS': {},
-    }.items():
-        monkeypatch.setattr(web, name, value)
     with paths.use(selected):
         yield selected
 

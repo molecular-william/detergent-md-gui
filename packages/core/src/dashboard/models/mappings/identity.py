@@ -18,9 +18,6 @@ from ... import files
 #: The first schema whose payload binds a candidate to its molecule source.
 IDENTITY_VERSION = 3
 
-#: Schema 1 and 2 drafts were hashed before that binding existed and keep their digest.
-LEGACY_IDENTITY_VERSION = 2
-
 
 def canonical_json(payload):
     """The one serialization identities are computed from -- `files.canonical_json`.

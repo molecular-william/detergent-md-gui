@@ -6,6 +6,8 @@
  * run form from the filtered registry. Nothing here hides a workspace in the current page: the reader may be halfway
  * through one.
  */
+import { api, notice } from './shared.js';
+
 export function initModules() {
   const button = document.querySelector('#modules-button');
   const popover = document.querySelector('#modules-popover');
@@ -13,7 +15,6 @@ export function initModules() {
   const inputs = [...popover.querySelectorAll('input[data-module]')];
   const dirty = document.querySelector('#modules-dirty');
   const reload = document.querySelector('#modules-reload');
-  const notice = document.querySelector('#notice');
 
   const open = () => { button.setAttribute('aria-expanded', 'true'); popover.hidden = false; };
   const close = () => { button.setAttribute('aria-expanded', 'false'); popover.hidden = true; };
@@ -27,16 +28,8 @@ export function initModules() {
     close();
   });
 
-  function say(message) {
-    if (!notice) return;
-    notice.textContent = message;
-    notice.hidden = false;
-  }
-
   async function restore() {
-    const response = await fetch('/api/modules');
-    if (!response.ok) return;
-    const state = await response.json();
+    const state = await api('/api/modules');
     for (const row of state.modules || []) {
       const input = inputs.find(item => item.dataset.module === row.name);
       if (input) input.checked = row.enabled;
@@ -45,20 +38,19 @@ export function initModules() {
 
   async function save() {
     const enabled = inputs.filter(input => input.checked).map(input => input.dataset.module);
-    const response = await fetch('/api/modules', {
-      method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({enabled}),
-    });
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      say(body.error || `The module switch could not be saved (${response.status}).`);
+    try {
+      await api('/api/modules', {
+        method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({enabled}),
+      });
+      dirty.hidden = false;
+    } catch (error) {
+      notice(`The module switch could not be saved: ${error.message}`);
       await restore();
-      return;
     }
-    dirty.hidden = false;
   }
 
   inputs.forEach(input => input.addEventListener('change', () => {
-    save().catch(error => say(error.message));
+    save().catch(error => notice(error.message));
     // The row's own state follows the switch, so the popover reads correctly before the reload.
     input.closest('.module-row').classList.toggle('is-off', !input.checked);
   }));

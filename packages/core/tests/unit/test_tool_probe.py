@@ -121,7 +121,7 @@ def test_the_stage_environment_does_not_carry_the_callers_interpreter_injection(
     """One environment for the probe and the stage, and neither inherits the caller's python path."""
     monkeypatch.setenv('PYTHONPATH', '/somewhere/else')
     monkeypatch.setenv('PYTHONHOME', '/somewhere/else')
-    stage = environment_module.stage_environment()
+    stage = environment_module.environment()
     assert 'PYTHONPATH' not in stage and 'PYTHONHOME' not in stage
 
 

@@ -55,20 +55,10 @@ def environment():
 RECORDED_KEYS = ('PATH', 'MPLBACKEND', 'OMP_NUM_THREADS')
 
 
-def stage_environment(extras=None):
-    """The environment a stage runs in.
-
-    The composed PATH (Task 2.7) plus the two fixed settings. One function so a manifest
-    cannot record a different environment from the one the stage ran with, and so `extras`
-    has one place to be merged.
-    """
+def recorded_environment():
+    """The subset of the stage environment a manifest records, read from the environment a stage runs with."""
     env = environment()
-    return {**{key: env[key] for key in RECORDED_KEYS}, **(extras or {})}
-
-
-def recorded_environment(extras=None):
-    """The subset of the stage environment a manifest records."""
-    return {key: value for key, value in stage_environment(extras).items() if key in RECORDED_KEYS}
+    return {key: env[key] for key in RECORDED_KEYS}
 
 
 def script_interpreter(executable):

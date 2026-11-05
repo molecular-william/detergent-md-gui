@@ -16,11 +16,6 @@ async function api(path, options = {}) {
   if (!response.ok) { const error=new Error(data.error || `Request failed (${response.status})`); error.status=response.status; if (data.existing !== undefined) error.existing=data.existing; throw error; }
   return data;
 }
-function downloadBlob(blob, name) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a'); link.href = url; link.download = name; link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 const post = (path, data) => api(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
 
 // Share in-flight loads, keep successful GETs briefly, and never retain failures.
@@ -67,4 +62,4 @@ const panelIds = () => {
   try { return block ? (JSON.parse(block.textContent) || {}) : {}; } catch { return {}; }
 };
 
-export { loadOnce, cachedApi, invalidateResource, guarded, DROP, $,  $$, storage, setText, notice, api, post, downloadBlob, panelIds };
+export { loadOnce, cachedApi, invalidateResource, guarded, DROP, $,  $$, storage, setText, notice, api, post, panelIds };

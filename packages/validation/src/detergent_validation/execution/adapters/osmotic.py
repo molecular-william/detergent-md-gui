@@ -186,13 +186,6 @@ def build(destination, *, plan, temperature, production_ps=osmotic_mdp.DEFAULT_P
     return record
 
 
-def plan_and_build(destination, *, molality, temperature, bead_radii_nm=(), solute_beads_per_molecule=None,
-                   solute_atoms=(), reference_atom=None, solvent_atoms=(), **durations):
-    """`plan_condition` then `build`, so a caller cannot pass a plan that does not match what was written."""
-    plan = osmotic_box.plan_condition(molality, bead_radii_nm=bead_radii_nm,
-                                      solute_beads_per_molecule=solute_beads_per_molecule)
-    return build(destination, plan=plan, temperature=temperature, solute_atoms=solute_atoms,
-                 reference_atom=reference_atom, solvent_atoms=solvent_atoms, **durations)
 
 
 # --- the run type ----------------------------------------------------------------------------------------------
@@ -341,7 +334,8 @@ def refuse_legacy_shape(settings):
     builds always carries `molalities`; a record built before the series existed carries a single `osmotic_molality`
     and no `molalities`, and `osmotic_molality` is not a published setting any more. So `molalities` present means
     series, `molalities` absent means the old shape -- and this function is the cheap half a caller can ask
-    (`admission.validate_run_type` does, before anything is built). `series_of` below is the reader's half.
+    (`admission.validate_run_type` does, before anything is built). `series_conditions` below is the reader's
+    half a prepared run already uses.
     """
     values = (settings or {}).get(SERIES_KEY)
     if values in (None, '', []):
@@ -349,15 +343,6 @@ def refuse_legacy_shape(settings):
     return None
 
 
-def series_of(settings):
-    """The conditions a record's settings name, or None when the record predates the series shape.
-
-    The reader's half of the marker above. `None` means an old single-condition job, never "a series with no
-    concentrations": `normalize_settings` refuses to build one of those, so the two states cannot be confused.
-    """
-    if refuse_legacy_shape(settings):
-        return None
-    return series_conditions((settings or {})[SERIES_KEY])
 
 
 def condition_directory(index, molality):
@@ -371,12 +356,6 @@ def series_conditions(molalities):
             for index, molality in enumerate(molalities)]
 
 
-def conditions_of(settings):
-    """The ordered conditions a run's settings describe; a record that names no series is refused, not defaulted."""
-    conditions = series_of(settings)
-    if conditions is None:
-        raise ValueError(series_shape_reason())
-    return conditions
 
 
 def _molalities(requested):

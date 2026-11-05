@@ -10,10 +10,6 @@ def test_graph_metadata_explains_metric_direction_and_units():
     assert 'SASA' in sasa['title'] and 'variability' in sasa['ideal_result']
 
 
-def test_legacy_metadata_is_explicit():
-    assert describe('distance-distributions',legacy=True)['legacy'] is True
-
-
 def test_carbohydrate_evidence_metadata_names_physical_measurements():
     """The evidence sections the carbohydrate profile requires carry their own text, apart from the analysis kinds.
 
@@ -21,8 +17,8 @@ def test_carbohydrate_evidence_metadata_names_physical_measurements():
     described through the *kinds'* describer -- which is how a mapping of fourteen kinds came to hold seventeen
     entries, and why nothing noticed the three it should not have had.
     """
-    from dashboard.analysis.metadata import evidence_sections
-    sections = evidence_sections()
+    from dashboard import features
+    sections = features.evidence_sections()
     assert sections['mapped_geometry'][0] == 'Carbohydrate geometry and volume'
     assert 'osmotic' in sections['osmotic_pressure'][0].lower()
 
