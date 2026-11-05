@@ -217,6 +217,8 @@ after the check; this host reports three GPUs, so the no-GPU path is pinned by t
   Follow-up (17:55): each Runs card now states its trajectory weight (`layout.trajectory_bytes`, 30 s cache) so a
   deletion decision sees the bytes; the live list reads 0.45 GB, 3.9-4.2 GB and 0.07 GB across the current runs, and
   the walk costs 28 ms for all 15 runs.
+  Follow-up (18:00): the run card's View run link moved from the title cell into the doors row beside Artifacts,
+  the stage records and the console (`docs/design/drafts/2026-11-05-runs-card-doors.png`).
   Corrections found while building: there was no 3D bead highlight to preserve (one was added), and the CONECT
   layout was measured on the vendored NGL (a single block after the models binds every frame) rather than assumed.
 

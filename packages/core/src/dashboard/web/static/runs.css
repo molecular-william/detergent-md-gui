@@ -57,6 +57,11 @@
 .run-table .resume-stage { width:100%; max-width:170px; min-width:0; padding:5px; font-size:11px; text-overflow:ellipsis; }
 .run-table .run-detail-row > td { padding:0 12px 12px; border-bottom:2px solid var(--line); }
 .run-resources { display:flex; flex-wrap:wrap; gap:8px; }
+/* The door to the Run view sits with the run's own sections rather than beside its title: a card's actions are
+   one row of doors, and View run is the first of them rather than a title ornament. */
+.run-resources > .job-view-run { margin:0; border:1px solid var(--line); border-radius:6px; background:#f8fafd;
+  padding:5px 10px; font-size:12px; line-height:inherit; }
+.run-resources > .job-view-run:hover { background:#edf3ff; }
 .run-resources > details { margin:0; min-width:0; }
 .run-resources > details > summary { border:1px solid var(--line); border-radius:6px; background:#f8fafd; padding:5px 10px; font-size:12px; }
 .run-resources > details[open] { flex-basis:100%; order:1; }

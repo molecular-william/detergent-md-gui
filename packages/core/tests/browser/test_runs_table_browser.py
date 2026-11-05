@@ -267,3 +267,32 @@ def test_a_run_card_states_how_much_of_it_is_trajectory(dashboard, live_page):
     meta = page.locator(f'.job[data-id="{job_id}"] .job-meta')
     expect(meta).to_contain_text('2.5 GB of trajectories')
     assert errors == [], errors
+
+
+def test_view_run_sits_with_the_run_sections_rather_than_beside_the_title(dashboard, live_page):
+    """The card's doors share one row: View run first, then Artifacts, the records and the console.
+
+    The link used to sit in the summary cell beside the title, which read as an ornament on the heading rather than
+    as the door to the run's own panel; it keeps the deep link and the same card scope, so the handler needs no move.
+    """
+    runs = dashboard.coordinator.RUNS
+    job_id = '00000000000e'
+    dashboard.coordinator.database().replace([{
+        'id': job_id, 'label': 'A run to open', 'detergent': 'DDM', 'method': 'fast_forward',
+        'status': 'completed', 'stage': 'complete', 'created': '2026-09-16T10:00:00+00:00',
+        'started_at': '2026-09-16T10:00:00+00:00', 'layout_version': 2}])
+    (runs / job_id / 'logs').mkdir(parents=True)
+
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
+
+    card = page.locator(f'.job[data-id="{job_id}"]')
+    link = card.locator('.run-resources .job-view-run')
+    expect(link).to_have_text('View run')
+    expect(link).to_have_attribute('href', f'/detergent-validation/run-view?run={job_id}')
+    assert card.locator('.run-summary .job-view-run').count() == 0, 'the link is still riding the title'
+    door = link.bounding_box()
+    artifacts = card.locator('.run-resources .job-artifacts > summary').bounding_box()
+    assert abs(door['y'] - artifacts['y']) < 8, f'View run is not on the Artifacts row: {door} vs {artifacts}'
+    assert door['x'] < artifacts['x'], 'View run is the first door, left of the sections'
+    assert errors == [], errors
