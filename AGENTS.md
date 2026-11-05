@@ -142,7 +142,7 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 .venv/bin/python -m pytest -m slow -q -n 0                       # slow tier, serial
 .venv/bin/ruff check packages tests conftest.py                 # F, E9, I must exit 0
 scripts/gate_commit.sh <message-file> <paths...>                # fast tier + ruff over named paths
-.venv/bin/python scripts/mutation_check.py                       # 11 mutants: 10 caught, 1 survived; run after committing
+.venv/bin/python scripts/mutation_check.py                       # 11 mutants: 9 caught, 1 stale anchor, 1 control survived; run after committing
 ```
 Eleven areas in `tests/harness/areas.py` cover the suite (`test_test_areas.py` fails on an unnamed module): pdc,
 runs, bonded, analysis, infra, osmotic, mapping, carbohydrate, web, molecules, aa. Compose an area with a tier, e.g.
