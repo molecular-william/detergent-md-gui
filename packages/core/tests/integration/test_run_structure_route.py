@@ -96,6 +96,41 @@ def test_a_run_with_no_topology_still_gets_its_coordinates_and_claims_no_bonds(d
     assert len([line for line in text.splitlines() if line.startswith('HETATM')]) == len(DDM_BEADS)
 
 
+AA_JOB = '00000000aaaa'
+AA_STRUCTURE = 'stages/07_reference/lig.gro'
+AA_SHIM = 'stages/common/molecule/molecule.itp'
+
+
+def test_an_aa_only_runs_structure_carries_the_moleculetype_its_shim_includes(dashboard):
+    """An all-atom run keeps its topology as the one-line shim `aa.prepare_run` writes over the stored molecule.
+
+    Measured on `619ab118abd6` (an `aa_only` LMNG run): the layout had no `aa_only` resolver and the shim states no
+    atoms of its own, so this route answered coordinates with 0 CONECT for a run whose 157-atom molecule declares 160
+    bonded terms. The topology is found through the run's own entry point, and its one include is followed.
+    """
+    root = dashboard.coordinator.RUNS / AA_JOB
+    structure = root / AA_STRUCTURE
+    structure.parent.mkdir(parents=True)
+    structure.write_text(mapped_gro())
+    stored = root / 'molecules/DDM/lig1.itp'
+    stored.parent.mkdir(parents=True)
+    stored.write_text(ddm_moleculetype())
+    shim = root / AA_SHIM
+    shim.parent.mkdir(parents=True)
+    shim.write_text(f'#include "{stored}"\n')
+    dashboard.coordinator.database().insert({'id': AA_JOB, 'run_type': 'aa_only', 'status': 'completed',
+                                             'stage': 'complete', 'molecule_id': 'DDM',
+                                             'created': '2026-10-22T19:00:00+00:00'})
+
+    response = dashboard.client.get(f'/api/jobs/{AA_JOB}/structure?path={AA_STRUCTURE}')
+
+    assert response.status_code == 200, response.get_data(as_text=True)
+    text = response.get_data(as_text=True)
+    assert sorted(conect_pairs(text.splitlines())) == sorted(model_pairs()), \
+        'an all-atom run is served without the bonds its own moleculetype states'
+    assert 'lig1.itp' in text, 'the file does not say which topology its bonds came from'
+
+
 def test_a_protein_detergent_runs_structure_carries_the_detergents_bonds(dashboard):
     """A pdc run keeps its detergent's moleculetype in `1_system/`, not in `3_initial_CG/`.
 

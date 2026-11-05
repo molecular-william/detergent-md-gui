@@ -20,8 +20,10 @@ import numpy as np
 import pytest
 from dashboard.analysis import worker
 from dashboard.analysis.kinds import Kind
-from dashboard.analysis.runs import frame_series, segments
+from dashboard.analysis.runs import frame_series, segments, structures
 from dashboard.execution import tools
+
+from tests.harness.support import DDM_BEADS, ddm_moleculetype
 
 NAMES = ('B01', 'B02', 'B03', 'B04')
 GMX = tools.tool_path('gmx')
@@ -772,6 +774,116 @@ def test_a_recorded_topology_that_leaves_the_run_is_not_staged(tmp_path):
     entries = frame_series.sources(root, dict(PAYLOAD_STAGES))
 
     assert 'stages/02_system/detergent_CG.itp' not in entries
+
+
+# --- An all-atom run's own topology: its shim, the include it follows, and the one CONECT block a series writes ----
+
+AA_STAGES = {'trajectory': 'stages/07_reference/lig.xtc', 'structure': 'stages/07_reference/lig.gro'}
+
+
+def _aa_run_tree(root):
+    """An `aa_only` run as `aa.prepare_run` writes it: the solute pair and a one-line topology shim over the store.
+
+    The shim's include is absolute on a real run -- the molecule is read where it is stored rather than copied -- so
+    the stored molecule here sits in the run's own tree and the shim points at it by absolute path, which is the
+    shape the live LMNG run `619ab118abd6` holds.
+    """
+    root = Path(root)
+    (root / 'stages/common/molecule').mkdir(parents=True)
+    stored = root / 'molecules/DDM/lig1.itp'
+    stored.parent.mkdir(parents=True)
+    stored.write_text(ddm_moleculetype())
+    (root / 'stages/common/molecule/molecule.itp').write_text(f'#include "{stored}"\n')
+    (root / 'manifest.json').write_text(json.dumps({'run_type': 'aa_only', 'stages': []}))
+    _trajectory(root / 'stages/07_reference', _moved(3, atoms=len(DDM_BEADS)), names=DDM_BEADS,
+                resindex=[0] * len(DDM_BEADS), resnames=['DDM'], resids=[1], stem='lig')
+    return root
+
+
+def _stage(root, work, payload):
+    """The work directory the worker makes: every source the hook names, under its own run-relative spelling."""
+    for relative, path in frame_series.sources(root, payload).items():
+        target = work / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+    shutil.copy2(root / 'manifest.json', work / 'manifest.json')
+    return work
+
+
+def _molecule_pairs(topology):
+    """The moleculetype's bonds as the PDB's serials, in the order the writer emits them for one molecule."""
+    return [(first, second) for first, second in (*topology['bonds'], *topology['constraints'])]
+
+
+def test_an_aa_only_run_stages_the_moleculetype_its_shim_includes(tmp_path):
+    """The run's own `common/molecule/molecule.itp` is the entry point, and one include names the molecule.
+
+    Measured on `619ab118abd6` (an `aa_only` LMNG run): `analyses/frame-series/run-frames.pdb` holds 157 atoms a model
+    and 0 CONECT, because the layout had no `aa_only` resolver, so the writer was handed no topology at all -- and
+    with one, the shim states no atoms until its include is followed.
+    """
+    root = _aa_run_tree(tmp_path / 'run')
+
+    entries = frame_series.sources(root, AA_STAGES)
+
+    assert entries['stages/common/molecule/molecule.itp'] == root / 'stages/common/molecule/molecule.itp'
+
+
+def test_an_aa_only_series_carries_its_moleculetypes_bonds_in_one_block(tmp_path):
+    """The whole AA path: the shim resolves, the include follows, and the bonds reach the file once, for every model."""
+    root = _aa_run_tree(tmp_path / 'run')
+    work = _stage(root, tmp_path / 'work', AA_STAGES)
+    topology = structures.read_moleculetype(root / 'stages/common/molecule/molecule.itp')
+
+    frame_series.run(work, AA_STAGES)
+
+    lines = (work / 'run-frames.pdb').read_text().splitlines()
+    assert len([line for line in lines if line.startswith('MODEL')]) == 3
+    conect = [line for line in lines if line.startswith('CONECT')]
+    assert conect == [f'CONECT{first:5d}{second:5d}' for first, second in _molecule_pairs(topology)], \
+        'the series does not carry the moleculetype as its own bonds'
+    assert len(conect) == len(topology['bonds']) + len(topology['constraints'])
+    last_model = max(index for index, line in enumerate(lines) if line.startswith('ENDMDL'))
+    assert min(index for index, line in enumerate(lines) if line.startswith('CONECT')) > last_model, \
+        'a CONECT record sits inside a model, where the writer no longer states bonds'
+
+
+def test_a_shims_include_that_climbs_is_refused(tmp_path):
+    shim = tmp_path / 'molecule.itp'
+    shim.write_text('#include "../elsewhere.itp"\n')
+
+    with pytest.raises(ValueError) as refused:
+        structures.read_moleculetype(shim)
+
+    assert 'climbs' in str(refused.value), str(refused.value)
+
+
+def test_a_shims_included_file_that_is_a_symlink_is_refused(tmp_path):
+    target = tmp_path / 'real.itp'
+    target.write_text(ddm_moleculetype())
+    link = tmp_path / 'link.itp'
+    link.symlink_to(target)
+    shim = tmp_path / 'molecule.itp'
+    shim.write_text(f'#include "{link.name}"\n')
+
+    with pytest.raises(ValueError) as refused:
+        structures.read_moleculetype(shim)
+
+    assert 'symlink' in str(refused.value), str(refused.value)
+
+
+def test_a_moleculetype_that_states_its_own_atoms_does_not_follow_its_include(tmp_path):
+    """A real moleculetype's include names a force field or a library; reading that in would bond another molecule."""
+    library = tmp_path / 'library.itp'
+    library.write_text('[ moleculetype ]\nOTHER 1\n\n[ atoms ]\n1 C1 1 X A 1 0 54\n\n[ bonds ]\n1 2 1 0.4 5000\n')
+    molecule = tmp_path / 'molecule.itp'
+    molecule.write_text(f'#include "{library.name}"\n\n[ moleculetype ]\nDDM 1\n\n[ atoms ]\n'
+                        '1 SP1r 1 DDM S1A 1 0 54\n')
+
+    model = structures.read_moleculetype(molecule)
+
+    assert model['atoms'] == ['S1A'], 'an include was spliced into a moleculetype that states its own atoms'
+    assert model['bonds'] == []
 
 
 # --- The differential check: the same atoms, within PDB rounding, as `gmx trjconv` ------------------------------

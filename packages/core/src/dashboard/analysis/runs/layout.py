@@ -241,6 +241,29 @@ def cg_topology(root, name=None):
     return molecule_topology(root, CG_TOPOLOGY_DIR, None, 'CG molecule topology', 'CG molecule topology', name)
 
 
+def aa_topology(root, name=None):
+    """The all-atom moleculetype an `aa_only` run simulated: its own `common/molecule/molecule.itp`.
+
+    The file the run holds is a one-line shim -- `aa.prepare_run` writes it to include the molecule stored in its
+    folder, which the run reads in place rather than carrying a copy -- so this answers with the entry point, not the
+    moleculetype itself, and the reader follows that one include (`structures.read_moleculetype`). `name` is accepted
+    and unused, because an AA run records no `FINAL_ITP`: one AA run holds one molecule.
+
+    A run that holds no such entry point answers exactly as it did before this resolver existed, from the CG build
+    directory: every run type's molecule used to come from there, and a run with nothing there still gets `None` from
+    `recorded_topology` rather than a new refusal.
+    """
+    try:
+        return resolve(root, 'solute_topology')
+    except ValueError:
+        return cg_topology(root, name)
+
+
+#: The engine's own run types answer through the same table a feature registers into: `aa_only` from the solute's own
+#: entry point, and every CG run type from `3_initial_CG/` unless its feature claims it.
+_TOPOLOGY_RESOLVERS['aa_only'] = aa_topology
+
+
 def coarse_topology(root, run_type=None, name=None):
     """The coarse-grained molecule topology a run simulated, from the directory its own layout keeps it in.
 

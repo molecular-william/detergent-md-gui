@@ -56,10 +56,10 @@ def mapped_gro():
 
 
 def series_pdb(models=3):
-    """A multi-model PDB with one `CONECT` record per model: the shape `structures.series_pdb` writes.
+    """A multi-model PDB with one `CONECT` block after the models: the shape `structures.series_pdb` writes.
 
-    The parser that reads it is the one this build has: a file without `MODEL` records is one frame, and a file
-    without `CONECT` would be drawn by a distance guess over three atoms.
+    This viewer keeps one bond store for the whole structure -- measured: a block after the last `ENDMDL` loads the
+    same two bonds between the same pairs as a block inside every model -- so the writer states them once.
     """
     lines = []
     for model in range(1, models + 1):
@@ -68,8 +68,8 @@ def series_pdb(models=3):
             lines.append(f'ATOM  {index:5d} {BEADS[index - 1]:>4} LIG A   1    '
                          + ''.join(f'{value + 0.05 * model:8.3f}' for value in (x, y, z))
                          + '  1.00  0.00           C')
-        lines.append('CONECT    1    2')
         lines.append('ENDMDL')
+    lines.append('CONECT    1    2')
     return '\n'.join(lines + ['END']) + '\n'
 
 
@@ -593,6 +593,44 @@ def test_the_group_control_shows_only_when_the_centre_or_the_fit_needs_it(dashbo
     page.locator('#run-view-form-fit-A').select_option('none')
     expect(group).to_be_hidden()
     expect(page.locator('#run-view-form-pbc-A option')).to_have_count(7)
+    assert errors == [], errors
+
+
+def test_align_trajectory_holds_every_model_on_the_solute(dashboard, live_page):
+    """The old fit-the-frames control, restored: checked, the body is rot+trans on the solute and the picks stand
+    disabled; unchecked, the explicit Fit and Group are what it carries."""
+    page, errors, state = open_run(dashboard, live_page, ENGINE_RUN)
+    expect(series(page)).to_contain_text('3 models')
+    page.locator('#run-view-build-A').click()
+    align = page.locator('#run-view-form-align-A')
+    fit = page.locator('#run-view-form-fit-A')
+    group = page.locator('#run-view-form-group-A')
+    expect(align).not_to_be_checked()
+    expect(fit).to_be_enabled()
+
+    align.check()
+
+    expect(fit).to_be_disabled()
+    expect(group).to_be_disabled()
+    expect(fit).to_have_value('rot+trans')
+    expect(group).to_have_value('solute')
+    page.locator('#run-view-submit-A').click()
+
+    expect(series(page)).to_contain_text('rotation-and-translation fit on the solute')
+    assert state['posted'][-1]['fit'] == 'rot+trans', state['posted']
+    assert state['posted'][-1]['group'] == 'solute', state['posted']
+
+    align.uncheck()
+
+    expect(fit).to_be_enabled()
+    expect(group).to_be_enabled()
+    fit.select_option('trans')
+    group.select_option('protein')
+    page.locator('#run-view-submit-A').click()
+
+    expect(series(page)).to_contain_text('translation-only fit on the protein')
+    assert state['posted'][-1]['fit'] == 'trans', state['posted']
+    assert state['posted'][-1]['group'] == 'protein', state['posted']
     assert errors == [], errors
 
 

@@ -31,6 +31,7 @@ one class can be a polar sugar head and an apolar tail. Both are read from the s
 column, and `ngl-beads.js` holds the viewer's end of the same two tables.
 """
 import json
+import re
 from pathlib import Path
 
 PROTEIN_RESIDUE = 'PRO'
@@ -173,13 +174,73 @@ def read_moleculetype(path) -> dict:
     The picture is only as honest as the model it was handed, so the model is read rather than inferred: `[ atoms ]`
     gives the bead order a structure of this molecule follows, and `[ bonds ]` + `[ constraints ]` give the bonds a
     viewer should draw. Fields after an atom's name are not read -- the name is the one column a structure and a
-    topology can be checked against each other by.
+    topology can be checked against each other by. The file's directory is what a quoted include resolves against,
+    because the file itself may be the run's one-line shim over the molecule it simulated.
     """
     path = Path(path)
-    return read_moleculetype_text(path.read_text(), source=str(path))
+    return read_moleculetype_text(path.read_text(), source=str(path), base=path.parent)
 
 
-def read_moleculetype_text(text: str, *, source: str = '<text>', defines=()) -> dict:
+#: A topology line that includes another file, as GROMACS spells it: one quoted path and nothing else.
+INCLUDE = re.compile(r'#include\s+"([^"\\]+)"\s*')
+#: The section header that says a text states its own beads, which a followed include would merge a second set into.
+ATOMS_SECTION = re.compile(r'\[\s*atoms\s*\]', re.IGNORECASE)
+
+
+def _included_path(argument, base):
+    """The file one quoted `#include "…"` names, resolved the way GROMACS resolves it.
+
+    A relative include belongs to the including file's directory, `base`. An absolute one is the ordinary case here
+    rather than a fault: an all-atom run's own `common/molecule/molecule.itp` is written by `aa.prepare_run` to point
+    at the molecule stored in its folder, which the run reads in place instead of carrying a copy.
+
+    What is refused is the two ways such a line could name a file that is not the run's own: a path that climbs with
+    `..`, and a symlink. Both are refused with a sentence rather than a guess, because a topology read from the wrong
+    file draws bonds nothing declares.
+    """
+    relative = Path(argument)
+    if '..' in relative.parts:
+        raise ValueError(f'topology include {argument!r} climbs with "..": an include names a file, not a way out')
+    target = relative if relative.is_absolute() else Path(base) / relative
+    if target.is_symlink():
+        raise ValueError(f'topology include {argument!r} is a symlink; a topology is read where it is written')
+    if not target.is_file():
+        raise ValueError(f'topology include {argument!r} is not a file: there is nothing to read')
+    return target
+
+
+def _with_include_followed(text, base, source):
+    """`(text, source)` with one quoted `#include "…"` replaced by that file's own text, or unchanged.
+
+    Only a text that declares no `[ atoms ]` of its own is followed: that is the shim `aa.prepare_run` writes for a
+    run's `common/molecule/molecule.itp`, and following it is what turns those 71 bytes into the moleculetype the run
+    simulated -- without it the reader finds no atoms, and a series of that run draws no bonds at all. A text that
+    already states its atoms is the moleculetype itself, and an include inside it names a force field or a library,
+    which splicing in would merge another molecule's beads.
+
+    A followed include becomes the `source` of the model, so the file's own REMARK and any refusal name the topology
+    the beads and bonds were read from rather than the shim that pointed at it.
+
+    `base` is `None` for text a caller derived and has no file for; there is no directory to resolve against, so
+    nothing is followed and the include stays what it always was -- a line the parser skips.
+    """
+    if base is None or ATOMS_SECTION.search(text):
+        return text, source
+    lines = str(text).splitlines()
+    for index, line in enumerate(lines):
+        found = INCLUDE.fullmatch(line.split(';', 1)[0].strip())
+        if not found:
+            continue
+        target = _included_path(found.group(1), base)
+        try:
+            inner = target.read_text()
+        except OSError as error:
+            raise ValueError(f'{source} includes {found.group(1)!r}, which could not be read: {error}') from error
+        return '\n'.join([*lines[:index], inner, *lines[index + 1:]]), str(target)
+    return text, source
+
+
+def read_moleculetype_text(text: str, *, source: str = '<text>', defines=(), base=None) -> dict:
     """One moleculetype read out of text, for a caller that derived it and has no file to point at.
 
     The system preview derives a detergent's topology from its mapping and can draw it in the same request:
@@ -189,10 +250,16 @@ def read_moleculetype_text(text: str, *, source: str = '<text>', defines=()) -> 
     travels into the returned record, and from there into the PDB's own REMARK, so the picture keeps saying where
     its bonds came from.
 
+    `base` is the directory a quoted `#include "…"` resolves against, when the text came out of a file: one level is
+    followed and no more (`_with_include_followed`), and a followed include replaces `source`, so the record names the
+    file whose atoms and bonds were read rather than the shim that pointed at it. A caller that derived the text
+    states none, because there is no directory it belongs in.
+
     Two columns of an `[ atoms ]` row are read: the bead's *name*, which is the one column a structure and a
     topology can be checked against each other by, and its *type*, which is where a Martini 3 bead's size class is
     spelled (`size_class`). The rest -- residue number, charge, mass -- say nothing this writer draws.
     """
+    text, source = _with_include_followed(text, base, source)
     atoms, types, pairs = [], [], {section: [] for section in BONDED_SECTIONS}
     elastic = []
     section = None
@@ -411,13 +478,16 @@ def system_pdb(atoms, *, detergent_residue='DDM', include_water=False, title='PD
 
 
 def structure_records(atoms, *, detergent_residue, include_water=False, topology=None, subunits=None,
-                      protein_topologies=None, conect_kind='chemical'):
+                      protein_topologies=None, conect_kind='chemical', conect=True):
     """One structure's `HETATM` records, its `CONECT` records, and the counts a REMARK needs to report.
 
     Split out of `system_pdb` because a sampled frame series writes the same three conventions once per model --
     the element stand-in by size class, the Martini 3 family code in the b-factor column, and the moleculetype's
     own bonds as `CONECT` -- and a second writer for them would be a second set of conventions. The counts come
     back so the caller's REMARKs can say what it could and could not bond.
+
+    `conect=False` answers only the records, with no bond lines and no counts: a frame series writes one `CONECT`
+    block for the whole file, so the bonds and their counts are asked for by the one model that writes them.
 
     `protein_topologies` are the protein chains' own moleculetypes, in trajectory order (`read_protein_topologies`).
     Their beads are the *leading* atoms, so each molecule's bonds are written with the serial offset of its own
@@ -459,6 +529,8 @@ def structure_records(atoms, *, detergent_residue, include_water=False, topology
 
     detergents = [index for index, beads in enumerate(molecules)
                   if beads and is_detergent(beads[0], detergent_residue)]
+    if not conect:
+        return records, [], {}
     conect, unbonded = [], []
     for index in detergents:
         bonds = molecule_bonds(topology, molecules[index], serials[index])
@@ -583,7 +655,14 @@ def series_pdb(frames, *, topology=None, detergent_residue=None, title='frame se
     `frames` is one atom list per sampled moment, each `read_gro`-shaped: `name`, `residue`, `residue_id` and
     `position` in nanometres. A viewer plays a series out of `MODEL`/`ENDMDL` blocks in one file, and the two things
     a frame needs to be *readable* are the two a single structure needs -- the family code that colours a bead and
-    the model's own bonds -- written per model, because a reader addresses `CONECT` within a model.
+    the model's own bonds. The colours are written once per model, because they are records; the bonds are written
+    once for the whole file, in one `CONECT` block after the last `ENDMDL`.
+
+    That last part is measured rather than assumed. This viewer keeps one bond store for a structure, not one per
+    frame: a 2-model, 5-atom file with 2 `CONECT` records after the models loads as 5 atoms, 2 frames and 2 bonds
+    between the same two pairs as the same bonds written inside each model, and the bonds follow the frames (on
+    frame 2 the first atom's x is the second model's). So a reader does not address `CONECT` within a model, and one
+    block per file is both the conventional spelling and the smaller file.
 
     Reading a trajectory straight into a PDB writer gives neither. Measured: the first series this repository
     published came out of MDAnalysis's writer with b-factor `0.00` on every bead and no `CONECT` record at all, so
@@ -606,9 +685,12 @@ def series_pdb(frames, *, topology=None, detergent_residue=None, title='frame se
         raise ValueError(f'{len(frames)} frames but {len(times_ns)} model times: a series states one time per model')
     if detergent_residue is None and frames:
         detergent_residue = _detergent_residue(frames[0], topology, protein_topologies)
+    # The records are per model, because coordinates are; the bonds are the same set for every model, so they are
+    # resolved once, with the first frame, and written once, after the last ENDMDL.
     built = [structure_records(atoms, detergent_residue=detergent_residue, subunits=subunits,
                               include_water=include_water, protein_topologies=protein_topologies,
-                               topology=topology, conect_kind=conect_kind) for atoms in frames]
+                               topology=topology, conect_kind=conect_kind, conect=index == 0)
+             for index, atoms in enumerate(frames)]
     extra = [f'REMARK 950 SAMPLED SERIES: {len(frames)} models' + (f', {note}' if note else '')]
     if view:
         modifications = _view_modifications(view)
@@ -630,10 +712,11 @@ def series_pdb(frames, *, topology=None, detergent_residue=None, title='frame se
                        f'{fit["rmsd_nm"]["min"]:.3f}-{fit["rmsd_nm"]["max"]:.3f} nm')
     counts = built[0][2] if built else {'detergent_molecules': 0, 'unbonded': 0}
     lines = structure_remarks(title, topology, counts, extra=extra, subunits=subunits)
-    for index, (records, conect, _) in enumerate(built, start=1):
+    for index, (records, _, _) in enumerate(built, start=1):
         block = [f'MODEL     {index:4d}']
         if times_ns is not None:
             block.append(f'REMARK 950 MODEL {index} TIME {float(times_ns[index - 1]):.6f} NS')
-        lines += block + records + conect + ['ENDMDL']
+        lines += block + records + ['ENDMDL']
+    lines += built[0][1] if built else []
     lines.append('END')
     return '\n'.join(lines) + '\n'
