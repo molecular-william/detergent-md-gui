@@ -27,7 +27,7 @@ from . import progress as stage_progress
 VISIBLE_FIELDS = frozenset((
     'id','label','detergent','molecule_name','molecule_id','method','profile',
     'status','stage','created','started_at','ended_at','error',
-    'artifact_revision','run_type','execution_kind',
+    'artifact_revision','run_type','execution_kind','trajectory_bytes',
 ))
 HIDDEN_FIELDS = frozenset((
     'pid','gromacs_eta','gromacs_remaining_seconds','eta_minutes','stage_estimate_minutes',
@@ -323,6 +323,7 @@ def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, co
     manifest = manifest or {}
     result.update(ownership or {})
     result['gpu_name'] = gpu_name(manifest, job)
+    result['trajectory_bytes'] = layout.trajectory_bytes(run_dir)
     result['analyses'] = analysis_view(job, summary)
     result['consistency'] = consistency_summary(job)
     if result.get('execution_kind') == 'screening-stub':

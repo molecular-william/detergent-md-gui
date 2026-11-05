@@ -302,7 +302,11 @@ device, not across the host.
 
 Background polling updates individual status fields every five seconds. Forms, expanded details, mapping edits, and scroll position are not rebuilt. Terminal runs can be manually deleted from their run card; active workers are protected. Tabs, form values, and mapping drafts are remembered in browser storage. Elapsed time is reported only when recorded; ETA is shown only when present in current GROMACS output. Legacy runs without timestamps show "Not recorded".
 
-Each run card shows the workflow stages from its manifest and indexes files created inside the run directory. Artifact links are path-checked; SVG files are previewed in the card. The default `snapshots` analysis stays retired: a run holds only the structures and trajectories its own stages wrote, and a frame series is on demand — `frame-series` samples a chosen segment into one multi-model PDB (`analysis/runs/frame_series.py`), never on a cadence.
+Each run card states, beside its id and GPU, how much of the run is trajectory (`layout.trajectory_bytes`: every
+`.xtc`/`.trr`/`.tng`/`.h5` under the run directory, symlinks never followed, remembered for 30 s because the panel
+polls), so a reader deciding what to delete sees the bytes rather than opening the run. It is a directory fact,
+not the stage records, because an interrupted stage can leave a trajectory its record does not name. Each run card
+shows the workflow stages from its manifest and indexes files created inside the run directory. Artifact links are path-checked; SVG files are previewed in the card. The default `snapshots` analysis stays retired: a run holds only the structures and trajectories its own stages wrote, and a frame series is on demand — `frame-series` samples a chosen segment into one multi-model PDB (`analysis/runs/frame_series.py`), never on a cadence.
 
 ### Run view
 One run, its structures and its CG chain segments, registered in **both** workspaces and scoped per

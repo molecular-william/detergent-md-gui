@@ -66,3 +66,22 @@ def test_the_artifact_collection_answers_one_shape(dashboard):
         payload = client.get(f'/api/jobs/{job["id"]}/artifacts' + query).get_json()
         assert set(payload) == {'artifacts', 'total', 'page', 'limit'}, query
         assert payload['total'] == 2 and [item['path'] for item in payload['artifacts']] == ['manifest.json', 'result.gro']
+
+
+def test_the_run_list_states_what_each_run_weighs_in_trajectories(dashboard):
+    """The Runs card shows the bytes a reader would free by deleting the run, so the list carries them.
+
+    They are a directory fact (a run interrupted mid-stage may hold a trajectory its record does not name), and the
+    number is what the card's own meta line prints -- see `layout.trajectory_bytes`.
+    """
+    job = seed(dashboard, 1)[0]
+    run_dir = dashboard.coordinator.RUNS / job['id']
+    (run_dir / 'stages/04_nvt/prod').mkdir(parents=True)
+    with open(run_dir / 'stages/04_nvt/prod/run.xtc', 'wb') as handle:
+        handle.truncate(2 * 1024 ** 3)
+
+    summary = dashboard.client.get('/api/jobs').get_json()['jobs'][0]
+    full = dashboard.client.get('/api/jobs?view=full').get_json()['jobs'][0]
+
+    assert summary['trajectory_bytes'] == 2 * 1024 ** 3
+    assert full['trajectory_bytes'] == 2 * 1024 ** 3

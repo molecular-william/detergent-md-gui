@@ -21,7 +21,55 @@ Nothing here opens a topology file. The roles are paths, and the caller decides 
 record read is the manifest `recorded_topology` searches for the name a run recorded.
 """
 import json
+import os
+import time
 from pathlib import Path
+
+#: The suffixes a molecular-dynamics trajectory is written with. `.xtc` and `.trr` are GROMACS', `.tng` is the
+#: container-written one and `.h5` the H5MD spelling; a run's checkpoints, energies and structures are not
+#: trajectories and are not counted.
+TRAJECTORY_SUFFIXES = ('.xtc', '.trr', '.tng', '.h5')
+#: A run's trajectory files are written by a stage and then left alone, but a running stage adds to them, so the
+#: answer is remembered only briefly. The Runs panel asks for every listed run on each poll.
+TRAJECTORY_CACHE_SECONDS = 30
+_TRAJECTORY_CACHE = {}
+
+
+def trajectory_bytes(root) -> int:
+    """How many bytes of trajectory files a run directory holds, symlinks never followed.
+
+    The Runs panel shows this so a reader can see what deleting a run would free. It is a directory fact rather than
+    a manifest fact: a run's stages record the trajectory files they wrote, but a run interrupted mid-stage, or one
+    whose files were migrated from an older layout, may hold a file its record does not name, and a deletion
+    decision must see the bytes on disk. Nothing here parses a trajectory.
+    """
+    path = Path(root)
+    key = str(path)
+    now = time.monotonic()
+    remembered = _TRAJECTORY_CACHE.get(key)
+    if remembered and remembered[0] > now:
+        return remembered[1]
+    total = 0
+    for directory, dirs, names in os.walk(path, followlinks=False):
+        dirs[:] = [name for name in dirs if not (Path(directory) / name).is_symlink()]
+        for name in names:
+            if Path(name).suffix.lower() not in TRAJECTORY_SUFFIXES:
+                continue
+            candidate = Path(directory) / name
+            if candidate.is_symlink():
+                continue
+            try:
+                total += candidate.stat().st_size
+            except OSError:
+                continue
+    _TRAJECTORY_CACHE[key] = (now + TRAJECTORY_CACHE_SECONDS, total)
+    return total
+
+
+def clear_trajectory_cache():
+    """Forget the remembered sizes: a test's seam, and what a deletion asks for after removing bytes."""
+    _TRAJECTORY_CACHE.clear()
+
 
 #: role -> the relative paths looked for, in order, relative to the execution root. Only one may exist.
 CANDIDATES = {

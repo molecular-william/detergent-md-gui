@@ -6,6 +6,18 @@ import { createConsoleViewer } from './console.js';
 // `/api/jobs` already carries it, so a card costs no request of its own. The count is `cg_outside_aa_range`, which is
 // what card 1 of the panel badges, so the line says "range": the *spread* is the cross-molecule comparison on the same
 // tab and it is a different quantity with a different meaning.
+// How much of a run is trajectory: the number that tells a reader what deleting it would free. GiB, as the
+// workspace's own limits are stated; a run holding none says so instead of showing a misleading zero.
+function trajectorySize(bytes) {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value < 0) return null;
+  if (value === 0) return 'no trajectories';
+  const gb = value / (1024 ** 3);
+  if (gb < 0.01) return '<0.01 GB of trajectories';
+  const digits = gb >= 100 ? 0 : gb >= 1 ? 1 : 2;
+  return `${gb.toFixed(digits)} GB of trajectories`;
+}
+
 function consistencyLine(job) {
   const summary = job.consistency;
   if (!summary || !Number.isFinite(Number(summary.pairs))) return null;
@@ -120,9 +132,11 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
       card.job=job;
       if (previousCard.nextElementSibling !== card) previousCard.after(card); previousCard = card;
       setText($('.job-title', card), (job.label || `${job.detergent}${job.method ? ` · ${job.method}` : ''}`) + (job.profile === 'draft-smoke' ? ' · Draft smoke test' : ''));
-      // The run's identity line: its id, and the mdrun device it recorded, so a run's own card says which GPU
-      // produced it -- from the manifest (`views.gpu_name`), never from the form that asked for one.
-      setText($('.job-meta', card), job.gpu_name ? `${job.id} · GPU ${job.gpu_name}` : job.id);
+      // The run's identity line: its id, the mdrun device it recorded, and how much of it is trajectory. All three
+      // are the manifest's or the run directory's own facts -- from the view (`views.gpu_name`,
+      // `layout.trajectory_bytes`), never from the form that asked for a device.
+      const size = trajectorySize(job.trajectory_bytes);
+      setText($('.job-meta', card), [job.id, job.gpu_name ? `GPU ${job.gpu_name}` : null, size].filter(Boolean).join(' · '));
       setText($('.job-molecule', card), job.molecule_name || job.detergent || '—');
       setText($('.job-method', card), {fast_forward: 'Fast_Forward', bartender: 'Bartender'}[job.method] || job.method || '—');
       setText($('.job-created', card), job.created ? new Date(job.created).toLocaleString() : '—');

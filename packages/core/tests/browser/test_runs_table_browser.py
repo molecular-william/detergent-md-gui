@@ -243,3 +243,27 @@ def test_a_skipped_stage_shows_why_it_had_nothing_to_do(dashboard, live_page):
     assert errors == [], errors
 
 
+
+
+def test_a_run_card_states_how_much_of_it_is_trajectory(dashboard, live_page):
+    """The number that informs deletion is on the card itself, so a reader does not have to open the run.
+
+    Seeded as a sparse file: the card reads the file's size, and a browser test should not pay for the bytes.
+    """
+    runs = dashboard.coordinator.RUNS
+    job_id = '00000000000d'
+    dashboard.coordinator.database().replace([{
+        'id': job_id, 'label': 'A run worth deleting', 'detergent': 'DDM', 'method': 'fast_forward',
+        'status': 'completed', 'stage': 'complete', 'created': '2026-09-16T10:00:00+00:00',
+        'started_at': '2026-09-16T10:00:00+00:00', 'layout_version': 2}])
+    target = runs / job_id / 'stages/04_nvt/prod'
+    target.mkdir(parents=True)
+    with open(target / 'run.xtc', 'wb') as handle:
+        handle.truncate(int(2.5 * 1024 ** 3))
+
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
+
+    meta = page.locator(f'.job[data-id="{job_id}"] .job-meta')
+    expect(meta).to_contain_text('2.5 GB of trajectories')
+    assert errors == [], errors
