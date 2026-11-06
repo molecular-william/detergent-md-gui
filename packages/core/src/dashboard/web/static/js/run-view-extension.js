@@ -16,7 +16,8 @@
 //       `inStage(path)` and `rank(path)` have the same contracts as the functions they override.
 //   runSelected({job, answer, nodes, isCurrent})
 //       Called when a monitor selects `job`, with the `/api/jobs/<id>/trajectory` answer already fetched. The
-//       extension writes the stage-chain table into `nodes` (`wrap`, `table`, `body`, `note`); `isCurrent()`
+//       extension writes the stage-chain table into `nodes` (`wrap`, `table`, `body`, `note`) and may mount its own
+//       cards into `nodes.extension`, an empty container under the Trajectory and Analysis blocks; `isCurrent()`
 //       answers false once the monitor has moved to another run, so a late answer writes nothing.
 const extensions = [];
 

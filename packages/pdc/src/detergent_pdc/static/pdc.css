@@ -172,3 +172,21 @@
    template molecule when the run names none. It is a statement beside the picture, never coordinates. */
 #run-form .new-pdc-preview-library{border:1px solid var(--line);border-radius:9px;padding:9px 11px;background:#f7fbff;
   margin:10px 0 0;font-size:12px;line-height:1.5}
+/* The Run view's whole-trajectory card: rebuild the derived whole.xtc from the raw mdrun output. Compact on
+   purpose -- one summary line, one controls row -- because it is a utility under the trajectory player. */
+.run-view-extension-cards .whole-trajectory{margin-top:8px}
+.whole-trajectory>summary{display:flex;gap:10px;align-items:baseline;cursor:pointer;padding:7px 11px;
+  font-weight:600;font-size:13px;color:var(--accent);list-style:none}
+.whole-trajectory>summary::-webkit-details-marker{display:none}
+.whole-trajectory>summary::before{content:"▸";color:var(--muted);font-weight:400}
+.whole-trajectory[open]>summary::before{content:"▾"}
+.whole-trajectory .summary-meta{margin-left:auto;color:var(--muted);font-size:11.5px;font-weight:400;
+  font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.whole-trajectory .inside{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;padding:7px 11px 8px;
+  border-top:1px solid var(--line)}
+.whole-trajectory label{display:flex;align-items:center;gap:5px;margin:0;font-weight:600;font-size:12px;color:var(--muted)}
+.whole-trajectory input{width:3.6rem;padding:2px 5px;font-size:12.5px;font-variant-numeric:tabular-nums}
+.whole-trajectory select{padding:2px 4px;font-size:12.5px}
+.whole-trajectory .estimate{font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.whole-trajectory .actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+.whole-trajectory .whole-error{margin:0;padding:0 11px 8px;color:var(--danger);font-size:12px}

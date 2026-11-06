@@ -12,6 +12,7 @@
 //   * the stage-chain table under a monitor: `/api/jobs/<id>/trajectory` says which legs are one system and where
 //     the system is rebuilt, and the table prints that answer. The panel fetches the answer; this module renders it.
 import { registerRunViewExtension } from '/static/js/run-view.js';
+import { api, post, notice } from '/static/js/shared.js';
 
 //: The run type this extension serves.
 const RUN_TYPE = 'pdc';
@@ -47,8 +48,9 @@ function structureRank(path) {
 
 //: The run's stage chain, drawn into the sub-panel the shell owns. `isCurrent()` is false once the monitor has
 //: moved to another run, so an answer that arrived late writes nothing into the run the reader now holds.
-async function runSelected({answer, nodes, isCurrent}) {
+async function runSelected({job, answer, nodes, isCurrent}) {
   if (!isCurrent()) return;
+  if (nodes.extension) mountWholeTrajectory(nodes.extension, job, isCurrent);
   const rows = (answer && answer.segments) || [];
   const why = (answer && answer.why) || '';
   nodes.table.hidden = false;
@@ -85,6 +87,147 @@ async function runSelected({answer, nodes, isCurrent}) {
   nodes.note.textContent = `${rows.length} stage${rows.length === 1 ? '' : 's'} in `
     + `${systems} system${systems === 1 ? '' : 's'}: stages in the same group share one system; `
     + 'a change of group is where the system is rebuilt.';
+}
+
+
+// --------------------------------------------------------------------------------- whole-system trajectory
+
+//: The measured cost of XTC precision, relative to 3 decimals: 91 MB -> 69 MB at 2 decimals on a live slice, and
+//: 1 decimal is about a fifth smaller again. The estimate is the honest order of magnitude, never a promise.
+const DECIMAL_COST = {1: 0.62, 2: 0.76, 3: 1.0};
+//: How often the panel asks while a rebuild runs; a 1.6 GiB conversion takes about a minute.
+const WHOLE_POLL_MS = 2000;
+
+function wholeBytes(bytes) {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value < 0) return null;
+  const gb = value / (1024 ** 3);
+  return gb >= 1 ? `${gb.toFixed(1)} GB` : `${Math.max(1, Math.round(gb * 1000))} MB`;
+}
+
+function wholeLine(info) {
+  if (!info || !info.bytes) return 'not built';
+  const parts = [wholeBytes(info.bytes)];
+  if (info.frames) parts.push(`${Number(info.frames).toLocaleString()} × ${info.cadence_ps ?? '?'} ps`);
+  return parts.join(' · ');
+}
+
+function wholeEstimate(raw, dtPs, decimals) {
+  if (!raw || !raw.bytes) return '';
+  const ratio = raw.frames && raw.cadence_ps && dtPs ? Math.min(1, dtPs / raw.cadence_ps) : 1;
+  const bytes = Math.max(1, raw.bytes * ratio * (DECIMAL_COST[decimals] || 1));
+  return `≈ ${wholeBytes(bytes)} · ${(raw.bytes / bytes).toFixed(1)}× smaller`;
+}
+
+//: The panel under the Trajectory block: rebuild the derived whole.xtc from the raw one, with the size choices.
+//: It is the pdc feature's card because `whole.xtc` is this run type's convention; the engine only gives it the slot.
+function mountWholeTrajectory(node, job, isCurrent) {
+  node.replaceChildren();
+  if (!job || !job.id) return;
+  const details = document.createElement('details');
+  details.className = 'card whole-trajectory';
+  details.open = true;
+  details.innerHTML = `
+    <summary><span>Whole trajectory</span><span class="summary-meta">…</span></summary>
+    <div class="inside">
+      <label>Frame step <input class="whole-dt" type="number" min="1" step="1"> ps</label>
+      <label>Decimals <select class="whole-decimals"><option>1</option><option>2</option><option>3</option></select></label>
+      <span class="estimate"></span>
+      <span class="actions">
+        <button type="button" class="linkish whole-match">match staged</button>
+        <button type="button" class="primary whole-recompute">Recompute</button>
+      </span>
+    </div>
+    <p class="whole-error hint" role="status" hidden></p>`;
+  node.append(details);
+
+  const summary = details.querySelector('.summary-meta');
+  const dt = details.querySelector('.whole-dt');
+  const decimals = details.querySelector('.whole-decimals');
+  const estimate = details.querySelector('.estimate');
+  const button = details.querySelector('.whole-recompute');
+  const match = details.querySelector('.whole-match');
+  const error = details.querySelector('.whole-error');
+  const path = `/api/pdc/${encodeURIComponent(job.id)}/whole-trajectory`;
+  let timer = null;
+  let rawInfo = null;
+  let announced = null;
+  const dtValue = () => rawInfo;
+
+  const paint = answer => {
+    if (!isCurrent()) return;
+    const raw = answer.raw || null;
+    const whole = answer.whole || null;
+    const state = (answer.state || {});
+    summary.textContent = wholeLine(whole);
+    const defaultDt = answer.defaults?.dt_ps ?? 100;
+    if (!dt.value) dt.value = String(state.dt_ps ?? defaultDt);
+    if (!decimals.dataset.ready) {
+      decimals.value = String(state.decimals ?? (answer.defaults?.decimals ?? 2));
+      decimals.dataset.ready = '1';
+    }
+    const running = state.status === 'running';
+    button.disabled = running;
+    button.textContent = running ? 'Recomputing…' : 'Recompute';
+    estimate.textContent = running ? 'converting run.xtc…' : wholeEstimate(raw, Number(dt.value), Number(decimals.value));
+    error.hidden = !state.error || running;
+    error.textContent = state.status === 'failed' ? state.error : '';
+    if (running) arm();
+    else if (state.status === 'completed' && announced !== state.finished_at) {
+      announced = state.finished_at;
+      const sizes = state.before_bytes && state.after_bytes
+        ? `${wholeBytes(state.before_bytes)} → ${wholeBytes(state.after_bytes)}` : '';
+      notice(`whole.xtc rebuilt${sizes ? ': ' + sizes : ''}. Re-run the analyses and the frame series that read it.`);
+    }
+  };
+
+  const load = async () => {
+    try {
+      const answer = await api(path);
+      paint(answer);
+      return answer;
+    } catch (failure) {
+      if (isCurrent()) { error.hidden = false; error.textContent = failure.message; }
+      return null;
+    }
+  };
+
+  function arm() {
+    if (timer) return;
+    timer = setTimeout(async () => {
+      timer = null;
+      if (!isCurrent()) return;
+      const answer = await load();
+      if (answer && (answer.state || {}).status === 'running') arm();
+    }, WHOLE_POLL_MS);
+  }
+
+  dt.addEventListener('input', () => {
+    estimate.textContent = wholeEstimate(dtValue(), Number(dt.value), Number(decimals.value));
+  });
+  decimals.addEventListener('change', () => {
+    estimate.textContent = wholeEstimate(dtValue(), Number(dt.value), Number(decimals.value));
+  });
+  match.addEventListener('click', () => {
+    const raw = dtValue();
+    if (raw?.cadence_ps) dt.value = String(Math.round(raw.cadence_ps));
+    decimals.value = '3';
+    estimate.textContent = wholeEstimate(raw, Number(dt.value), Number(decimals.value));
+  });
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    error.hidden = true;
+    try {
+      const answer = await post(path, {dt_ps: Number(dt.value), decimals: Number(decimals.value)});
+      paint(answer);
+      if ((answer.state || {}).status === 'running') arm();
+    } catch (failure) {
+      button.disabled = false;
+      error.hidden = false;
+      error.textContent = failure.message;
+    }
+  });
+  load().then(answer => { rawInfo = answer?.raw || null; });
 }
 
 registerRunViewExtension({

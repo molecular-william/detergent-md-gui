@@ -476,6 +476,18 @@ Revisions accumulate on the mapping; `make current` chooses the one a run consum
 The record lists the saved mappings that claimed it (`owners`); a save makes the claim, deleting a draft releases
 it, and the revisions go with the last claim.
 
+### Whole trajectory (pdc)
+
+A pdc run's analyses and frame series read a derived `prod/whole.xtc`, converted from the immutable `prod/run.xtc` by
+`gmx trjconv -pbc mol -center`. The Run view's pdc extension mounts a **Whole trajectory** card under the Trajectory
+block (the engine gives it an empty `nodes.extension` slot per monitor): it states the raw and derived sizes, frames and
+cadence, and rebuilds the derived file in place with `-dt` (Compact default 100 ps) and `-ndec` (Compact 2). The raw
+file is never written; the conversion lands in a temporary `*.xtc` and is `os.replace`d, so a failure leaves the previous
+file byte-identical, and the sidecar `prod/whole.xtc.json` plus `analyses/whole-trajectory/state.json` record the
+options, sizes, frames and GROMACS version. Routes: `GET`/`POST /api/pdc/<job_id>/whole-trajectory`; one rebuild per
+run at a time; a process restart reports a lost run as interrupted. Measured on `6c36b3c610f3`: 1.60 GB / 45,001 frames
+at 20 ps -> 0.24 GB / 9,001 frames at 100 ps, with the overview's aggregate unchanged (92) and Rg/RMSD within 0.3%.
+
 ### Run controls and persistence
 Delete is available only for completed, failed, or cancelled runs. The server checks that no current worker owns the run, removes its run directory and console log, then atomically removes its job record. If file cleanup fails, the record remains available for retry. Deletion is irreversible and confirmed in the browser.
 

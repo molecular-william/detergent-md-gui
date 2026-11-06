@@ -100,6 +100,7 @@ function monitorMarkup(side) {
     </div>
     ${trajectoryMarkup(side)}
     ${analysisMarkup(side)}
+    <div class="run-view-extension-cards" id="run-view-extension-cards-${side}"></div>
     <details class="card run-view-sub" id="run-view-holds-details-${side}">
       <summary>what this run holds <span class="count" id="run-view-holds-count-${side}"></span></summary>
       <div class="body">
@@ -353,7 +354,8 @@ function chooser(root, side, runs, onPick) {
     if (extension && typeof extension.runSelected === 'function') {
       await extension.runSelected({
         job, answer,
-        nodes: {wrap: segmentsWrap, table: segmentsTable, body: segmentsBody, note: segmentsNote},
+        nodes: {wrap: segmentsWrap, table: segmentsTable, body: segmentsBody, note: segmentsNote,
+                extension: $(id('run-view-extension-cards'))},
         isCurrent: () => token === segmentsToken,
       });
       return;

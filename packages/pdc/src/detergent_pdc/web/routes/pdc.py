@@ -8,6 +8,7 @@ from dashboard import paths
 from dashboard.analysis.runs import layout, structures
 from dashboard.execution.adapters.micelle import run_micelle_job
 from dashboard.web.routes.common import coordinator, json_object
+from detergent_pdc.execution import rebuild_whole
 from detergent_pdc.execution.adapters import pdc, pdc_import
 from flask import Blueprint, Response, abort, current_app, jsonify, request
 
@@ -18,6 +19,39 @@ SYSTEM_STRUCTURE = 'system.gro'
 # The centre of the transmembrane slab along z. An OPM structure arrives already oriented, with the bilayer the
 # xy-plane through the origin, so the centre is a property of the coordinate frame rather than a number to measure.
 SLAB_CENTRE_NM = 0.0
+
+
+def _whole_trajectory_run(job_id):
+    """A pdc run and its directory: the only run type whose trajectory the stage converts with `trjconv`."""
+    c = coordinator()
+    try:
+        job = c.lookup(job_id)
+    except (KeyError, OSError):
+        abort(404, 'unknown run')
+    if job.get('run_type') != 'pdc':
+        abort(400, 'only a protein-detergent run holds a whole-system trajectory to rebuild')
+    return job, c.run_path(job)
+
+
+@blueprint.get('/api/pdc/<job_id>/whole-trajectory')
+def whole_trajectory_api(job_id):
+    """The raw and derived trajectories, their sizes and cadence, and the last rebuild's state."""
+    _, run_dir = _whole_trajectory_run(job_id)
+    return jsonify(rebuild_whole.describe(run_dir))
+
+
+@blueprint.post('/api/pdc/<job_id>/whole-trajectory')
+def rebuild_whole_trajectory_api(job_id):
+    """Queue one rebuild of `whole.xtc` from `run.xtc`; the panel polls the GET route for its state."""
+    _, run_dir = _whole_trajectory_run(job_id)
+    payload = json_object()
+    try:
+        state = rebuild_whole.start(run_dir,
+                                    dt_ps=payload.get('dt_ps', rebuild_whole.DEFAULT_DT_PS),
+                                    decimals=payload.get('decimals', rebuild_whole.DEFAULT_DECIMALS))
+    except ValueError as error:
+        abort(400, str(error))
+    return jsonify({**rebuild_whole.describe(run_dir), 'state': state}), 202
 
 
 def setup_root(job_id) -> Path:
