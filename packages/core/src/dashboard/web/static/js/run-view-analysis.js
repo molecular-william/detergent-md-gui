@@ -1,12 +1,12 @@
-// One Run view monitor's Analysis card: the run's own figures, the controls that queue them, and the diagnostics that
-// read the assessment beside them.
+// One Run view monitor's Analysis card: the run's own figures, the controls that queue them, the task list, the
+// assessment's diagnostics, and the analysis sections a feature registers for its own records.
 //
 // The Runs page used to draw this in its card's **Analysis graphs** panel. It is here now, beside the run's structure
 // and trajectory, because a figure is read next to the thing it was measured from -- and because the two monitors
 // already hold the runs a reader compares. The Runs card keeps its artifact list, records and console; it draws no
 // figures and offers no analysis button.
 //
-// Two facts decide the shape:
+// Three facts decide the shape:
 //
 // **The server's `/figures` answer is the figure list.** It carries the run's current set (newest attempt of each
 // analysis kind) and how many earlier sets it replaced, so this module does not walk the artifact index and does not
@@ -17,9 +17,14 @@
 // figure but a task, so the card asks `/analyses` again and re-reads `/figures` once a task settles. It polls only
 // while something is in flight -- `window.__runViewPollMs` is the test seam the Trajectory block already uses -- and a
 // run switch bumps its token so a late answer writes nothing.
+//
+// **The sections are the features'.** `run-view-analysis-extension.js` holds them; this file only builds the tab
+// strip, keeps one pane per section and calls the section's own `mount` when it is opened. A section that is not
+// defined for this run is replaced by that feature's one-sentence notice, so every run still says why.
 import { $, api, post } from './shared.js';
 import { RunFigureViewer } from './figures.js';
 import { renderDistanceDiagnostics } from './runs-diagnostics.js';
+import { analysisNoticeFor, analysisSectionsFor } from './run-view-analysis-extension.js';
 
 //: How long a queued or running analysis is left alone between asks. The Trajectory block's own seam, so a browser test
 //: sets one knob rather than two.
@@ -51,8 +56,14 @@ export function analysisMarkup(side) {
                 >Re-score assessment</button>
       </div>
       <div class="analysis-tasks" id="${id('run-view-analysis-tasks')}" aria-live="polite"></div>
-      <div class="analysis-diagnostics" id="${id('run-view-analysis-diagnostics')}"></div>
-      <div class="analysis-plots" id="${id('run-view-analysis-plots')}"></div>
+      <div class="analysis-views" role="tablist" aria-label="Analysis sections" hidden></div>
+      <p class="analysis-notice" role="status" hidden></p>
+      <div class="analysis-panes">
+        <section class="analysis-pane" data-section="figures" role="tabpanel">
+          <div class="analysis-plots" id="${id('run-view-analysis-plots')}"></div>
+          <div class="analysis-diagnostics" id="${id('run-view-analysis-diagnostics')}"></div>
+        </section>
+      </div>
     </div>`;
 }
 
@@ -64,8 +75,10 @@ export function createAnalysis({root, side}) {
   const overview = $(id('run-view-analysis-overview'));
   const rescore = $(id('run-view-analysis-rescore'));
   const taskList = $(id('run-view-analysis-tasks'));
-  const diagnostics = $(id('run-view-analysis-diagnostics'));
-  const plots = $(id('run-view-analysis-plots'));
+  const views = card ? card.querySelector('.analysis-views') : null;
+  const notice = card ? card.querySelector('.analysis-notice') : null;
+  const panes = card ? card.querySelector('.analysis-panes') : null;
+  const figuresPane = card ? card.querySelector('.analysis-pane[data-section="figures"]') : null;
 
   let job = null;
   let token = 0;
@@ -74,10 +87,12 @@ export function createAnalysis({root, side}) {
   let drawn = '';                       // the task set the list is showing, so a poll that changed nothing rewrites nothing
   let statuses = new Map();             // task id -> last status seen, so a settle is noticed rather than guessed
   const tails = new Map();              // attempt id -> the one line a failed attempt's log ends with
+  let sections = [];                    // the registered sections this run offers
+  let mounted = new Set();              // the section names whose pane has been built for this run
 
   const setNote = text => { note.textContent = text || ''; };
 
-  // ---------------------------------------------------------------------------------------------- the list and the figures
+  // -------------------------------------------------------------------------------------------- the list and the figures
 
   //: The run keeps every attempt on disk; the card shows the current state, one row per kind. The route returns them
   //: in the order they were queued, so the latest `created_at` is the current answer.
@@ -171,7 +186,7 @@ export function createAnalysis({root, side}) {
     const figures = media.artifacts || [];
     if (!viewer || viewer.runId !== job.id) {
       viewer?.destroy();
-      viewer = new RunFigureViewer(plots, job.id, {pending: ['trajectory overview']});
+      viewer = new RunFigureViewer($(id('run-view-analysis-plots')), job.id, {pending: ['trajectory overview']});
     }
     viewer.update(figures);
     const superseded = Number(media.superseded) || 0;
@@ -180,7 +195,115 @@ export function createAnalysis({root, side}) {
         + (superseded ? ` · ${superseded} earlier set${superseded === 1 ? '' : 's'} on disk in the artifact index` : '')
       : 'No analysis graphs yet. Recompute queues the analyses this run owes; Trajectory overview is a first look at '
         + 'the trajectory it wrote.');
+    const button = views ? views.querySelector('button[data-section="figures"]') : null;
+    if (button) button.textContent = `Figures${figures.length ? ` (${figures.length})` : ''}`;
     renderDistanceDiagnostics(card, job).catch(() => {});
+  }
+
+  // ------------------------------------------------------------------------------------------------ the sections
+
+  //: The card's own tab strip: Figures, then one tab per section the feature registered for this run. The nav is
+  //: hidden when no feature has a section, so an install without one draws the card it always did.
+  function buildSections() {
+    sections = analysisSectionsFor(job);
+    views.replaceChildren();
+    views.hidden = sections.length === 0;
+    for (const pane of [...panes.querySelectorAll('.analysis-pane')]) {
+      if (pane.dataset.section !== 'figures') pane.remove();
+    }
+    mounted = new Set();
+    const text = analysisNoticeFor(job);
+    notice.hidden = !text;
+    notice.textContent = text;
+    if (!sections.length) {
+      figuresPane.hidden = false;
+      return;
+    }
+    const entries = [{name: 'figures', label: 'Figures'}, ...sections.map(section => ({
+      name: section.name,
+      label: typeof section.label === 'function' ? section.label(job) : (section.label || section.name),
+    }))];
+    for (const entry of entries) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.setAttribute('role', 'tab');
+      button.dataset.section = entry.name;
+      button.textContent = entry.label;
+      button.onclick = () => activate(entry.name);
+      views.append(button);
+    }
+    for (const section of sections) {
+      const pane = document.createElement('section');
+      pane.className = 'analysis-pane';
+      pane.dataset.section = section.name;
+      pane.setAttribute('role', 'tabpanel');
+      pane.hidden = true;
+      panes.append(pane);
+    }
+    activate('figures');
+  }
+
+  function sectionFor(name) {
+    return sections.find(section => section.name === name) || null;
+  }
+
+  function paneFor(name) {
+    return [...panes.querySelectorAll('.analysis-pane')].find(pane => pane.dataset.section === name) || null;
+  }
+
+  function buttonFor(name) {
+    return views ? views.querySelector(`button[data-section="${name}"]`) : null;
+  }
+
+  function context(name, mine) {
+    return {host: paneFor(name), job, side, isCurrent: () => mine === token, button: buttonFor(name)};
+  }
+
+  function drawSection(name, mine) {
+    const section = sectionFor(name);
+    const pane = paneFor(name);
+    if (!section || !pane) return;
+    const label = buttonFor(name);
+    const fail = error => {
+      if (mine !== token) return;
+      pane.replaceChildren();
+      const line = document.createElement('p');
+      line.className = 'hint';
+      line.textContent = `This section could not be drawn: ${error.message}`;
+      pane.append(line);
+    };
+    Promise.resolve(section.mount(context(name, mine))).catch(fail);
+    if (label) label.disabled = false;
+  }
+
+  function activate(name) {
+    const mine = token;
+    for (const button of views.querySelectorAll('button[role="tab"]')) {
+      button.setAttribute('aria-selected', String(button.dataset.section === name));
+    }
+    for (const pane of panes.querySelectorAll('.analysis-pane')) {
+      pane.hidden = pane.dataset.section !== name;
+    }
+    if (name === 'figures') return;
+    if (!mounted.has(name)) {
+      mounted.add(name);
+      drawSection(name, mine);
+    } else if (typeof (sectionFor(name)?.refresh) === 'function') {
+      // Returning to a section re-reads it: a task may have settled while another tab was open and the card's
+      // poll re-fetched only the figures. The section decides whether its own attempt changed.
+      Promise.resolve(sectionFor(name).refresh(context(name, mine))).catch(() => {});
+    }
+  }
+
+  function refreshSections() {
+    if (!job) return;
+    const mine = token;
+    for (const name of mounted) {
+      const section = sectionFor(name);
+      if (section && typeof section.refresh === 'function') {
+        Promise.resolve(section.refresh(context(name, mine))).catch(() => {});
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------------------------------- the queue
@@ -203,6 +326,7 @@ export function createAnalysis({root, side}) {
     statuses = new Map(tasks.map(task => [task.id, task.status]));
     await renderTasks(tasks, mine);
     await loadFigures(mine, fresh || settled);
+    if (settled) refreshSections();
     schedule(tasks, mine);
   }
 
@@ -250,15 +374,29 @@ export function createAnalysis({root, side}) {
     statuses = new Map();
     tails.clear();
     taskList.replaceChildren();
-    diagnostics.replaceChildren();
-    delete diagnostics.dataset.distanceRun;
+    diagnostics().replaceChildren();
+    delete diagnostics().dataset.distanceRun;
     viewer?.destroy();
     viewer = null;
-    plots.replaceChildren();
+    $(id('run-view-analysis-plots')).replaceChildren();
     overview.hidden = true;
     rescore.hidden = true;
     recompute.disabled = true;
+    sections = [];
+    mounted = new Set();
+    if (views) { views.replaceChildren(); views.hidden = true; }
+    if (notice) { notice.hidden = true; notice.textContent = ''; }
+    if (panes) {
+      for (const pane of [...panes.querySelectorAll('.analysis-pane')]) {
+        if (pane.dataset.section !== 'figures') pane.remove();
+      }
+      if (figuresPane) figuresPane.hidden = false;
+    }
     setNote('');
+  }
+
+  function diagnostics() {
+    return $(id('run-view-analysis-diagnostics'));
   }
 
   return {
@@ -276,6 +414,7 @@ export function createAnalysis({root, side}) {
       // overview: the stage list and the status are the run's own record, not a guess made by this panel.
       overview.hidden = !['completed', 'failed', 'cancelled'].includes(job.status);
       rescore.hidden = !(job.stages || []).some(stage => stage.name === ASSESSMENT_STAGE);
+      buildSections();
       setNote('Reading this run\'s analyses…');
       reload().catch(() => {});
     },

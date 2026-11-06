@@ -18,6 +18,19 @@ minimizable. The dashboard was restarted at 11:39. Live: `67bc79a995d6`'s cross-
 14 constraints) at the fit's 300.0 K; `dihedral-fit` publishes one proper dihedral with eight harmonics; the overview
 reports Temperature 303.1535 K, Pressure 0.9865 bar and Potential −14,634.92 kJ/mol from `4_CG_sim/md.edr`.
 
+The 2026-11-06 mapping-analysis move is built and live-checked; its plan is
+`docs/plans/2026-11-06-mapping-analyses-in-run-view.md`. The Mapping Validation tab, its panel module, its template,
+its run picker and the Runs card's validation button are retired. Each Run view monitor's Analysis card now carries
+the sections the validation feature registers — **Geometry**, **Bonded terms** and **Shape and volume** — read from
+the same published `/api/jobs/<id>/mapping-consistency` record, and every completed run gets the card (an `aa_cg` run
+offers the sections; an `aa_only`/`pdc` run gets a one-sentence "not defined" notice; a stopped `aa_cg` run with no
+attempt gets the endpoint's reason). The engine seam is `web/static/js/run-view-analysis-extension.js`; the
+validation module is `run-view-mapping.js`. The dashboard was restarted at 15:53. Live: `22075892b606` (Maltose,
+`aa_cg`) shows 6 constrained pairs and an 8-bar chart, 6 term rows and 4 SASA rows; `619ab118abd6` (`aa_only`) shows
+the notice and no mapping tabs; the retired URL answers 404; the validation workspace has 7 tabs. Checks:
+`pytest -m 'not browser and not slow' -q` 2467 passed, 1 xfailed; `pytest -m browser -q -n 16 --dist worksteal`
+290 passed; `ruff check packages tests conftest.py` clean.
+
 The dashboard was restarted on 2026-11-05 at 17:12 for the whole round. Live checks: LMNG's automatic candidate is
 23 connected beads with the branch bead `[11,22,46]` (connectivity and spectral agree on the bead count, differ on
 the grouping); run `619ab118abd6`'s rebuilt AA series carries 160 CONECT records over 201 models and the viewer draws
@@ -58,7 +71,8 @@ after the check; this host reports three GPUs, so the no-GPU path is pinned by t
   by matching the form's arguments and played as the view it described. Each monitor has its own **Analysis** card
   under the Trajectory block: the run's current figures (every kind, through `GET /api/jobs/<id>/figures` and
   `RunFigureViewer`), the three controls that queue analyses (Recompute, Trajectory overview, Re-score assessment),
-  the task list and the assessment's distance diagnostics. The Runs card draws no figures and offers no analysis
+  the task list, the assessment's distance diagnostics, and the feature-registered sections (Geometry, Bonded terms,
+  Shape and volume) read from the published mapping comparison. The Runs card draws no figures and offers no analysis
   button; the Run view's gallery door and pdc's `gallery_note` are gone. `/trajectory` answers run-root paths with
   each playable segment's `identity`, `frames` and `time_ns`; the Trajectory block states the selected segment's
   `45,001 frames · 900 ns` and "not recorded" when the header cannot be read. A `.pdb` structure is served by the

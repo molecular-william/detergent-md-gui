@@ -333,11 +333,12 @@ def test_the_panel_renders_in_both_workspaces_and_no_other_label_moved(dashboard
     page, errors = live_page
     open_panel(page, live_page)
 
-    expect(page.locator('#subtabs .subtab')).to_have_count(8)
+    expect(page.locator('#subtabs .subtab')).to_have_count(7)
     expect(page.locator('#subtabs .subtab[aria-selected=true]')).to_contain_text('Run view')
-    for label in ('Runs', 'New run', 'Bead Assignment', 'Bond Interactions', 'Combinations', 'Mapping Validation',
+    for label in ('Runs', 'New run', 'Bead Assignment', 'Bond Interactions', 'Combinations',
                   'Osmotic Series', 'Run view'):
         expect(page.locator(f'#subtabs .subtab:has-text("{label}")')).to_have_count(1)
+    expect(page.locator('#subtabs .subtab:has-text("Mapping Validation")')).to_have_count(0)
 
     open_panel(page, live_page, workspace='protein-detergent')
     expect(page.locator('#subtabs .subtab')).to_have_count(4)

@@ -1,0 +1,33 @@
+/* The validation feature's Run view analysis sections: geometry, bonded terms, shape and volume.
+   Each monitor is half the page, so the panel's seven- and eight-column tables are drawn as one compact row per
+   pair/term/check: a name line with its badge, one line of measures, one line of context. Only the five-column SASA
+   table stays a table. The engine's `.run-view-analysis` sheet owns the card, the section strip and the pane. */
+.rvm-identity { font-size: 12px; color: var(--muted); margin: 2px 0 8px; line-height: 1.5; overflow-wrap: anywhere }
+.rvm-identity b { color: var(--ink) }
+.rvm-badge { display: inline-block; border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 600;
+  background: var(--line); color: var(--ink); white-space: nowrap }
+.rvm-claim { background: #fce9eb; color: var(--danger); font-weight: 650 }
+.rvm-measures { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 }
+.rvm-measure { border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; background: #fcfdff }
+.rvm-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 12.5px; line-height: 1.4 }
+.rvm-head .rvm-lead { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+  font-weight: 700 }
+.rvm-head .rvm-badge { margin-left: auto }
+.rvm-values { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 4px; font-size: 11.5px; color: var(--muted) }
+.rvm-values b { color: var(--ink); font-variant-numeric: tabular-nums }
+.rvm-context { margin: 4px 0 0; font-size: 11px; color: var(--muted); line-height: 1.45; overflow-wrap: anywhere }
+.rvm-context b { color: var(--ink); font-variant-numeric: tabular-nums }
+.rvm-sub { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 2px }
+.rvm-sub h4 { font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted);
+  margin: 12px 0 4px }
+.rvm-table { border-collapse: collapse; width: 100%; font-size: 12px }
+.rvm-table caption { text-align: left; font-size: 11px; color: var(--muted); padding: 2px 0 4px }
+.rvm-table th, .rvm-table td { border-bottom: 1px solid var(--line); padding: 5px 6px; text-align: left;
+  vertical-align: top }
+.rvm-table thead th { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+  font-weight: 700; white-space: nowrap }
+.rvm-table tbody th { font-weight: 600 }
+.rvm-frame { display: block; width: 100%; height: 420px; border: 1px solid var(--line); border-radius: 8px;
+  background: #fff; margin: 6px 0 }
+.rvm-chart { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 6px; margin-top: 8px;
+  min-height: 120px }

@@ -18,7 +18,7 @@ NARROW = {'width': 820, 'height': 900}
 
 # The panels of each workspace, in its own order, by DOM id. The two navigations are different lists, which is the
 # point of the split: `runs` and `new` appear in both because they are different run lists and different forms.
-VALIDATION = ('runs', 'runview', 'new', 'mappings', 'bonded', 'compositions', 'validation', 'osmotic-pressure')
+VALIDATION = ('runs', 'runview', 'new', 'mappings', 'bonded', 'compositions', 'osmotic-pressure')
 SIMULATIONS = ('runs', 'runview', 'new', 'pdc')
 
 

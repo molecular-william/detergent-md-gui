@@ -18,8 +18,8 @@ C. Two concurrent callers, from two copies of the module, share **one** script e
 D. A bundle that fails to load leaves no element behind, and the next ask is not a wait on the element that
    already failed.
 
-E. The Mapping Validation panel's text does not wait for the bundle: its tables are filled, and readable,
-   while the bundle is still held open.
+E. The Run view mapping section's text does not wait for the bundle: the pair rows are filled and readable
+   while the per-bead chart's bundle is still held open.
 
 Every assertion about the bundle's URL derives it from `meta[name="plotly-src"]`, which the template writes
 from the route: the URL is defined in one place and the tests read that place rather than repeating it.
@@ -27,7 +27,7 @@ from the route: the URL is defined in one place and the tests read that place ra
 from dashboard.models import mappings
 from playwright.sync_api import expect
 
-from tests.harness.validation_fixtures import publish, publish_cross_check
+from tests.harness.validation_fixtures import publish
 
 
 def bundle_url(page):
@@ -159,15 +159,14 @@ def test_a_failed_bundle_leaves_nothing_for_a_retry_to_wait_on(dashboard, live_p
     assert retry == {'plotly': True, 'scripts': 1}, retry
 
 
-def test_the_validation_panel_text_does_not_wait_for_the_bundle(dashboard, live_page):
-    """Load E: the cards below the chart read before the chart can draw.
+def test_the_mapping_section_text_does_not_wait_for_the_bundle(dashboard, live_page):
+    """Load E: the pair rows read before the per-bead chart can draw.
 
-    `render` used to await the per-bead chart, which awaits the bundle: every card after it -- the envelopes,
-    the overlap, the cross-check, the dihedral fit, the interpretation -- waited on 4.8 MB for a picture that
-    states no number the tables do not. The bundle is held open here, and the last card must still fill.
+    The section used to await the chart, which awaits the bundle, before it wrote any text: the pairs and the
+    comparison's own sentences waited on 4.8 MB for a picture that states no number the rows do not. The bundle is
+    held open here, and the rows must still fill.
     """
     publish(dashboard, 'aa11bb22cc33')
-    publish_cross_check(dashboard, 'aa11bb22cc33')
     page, errors = live_page
     held = []
 
@@ -178,18 +177,25 @@ def test_the_validation_panel_text_does_not_wait_for_the_bundle(dashboard, live_
             route.continue_()
 
     page.route('**/api/assets/*', hold)
-    page.goto(f'{live_page.base_url}/detergent-validation/mapping-validation')
+    page.goto(f'{live_page.base_url}/detergent-validation/run-view?run=aa11bb22cc33')
+    root = page.locator('#run-view-analysis-A')
+    expect(root.locator('.analysis-views button').first).to_be_visible(timeout=30000)
+    root.locator('.analysis-views button[data-section="mapping-geometry"]').click()
 
     page.wait_for_function(
-        "() => document.querySelectorAll('#validation-crosscheck-rows tr').length === 3", timeout=30000)
-    assert page.evaluate("() => document.querySelector('#validation-shape-plot').data === undefined"), \
+        "() => document.querySelectorAll('#run-view-analysis-A "
+        ".analysis-pane[data-section=\"mapping-geometry\"] .rvm-measure').length === 2", timeout=30000)
+    assert page.evaluate("() => { const host = document.querySelector('#run-view-analysis-A "
+                         ".analysis-pane[data-section=\"mapping-geometry\"] .rvm-chart');"
+                         " return !host || host.data === undefined; }"), \
         'the chart drew before the bundle was released, so the hold proved nothing'
-    assert held, 'the panel never asked for the bundle'
+    assert held, 'the section never asked for the bundle'
     assert held[0].request.url.endswith(bundle_url(page)), held[0].request.url
 
     for route in held:
         route.continue_()
     page.wait_for_function(
-        "() => { const host = document.querySelector('#validation-shape-plot');"
+        "() => { const host = document.querySelector('#run-view-analysis-A "
+        ".analysis-pane[data-section=\"mapping-geometry\"] .rvm-chart');"
         " return host && host.data && host.data.length === 1; }", timeout=30000)
     assert errors == []

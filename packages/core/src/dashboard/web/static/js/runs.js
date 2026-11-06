@@ -2,10 +2,6 @@ import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResour
 import { createConsoleViewer } from './console.js';
 
 // Owns run cards, filtering, artifact loading, and polling. Form changes are callbacks.
-// D1's line: the numbers the run card states, read from the summary the view projects off the published comparison --
-// `/api/jobs` already carries it, so a card costs no request of its own. The count is `cg_outside_aa_range`, which is
-// what card 1 of the panel badges, so the line says "range": the *spread* is the cross-molecule comparison on the same
-// tab and it is a different quantity with a different meaning.
 // How much of a run is trajectory: the number that tells a reader what deleting it would free. GiB, as the
 // workspace's own limits are stated; a run holding none says so instead of showing a misleading zero.
 function trajectorySize(bytes) {
@@ -18,15 +14,7 @@ function trajectorySize(bytes) {
   return `${gb.toFixed(digits)} GB of trajectories`;
 }
 
-function consistencyLine(job) {
-  const summary = job.consistency;
-  if (!summary || !Number.isFinite(Number(summary.pairs))) return null;
-  const total = Number(summary.pairs);
-  const inside = total - (Number(summary.outside) || 0);
-  return `Consistency: CG ${inside} of ${total} ring distances inside the AA observed range`;
-}
-
-export function createRuns({ onClone, onDeleted, onValidate }) {
+export function createRuns({ onClone, onDeleted }) {
   function setRunView(view) {
     const selected = ['table', 'grouped', 'dense'].includes(view) ? view : 'table';
     $('#'+panelIds().runs).dataset.view = selected;
@@ -81,13 +69,6 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
             await onClone(source);
           } catch(error) { notice(error.message); }
         };
-        // A completed coarse-grained run is the only run the comparison can be read from, so that is where the
-        // panel is offered from. Whether a comparison was actually published is the panel's own answer to give,
-        // and when it was, the control states what it found instead of offering a blank door.
-        // The control's *state* is set on every render below, next to the status: it depends on the run's status and
-        // on whether a comparison was published, both of which change after the card is created. Only the handler
-        // belongs here, because the run id it closes over does not change.
-        $('.job-validate', card).onclick = () => { try { onValidate(job.id); } catch (error) { notice(error.message); } };
         // The door from the table to the Run view panel (`D10`): a link, not a search. It names the run in the
         // query string, and the panel reads `?run=` at mount -- the same deep-link contract Complexes already
         // implements -- so a reader arrives on the run already drawn. The workspace segment comes from this
@@ -142,12 +123,6 @@ export function createRuns({ onClone, onDeleted, onValidate }) {
       setText($('.job-created', card), job.created ? new Date(job.created).toLocaleString() : '—');
       setText($('.job-status', card), job.status === 'cancelling' ? 'Cancelling…' : job.status);
       $('.job-status', card).dataset.status = job.status;
-      // Re-set on every render, not only at creation: a run that finishes while this page is open must offer its
-      // comparison without a reload, and one whose comparison publishes later must stop reading as a blank door.
-      // The handler is attached once, in the creation block, because the run id it closes over never changes.
-      const validate = $('.job-validate', card);
-      validate.hidden = !(job.run_type === 'aa_cg' && job.status === 'completed');
-      setText(validate, consistencyLine(job) || 'Mapping validation');
       setText($('.job-stage', card), job.stage || 'Queued');
       // A run that declared itself a stub says so on the card, next to the status it
       // would otherwise share with a run that really executed the stage.

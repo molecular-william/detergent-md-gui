@@ -27,12 +27,10 @@ export async function boot(specs = {}, extensions = []) {
   const pdcReady = pending[panels.complexes]
     ? pending[panels.complexes].then(module => module.createPdc())
     : null;
-  let validation = null;
   let osmotic = null;
   const runs = createRuns({
     onClone: source => newRun.cloneRun(source),
     onDeleted: id => newRun.clearDeletedClone(id),
-    onValidate: id => { if (!validation) return; selectTab('validation'); return validation.open(id); },
   });
   const newRun = createNewRun({
     selectTab,
@@ -58,7 +56,6 @@ export async function boot(specs = {}, extensions = []) {
   const modules = {};
   for (const [panel, promise] of Object.entries(pending)) modules[panel] = await promise;
   const pdc = pdcReady ? await pdcReady : null;
-  validation = modules[panels['mapping-validation']] ? modules[panels['mapping-validation']].createMappingValidation() : null;
   osmotic = modules[panels['osmotic-pressure']] ? modules[panels['osmotic-pressure']].createOsmoticSeries() : null;
   if (pdc) window.pdcSetRun = pdc.setRun;
 
@@ -70,7 +67,6 @@ export async function boot(specs = {}, extensions = []) {
       : id===current['new-run']?newRun.mount()
       : id===current.combinations?compositions.mount()
       : id===current.complexes&&pdc?pdc.mount()
-      : id===current['mapping-validation']&&validation?validation.mount()
       : id===current['osmotic-pressure']&&osmotic?osmotic.mount()
       : mappings.mount(id);
     Promise.resolve(loading).catch(error=>{

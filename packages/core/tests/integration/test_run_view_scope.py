@@ -55,16 +55,16 @@ def test_the_panel_is_the_open_one_when_the_url_names_it(dashboard):
     assert 'hidden' not in opening(simulations), 'and open in the other workspace too'
 
 
-def test_the_sub_tab_rows_grew_by_the_new_panel_and_nothing_else_moved(dashboard):
-    """Validation goes from seven tabs to eight; the rail was built for more, and no other label changes."""
+def test_the_sub_tab_rows_match_the_registered_panels(dashboard):
+    """Validation has seven tabs after Mapping Validation retired; no other label moved."""
     with dashboard.client as client:
         validation = client.get('/detergent-validation/run-view').get_data(as_text=True)
         simulations = client.get('/protein-detergent/run-view').get_data(as_text=True)
-    assert validation.count('class="subtab"') == 8
+    assert validation.count('class="subtab"') == 7
     assert simulations.count('class="subtab"') == 4
-    for label in ('Runs', 'New run', 'Bead Assignment', 'Bond Interactions', 'Combinations', 'Mapping Validation',
-                  'Osmotic Series'):
+    for label in ('Runs', 'New run', 'Bead Assignment', 'Bond Interactions', 'Combinations', 'Osmotic Series'):
         assert f'>{label}</span>' in validation, f'{label} is missing from the run-view page'
+    assert '>Mapping Validation</span>' not in validation, 'the retired tab is still offered'
     assert '>Run view</span>' in validation and '>Run view</span>' in simulations
 
 

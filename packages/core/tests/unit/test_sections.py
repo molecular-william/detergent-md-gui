@@ -31,12 +31,13 @@ def test_every_section_starts_on_a_panel_it_owns():
 
 def test_the_panels_that_are_about_one_molecule_stay_out_of_the_simulations_section():
     """The heart of the split: a detergent's own model work is not a protein-detergent system's business."""
-    assert tabs_for('validation') >= ('runs', 'new-run', 'bead-assignment', 'bond-interactions',
-                                      'combinations', 'mapping-validation')
-    assert tabs_for('simulations') >= ('runs', 'new-run', 'complexes')
-    for panel in ('bead-assignment', 'bond-interactions', 'combinations', 'mapping-validation',
-                  'osmotic-pressure'):
+    assert set(tabs_for('validation')) >= {'runs', 'new-run', 'bead-assignment', 'bond-interactions',
+                                           'combinations', 'osmotic-pressure'}
+    assert set(tabs_for('simulations')) >= {'runs', 'new-run', 'complexes'}
+    for panel in ('bead-assignment', 'bond-interactions', 'combinations', 'osmotic-pressure'):
         assert panel not in tabs_for('simulations')
+    # The Mapping Validation tab is retired: its per-run analysis lives in Run view, so no workspace offers it.
+    assert 'mapping-validation' not in tabs_for('validation')
     for panel in ('complexes', 'initial-state'):
         assert panel not in tabs_for('validation')
 

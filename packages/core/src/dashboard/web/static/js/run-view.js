@@ -23,8 +23,11 @@ import { $, api, panelIds, storage } from './shared.js';
 import { createMonitor } from './run-view-monitor.js';
 
 // The seam a feature's module imports to register its run type's file conventions and stage chain. Re-exported here
-// so the panel a feature extends is the module it names (`/static/js/run-view.js`).
+// so the panel a feature extends is the module it names (`/static/js/run-view.js`). The Analysis card's own seam
+// (one analysis section per feature group, plus the notice for a run the group is not defined for) is re-exported
+// from the same place for the same reason.
 export { registerRunViewExtension } from './run-view-extension.js';
+export { registerRunViewAnalysisNotice, registerRunViewAnalysisSection } from './run-view-analysis-extension.js';
 
 //: The route pages the artifact index and caps `limit` at 100, so every request here states its own limit.
 const PAGE_LIMIT = 100;
