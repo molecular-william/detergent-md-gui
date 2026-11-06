@@ -178,6 +178,56 @@ def test_a_topology_line_with_too_few_fields_is_refused():
         bonded_estimate.parse_topology_terms('[ bonds ]\n1 2 1 0.3\n')
 
 
+BRANCHED_TOPOLOGY = """\
+; the shape Fast_Forward writes: one bond family under #ifdef, the same pair as a constraint under #ifndef
+[ bonds ]
+1 2 1 0.30 5000.0
+#ifdef FLEXIBLE
+1 3 1 0.31 4000.0
+#else
+1 3 1 0.31 3500.0
+#endif
+[ constraints ]
+#ifndef FLEXIBLE
+2 3 1 0.32
+#endif
+#ifdef FLEXIBLE
+2 3 1 0.33
+#endif
+"""
+
+
+def test_the_preprocessor_branch_is_the_one_the_run_used_not_both():
+    """The live branch of a real Fast_Forward topology. Reading both alternatives would measure the same pair twice;
+    reading the directive as data is the ValueError the run actually saw. The original line numbers survive because
+    the report and its errors quote them."""
+    without = bonded_estimate.parse_topology_terms(BRANCHED_TOPOLOGY)
+    with_flexible = bonded_estimate.parse_topology_terms(BRANCHED_TOPOLOGY, defines=('FLEXIBLE',))
+
+    assert [(term['kind'], term['atoms']) for term in without] == [
+        ('bond', (1, 2)), ('bond', (1, 3)), ('constraint', (2, 3))]
+    assert [(term['kind'], term['atoms']) for term in with_flexible] == [
+        ('bond', (1, 2)), ('bond', (1, 3)), ('constraint', (2, 3))]
+    by_pair = {tuple(term['atoms']): term for term in without}
+    assert by_pair[(1, 3)]['force_constant'] == pytest.approx(3500.0)
+    assert by_pair[(2, 3)]['value'] == pytest.approx(0.32)
+    by_pair = {tuple(term['atoms']): term for term in with_flexible}
+    assert by_pair[(1, 3)]['force_constant'] == pytest.approx(4000.0)
+    assert by_pair[(2, 3)]['value'] == pytest.approx(0.33)
+    # The bond under `#else` is line 7, not line 4 after the directive was removed.
+    assert {tuple(term['atoms']): term['line'] for term in without}[(1, 3)] == 7
+
+
+def test_a_define_inside_a_live_branch_switches_the_following_branch():
+    """A topology may declare its own switches; `#define` inside an active block has to reach the next `#ifdef`."""
+    text = ('[ bonds ]\n1 2 1 0.30 5000.0\n#ifndef FLEXIBLE\n#define FLEXIBLE\n1 3 1 0.31 4000.0\n'
+            '#endif\n#ifdef FLEXIBLE\n1 4 1 0.32 3000.0\n#endif\n')
+
+    terms = bonded_estimate.parse_topology_terms(text)
+
+    assert [tuple(term['atoms']) for term in terms] == [(1, 2), (1, 3), (1, 4)]
+
+
 def test_the_cross_check_compares_our_fit_with_the_estimate_term_by_term(tmp_path):
     """Hand-checkable: B01-B02 measures 0.22 nm with a 0.023094 nm spread, so k = 4725.8, against our fit's 0.200/5000."""
     work = _mapped_run(tmp_path)
@@ -186,6 +236,8 @@ def test_the_cross_check_compares_our_fit_with_the_estimate_term_by_term(tmp_pat
 
     assert record['molecule'] == 'DDM'
     assert record['threshold'] == 10000.0
+    assert record['temperature'] == 303.15 and record['temperature_source'] == 'the request'
+    assert record['topology_defines'] == []
     assert record['frames_measured'] == 4 and record['frames_in_trajectory'] == 4
     assert record['ours_from'] == '3_initial_CG/DDM_ff_inter.itp'
     assert 'Fast_Forward' in record['ours_provenance']
@@ -254,6 +306,27 @@ def test_a_run_with_neither_a_fit_nor_a_draft_is_refused(tmp_path):
         bonded_estimate.cross_check(work)
 
 
+def test_the_cross_check_reads_the_fit_temperature_the_parameterization_record_states(tmp_path):
+    """The fit's own 300 K, not the run's simulation temperature or the analysis default. The record is the stage's
+    statement, and the report names it rather than presenting the fallback as the run's number."""
+    work = _mapped_run(tmp_path)
+    (work / '3_initial_CG' / 'parameterization_used.json').write_text(json.dumps({'temperature_k': 300.0}))
+
+    record = bonded_estimate.cross_check(work)
+
+    assert record['temperature'] == 300.0
+    assert '3_initial_CG/parameterization_used.json' in record['temperature_source']
+
+
+def test_without_a_parameterization_record_the_default_is_named_as_the_default(tmp_path):
+    work = _mapped_run(tmp_path)
+
+    record = bonded_estimate.cross_check(work)
+
+    assert record['temperature'] == bonded_estimate.DEFAULT_TEMPERATURE
+    assert 'analysis default' in record['temperature_source']
+
+
 def test_the_cross_check_kind_is_registered_in_all_four_places():
     """One row holds all four: the name, the sources, the dispatch and the description.
 
@@ -267,6 +340,7 @@ def test_the_cross_check_kind_is_registered_in_all_four_places():
     assert kinds.known('bonded-cross-check') and row.name == 'bonded-cross-check'
     assert list(row.sources) == [
         '2_mapping/mapped.gro', '2_mapping/mapped.xtc', '2_mapping/model.json',
-        '3_initial_CG/*_ff_inter.itp', '3_initial_CG/*initial*.itp']
+        '3_initial_CG/*_ff_inter.itp', '3_initial_CG/*initial*.itp',
+        '3_initial_CG/parameterization_used.json']
     assert callable(row.run), 'the dispatch is the row'
     assert row.title != 'Bonded Cross Check', 'a title the code invents is the fallback this replaced'

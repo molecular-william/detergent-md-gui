@@ -89,20 +89,25 @@ def estimate_angle(angles_deg, temperature, *, constraint_threshold=DEFAULT_CONS
 TOPOLOGY_SECTIONS = {'bonds': 'bond', 'constraints': 'constraint'}
 
 
-def read_topology_terms(path, kinds=('bond', 'constraint')):
+def read_topology_terms(path, kinds=('bond', 'constraint'), defines=()):
     """The bonded terms a topology file declares -- `parse_topology_terms` for text already in hand."""
-    return parse_topology_terms(Path(path).read_text(), kinds=kinds, origin=str(path))
+    return parse_topology_terms(Path(path).read_text(), kinds=kinds, origin=str(path), defines=defines)
 
 
-def parse_topology_terms(text, kinds=('bond', 'constraint'), origin='<topology>'):
+def parse_topology_terms(text, kinds=('bond', 'constraint'), origin='<topology>', defines=()):
     """The bonded terms a GROMACS topology declares, as `{'kind', 'atoms', 'value', 'force_constant', 'line'}`.
 
     A bond is `i j funct b0 kb` and a constraint is `i j funct b0`. The function type is **checked** and refused
     rather than assumed: a topology that switched to a non-harmonic `funct` would otherwise be read as a harmonic term
     with a meaningless length, and the comparison would report a difference that is really a different question.
+
+    `defines` is the preprocessor switch set `grompp` used. Fast_Forward writes one bond family under
+    `#ifdef FLEXIBLE` and the same pair as a constraint under `#ifndef FLEXIBLE`; reading both alternatives would
+    measure one term twice (see `itp.active_lines`). The default is the empty set, which is what this repository's
+    CG pipeline runs with (`cg.prepare` clears the template's `-DFLEXIBLE`).
     """
     terms = []
-    for name, rows in itp.sections(text):
+    for name, rows in itp.sections(text, defines=defines):
         section = TOPOLOGY_SECTIONS.get(name)
         if section not in kinds:
             continue
@@ -143,6 +148,21 @@ def pair_series(universe, pairs, frames=slice(0, None, 1)):
     return {pair: np.asarray(values, dtype=float) for pair, values in collected.items()}
 
 
+def fit_temperature(work):
+    """The temperature the parameterization was fitted at, and where that answer came from.
+
+    The CG parameterization stage writes `parameterization_used.json` beside the topology, and its `temperature_k` is
+    the temperature the fit used -- not necessarily the run's simulation temperature. The analysis default is a
+    fallback, and the report says when it was used rather than presenting it as the run's own number.
+    """
+    record = Path(work) / '3_initial_CG' / 'parameterization_used.json'
+    try:
+        data = json.loads(record.read_text())
+        return float(data['temperature_k']), f'the fit temperature recorded in {record.relative_to(work)}'
+    except (OSError, ValueError, KeyError, TypeError):
+        return DEFAULT_TEMPERATURE, 'the analysis default; the parameterization record stated no temperature'
+
+
 def cross_check(work, payload=None):
     """Our fitted topology against an independent equipartition estimate, term by term, from the same frames.
 
@@ -153,10 +173,20 @@ def cross_check(work, payload=None):
     Rows say which of the two sides calls each term a constraint, because that is the disagreement that matters: a
     term we write as a rigid constraint and the measurement reads as a spring is a different molecule, and the numbers
     alone would not show it.
+
+    The preprocessor branch is part of the input, not a detail: the fitted topology carries one bond family under
+    `#ifdef FLEXIBLE` and the same pair as a constraint under `#ifndef FLEXIBLE`. The report records the defines it
+    read so a run that chose the other branch is not silently compared against the wrong term set.
     """
     work = Path(work)
     payload = dict(payload or {})
-    temperature = float(payload.get('temperature', DEFAULT_TEMPERATURE))
+    requested = payload.get('temperature')
+    if requested is None:
+        temperature, temperature_source = fit_temperature(work)
+    else:
+        temperature = float(requested)
+        temperature_source = payload.get('temperature_source') or 'the request'
+    defines = tuple(payload.get('defines') or ())
     threshold = float(payload.get('constraint_threshold', DEFAULT_CONSTRAINT_THRESHOLD))
     mapped = work / '2_mapping'
     universe = mda.Universe(str(mapped / 'mapped.gro'), str(mapped / 'mapped.xtc'))
@@ -164,7 +194,7 @@ def cross_check(work, payload=None):
     residue = str(universe.residues[0].resname)
 
     topology, provenance = layout.model_topology(work)
-    terms = read_topology_terms(topology)
+    terms = read_topology_terms(topology, defines=defines)
 
     # The topology's indices are positions in the coordinate file it is applied to, so the bead names come from the
     # mapped trajectory's own atom order -- the same file the estimate is measured from, not a second file assumed
@@ -208,8 +238,8 @@ def cross_check(work, payload=None):
 
     record = {
         'molecule': residue, 'temperature': temperature, 'threshold': threshold,
-        'temperature_source': payload.get('temperature_source')
-                              or 'the analysis default; the run\'s own fit temperature was not staged',
+        'temperature_source': temperature_source,
+        'topology_defines': list(defines),
         'threshold_source': 'this repository\'s Fast_Forward convention; shaker defaults to 25000',
         'frames_measured': int(len(next(iter(series.values())))) if series else 0,
         'frames_in_trajectory': int(len(universe.trajectory)),

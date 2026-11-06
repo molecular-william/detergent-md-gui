@@ -73,23 +73,70 @@ export function createAnalysis({root, side}) {
   let timer = null;
   let drawn = '';                       // the task set the list is showing, so a poll that changed nothing rewrites nothing
   let statuses = new Map();             // task id -> last status seen, so a settle is noticed rather than guessed
+  const tails = new Map();              // attempt id -> the one line a failed attempt's log ends with
 
   const setNote = text => { note.textContent = text || ''; };
 
   // ---------------------------------------------------------------------------------------------- the list and the figures
 
-  function renderTasks(tasks) {
-    const key = JSON.stringify(tasks.map(task => [task.id, task.status, task.progress || '', task.error || '',
-                                                  task.directory || '']));
-    if (key === drawn) return;
-    drawn = key;
-    taskList.replaceChildren(...tasks.map(row));
+  //: The run keeps every attempt on disk; the card shows the current state, one row per kind. The route returns them
+  //: in the order they were queued, so the latest `created_at` is the current answer.
+  function latestByKind(tasks) {
+    const latest = new Map();
+    for (const task of tasks) {
+      const current = latest.get(task.kind);
+      if (!current || String(task.created_at || '') >= String(current.created_at || '')) latest.set(task.kind, task);
+    }
+    return [...latest.values()].sort((first, second) =>
+      String(first.created_at || '').localeCompare(String(second.created_at || '')));
   }
 
-  function row(task) {
+  //: A failed attempt's own `error` is the command line; its console's last line is the reason. Read the small log
+  //: once per attempt and remember it, so a poll does not fetch the same file again.
+  async function failureMessage(task) {
+    if (tails.has(task.id)) return tails.get(task.id);
+    let message = task.error || '';
+    if (task.directory) {
+      try {
+        const path = `${task.directory.split('/').map(encodeURIComponent).join('/')}/console.log`;
+        const response = await fetch(`/api/jobs/${encodeURIComponent(job.id)}/artifacts/${path}?inline=1`);
+        if (response.ok) {
+          const lines = (await response.text()).split('\n').map(line => line.trimEnd()).filter(Boolean);
+          if (lines.length) message = lines[lines.length - 1];
+        }
+      } catch (error) {
+        // The task's own error is the fallback; a missing log is not a second failure to report.
+      }
+    }
+    tails.set(task.id, message);
+    return message;
+  }
+
+  async function renderTasks(tasks, mine) {
+    const rows = latestByKind(tasks);
+    const messages = await Promise.all(rows.map(task => (task.status === 'failed'
+      ? failureMessage(task)
+      : Promise.resolve(task.progress || ''))));
+    if (mine !== token) return;        // the monitor moved to another run while the logs were being read
+    const key = JSON.stringify(rows.map((task, index) => [task.id, task.kind, task.status,
+                                                          messages[index], task.directory || '']));
+    if (key === drawn) return;
+    drawn = key;
+    taskList.replaceChildren(...rows.map((task, index) => row(task, messages[index])));
+  }
+
+  function row(task, message) {
     const line = document.createElement('p');
-    const parts = [`${task.kind} · ${task.status}`, task.progress || task.error || ''].filter(Boolean);
-    line.append(document.createTextNode(parts.join(' · ')));
+    const kind = document.createElement('span');
+    kind.className = 'task-kind';
+    kind.textContent = task.kind;
+    line.append(kind, document.createTextNode(` · ${task.status}`));
+    if (message) {
+      const detail = document.createElement('span');
+      detail.className = task.status === 'failed' ? 'task-message' : 'task-detail';
+      detail.textContent = ` · ${message}`;
+      line.append(detail);
+    }
     if (UNSETTLED.includes(task.status)) {
       const cancel = document.createElement('button');
       cancel.type = 'button'; cancel.className = 'secondary'; cancel.textContent = 'Cancel analysis';
@@ -102,11 +149,12 @@ export function createAnalysis({root, side}) {
       };
       line.append(cancel);
     }
-    if (task.directory) {
+    if (task.status === 'failed' && task.directory) {
       const link = document.createElement('a');
       link.href = `/api/jobs/${job.id}/artifacts/${task.directory.split('/').map(encodeURIComponent).join('/')}/console.log`;
-      link.textContent = ' Analysis log';
-      line.append(link);
+      link.textContent = 'Log';
+      link.className = 'task-log';
+      line.append(document.createTextNode(' '), link);
     }
     return line;
   }
@@ -123,7 +171,7 @@ export function createAnalysis({root, side}) {
     const figures = media.artifacts || [];
     if (!viewer || viewer.runId !== job.id) {
       viewer?.destroy();
-      viewer = new RunFigureViewer(plots, job.id);
+      viewer = new RunFigureViewer(plots, job.id, {pending: ['trajectory overview']});
     }
     viewer.update(figures);
     const superseded = Number(media.superseded) || 0;
@@ -153,7 +201,7 @@ export function createAnalysis({root, side}) {
     const settled = tasks.some(task => statuses.get(task.id) && statuses.get(task.id) !== task.status
       && !UNSETTLED.includes(task.status));
     statuses = new Map(tasks.map(task => [task.id, task.status]));
-    renderTasks(tasks);
+    await renderTasks(tasks, mine);
     await loadFigures(mine, fresh || settled);
     schedule(tasks, mine);
   }
@@ -200,6 +248,7 @@ export function createAnalysis({root, side}) {
     job = null;
     drawn = '';
     statuses = new Map();
+    tails.clear();
     taskList.replaceChildren();
     diagnostics.replaceChildren();
     delete diagnostics.dataset.distanceRun;

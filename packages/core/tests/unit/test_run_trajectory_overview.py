@@ -95,6 +95,49 @@ def test_energy_columns_are_mapped_by_their_legend(tmp_path, monkeypatch):
     assert terms['Temperature']['values'] == [299.5, 300.5], 'the legend, not the first data column'
 
 
+def test_the_energy_of_an_extracted_solute_is_found_one_stage_up(tmp_path):
+    """The AA-CG pipeline writes `prod/lig_CG.xtc` while the leg's `md.edr` stays in `4_CG_sim/`. A sibling-only
+    reader says there is no energy for a run that has one; the explicit names keep `eq.edr`/`min.edr` out."""
+    prod = tmp_path / '4_CG_sim' / 'prod'
+    prod.mkdir(parents=True)
+    trajectory = prod / 'lig_CG.xtc'
+    trajectory.write_text('')
+    edr = tmp_path / '4_CG_sim' / 'md.edr'
+    edr.write_text('')
+
+    assert trajectory_overview._energy_beside(trajectory) == edr
+
+
+def test_sources_stages_the_energy_file_one_stage_up(tmp_path):
+    stage = write_run(tmp_path)  # .../stages/08_extension/prod
+    (stage.parent / 'md.edr').write_text('not really an edr')
+
+    entries = trajectory_overview.sources(tmp_path)
+
+    assert entries['stages/08_extension/md.edr'] == stage.parent / 'md.edr'
+
+
+def test_the_overview_reads_the_energy_file_one_stage_up(tmp_path, monkeypatch):
+    """The same run the user saw: the trajectory is under `prod/`, the energy one stage above it."""
+    stage = write_run(tmp_path)
+    (stage.parent / 'md.edr').write_text('not really an edr; the reader is replaced below')
+
+    def fake_energy(command, **kwargs):
+        output = Path(command[command.index('-o') + 1])
+        output.write_text('# a fake gmx energy XVG\n@ s0 legend "Temperature"\n'
+                          '0 300.0\n1000 301.0\n')
+        return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+    monkeypatch.setattr(trajectory_overview.subprocess, 'run', fake_energy)
+    monkeypatch.setattr(trajectory_overview.tools, 'tool_path', lambda *args, **kwargs: 'gmx')
+
+    trajectory_overview.run(tmp_path)
+
+    record = json.loads((tmp_path / 'trajectory-overview.json').read_text())
+    assert record['energy']['source'] == 'md.edr'
+    assert record['energy']['terms']['Temperature']['mean'] == 300.5
+
+
 def test_the_moving_average_uses_only_the_points_it_has_at_the_ends():
     """A centred window at an edge averages the points that exist, never padding the ends with zero."""
     assert list(trajectory_overview._moving_average([2, 2, 2, 2], 3)) == pytest.approx([2, 2, 2, 2])

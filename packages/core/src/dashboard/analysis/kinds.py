@@ -103,6 +103,7 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
             "2_mapping/model.json",
             "3_initial_CG/*_ff_inter.itp",
             "3_initial_CG/*initial*.itp",
+            "3_initial_CG/parameterization_used.json",
         ),
         bonded_estimate.cross_check,
         "Bonded terms \u00b7 our fit against the estimate",

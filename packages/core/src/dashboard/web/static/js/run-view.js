@@ -44,10 +44,14 @@ export function createRunView() {
   let runs = [];              // completed runs in this workspace, newest first; mutated in place, never replaced
   let monitors = [];
   let loaded = false;
+  //: Only the second monitor has a minimize control. Its remembered state is per side, so a saved layout survives a
+  //: reload and a future first-monitor control would need no new key.
+  let minimized = {A: false, B: false};
 
   function remember() {
     const state = storage.get(STATE_KEY, {});
     state.pair = monitors.map(monitor => (monitor.run() || {}).id || '');
+    state.minimized = {...minimized};
     state.collapsed = {};
     // Keyed by the element's own id rather than by its position: a block inserted above the sub-panels -- the
     // trajectory block's argument form is one -- would otherwise move every remembered state onto its neighbour,
@@ -125,6 +129,39 @@ export function createRunView() {
       });
       return monitor;
     });
+    minimized = {A: Boolean((state.minimized || {}).A), B: Boolean((state.minimized || {}).B)};
+    applyMinimized();
+    const button = minimizeButton();
+    if (button) button.addEventListener('click', () => toggleMinimized());
+  }
+
+  function minimizeButton(side = 'B') {
+    return monitors[1]?.root.querySelector(`#run-view-minimize-${side}`) || null;
+  }
+
+  function applyMinimized() {
+    const monitor = monitors[1];
+    if (!monitor) return;
+    const collapsed = Boolean(minimized.B);
+    const element = monitor.root.querySelector('.monitor');
+    if (element) element.dataset.minimized = String(collapsed);
+    grid.classList.toggle('one-column', collapsed);
+    const button = minimizeButton();
+    if (button) {
+      button.textContent = collapsed ? 'Expand' : 'Minimize';
+      button.setAttribute('aria-expanded', String(!collapsed));
+    }
+  }
+
+  function toggleMinimized() {
+    minimized.B = !minimized.B;
+    applyMinimized();
+    remember();
+    if (!minimized.B) {
+      // NGL measured a zero-width host while collapsed; measure again once the grid has switched back.
+      monitors[1].resize();
+      requestAnimationFrame(() => monitors[1].resize());
+    }
   }
 
   // ----------------------------------------------------------------------------------------------- the pair

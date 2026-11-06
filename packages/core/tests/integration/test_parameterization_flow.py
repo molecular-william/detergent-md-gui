@@ -163,10 +163,12 @@ def test_the_checks_the_analysis_layer_declares_still_find_what_the_consuming_st
     # the run directory itself, because `prepare` was called on it rather than through the run type.
     # `DDM_ff_inter.itp` is `use_parameterization.py`'s other name for the model, and the only one the
     # analysis layer's declared sources select -- which is what makes the two checks read the model
-    # rather than the coordinate seed beside it.
+    # rather than the coordinate seed beside it. `parameterization_used.json` is the same stage's record,
+    # and it is where the cross-check reads the fit temperature.
     run.joinpath('2_mapping/mapped.gro').write_text('x')
     run.joinpath('2_mapping/mapped.xtc').write_text('x')
     run.joinpath('3_initial_CG/DDM_ff_inter.itp').write_text(TOPOLOGY)
+    run.joinpath('3_initial_CG/parameterization_used.json').write_text('{}')
     written = {path.relative_to(run).as_posix() for path in run.rglob('*') if path.is_file()}
 
     for name in ('dihedral-fit', 'bonded-cross-check'):

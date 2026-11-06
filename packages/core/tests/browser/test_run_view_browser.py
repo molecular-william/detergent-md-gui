@@ -1020,3 +1020,43 @@ def test_the_run_view_is_two_monitors_each_with_a_combo_and_two_panels_below(das
     assert errors == []
 
 
+def test_the_second_monitor_minimizes_to_its_header_and_the_first_takes_the_width(dashboard, live_page):
+    """The second run is one bar away: its canvas, trajectory, Analysis card and sub-panels are not laid out, the
+    first monitor takes the freed width, and the bar stays below it. The choice is remembered across a reload."""
+    seed(dashboard)
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/run-view')
+    expect(page.locator('#runview')).to_be_visible()
+    page.wait_for_function(
+        "() => document.querySelectorAll('.monitor[data-side]').length === 2"
+        " && document.querySelector('#run-view-viewer-A canvas')", timeout=30000)
+
+    button = page.locator('#run-view-minimize-B')
+    expect(button).to_be_visible()
+    expect(button).to_have_text('Minimize')
+    before = page.locator('#run-view-viewer-A').bounding_box()
+    button.click()
+
+    expect(button).to_have_text('Expand')
+    expect(button).to_have_attribute('aria-expanded', 'false')
+    assert page.locator('.monitor[data-side="B"]').get_attribute('data-minimized') == 'true'
+    expect(page.locator('#run-view-viewer-B')).to_be_hidden()
+    after = page.locator('#run-view-viewer-A').bounding_box()
+    assert after['width'] > before['width'] * 1.5, 'monitor A did not take the freed width'
+    first = page.locator('.monitor[data-side="A"]').bounding_box()
+    header = page.locator('.monitor[data-side="B"] .monitor-head').bounding_box()
+    assert header['y'] >= first['y'] + first['height'] - 1, 'the minimized bar is not below the first monitor'
+
+    page.reload()
+    page.wait_for_function(
+        "() => document.querySelectorAll('.monitor[data-side]').length === 2"
+        " && document.querySelector('#run-view-viewer-A canvas')", timeout=30000)
+    expect(page.locator('#run-view-minimize-B')).to_have_text('Expand')
+    expect(page.locator('#run-view-viewer-B')).to_be_hidden()
+
+    page.locator('#run-view-minimize-B').click()
+    expect(page.locator('#run-view-minimize-B')).to_have_text('Minimize')
+    expect(page.locator('#run-view-viewer-B')).to_be_visible()
+    assert errors == []
+
+

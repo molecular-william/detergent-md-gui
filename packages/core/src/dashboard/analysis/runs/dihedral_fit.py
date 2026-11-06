@@ -177,6 +177,11 @@ DIHEDRAL_SECTION = 'dihedrals'
 #: The `funct` values this reader reads. Both are `sum_k k (1 + cos(n phi - phi_s))`: funct 1 carries one term,
 #: funct 9 a Fourier series of them.
 PROPER_FUNCTS = {'1': 'one periodic term', '9': 'a Fourier series'}
+#: `[ dihedrals ]` holds impropers as well as propers: `funct 2` and `funct 4` are the periodic impropers, with
+#: phase and force constant but no multiplicity. They are not a proper torsion and this reader has nothing to compare
+#: them with, so they are skipped rather than refused -- Fast_Forward writes both kinds in one section, and refusing
+#: the impropers would refuse every real topology.
+IMPROPER_FUNCTS = {'2', '4'}
 #: Numbers after `funct` that make up one term: phase, force constant, multiplicity.
 TRIPLET = 3
 
@@ -211,22 +216,28 @@ def read_declared_dihedrals(path):
     name a dominant term on the fitted side. That rule is the report's, not the force field's: a series has no single
     phase, and the comparison in `publish` says so and reports the whole series beside it.
 
-    Any other `funct` is refused rather than assumed, as in the bond reader: a different `funct` is a different function
-    with different fields, and reading its numbers as a phase and a force constant would put a meaningless pair beside
-    a real one -- and this reader's whole output is a comparison, so a meaningless half of it is not a small error.
+    The periodic impropers (`funct 2` and `funct 4`) are skipped: they share the section but are not a proper
+    torsion, and refusing them would refuse every real topology that declares one. Any other `funct` is refused
+    rather than assumed, as in the bond reader: a different proper `funct` is a different function with different
+    fields, and reading its numbers as a phase and a force constant would put a meaningless pair beside a real one --
+    and this reader's whole output is a comparison, so a meaningless half of it is not a small error.
     """
     entries = {}
-    for section, rows in itp.sections(Path(path).read_text()):
+    for section, rows in itp.sections(Path(path).read_text(), defines=()):
         if section != DIHEDRAL_SECTION:
             continue
         for number, line in rows:
             fields = line.split()
-            if len(fields) < 5 + TRIPLET:
-                raise ValueError(f'{path}:{number}: a proper dihedral needs 8 fields, found {len(fields)}')
+            if len(fields) < 5:
+                raise ValueError(f'{path}:{number}: a dihedral needs at least a function type')
             funct = fields[4]
+            if funct in IMPROPER_FUNCTS:
+                continue
             if funct not in PROPER_FUNCTS:
                 raise ValueError(f'{path}:{number}: funct {funct} is not a proper dihedral, and this reader has '
                                  'nothing to say about it')
+            if len(fields) < 5 + TRIPLET:
+                raise ValueError(f'{path}:{number}: a proper dihedral needs 8 fields, found {len(fields)}')
             trailing = fields[5:]
             if funct == '1' and len(trailing) != TRIPLET:
                 raise ValueError(f'{path}:{number}: funct 1 carries exactly {TRIPLET} numbers after it, found '

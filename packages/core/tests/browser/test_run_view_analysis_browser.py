@@ -20,8 +20,12 @@ SVG = ('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200">'
        '<circle cx="200" cy="100" r="90" fill="blue"/></svg>')
 
 
-def seed(dashboard):
-    """Two completed CG runs, each with its own figures, and no analysis tasks behind them."""
+def seed(dashboard, *, overview=False):
+    """Two completed CG runs, each with its own figures, and no analysis tasks behind them.
+
+    `overview` gives the first run a published `trajectory-overview` figure under the analysis tree the figures route
+    reads, so a test can tell the disabled placeholder from the real tab.
+    """
     owner = dashboard.coordinator
     rows = {A_RUN: ('alpha', 'beta'), B_RUN: ('gamma',)}
     for run_id, names in rows.items():
@@ -34,6 +38,10 @@ def seed(dashboard):
             (directory / f'{name}.svg').write_text(SVG)
     (owner.RUNS / A_RUN / 'surface-comparison.html').write_text(
         '<!doctype html><title>Surface comparison</title><h1>Interactive figure</h1>')
+    if overview:
+        output = owner.RUNS / A_RUN / 'analyses/trajectory-overview/signature/attempt/output/key'
+        output.mkdir(parents=True)
+        (output / 'trajectory-overview.svg').write_text(SVG)
 
 
 def plots(page, side='A'):
@@ -44,11 +52,18 @@ def note(page, side='A'):
     return page.locator(f'#run-view-analysis-note-{side}')
 
 
-def open_view(page, live_page, run_id=A_RUN, figures=3):
-    """The Run view with `run_id` in monitor A; the second monitor picks the other run by itself."""
+def tasks(page, side='A'):
+    return page.locator(f'#run-view-analysis-tasks-{side}')
+
+
+def open_view(page, live_page, run_id=A_RUN, tabs=4):
+    """The Run view with `run_id` in monitor A; the second monitor picks the other run by itself.
+
+    The tab count includes the disabled `trajectory overview` placeholder: three real figures plus the pending one.
+    """
     page.goto(f'{live_page.base_url}/{WORKSPACE}/run-view?run={run_id}')
     expect(page.locator('#runview')).to_be_visible()
-    expect(plots(page).locator('[role=tab]')).to_have_count(figures)
+    expect(plots(page).locator('[role=tab]')).to_have_count(tabs)
     return page
 
 
@@ -97,6 +112,37 @@ def test_a_run_with_no_figures_says_so_instead_of_drawing_an_empty_box(dashboard
 
     expect(note(page)).to_contain_text('No analysis graphs yet')
     expect(plots(page).locator('.figure-empty')).to_be_visible()
+    pending = plots(page).get_by_role('tab', name='trajectory overview', exact=True)
+    expect(pending).to_be_visible()
+    expect(pending).to_be_disabled()
+    assert errors == [], errors
+
+
+def test_the_trajectory_overview_tab_is_present_and_disabled_before_it_is_calculated(dashboard, live_page):
+    """The tab row says what the run can produce before it has produced it. The pending tab is first, cannot be
+    selected, and leaves the first real figure selected."""
+    seed(dashboard)
+    page, errors = live_page
+
+    open_view(page, live_page)
+
+    pending = plots(page).get_by_role('tab', name='trajectory overview', exact=True)
+    expect(pending).to_be_visible()
+    expect(pending).to_be_disabled()
+    expect(pending).to_have_attribute('aria-disabled', 'true')
+    expect(plots(page).get_by_role('tab', name='alpha', exact=True)).to_have_attribute('aria-selected', 'true')
+    assert errors == [], errors
+
+
+def test_a_published_overview_is_a_real_tab_and_the_placeholder_is_gone(dashboard, live_page):
+    seed(dashboard, overview=True)
+    page, errors = live_page
+
+    open_view(page, live_page)
+
+    tab = plots(page).get_by_role('tab', name='trajectory overview', exact=True)
+    expect(tab).to_be_enabled()
+    expect(plots(page).locator('.figure-tab-pending')).to_have_count(0)
     assert errors == [], errors
 
 
@@ -167,4 +213,36 @@ def test_a_running_task_is_listed_with_a_cancel_and_the_cancel_posts(dashboard, 
 
     expect(page.locator('#run-view-analysis-tasks-A')).to_contain_text('cancelling')
     assert cancelled == ['POST'], 'the card drew a cancel that asked nothing'
+    assert errors == [], errors
+
+
+def test_the_task_list_keeps_one_row_per_kind_and_shows_the_latest_error(dashboard, live_page):
+    """The run keeps every attempt; the card shows the current state. The failed row's message is the last line of
+    the attempt's own log, not the command line the coordinator recorded, and only that row carries a Log link."""
+    seed(dashboard)
+    page, errors = live_page
+    state = {'tasks': [
+        {'id': 'old', 'kind': 'bonded-cross-check', 'status': 'failed', 'error': 'Command old',
+         'directory': 'analyses/bonded-cross-check/signature/old',
+         'created_at': '2026-11-05T00:00:00+00:00'},
+        {'id': 'new', 'kind': 'bonded-cross-check', 'status': 'failed', 'error': 'Command new',
+         'directory': 'analyses/bonded-cross-check/signature/new',
+         'created_at': '2026-11-06T00:00:00+00:00'},
+        {'id': 'series', 'kind': 'frame-series', 'status': 'completed',
+         'created_at': '2026-11-06T01:00:00+00:00'},
+    ]}
+
+    page.route(re.compile(rf'/api/jobs/{A_RUN}/analyses$'), lambda route: route.fulfill(json=state['tasks']))
+    page.route(re.compile(rf'/api/jobs/{A_RUN}/artifacts/.*console\.log.*'),
+               lambda route: route.fulfill(body='warning\nValueError: LMNG_ff_inter.itp:47: a bond needs 5 fields, found 2\n',
+                                           content_type='text/plain'))
+    open_view(page, live_page)
+
+    listing = tasks(page)
+    expect(listing.locator('p')).to_have_count(2)
+    expect(listing).to_contain_text('bonded-cross-check · failed')
+    expect(listing).to_contain_text('a bond needs 5 fields, found 2')
+    expect(listing).not_to_contain_text('Command old')
+    expect(listing).not_to_contain_text('Command new')
+    expect(listing.locator('a.task-log')).to_have_count(1)
     assert errors == [], errors

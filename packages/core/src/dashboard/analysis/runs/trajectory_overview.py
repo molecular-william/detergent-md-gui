@@ -82,12 +82,35 @@ def _segment(run_dir):
     return playable[-1] if playable else None
 
 
+#: The energy file names a GROMACS leg writes, most specific first. Explicit, never a glob: a stage also holds
+#: `eq.edr` and `min.edr`, and either would answer a production trajectory.
+ENERGY_NAMES = ('md.edr', 'run.edr')
+
+
+def _energy_beside(trajectory):
+    """The energy file of the leg that wrote `trajectory`, or `None`.
+
+    A stage writes a trajectory and the energy file it belongs to in the same directory. One case separates them:
+    the AA-CG pipeline extracts the solute into `prod/lig_CG.xtc` while the leg's `md.edr` stays in the stage
+    directory above. So the search is the trajectory's own directory first, then that directory's parent. The names
+    are explicit because a glob would happily return `eq.edr` or `min.edr` for a production trajectory.
+    """
+    trajectory = Path(trajectory)
+    for directory in (trajectory.parent, trajectory.parent.parent):
+        for name in (f'{trajectory.stem}.edr', *ENERGY_NAMES):
+            candidate = directory / name
+            if candidate.is_file():
+                return candidate
+    return None
+
+
 def sources(run_dir, payload=None):
     """Stage the latest segment's trajectory, structure and its energy file; nothing else from the run.
 
     The producer finds the pair again by scanning the staged tree, so the hook and the producer cannot disagree
     about *which* segment this overview describes without disagreeing about the run itself: the staged tree holds
-    exactly the one trajectory the hook chose.
+    exactly the one trajectory the hook chose. The energy file is the leg's own, found by `_energy_beside`: beside
+    the trajectory, or in the stage directory above it when the trajectory is an extracted solute.
     """
     run_dir = Path(run_dir)
     chosen = _segment(run_dir)
@@ -97,12 +120,9 @@ def sources(run_dir, payload=None):
                                              'structure': chosen['structure']})
     trajectory = segments.present(run_dir, chosen['trajectory'])
     if trajectory is not None:
-        directory = trajectory.parent
-        for name in (f'{trajectory.stem}.edr', 'run.edr'):
-            edr = directory / name
-            if edr.is_file():
-                entries[str(edr.relative_to(run_dir))] = edr
-                break
+        edr = _energy_beside(trajectory)
+        if edr is not None and edr.is_relative_to(run_dir):
+            entries[str(edr.relative_to(run_dir))] = edr
     return entries
 
 
@@ -257,13 +277,10 @@ def _xvg_columns(path):
 
 
 def _energy(work, trajectory):
-    """Temperature, pressure and potential from the sibling EDR, or None with the reason it is absent."""
-    directory = trajectory.parent
-    candidates = [directory / f'{trajectory.stem}.edr', directory / 'run.edr',
-                  *sorted(directory.glob('*.edr'))]
-    edr = next((path for path in candidates if path.is_file()), None)
+    """Temperature, pressure and potential from the leg's EDR, or None with the reason it is absent."""
+    edr = _energy_beside(trajectory)
     if edr is None:
-        return None, 'no .edr is staged beside the trajectory'
+        return None, 'no .edr is staged beside the trajectory or its stage directory'
     gmx = tools.tool_path('gmx')
     if gmx is None:
         return None, 'gmx is not available, so the .edr cannot be read'

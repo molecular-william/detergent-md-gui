@@ -46,7 +46,7 @@ def plots(page, side='A'):
     return page.locator(f'#run-view-analysis-plots-{side}')
 
 
-def open_view(page, live_page, run_id=A_RUN, figures=3):
+def open_view(page, live_page, run_id=A_RUN, figures=4):
     page.goto(f'{live_page.base_url}/{WORKSPACE}/run-view?run={run_id}')
     expect(page.locator('#runview')).to_be_visible()
     expect(plots(page).locator('[role=tab]')).to_have_count(figures)
@@ -71,7 +71,7 @@ def test_run_figure_tabs_zoom_and_mapping_display(dashboard, live_page):
     expect(plots(page).locator('.figure-zoom-level')).to_have_text('125%')
     # The selection and the zoom are remembered per run, so a reload comes back to the figure the reader left on.
     page.reload()
-    expect(plots(page).locator('[role=tab]')).to_have_count(3)
+    expect(plots(page).locator('[role=tab]')).to_have_count(4)
     expect(plots(page).locator('.figure-zoom-level')).to_have_text('125%')
     # ArrowLeft from beta selected alpha, whose own 125% zoom was remembered.
     expect(plots(page).locator('.figure-source')).to_have_text('alpha.svg')
@@ -103,7 +103,7 @@ def test_analysis_display_preserves_missing_values_and_metadata(dashboard, live_
         {'title': 'Wasserstein distance', 'units_or_direction': 'nm; lower is better', 'legacy': False}))
     page, errors = live_page
 
-    open_view(page, live_page, figures=1)
+    open_view(page, live_page, figures=2)
 
     expect(plots(page).locator('.figure-caption')).to_contain_text('Wasserstein distance')
     expect(plots(page).locator('.figure-caption')).to_contain_text('nm; lower is better')
@@ -128,7 +128,7 @@ def test_an_unclassified_diagnostic_artifact_says_so(dashboard, live_page):
         {'beads': ['B01', 'B02'], 'wasserstein_nm': {'raw_AA': 0.2, 'ring_expanded_AA': 0.3}}]}))
     page, errors = live_page
 
-    open_view(page, live_page, figures=0)
+    open_view(page, live_page, figures=1)
 
     diagnostics = page.locator('#run-view-analysis-diagnostics-A')
     expect(diagnostics.locator('.distance-diagnostic')).to_contain_text('per-pair classification')

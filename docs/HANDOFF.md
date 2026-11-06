@@ -10,6 +10,14 @@ The 2026-11-05 nine-point round is implemented and committed (items 1-6, 8, 9; t
 `docs/plans/2026-11-05-feature-round.md`, which carries the decisions, the per-lane evidence and the two corrections
 found while building. The open items table below is the queue; the two the round left behind are the first two rows.
 
+The 2026-11-06 Run-view Analysis slice is built and live-checked; its plan is
+`docs/plans/2026-11-06-run-view-analysis-fixes.md`. It fixed the cross-check's preprocessor failure, the fit
+temperature it reads, the dihedral reader's treatment of periodic impropers, and the overview's stage-level `.edr`
+lookup; it compacted the figure tabs and task list, reduced the card spacing, and made the second monitor
+minimizable. The dashboard was restarted at 11:39. Live: `67bc79a995d6`'s cross-check publishes 22 terms (8 bonds,
+14 constraints) at the fit's 300.0 K; `dihedral-fit` publishes one proper dihedral with eight harmonics; the overview
+reports Temperature 303.1535 K, Pressure 0.9865 bar and Potential −14,634.92 kJ/mol from `4_CG_sim/md.edr`.
+
 The dashboard was restarted on 2026-11-05 at 17:12 for the whole round. Live checks: LMNG's automatic candidate is
 23 connected beads with the branch bead `[11,22,46]` (connectivity and spectral agree on the bead count, differ on
 the grouping); run `619ab118abd6`'s rebuilt AA series carries 160 CONECT records over 201 models and the viewer draws
@@ -78,6 +86,7 @@ after the check; this host reports three GPUs, so the no-GPU path is pinned by t
 | run-layout migration | applied 2026-10-27 (`legacy_layout.json` on every then-existing run); `936b74bd3fa8`, `00b9ae6db23f` deleted by the user | verify the migrated runs still render and resolve analyses |
 | analysis progress visibility | queued and watched only in Run view now: the Runs card's Analysis graphs panel is gone | decide whether the Runs card needs a one-line "analysis running" pointer |
 | Overall Run view progress | the card bar is the current stage's fraction; timeline/plan skips show settings | decide whether a true run-level percentage is wanted |
+| `aa_only` overview energy | the overview stages the selected leg's own `.edr`; an AA-only reference's energy is in `06_production/run.edr`, a different stage | extend the lookup for an `aa_only` run if wanted |
 | cloud vs rough belt | open measurement, not a task | one protein, one seed, two 100 ns legs; compare removal fraction/aggregation/belt thickness before adopting a belt criterion |
 | mutation signal | 9 caught, 1 survived (control), 1 stale: `cg-timestep-on-the-wrong-half` anchors on `if folder == aa_dir:`, which the audit refactor removed (`bfd2f82`) | retarget that mutant to the current `cg.mdp_values` line |
 | `pytest-socket` | not installed; no test enforces the no-outbound-HTTPS audit | add with `--allow-hosts=127.0.0.1,localhost` |
@@ -200,6 +209,24 @@ after the check; this host reports three GPUs, so the no-GPU path is pinned by t
   caught / 1 survived. `pytest.ini` owns tier counts; do not copy moving counts into this file.
 
 ## Landed slices, newest first
+
+- **2026-11-06 Run-view Analysis card fixes**: the six items on `67bc79a995d6`. **Topology readers**:
+  `itp.active_lines` evaluates `#ifdef`/`#ifndef`/`#else`/`#endif`, and the cross-check reads the live branch
+  (`cg.prepare` clears `FLEXIBLE`); `dihedral_fit` skips the periodic impropers (`funct 2`/`4`) instead of refusing
+  them as short propers. **Fit temperature**: `kinds.TABLE['bonded-cross-check'].sources` stages
+  `3_initial_CG/parameterization_used.json`, and the report uses its `temperature_k` (300.0 K here) rather than the
+  303.15 default. **Overview energy**: `trajectory_overview._energy_beside` looks beside the trajectory and then one
+  stage directory up (explicit `md.edr`/`run.edr`, never a glob), so the extracted `prod/lig_CG.xtc` reads
+  `4_CG_sim/md.edr`. **Analysis card**: a disabled first `trajectory overview` figure tab until the figure publishes
+  (three-per-row tabs, two rows for five figures); one task row per kind, the latest attempt, with the last line of
+  that attempt's `console.log` as the error and one `Log` link only on the failed row; card margin 0, padding 8 px,
+  monitor gap 8 px; the second monitor has a `Minimize`/`Expand` control, collapses to its header, lets the first
+  monitor take the full width, and remembers the choice in `run-view.state`.
+  Live: cross-check 22 terms (8 bonds, 14 constraints), 0 unmeasured, 4 disagreements, 300.0 K, 2.7 s; dihedral-fit
+  1 proper dihedral (8 harmonics), 0 disagreements, 2.41 s; overview Temperature 303.1535 K, Pressure 0.9865 bar,
+  Potential −14,634.92 kJ/mol from `4_CG_sim/md.edr`, 4.33 s. Checks: full fast, browser and slow tiers green; ruff clean. Plan `docs/plans/2026-11-06-run-view-analysis-fixes.md`; drafts and
+  after screenshots in `docs/design/drafts/2026-11-06-run-view-*` and `2026-11-06-analysis-after.png` /
+  `2026-11-06-overview-after.png` / `2026-11-06-runview-minimized-after.png`.
 
 - **2026-11-06 Whole-trajectory rebuild (pdc Run view)**: a pdc run's derived `whole.xtc` can be rebuilt in place
   from its immutable `run.xtc` with a chosen frame step and precision. Code: producer `detergent_pdc/execution/

@@ -84,6 +84,8 @@ function monitorMarkup(side) {
   return `
   <div class="monitor" data-side="${side}">
     <div class="card monitor-head">
+      ${side === 'B' ? `<div class="monitor-head-bar"><span class="who">Second run</span>
+        <button type="button" class="secondary" id="run-view-minimize-${side}" aria-expanded="true">Minimize</button></div>` : ''}
       <div class="chooser" data-open="false">
         <label class="grow"><span class="hint cap">Choose a run (completed only)</span>
           <input type="text" class="filter" id="run-view-choose-${side}" autocomplete="off" spellcheck="false"
@@ -535,6 +537,8 @@ function chooser(root, side, runs, onPick) {
     root, side, legend, chooser: combo,
     run: () => selected,
     loadRun: job => { selected = job; combo.set(job); return loadRun(job); },
+    // A monitor that was collapsed while NGL was created needs its renderer measured again after it returns.
+    resize: () => { viewer.runViewStage?.handleResize(); },
     // For a run the workspace's own list does not hold -- a link from the Runs table to a run of another
     // workspace -- the monitor still draws it, and this is what says so where the identity line is.
     identify: text => { identity.textContent = text; },

@@ -1,8 +1,15 @@
 import { $, storage, setText } from './shared.js';
 
+//: How a tab label is compared with a pending label: the filename's own spelling is case- and separator-blind.
+const normalized = label => String(label || '').toLowerCase().replace(/[_-]+/g, ' ').trim();
+
 export class RunFigureViewer {
-  constructor(host, runId) {
+  constructor(host, runId, options = {}) {
     this.host=host; this.runId=runId; this.key=`figures.${runId}`;
+    //: Figures this run can produce but has not published yet. A pending label is drawn as a disabled tab in the
+    //: first position, so the tab row says what is available before it has been calculated and does not reflow when
+    //: the real figure arrives.
+    this.pending=Array.isArray(options.pending)?options.pending.slice():[]; this.pendingLabels=[];
     const saved=storage.get(this.key,{});
     this.state={selected:saved?.selected||'',zoom:saved?.zoom&&typeof saved.zoom==='object'?saved.zoom:{}};
     host.innerHTML='<div class="figure-tabs" role="tablist" aria-label="Run figures"></div><section class="figure-panel" role="tabpanel"><div class="toolbar figure-controls"><button type="button" class="secondary figure-zoom-out">Zoom out</button><output class="figure-zoom-level" aria-live="polite">100%</output><button type="button" class="secondary figure-zoom-in">Zoom in</button><button type="button" class="secondary figure-zoom-reset">Fit / reset</button><a class="button secondary figure-original" target="_blank" rel="noopener">Open original</a></div><figure><figcaption class="figure-caption"></figcaption><p class="figure-source hint"></p><div class="figure-viewport" tabindex="0" aria-label="Figure viewport; scroll to pan when zoomed"><div class="figure-canvas"></div></div><p class="figure-help hint">Zoom to enlarge; scroll to pan. Interactive 3D figures also support dragging to rotate.</p><p class="figure-error notice" role="status" hidden></p></figure></section><p class="figure-empty" hidden>No analysis graphs yet. Use the analysis buttons to generate results.</p>';
@@ -20,32 +27,50 @@ export class RunFigureViewer {
     if(signature===this.signature)return;
     this.signature=signature;this.artifacts=artifacts;
     this.tabs.replaceChildren();
-    this.panel.hidden=!artifacts.length;this.tabs.hidden=!artifacts.length;$('.figure-empty',this.host).hidden=!!artifacts.length;
-    if(!artifacts.length){this.canvas.replaceChildren();this.active='';return;}
     const labels=artifacts.map(a=>a.path.split('/').at(-1).replace(/\.(svg|png|html)$/i,'').replace(/[_-]+/g,' '));
-    const counts=new Map();labels.forEach(label=>counts.set(label,(counts.get(label)||0)+1));
+    const published=new Set(labels.map(normalized));
+    this.pendingLabels=this.pending.filter(label=>!published.has(normalized(label)));
     this.labels=labels;
     this.metadata=artifacts.map(a=>a.metadata || null);
+    // A pending figure keeps the first position the real one will take. It is a real tab element so it sits in the
+    // tablist with its neighbours, but it is disabled, unfocusable and never selected: there is nothing to show.
+    this.pendingLabels.forEach(label=>{
+      const tab=document.createElement('button');tab.type='button';tab.role='tab';tab.disabled=true;tab.tabIndex=-1;
+      tab.setAttribute('aria-disabled','true');tab.setAttribute('aria-controls',this.panel.id);
+      tab.className='figure-tab-pending';tab.textContent=label;
+      tab.title='Not calculated yet. Use the Trajectory overview button above.';
+      this.tabs.append(tab);
+    });
+    const counts=new Map();labels.forEach(label=>counts.set(label,(counts.get(label)||0)+1));
     artifacts.forEach((artifact,index)=>{
       const tab=document.createElement('button');tab.type='button';tab.role='tab';tab.id=`figure-tab-${this.runId}-${index}`;
       tab.setAttribute('aria-controls',this.panel.id);tab.textContent=labels[index]+(counts.get(labels[index])>1?` · ${index+1}`:'');tab.title=artifact.path;
+      tab.dataset.path=artifact.path;
       tab.onclick=()=>this.select(artifact.path);
       tab.onkeydown=event=>{
+        // Arrow keys walk the figures that exist, skipping the disabled pending tabs in front of them.
+        const enabled=[...this.tabs.querySelectorAll('button[data-path]')];
+        const current=enabled.indexOf(tab);
         let next;
-        if(event.key==='ArrowRight')next=(index+1)%artifacts.length;
-        if(event.key==='ArrowLeft')next=(index+artifacts.length-1)%artifacts.length;
-        if(event.key==='Home')next=0;
-        if(event.key==='End')next=artifacts.length-1;
-        if(next!==undefined){event.preventDefault();this.select(artifacts[next].path);this.tabs.children[next].focus();}
+        if(event.key==='ArrowRight')next=enabled[(current+1)%enabled.length];
+        if(event.key==='ArrowLeft')next=enabled[(current+enabled.length-1)%enabled.length];
+        if(event.key==='Home')next=enabled[0];
+        if(event.key==='End')next=enabled[enabled.length-1];
+        if(next&&next!==tab){event.preventDefault();this.select(next.dataset.path);next.focus();}
       };
       this.tabs.append(tab);
     });
+    this.panel.hidden=!artifacts.length;this.tabs.hidden=!artifacts.length&&!this.pendingLabels.length;
+    $('.figure-empty',this.host).hidden=!!artifacts.length;
+    if(!artifacts.length){this.canvas.replaceChildren();this.active='';return;}
     this.select(artifacts.some(a=>a.path===this.state.selected)?this.state.selected:artifacts[0].path);
   }
   select(path) {
     const index=this.artifacts.findIndex(a=>a.path===path);if(index<0)return;
-    Array.from(this.tabs.children).forEach((tab,i)=>{tab.setAttribute('aria-selected',String(i===index));tab.tabIndex=i===index?0:-1;});
-    this.panel.setAttribute('aria-labelledby',this.tabs.children[index].id);
+    const childIndex=this.pendingLabels.length+index;
+    const children=[...this.tabs.children];
+    children.forEach((tab,i)=>{const selected=i===childIndex;tab.setAttribute('aria-selected',String(selected));tab.tabIndex=selected?0:-1;});
+    this.panel.setAttribute('aria-labelledby',children[childIndex].id);
     this.state.selected=path;storage.set(this.key,this.state);
     if(this.active===path)return; // Preserve an iframe's camera and image scroll on refresh.
     this.active=path;

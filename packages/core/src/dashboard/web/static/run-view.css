@@ -40,8 +40,20 @@
 .run-view-monitors { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; margin-top: 14px; }
 @media (max-width: 1080px) { .run-view-monitors { grid-template-columns: 1fr; } }
 .monitor-host { min-width: 0; }
-.monitor { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.monitor .card { padding: 12px; }
+.monitor { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+/* The cards are siblings in a flex column, so their own margins are distance added twice: the flex gap is the
+   distance between sub-panels, and the `.card` margin is reset here. The sub-panels own their padding through the
+   summary, so they get none from the card. */
+.monitor > .card { margin: 0; padding: 8px; }
+.monitor > .card.run-view-sub { padding: 0; }
+/* The second monitor can be reduced to its header; the first then takes the full width and the header sits below
+   it. The collapsed monitor's canvas, trajectory, Analysis card and sub-panels are not laid out. */
+.run-view-monitors.one-column { grid-template-columns: 1fr; }
+.monitor[data-minimized="true"] > :not(.monitor-head) { display: none; }
+.monitor-head-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.monitor-head-bar .who { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted) }
+.monitor-head-bar button { margin-left: auto; padding: 4px 9px; font-size: 12px; }
 
 /* The combo: an input with its own filtered listbox, so the list can carry a type, an id and a date. The input is
    the width of the monitor rather than the width of its own label -- it is the control a reader uses most. */
@@ -129,10 +141,25 @@
    Under the Trajectory block, per monitor: the run's figures, the three controls that queue them, the task lines
    while something is in flight, and the assessment's distance diagnostics. The figure viewer's own rules live in
    `dashboard.css` (`.analysis-plots`, `.figure-viewport`), because it is the same viewer the Runs page used. */
-.run-view-analysis { margin-top: 12px; min-width: 0 }
+.run-view-analysis { margin-top: 0; min-width: 0 }
 .run-view-analysis-title { margin: 0 0 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase;
   color: var(--muted) }
 .run-view-analysis-note { overflow-wrap: anywhere }
-.run-view-analysis .analysis-tasks p { margin: 4px 0; font-size: 12px }
+.run-view-analysis .toolbar { margin: 8px 0 }
+.run-view-analysis .analysis-tasks p { margin: 3px 0; font-size: 12px }
+.run-view-analysis .analysis-tasks .task-kind { font-weight: 600 }
+.run-view-analysis .analysis-tasks .task-message { color: var(--danger) }
+.run-view-analysis .analysis-tasks .task-log { margin-left: 6px; white-space: nowrap }
 .run-view-analysis .analysis-tasks button { margin-left: 8px }
-.run-view-analysis .analysis-plots { margin-top: 12px }
+.run-view-analysis .analysis-plots { margin-top: 8px }
+/* Three per row: five figures are two rows, not one scrolling row. The labels wrap rather than disappear behind
+   an ellipsis; a pending figure keeps the first position and is greyed out. */
+.run-view-analysis .figure-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px;
+  overflow: visible; max-width: none; padding: 4px 0 8px }
+.run-view-analysis .figure-tabs button { max-width: none; white-space: normal; overflow-wrap: anywhere;
+  padding: 5px 6px; font-size: 12px; line-height: 1.25; text-align: center }
+.run-view-analysis .figure-tabs button:disabled { border-style: dashed }
+.run-view-analysis .figure-tabs button[aria-selected="true"] { opacity: 1 }
+@media (max-width: 700px) {
+  .run-view-analysis .figure-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+}

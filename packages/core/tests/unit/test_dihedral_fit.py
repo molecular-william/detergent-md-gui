@@ -236,6 +236,19 @@ def test_a_dihedral_of_another_function_type_and_a_short_line_are_both_refused(t
         dihedral_fit.read_declared_dihedrals(short)
 
 
+def test_a_periodic_improper_is_skipped_rather_than_read_as_a_short_proper_one(tmp_path):
+    """Fast_Forward writes the propers and the periodic impropers in one `[ dihedrals ]` section. `funct 2` carries
+    phase and force constant but no multiplicity, so it is seven fields, not a malformed eight-field proper."""
+    path = tmp_path / 'fit.itp'
+    path.write_text('[ dihedrals ]\n1 2 9 10 2 173.549 6.681\n'
+                    '1 2 3 4 1 180.0 3.5 2\n')
+
+    terms = dihedral_fit.read_declared_dihedrals(path)
+
+    assert [term['atoms'] for term in terms] == [(1, 2, 3, 4)]
+    assert terms[0]['funct'] == '1'
+
+
 FUNCT9_TOPOLOGY = """[ dihedrals ]
 ; Fast_Forward writes one harmonic per line, for the same four beads
 1 2 3 4 9 180.0 3.5 2
