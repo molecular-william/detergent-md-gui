@@ -184,9 +184,14 @@
   font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .whole-trajectory .inside{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;padding:7px 11px 8px;
   border-top:1px solid var(--line)}
-.whole-trajectory label{display:flex;align-items:center;gap:5px;margin:0;font-weight:600;font-size:12px;color:var(--muted)}
-.whole-trajectory input{width:3.6rem;padding:2px 5px;font-size:12.5px;font-variant-numeric:tabular-nums}
-.whole-trajectory select{padding:2px 4px;font-size:12.5px}
+.whole-trajectory label{display:flex;flex:0 0 auto;align-items:center;gap:5px;margin:0;white-space:nowrap;
+  font-weight:600;font-size:12px;color:var(--muted)}
+.whole-trajectory .inside input{width:4.2rem;flex:0 0 4.2rem;min-width:0;padding:2px 5px;font-size:12.5px;
+  font-variant-numeric:tabular-nums}
+.whole-trajectory .inside select{flex:0 0 auto;width:auto;padding:2px 4px;font-size:12.5px}
+.whole-trajectory .actions button{flex:0 0 auto;padding:4px 10px;font-size:12px;line-height:1.25;margin:0}
+.whole-trajectory button.linkish{padding:0;border:0;background:none;color:var(--accent);font-size:11.5px;
+  font-weight:400;text-decoration:underline}
 .whole-trajectory .estimate{font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .whole-trajectory .actions{margin-left:auto;display:flex;align-items:center;gap:8px}
 .whole-trajectory .whole-error{margin:0;padding:0 11px 8px;color:var(--danger);font-size:12px}

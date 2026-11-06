@@ -49,6 +49,8 @@ def test_the_whole_trajectory_card_is_offered_compact_and_posts_its_numbers(dash
     expect(card.locator('.summary-meta')).to_contain_text('2.0 GB')
     assert card.locator('.whole-dt').input_value() == '100'
     assert card.locator('.whole-decimals').input_value() == '2'
+    # 2 GiB at 20 ps, rebuilt at 100 ps and 2 decimals: 2 GiB * (20/100) * 0.76 = about 0.3 GiB, 6.6x smaller.
+    expect(card.locator('.estimate')).to_contain_text('6.6×')
     expect(card.locator('.estimate')).to_contain_text('smaller')
 
     card.locator('.whole-recompute').click()

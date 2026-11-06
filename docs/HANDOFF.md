@@ -206,8 +206,10 @@ after the check; this host reports three GPUs, so the no-GPU path is pinned by t
   rebuild_whole.py`, routes `GET|POST /api/pdc/<job_id>/whole-trajectory`, the card in the pdc Run view extension
   (engine slot `nodes.extension`), tests and docs. Compact default (100 ps, 0.01 nm): live `6c36b3c610f3` went
   **1.60 GB -> 0.24 GB**, overview aggregate unchanged at **92**, Rg 2.1333 -> 2.1387 nm, RMSD 2.5874 -> 2.5916 nm.
-  Two defects caught live and pinned: gmx trjconv needs an `.xtc` suffix on its output (a `.tmp` name writes nothing),
-  and the header reader needs the sibling `run.gro`, not `prod/run.gro` joined twice. Plan:
+  Three defects caught live and pinned: gmx trjconv needs an `.xtc` suffix on its output (a `.tmp` name writes
+  nothing); the header reader needs the sibling `run.gro`, not `prod/run.gro` joined twice; and the size estimate's
+  cadence ratio was inverted (100 ps predicted larger than a 20 ps source). The card's controls also needed scoping
+  against the app's form styles (labels wrapped, the link rendered as a button). Plan:
   `docs/plans/2026-11-05-rebuild-whole-trajectory.md`; draft `docs/design/drafts/2026-11-05-whole-trajectory-panel.html`.
   Checks: the three new pdc test files (15 passed), full fast tier and browser tier, ruff clean.
 

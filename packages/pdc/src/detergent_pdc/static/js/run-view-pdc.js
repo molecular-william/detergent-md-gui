@@ -114,7 +114,7 @@ function wholeLine(info) {
 
 function wholeEstimate(raw, dtPs, decimals) {
   if (!raw || !raw.bytes) return '';
-  const ratio = raw.frames && raw.cadence_ps && dtPs ? Math.min(1, dtPs / raw.cadence_ps) : 1;
+  const ratio = raw.frames && raw.cadence_ps && dtPs ? Math.min(1, raw.cadence_ps / dtPs) : 1;
   const bytes = Math.max(1, raw.bytes * ratio * (DECIMAL_COST[decimals] || 1));
   return `≈ ${wholeBytes(bytes)} · ${(raw.bytes / bytes).toFixed(1)}× smaller`;
 }
