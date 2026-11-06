@@ -48,6 +48,30 @@ def _admission(data):
                          'the mapping candidate records the run it was made from')
 
 
+def _mapping_payload(c, jid, body):
+    """The comparison's request, derived from the run itself.
+
+    The analysis needs the mapping the run was built from, the molecule, and the topology it simulated. All three
+    are already in the run's own record -- the mapping snapshot it consumed and `cg_names.final_itp` -- so the
+    request carries no filesystem path a client could invent, and a run with no snapshot is refused rather than
+    compared through someone else's.
+    """
+    job = c.lookup(jid)
+    if job.get('run_type') != 'aa_cg':
+        raise ValueError('The mapping comparison is defined for an AA-to-CG run')
+    manifest = c.manifest_data(job)
+    mapping = job.get('mapping_snapshot') or {}
+    if not (isinstance(mapping, dict) and mapping.get('beads')):
+        mapping = manifest.get('mapping_candidate') or {}
+    if not (isinstance(mapping, dict) and mapping.get('beads')):
+        raise ValueError('This run records no mapping snapshot to compare through')
+    names = manifest.get('cg_names') or {}
+    return {**(body or {}), 'mapping_snapshot': mapping,
+            'molecule': job.get('molecule_id') or job.get('detergent'),
+            'entry_name': (body or {}).get('entry_name'),
+            'cg_topology': names.get('final_itp') or manifest.get('FINAL_ITP')}
+
+
 FEATURE = features.Feature(
     name='validation',
     blueprints=(bonded.blueprint, osmotic.blueprint, targets.blueprint,
@@ -55,7 +79,8 @@ FEATURE = features.Feature(
     protocols={'osmotic': _osmotic_protocol},
     kinds=kind_rows.KINDS,
     code_roots=(('detergent_validation', Path(__file__).resolve().parent),),
-    kind_payload={'carbohydrate-validation': analyses_routes.payload},
+    kind_payload={'carbohydrate-validation': analyses_routes.payload,
+                  'mapping-consistency': _mapping_payload},
     evidence_sections=evidence_tables.EVIDENCE_SECTIONS,
     molecule_profiles=evidence_tables.MOLECULE_PROFILES,
     section=('validation', {

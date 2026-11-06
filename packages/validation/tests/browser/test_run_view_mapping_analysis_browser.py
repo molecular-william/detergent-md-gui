@@ -178,6 +178,33 @@ def test_a_run_with_no_published_comparison_says_so_in_every_mapping_section(das
     assert errors == []
 
 
+def test_the_missing_comparison_offers_a_button_that_queues_it(dashboard, live_page):
+    """The Analysis card is the only place the comparison can be started; the request names no snapshot."""
+    publish(dashboard, 'dd44ee55ff66')
+    (dashboard.coordinator.RUNS / 'dd44ee55ff66/analyses/mapping-consistency/hash/attempt1/result.json').unlink()
+    page, errors = live_page
+    posted = []
+
+    def hold(route):
+        if route.request.method == 'POST':
+            posted.append(route.request.post_data)
+            route.fulfill(status=202, content_type='application/json', body=json.dumps(
+                {'id': 'queued1', 'kind': 'mapping-consistency', 'status': 'queued',
+                 'created_at': '2026-11-06T00:00:00+00:00'}))
+        else:
+            route.continue_()
+
+    page.route('**/api/jobs/dd44ee55ff66/mapping-consistency', hold)
+    pane = open_section(page, live_page, 'dd44ee55ff66', 'mapping-geometry')
+
+    button = pane.get_by_role('button', name='Calculate the comparison')
+    expect(button).to_be_visible(timeout=30000)
+    button.click()
+    expect(page.locator('#run-view-analysis-note-A')).to_contain_text('Mapping comparison queued.', timeout=30000)
+    assert posted == ['{}'], posted
+    assert errors == []
+
+
 def test_every_completed_run_gets_the_card_and_a_run_with_no_comparison_gets_the_reason(dashboard, live_page):
     """An atomistic-only run keeps Figures and the task list, and states why the mapping sections are absent."""
     publish(dashboard, 'cc33dd44ee55')

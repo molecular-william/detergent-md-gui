@@ -163,3 +163,58 @@ def test_the_newest_attempt_answers_when_several_exist(dashboard):
 
     assert response.json['attempt'] == 'attempt2'
     assert response.json['comparison']['displacement']['rmsd_nm'] == 0.0198
+
+
+def test_the_queue_request_is_derived_from_the_run_it_belongs_to(dashboard, monkeypatch):
+    """The button sends no path and no snapshot: the route fills both from the run's own record.
+
+    The comparison is the run's mapping against the run's own trajectory, so a request that could name a different
+    snapshot would let the panel show numbers for a mapping the run did not consume.
+    """
+    job(dashboard, 'ab12cd34ef56', molecule_id='LMNG', detergent='LMNG')
+    run = dashboard.coordinator.RUNS / 'ab12cd34ef56'
+    run.mkdir(parents=True)
+    (run / 'manifest.json').write_text(json.dumps({
+        'mapping_candidate': {'name': 'LMNG mapping', 'beads': [
+            {'atoms': [1, 2], 'residue': 1, 'letter': 'A', 'name': 'S1A', 'type': 'SP1r'}]},
+        'cg_names': {'final_itp': 'LMNG.itp'},
+    }))
+    captured = {}
+
+    def queue(jid, kind, payload, **_):
+        captured.update(jid=jid, kind=kind, payload=payload)
+        return {'id': 'queued1', 'kind': kind, 'status': 'queued'}, 202
+
+    monkeypatch.setattr(dashboard.coordinator.analysis_coordinator, 'queue', queue)
+    response = dashboard.client.post('/api/jobs/ab12cd34ef56/mapping-consistency', json={})
+
+    assert response.status_code == 202
+    assert captured['jid'] == 'ab12cd34ef56' and captured['kind'] == 'mapping-consistency'
+    assert captured['payload']['mapping_snapshot']['beads'][0]['name'] == 'S1A'
+    assert captured['payload']['molecule'] == 'LMNG'
+    assert captured['payload']['cg_topology'] == 'LMNG.itp'
+
+
+def test_a_run_that_records_no_mapping_snapshot_is_refused(dashboard):
+    """A run cannot be compared through someone else's mapping, so the refusal names what is missing."""
+    job(dashboard, 'cd34ef56ab12')
+    run = dashboard.coordinator.RUNS / 'cd34ef56ab12'
+    run.mkdir(parents=True)
+    (run / 'manifest.json').write_text(json.dumps({'cg_names': {'final_itp': 'X.itp'}}))
+
+    response = dashboard.client.post('/api/jobs/cd34ef56ab12/mapping-consistency', json={})
+
+    assert response.status_code == 400
+    assert 'no mapping snapshot' in response.json['error']
+
+
+def test_an_atomistic_only_run_is_refused(dashboard):
+    job(dashboard, 'ef56ab12cd34', run_type='aa_only')
+    run = dashboard.coordinator.RUNS / 'ef56ab12cd34'
+    run.mkdir(parents=True)
+    (run / 'manifest.json').write_text(json.dumps({'cg_names': {'final_itp': 'X.itp'}}))
+
+    response = dashboard.client.post('/api/jobs/ef56ab12cd34/mapping-consistency', json={})
+
+    assert response.status_code == 400
+    assert 'AA-to-CG run' in response.json['error']

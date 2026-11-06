@@ -68,13 +68,27 @@ function notDefinedText(job) {
 
 // --------------------------------------------------------------------------------------------------- the record
 
-async function loadBody(host, job, isCurrent) {
+async function loadBody(host, job, isCurrent, retry) {
   try {
     return await api(`/api/jobs/${encodeURIComponent(job.id)}/mapping-consistency`);
   } catch (error) {
     if (!isCurrent()) return null;
-    host.replaceChildren(paragraph('hint',
-      `${error.message}. The comparison is queued by hand; Recompute covers the run's automatic analyses, not this one.`));
+    host.replaceChildren(paragraph('hint', `${error.message}. The comparison is not queued for this run.`));
+    if (retry) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'secondary';
+      button.textContent = 'Calculate the comparison';
+      button.onclick = async () => {
+        button.disabled = true;
+        try {
+          await retry();
+        } finally {
+          button.disabled = false;
+        }
+      };
+      host.append(button);
+    }
     return null;
   }
 }
@@ -281,8 +295,10 @@ function drawDisplacement(host, shape) {
 
 // ------------------------------------------------------------------------------------------------- the sections
 
-async function paintGeometry(host, {job, isCurrent, button, refresh}) {
-  const body = await loadBody(host, job, isCurrent);
+async function paintGeometry(host, {job, isCurrent, button, refresh, queue}) {
+  const body = await loadBody(host, job, isCurrent, queue ? () => queue(
+    `/api/jobs/${encodeURIComponent(job.id)}/mapping-consistency`, {},
+    () => 'Mapping comparison queued.') : null);
   if (!body || !isCurrent()) return;
   if (refresh && host.dataset.attempt === String(body.attempt)) return;
   host.dataset.attempt = String(body.attempt);
@@ -395,8 +411,8 @@ const SECTIONS = [
     label: 'Geometry',
     order: 10,
     serves: isComparisonRun,
-    mount: ({host, job, isCurrent, button}) => paintGeometry(host, {job, isCurrent, button, refresh: false}),
-    refresh: ({host, job, isCurrent, button}) => paintGeometry(host, {job, isCurrent, button, refresh: true}),
+    mount: ({host, job, isCurrent, button, queue}) => paintGeometry(host, {job, isCurrent, button, queue, refresh: false}),
+    refresh: ({host, job, isCurrent, button, queue}) => paintGeometry(host, {job, isCurrent, button, queue, refresh: true}),
   },
   {
     name: 'mapping-bonded',

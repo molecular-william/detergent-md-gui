@@ -31,6 +31,13 @@ the notice and no mapping tabs; the retired URL answers 404; the validation work
 `pytest -m 'not browser and not slow' -q` 2467 passed, 1 xfailed; `pytest -m browser -q -n 16 --dist worksteal`
 290 passed; `ruff check packages tests conftest.py` clean.
 
+The 2026-11-06 follow-up adds the missing start control. A stopped `aa_cg` run with no published comparison now
+offers **Calculate the comparison** in Geometry; it posts `/api/jobs/<id>/mapping-consistency` with `{}` and the
+validation feature's `_mapping_payload` derives the mapping snapshot, molecule and `cg_names.final_itp` from the
+run's own record. `67bc79a995d6` was queued this way at 16:30 and attempt `06a79aef9a0c` published 12 pairs (0
+outside the AA observed range), 34 terms and rmsd 0.0274 nm; its cross-check and dihedral fit were already
+published, while surfaces and overlap still have to be queued by hand.
+
 The dashboard was restarted on 2026-11-05 at 17:12 for the whole round. Live checks: LMNG's automatic candidate is
 23 connected beads with the branch bead `[11,22,46]` (connectivity and spectral agree on the bead count, differ on
 the grouping); run `619ab118abd6`'s rebuilt AA series carries 160 CONECT records over 201 models and the viewer draws

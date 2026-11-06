@@ -58,9 +58,13 @@ def _validator_payload_keys():
     return found
 
 
-def test_the_only_kind_with_a_payload_is_the_validation_report():
-    """Measured, not guessed: only this branch reads the body at all; everything else takes any object."""
-    assert set(_validator_payload_keys()) == {'carbohydrate-validation'}
+def test_the_two_kinds_with_a_payload_are_the_features_own():
+    """The validation report and the mapping comparison: everything else takes any object.
+
+    The mapping comparison reads nothing out of the body -- it derives its payload from the run -- so its entry is
+    the empty set, which is why the assertion is over the names rather than over keys.
+    """
+    assert set(_validator_payload_keys()) == {'carbohydrate-validation', 'mapping-consistency'}
 
 
 def test_default_for_aa_cg_is_the_two_checks_that_re_derive_the_fit():

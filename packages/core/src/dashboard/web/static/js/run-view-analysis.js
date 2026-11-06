@@ -256,7 +256,7 @@ export function createAnalysis({root, side}) {
   }
 
   function context(name, mine) {
-    return {host: paneFor(name), job, side, isCurrent: () => mine === token, button: buttonFor(name)};
+    return {host: paneFor(name), job, side, isCurrent: () => mine === token, button: buttonFor(name), queue};
   }
 
   function drawSection(name, mine) {
