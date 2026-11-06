@@ -47,6 +47,10 @@ export function createMonitor({root, side, runs, onPick}) {
   let structures = [];
   let sizeClasses = null;
 
+  // NGL measures itself when its host changes size. The second monitor's host goes to zero while collapsed and
+  // returns on Expand; the observer makes the renderer follow that, without a page reload.
+  new ResizeObserver(() => { viewer.runViewStage?.handleResize(); }).observe(viewer);
+
   // The counts in the two summaries are read off the panels themselves rather than tracked separately, so a
   // collapsed panel still says how much is behind it and no second bookkeeping can disagree with the first.
   function refreshCounts() {
@@ -538,7 +542,10 @@ function chooser(root, side, runs, onPick) {
     run: () => selected,
     loadRun: job => { selected = job; combo.set(job); return loadRun(job); },
     // A monitor that was collapsed while NGL was created needs its renderer measured again after it returns.
-    resize: () => { viewer.runViewStage?.handleResize(); },
+    resize: () => {
+      viewer.runViewStage?.handleResize();
+      viewer.runViewStage?.viewer?.requestRender?.();
+    },
     // For a run the workspace's own list does not hold -- a link from the Runs table to a run of another
     // workspace -- the monitor still draws it, and this is what says so where the identity line is.
     identify: text => { identity.textContent = text; },

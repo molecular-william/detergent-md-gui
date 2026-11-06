@@ -132,6 +132,10 @@
      by name. #}
   <div class="toolbar run-view-pairing">
     <button type="button" class="secondary" id="run-view-swap">Swap the two monitors</button>
+    {# The second monitor collapses to a header below the first one, so its own Expand button can be far down the
+       page. This toolbar control is the one that is always in view; it and the header's button drive one state. #}
+    <button type="button" class="secondary" id="run-view-second-toggle" aria-expanded="true"
+            aria-controls="run-view-monitors">Hide second monitor</button>
     <span id="run-view-note" class="hint" role="status">Reading the run list…</span>
   </div>
   <div id="run-view-monitors" class="run-view-monitors"></div>

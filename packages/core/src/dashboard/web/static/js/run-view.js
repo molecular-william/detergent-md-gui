@@ -133,6 +133,9 @@ export function createRunView() {
     applyMinimized();
     const button = minimizeButton();
     if (button) button.addEventListener('click', () => toggleMinimized());
+    // The toolbar control stays in view; the second monitor's own header can be below a tall first monitor.
+    const toolbar = $('#run-view-second-toggle');
+    if (toolbar) toolbar.addEventListener('click', () => toggleMinimized());
   }
 
   function minimizeButton(side = 'B') {
@@ -150,6 +153,11 @@ export function createRunView() {
     if (button) {
       button.textContent = collapsed ? 'Expand' : 'Minimize';
       button.setAttribute('aria-expanded', String(!collapsed));
+    }
+    const toolbar = $('#run-view-second-toggle');
+    if (toolbar) {
+      toolbar.textContent = collapsed ? 'Show second monitor' : 'Hide second monitor';
+      toolbar.setAttribute('aria-expanded', String(!collapsed));
     }
   }
 

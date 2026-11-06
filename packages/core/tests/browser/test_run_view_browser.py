@@ -1032,30 +1032,54 @@ def test_the_second_monitor_minimizes_to_its_header_and_the_first_takes_the_widt
         " && document.querySelector('#run-view-viewer-A canvas')", timeout=30000)
 
     button = page.locator('#run-view-minimize-B')
+    toggle = page.locator('#run-view-second-toggle')
     expect(button).to_be_visible()
     expect(button).to_have_text('Minimize')
+    expect(toggle).to_be_visible()
+    expect(toggle).to_have_text('Hide second monitor')
     before = page.locator('#run-view-viewer-A').bounding_box()
     button.click()
 
     expect(button).to_have_text('Expand')
     expect(button).to_have_attribute('aria-expanded', 'false')
+    expect(toggle).to_have_text('Show second monitor')
+    expect(toggle).to_have_attribute('aria-expanded', 'false')
     assert page.locator('.monitor[data-side="B"]').get_attribute('data-minimized') == 'true'
     expect(page.locator('#run-view-viewer-B')).to_be_hidden()
     after = page.locator('#run-view-viewer-A').bounding_box()
     assert after['width'] > before['width'] * 1.5, 'monitor A did not take the freed width'
+    # The first monitor's NGL canvas follows the new width; the size observer is what makes that happen without a
+    # reload, and the canvas's own width is the rendered answer rather than the host's.
+    canvas = page.locator('#run-view-viewer-A canvas').bounding_box()
+    assert canvas and canvas['width'] >= after['width'] - 2, (canvas, after)
     first = page.locator('.monitor[data-side="A"]').bounding_box()
     header = page.locator('.monitor[data-side="B"] .monitor-head').bounding_box()
     assert header['y'] >= first['y'] + first['height'] - 1, 'the minimized bar is not below the first monitor'
+
+    # The toolbar control is the one always in view; restoring from it must remeasure the NGL canvas without a reload.
+    toggle.click()
+    expect(toggle).to_have_text('Hide second monitor')
+    expect(button).to_have_text('Minimize')
+    expect(page.locator('#run-view-viewer-B')).to_be_visible()
+    restored = page.locator('#run-view-viewer-B').bounding_box()
+    assert restored and restored['width'] > 100 and restored['height'] > 100, restored
+
+    # Minimize again through the toolbar, then reload: the remembered state is the minimized one.
+    toggle.click()
+    expect(toggle).to_have_text('Show second monitor')
+    expect(page.locator('#run-view-viewer-B')).to_be_hidden()
 
     page.reload()
     page.wait_for_function(
         "() => document.querySelectorAll('.monitor[data-side]').length === 2"
         " && document.querySelector('#run-view-viewer-A canvas')", timeout=30000)
     expect(page.locator('#run-view-minimize-B')).to_have_text('Expand')
+    expect(page.locator('#run-view-second-toggle')).to_have_text('Show second monitor')
     expect(page.locator('#run-view-viewer-B')).to_be_hidden()
 
-    page.locator('#run-view-minimize-B').click()
+    page.locator('#run-view-second-toggle').click()
     expect(page.locator('#run-view-minimize-B')).to_have_text('Minimize')
+    expect(page.locator('#run-view-second-toggle')).to_have_text('Hide second monitor')
     expect(page.locator('#run-view-viewer-B')).to_be_visible()
     assert errors == []
 
