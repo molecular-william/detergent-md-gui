@@ -108,10 +108,10 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 - GROMACS + Martini by default; anything else only with measured need.
 
 ## Do not
+- Read files with shell commands (`cat`, `head`, `sed`): use read for files, glob for paths, grep for contents.
 - Kill a process by an unfiltered listener: DSH is 3080, the dashboard 5000.
 - Push; the user pushes. Commit only after the relevant checks pass; `scripts/gate_commit.sh` is the gate.
-- Clean or reset paths you are not changing: name the paths, and leave `git clean`, `git reset --hard` and a broad
-  `git checkout` alone.
+- Clean or reset paths you are not changing: name the paths, and leave `git clean`, `git reset --hard` and a broad `git checkout` alone.
 - Exercise a destructive control against the live workspace. Point it at a fixture, or inspect what the client sends.
 - Delete simulation data, or rebuild a file to stand in for a lost record.
 - Signal a PID from a previous coordinator session; only the current worker owns its subprocess groups.
