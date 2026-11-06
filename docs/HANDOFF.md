@@ -228,13 +228,17 @@ after the check; this host reports three GPUs, so the no-GPU path is pinned by t
   `trajectory_header` and `/trajectory` now state `first_ns` and `dt_ps`; the form computes the producer's own
   low/high/stride and shows `About N models`, disabling a build over the 240 cap. The run's failed request was
   `150–200 @ 0.1 ns` = 501 models; the form now refuses it before queueing (`50–150 @ 1 ns` = 101 and enabled).
+  **Distance diagnostics**: the guidance box keeps the pair counts and category means, adds the within-ring and
+  between-ring/tail expanded-ring means (live LMNG 0.010 against 0.098 nm, where the physical aggregate is 0.089),
+  adds a `Group` column to the pair table, and moves the long legend behind a closed `How to read this`.
   Live: cross-check 22 terms (8 bonds, 14 constraints), 0 unmeasured, 4 disagreements, 300.0 K, 2.7 s; dihedral-fit
   1 proper dihedral (8 harmonics), 0 disagreements, 2.41 s; overview Temperature 303.1535 K, Pressure 0.9865 bar,
   Potential −14,634.92 kJ/mol from `4_CG_sim/md.edr`, 4.33 s. Checks: full fast, browser and slow tiers green; ruff
   clean. Plan `docs/plans/2026-11-06-run-view-analysis-fixes.md`; drafts and after screenshots in
   `docs/design/drafts/2026-11-06-run-view-*`, `2026-11-06-analysis-after.png`, `2026-11-06-overview-after.png`,
   `2026-11-06-runview-minimized-after.png`, `2026-11-06-runview-minimized-toolbar.png`,
-  `2026-11-06-frame-options-budget.png` and `2026-11-06-frame-options-over-cap.png`.
+  `2026-11-06-frame-options-budget.png`, `2026-11-06-frame-options-over-cap.png`,
+  `2026-11-06-distance-guidance-compact.png` and `2026-11-06-distance-guidance-open.png`.
 
 - **2026-11-06 Whole-trajectory rebuild (pdc Run view)**: a pdc run's derived `whole.xtc` can be rebuilt in place
   from its immutable `run.xtc` with a chosen frame step and precision. Code: producer `detergent_pdc/execution/

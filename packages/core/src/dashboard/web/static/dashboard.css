@@ -150,3 +150,7 @@ nav{max-width:100%;overflow-x:auto;white-space:nowrap}nav button{flex:0 0 auto}
 .modules-dirty{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#fff8e7;
   border:1px solid #efdfad;border-radius:8px;padding:8px 10px;margin:8px 6px 2px;font-size:12px}
 .modules-dirty button{padding:5px 10px;font-size:12px;background:var(--accent)}
+.distance-diagnostic-lead{font-weight:600;margin:2px 0 6px}
+.distance-diagnostic-help{margin-top:4px}
+.distance-diagnostic-help summary{font-size:12px}
+.distance-diagnostic-help p{font-size:12px;margin:4px 0 0}

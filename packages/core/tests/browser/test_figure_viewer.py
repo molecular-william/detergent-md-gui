@@ -112,6 +112,58 @@ def test_analysis_display_preserves_missing_values_and_metadata(dashboard, live_
     assert errors == []
 
 
+def test_the_diagnostics_box_shows_the_group_split_and_hides_the_legend_by_default(dashboard, live_page):
+    """The run's numbers stay visible; the one-time explanation is a closed disclosure. The within-ring and
+    between-ring/tail means are what the aggregate hides, and the pair table says which group a pair belongs to."""
+    from dashboard.execution import workflow
+    runs = seed(dashboard, A_RUN, figures=False)
+    (runs / A_RUN / 'stages').mkdir(parents=True, exist_ok=True)
+    assessment = workflow.stage_root(runs / A_RUN) / '5_assessment'
+    assessment.mkdir(parents=True)
+    (assessment / 'distance_diagnostics_stratified.json').write_text(json.dumps({
+        'pairs': [
+            {'beads': ['B01', 'B02'], 'kind': 'physical', 'group': 'within_ring',
+             'wasserstein_nm': {'raw_AA': 0.03, 'ring_expanded_AA': 0.01}},
+            {'beads': ['B02', 'B03'], 'kind': 'physical', 'group': 'between_rings_and_tail',
+             'wasserstein_nm': {'raw_AA': 0.09, 'ring_expanded_AA': 0.1}},
+            {'beads': ['B03', 'B04'], 'kind': 'constrained_physical', 'group': 'within_ring',
+             'wasserstein_nm': {'raw_AA': 0.04, 'ring_expanded_AA': 0.012}},
+            {'beads': ['B04', 'B05'], 'kind': 'virtual_site_diagnostic', 'group': 'between_rings_and_tail',
+             'wasserstein_nm': {'raw_AA': 0.08, 'ring_expanded_AA': 0.1}},
+        ],
+        'stratified_means_nm': {
+            'physical': {'raw_AA': 0.06, 'ring_expanded_AA': 0.055},
+            'constrained_physical': {'raw_AA': 0.04, 'ring_expanded_AA': 0.012},
+            'virtual_site_diagnostic': {'raw_AA': 0.08, 'ring_expanded_AA': 0.1}},
+        'group_means_nm': {
+            'within_ring': {'raw_AA': 0.035, 'ring_expanded_AA': 0.011},
+            'between_rings_and_tail': {'raw_AA': 0.085, 'ring_expanded_AA': 0.1}},
+        'pair_counts': {'physical': 2, 'constrained_physical': 1, 'virtual_site_diagnostic': 1},
+    }))
+    page, errors = live_page
+
+    open_view(page, live_page, figures=1)
+
+    diagnostics = page.locator('#run-view-analysis-diagnostics-A')
+    box = diagnostics.locator('.distance-diagnostic')
+    expect(box).to_contain_text('Lower is closer')
+    expect(box).to_contain_text('4 pairs: 2 physical, 1 constrained, 1 virtual-site')
+    expect(box).to_contain_text('Within-ring · expanded ring: 0.011 nm')
+    expect(box).to_contain_text('Between rings/tail · expanded ring: 0.100 nm')
+
+    help_details = box.locator('details.distance-diagnostic-help')
+    assert help_details.evaluate('el => el.open') is False
+    expect(help_details.locator('summary')).to_have_text('How to read this')
+    help_details.locator('summary').click()
+    expect(help_details).to_contain_text('Do not optimize them as ordinary bonded distances')
+
+    table = box.locator('.distance-pair-table table')
+    expect(table.locator('thead')).to_contain_text('Group')
+    expect(table).to_contain_text('Within-ring')
+    expect(table).to_contain_text('Between rings/tail')
+    assert errors == []
+
+
 def test_an_unclassified_diagnostic_artifact_says_so(dashboard, live_page):
     """A file written before per-pair `kind` must not have its pairs guessed into categories.
 

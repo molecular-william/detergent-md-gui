@@ -43,6 +43,8 @@ export async function renderDistanceDiagnostics(card, job) {
   const legacyNote = legacy
     ? '<p class="hint">Written before per-pair classification, so constrained distances cannot be told apart from physical ones here. Re-run the distance analysis for a classified report.</p>' : '';
   const stratified = data.stratified_means_nm || {};
+  const groupMeans = data.group_means_nm || {};
+  const counts = data.pair_counts || {};
   const number = (value) => {
     if (value === null || value === undefined || value === '') return null;
     const parsed = Number(value);
@@ -65,13 +67,45 @@ export async function renderDistanceDiagnostics(card, job) {
     const source = kind === 'virtual_site_diagnostic' ? virtual : kind === 'physical' ? physical : [];
     return source.length ? mean(source, key) : 'n/a';
   };
+  const countOf = kind => {
+    const direct = number(counts[kind]);
+    return direct === null ? pairs.filter(p => p.kind === kind).length : direct;
+  };
+  const groupLabel = { within_ring: 'Within-ring', between_rings_and_tail: 'Between rings/tail' };
+  const gm = (group, key) => {
+    const direct = number(groupMeans[group]?.[key]);
+    if (direct !== null) return direct.toFixed(3);
+    const source = pairs.filter(p => p.group === group);
+    return source.length ? mean(source, key) : 'n/a';
+  };
+  // The aggregate hides the split the expansion actually makes: within-ring improves, between-ring/tail does not.
+  const groupGrid = classified
+    ? Object.entries(groupLabel)
+      .filter(([group]) => pairs.some(p => p.group === group))
+      .map(([group, label]) => `<span>${label} · expanded ring: <b>${gm(group, 'ring_expanded_AA')} nm</b></span>`)
+      .join('')
+    : '';
+  const countsLine = classified
+    ? `<p class="hint">${pairs.length} pairs: ${countOf('physical')} physical, ${countOf('constrained_physical')} constrained, ${countOf('virtual_site_diagnostic')} virtual-site.</p>`
+    : '';
   const grid = classified
-    ? `<div class="distance-diagnostic-grid"><span>Physical pairs · raw AA: <b>${sm('physical','raw_AA')} nm</b></span><span>Physical pairs · expanded ring: <b>${sm('physical','ring_expanded_AA')} nm</b></span><span>Constrained physical: <b>${sm('constrained_physical','ring_expanded_AA')} nm</b></span><span>Virtual-site diagnostics: <b>${sm('virtual_site_diagnostic','ring_expanded_AA')} nm</b></span></div>`
+    ? `<div class="distance-diagnostic-grid"><span>Physical pairs · raw AA: <b>${sm('physical','raw_AA')} nm</b></span><span>Physical pairs · expanded ring: <b>${sm('physical','ring_expanded_AA')} nm</b></span><span>Constrained physical: <b>${sm('constrained_physical','ring_expanded_AA')} nm</b></span><span>Virtual-site diagnostics: <b>${sm('virtual_site_diagnostic','ring_expanded_AA')} nm</b></span>${groupGrid}</div>`
     : `<div class="distance-diagnostic-grid"><span>All pairs · raw AA: <b>${mean(pairs,'raw_AA')} nm</b></span><span>All pairs · expanded ring: <b>${mean(pairs,'ring_expanded_AA')} nm</b></span></div>`;
-  box.innerHTML = `<strong>Distance diagnostic guidance</strong><p>Virtual-site pairs are shown separately and are diagnostic only. Do not optimize them as ordinary bonded distances. Compare physical bead pairs using the expanded-ring AA target when ring scaling is enabled. Constrained distances are reported separately because a fixed CG distance can score poorly against a broad AA distribution.</p>${legacyNote}${scaleNote}${grid}<details><summary>Inspect pair diagnostics (${pairs.length} pairs)</summary><div class="distance-pair-table"></div></details>`;
+  const lead = '<p class="distance-diagnostic-lead">Lower is closer. Physical pairs are the fair comparison; '
+    + 'constrained and virtual-site pairs are diagnostic only.</p>';
+  // The full explanation is a one-time legend, not a per-run number: it stays one click away, so the box opens on
+  // what this run measured.
+  const help = '<details class="distance-diagnostic-help"><summary>How to read this</summary>'
+    + '<p>Virtual-site pairs are shown separately and are diagnostic only. Do not optimize them as ordinary bonded '
+    + 'distances. Compare physical bead pairs using the expanded-ring AA target when ring scaling is enabled. '
+    + 'Constrained distances are reported separately because a fixed CG distance can score poorly against a broad '
+    + 'AA distribution.</p>'
+    + '<p>No universal threshold: compare the same molecule and reference across candidates or revisions. A low '
+    + 'value is internal consistency, not experimental validation.</p></details>';
+  box.innerHTML = `<strong>Distance diagnostic guidance</strong>${lead}${countsLine}${legacyNote}${scaleNote}${grid}${help}<details><summary>Inspect pair diagnostics (${pairs.length} pairs)</summary><div class="distance-pair-table"></div></details>`;
   const table = $('.distance-pair-table', box);
   const t = document.createElement('table');
-  t.innerHTML = '<thead><tr><th>Pair</th><th>Category</th><th>Raw AA</th><th>Expanded ring</th></tr></thead>';
+  t.innerHTML = '<thead><tr><th>Pair</th><th>Group</th><th>Category</th><th>Raw AA</th><th>Expanded ring</th></tr></thead>';
   const body = document.createElement('tbody');
   for (const p of pairs) {
     const tr = document.createElement('tr');
@@ -79,7 +113,8 @@ export async function renderDistanceDiagnostics(card, job) {
       : p.kind === 'virtual_site_diagnostic' ? 'Virtual-site diagnostic'
       : p.kind === 'constrained_physical' ? 'Constrained physical'
       : 'Physical bead';
-    tr.innerHTML = `<td>${p.beads.join('–')}</td><td>${label}</td><td>${format(p.wasserstein_nm?.raw_AA, ' nm')}</td><td>${format(p.wasserstein_nm?.ring_expanded_AA, ' nm')}</td>`;
+    const group = groupLabel[p.group] || (p.group ? String(p.group).replaceAll('_', ' ') : '—');
+    tr.innerHTML = `<td>${p.beads.join('–')}</td><td>${group}</td><td>${label}</td><td>${format(p.wasserstein_nm?.raw_AA, ' nm')}</td><td>${format(p.wasserstein_nm?.ring_expanded_AA, ' nm')}</td>`;
     body.append(tr);
   }
   t.append(body); table.append(t);
