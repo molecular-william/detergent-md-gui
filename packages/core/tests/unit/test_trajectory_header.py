@@ -25,6 +25,9 @@ def test_a_header_states_the_frame_count_and_the_span(tmp_path):
 
     assert answer['frames'] == 4
     assert answer['time_ns'] == pytest.approx(0.3)
+    # The window/interval arithmetic in the panel uses these two: the first frame's own time and the stated step.
+    assert answer['first_ns'] == pytest.approx(0.0)
+    assert answer['dt_ps'] == pytest.approx(100.0)
 
 
 def test_a_missing_trajectory_answers_none_instead_of_raising(tmp_path):

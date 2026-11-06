@@ -37,10 +37,10 @@ const FRAME_MS = 100;
 //: `bonded-parameterization.js` has one: the browser tier must not wait seconds for a poll it is asserting about.
 const POLL_MS = 2000;
 
-//: The server's own cap on one attempt, stated to the reader rather than re-checked here: the panel cannot count the
-//: trajectory's frames, so it cannot know whether an interval is too fine -- a hint that pretended otherwise would print
-//: a wrong estimate as a fact.
+//: The server's own cap and auto cadence; the panel now has the segment's frame count, first time and step, so it can
+//: compute the same model count the producer will and refuse an impossible request before queueing it.
 const MAX_MODELS = 240;
+const AUTO_MODELS = 120;
 
 //: Where a run's mapping states which beads make up which fragment. Read lazily, when the form is opened: a run with
 //: no mapping answers 404, and that is "no fragments to group on", not a failure of the panel.
@@ -162,6 +162,7 @@ export function trajectoryMarkup(side) {
               <input type="checkbox" id="${id('run-view-form-center')}"> Centre
             </label>
           </div>
+          <p class="hint run-view-form-budget" id="${id('run-view-form-budget')}" role="status"></p>
           <div class="run-view-form-actions">
             <button type="submit" id="${id('run-view-submit')}" disabled>Build frames</button>
             <span class="hint" id="${id('run-view-form-note')}"></span>
@@ -178,10 +179,10 @@ export function trajectoryMarkup(side) {
           there, and Fit is a translation or a rotation and translation on that group. Align trajectory is the old
           fit-the-frames control: checked, every model is held on the solute with a rotation and a translation and the
           Fit and Group picks are disabled; unchecked, those two name the fit themselves. The server caps one build at
-          ${MAX_MODELS} models and about 250 MB, and refuses a bigger one. The segment line above states the
-          trajectory's frame count from its header, but a build's size also depends on which atoms are kept, so this
-          panel does not predict it. Changing a
-          control here is what makes the build a new attempt; a matching one already built is reused and shown
+          ${MAX_MODELS} models and about 250 MB; the model count above is checked before queueing, from the segment's
+          frame count, first time and step, so a window and interval that would be refused are not sent. The byte size
+          also depends on which atoms are kept, so a build under the model cap can still be refused for size. Changing
+          a control here is what makes the build a new attempt; a matching one already built is reused and shown
           instead.</p>
       </div>
     </div>`;
@@ -403,6 +404,7 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
   const groupLabel = $(id('run-view-form-group-label'));
   const submitButton = $(id('run-view-submit'));
   const formNote = $(id('run-view-form-note'));
+  const budgetLine = $(id('run-view-form-budget'));
 
   let job = null;
   let answer = null;
@@ -421,6 +423,7 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
   let fragmentsPending = null;    // the read in flight, so two openings of the form fetch the mapping once
   let fragmentsToken = 0;
   let lastNs = null;              // the moment on screen, so a rebuilt series opens at the same place
+  let budgetOk = true;            // the form's window/interval is inside the server's model cap
 
   // ---------------------------------------------------------------------------------------------- the block's states
 
@@ -557,6 +560,64 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
     };
   }
 
+  //: The model count and stride the producer will use, from the segment header and the form's window/interval. It is
+  //: `frame_series._sample_indices`' arithmetic: the same low/high/stride, so the number is the server's, not an
+  //: estimate the panel invented. `null` when the header did not state enough to compute it.
+  function modelEstimate(entry, args) {
+    const frames = Number(entry && entry.frames);
+    if (!Number.isFinite(frames) || frames < 1) return null;
+    const first = entry.first_ns == null ? 0 : Number(entry.first_ns);
+    let dt = entry.dt_ps == null ? null : Number(entry.dt_ps);
+    const span = entry.time_ns == null ? null : Number(entry.time_ns);
+    if ((!Number.isFinite(dt) || dt <= 0) && Number.isFinite(span) && span > 0 && frames > 1) {
+      dt = span * 1000.0 / (frames - 1);
+    }
+    if (!Number.isFinite(dt) || dt <= 0) return null;
+    if (args.interval_ns != null && args.interval_ns <= 0) {
+      return {problem: 'ns per frame must be greater than zero.'};
+    }
+    if (args.start_ns != null && args.end_ns != null && args.start_ns > args.end_ns) {
+      return {problem: 'Start is after End: a window starts at or before it ends.'};
+    }
+    const low = args.start_ns == null ? 0 : Math.max(0, Math.ceil((args.start_ns - first) * 1000.0 / dt - 1e-9));
+    const high = args.end_ns == null ? frames - 1
+      : Math.min(frames - 1, Math.floor((args.end_ns - first) * 1000.0 / dt + 1e-9));
+    if (high < low) {
+      const last = first + (frames - 1) * dt / 1000.0;
+      return {problem: `The window selects no frame; this segment runs ${nsText(first)}–${nsText(last)} ns.`};
+    }
+    const auto = args.interval_ns == null;
+    const stride = auto ? Math.max(1, Math.ceil((high - low + 1) / AUTO_MODELS))
+      : Math.max(1, Math.round(args.interval_ns * 1000.0 / dt));
+    return {models: Math.ceil((high - low + 1) / stride), auto};
+  }
+
+  //: Show the count before the build is queued, and stop a request the server will refuse. This is what tells a reader
+  //: that a fine interval over a long window is 501 models when the cap is 240.
+  function showBudget() {
+    const entry = entryNow();
+    budgetOk = true;
+    if (!entry || !budgetLine) return;
+    const estimate = modelEstimate(entry, formArguments(entry));
+    budgetLine.classList.remove('bad');
+    if (!estimate) {
+      budgetLine.textContent = '';
+    } else if (estimate.problem) {
+      budgetOk = false;
+      budgetLine.classList.add('bad');
+      budgetLine.textContent = estimate.problem;
+    } else if (estimate.models > MAX_MODELS) {
+      budgetOk = false;
+      budgetLine.classList.add('bad');
+      budgetLine.textContent = `About ${estimate.models} models; the cap is ${MAX_MODELS}.`
+        + ' Increase ns per frame or narrow the window.';
+    } else {
+      budgetLine.textContent = `About ${estimate.models} model${estimate.models === 1 ? '' : 's'}`
+        + (estimate.auto ? ' (auto).' : '.');
+    }
+    updateSubmit();
+  }
+
   // The picks Align stands in for are disabled rather than left to be edited and ignored: a control a submit overrides
   // is a control that lies about what it sends.
   function syncAlign() {
@@ -580,6 +641,7 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
     setGroupValue(args.group);
     showGroupRow(groupNeeded());
     syncAlign();
+    showBudget();
   }
 
   // The group is needed exactly when the centre or the fit acts on one; otherwise the control is hidden and the body
@@ -681,7 +743,7 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
     const matches = stored ? sameArguments(recordedArguments(stored.payload), args) : true;
     submitButton.textContent = inflight ? 'Building frames…'
       : (built && matches ? 'Recompute frames' : 'Build frames');
-    submitButton.disabled = !!inflight;
+    submitButton.disabled = !!inflight || !budgetOk;
     if (inflight) setFormNote(`This build is ${inflight.status}. The button waits for it.`);
   }
 
@@ -1014,6 +1076,7 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
   function setOptionsOpen(open) {
     recompute.hidden = !open;
     buildButton.setAttribute('aria-expanded', String(!!open));
+    if (open) showBudget();
   }
 
   buildButton.addEventListener('click', () => {
@@ -1026,6 +1089,7 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
   });
 
   for (const element of [startInput, endInput, intervalInput]) {
+    element.addEventListener('input', () => showBudget());
     element.addEventListener('change', () => {
       updateSubmit();
       selectSeries();

@@ -470,6 +470,35 @@ def test_submit_sends_the_eleven_key_body_for_the_chosen_controls(dashboard, liv
     assert errors == [], errors
 
 
+def test_the_form_counts_the_models_and_refuses_one_over_the_cap(dashboard, live_page):
+    """The window and interval are applied in the count before queueing: 45,001 frames at 20 ps (900 ns) every
+    0.5 ns is 1,801 models, over the 240 cap; 1.5–12 ns every 0.5 ns is 22. The server would refuse the first, so
+    the form does too instead of making a failed attempt."""
+    page, errors, state = open_run(dashboard, live_page, ENGINE_RUN)
+    page.locator('#run-view-build-A').click()
+    budget = page.locator('#run-view-form-budget-A')
+    submit = page.locator('#run-view-submit-A')
+
+    expect(budget).to_contain_text('120 models')
+    page.locator('#run-view-form-interval-A').fill('0.5')
+    expect(budget).to_contain_text('1801 models')
+    expect(budget).to_contain_text('cap is 240')
+    expect(submit).to_be_disabled()
+
+    page.locator('#run-view-form-start-A').fill('1.5')
+    page.locator('#run-view-form-end-A').fill('12')
+    expect(budget).to_contain_text('22 models')
+    expect(budget).not_to_contain_text('cap is')
+    expect(submit).to_be_enabled()
+
+    page.locator('#run-view-form-start-A').fill('12')
+    page.locator('#run-view-form-end-A').fill('1.5')
+    expect(budget).to_contain_text('Start is after End')
+    expect(submit).to_be_disabled()
+    assert state['posted'] == [], 'the refused request was queued'
+    assert errors == [], errors
+
+
 def test_cluster_and_the_box_centre_are_offered_and_sent(dashboard, live_page):
     """`cluster` is a selectable PBC mode with its tpr caveat, and Box centre names where the box is centred."""
     page, errors, state = open_run(dashboard, live_page, ENGINE_RUN)

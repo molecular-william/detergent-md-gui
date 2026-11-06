@@ -136,6 +136,9 @@
 .run-view-form-grid select, .run-view-form-grid input[type="number"] { width: 100%; min-width: 0; box-sizing: border-box }
 .run-view-form-grid > .run-view-form-check { flex-direction: row; align-items: center; gap: 6px }
 .run-view-form-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 8px }
+.run-view-form-budget { margin: 6px 0 0; font-variant-numeric: tabular-nums }
+.run-view-form-budget:empty { display: none }
+.run-view-form-budget.bad { color: var(--danger) }
 
 /* ---------------------------------------------------------------- the analysis card
    Under the Trajectory block, per monitor: the run's figures, the three controls that queue them, the task lines

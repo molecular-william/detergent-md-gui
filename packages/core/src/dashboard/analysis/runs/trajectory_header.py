@@ -33,10 +33,11 @@ _CACHE_LIMIT = 32
 
 
 def read(structure, trajectory) -> dict | None:
-    """`{'frames': int, 'time_ns': float | None}`, or `None` when the header cannot be read.
+    """`{'frames', 'time_ns', 'first_ns', 'dt_ps'}`, or `None` when the header cannot be read.
 
     `frames` is the trajectory's own length. `time_ns` is the last frame's time minus the first, in ns, or `None` when
-    the file states no finite time -- a `.pdb` trajectory need not. Neither answer walks a frame.
+    the file states no finite time -- a `.pdb` trajectory need not. `first_ns` and `dt_ps` are what a window and an
+    interval are arithmetic on: the first frame's own time and the file's stated step. Neither answer walks a frame.
     """
     trajectory, structure = Path(trajectory), Path(structure) if structure else None
     key = _key(structure, trajectory)
@@ -83,8 +84,11 @@ def _read(structure, trajectory):
             return None
         universe.trajectory[0]
         first = float(universe.trajectory.ts.time)
+        step = float(getattr(universe.trajectory, 'dt', 0.0) or 0.0)
         universe.trajectory[frames - 1]
         last = float(universe.trajectory.ts.time)
     if not (math.isfinite(first) and math.isfinite(last)):
-        return {'frames': frames, 'time_ns': None}
-    return {'frames': frames, 'time_ns': round((last - first) / 1000.0, 6) + 0.0}
+        return {'frames': frames, 'time_ns': None, 'first_ns': None, 'dt_ps': None}
+    return {'frames': frames, 'time_ns': round((last - first) / 1000.0, 6) + 0.0,
+            'first_ns': round(first / 1000.0, 6) + 0.0,
+            'dt_ps': step if math.isfinite(step) and step > 0 else None}

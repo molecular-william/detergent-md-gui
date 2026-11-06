@@ -429,6 +429,8 @@ def run_trajectory_api(jid):
         # minus first -- GROMACS' own total -- so 45,001 frames at 20 ps from 0.0 state 900 ns, not 900.02.
         entry['frames'] = None
         entry['time_ns'] = None
+        entry['first_ns'] = None
+        entry['dt_ps'] = None
         if entry.get('trajectory'):
             source = segments_module.present(run_dir, entry['trajectory'])
             if source is not None:
@@ -441,6 +443,8 @@ def run_trajectory_api(jid):
             if header is not None:
                 entry['frames'] = header['frames']
                 entry['time_ns'] = header['time_ns']
+                entry['first_ns'] = header['first_ns']
+                entry['dt_ps'] = header['dt_ps']
         # A `.gro` is served with the run's own bonds written as CONECT; the structure route refuses a `.pdb` because
         # a PDB already carries, or declines, its own records, and the artifact route serves it. The URL therefore
         # names the route that will answer for this file's own type, so every URL in the answer is fetchable.
