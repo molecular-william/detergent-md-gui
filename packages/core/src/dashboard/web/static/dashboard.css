@@ -57,6 +57,20 @@ nav{max-width:100%;overflow-x:auto;white-space:nowrap}nav button{flex:0 0 auto}
 .bonded-torsion legend { padding: 0 6px; font-size: 13px; font-weight: 700 }
 .bonded-torsion p { margin: 4px 0 }
 .bonded-torsion .toolbar { margin: 8px 0 0 }
+/* The fieldset's copy: one visible "what it is for" block, the mechanism behind a native disclosure, and the caveat
+ * visible above the save row. The base sheet gives `dt`/`dd` their own colours and a bold `dd`; these two rules
+ * state the blocks' own, and the summary replaces the UA marker with the draft's one-line triangle. */
+.torsion-blocks { margin: 6px 0 0 }
+.torsion-blocks dt { margin: 8px 0 1px; padding: 0; color: var(--accent); font-size: 11px; font-weight: 700;
+  letter-spacing: .05em; text-transform: uppercase }
+.torsion-blocks dd { margin: 0; font-size: 12.5px; font-weight: 400; line-height: 1.55 }
+.torsion-more { margin: 8px 0 0; padding-top: 6px; border-top: 1px dashed var(--line) }
+.torsion-more > summary { color: var(--accent); font-size: 12.5px; font-weight: 650 }
+.torsion-more > summary::-webkit-details-marker { display: none }
+.torsion-more > summary::before { content: '▸'; margin-right: 6px; color: var(--muted); font-size: 11px }
+.torsion-more[open] > summary::before { content: '▾' }
+.torsion-caveat { margin: 10px 0 0; padding: 7px 10px; border-left: 3px solid #efdfad; border-radius: 0 8px 8px 0;
+  background: #fff8e7; font-size: 12px; line-height: 1.5 }
 .bonded-help { margin: 14px 0 0 }
 .bonded-help p { margin: 6px 0 }
 .bonded-job-meter { height: 8px; margin: 12px 0 0; border-radius: 999px; background: #e6ecf4; overflow: hidden }

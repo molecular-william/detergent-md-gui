@@ -142,11 +142,13 @@ def test_the_torsion_switch_belongs_to_the_mapping_and_saves_to_it(dashboard, li
     expect(save).to_be_disabled()
     expect(page.locator('.bonded-torsion-status')).to_contain_text('keeps the periodic torsions')
 
-    # What the control says it does: the terms of the CG topology, and whose property it is.
-    wording = page.locator('.bonded-torsion').inner_text()
-    assert 'CG topology' in wording, wording
+    # What the fieldset says it does: the question it answers, and whose property it is. The mechanism now lives in
+    # a closed disclosure (drawing B of the 2026-11-09 explainer draft), so only the visible reason is read here.
+    # `text_content`, because the block headings are uppercased by the sheet and `inner_text` reads the render.
+    wording = page.locator('.bonded-torsion').text_content()
+    assert 'What it is for' in wording, wording
     assert 'property of this mapping' in wording, wording
-    assert 'New run panel' in wording, wording
+    expect(page.locator('.torsion-caveat')).to_contain_text('scientific validation')
 
     # The scale belongs to the circular-harmonic model and to nothing else.
     model.select_option('circular-harmonic')
@@ -165,6 +167,68 @@ def test_the_torsion_switch_belongs_to_the_mapping_and_saves_to_it(dashboard, li
     page.locator('.bonded-mapping-select').select_option(saved['file'])
     expect(page.locator('.bonded-torsion-model')).to_have_value('circular-harmonic')
     expect(page.locator('.bonded-torsion-scale')).to_have_value('0.5')
+    assert errors == [], errors
+
+
+def test_the_torsion_refinement_explains_why_how_and_what_a_run_needs(dashboard, live_page):
+    """Drawing B of the explainer draft: the reason and the caveat visible, the mechanism behind one disclosure.
+
+    The fieldset shares its row with seven fields, so the two blocks that answer "how does it work" and "what does a
+    run need" sit in one native `<details>` that starts closed; a reader who wants them clicks once. What stays on
+    screen is the part that changes a decision: what a torsion is for, and how far a stiffness should be trusted.
+    Both torsion options, the save control and the scale's tie to the circular model are unchanged.
+    """
+    saved = mappings.save_draft(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
+    page.locator('.bonded-mapping-select').select_option(saved['file'])
+
+    fieldset = page.locator('fieldset.bonded-torsion')
+    expect(fieldset).to_be_visible()
+
+    # The three questions, by the draft's own copy table.
+    questions = fieldset.locator('dt')
+    expect(questions).to_have_count(3)
+    assert [questions.nth(index).text_content() for index in range(3)] == [
+        'What it is for', 'How it works', 'What a run needs'], questions.all_inner_texts()
+
+    # The caveat is a block of its own, and it is visible: a caveat inside a closed disclosure is one nobody reads.
+    caveat = fieldset.locator('.torsion-caveat')
+    expect(caveat).to_be_visible()
+    expect(caveat).to_contain_text('Caveat')
+    expect(caveat).to_contain_text('scientific validation')
+    # The caveat must not promise a check the analysis cannot make: `dihedral-fit` skips funct 2, which is the
+    # circular model's spelling (see DDM_CALIBRATION.md's baseline and refine's own output).
+    expect(caveat).to_contain_text('no independent check')
+
+    # The mechanism starts closed and a click opens it; the disclosure is native, so no script is involved.
+    more = fieldset.locator('details.torsion-more')
+    expect(more).to_have_count(1)
+    assert more.evaluate('el => el.open') is False
+    expect(more.locator('summary')).to_have_text('How it works, and what a run needs')
+    expect(more.locator('dd').nth(0)).to_be_hidden()
+    more.locator('summary').click()
+    assert more.evaluate('el => el.open') is True
+    expect(more.locator('dd').nth(0)).to_be_visible()
+    # The corrected facts the copy keeps: the fit measures the angles and the refinement reads them, one preferred
+    # angle and one stiffness at k = kT / variance, never a count of harmonic lines.
+    expect(more).to_contain_text('the refinement reads those angles')
+    expect(more).to_contain_text('one preferred angle and one stiffness')
+    expect(more).to_contain_text('k = kT / variance')
+    expect(more).to_contain_text('at least three sampled angles per torsion')
+
+    # Both options and the save control survive the copy change.
+    options = page.locator('.bonded-torsion-model option')
+    expect(options).to_have_count(2)
+    assert [options.nth(index).get_attribute('value') for index in range(2)] == ['legacy', 'circular-harmonic']
+    expect(page.get_by_role('button', name='Save to mapping')).to_have_count(1)
+    expect(fieldset.locator('#bonded-torsion-status')).to_be_visible()
+
+    # The scale stays out of reach until the model that uses it is chosen.
+    scale = page.locator('.bonded-torsion-scale')
+    expect(scale).to_be_disabled()
+    page.locator('.bonded-torsion-model').select_option('circular-harmonic')
+    expect(scale).to_be_enabled()
     assert errors == [], errors
 
 

@@ -432,7 +432,26 @@
       </div>
       <fieldset class="bonded-torsion">
         <legend>Torsion refinement · a property of this mapping</legend>
-        <p class="hint">The torsion model and its stiffness scale are how those terms are written into the CG topology: either the legacy periodic fit, or a circular-harmonic fit of each torsion to the AA distribution at the stiffness chosen above. <strong>Save to mapping</strong> writes the pair into the mapping file — the file a run is queued from and whose hash a run records — so a run already queued keeps the model its own snapshot carried. Nothing on the New run panel can change this.</p>
+        {# Drawing B of the approved draft (docs/design/drafts/2026-11-09-torsion-refinement-explainer.html): the
+           reason and the caveat stay visible; the mechanism and what a run needs sit in one native <details> so the
+           fieldset shares its row with the seven fields without doubling its height. The copy is the draft's table,
+           including its corrections: the Fast-Forward fit measures the angles and the refinement reads them, and a
+           circular-harmonic fit replaces a torsion's periodic fit with one preferred angle and one stiffness
+           (k = kT / variance), scaled 0.1-3. #}
+        <dl class="torsion-blocks">
+          <dt>What it is for</dt>
+          <dd>In a CG (coarse-grained) model, each bead stands for a group of atoms. A torsion is the twist of four beads in a row. Bonds and angles hold a molecule's local shape; torsions decide how its chain bends and twists, and so which shapes it can take. A set that is too stiff or too soft changes packing and assembly even when every bond and angle is right. The choice is part of the model, not a detail.</dd>
+        </dl>
+        <details class="torsion-more">
+          <summary>How it works, and what a run needs</summary>
+          <dl class="torsion-blocks">
+            <dt>How it works</dt>
+            <dd>The Fast-Forward fit measures each torsion's angle in every mapped AA (all-atom) frame, and the refinement reads those angles. Angles repeat every full turn, so the circular-harmonic model averages them on a circle instead of a line, and writes one preferred angle and one stiffness. The stiffness is k = kT / variance: kT is the thermal energy at the fit temperature, and variance is how spread out the angles are, so a narrow spread gives a stiff torsion and a wide one gives a soft torsion. The stiffness scale (0.1–3) multiplies k for every torsion it writes, which softens or stiffens the whole set without editing terms by hand. Legacy changes nothing: the fitted periodic terms stay as recorded.</dd>
+            <dt>What a run needs</dt>
+            <dd>A mapping with beads and declared torsions — Save to mapping puts the pair in the mapping file, and a run is queued from that file. An AA reference run with mapped frames: the harmonic fit needs at least three sampled angles per torsion, and a spread with one clear peak — when the angles have no single preferred direction, the fit refuses by name instead of guessing. A Fast-Forward fitted topology that has torsions; a topology with none is refused.</dd>
+          </dl>
+        </details>
+        <div class="torsion-caveat"><b>Caveat.</b> A stiffness that looks right is not established by this panel. The dihedral-fit analysis checks a legacy fit; it has no circular-harmonic reading, so no independent check is claimed for this model. Nothing here is scientific validation: a model that runs is not a model that is correct.</div>
         <div class="toolbar"><button type="button" class="secondary bonded-save-torsion" id="bonded-save-torsion" disabled>Save to mapping</button></div>
         <p class="bonded-torsion-status hint" id="bonded-torsion-status" role="status">Choose a mapping to read its torsion model.</p>
       </fieldset>
