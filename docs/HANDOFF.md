@@ -245,7 +245,7 @@ one bounded sample (`gmx trjconv`, ≤200 frames, then `-pbc cluster` on the det
 Clustering is part of the measurement: on `d17de0a443f3` the unclustered sample's Rg was 6.48 nm against 1.96 nm
 clustered. One timed live producer run on that run: 34.5 s, 200 of 50,001 frames (stride 251), Rg 1.965 nm, largest
 cluster 79.97 of 80, head–head first peak 0.45 nm, tail–tail 0.50 nm, contacts "not defined" (no protein), and the
-fallback reason read from the manifest. Checks after the round: fast 2547 passed / 1 xfailed, browser 338, pdc unit
+fallback reason read from the manifest. Checks after the round: fast 2547 passed / 1 xfailed, browser 338, slow 25, pdc unit
 657, pdc browser 3, ruff clean. The dashboard was not restarted (the production run above still holds the unit); the
 new route and kind need one. The defaults the producer chose are answerable against
 `docs/plans/2026-11-09-pdc-analyses-definitions.md`'s questions without touching the UI: RDF pairs
