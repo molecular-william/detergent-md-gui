@@ -118,6 +118,16 @@ manual and `gmx mdrun -h`, returned with `/api/defaults`; the form has no duplic
 are keyboard/focus accessible. The dashboard was restarted at 11:47 for the Python changes. Checks: fast 2511 passed /
 1 xfailed; browser 318 passed; ruff clean; worker provenance and run-type default tests added.
 
+The performance work that was **not** done in `d96eb46` is handed to the next `next-round` task (task-13); the plan is
+`docs/plans/2026-11-09-performance-follow-up.md`. The committed half is the catalogue warm-up/5-minute cache, the
+Run view revisit that re-reads only the live run list, and Bonded's one-time mount. Deliberately left for this
+follow-up: cold first content (Run view's NGL scenes/Analysis card, Bonded's Plotly bundle/scene, Shape's Plotly and
+surface pair/SASA), visibility-aware/coalesced live status polling (never caching queue/running state), and the
+surfaces producer's sequential `gmx sasa` variants (~90 s for LMNG). First slice: measure cold time-to-content and
+add a loading state + shown-panel module warm; audit/coalesce the pollers; parallelise the surface variants with
+per-variant progress, with no NDOTS/frame/probe/variant change without a science decision. No code for this slice is
+committed yet.
+
 The dashboard was restarted on 2026-11-05 at 17:12 for the whole round. Live checks: LMNG's automatic candidate is
 23 connected beads with the branch bead `[11,22,46]` (connectivity and spectral agree on the bead count, differ on
 the grouping); run `619ab118abd6`'s rebuilt AA series carries 160 CONECT records over 201 models and the viewer draws
