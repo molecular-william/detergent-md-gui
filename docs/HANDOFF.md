@@ -4,11 +4,38 @@ State and open items for this repository. Rules live in `AGENTS.md`; subsystem b
 `docs/PROJECT_GUIDE.md`; scoring science in `docs/DDM_CALIBRATION.md`. Read this before touching the DDM CG chain,
 the protein-detergent pipeline or the coordinator. This file keeps only what is current and the evidence behind it.
 
+## Next session
+
+**State at hand-off (2026-11-09).** The round is committed: `16709b7` (refinement fix), `17fe2c4` (torsion explainer),
+`99770d6` (Shape model labels), `b55b9e2` (pdc `pdc-structure`), docs `e72ab89`/`a1f97bf`. The tree is clean apart
+from the pre-existing untracked `molecules/{DM,LMNG,NG,OG,OGNG,UDM}` and `.bench-surfaces`. Checks: fast 2547 passed
+/ 1 xfailed, browser 338, slow 25, pdc unit 657, pdc browser 3, ruff clean.
+
+**1. Restart the dashboard first.** `92971317fbe2` (`AA NPT production`) still held the unit at hand-off (its own ETA
+17:44). Restart only when it is no longer `running`, then check the three things the new code added: the Runs
+**Filters** block loads its vocabulary and narrows a list; the pdc **Structure and interactions** section appears for
+a pdc run and queues one attempt; and a circular-harmonic model saved to a mapping writes **one** `1 2 5 6 2 …`
+dihedral line in stage 3, not eight.
+
+**2. Then the open decisions, in this order.** Each is a row in the table below with its evidence: the fit/saved
+torsion asymmetry (which also settles the auto-save question the user asked), `dihedral-fit`'s circular reading, the
+pdc questions that gate the energy rerun and the SDF, and pdc contacts on a protein run. The pdc defaults already in
+force, and where they are stated, are in the 2026-11-09 round paragraph under *Next task*.
+
+**3. The queue behind those.** NGL's eager load, Plotly's warm, the stale mutation mutant and `pytest-socket` — none
+blocks the above.
+
+The plans and drafts these items name are local (gitignored): `docs/plans/2026-11-09-pdc-analyses-definitions.md`,
+`docs/plans/2026-11-09-next-round-runs-filters-pdc-analyses.md` and the
+`docs/design/drafts/2026-11-09-{runs-filters,torsion-refinement-explainer,shape-volume-models,pdc-structure-interactions}.html`
+drafts.
+
 ## Next task
 
-The 2026-11-05 nine-point round is implemented and committed (items 1-6, 8, 9; there was no item 7). Its plan is
+Newest first: the 2026-11-09 round is the section above. The paragraphs below are the slices before it, newest last;
+the open items table is the queue. The 2026-11-05 nine-point round is implemented and committed (items 1-6, 8, 9; there was no item 7). Its plan is
 `docs/plans/2026-11-05-feature-round.md`, which carries the decisions, the per-lane evidence and the two corrections
-found while building. The open items table below is the queue; the two the round left behind are the first two rows.
+found while building.
 
 The 2026-11-06 Run-view Analysis slice is built and live-checked; its plan is
 `docs/plans/2026-11-06-run-view-analysis-fixes.md`. It fixed the cross-check's preprocessor failure, the fit
@@ -315,13 +342,13 @@ whole leg is sampled and summarised in five blocks.
 | Analysis checklist membership | the checklist lists the run's attempted kinds; a kind never queued (e.g. an automatic kind that has not run) is absent | add a server-side "what this run can compute" list and show those unticked, if wanted |
 | Runs filters | built 2026-11-09 (`119d5c0`): dense only, checkbox run type/status/method, multi-value `/api/jobs`, `GET /api/run-filters` | the molecule and created-after facets were not added; its own slice if wanted |
 | Torsion refinement on a `funct 9` dihedral | fixed 2026-11-09 (`16709b7`): one harmonic term per dihedral, siblings dropped, pinned by three unit tests; `funct 2` is the calibrated spelling; no consumed data was affected | none — keep the grouping when the refiner changes, and decide whether a Bartender fit should be refinable at all |
-| A fit's unsaved torsion choice | the revision records what the job started with, but `refine_bonded` reads the mapping's saved `model.json`; measured on `10c318949…` revision 1 (circular in `options`, `{}` in the report) | decide: pass the job's options to the refiner, or record the mapping's options |
+| A fit's unsaved torsion choice | the revision records what the job started with, but `refine_bonded` reads the mapping's saved `model.json`; measured on `10c318949…` revision 1 (circular in `options`, `{}` in the report) | decide: pass the job's options to the refiner, record the mapping's options, or let a successful fit save the pair to the mapping (the auto-save the user asked about) |
 | `dihedral-fit` has no circular reading | it skips `funct 2`, which is the circular model's spelling, so it checks a legacy fit only; the panel caveat now says so | add a harmonic branch, or keep it as the legacy-only check |
 | pdc `pdc-structure` defaults | built with the document's recommended defaults (RDF pairs, 0.05 nm bins, `r_max` = min(2 nm, half the box), the run's own contact cutoff, detergent-only shape tensor) | change any of them; each is stated in the report's method |
 | pdc contacts on a protein run | `gmx mindist -on` contacts are produced only when the run records a protein; no completed protein pdc run exists to verify it on | verify on the first completed protein pdc run, then its report is comparable with the micelle-only one |
-| pdc energy and SDF | not built: `pdc-interaction-energy` waits on Q10–Q12/Q14/Q15, `pdc-sdf` on Q18–Q25 | answer the questions, then build in the document's order (`pdc-structure` first, already done) |
+| pdc energy and SDF | `pdc-structure` is built; `pdc-interaction-energy` waits on Q10–Q12/Q14/Q15 and `pdc-sdf` on Q18–Q25 in `docs/plans/2026-11-09-pdc-analyses-definitions.md` (Q25 is how the cube is shown; it has no Plotly reader) | answer the numbered questions, then build in the document's order (energy, then SDF) |
+| pdc cluster step | 1 of 4 live producer runs failed inside `gmx trjconv -pbc cluster`; the cause was hidden by the old error tail, which now reports the real GROMACS line (`error_tail`); the three repeats were identical | if it recurs, capture the reported line and decide a retry or a cheaper clustering (the frame-series producer's sampled-slice `-pbc cluster` is the existing alternative) |
 | New routes need a restart | `119d5c0` added `/api/run-filters` and repeated `/api/jobs` values; `16709b7`/`b55b9e2` added the refinement fix and the pdc kind. The dashboard was not restarted because `92971317fbe2` was in production | restart after that run finishes, then check the Runs filters and the Structure section live |
-| pdc CG analysis definitions | `pdc-structure` (RDF, micelle eccentricity, aggregation/contacts), `pdc-interaction-energy` (GROMACS rerun with energy groups) and optional `pdc-sdf` need science definitions | settle the energy pairs/terms/sampling, RDF selections and normalization, eccentricity definition and SDF grid, then build `pdc-structure` first |
 | NGL is eager on every panel | one blocking 1,284,224 B script on every page, 68% of the shell's script bytes; Runs, New run and Bonded build no scene | make it lazy like Plotly (`vendor/ngl-loader.js`) and load it for Run view/Complexes/Bead editor; `window.NGL` has readers in three distributions, so this is its own measured slice |
 | Plotly warm and the default figure | a panel that plots asks for its own bundle at mount, so a shown-panel warm cannot help it (Bonded first content 4275 ms); a cold Run view also pulls a 10,300.8 KB interactive figure | decide plan open decisions 2 and whether the first figure waits for a click or visibility; do not prefetch hidden panels |
 | CG-only molecules beyond pdc | a `kind: cg` folder works as a pdc detergent without a mapping; compositions, osmotic and CG conformation libraries still assume a mapping | separate slice if wanted (`docs/plans/2026-11-05-feature-round.md`, *Not in this round*) |
