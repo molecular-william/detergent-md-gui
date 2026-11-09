@@ -141,6 +141,8 @@ export function createRunView() {
     // The toolbar control stays in view; the second monitor's own header can be below a tall first monitor.
     const toolbar = $('#run-view-second-toggle');
     if (toolbar) toolbar.addEventListener('click', () => toggleMinimized());
+    // Bound once with the DOM it acts on: a mount used to add this listener again on every visit.
+    if (swapButton) swapButton.addEventListener('click', () => { swap().catch(() => {}); });
   }
 
   function minimizeButton(side = 'B') {
@@ -233,9 +235,17 @@ export function createRunView() {
         readScope();
         build();
         await loadRuns();
+        await pickInitial();
+        return section();
       }
-      await pickInitial();
-      if (swapButton) swapButton.addEventListener('click', () => { swap().catch(() => {}); });
+      // The run list is live and is always re-read; opening the runs above it is not. Re-opening rebuilt both NGL
+      // scenes and re-read every analysis the monitors already held.
+      await loadRuns();
+      const stale = monitors.some(monitor => {
+        const id = (monitor.run() || {}).id;
+        return !id || !runs.some(job => job.id === id);
+      });
+      if (stale) await pickInitial();
       return section();
     },
   };

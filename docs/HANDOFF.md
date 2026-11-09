@@ -56,6 +56,12 @@ The dashboard was restarted at 09:24. Live map: 12 pairs, all unconstrained (the
 displacement 45 pm at (4,C); 34 terms, 3 below overlap 0.5. Checks: fast tier 2471 passed, 1 xfailed; browser 303
 passed; ruff clean.
 
+The 2026-11-09 next-round request is handed to the durable `next-round` agent; its queue, evidence and open decisions
+are `docs/plans/2026-11-09-next-round.md`. First wave: measure and improve panel-switch prefetch/cache; produce the
+Shape AA/CG surface-comparison draft and make the Bonded angle rows collapsible; research Fast-Forward outputs and the
+Martini sugar references; draft the compact New run settings and info icons. New run, sugar selection and
+Martini-vs-AA stay on the decision list until the user answers the numbered questions in that plan.
+
 The dashboard was restarted on 2026-11-05 at 17:12 for the whole round. Live checks: LMNG's automatic candidate is
 23 connected beads with the branch bead `[11,22,46]` (connectivity and spectral agree on the bead count, differ on
 the grouping); run `619ab118abd6`'s rebuilt AA series carries 160 CONECT records over 201 models and the viewer draws

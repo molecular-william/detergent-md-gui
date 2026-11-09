@@ -18,6 +18,11 @@ async function api(path, options = {}) {
 }
 const post = (path, data) => api(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
 
+// Catalogue lists (molecules, mappings, CG models, references) change only through an action that calls
+// `invalidateResource`, so a revisit may reuse them for minutes rather than seconds. Run state, a queue answer and a
+// generated figure are live and never cached under this window.
+const CATALOGUE_MAX_AGE = 5 * 60 * 1000;
+
 // Share in-flight loads, keep successful GETs briefly, and never retain failures.
 const resources = new Map();
 function loadOnce(key, loader, {maxAge=Infinity}={}) {
@@ -62,4 +67,4 @@ const panelIds = () => {
   try { return block ? (JSON.parse(block.textContent) || {}) : {}; } catch { return {}; }
 };
 
-export { loadOnce, cachedApi, invalidateResource, guarded, DROP, $,  $$, storage, setText, notice, api, post, panelIds };
+export { loadOnce, cachedApi, invalidateResource, guarded, DROP, CATALOGUE_MAX_AGE, $,  $$, storage, setText, notice, api, post, panelIds };

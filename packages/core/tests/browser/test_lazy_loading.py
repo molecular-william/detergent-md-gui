@@ -1,4 +1,4 @@
-"""Tab activation fetches only visible data and reuses unchanged catalogues."""
+"""Tab activation fetches only visible run data, and catalogues are warmed once and reused."""
 from urllib.parse import urlsplit
 
 from dashboard.execution.adapters import cg
@@ -24,7 +24,10 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_
     page.on('request', lambda r: urls.append(urlsplit(r.url).path+'?'+urlsplit(r.url).query))
     page.goto(f'{live_page.base_url}/detergent-validation/runs')
     expect(page.locator('.job')).to_have_count(1)
-    assert not any(u.startswith(('/api/mappings','/api/molecules')) for u in urls)
+    # The shell warms the catalogues on idle -- that is the one eager read, and it is a list, never a hidden panel's
+    # run-scoped data: no figure, artifact index, analysis record or queue answer is fetched before its panel is open.
+    bad = [u for u in urls if u.startswith('/api/') and ('/figures' in u or '/artifacts?' in u or '/analyses' in u)]
+    assert not bad, bad
     page.evaluate("window.tabEvents=[]; document.addEventListener('dashboard:tab', event => tabEvents.push(event.detail.id))")
     # The analysis panel is gone from this card: the figures, the controls that queue them and the task list are the
     # Run view's Analysis card, so a refresh here must ask for no figure at all. That card's own request is pinned in
@@ -40,8 +43,9 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_
     # bonded question left in the dashboard is the CG Bond Interactions panel's, and it carries a mapping's content hash.
     expect(page.locator('#run-bonded-state')).to_have_count(0)
     expect(page.locator('#review-status')).not_to_have_text('Checking readiness…')
-    # The catalogue is fetched once, scoped to the molecule the editor is bound to.
-    assert [u for u in urls if u.startswith('/api/mappings?view=summary')] == ['/api/mappings?view=summary&molecule_id=DDM']
+    # The molecule-scoped catalogue is fetched once, scoped to the molecule the editor is bound to.
+    assert [u for u in urls if u.startswith('/api/mappings?view=summary&molecule_id=DDM')] == \
+        ['/api/mappings?view=summary&molecule_id=DDM']
     # Returning to the editor keeps what was typed, and the hash activation below reaches the same panel.
     # Arrow-key activation is covered in test_tab_layout_browser, where the order is the rail's own.
     page.locator('#tab-mappings').click()
@@ -74,6 +78,38 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_
     expect(other.locator('.bonded-mapping-select')).to_have_value(saved['file'])
     expect(other.locator('.bonded-plot .plotly')).to_be_visible()
     expect(other.locator('#mapping-bead-rows tr')).to_have_count(0)
+
+
+def test_catalogue_prefetch_is_what_each_panel_reuses(dashboard, live_page):
+    """The idle warm-up is the one eager read, and the panels that need those lists reuse it.
+
+    Asserts the cache identity -- one request per catalogue key across New run, Mappings and Bonded -- rather than a
+    wall-clock threshold, so a slower machine does not fail it and a removed prefetch does.
+    """
+    context = mapping_context.build_context(dashboard.paths.project_root / 'molecules', 'DDM')
+    candidate = physical_mapping()
+    candidate.update(molecule_id='DDM', molecule_snapshot=context['snapshot'])
+    mappings.save_draft(candidate)
+    page = live_page.page
+    asked = []
+    page.on('request', lambda r: asked.append(urlsplit(r.url).path + '?' + urlsplit(r.url).query))
+    with page.expect_request('**/api/molecules') as prefetched:
+        page.goto(f'{live_page.base_url}/detergent-validation/runs')
+    assert prefetched.value, 'the shell never warmed the catalogue after idling'
+    page.locator('#tab-new').click()
+    page.wait_for_function("() => document.querySelectorAll('#new select[name=molecule_id] option').length > 1",
+                           timeout=30000)
+    page.locator('#tab-mappings').click()
+    page.wait_for_function("() => document.querySelectorAll('#mapping-molecule option').length > 1",
+                           timeout=30000)
+    page.locator('#tab-bonded').click()
+    expect(page.locator('.bonded-plot .plotly')).to_be_visible(timeout=30000)
+    assert asked.count('/api/molecules?') == 1, asked
+    assert asked.count('/api/cg-models?view=summary') == 1, asked
+    assert asked.count('/api/mappings?view=summary') == 1, asked
+    assert asked.count('/api/references?molecule_id=DDM') == 1, asked
+    bad = [u for u in asked if u.startswith('/api/') and ('/figures' in u or '/artifacts?' in u)]
+    assert not bad, bad
 
 
 def test_shared_cache_rejects_stale_refill_after_invalidation(dashboard, live_page):

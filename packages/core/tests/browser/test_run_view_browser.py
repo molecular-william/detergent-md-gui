@@ -400,6 +400,31 @@ def test_picking_a_run_opens_it_once(dashboard, live_page):
     assert errors == [], errors
 
 
+def test_returning_to_the_panel_does_not_redraw_a_pair_already_drawn(dashboard, live_page):
+    """A tab returned to keeps what it drew: the run list is re-read, the NGL scene and analyses are not.
+
+    Repainting on every visit rebuilt both scenes and repeated every run-scoped read for a pair nothing had changed.
+    The regression is asserted as request identity -- nothing under `/api/jobs/<held>/` is asked for again -- rather
+    than as a time, so a slower machine cannot make it pass or fail.
+    """
+    seed(dashboard)
+    page, errors = live_page
+    open_panel(page, live_page)
+    held = page.locator('#run-view-choose-A').input_value()
+    assert held
+    asked = []
+    page.on('request', lambda request: asked.append(request.url))
+    page.locator('#tab-runs').click()
+    expect(page.locator('#runs')).to_be_visible()
+    page.locator('#tab-runview').click()
+    expect(page.locator('#runview')).to_be_visible()
+    expect(page.locator('#run-view-choose-A')).to_have_value(held)
+    page.wait_for_timeout(500)
+    redrawn = [url for url in asked if f'/api/jobs/{held}/' in url]
+    assert redrawn == [], f'returning to the panel re-read the run it already held: {redrawn}'
+    assert errors == [], errors
+
+
 def test_the_chooser_narrows_as_the_reader_types(dashboard, live_page):
     """The combo's own promise: every keystroke filters, over the run's label, molecule, type, id and date.
 

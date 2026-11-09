@@ -1,4 +1,4 @@
-import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResource, guarded, DROP, panelIds } from './shared.js';
+import { $, $$, storage, setText, notice, api, post, cachedApi, CATALOGUE_MAX_AGE, invalidateResource, guarded, DROP, panelIds } from './shared.js';
 import { createGpuDevice } from './gpu-device.js';
 
 //: `{workspace slug: extension}` -- the panels installed features bring for their own workspaces.
@@ -176,7 +176,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     const select=form.elements.molecule_id;
     ++readinessGeneration; $('#start-run').disabled=true;
     const chosen=select.value || savedForm?.molecule_id || savedForm?.detergent || 'DDM';
-    const result=await guarded('molecules', () => cachedApi('/api/molecules',{maxAge:10000}));
+    const result=await guarded('molecules', () => cachedApi('/api/molecules',{maxAge:CATALOGUE_MAX_AGE}));
     if(result===DROP)return;
     moleculeRecords=result.molecules;
     // This form builds all-atom and AA-to-CG runs from an atomistic topology. A CG-only molecule (`kind: 'cg'`) is
@@ -268,7 +268,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   async function loadReferences() {
     const select = form.elements.reference_run_id;
     const chosen = select.value || (!referencesLoaded && savedForm?.reference_run_id) || '';
-    const result = await guarded('references', () => cachedApi('/api/references?'+new URLSearchParams({molecule_id:form.elements.molecule_id.value}),{maxAge:10000}));
+    const result = await guarded('references', () => cachedApi('/api/references?'+new URLSearchParams({molecule_id:form.elements.molecule_id.value}),{maxAge:CATALOGUE_MAX_AGE}));
     if(result===DROP)return;
     referencesLoaded=true; referenceRecords=result.references;
     select.replaceChildren(new Option('Run a new AA reference', ''));
@@ -376,7 +376,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     const chosen = select.value || (!mappingsLoaded && savedForm?.mapping_candidate) || '';
     const moleculeId = form.elements.molecule_id.value;
     const query = moleculeId ? `&molecule_id=${encodeURIComponent(moleculeId)}` : '';
-    const result = await cachedApi(`/api/mappings?view=summary${query}`,{maxAge:10000});
+    const result = await cachedApi(`/api/mappings?view=summary${query}`,{maxAge:CATALOGUE_MAX_AGE});
     mappingsLoaded=true;
     // Only a mapping a run can reuse is offered. `validation.can_reuse` is the verdict `draft.load` refuses on
     // (`models/mappings/verdict.RULES['can_reuse']`), so the picker cannot list a candidate the queue would reject,
@@ -708,7 +708,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
       // something the panel's molecule picker waits on, and the note is a status line, not a gate.
       gpuDevice.load();
       await loadRunMappings();
-      const modelCatalog=await cachedApi('/api/cg-models?view=summary',{maxAge:10000});
+      const modelCatalog=await cachedApi('/api/cg-models?view=summary',{maxAge:CATALOGUE_MAX_AGE});
       form.elements.composition_id.replaceChildren(new Option('Select a saved composition',''));
       for(const item of (modelCatalog.models||[]).filter(item=>item.kind==='composition')) form.elements.composition_id.append(new Option(`${item.name} · ${item.status}`,item.id));
       await loadReferences();

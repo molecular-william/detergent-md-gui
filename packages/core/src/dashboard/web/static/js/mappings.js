@@ -1,4 +1,4 @@
-import { $, storage, setText, post, cachedApi, invalidateResource, guarded, DROP, api, notice, panelIds } from './shared.js';
+import { $, storage, setText, post, cachedApi, CATALOGUE_MAX_AGE, invalidateResource, guarded, DROP, api, notice, panelIds } from './shared.js';
 import { setupBondedWorkspace } from './bonded.js';
 import { createEditor, clearMapping, addBead, renameBead, removeBead } from './mapping-state.js';
 import { mountOverlay3d } from './mapping-ngl.js';
@@ -41,15 +41,24 @@ export function createMappings() {
   async function loadMapping(file) {
     if (!file) return null;
     if (file.startsWith('composition:')) {
-      const detail = await cachedApi('/api/cg-models/composition/' + encodeURIComponent(file.slice('composition:'.length)), {maxAge: 10000});
+      const detail = await cachedApi('/api/cg-models/composition/' + encodeURIComponent(file.slice('composition:'.length)), {maxAge: CATALOGUE_MAX_AGE});
       const mapping = detail.mapping || {};
       const atoms = (mapping.beads || []).map((bead, index) => ({id: index + 1, name: bead.name, xyz: [index * 0.1, 0, 0]}));
       return {...mapping, file, molecule: {atoms, bonds: (mapping.connections || []).map(([a, b]) => ({a: (mapping.beads || []).findIndex(item => item.name === a) + 1, b: (mapping.beads || []).findIndex(item => item.name === b) + 1}))}, composition: detail};
     }
-    return cachedApi('/api/mappings/' + encodeURIComponent(file), {maxAge: 10000});
+    return cachedApi('/api/mappings/' + encodeURIComponent(file), {maxAge: CATALOGUE_MAX_AGE});
   }
 
   let bondedWorkspace;
+  // The Bonded workspace holds a Plotly scene and its own catalogue reads, so re-entering the tab repaints nothing:
+  // its mount is skipped until something that feeds it changes. The panel's own saves and fits invalidate the
+  // parameterization prefix, which is also how a model saved elsewhere reaches it.
+  let bondedMounted = false;
+  document.addEventListener('dashboard:resources-changed', event => {
+    const prefix = event.detail?.prefix || '';
+    if (prefix.startsWith('/api/mappings') || prefix.startsWith('/api/cg-models')
+        || prefix.startsWith('/api/bonded-parameterizations')) bondedMounted = false;
+  });
 
   function renderWarnings() {
     // A candidate can be mapped and still be an admission -- a ring the templates do not cover, or a
@@ -239,8 +248,8 @@ export function createMappings() {
       // molecule's answer can land after the reader has chosen another, and without it that stale answer replaced
       // the editor -- a different molecule's atoms beside a candidate that belonged to the first.
       const loaded = await guarded(`molecule-editor:${moleculeId}`, () => Promise.all([
-        cachedApi('/api/mappings/context?molecule_id=' + encodeURIComponent(moleculeId), {maxAge: 10000}),
-        cachedApi('/api/mappings?molecule_id=' + encodeURIComponent(moleculeId) + '&view=summary', {maxAge: 10000}),
+        cachedApi('/api/mappings/context?molecule_id=' + encodeURIComponent(moleculeId), {maxAge: CATALOGUE_MAX_AGE}),
+        cachedApi('/api/mappings?molecule_id=' + encodeURIComponent(moleculeId) + '&view=summary', {maxAge: CATALOGUE_MAX_AGE}),
       ]));
       if (loaded === DROP) return;
       if (generation !== editorGeneration) return;
@@ -431,7 +440,7 @@ export function createMappings() {
 
   async function loadMoleculeList() {
     const select = $('#mapping-molecule'); if (!select || select.options.length) return;
-    const result = await cachedApi('/api/molecules', {maxAge: 10000});
+    const result = await cachedApi('/api/molecules', {maxAge: CATALOGUE_MAX_AGE});
     select.replaceChildren();
     // A coarse-grained molecule has no all-atom atoms to bead: its record says `kind: 'cg'`, and the editor is a
     // reader of AA atom indices. It is offered where it is used (pdc's detergent templates), never here.
@@ -445,16 +454,19 @@ export function createMappings() {
     const section = $('#' + id); section.setAttribute('aria-busy', 'true');
     try {
       const [catalogue, legacy, cgCatalogue] = await Promise.all([
-        cachedApi('/api/mappings?view=summary', {maxAge: 10000}),
+        cachedApi('/api/mappings?view=summary', {maxAge: CATALOGUE_MAX_AGE}),
         cachedApi('/api/mappings/context'),
-        cachedApi('/api/cg-models?view=summary', {maxAge: 10000}),
+        cachedApi('/api/cg-models?view=summary', {maxAge: CATALOGUE_MAX_AGE}),
       ]);
       Object.assign(mappingData, catalogue, legacy);
       mappingData.candidates = [...(mappingData.candidates || []), ...(cgCatalogue.models || []).filter(item => item.kind === 'composition').map(item => ({file: `composition:${item.id}`, name: `${item.name} · Composition`, status: item.status}))];
       if (id === panelIds()['bead-assignment']) { setupMoleculeEditorControls(); await loadMoleculeList(); }
       if (id === panelIds()['bond-interactions']) {
-        bondedWorkspace ||= setupBondedWorkspace(mappingData, {loadMapping});
-        await bondedWorkspace.mount();
+        if (!bondedMounted) {
+          bondedWorkspace ||= setupBondedWorkspace(mappingData, {loadMapping});
+          await bondedWorkspace.mount();
+          bondedMounted = true;
+        }
       }
     } catch (error) {
       setText(id === panelIds()['bond-interactions'] ? $('.bonded-panel-message') : $('#mapping-editor-status'), `Could not load mappings: ${error.message}`);
