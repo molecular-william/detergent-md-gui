@@ -179,6 +179,48 @@ the grouping); run `619ab118abd6`'s rebuilt AA series carries 160 CONECT records
 160 bonds; the import dialog created and validated `molecules/ZZIMPORTCHECK` from fixture text, which was removed
 after the check; this host reports three GPUs, so the no-GPU path is pinned by tests only (`gpu-device.js` stubs).
 
+**The 2026-11-09 Runs-filter slice is built and committed** (`119d5c0`). The panel is one dense table: the
+Table/Grouped/Dense control, `runsView` and both alternate layouts are gone. A **Filters** disclosure above the
+table holds checkbox groups for run type, status and method — OR inside a group, AND between them, nothing ticked
+meaning no narrowing from that group — applied on change, with page 1 and a cleared `ETag`, and saved under
+`runsFilters` so a reload keeps it (and opens the panel). `GET /api/run-filters` publishes the vocabulary: the
+registered run types labelled by `protocol.RUN_TYPE_LABELS` overlaid by each feature's `run_type_labels` (pdc and
+validation label their own), and the methods runs actually record. `/api/jobs` takes each of `run_type`, `status`
+and `method` repeated and builds `IN` clauses; a single value answers exactly as before, so the Run view's one-type
+read and the panel-wide `?limit=100` reads are unchanged, and an unknown run type in a list is still a 400 naming
+the vocabulary. The method label map moved from `runs.js` to `routes/runs.py`'s `METHOD_LABELS`, so a card's Method
+column and the box that narrows to it share one spelling. A narrowed table that matches nothing says "No runs match
+these filters" with Clear all filters, never the "No runs yet" sentence. Checks: fast 2531 passed / 1 xfailed;
+browser 333 passed; slow 25 passed; ruff clean. One full browser run had
+`test_dashboard_browser.py::test_the_selectors_sit_above_the_diagram_side_by_side` fail (a Bead Assignment layout
+measurement that touches no Runs file); it passed alone and in the next full run, so it is the tier's known load
+flake. **The dashboard was not restarted**: `92971317fbe2` (`AA NPT production`, ETA 17:44) is live under the
+dashboard unit and stopping it would kill its mdrun. Until the next restart the new template/JS/CSS are served but
+the new route and repeated parameters are not, so the Filters block reports its vocabulary unavailable.
+
+The queue's other three items now have their gates written, not built. The torsion explainer draft
+(`docs/design/drafts/2026-11-09-torsion-refinement-explainer.html`) and the Shape-and-volume model-labels draft
+(`docs/design/drafts/2026-11-09-shape-volume-models.html`) both correct the plan's copy against the code: the AA run
+id sits in Geometry's identity line, not Shape's (`run-view-mapping.js`); Mapped raw is the unweighted atom mean and
+a virtual site the mean of its parents (`models/sugars/coords.py`); ring dilation is illustrative and the
+ring-scaled row exists only when the mapping declares rings (`analysis/runs/surfaces.py`); phase and k are recorded
+only under circular-harmonic, `refine_bonded` runs from `fit_topology.sh` after `ff_inter` and keeps the
+pre-refinement `*_ff_inter.itp`, and a mapping's saved options are what a run records. The pdc lane produced its
+science question list and report schemas (`docs/plans/2026-11-09-pdc-analyses-definitions.md`, Q1–Q24 with a JSON
+schema per kind) and a section mock (`docs/design/drafts/2026-11-09-pdc-structure-interactions.html`); no producer
+is written until the user answers it, and its §12 corrects three plan assumptions — `09_final_assessment` writes only
+`assessment.json`, so production is `08_extension/prod/whole.xtc`, a skipped final leg also skips the extension
+(leaving `06_assessment/prod/whole.xtc`), and the energy rerun needs `grompp` plus a `trjconv`-extracted sample.
+
+**A real defect found while drafting the torsion copy, not fixed.** `bonded.refine` rewrites every `funct 9` line of
+a fitted dihedral on its own, and Fast-Forward writes eight of them per torsion, so a circular-harmonic refinement
+turns one torsion into eight identical harmonic terms — eight times the fitted stiffness — and `bonded_fit.json`
+reports eight torsions. Reproduced on a synthetic block of eight `1 2 3 4 9 …` lines: the result is eight
+`1 2 3 4 2 -100 122.82647` lines. The fix is to rewrite the dihedral once and drop its sibling lines; it changes
+fitted science, so it waits for the user. No run tree holds a `bonded_fit.json` yet (`67bc79a995d6`'s stage 3 has
+none), so nothing has consumed the wrong stiffness. Also noted: a Bartender fit is never refined although the panel
+offers the choice.
+
 ## Current state (2026-11-02)
 
 - **Three distributions.** Engine `detergent-core` (`packages/core`, import `dashboard`); features
@@ -239,7 +281,9 @@ after the check; this host reports three GPUs, so the no-GPU path is pinned by t
 | --- | --- | --- |
 | Align trajectory's initial state | the form prefills defaults, so a stored series built with `fit: rot+trans` opens with the box unchecked while its summary line says the fit | decide whether Frame options should prefill the stored build's arguments instead of the defaults |
 | Analysis checklist membership | the checklist lists the run's attempted kinds; a kind never queued (e.g. an automatic kind that has not run) is absent | add a server-side "what this run can compute" list and show those unticked, if wanted |
-| Runs filter set | the plan proposes run type + status first, with molecule/method/date optional; the `/api/jobs` route takes one status and one run type today | confirm the facets and whether filters persist, then extend the route to multi-value with the count/page boundaries unchanged |
+| Runs filters | built 2026-11-09 (`119d5c0`): dense only, checkbox run type/status/method, multi-value `/api/jobs`, `GET /api/run-filters` | the molecule and created-after facets were not added; its own slice if wanted |
+| Torsion refinement on a `funct 9` dihedral | `bonded.refine` rewrites each of the eight lines as its own harmonic term, so a circular-harmonic fit lands 8x the fitted stiffness; reproduced on a synthetic block; no run tree has a `bonded_fit.json` yet | decide the fix (rewrite the dihedral once, drop its siblings), pin it with a unit test, and decide whether a Bartender fit should be refinable at all |
+| New routes need a restart | `119d5c0` added `/api/run-filters` and repeated `/api/jobs` values; the dashboard was not restarted because `92971317fbe2` was in production | restart after that run finishes, then re-check the Runs filters live |
 | pdc CG analysis definitions | `pdc-structure` (RDF, micelle eccentricity, aggregation/contacts), `pdc-interaction-energy` (GROMACS rerun with energy groups) and optional `pdc-sdf` need science definitions | settle the energy pairs/terms/sampling, RDF selections and normalization, eccentricity definition and SDF grid, then build `pdc-structure` first |
 | NGL is eager on every panel | one blocking 1,284,224 B script on every page, 68% of the shell's script bytes; Runs, New run and Bonded build no scene | make it lazy like Plotly (`vendor/ngl-loader.js`) and load it for Run view/Complexes/Bead editor; `window.NGL` has readers in three distributions, so this is its own measured slice |
 | Plotly warm and the default figure | a panel that plots asks for its own bundle at mount, so a shown-panel warm cannot help it (Bonded first content 4275 ms); a cold Run view also pulls a 10,300.8 KB interactive figure | decide plan open decisions 2 and whether the first figure waits for a click or visibility; do not prefetch hidden panels |
@@ -371,6 +415,10 @@ after the check; this host reports three GPUs, so the no-GPU path is pinned by t
   caught / 1 survived. `pytest.ini` owns tier counts; do not copy moving counts into this file.
 
 ## Landed slices, newest first
+
+- **2026-11-09 Runs filters**: the panel is one dense table with a checkbox **Filters** block (run type, status,
+  method); `GET /api/run-filters` is the vocabulary; `/api/jobs` takes repeated values; the method labels live
+  once in the route. Commit `119d5c0`.
 
 - **2026-11-06 Run-view Analysis card fixes**: the six items on `67bc79a995d6`. **Topology readers**:
   `itp.active_lines` evaluates `#ifdef`/`#ifndef`/`#else`/`#endif`, and the cross-check reads the live branch
