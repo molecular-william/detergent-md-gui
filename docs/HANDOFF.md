@@ -211,6 +211,13 @@ schema per kind) and a section mock (`docs/design/drafts/2026-11-09-pdc-structur
 is written until the user answers it, and its §12 corrects three plan assumptions — `09_final_assessment` writes only
 `assessment.json`, so production is `08_extension/prod/whole.xtc`, a skipped final leg also skips the extension
 (leaving `06_assessment/prod/whole.xtc`), and the energy rerun needs `grompp` plus a `trjconv`-extracted sample.
+The user then named four GROMACS tools for that analysis. All four exist in GROMACS 2026.3 and were tested on a real pdc
+run (`d17de0a443f3`, 80 DDM): `gyrate`, `rdf` and `mindist` work on the CG system and replace the custom Rg/RDF/contact
+pass (Rg is mass-weighted; the tensor eigenvalues stay producer-side), `spatial` writes the SDF as a Gaussian98
+`grid.cube` (a volume file, not a Plotly figure — Q25), and `hbond` **refuses** it: "0 acceptors and 0 donors", because a
+Martini topology has no hydrogens and a pdc run has no atomistic trajectory. So the design reports bead contacts and
+never hydrogen bonds. The tested commands, their observed output and the one-extracted-sample rule are §1.1 of the
+definitions document.
 
 **A real defect found while drafting the torsion copy, not fixed.** `bonded.refine` rewrites every `funct 9` line of
 a fitted dihedral on its own, and Fast-Forward writes eight of them per torsion, so a circular-harmonic refinement
