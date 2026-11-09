@@ -106,7 +106,9 @@ molecule in Martini water, CG minimization/equilibration/production, no AA refer
 comparison analyses. Sucrose conforms; Trehalose is selectable-but-blocked because the published `TREH` second `TC4`
 carries residue 1. The New run form gets the sugar selector, provenance and conformance preview; its `sugar-cg-v1`
 default is 5 ns equilibration / 10 ns production, and switching to/from sugar re-defaults rather than leaking the
-AA–CG 10 ps/10 ns values. No full CG MD was run; the adapter's prepare smoke reached `min.tpr`, and the form preview
+AA–CG 10 ps/10 ns values. `4ab5bf8` fixed the live order race where the molecule list's DDM fallback could reset a
+sugar selection before Sucrose was chosen, and keeps AA/AA-CG CG choices when those two are toggled. No full CG MD was
+run; the adapter's prepare smoke reached `min.tpr`, and the form preview
 was checked live.
 
 New run also has the transferable pdc **Other run options**: output cadence, neighbour/cutoffs, thermostat/barostat
@@ -114,7 +116,7 @@ couplings, `cg_seed`, `box_shape`, and mdrun `pmefft`/`update`/`tunepme`. MDP ov
 leg; untouched runs write the reviewed MDP byte-for-byte. Help is one server-side map from the GROMACS 2026-rc MDP
 manual and `gmx mdrun -h`, returned with `/api/defaults`; the form has no duplicated help prose and the info buttons
 are keyboard/focus accessible. The dashboard was restarted at 11:47 for the Python changes. Checks: fast 2511 passed /
-1 xfailed; browser 317 passed; ruff clean; worker provenance and run-type default tests added.
+1 xfailed; browser 318 passed; ruff clean; worker provenance and run-type default tests added.
 
 The dashboard was restarted on 2026-11-05 at 17:12 for the whole round. Live checks: LMNG's automatic candidate is
 23 connected beads with the branch bead `[11,22,46]` (connectivity and spectral agree on the bead count, differ on
