@@ -7,8 +7,14 @@
    and each cell stacks its caption above a control row of the input plus a compact Default button. Two columns at
    a desktop width rather than three: three gave every number field 115 px -- narrower than the eight-digit seed it
    has to hold -- while the panel had width to spare. */
-#run-form .settings-grid{grid-template-columns:repeat(auto-fit,minmax(13.5rem,1fr));gap:6px 10px}
-#run-form .settings-grid > label{display:flex;flex-direction:column;gap:2px}
+#run-form .settings-grid{grid-template-columns:repeat(auto-fit,minmax(13.5rem,1fr));gap:4px 10px}
+/* Each cell is two rows: the caption (with its info button beside it) and the control row. The grid keeps the info
+   button on the caption's line at its right instead of giving it a line of its own, and `margin:0` matters: the global
+   `label` margin would otherwise add 24 px around every cell and dominate the block's height. */
+#run-form .settings-grid > label{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:6px;row-gap:1px;
+  align-items:center;margin:0}
+#run-form .settings-grid > label > .setting-control{grid-column:1 / -1;grid-row:2}
+#run-form .settings-grid > label > .field-help{grid-column:2;grid-row:1;justify-self:start;margin-left:0}
 #run-form .setting-control{min-width:0}
 #run-form .setting-control input,#run-form .setting-control select{min-width:0;width:100%;max-width:12rem}
 /* Run type, Method and Force field read as one choice: what to run, and with what. Three columns, so a

@@ -47,6 +47,12 @@ def test_the_map_and_reading_are_stacked_at_half_width_and_side_by_side_at_full_
     reading = map_host.locator('.rvm-reading')
     expect(body).to_be_visible(timeout=30000)
     expect(reading).to_be_visible()
+    # The scene is drawn asynchronously: measuring before Plotly sets its height would compare a short body with a
+    # reading box that is still above where it settles. Wait for the scene, then measure.
+    page.wait_for_function("""selector => {
+      const host = document.querySelector(selector);
+      return Boolean(host && host.querySelector('.main-svg'));
+    }""", arg=f'{CARD} .analysis-map .rvm-map-plot', timeout=30000)
 
     # Two monitors: the card is half the page, so the reading is beneath the scene.
     stacked_body = body.bounding_box()

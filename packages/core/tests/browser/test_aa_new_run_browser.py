@@ -76,6 +76,20 @@ def test_the_help_map_renders_accessible_info_buttons(dashboard, live_page):
     label = page.locator('label:has([name=box_shape])')
     button = label.locator('button.info-btn')
     expect(button).to_have_count(1)
+    # The button sits on the caption's line at its right, above the control row; the cell carries no inherited label
+    # margin, so the rows stay tight. Read the geometry rather than a class name: this is the layout the panel promises.
+    geometry = label.evaluate("""el => {
+      const help = el.querySelector('.field-help').getBoundingClientRect();
+      const control = el.querySelector('.setting-control').getBoundingClientRect();
+      const cell = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return {helpY: help.y - cell.y, helpX: help.x - cell.x, controlY: control.y - cell.y,
+              marginTop: style.marginTop, marginBottom: style.marginBottom};
+    }""")
+    assert geometry['helpY'] < 8, geometry
+    assert geometry['helpX'] > 20, geometry
+    assert geometry['controlY'] > geometry['helpY'] + 12, geometry
+    assert geometry['marginTop'] == '0px' and geometry['marginBottom'] == '0px', geometry
     described = button.get_attribute('aria-describedby')
     assert described, 'the info button must name its tooltip'
     tip = page.locator(f'#{described}')

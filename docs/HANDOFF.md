@@ -152,6 +152,12 @@ observed so the monitor toggle resizes it. The test construction for surfaces/ov
 `tests/harness/validation_fixtures.py`. Checks: fast 2523 passed / 1 xfailed; browser 331 passed; ruff clean.
 Static JS/CSS only, so the dashboard was not restarted.
 
+The New run Stage settings cells were tightened after that: `new-run.css` gives each label a two-row grid whose first
+row is the caption plus its info button (the button moved up from a line of its own), sets `margin:0` on the cell (the
+global `label` 12 px margin was the height), and cuts the grid gap to 4 px. A cell with a caption and a Default button
+went from 79 px to 58 px; the info button sits on the caption's line at its right, and the geometry is pinned in
+`test_aa_new_run_browser.py`'s help-button test. CSS and a test only; no restart.
+
 The dashboard was restarted on 2026-11-05 at 17:12 for the whole round. Live checks: LMNG's automatic candidate is
 23 connected beads with the branch bead `[11,22,46]` (connectivity and spectral agree on the bead count, differ on
 the grouping); run `619ab118abd6`'s rebuilt AA series carries 160 CONECT records over 201 models and the viewer draws
