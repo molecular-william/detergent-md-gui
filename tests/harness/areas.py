@@ -41,7 +41,7 @@ AREAS = {
     ),
     'carbohydrate': (
         'unit/test_sugar_*', 'unit/test_carbohydrate*', 'unit/test_sucrose_*', 'unit/test_fragment_grouping.py',
-        'integration/test_sucrose_reference_mapping.py',
+        'integration/test_sucrose_reference_mapping.py', 'integration/test_sucrose_cg_api.py',
     ),
     'aa': (
         'unit/test_aa_*', 'unit/test_forcefields.py', 'unit/test_prepared_manifest.py',

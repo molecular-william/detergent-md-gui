@@ -358,3 +358,54 @@ def test_pdc_production_keeps_the_cadence_the_run_sent(tmp_path):
     written = parsed(text)
 
     assert (written['nstlog'], written['nstenergy'], written['nstxtcout']) == ('100', '250', '100')
+
+
+def test_cg_production_options_replace_only_what_the_run_names():
+    """The Other run options are overrides, not a second profile.
+
+    The reviewed profile keeps a value for every option the form offers, so a run that names none writes the
+    reviewed file byte for byte; a named one replaces that option and nothing else. `rlist` is the one option the
+    reviewed file deliberately omits (GROMACS sizes it), so it appears only when pinned.
+    """
+    settings = cg.normalize_settings(None)
+    untouched = render('cg-production-v1', cg.mdp_values(settings, 'cg-production-v1'))
+    # The same file the profile rendered before the settings existed: only the run's own numbers, no override keys.
+    base = {'nsteps': round(settings['cg_production_ps'] / 0.02),
+            'nstxtcout': max(1, round(settings['output_interval_ps'] / 0.02)),
+            'ref-t': settings['temperature_k'], 'gen-temp': settings['temperature_k'],
+            'gen-seed': settings['cg_seed'], 'ld-seed': settings['cg_seed']}
+    assert untouched == render('cg-production-v1', base)
+    assert 'rlist' not in parsed(untouched)
+
+    chosen = cg.normalize_settings({'nstlog': 500, 'nstenergy': 250, 'nstxtcout': 400, 'xtc_precision': 750,
+                                    'nstcomm': 50, 'nstlist': 30, 'verlet_buffer_tolerance': 0.002,
+                                    'rlist': 1.25, 'rcoulomb': 1.0, 'rvdw': 1.0, 'tau_t': 0.5, 'tau_p': 8.0,
+                                    'compressibility': 4e-5})
+    written = parsed(render('cg-production-v1', cg.mdp_values(chosen, 'cg-production-v1')))
+    assert written['nstlog'] == '500' and written['nstenergy'] == '250'
+    assert written['nstxtcout'] == '400' and written['xtc-precision'] == '750'
+    assert written['nstcomm'] == '50' and written['nstlist'] == '30'
+    assert written['verlet-buffer-tolerance'] == '0.002' and written['rlist'] == '1.25'
+    assert written['rcoulomb'] == '1' and written['rvdw'] == '1'
+    assert written['tau-t'] == '0.5' and written['tau-p'] == '8' and written['compressibility'] == '4e-05'
+    # The one option the run did not name keeps the reviewed value.
+    assert written['gen-temp'] == str(settings['temperature_k'])
+
+    # The equilibration leg keeps its own reviewed cadence: an override belongs to production only.
+    assert cg.mdp_values(chosen, 'cg-equilibration-v1').get('nstlog') is None
+    # Only the declared variable options are overrideable; the rest is the reviewed physics.
+    with pytest.raises(ValueError, match='takes no run value'):
+        render('cg-production-v1', {'dt': 0.01})
+
+
+def test_the_cg_production_form_starts_on_the_reviewed_numbers():
+    """Any drift between the form's defaults and the profile would silently change an untouched run."""
+    numbers = cg._production_defaults()
+    settings = PROFILES['cg-production-v1'].settings
+    for setting, mdp in cg.PRODUCTION_OVERRIDES.items():
+        if mdp in settings and isinstance(settings[mdp], (int, float)):
+            assert numbers[setting] == settings[mdp], setting
+        else:
+            assert setting not in numbers, setting
+    # The two the profile leaves to GROMACS have no default: an empty control is the reviewed rule.
+    assert 'rlist' not in numbers and 'nstxtcout' not in numbers

@@ -104,23 +104,88 @@ def conform(data, entry_name):
     return issues
 
 
-def parameter_delta(topology_text, entry_name):
+def run_topology(entry_name, *, residue_name=None, provenance=None):
+    """The published entry's own terms, written in the layout a run consumes.
+
+    This is a transcription, not a fit and not a geometry seed: every constraint length, bond, angle, dihedral,
+    virtual site and exclusion is the reference file's value. A run's start coordinates come from the mapped AA
+    geometry, so its initial distances will differ from these; that difference is what
+    ``parameter_delta(..., layout='run')`` reports, and minimisation/equilibration absorb it.
+
+    Run layout means one residue per molecule and ``B01..`` atom names, the convention ``mapped.gro``, the ``.map``
+    and every analysis already use. The published entry's residue/letter column is a mapping fact (``conform``
+    checks it) and is not reproduced here; for ``TREH`` that column also carries the published inconsistency the
+    Trehalose blocker names (atom 8's parents are residue 2 but its residue column is 1).
+    """
+    record = entry(entry_name)
+    name = residue_name or entry_name
+    source = provenance or {}
+    header = [
+        f'; Published Martini 3 sugar topology: {entry_name} from {REFERENCE_NAME}.',
+        '; Constraints, bonds, angles, dihedrals and virtual sites are the published values, not a fit.',
+        '; The starting coordinates are the mapped AA geometry; this topology pulls them onto published geometry.',
+    ]
+    if source:
+        header.append('; provenance: ' + ' '.join(
+            f'{key}={value}' for key, value in source.items() if value not in (None, '')))
+    lines = [*header, '', '[ moleculetype ]', f'{name} {record.get("nrexcl", 1)}', '', '[ atoms ]',
+             ';   nr  type  resnr  residu  atom  cgnr  charge  mass']
+    for atom in record['atoms']:
+        lines.append(f'{atom["index"]:6d} {atom["type"]:>6} 1 {name:>5} B{atom["index"]:02d} '
+                     f'{atom["index"]:6d} {atom["charge"]:g} {atom["mass"]:g}')
+    for section in ('bonds', 'constraints', 'angles', 'dihedrals', 'virtual_sitesn', 'exclusions'):
+        rows = record.get(section) or []
+        if not rows:
+            continue
+        lines += ['', f'[ {section} ]']
+        for row in rows:
+            if section in ('bonds', 'constraints'):
+                fields = [str(row['i']), str(row['j']), str(row['function']), f'{row["length"]:g}']
+                if 'force' in row:
+                    fields.append(f'{row["force"]:g}')
+            elif section == 'angles':
+                fields = [str(row['i']), str(row['j']), str(row['k']), str(row['function']),
+                          f'{row["angle"]:g}', f'{row["force"]:g}']
+            elif section == 'dihedrals':
+                fields = [str(row['i']), str(row['j']), str(row['k']), str(row['l']),
+                          str(row['function']), f'{row["angle"]:g}', f'{row["force"]:g}']
+                if row.get('multiplicity') is not None:
+                    fields.append(f'{row["multiplicity"]:g}')
+            elif section == 'virtual_sitesn':
+                fields = [str(row['site']), str(row['function']),
+                          *[str(parent) for parent in row['parents']]]
+            else:
+                fields = [str(row['site']), *[str(atom) for atom in row['atoms']]]
+            lines.append(' '.join(fields))
+    return '\n'.join(lines) + '\n'
+
+
+def parameter_delta(topology_text, entry_name, *, layout='reference'):
     """Generated constraint lengths beside the reference's published values, per residue and bead letter.
 
     The generated topology is what a run would consume, so this compares the numbers as they are written
     rather than recomputing them. Both are reported: reproducing the mapping is not the same claim as
     reproducing the published equilibrium distances.
+
+    ``layout='run'`` reads a topology written the way a run consumes it: one residue per molecule, atoms named
+    ``B01..``. A conforming candidate keeps the reference's bead order, so ``B01`` is the reference's atom 1 and
+    the published residue/letter is the currency the comparison uses. Without this every generated value reads
+    ``None`` beside the published one for a run-layout topology.
     """
     sections = _sections(topology_text)
-    currency = {int(row[0]): (int(row[2]), row[4]) for row in sections.get('atoms', [])}
+    reference_entry_record = entry(entry_name)
+    reference_atoms = {atom['index']: (atom['residue'], atom['name'])
+                       for atom in reference_entry_record['atoms']}
+    if layout == 'run':
+        currency = {int(row[0]): reference_atoms.get(int(row[0]), (int(row[2]), row[4]))
+                    for row in sections.get('atoms', [])}
+    else:
+        currency = {int(row[0]): (int(row[2]), row[4]) for row in sections.get('atoms', [])}
     generated = {}
     for row in sections.get('constraints', []):
         first, second = int(row[0]), int(row[1])
         if first in currency and second in currency:
             generated[frozenset((currency[first], currency[second]))] = float(row[3])
-    reference_entry_record = entry(entry_name)
-    reference_atoms = {atom['index']: (atom['residue'], atom['name'])
-                       for atom in reference_entry_record['atoms']}
     bonds = {}
     for row in sections.get('bonds', []):
         first, second = int(row[0]), int(row[1])

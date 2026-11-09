@@ -108,3 +108,40 @@ def test_without_a_gpu_the_bracket_and_the_gpu_scheme_are_gone(monkeypatch):
     assert mdrun_command_flags({}, 'production', 'mpi') == ('', '-ntomp 8')
     with pytest.raises(ValueError, match='needs a GPU on this host'):
         mdrun_launch({'mdrun_nb': 'gpu'}, 'mpi')
+
+
+def test_the_execution_additions_emit_nothing_on_auto():
+    """`auto` is GROMACS' own default for each new flag, so an untouched command is the one runs already had."""
+    base = mdrun_command_flags({}, 'production', 'mpi')
+    assert mdrun_command_flags({'mdrun_pmefft': 'auto', 'mdrun_update': 'auto', 'mdrun_tunepme': 'auto'},
+                               'production', 'mpi') == base
+    assert '-update' not in base[1] and '-tunepme' not in base[1] and base[1].count('-pmefft') == 1
+
+
+def test_the_named_execution_additions_reach_the_command_once():
+    flags = mdrun_command_flags({'mdrun_pmefft': 'cpu', 'mdrun_update': 'gpu', 'mdrun_tunepme': 'off'},
+                                'production', 'mpi')[1].split()
+    # The FFT scheme replaces the bracket's GPU copy rather than stacking a second value beside it.
+    assert flags.count('-pmefft') == 1 and flags[flags.index('-pmefft') + 1] == 'cpu'
+    assert flags[flags.index('-update') + 1] == 'gpu'
+    assert '-notunepme' in flags
+    # A CPU PME with a named CPU FFT scheme keeps the scheme it named rather than dropping it.
+    cpu = mdrun_command_flags({'mdrun_pme': 'cpu', 'mdrun_pmefft': 'cpu'}, 'production', 'mpi')[1].split()
+    assert cpu[cpu.index('-pmefft') + 1] == 'cpu'
+    on = mdrun_command_flags({'mdrun_tunepme': 'on'}, 'em', 'mpi')[1].split()
+    assert '-tunepme' in on and '-notunepme' not in on
+
+
+def test_a_gpu_execution_scheme_is_refused_without_a_device(monkeypatch):
+    monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [])
+    with pytest.raises(ValueError, match='mdrun_pmefft gpu needs a GPU'):
+        mdrun_command_flags({'mdrun_pmefft': 'gpu'}, 'production', 'mpi')
+    with pytest.raises(ValueError, match='mdrun_update gpu needs a GPU'):
+        mdrun_command_flags({'mdrun_update': 'gpu'}, 'production', 'mpi')
+
+
+def test_an_unknown_execution_choice_is_refused():
+    with pytest.raises(ValueError, match='must be one of'):
+        normalize_settings({'mdrun_pmefft': 'both'})
+    with pytest.raises(ValueError, match='must be one of'):
+        normalize_settings({'mdrun_tunepme': 'maybe'})

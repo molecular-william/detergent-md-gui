@@ -54,3 +54,48 @@ def test_aa_form_preserves_cg_choices_and_reference_settings(dashboard, live_pag
     page.set_viewport_size({'width':390,'height':844})
     browser.assert_no_horizontal_scroll(page)
     assert not errors, errors
+
+
+def test_the_help_map_renders_accessible_info_buttons(dashboard, live_page):
+    """The info icon is a real button whose text comes from the server's map, and Escape closes the click-opened tip.
+
+    The template carries no help sentence: `dashboard.html` renders the control, `new-run.js` attaches a button per
+    entry in `/api/defaults`' `help`, and the button's `aria-describedby` names its tooltip. Hover and keyboard focus
+    show it through CSS; a click opens it for touch, and Escape closes it.
+    """
+    dashboard.coordinator.database().replace([])
+    page, errors = live_page
+    defaults = {'values': {'box_shape': 'cubic', 'aa_nvt_ps': 100}, 'sources': {'AA': 'stub'}, 'profile': 'draft-smoke',
+                'help': {'box_shape': 'The unit cell the protocol builds (stub text).', 'aa_nvt_ps': 'The NVT leg.',
+                         'nstlog': 'number of steps between log lines (stub text)'}}
+    page.route('**/api/defaults?*', lambda r: r.fulfill(json=defaults))
+    page.route('**/api/readiness?*', lambda r: r.fulfill(json={'ready': False, 'checks': [], 'blockers': ['stub']}))
+    url = f'{live_page.base_url}/detergent-validation/new-run'
+    with page.expect_response(lambda response: '/api/defaults?' in response.url):
+        page.goto(url)
+    label = page.locator('label:has([name=box_shape])')
+    button = label.locator('button.info-btn')
+    expect(button).to_have_count(1)
+    described = button.get_attribute('aria-describedby')
+    assert described, 'the info button must name its tooltip'
+    tip = page.locator(f'#{described}')
+    expect(tip).to_have_attribute('role', 'tooltip')
+    expect(tip).to_have_text('The unit cell the protocol builds (stub text).')
+    expect(tip).to_be_hidden()
+    # Keyboard focus displays it (CSS :focus-within), and Escape closes a click-opened tip.
+    button.focus()
+    expect(tip).to_be_visible()
+    button.click()
+    expect(tip).to_be_visible()
+    page.keyboard.press('Escape')
+    assert 'is-open' not in (tip.get_attribute('class') or '')
+    # Hovering the button keeps its tip up by design; once the pointer leaves and Escape released the focus, it closes.
+    page.mouse.move(0, 0)
+    expect(tip).to_be_hidden()
+    # The fold starts collapsed and opens to the CG production group and the execution controls.
+    advanced = page.locator('#new-advanced')
+    assert advanced.evaluate('(el) => el.open') is False
+    advanced.locator('> summary').click()
+    expect(advanced).to_be_visible()
+    expect(page.locator('label:has([name=nstlog]) button.info-btn')).to_have_count(1)
+    assert not errors, errors

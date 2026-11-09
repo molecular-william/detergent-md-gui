@@ -144,6 +144,45 @@ def publish_dihedral_fit(dashboard, jid):
     return attempt
 
 
+def _ff_distribution(shift=0.0):
+    return {'x': [0.2, 0.3, 0.4], 'density': [0.5 + shift, 1.0 + shift, 0.25 + shift]}
+
+
+FF_INTERACTIONS = {
+    'schema_version': 1, 'scope': 'bonded-terms', 'available': True, 'source': 'consumed',
+    'reference': {'from': 'parameterization store', 'revision': 1, 'engine': 'fast-forward'},
+    'simulated': {'from': 'stage 5 ff_assess'},
+    'metrics': {'hellinger': 'Fast-Forward distance', 'overlap': 'the dashboard coefficient'},
+    'overall': '0.238 ± 0.0208',
+    'terms': [
+        {'name': 'B01_B02', 'section': 'bonds', 'beads': ['B01', 'B02'],
+         'label': '(1,A) - (2,A)', 'unit': 'nm', 'hellinger': 0.180, 'ff_score': 0.170,
+         'reference': _ff_distribution(0.1), 'simulated': _ff_distribution()},
+        {'name': 'B01_B02_B03', 'section': 'angles', 'beads': ['B01', 'B02', 'B03'],
+         'label': '(1,A) - (2,A) - (2,B)', 'unit': 'degrees', 'hellinger': 0.440, 'ff_score': 0.410,
+         'reference': {'x': [90, 120, 150], 'density': [0.2, 0.6, 0.2]},
+         'simulated': {'x': [90, 120, 150], 'density': [0.3, 0.5, 0.2]}},
+        {'name': 'B01_B02_B03_B04', 'section': 'dihedrals', 'beads': ['B01', 'B02', 'B03', 'B04'],
+         'label': '(1,A) - (1,B) - (2,A) - (2,B)', 'unit': 'degrees', 'hellinger': 0.210, 'ff_score': 0.190,
+         'reference': {'x': [150, 180, 210], 'density': [0.2, 0.7, 0.1]},
+         'simulated': {'x': [150, 180, 210], 'density': [0.1, 0.8, 0.1]}},
+    ],
+    'scientifically_validated': False,
+}
+
+
+def publish_ff(dashboard, jid, record=None):
+    """Leave behind what `analysis.worker` leaves behind for a completed ff-interactions analysis."""
+    attempt = dashboard.coordinator.RUNS / jid / 'analyses/ff-interactions/hash/attempt1'
+    output = attempt / 'output/abc123'
+    output.mkdir(parents=True)
+    published = record if record is not None else FF_INTERACTIONS
+    (output / 'ff-interactions.json').write_text(json.dumps(published))
+    (attempt / 'result.json').write_text(json.dumps(
+        {'result': published, 'output_directory': 'output/abc123', 'wall_seconds': 0.8}))
+    return attempt
+
+
 # -------------------------------------------------------------------------------------------------- the tabs
 
 def test_the_section_tabs_are_the_registered_sections_in_order(dashboard, live_page):
@@ -359,6 +398,89 @@ def test_a_run_with_no_cross_check_or_dihedral_fit_says_so_and_lists_nothing(das
     expect(subs.nth(0).locator('.hint').nth(0)).to_contain_text('queued by hand', timeout=30000)
     expect(subs.nth(1).locator('.rvm-measure')).to_have_count(0)
     expect(subs.nth(1).locator('.hint').nth(0)).to_contain_text('queued by hand')
+    assert errors == []
+
+
+def test_clicking_a_bonded_term_shows_its_ff_distribution_and_both_metrics(dashboard, live_page):
+    publish(dashboard, 'aa11bb22cc33', comparison=MAP_COMPARISON)
+    publish_mapping(dashboard, 'aa11bb22cc33')
+    publish_ff(dashboard, 'aa11bb22cc33')
+    page, errors = live_page
+    pane = open_section(page, live_page, 'aa11bb22cc33', 'mapping-bonded')
+
+    row = pane.locator('[data-item="term:0"]')
+    row.click()
+    panel = pane.locator('[data-ff-panel]')
+    expect(panel).to_contain_text('FF Hellinger distance')
+    expect(panel).to_contain_text('0.180')
+    expect(panel).to_contain_text('FF score')
+    expect(panel).to_contain_text('Dashboard overlap coefficient')
+    expect(panel).to_contain_text('0.820')
+    expect(panel).to_contain_text('consumed · parameterization store')
+    expect(row).to_have_attribute('aria-selected', 'true')
+    page.wait_for_function("""selector => {
+      const el = document.querySelector(selector);
+      return Boolean(el && el.data && el.data.length === 2);
+    }""", arg=f'{CARD} .analysis-pane[data-section="mapping-bonded"] .rvm-ff-chart', timeout=30000)
+    names = panel.locator('.rvm-ff-chart').evaluate('el => el.data.map(trace => trace.name)')
+    assert names == ['reference', 'simulated'], names
+    # The two metrics are named separately; neither is presented as the other.
+    assert 'Histogram intersection' in panel.text_content()
+    assert errors == []
+
+
+def test_the_map_term_line_selects_the_same_ff_distribution(dashboard, live_page):
+    publish(dashboard, 'aa11bb22cc33', comparison=MAP_COMPARISON)
+    publish_mapping(dashboard, 'aa11bb22cc33')
+    publish_ff(dashboard, 'aa11bb22cc33')
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/run-view?run=aa11bb22cc33')
+    root = page.locator(CARD)
+    expect(root.locator('.analysis-views button').first).to_be_visible(timeout=30000)
+    root.locator('.analysis-views button[data-section="mapping-bonded"]').click()
+    wait_for_map(page, meta='term')
+    expect(root.locator('.analysis-pane[data-section="mapping-bonded"] [data-ff-panel]')).to_be_visible(timeout=30000)
+    host = map_host(page)
+
+    # Weakest first: the dihedral (0.21) leads and is term:2 in the published comparison.
+    host.locator('.rvm-attention li').nth(0).locator('button').click()
+    expect(root.locator('.analysis-pane[data-section="mapping-bonded"] [data-item="term:2"]')) \
+        .to_have_attribute('aria-selected', 'true')
+    panel = root.locator('[data-ff-panel]')
+    expect(panel).to_contain_text('dihedrals')
+    expect(panel).to_contain_text('0.210')
+    assert errors == []
+
+
+def test_a_term_without_a_published_ff_record_says_so(dashboard, live_page):
+    publish(dashboard, 'aa11bb22cc33', comparison=MAP_COMPARISON)
+    publish_mapping(dashboard, 'aa11bb22cc33')
+    page, errors = live_page
+    pane = open_section(page, live_page, 'aa11bb22cc33', 'mapping-bonded')
+
+    panel = pane.locator('[data-ff-panel]')
+    expect(panel).to_contain_text('No Fast-Forward interaction record has been published', timeout=30000)
+    expect(panel.get_by_role('button', name='Calculate Fast-Forward distributions')).to_be_visible()
+    pane.locator('[data-item="term:0"]').click()
+    expect(panel).to_contain_text('No Fast-Forward interaction record has been published')
+    assert errors == []
+
+
+def test_a_term_with_no_reference_side_names_the_absent_side(dashboard, live_page):
+    record = json.loads(json.dumps(FF_INTERACTIONS))
+    record['terms'][0].pop('reference')
+    record['terms'][0]['reference_missing'] = 'the consumed revision recorded no reference histogram for this term'
+    publish(dashboard, 'aa11bb22cc33', comparison=MAP_COMPARISON)
+    publish_mapping(dashboard, 'aa11bb22cc33')
+    publish_ff(dashboard, 'aa11bb22cc33', record)
+    page, errors = live_page
+    pane = open_section(page, live_page, 'aa11bb22cc33', 'mapping-bonded')
+
+    pane.locator('[data-item="term:0"]').click()
+    panel = pane.locator('[data-ff-panel]')
+    expect(panel).to_contain_text('No reference distribution for this term')
+    expect(panel).to_contain_text('One side alone is not a comparison')
+    expect(panel.locator('.rvm-ff-chart')).to_have_count(0)
     assert errors == []
 
 

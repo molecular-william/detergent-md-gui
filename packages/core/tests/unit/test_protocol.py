@@ -104,7 +104,7 @@ def test_the_published_run_types_are_the_registrys_own():
     It once omitted `osmotic` while `_BUILDERS` carried it: every run type was reachable by name and invisible to
     anything that walked the published tuple, which is the same shape of bug as a registry nobody can enumerate.
     """
-    assert set(protocol.RUN_TYPES) == {'aa_only', 'aa_cg', 'cg_composition', 'pdc', 'osmotic'}
+    assert set(protocol.RUN_TYPES) == {'aa_only', 'aa_cg', 'cg_composition', 'pdc', 'osmotic', 'sugar_cg'}
     for run_type in protocol.RUN_TYPES:
         assert protocol.adapter_for(run_type).name == run_type
 

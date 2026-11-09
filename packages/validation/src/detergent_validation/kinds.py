@@ -5,7 +5,7 @@ analysis control all read them through the engine's one vocabulary.
 """
 from dashboard.analysis.kinds import Kind, sources_only
 
-from .analysis.runs import mapping_consistency, osmotic_pressure, overlap, refinement, surfaces
+from .analysis.runs import ff_interactions, mapping_consistency, osmotic_pressure, overlap, refinement, surfaces
 from .analysis.validation import report as carbohydrate_validation
 from .analysis.validation import targets
 
@@ -94,6 +94,16 @@ KINDS = (
         "Aligned envelopes should occupy similar regions; a snapshot is not ensemble validation.",
         "nm; visual agreement",
         reads_aa_reference=True, records_gmx_version=True),
+
+    Kind(
+        'ff-interactions',
+        (),
+        ff_interactions.publish,
+        "Fast-Forward terms \u00b7 reference vs simulated",
+        "The reference distributions Fast-Forward fitted (or a consumed revision recorded) beside the coarse-grained "
+        "assessment's own. Hellinger is Fast-Forward's distance, not the mapping comparison's overlap coefficient.",
+        "probability density; Hellinger 0-1, lower is closer",
+        source_hook=ff_interactions.sources),
 
     Kind(
         'targets',

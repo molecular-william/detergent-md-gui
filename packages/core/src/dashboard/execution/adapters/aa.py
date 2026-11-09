@@ -108,6 +108,11 @@ def mdrun_launch(settings, flavour=None):
         prefix, rank_flags = '', ''
     # 'auto' emits nothing, so a run that does not touch these settings produces exactly the command it
     # produced before they existed, and a GPU execution profile keeps its own flags.
+    pmefft = str(settings.get('mdrun_pmefft') or 'auto')
+    if pmefft not in CHOICE_SPECS['mdrun_pmefft'][1]:
+        raise ValueError(f'mdrun_pmefft must be one of {", ".join(CHOICE_SPECS["mdrun_pmefft"][1])}')
+    if pmefft == 'gpu' and not devices.present():
+        raise ValueError('mdrun_pmefft gpu needs a GPU on this host')
     scheme = ''
     for key, flag in (('mdrun_nb', '-nb'), ('mdrun_pme', '-pme')):
         choice = str(settings.get(key) or 'auto')
@@ -120,9 +125,31 @@ def mdrun_launch(settings, flavour=None):
         if key == 'mdrun_pme' and choice == 'gpu' and str(settings.get('mdrun_nb') or 'auto') != 'gpu':
             raise ValueError('mdrun_pme gpu needs mdrun_nb gpu: GROMACS runs PME on the GPU only when the '
                              'nonbonded scheme is on the GPU too')
+        if key == 'mdrun_pme' and choice == 'cpu' and pmefft == 'gpu':
+            raise ValueError('mdrun_pmefft gpu needs the PME scheme on the GPU')
         if choice != 'auto':
-            scheme += f' {flag} {choice}' + (' -pmefft gpu' if key == 'mdrun_pme' and choice == 'gpu' else '')
+            scheme += f' {flag} {choice}'
+    # The FFT scheme is named once, after the PME scheme it belongs to: a named one is the run's choice, and `auto`
+    # keeps the scheme the GPU-PME bracket has always asked for.
+    if pmefft != 'auto':
+        scheme += f' -pmefft {pmefft}'
+    elif str(settings.get('mdrun_pme') or 'auto') == 'gpu':
+        scheme += ' -pmefft gpu'
     return prefix, f'{rank_flags}-ntomp {threads}{scheme}'
+
+
+def _without_flag(tokens, flag):
+    """`tokens` with `flag` and the value after it removed: a scheme replaces a flag, never appends a second."""
+    kept, skip = [], False
+    for token in tokens:
+        if skip:
+            skip = False
+            continue
+        if token == flag:
+            skip = True
+            continue
+        kept.append(token)
+    return kept
 
 
 def mdrun_command_flags(settings, stage, flavour=None):
@@ -133,8 +160,12 @@ def mdrun_command_flags(settings, stage, flavour=None):
     stages have always used.
 
     A stage setting *replaces* the bracket flag it names rather than being appended after it: emitting both would
-    leave GROMACS to use whichever came last, which would not be what the setting says. With both on 'auto' the
-    result is byte-for-byte the command these stages produced before the settings existed.
+    leave GROMACS to use whichever came last, which would not be what the setting says. With every scheme on 'auto'
+    the result is byte-for-byte the command these stages produced before the settings existed.
+
+    `mdrun_update`, `mdrun_pmefft` and `mdrun_tunepme` are the execution additions the New run form offers. 'auto'
+    for each emits nothing -- GROMACS' own default -- so an untouched run's command does not move; `tunepme` writes
+    `-tunepme` or `-notunepme` only when the run names one.
     """
     launcher, thread_flags = mdrun_launch(settings, flavour)
     # The device is read here, from the setting, and nowhere else: the constants above are the default the
@@ -142,13 +173,32 @@ def mdrun_command_flags(settings, stage, flavour=None):
     # gets no device and no offload flag -- not even the PME pair the dynamics bracket has always added.
     device_flags = gpu_flags(settings)
     bracket = device_flags if stage == 'em' or not device_flags else f'{device_flags} -pme gpu -pmefft gpu'
+    tokens = bracket.split()
     for key, flag in (('mdrun_nb', '-nb'), ('mdrun_pme', '-pme')):
-        if str(settings.get(key) or 'auto') == 'auto': continue
-        bracket = ' '.join(part for part in bracket.split()
-                           if part != flag and not part.startswith(flag + 'fft'))
+        if str(settings.get(key) or 'auto') != 'auto':
+            tokens = _without_flag(tokens, flag)
+    pmefft = str(settings.get('mdrun_pmefft') or 'auto')
+    if pmefft != 'auto' or str(settings.get('mdrun_pme') or 'auto') != 'auto':
+        # A named PME scheme owns both of its flags: the FFT flag belongs to a GPU PME and goes with it, and a named
+        # FFT scheme is emitted by `mdrun_launch`. Leaving the bracket's copy would emit two values for one option.
+        tokens = _without_flag(tokens, '-pmefft')
     # The checkpoint cadence is a run setting with no default: a run that names none emits nothing, so GROMACS'
     # own 15 minutes stands and the command is the one every earlier run produced, byte for byte.
-    flags = f'{thread_flags} {bracket}'.strip()
+    flags = f'{thread_flags} {" ".join(tokens)}'.strip()
+    update = str(settings.get('mdrun_update') or 'auto')
+    if update not in CHOICE_SPECS['mdrun_update'][1]:
+        raise ValueError(f'mdrun_update must be one of {", ".join(CHOICE_SPECS["mdrun_update"][1])}')
+    if update == 'gpu' and not devices.present():
+        raise ValueError('mdrun_update gpu needs a GPU on this host')
+    if update != 'auto':
+        flags += f' -update {update}'
+    tunepme = str(settings.get('mdrun_tunepme') or 'auto')
+    if tunepme not in CHOICE_SPECS['mdrun_tunepme'][1]:
+        raise ValueError(f'mdrun_tunepme must be one of {", ".join(CHOICE_SPECS["mdrun_tunepme"][1])}')
+    if tunepme == 'on':
+        flags += ' -tunepme'
+    elif tunepme == 'off':
+        flags += ' -notunepme'
     cpt = settings.get('mdrun_cpt')
     if cpt is not None:
         minutes = float(cpt)
@@ -192,6 +242,9 @@ DEFAULTS=dict(aa_nvt_ps=100,aa_npt_ps=1000,aa_production_ps=10000,
               temperature_k=forcefields.entry().temperature_k,
               pressure_bar=1,output_interval_ps=10,box_nm=aa_box.DEFAULT_EDGE_NM,aa_seed=20260917,
               mdrun_ntomp=8,mdrun_ranks=1,mdrun_nb='auto',mdrun_pme='auto',mdrun_gpu=0,
+              # The execution additions: 'auto' emits no flag for each, so every run prepared before these settings
+              # existed keeps its exact command. `tunepme` is GROMACS' own default on; 'auto' leaves it there.
+              mdrun_pmefft='auto',mdrun_update='auto',mdrun_tunepme='auto',
               # A checkpoint every ten minutes of wall time: the user's cadence for this project, recorded by every
               # run so a failed leg loses at most that much sampling to Restart.
               mdrun_cpt=10,
@@ -203,6 +256,12 @@ DEFAULTS=dict(aa_nvt_ps=100,aa_npt_ps=1000,aa_production_ps=10000,
 # offer cannot reach a run.
 CHOICE_SPECS={'mdrun_nb':('Nonbonded scheme',('auto','cpu','gpu')),
               'mdrun_pme':('PME scheme',('auto','cpu','gpu')),
+              # The PME FFT scheme and the update/constraints scheme: 'auto' keeps the profile's bracket, and a named
+              # one replaces that bracket's flag. `tunepme` is a three-way choice rather than a boolean so the form
+              # can post a string and 'auto' can mean GROMACS' own default, which is on.
+              'mdrun_pmefft':('PME FFT scheme',('auto','cpu','gpu')),
+              'mdrun_update':('Update and constraints',('auto','cpu','gpu')),
+              'mdrun_tunepme':('PME load tuning',('auto','on','off')),
               # The cube is the protocol's own shape and stays the default. The dodecahedron was added on the
               # manual's recommendation for a spherical solute and measured: it holds this cut-off in more water,
               # not less, and runs 12% slower here. Available because it was worth testing; not the faster option.

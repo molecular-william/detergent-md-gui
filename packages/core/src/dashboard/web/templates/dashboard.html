@@ -157,13 +157,23 @@
       <button type="button" id="refresh-molecules" class="secondary">Refresh directories</button>
       <div id="molecule-details" aria-live="polite">Checking input files…</div>
       <input type="hidden" name="detergent" value="DDM">
-      <p class="hint">AA runs accept supplied CHARMM36 July 2022 topologies with CHARMM TIP3P water. GROMACS checks parameter compatibility before simulation. CG execution currently supports DDM.</p>
+      <p class="hint">AA runs accept supplied CHARMM36 July 2022 topologies with CHARMM TIP3P water. GROMACS checks parameter compatibility before simulation. A recognised sugar can also run CG-only from the published Martini 3 sugar reference.</p>
     </section>
+    {% if 'sugar_cg' in workspace.run_types %}<section class="card" id="sugar-panel" aria-labelledby="sugar-title" hidden>
+      <span class="eyebrow">CG-ONLY SUGAR</span><h3 id="sugar-title">Published Martini 3 sugar reference</h3>
+      <p class="hint">One molecule in Martini water. The starting coordinates are the sugar's AA coordinates mapped onto the published bead layout; the topology is the reference's own published terms. There is no AA stage, no mapping comparison and no Fast-Forward fit. The reference is one source, not a validation.</p>
+      <div class="sugar-config-row">
+        <label>Sugar reference entry<select name="sugar_entry" id="sugar-entry"><option value="SUCR">SUCR · sucrose</option><option value="TREH">TREH · trehalose</option></select></label>
+        <label>Reference source<input id="sugar-reference-source" value="martini_v3.0.0_sugars_v2.itp" readonly aria-describedby="sugar-reference-detail"></label>
+      </div>
+      <p id="sugar-reference-detail" class="hint">Reading the installed reference and the mapped candidate…</p>
+      <div id="sugar-preview" class="sugar-preview" aria-live="polite">Checking conformance…</div>
+    </section>{% endif %}
     <section class="card" aria-labelledby="execution-title">
     <span class="eyebrow">RUN CONFIGURATION</span><h3 id="execution-title">Execution and CG inputs</h3>
     <p class="hint" id="run-type-help">Choose the workflow before selecting CG-specific inputs.</p>
     <div class="run-config-trio">
-    <label>Run type<select name="run_type" id="run-type"><option value="aa_cg">AA–CG run</option><option value="aa_only">AA run only</option><option value="cg_composition">CG composition screening</option></select></label>
+    <label>Run type<select name="run_type" id="run-type"><option value="aa_cg">AA–CG run</option><option value="aa_only">AA run only</option><option value="cg_composition">CG composition screening</option>{% if 'sugar_cg' in workspace.run_types %}<option value="sugar_cg" hidden>CG sugar run (Martini 3 reference)</option>{% endif %}</select></label>
     <label class="cg-setting">Method<select name="method" id="method"><option value="fast_forward">Fast_Forward</option><option value="bartender">Bartender</option></select></label>
     <label>Force field<select name="force_field" id="force-field"><option value="charmm36-feb2026_cgenff-4.6">CHARMM36m (Feb 2026, CGenFF 4.6)</option><option value="charmm36-jul2022">CHARMM36 (Jul 2022)</option></select></label>
   </div>
@@ -183,25 +193,86 @@
     <aside class="new-run-settings">
     <fieldset class="run-settings card"><legend>Stage settings</legend>
       <p class="hint">One molecule in water: minimization → NVT → NPT → NPT production. Charged molecules receive counterions, with no added salt. Default durations are starting points, not a convergence guarantee.</p>
-      <div class="settings-grid">
-        <label>AA NVT equilibration (ps)<span class="setting-control"><input name="aa_nvt_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="aa_nvt_ps">Default</button></span></label>
-        <label>AA NPT equilibration (ps)<span class="setting-control"><input name="aa_npt_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="aa_npt_ps">Default</button></span></label>
-        <label>AA production (ps)<span class="setting-control"><input name="aa_production_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="aa_production_ps">Default</button></span></label>
-        <label class="cg-setting">CG equilibration (ps)<span class="setting-control"><input name="cg_equil_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="cg_equil_ps">Default</button></span></label>
-        <label class="cg-setting">CG production (ps)<span class="setting-control"><input name="cg_production_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="cg_production_ps">Default</button></span></label>
-        <label>Temperature (K)<span class="setting-control"><input name="temperature_k" type="number" min="200" max="500" step="0.01"><button type="button" class="secondary use-default" data-field="temperature_k">Default</button></span></label>
-        <label>Pressure (bar)<span class="setting-control"><input name="pressure_bar" type="number" min="0.1" max="100" step="0.1"><button type="button" class="secondary use-default" data-field="pressure_bar">Default</button></span></label>
-        <label>Box edge (nm)<span class="setting-control"><input name="box_nm" type="number" min="1" max="20" step="0.1"><button type="button" class="secondary use-default" data-field="box_nm">Default</button></span></label>
-        <label>mdrun threads<span class="setting-control"><input name="mdrun_ntomp" type="number" min="1" max="72" step="1"><button type="button" class="secondary use-default" data-field="mdrun_ntomp">Default</button></span></label>
-        <label>mdrun ranks<span class="setting-control"><input name="mdrun_ranks" type="number" min="1" max="72" step="1"><button type="button" class="secondary use-default" data-field="mdrun_ranks">Default</button></span></label>
-        <label>Checkpoint interval (minutes)<span class="setting-control"><input name="mdrun_cpt" type="number" min="1" max="100000" step="1" value="10"></span></label>
-        <label>GPU device<span class="setting-control"><select name="mdrun_gpu" id="run-gpu-device" aria-describedby="run-gpu-note"></select><button type="button" class="secondary use-default" data-field="mdrun_gpu">Default</button></span></label>
-        <label>Nonbonded scheme<span class="setting-control"><select name="mdrun_nb"><option value="auto">auto · profile decides</option><option value="cpu">CPU</option><option value="gpu">GPU</option></select><button type="button" class="secondary use-default" data-field="mdrun_nb">Default</button></span></label>
-        <label>PME scheme<span class="setting-control"><select name="mdrun_pme"><option value="auto">auto · profile decides</option><option value="cpu">CPU</option><option value="gpu">GPU</option></select><button type="button" class="secondary use-default" data-field="mdrun_pme">Default</button></span></label>
-        <label>AA random seed<span class="setting-control"><input name="aa_seed" type="number" min="1" max="2147483646" step="1"><button type="button" class="secondary use-default" data-field="aa_seed">Default</button></span></label>
-        <label>Trajectory interval (ps)<span class="setting-control"><input name="output_interval_ps" type="number" min="0.001" step="0.001"><button type="button" class="secondary use-default" data-field="output_interval_ps">Default</button></span></label>
-        <label class="cg-setting">SASA probe (nm)<span class="setting-control"><input name="sasa_probe_nm" type="number" min="0.05" max="0.5" step="0.001"><button type="button" class="secondary use-default" data-field="sasa_probe_nm">Default</button></span></label>
-      </div><p class="hint" id="run-gpu-note" role="status"></p><p id="defaults-source" class="hint" aria-live="polite"></p>
+      <section class="new-option-group" aria-labelledby="new-sampling-title">
+        <h4 id="new-sampling-title" class="new-option-title">Sampling</h4>
+        <div class="settings-grid">
+          <label>AA NVT equilibration (ps)<span class="setting-control"><input name="aa_nvt_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="aa_nvt_ps">Default</button></span></label>
+          <label>AA NPT equilibration (ps)<span class="setting-control"><input name="aa_npt_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="aa_npt_ps">Default</button></span></label>
+          <label>AA production (ps)<span class="setting-control"><input name="aa_production_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="aa_production_ps">Default</button></span></label>
+          <label class="cg-setting">CG equilibration (ps)<span class="setting-control"><input name="cg_equil_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="cg_equil_ps">Default</button></span></label>
+          <label class="cg-setting">CG production (ps)<span class="setting-control"><input name="cg_production_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="cg_production_ps">Default</button></span></label>
+          <label>Trajectory interval (ps)<span class="setting-control"><input name="output_interval_ps" type="number" min="0.001" step="0.001"><button type="button" class="secondary use-default" data-field="output_interval_ps">Default</button></span></label>
+        </div>
+      </section>
+      <section class="new-option-group" aria-labelledby="new-ensemble-title">
+        <h4 id="new-ensemble-title" class="new-option-title">Ensemble and box</h4>
+        <div class="settings-grid">
+          <label>Temperature (K)<span class="setting-control"><input name="temperature_k" type="number" min="200" max="500" step="0.01"><button type="button" class="secondary use-default" data-field="temperature_k">Default</button></span></label>
+          <label>Pressure (bar)<span class="setting-control"><input name="pressure_bar" type="number" min="0.1" max="100" step="0.1"><button type="button" class="secondary use-default" data-field="pressure_bar">Default</button></span></label>
+          <label>Box edge (nm)<span class="setting-control"><input name="box_nm" type="number" min="1" max="20" step="0.1"><button type="button" class="secondary use-default" data-field="box_nm">Default</button></span></label>
+          <label>Box shape<span class="setting-control"><select name="box_shape"><option value="cubic">Cube · protocol default</option><option value="dodecahedron">Dodecahedron</option></select><button type="button" class="secondary use-default" data-field="box_shape">Default</button></span></label>
+        </div>
+      </section>
+      <section class="new-option-group" aria-labelledby="new-seeds-title">
+        <h4 id="new-seeds-title" class="new-option-title">Seeds</h4>
+        <div class="settings-grid">
+          <label>AA random seed<span class="setting-control"><input name="aa_seed" type="number" min="1" max="2147483646" step="1"><button type="button" class="secondary use-default" data-field="aa_seed">Default</button></span></label>
+          <label class="cg-setting">CG random seed<span class="setting-control"><input name="cg_seed" type="number" min="1" max="2147483646" step="1"><button type="button" class="secondary use-default" data-field="cg_seed">Default</button></span></label>
+        </div>
+      </section>
+      {# The form's one folded block, in the pdc panel's shape: groups of options a reader scans, and the execution
+         controls beside them. The CG production overrides start on the reviewed profile's own numbers -- the server
+         sends those from the profile itself -- so an untouched run writes the reviewed file byte for byte. #}
+      <details id="new-advanced" class="new-advanced">
+        <summary>Other run options</summary>
+        <div class="new-options">
+          <section class="new-option-group aa-cg-setting" aria-labelledby="new-cadence-title">
+            <h4 id="new-cadence-title" class="new-option-title">CG production output cadence</h4>
+            <div class="settings-grid">
+              <label>Log interval (steps)<span class="setting-control"><input name="nstlog" type="number" min="1" max="1000000" step="1"><button type="button" class="secondary use-default" data-field="nstlog">Default</button></span></label>
+              <label>Energy interval (steps)<span class="setting-control"><input name="nstenergy" type="number" min="1" max="1000000" step="1"><button type="button" class="secondary use-default" data-field="nstenergy">Default</button></span></label>
+              <label>Trajectory interval (steps)<span class="setting-control"><input name="nstxtcout" type="number" min="1" max="1000000" step="1" placeholder="from Trajectory interval (ps)"></span></label>
+              <label>Trajectory precision<span class="setting-control"><input name="xtc_precision" type="number" min="1" max="1000000" step="any"><button type="button" class="secondary use-default" data-field="xtc_precision">Default</button></span></label>
+              <label>Centre-of-mass removal (steps)<span class="setting-control"><input name="nstcomm" type="number" min="1" max="1000000" step="1"><button type="button" class="secondary use-default" data-field="nstcomm">Default</button></span></label>
+            </div>
+          </section>
+          <section class="new-option-group aa-cg-setting" aria-labelledby="new-neighbour-title">
+            <h4 id="new-neighbour-title" class="new-option-title">CG production neighbour search and cutoffs</h4>
+            <div class="settings-grid">
+              <label>Neighbour list rebuild (steps)<span class="setting-control"><input name="nstlist" type="number" min="1" max="10000" step="1"><button type="button" class="secondary use-default" data-field="nstlist">Default</button></span></label>
+              <label>Verlet buffer tolerance<span class="setting-control"><input name="verlet_buffer_tolerance" type="number" min="0" max="0.1" step="0.001"><button type="button" class="secondary use-default" data-field="verlet_buffer_tolerance">Default</button></span></label>
+              <label>Neighbour cut-off (nm)<span class="setting-control"><input name="rlist" type="number" min="0.1" max="5" step="0.05" placeholder="GROMACS sizes it"></span></label>
+              <label>Coulomb cut-off (nm)<span class="setting-control"><input name="rcoulomb" type="number" min="0.1" max="5" step="0.05"><button type="button" class="secondary use-default" data-field="rcoulomb">Default</button></span></label>
+              <label>van der Waals cut-off (nm)<span class="setting-control"><input name="rvdw" type="number" min="0.1" max="5" step="0.05"><button type="button" class="secondary use-default" data-field="rvdw">Default</button></span></label>
+            </div>
+          </section>
+          <section class="new-option-group aa-cg-setting" aria-labelledby="new-coupling-title">
+            <h4 id="new-coupling-title" class="new-option-title">CG production thermostat and barostat</h4>
+            <div class="settings-grid">
+              <label>Thermostat coupling (ps)<span class="setting-control"><input name="tau_t" type="number" min="0.01" max="100" step="any"><button type="button" class="secondary use-default" data-field="tau_t">Default</button></span></label>
+              <label>Barostat coupling (ps)<span class="setting-control"><input name="tau_p" type="number" min="0.1" max="100" step="0.1"><button type="button" class="secondary use-default" data-field="tau_p">Default</button></span></label>
+              <label>Compressibility (bar⁻¹)<span class="setting-control"><input name="compressibility" type="number" min="0" max="1" step="any"><button type="button" class="secondary use-default" data-field="compressibility">Default</button></span></label>
+            </div>
+          </section>
+          <section class="new-option-group" aria-labelledby="new-execution-title">
+            <h4 id="new-execution-title" class="new-option-title">Execution</h4>
+            <div class="settings-grid">
+              <label>mdrun threads<span class="setting-control"><input name="mdrun_ntomp" type="number" min="1" max="72" step="1"><button type="button" class="secondary use-default" data-field="mdrun_ntomp">Default</button></span></label>
+              <label>mdrun ranks<span class="setting-control"><input name="mdrun_ranks" type="number" min="1" max="72" step="1"><button type="button" class="secondary use-default" data-field="mdrun_ranks">Default</button></span></label>
+              <label>Checkpoint interval (minutes)<span class="setting-control"><input name="mdrun_cpt" type="number" min="1" max="100000" step="1" value="10"></span></label>
+              <label>GPU device<span class="setting-control"><select name="mdrun_gpu" id="run-gpu-device" aria-describedby="run-gpu-note"></select><button type="button" class="secondary use-default" data-field="mdrun_gpu">Default</button></span></label>
+              <label>Nonbonded scheme<span class="setting-control"><select name="mdrun_nb"><option value="auto">auto · profile decides</option><option value="cpu">CPU</option><option value="gpu">GPU</option></select><button type="button" class="secondary use-default" data-field="mdrun_nb">Default</button></span></label>
+              <label>PME scheme<span class="setting-control"><select name="mdrun_pme"><option value="auto">auto · profile decides</option><option value="cpu">CPU</option><option value="gpu">GPU</option></select><button type="button" class="secondary use-default" data-field="mdrun_pme">Default</button></span></label>
+              <label>PME FFT scheme<span class="setting-control"><select name="mdrun_pmefft"><option value="auto">auto · profile decides</option><option value="cpu">CPU</option><option value="gpu">GPU</option></select><button type="button" class="secondary use-default" data-field="mdrun_pmefft">Default</button></span></label>
+              <label>Update and constraints<span class="setting-control"><select name="mdrun_update"><option value="auto">auto · profile decides</option><option value="cpu">CPU</option><option value="gpu">GPU</option></select><button type="button" class="secondary use-default" data-field="mdrun_update">Default</button></span></label>
+              <label>PME load tuning<span class="setting-control"><select name="mdrun_tunepme"><option value="auto">auto · GROMACS default (on)</option><option value="on">on</option><option value="off">off</option></select><button type="button" class="secondary use-default" data-field="mdrun_tunepme">Default</button></span></label>
+              <label class="cg-setting">SASA probe (nm)<span class="setting-control"><input name="sasa_probe_nm" type="number" min="0.05" max="0.5" step="0.001"><button type="button" class="secondary use-default" data-field="sasa_probe_nm">Default</button></span></label>
+            </div>
+          </section>
+        </div>
+        <p class="hint">The CG production options start on the reviewed profile's own numbers; changing one overrides it for this run and the manifest records what was used. The equilibration leg keeps its own reviewed cadence and couplings. An empty trajectory interval or neighbour cut-off means GROMACS' own rule (the ps interval above, and the Verlet buffer) rather than a pinned value. The info buttons beside a setting quote the GROMACS manual for MDP options and <code>gmx mdrun -h</code> for execution flags.</p>
+      </details>
+      <p class="hint" id="run-gpu-note" role="status"></p><p id="defaults-source" class="hint" aria-live="polite"></p>
     </fieldset>
     <section class="card run-review" aria-labelledby="run-checks-title"><div class="review-heading"><h3 id="run-checks-title">Review before launch</h3><span id="review-status" class="review-status" role="status">Checking readiness…</span></div>
     <dl id="run-input-summary" class="review-grid"><dt>Molecule</dt><dd id="run-molecule-summary">Select a molecule</dd><dt>Directory</dt><dd id="run-directory-summary">—</dd><dt>Run type</dt><dd id="run-type-summary">AA–CG run</dd><dt>AA source</dt><dd id="run-aa-summary">New reference</dd><dt>CG mapping</dt><dd id="run-mapping-summary">Select a mapping</dd><dt>Bonded fit</dt><dd id="run-bonded-summary">Fitted from the AA reference by the run</dd><dt>Settings</dt><dd id="run-settings-summary">300 K · AA/CG durations</dd></dl>

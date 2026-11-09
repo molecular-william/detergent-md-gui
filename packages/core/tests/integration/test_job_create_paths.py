@@ -123,3 +123,32 @@ def test_a_protein_detergent_payload_reaches_its_own_readiness(dashboard, monkey
     assert b'Unsupported method' not in response.data
     assert asked, response.data
     assert b'stub: no protein was given' in response.data
+
+
+def test_queue_keeps_the_transferable_mdp_options_and_the_box_shape(dashboard, created):
+    """Every control the New run form offers has a spec, so the queue hands the adapter the value it showed.
+
+    The five families the form's Other run options and Seeds groups add are one claim: the route keeps an advertised
+    key. A field without a spec is dropped silently (`SETTING_SPECS`/`CHOICE_SPECS` is what the route filters by), so
+    this posts each family through the panel's own endpoint and reads what reached `create_job`.
+    """
+    response = dashboard.client.post('/', json={
+        'molecule_id': 'DDM', 'method': 'fast_forward', 'run_type': 'aa_cg',
+        'nstlog': 500, 'nstenergy': 250, 'nstxtcout': 400, 'xtc_precision': 750, 'nstcomm': 50,
+        'nstlist': 30, 'verlet_buffer_tolerance': 0.002, 'rlist': 1.25, 'rcoulomb': 1.0, 'rvdw': 1.0,
+        'tau_t': 0.5, 'tau_p': 8.0, 'compressibility': 4.0e-5,
+        'cg_seed': 7, 'box_shape': 'dodecahedron',
+        'mdrun_pmefft': 'cpu', 'mdrun_update': 'cpu', 'mdrun_tunepme': 'off'})
+
+    assert response.status_code == 201, response.data
+    settings = created[0]['settings']
+    assert settings['nstlog'] == 500 and settings['nstenergy'] == 250
+    assert settings['nstxtcout'] == 400 and settings['xtc_precision'] == 750
+    assert settings['nstcomm'] == 50 and settings['nstlist'] == 30
+    assert settings['verlet_buffer_tolerance'] == 0.002
+    assert settings['rlist'] == 1.25 and settings['rcoulomb'] == 1.0 and settings['rvdw'] == 1.0
+    assert settings['tau_t'] == 0.5 and settings['tau_p'] == 8.0 and settings['compressibility'] == 4.0e-5
+    assert settings['cg_seed'] == 7
+    assert settings['box_shape'] == 'dodecahedron'
+    assert settings['mdrun_pmefft'] == 'cpu' and settings['mdrun_update'] == 'cpu'
+    assert settings['mdrun_tunepme'] == 'off'

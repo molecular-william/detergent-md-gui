@@ -362,7 +362,7 @@ def test_the_chooser_asks_for_this_workspaces_run_types_and_lists_none_of_the_ot
     expect(page.locator('#run-view-list-A button')).to_have_count(3)
 
     jobs = [url.split('run_type=')[1].split('&')[0] for url in asked if '/api/jobs?' in url and 'run_type=' in url]
-    assert sorted(set(jobs)) == ['aa_cg', 'aa_only', 'cg_composition', 'osmotic'], jobs
+    assert sorted(set(jobs)) == ['aa_cg', 'aa_only', 'cg_composition', 'osmotic', 'sugar_cg'], jobs
     assert not any('/api/jobs?' in url and 'run_type=' not in url for url in asked), \
         'the panel must ask the route for a run type, not page every run and narrow it here'
 

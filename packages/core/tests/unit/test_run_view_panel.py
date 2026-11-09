@@ -43,11 +43,12 @@ def test_the_run_view_panel_resolves_to_a_label_glyph_and_dom_id():
 def test_each_workspace_scopes_the_run_view_to_its_own_run_types():
     """The heart of D2: a reader picks their workspace's kind out of their workspace's runs.
 
-    Detergent validation reads single-molecule work -- AA-only, AA-CG, CG composition and the osmotic series.
+    Detergent validation reads single-molecule work -- AA-only, AA-CG, CG composition, the osmotic series and the
+    CG-only sugar run.
     Protein-detergent simulations reads the complexes it queues, and nothing else: an AA-only run is not that
     workspace's to show.
     """
-    assert run_types_for('validation') == ('aa_only', 'aa_cg', 'cg_composition', 'osmotic')
+    assert run_types_for('validation') == ('aa_only', 'aa_cg', 'cg_composition', 'osmotic', 'sugar_cg')
     assert run_types_for('protein-detergent') == ('pdc',)
     assert 'pdc' not in run_types_for('validation')
     assert not set(run_types_for('simulations')) & set(run_types_for('validation'))
@@ -67,7 +68,7 @@ def test_every_run_type_the_workspace_owns_is_offered():
     `aa_cg` is what a record without a `run_type` resolves to (`protocol.run_type_of`), so it must be reachable
     from the workspace the single-molecule runs live in even if no job record names it by name.
     """
-    assert set(run_types_for('validation')) == {'aa_only', 'aa_cg', 'cg_composition', 'osmotic'}
+    assert set(run_types_for('validation')) == {'aa_only', 'aa_cg', 'cg_composition', 'osmotic', 'sugar_cg'}
     assert 'aa_cg' in run_types_for('validation')
 
 

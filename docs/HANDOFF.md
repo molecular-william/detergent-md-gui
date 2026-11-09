@@ -90,6 +90,32 @@ hidden, the two panels draw (AA 14.819 nm² vs Simulated CG 13.728 nm², probe 0
 series and the recalculate action. Checks: fast 2471 passed / 1 xfailed; browser 308 passed; validation browser 29,
 integration 10; ruff clean.
 
+The 2026-11-09 FF/sugar/MDP wave is built. The validation feature adds the on-demand **`ff-interactions`** kind and
+route: fitted runs read stage 3 reference distributions, reference-seeded runs resolve the revision's histograms from
+the parameterization store, and stage 5 supplies the simulated side; text `.dat`/`.out` only, and the record states
+`source` plus a missing side rather than drawing one curve. Bonded terms now has a right-hand FF panel: selecting a
+term shows reference vs simulated and labels **FF Hellinger distance**, **FF score** and the dashboard **overlap
+coefficient** separately. Live on `67bc79a995d6`: 34 terms (10 bonds, 22 angles, 2 dihedrals), the analysis completed,
+and the first term's chart draws both 180-bin series. The live queue exposed a worker provenance bug for store files
+outside `runs/`; `_source_provenance` now names them from the workspace and is pinned by
+`test_analysis_source_provenance.py`.
+
+The validation feature also adds the CG-only **`sugar_cg`** run type: Sucrose or Trehalose plus the published
+Martini 3 `SUCR`/`TREH` entry, AA coordinates mapped onto the published layout, the reference's own topology, one
+molecule in Martini water, CG minimization/equilibration/production, no AA reference/mapping/fit and no automatic
+comparison analyses. Sucrose conforms; Trehalose is selectable-but-blocked because the published `TREH` second `TC4`
+carries residue 1. The New run form gets the sugar selector, provenance and conformance preview; its `sugar-cg-v1`
+default is 5 ns equilibration / 10 ns production, and switching to/from sugar re-defaults rather than leaking the
+AA–CG 10 ps/10 ns values. No full CG MD was run; the adapter's prepare smoke reached `min.tpr`, and the form preview
+was checked live.
+
+New run also has the transferable pdc **Other run options**: output cadence, neighbour/cutoffs, thermostat/barostat
+couplings, `cg_seed`, `box_shape`, and mdrun `pmefft`/`update`/`tunepme`. MDP overrides are scoped to the CG production
+leg; untouched runs write the reviewed MDP byte-for-byte. Help is one server-side map from the GROMACS 2026-rc MDP
+manual and `gmx mdrun -h`, returned with `/api/defaults`; the form has no duplicated help prose and the info buttons
+are keyboard/focus accessible. The dashboard was restarted at 11:47 for the Python changes. Checks: fast 2511 passed /
+1 xfailed; browser 317 passed; ruff clean; worker provenance and run-type default tests added.
+
 The dashboard was restarted on 2026-11-05 at 17:12 for the whole round. Live checks: LMNG's automatic candidate is
 23 connected beads with the branch bead `[11,22,46]` (connectivity and spectral agree on the bead count, differ on
 the grouping); run `619ab118abd6`'s rebuilt AA series carries 160 CONECT records over 201 models and the viewer draws

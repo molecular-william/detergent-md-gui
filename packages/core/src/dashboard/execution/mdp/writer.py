@@ -8,7 +8,9 @@ which the run records so that its physics is identifiable after the fact.
 `values` maps GROMACS option names to the run's numbers in the option they belong to (`nsteps`, `gen-seed`, `ref-t`,
 `nstxtcout`, ...). It is not a second profile: a key the profile does not own is refused, so a caller cannot smuggle
 physics past the reviewed table, and a profile setting of `None` is a number the run must supply, so a file cannot be
-rendered with a missing one. The writer does not guess a derivation: duration to steps is rounded differently per
+rendered with a missing one. A profile's `variable` entries are the options the New run form owns as overrides: they
+keep a reviewed default (so an untouched run renders the reviewed file) and take the run's number only when it names
+one. The writer does not guess a derivation: duration to steps is rounded differently per
 stage today (`round`, `ceil`, `max(1, round(...))`), and that arithmetic belongs to the adapter that knows which leg
 it is preparing.
 
@@ -31,6 +33,12 @@ class Profile:
     setting name and rendered on that line. `source` says where the science comes from, and `version` is the name a
     run records -- the same string `PROFILES` is keyed by, so a run's record cannot name a profile that does not exist.
 
+    `variable` names the options whose reviewed value a run may replace -- the numbers the New run form offers as
+    overrides. They are not `None`: the profile still states a reviewed default, so an untouched run renders exactly
+    the reviewed file, and only a run that supplied one changes it. A variable key the profile does not state (such
+    as `rlist`, which the CG production profile deliberately leaves to GROMACS) is appended when a run supplies it,
+    and absent otherwise. Every other fixed setting stays the reviewed physics.
+
     `force_field` is true for a profile whose force-field block is the registry's, read at render time: the block is
     not baked in here, because a run's force field is a choice recorded in its manifest.
     """
@@ -41,6 +49,7 @@ class Profile:
     version: str
     force_field: bool = False
     notes: tuple = ()
+    variable: tuple = ()
 
 
 def formatted(value):
@@ -69,15 +78,16 @@ def render(profile, values=None):
     """The complete, commented MDP file for one profile at one run's numbers."""
     profile = resolve(profile)
     values = dict(values or {})
-    # The run's numbers are the settings the profile left as None, and nothing else: a value the profile fixes is the
-    # reviewed physics, and a caller overriding it would be running one profile under another's name.
-    run_keys = {key for key, value in profile.settings.items() if value is None}
+    # The run's numbers are the settings the profile left as None, the options it marks variable, and nothing else: a
+    # value the profile fixes is the reviewed physics, and a caller overriding it would be running one profile under
+    # another's name.
+    run_keys = {key for key, value in profile.settings.items() if value is None} | set(profile.variable)
     if profile.force_field:
         run_keys.add('force_field')
     foreign = sorted(set(values) - run_keys)
     if foreign:
         raise ValueError(f"{profile.version} takes no run value for {', '.join(foreign)}; its settings are the "
-                         "reviewed physics, and only its None entries are the run's")
+                         "reviewed physics, and only its None entries and variable options are the run's")
     settings = {}
     header = [f'; {profile.version}: reviewed physics profile, dashboard/execution/mdp/profiles.py',
               f'; source: {profile.source}']
@@ -88,6 +98,13 @@ def render(profile, values=None):
         header.append(f'; force-field block: {entry.name} (dashboard.execution.forcefields.entry at render time)')
     for key, default in profile.settings.items():
         settings[key] = values.get(key, default)
+    # A variable option the profile does not state has no reviewed default to keep; the run either names it or the
+    # line is absent, which is what `rlist` wants (GROMACS sizes the list from the Verlet tolerance).
+    for key in profile.variable:
+        if key in settings:
+            continue
+        if key in values:
+            settings[key] = values[key]
     missing = [key for key in profile.settings if settings[key] is None]
     if missing:
         raise ValueError(f"{profile.version} needs the run's own numbers for: {', '.join(missing)}")

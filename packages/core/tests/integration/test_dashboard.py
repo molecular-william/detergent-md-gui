@@ -250,3 +250,42 @@ class MappingTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def test_defaults_return_one_help_map_quoted_from_the_manual(dashboard):
+    """The form renders help from the server, not from the template: one map, one source, every run type.
+
+    A second copy in `dashboard.html` would drift the moment a value or a flag moved, so the template carries no
+    sentence -- and the map is returned with the same answer that fills the fields.
+    """
+    from dashboard.execution import settings_help
+
+    data = dashboard.client.get('/api/defaults?run_type=aa_cg').get_json()
+    assert data['help'] == settings_help.HELP
+    assert data['help_sources']['mdp'] == 'https://manual.gromacs.org/2026-rc/user-guide/mdp-options.html'
+    for key in ('nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm', 'nstlist',
+                'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw', 'tau_t', 'tau_p', 'compressibility',
+                'mdrun_pmefft', 'mdrun_update', 'mdrun_tunepme'):
+        assert data['help'].get(key), key
+    # A composition run writes no engine MDP, so it neither offers nor defaults the CG production overrides.
+    composition = dashboard.client.get('/api/defaults?run_type=cg_composition').get_json()
+    assert not set(cg.PRODUCTION_OVERRIDES) & set(composition['values'])
+    assert composition['help'] == settings_help.HELP
+
+
+def test_new_run_form_groups_the_options_and_exposes_box_shape(dashboard):
+    """The markup the lane owns: visible sampling/ensemble/seeds, one folded Other run options, and the controls the
+    specs already advertised (`box_shape`, `cg_seed`) actually rendered."""
+    from dashboard.execution.adapters import aa_box
+
+    page = dashboard.client.get('/').get_data(as_text=True)
+    for name in ('aa_nvt_ps', 'cg_seed', 'box_shape', 'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision',
+                 'nstcomm', 'nstlist', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw', 'tau_t',
+                 'tau_p', 'compressibility', 'mdrun_pmefft', 'mdrun_update', 'mdrun_tunepme'):
+        assert f'name="{name}"' in page, name
+    assert 'id="new-advanced"' in page and 'Other run options' in page
+    assert '>Sampling<' in page and '>Ensemble and box<' in page and '>Seeds<' in page
+    # The box shape's offered values are the adapter's own shapes, not a second list that could drift.
+    import re
+    select = re.search(r'<select name="box_shape">(.*?)</select>', page, re.S).group(1)
+    assert re.findall(r'value="([^"]+)"', select) == list(aa_box.SHAPES)

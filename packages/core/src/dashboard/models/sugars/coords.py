@@ -375,6 +375,24 @@ def coordinates(data, positions, atom_ids=None, scaled=False, representation_mod
     return xyz
 
 
+def gro_text(data, xyz, *, residue_name, box_nm=0.0):
+    """A `.gro` for the beads at `xyz` (nm), named the way every run names them: `B01..` under one residue.
+
+    The run's topology is written in run layout for the same reason: `gmx grompp` reconciles a topology against a
+    structure by atom name, and MDAnalysis treats each residue as a molecule. One residue per molecule is the
+    convention the mapping export and the analyses already speak.
+    """
+    name = str(residue_name or data.get('name') or 'SUG')[:5]
+    lines = [f'{name} CG beads mapped from AA coordinates', str(len(data['beads']))]
+    for index, (bead, position) in enumerate(zip(data['beads'], xyz), 1):
+        atom = f'B{index:02d}'
+        lines.append(f'{index:5d}{name:<5}{atom:>5}{index:5d}'
+                     f'{float(position[0]):8.3f}{float(position[1]):8.3f}{float(position[2]):8.3f}')
+    edge = float(box_nm or 0.0)
+    lines.append(f'{edge:10.5f}{edge:10.5f}{edge:10.5f}')
+    return '\n'.join(lines) + '\n'
+
+
 def ring_pairs(data):
     names = {b['name']:i+1 for i,b in enumerate(data['beads'])}
     return {tuple(sorted((names[a],names[b]))):r['scale'] for r in data.get('rings',[]) for a,b in itertools.combinations(r['beads'],2)}

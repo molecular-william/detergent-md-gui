@@ -109,7 +109,24 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   // inherits: a reference run's GPU must not be locked onto a new run, so this key is deliberately not in
   // AA_FIELDS. They still have to travel as settings when a run is cloned, which is what this list is for.
   const GPU_FIELDS = ['mdrun_gpu','mdrun_cpt'];
-  const CG_FIELDS = ['cg_equil_ps','cg_production_ps','sasa_probe_nm','cg_seed'];
+  // The execution additions and the box shape are not inherited from the AA reference either: they describe how
+  // this run executes and what box it builds, so they travel with a clone but never through `applyReferenceSettings`.
+  const RUN_FIELDS = ['box_shape','mdrun_pmefft','mdrun_update','mdrun_tunepme'];
+  // The CG production options the Other run options fold offers. Each has a `SETTING_SPECS` bound and is written into
+  // `cg-production-v1`; the equilibration leg keeps its own reviewed values. `nstxtcout` and `rlist` have no default,
+  // so an empty control leaves GROMACS' own rule (the ps interval and the Verlet buffer) in force.
+  const CG_FIELDS = ['cg_equil_ps','cg_production_ps','sasa_probe_nm','cg_seed',
+    'nstlog','nstenergy','nstxtcout','xtc_precision','nstcomm','nstlist','verlet_buffer_tolerance','rlist',
+    'rcoulomb','rvdw','tau_t','tau_p','compressibility'];
+  //: The CG-only sugar run. Its settings are the CG dials and this run's execution controls; AA durations, pressure,
+  //: box shape, the output/cutoff/thermostat groups and the SASA probe are not in its vocabulary, so they are hidden
+  //: and left out of the payload rather than posted for the route to drop.
+  const SUGAR_RUN = 'sugar_cg';
+  const SUGAR_MOLECULES = new Set(['Sucrose', 'Trehalose']);
+  const SUGAR_FIELDS = ['cg_equil_ps','cg_production_ps','temperature_k','cg_seed','output_interval_ps',
+    'mdrun_ntomp','mdrun_ranks','mdrun_gpu','mdrun_cpt','mdrun_nb','mdrun_pme'];
+  const SUGAR_HIDDEN = ['method','force_field','aa_nvt_ps','aa_npt_ps','aa_production_ps',
+    'pressure_bar','box_nm','box_shape','aa_seed','sasa_probe_nm'];
   //: The profile is the run type's own (`protocol.profile_for_run_type`): the panel offers no choice, sends no key, and
   //: asks `/api/defaults` and `/api/readiness` without one, so the durations it shows and the profile the run is
   //: stamped with come from one answer rather than from a control the panel would have to keep in step.
@@ -117,6 +134,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   function formValues() { return Object.fromEntries([...form.elements].filter(el=>el.name).map(el=>[el.name,el.value])); }
   let referenceRecords = [], referenceGeneration = 0, lockedReference = null;
   let referencesLoaded=false, mappingsLoaded=false, mounted=false, mounting=null;
+  let previousRunType = form.elements.run_type.value;
   // The shared cache drops a resource when something changes it elsewhere; these flags
   // remember that this module already fetched it, so they have to drop with it. Saving a
   // mapping draft in the Mappings workspace was the case that bit: the New-run
@@ -188,15 +206,86 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     select.value=chosen;
     showMolecule(moleculeRecords.find(record=>record.id===select.value));
     form.elements.detergent.value=select.value;
+    syncSugarAvailability();
+  }
+  function selectedSugar() { return SUGAR_MOLECULES.has(form.elements.molecule_id.value); }
+  /** Offer the sugar run type only for the two molecules the published entries name. */
+  function syncSugarAvailability() {
+    const option=[...form.elements.run_type.options].find(candidate=>candidate.value===SUGAR_RUN);
+    if(!option)return;
+    const available=selectedSugar();
+    option.hidden=!available; option.disabled=!available;
+    if(!available && form.elements.run_type.value===SUGAR_RUN){
+      form.elements.run_type.value='aa_cg';
+      syncRunType();
+    }
+  }
+  let sugarPreviewGeneration=0;
+  function renderSugarPreview(answer) {
+    const host=$('#sugar-preview'); host.replaceChildren();
+    const reference=answer.reference||{};
+    const filename=String(reference.path||'martini_v3.0.0_sugars_v2.itp').split('/').pop();
+    $('#sugar-reference-source').value=filename;
+    const provenance=[reference.sha256?`sha256 ${reference.sha256}`:'',reference.commit?`commit ${reference.commit}`:'',
+      reference.paper_doi?`doi ${reference.paper_doi}`:''].filter(Boolean).join(' · ');
+    setText($('#sugar-reference-detail'),provenance || 'The installed reference carries no provenance record.');
+    const status=document.createElement('div'); status.className='sugar-status';
+    status.dataset.ready=String(!!answer.ready);
+    const title=document.createElement('strong');
+    title.textContent=answer.conforms?'Conforms to the published bead layout'
+      :answer.ready?'No published entry to compare':'Not runnable';
+    const sentence=document.createElement('p'); sentence.className='hint';
+    sentence.textContent=answer.conforms
+      ?'The candidate reproduces the reference\'s residues, bead letters and types, virtual sites and link. Conformance is a mapping statement, not a validation.'
+      :'The candidate does not reproduce the selected published entry; the run cannot start until the entry matches.';
+    status.append(title,sentence);
+    if(answer.blockers?.length){
+      const list=document.createElement('ul');
+      for(const blocker of answer.blockers){const item=document.createElement('li');item.textContent=blocker;list.append(item);}
+      status.append(list);
+    }
+    host.append(status);
+    if(answer.beads?.length){
+      const wrap=document.createElement('div'); wrap.className='sugar-beads';
+      const table=document.createElement('table');
+      const head=document.createElement('thead'); const headRow=document.createElement('tr');
+      for(const label of ['Run bead','Reference','Residue','Type','Site']){const th=document.createElement('th');th.textContent=label;headRow.append(th);}
+      head.append(headRow); table.append(head);
+      const body=document.createElement('tbody');
+      for(const bead of answer.beads){
+        const row=document.createElement('tr');
+        for(const value of [bead.name,bead.export_name,bead.residue,bead.type,bead.virtual_site?'virtual site':'physical bead']){
+          const cell=document.createElement('td'); cell.textContent=String(value); row.append(cell);
+        }
+        body.append(row);
+      }
+      table.append(body); wrap.append(table); host.append(wrap);
+    }
+  }
+  async function loadSugarPreview() {
+    const generation=++sugarPreviewGeneration;
+    if(!form.elements.sugar_entry)return;
+    if(form.elements.run_type.value!==SUGAR_RUN){$('#sugar-preview').replaceChildren();return;}
+    const molecule=form.elements.molecule_id.value, entry=form.elements.sugar_entry.value||'SUCR';
+    if(!molecule){setText($('#sugar-preview'),'Select a molecule directory to check conformance.');return;}
+    try {
+      const answer=await api('/api/sugar-cg/preview?'+new URLSearchParams({molecule_id:molecule,sugar_entry:entry}));
+      if(generation!==sugarPreviewGeneration || form.elements.run_type.value!==SUGAR_RUN)return;
+      renderSugarPreview(answer);
+    } catch (error) {
+      if(generation!==sugarPreviewGeneration)return;
+      setText($('#sugar-preview'),error.message);
+    }
   }
   function syncRunSummary() {
     const runType=form.elements.run_type.value;
     const aaOnly=runType==='aa_only';
     const compositionOnly=runType==='cg_composition';
+    const sugarOnly=runType===SUGAR_RUN;
     const textFor=(field, fallback)=>field?.selectedOptions?.[0]?.textContent || fallback;
-    setText($('#run-type-summary'), aaOnly?'AA-only run':'AA–CG run');
-    setText($('#run-aa-summary'), aaOnly?'New AA reference':textFor(form.elements.reference_run_id,'New AA reference'));
-    setText($('#run-mapping-summary'), aaOnly?'Not needed for AA-only':textFor(form.elements.mapping_candidate,'Select a mapping'));
+    setText($('#run-type-summary'), sugarOnly?'CG sugar run':aaOnly?'AA-only run':'AA–CG run');
+    setText($('#run-aa-summary'), sugarOnly?'No AA stage':aaOnly?'New AA reference':textFor(form.elements.reference_run_id,'New AA reference'));
+    setText($('#run-mapping-summary'), sugarOnly?'Not used':aaOnly?'Not needed for AA-only':textFor(form.elements.mapping_candidate,'Select a mapping'));
     // Fitting is the run type's now (D1), not a per-run intent: an AA–CG run consumes its model's parameterization
     // when the mapping has one and fits in stage 3 when it does not (D5), a composition carries its own bonded
     // state, and an AA-only run never fits. There is no per-run state or workflow left to report, so this row says
@@ -208,7 +297,8 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     // so reading a state without checking whose it is would print the previous mapping's model here.
     const choosingModel = form.elements.run_type.value==='aa_cg' && !!form.elements.mapping_candidate.value;
     const model = choosingModel ? modelAnswer() : null;
-    setText($('#run-bonded-summary'), aaOnly?'Not needed'
+    setText($('#run-bonded-summary'), sugarOnly?'Published Martini 3 terms · not a fit'
+      :aaOnly?'Not needed'
       :compositionOnly?'From the composition'
       :model?.parameterized?'Used as-is · this run does not re-fit'
       :model?'Stage 3 fits it during the run'
@@ -218,31 +308,58 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     const aa=form.elements.aa_production_ps.value || '—';
     const cg=form.elements.cg_production_ps.value || '—';
     const protocol=`${temp} K · ${form.elements.pressure_bar.value||'—'} bar · NVT ${form.elements.aa_nvt_ps.value||'—'} / NPT ${form.elements.aa_npt_ps.value||'—'} / production ${aa} ps`;
-    setText($('#run-settings-summary'), aaOnly?protocol:`${protocol} · CG ${cg} ps`);
+    setText($('#run-settings-summary'), sugarOnly?`${temp} K · CG equilibration ${form.elements.cg_equil_ps.value||'—'} ps · CG production ${cg} ps`
+      :aaOnly?protocol:`${protocol} · CG ${cg} ps`);
   }
-  function syncRunType() {
+  function syncRunType(forceDefaults = false) {
     const runType=form.elements.run_type.value;
     const aaOnly=runType==='aa_only';
     const compositionOnly=runType==='cg_composition';
-    $('#cg-inputs').classList.toggle('hidden',aaOnly);
+    const sugarOnly=!!form.elements.sugar_entry && runType===SUGAR_RUN;
+    const sugarPanel=$('#sugar-panel'); if(sugarPanel)sugarPanel.hidden=!sugarOnly;
+    if(form.elements.sugar_entry)form.elements.sugar_entry.disabled=!sugarOnly;
+    $('#cg-inputs').classList.toggle('hidden',aaOnly||sugarOnly);
     $$('.cg-setting').forEach(label=>label.classList.toggle('hidden',aaOnly));
-    $('#execution-title').textContent=aaOnly?'AA run settings':compositionOnly?'CG composition settings':'Execution and CG inputs';
-    setText($('#run-type-help'), aaOnly?'Standalone AA execution is selected. CG mapping and bonded controls are not needed.':compositionOnly?'Run a saved composition through CG simulation, assessment, and CG-only SASA.':'Choose the workflow before selecting CG-specific inputs.');
-    $('#cg-inputs').querySelectorAll('input,select,button').forEach(control=>{control.disabled=aaOnly;});
+    $('#execution-title').textContent=sugarOnly?'CG sugar run settings':aaOnly?'AA run settings':compositionOnly?'CG composition settings':'Execution and CG inputs';
+    setText($('#run-type-help'), sugarOnly?'CG-only sugar run from the published Martini 3 reference. The AA coordinates place the beads; there is no AA stage, mapping comparison or fit.'
+      :aaOnly?'Standalone AA execution is selected. CG mapping and bonded controls are not needed.'
+      :compositionOnly?'Run a saved composition through CG simulation, assessment, and CG-only SASA.'
+      :'Choose the workflow before selecting CG-specific inputs.');
+    $('#cg-inputs').querySelectorAll('input,select,button').forEach(control=>{control.disabled=aaOnly||sugarOnly;});
     $$('.cg-setting').forEach(label=>label.querySelectorAll('input,select,button').forEach(control=>{control.disabled=aaOnly;}));
-    applyReferenceSettings(aaOnly?null:referenceRecords.find(r=>r.id===form.elements.reference_run_id.value));
-    $('#start-run').textContent=aaOnly?'Start AA run':compositionOnly?'Start CG composition run':'Start AA–CG run';
+    // The CG production MDP options belong to an AA–CG run: a composition run writes no engine MDP, and an AA-only
+    // run has no CG half, so the group is hidden and its controls disabled rather than left posting a dead value.
+    const aaCg=runType==='aa_cg';
+    $$('.aa-cg-setting').forEach(section=>{
+      section.classList.toggle('hidden',!aaCg);
+      section.querySelectorAll('input,select,button').forEach(control=>{control.disabled=!aaCg;});
+    });
+    // A sugar run has no AA half and does not read the AA/box/force-field vocabulary. The controls are hidden and
+    // disabled so the form neither shows a field the run drops nor posts one into its payload; method and the SASA
+    // probe are the two that also carry `cg-setting`, so their AA-only disabled state is preserved here.
+    for (const name of SUGAR_HIDDEN) {
+      const input=form.elements[name];
+      if(!input)continue;
+      const label=input.closest('label');
+      if(label)label.hidden=sugarOnly;
+      input.disabled=sugarOnly || (aaOnly && !!label?.classList.contains('cg-setting'));
+    }
+    applyReferenceSettings(sugarOnly?null:aaOnly?null:referenceRecords.find(r=>r.id===form.elements.reference_run_id.value));
+    $('#start-run').textContent=sugarOnly?'Start CG sugar run':aaOnly?'Start AA run':compositionOnly?'Start CG composition run':'Start AA–CG run';
     $('#molecule-panel').classList.toggle('hidden', compositionOnly);
     $('#composition-run-selector').classList.toggle('hidden', !compositionOnly);
-    $('#run-mapping').closest('label').classList.toggle('hidden', compositionOnly);
-    $('#reference-run').closest('label').classList.toggle('hidden', compositionOnly);
+    $('#run-mapping').closest('label').classList.toggle('hidden', compositionOnly||sugarOnly);
+    $('#reference-run').closest('label').classList.toggle('hidden', compositionOnly||sugarOnly);
     form.elements.molecule_id.disabled = compositionOnly;
     form.elements.molecule_id.required = !compositionOnly;
     form.elements.composition_id.disabled = !compositionOnly;
     form.elements.composition_id.required = compositionOnly;
     showMolecule(moleculeRecords.find(record=>record.id===form.elements.molecule_id.value));
     renderModelCard(modelState);
-    if(mounted)loadStageDefaults().catch(error=>setText($('#defaults-source'),error.message));
+    // A run-type change can happen while the form is still mounting; the forced defaults must win then too, or the
+    // saved previous type's duration survives because the later mount pass only fills empty fields.
+    if(forceDefaults || mounted)loadStageDefaults(forceDefaults).catch(error=>setText($('#defaults-source'),error.message));
+    if(sugarOnly)loadSugarPreview();
     syncRunSummary();
     storage.set('form',formValues());
     refreshReadiness();
@@ -252,15 +369,29 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     form.elements.detergent.value=record?.id || '';
     form.elements.mapping_candidate.value='';
     showMolecule(record);
+    syncSugarAvailability();
+    if(form.elements.sugar_entry && form.elements.run_type.value===SUGAR_RUN){
+      // The molecule names the only valid published entry: Sucrose is SUCR, Trehalose is TREH. The selector stays
+      // visible so the Trehalose blocker can be read on the entry that causes it.
+      form.elements.sugar_entry.value=form.elements.molecule_id.value==='Trehalose'?'TREH':'SUCR';
+    }
     loadReferences().catch(error=>setText($('#reference-help'),error.message));
     try { await loadRunMappings(); }
     catch (error) { setText($('#readiness'), error.message); }
+    if(form.elements.run_type.value===SUGAR_RUN)loadSugarPreview();
     storage.set('form',formValues());
     refreshReadiness();
   }
   $('#refresh-molecules').onclick=()=>{invalidateResource('/api/molecules'); invalidateResource('/api/references'); mount().catch(error=>setText($('#molecule-details'),error.message));};
   form.elements.molecule_id.addEventListener('change',updateMolecule);
-  form.elements.run_type.addEventListener('change',syncRunType);
+  // Sugar has its own profile: entering or leaving it replaces the previous type's durations, including a value
+  // carried in saved form state. AA and AA-CG keep a user's CG choices when switching between them.
+  form.elements.run_type.addEventListener('change', () => {
+    const next = form.elements.run_type.value;
+    const force = next === SUGAR_RUN || previousRunType === SUGAR_RUN;
+    previousRunType = next;
+    syncRunType(force);
+  });
   for (const input of [form.elements.mapping_candidate, form.elements.reference_run_id, form.elements.temperature_k, form.elements.aa_production_ps, form.elements.cg_production_ps]) {
     input?.addEventListener('input', syncRunSummary);
     input?.addEventListener('change', syncRunSummary);
@@ -573,7 +704,48 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
       syncRunSummary(); refreshReadiness(); storage.set('form', formValues());
     };
   }
-  async function loadStageDefaults() {
+  // The info buttons: one accessible control per setting the server sent help for, and no help text in this file or
+  // in the template. The button is focusable, `aria-describedby` names its tooltip, the tooltip shows on hover or
+  // keyboard focus (CSS) and on a click for touch, and Escape closes it. The button sits inside the label, so its
+  // click is stopped from reaching the label's control.
+  const HELP_ATTACHED = new Set();
+  function closeHelpTips() {
+    $$('.setting-tip.is-open').forEach(tip => tip.classList.remove('is-open'));
+    // A focused button would keep its tooltip open through `:focus-within`, so Escape also releases the focus it
+    // gave; hovering or tabbing back shows the tip again.
+    const active = document.activeElement;
+    if (active?.classList?.contains('info-btn')) active.blur();
+  }
+  function attachHelpIcons(help) {
+    if (!help || typeof help !== 'object') return;
+    for (const [name, text] of Object.entries(help)) {
+      if (HELP_ATTACHED.has(name) || !text) continue;
+      const input = form.elements[name];
+      const label = input?.closest?.('label');
+      if (!label) continue;
+      const wrap = document.createElement('span'); wrap.className = 'field-help';
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'info-btn'; button.textContent = 'i';
+      button.setAttribute('aria-label', `About ${input.name.replace(/_/g, ' ')}`);
+      const tip = document.createElement('span');
+      tip.className = 'setting-tip'; tip.id = `setting-help-${name}`; tip.setAttribute('role', 'tooltip');
+      tip.textContent = text;
+      button.setAttribute('aria-describedby', tip.id);
+      button.addEventListener('click', event => {
+        event.preventDefault(); event.stopPropagation();
+        const wasOpen = tip.classList.contains('is-open');
+        closeHelpTips();
+        if (!wasOpen) tip.classList.add('is-open');
+      });
+      wrap.append(button, tip);
+      const control = label.querySelector('.setting-control');
+      if (control) control.before(wrap); else label.append(wrap);
+      HELP_ATTACHED.add(name);
+    }
+  }
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') closeHelpTips(); });
+  document.addEventListener('click', event => { if (!event.target.closest?.('.field-help')) closeHelpTips(); });
+  async function loadStageDefaults(force = false) {
     const run_type=form.elements.run_type.value;
     const result=await cachedApi('/api/defaults?' + new URLSearchParams({run_type}));
     // The answer is dropped if the run type on the form is no longer the one asked about: the route answers with the
@@ -581,12 +753,14 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     if(run_type!==form.elements.run_type.value)return;
     stageDefaults = result;
     fillForceFields(result.force_fields);
+    attachHelpIcons(result.help);
     for (const [field, value] of Object.entries(stageDefaults.values)) {
       const input = form.elements[field];
-      if (input && !input.value) input.value = value;
+      if (input && (force || !input.value)) input.value = value;
     }
     setText($('#defaults-source'), 'Defaults from ' + Object.values(stageDefaults.sources).join(' · '));
     syncRunSummary();
+    if(form.elements.run_type.value===SUGAR_RUN)loadSugarPreview();
     storage.set('form', formValues());
   }
   const savedForm = storage.get('form', {});
@@ -637,6 +811,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
       const query={run_type,molecule_id:form.elements.molecule_id.value, detergent:form.elements.detergent.value};
       if(run_type==='aa_cg')Object.assign(query,{method:form.elements.method.value,mapping_candidate:form.elements.mapping_candidate.value,reference_run_id:form.elements.reference_run_id.value});
       if(run_type==='cg_composition')Object.assign(query,{composition_id:form.elements.composition_id.value});
+      if(run_type===SUGAR_RUN && form.elements.sugar_entry)Object.assign(query,{sugar_entry:form.elements.sugar_entry.value});
       const ready = await api('/api/readiness?' + new URLSearchParams(query),{signal:readinessController.signal});
       if (generation !== readinessGeneration) return;
       if(ready.molecule) showMolecule(ready.molecule);
@@ -665,6 +840,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     } catch (error) { if(generation!==readinessGeneration || error.name==='AbortError')return;setText($('#readiness'), error.message);setText($('#launch-blocker'),error.message); setText($('#review-status'),'Readiness unavailable'); $('#review-status').dataset.ready='false'; }
   }
   for (const input of [form.elements.detergent, form.elements.method, form.elements.mapping_candidate, form.elements.composition_id]) input.addEventListener('change', refreshReadiness);
+  form.elements.sugar_entry?.addEventListener('change', () => { syncRunSummary(); loadSugarPreview(); refreshReadiness(); });
   form.elements.reference_run_id.addEventListener('change', syncRunSummary);
   for (const input of [form.elements.temperature_k, form.elements.aa_production_ps, form.elements.cg_production_ps]) input.addEventListener('input', syncRunSummary);
   form.elements.mapping_candidate.addEventListener('change', () => storage.set('form', formValues()));
@@ -683,10 +859,20 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     event.preventDefault(); $('#start-run').disabled = true;
     try {
       if(!await validateCloneSource())return;
-      const data=formValues();
-      const fields=data.run_type==='aa_only'?[...AA_FIELDS,...GPU_FIELDS]:[...AA_FIELDS,...GPU_FIELDS,...CG_FIELDS];
+      let data=formValues();
+      const fields=data.run_type==='aa_only'?[...AA_FIELDS,...GPU_FIELDS,...RUN_FIELDS]:[...AA_FIELDS,...GPU_FIELDS,...RUN_FIELDS,...CG_FIELDS];
       if(data.run_type==='aa_only')for(const key of ['method','mapping_candidate','reference_run_id',...CG_FIELDS])delete data[key];
       delete data.aa_equil_ps;
+      if(data.run_type===SUGAR_RUN && form.elements.sugar_entry){
+        // The sugar run's contract is its own: identity plus the CG and execution settings it advertises. Sending the
+        // whole form would include the AA half and the controls the adapter never reads; the route would drop those
+        // settings, but the admission rule refuses the top-level AA fields (method/reference/mapping) by name.
+        const payload={run_type:SUGAR_RUN,molecule_id:form.elements.molecule_id.value,
+          detergent:form.elements.molecule_id.value,sugar_entry:form.elements.sugar_entry.value,
+          label:form.elements.label.value};
+        for(const key of SUGAR_FIELDS)if(data[key] !== '' && data[key] != null)payload[key]=data[key];
+        data=payload;
+      }
       if(data.clone_of) {
         data.settings=Object.fromEntries(fields.filter(k=>data[k] !== '' && data[k] != null).map(k=>[k,data[k]]));
         try { await post(`/api/jobs/${data.clone_of}/clone`,data); }

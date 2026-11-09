@@ -217,6 +217,30 @@ _CG_PRODUCTION_COMMENTS = {
     'continuation': 'this leg continues the equilibrated state',
 }
 
+#: The CG production options the New run form may override. They keep the reviewed values above as their defaults --
+#: an untouched run renders this file byte for byte -- and a run that names one replaces only that option; the run
+#: records the number it used. `rlist` is deliberately not in the profile's settings: GROMACS sizes the neighbour list
+#: from the Verlet tolerance, so a run may pin it but the reviewed file must not. Scoped to production because that is
+#: the leg whose trajectory the analyses read; the equilibration leg keeps its own reviewed cadence and couplings.
+_CG_PRODUCTION_VARIABLE = ('nstlog', 'nstenergy', 'xtc-precision', 'nstcomm', 'nstlist',
+                           'verlet-buffer-tolerance', 'rlist', 'rcoulomb', 'rvdw', 'tau-t', 'tau-p',
+                           'compressibility')
+
+_CG_PRODUCTION_COMMENTS.update({
+    'nstlog': "the run's own log interval, or every 100 steps",
+    'nstenergy': "the run's own energy interval, or every 100 steps",
+    'xtc-precision': "the run's own trajectory precision, or the reviewed 1000",
+    'nstcomm': "the run's own centre-of-mass removal interval, or every 100 steps",
+    'nstlist': "the run's own neighbour-list rebuild interval, or 40 steps",
+    'verlet-buffer-tolerance': "the run's own Verlet buffer tolerance, or 0.005",
+    'rlist': "the run's own pinned neighbour cut-off; absent means GROMACS sizes it from the tolerance",
+    'rcoulomb': "the run's own Coulomb cut-off, or 1.1 nm",
+    'rvdw': "the run's own van der Waals cut-off, or 1.1 nm",
+    'tau-t': "the run's own thermostat coupling time, or 1.0 ps",
+    'tau-p': "the run's own barostat coupling time, or 12 ps",
+    'compressibility': "the run's own water compressibility, or 4.5e-5",
+})
+
 _CG_TEMPLATE = 'resources/templates/small_mols_fast_forward'
 _CG_PREPARE_SOURCE = (f'{_CG_TEMPLATE}/4_CG_sim/inputs/{{eq,md}}.mdp as cg.prepare writes it from this table: '
                       'the timestep, the output strides and the seed')
@@ -266,7 +290,7 @@ CG_PROFILES = (
                       'continuation': 'yes', 'lincs-order': 4, 'lincs-warnangle': 30, 'gen-seed': None,
                       'ld-seed': None, 'gen-temp': None},
             comments=_CG_PRODUCTION_COMMENTS,
-            source=_CG_PREPARE_SOURCE, version='cg-production-v1'),
+            source=_CG_PREPARE_SOURCE, version='cg-production-v1', variable=_CG_PRODUCTION_VARIABLE),
 )
 
 # --------------------------------------------------------------------------------------------------------------------

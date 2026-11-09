@@ -68,6 +68,21 @@ def source_entries(root,kind,payload=None):
         entries.update(TABLE[kind].source_hook(run, payload or {}))
     return entries
 
+def _source_provenance(run, path):
+    """The run-relative name of a source, or a stable shared name when it lives outside the run.
+
+    A source hook may stage a file from the parameterization store, which is beside `runs/`, not under it. The worker
+    used to assume every source was under the run or its parent and died on the first store file; the shared name is
+    taken from the workspace root when the file is there, so the digest list stays readable.
+    """
+    if path.is_relative_to(run):
+        return str(path.relative_to(run))
+    for base in (run.parent, run.parent.parent):
+        if path.is_relative_to(base):
+            return 'shared/' + str(path.relative_to(base))
+    return 'shared/' + path.name
+
+
 def execute(request_path):
     request_path = Path(request_path)
     request = json.loads(request_path.read_text())
@@ -92,7 +107,7 @@ def execute(request_path):
         for relative,path in source_entries(root,kind,request.get('payload', {})).items():
             target = work/relative; target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, target)
-            provenance=str(path.relative_to(run)) if path.is_relative_to(run) else 'shared/'+str(path.relative_to(run.parent))
+            provenance=_source_provenance(run, path)
             sources[provenance] = files.sha256(target)
         # Refinement depends on the latest completed diagnostic reports, with legacy fallback.
         if TABLE[kind].takes_dependencies:

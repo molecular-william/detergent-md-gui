@@ -232,7 +232,7 @@ def published_choices(choices):
     if present():
         return choices
     return {key: (label, tuple(option for option in options if option != 'gpu'))
-            if key in ('mdrun_nb', 'mdrun_pme') else (label, options)
+            if key in ('mdrun_nb', 'mdrun_pme', 'mdrun_pmefft', 'mdrun_update') else (label, options)
             for key, (label, options) in choices.items()}
 
 

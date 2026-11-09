@@ -10,9 +10,17 @@ from datetime import datetime, timezone
 from dashboard.analysis.runs import layout
 from dashboard.analysis.validation import carbohydrate_targets
 from dashboard.models import mappings
-from dashboard.web.routes.analyses import assessment_directories, newest_comparison, newest_cross_check, newest_dihedral_fit, newest_overlap, newest_surfaces
+from dashboard.web.routes.analyses import (
+    assessment_directories,
+    newest_comparison,
+    newest_cross_check,
+    newest_dihedral_fit,
+    newest_overlap,
+    newest_published,
+    newest_surfaces,
+)
 from dashboard.web.routes.common import coordinator
-from detergent_validation.analysis.runs import transferability
+from detergent_validation.analysis.runs import ff_interactions, transferability
 from flask import Blueprint, abort, jsonify, request
 
 blueprint = Blueprint('validation_analyses', __name__)
@@ -182,6 +190,31 @@ def mapping_consistency_api(jid):
                     'summary': record.get('result'), 'comparison': json.loads(artifact.read_text()),
                     'surfaces': surfaces, 'overlap': overlap, 'bonded_cross_check': bonded_cross_check,
                     'dihedral_fit': dihedral})
+
+
+@blueprint.get('/api/jobs/<jid>/ff-interactions')
+def ff_interactions_api(jid):
+    """The newest published Fast-Forward interaction record for one run, or the reason there is none.
+
+    The record is an analysis's own artifact (`analyses/ff-interactions/.../ff-interactions.json`), not a raw run
+    file: the Bonded terms panel reads per-term reference/simulated distributions and Fast-Forward's Hellinger
+    distance from it. A run that has not published one -- not an AA-to-CG run, not finished, or stage 5 skipped --
+    answers 200 with `available: false` and its reason, which is a state the panel states rather than an error.
+    """
+    c = coordinator(); job = c.lookup(jid)
+    found = newest_published(c, job, 'ff-interactions', ff_interactions.RECORD)
+    if found is None:
+        return jsonify({'available': False,
+                        'reason': 'No Fast-Forward interaction record has been published for this run. The analysis '
+                                  'is queued for an AA-to-CG run when it stops; the Analysis card task list shows '
+                                  'its attempt.'})
+    attempt, published, _record_path = found
+    if published is None:
+        return jsonify({'available': False,
+                        'reason': f'{attempt.name} names no Fast-Forward interaction record.'})
+    return jsonify({**published, 'attempt': attempt.name,
+                    'published_at': datetime.fromtimestamp(
+                        attempt.stat().st_mtime, timezone.utc).isoformat()})
 
 
 @blueprint.get('/api/runs/transferability')

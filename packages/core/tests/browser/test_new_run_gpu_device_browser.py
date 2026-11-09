@@ -27,11 +27,15 @@ def stub(page, in_use=None):
 
 
 def open_panel(page, base_url, in_use=None):
-    """The validation workspace's New run panel, with the device list already answered."""
+    """The validation workspace's New run panel, with the device list already answered.
+
+    The execution controls sit in the collapsed Other run options, so opening that fold is part of opening the panel.
+    """
     stub(page, in_use)
     page.goto(f'{base_url}/detergent-validation/new-run')
     page.wait_for_function(
         "() => document.querySelectorAll('#run-gpu-device option').length === 2", timeout=30000)
+    page.locator('#new-advanced > summary').click()
     return page
 
 

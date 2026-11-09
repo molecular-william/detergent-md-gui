@@ -182,7 +182,52 @@ SETTING_SPECS = {
     'temperature_k': ('Temperature', 200, 500),
     'sasa_probe_nm': ('SASA probe radius', 0.05, 0.5),
     'output_interval_ps': ('Trajectory output interval', 0.001, 100000),
+    # The CG production leg's MDP options the New run form may override. Their defaults are the reviewed profile's
+    # own numbers (`_production_defaults`), so an untouched run writes the reviewed file; a value the run names
+    # replaces only that option and the manifest records it. `rlist` and `nstxtcout` have no default on purpose:
+    # GROMACS sizes the neighbour list from the Verlet tolerance, and the trajectory stride is `output_interval_ps`
+    # unless the run pins a step count.
+    'nstlog': ('CG production log interval (steps)', 1, 1000000),
+    'nstenergy': ('CG production energy interval (steps)', 1, 1000000),
+    'nstxtcout': ('CG production trajectory interval (steps)', 1, 1000000),
+    'xtc_precision': ('CG trajectory precision', 1, 1000000),
+    'nstcomm': ('CG centre-of-mass removal (steps)', 1, 1000000),
+    'nstlist': ('CG neighbour list rebuild (steps)', 1, 10000),
+    'verlet_buffer_tolerance': ('CG Verlet buffer tolerance', 0.0, 0.1),
+    'rlist': ('CG neighbour cut-off (nm)', 0.1, 5.0),
+    'rcoulomb': ('CG Coulomb cut-off (nm)', 0.1, 5.0),
+    'rvdw': ('CG van der Waals cut-off (nm)', 0.1, 5.0),
+    'tau_t': ('CG thermostat coupling (ps)', 0.01, 100.0),
+    'tau_p': ('CG barostat coupling (ps)', 0.1, 100.0),
+    'compressibility': ('CG compressibility (bar^-1)', 0.0, 1.0),
 }
+
+#: The MDP option each CG production override writes, keyed by the setting the form posts. The reviewed profile keeps
+#: its own value for each; `mdp_values` adds one only when the run named it, which is what makes the default file
+#: byte-identical to the reviewed one.
+PRODUCTION_OVERRIDES = {'nstlog': 'nstlog', 'nstenergy': 'nstenergy', 'xtc_precision': 'xtc-precision',
+                        'nstcomm': 'nstcomm', 'nstlist': 'nstlist',
+                        'verlet_buffer_tolerance': 'verlet-buffer-tolerance', 'rlist': 'rlist',
+                        'rcoulomb': 'rcoulomb', 'rvdw': 'rvdw', 'tau_t': 'tau-t', 'tau_p': 'tau-p',
+                        'compressibility': 'compressibility'}
+
+# What counts as a step count rather than a size: a fractional one is refused by name.
+_INTEGRALS = {'cg_seed': 'CG random seed must be an integer', 'nstlog': 'nstlog must be an integer',
+              'nstenergy': 'nstenergy must be an integer', 'nstxtcout': 'nstxtcout must be an integer',
+              'nstcomm': 'nstcomm must be an integer', 'nstlist': 'nstlist must be an integer'}
+
+
+def _production_defaults():
+    """The CG production profile's own numbers for the options a run may override.
+
+    Read from the reviewed profile rather than restated, so the form starts on the physics the profile states and a
+    review that moves a value moves the form with it. `None` entries (the run's own numbers) and options the profile
+    does not state are omitted: those fields start empty.
+    """
+    settings = PROFILES['cg-production-v1'].settings
+    return {setting: settings[mdp] for setting, mdp in PRODUCTION_OVERRIDES.items()
+            if isinstance(settings.get(mdp), (int, float)) and not isinstance(settings.get(mdp), bool)}
+
 
 #: Settings from the AA half that describe *this run's* execution rather than the AA reference it consumes: the device,
 #: the CPU budget and the checkpoint cadence. A reference is prepared under its own settings; these are the run's own,
@@ -206,6 +251,7 @@ def stage_defaults(profile='standard'):
               'cg_equil_ps': _mdp_value(cg_eqf, 'nsteps') * _mdp_value(cg_eqf, 'dt'),
               'cg_production_ps': _mdp_value(cg_mdf, 'nsteps') * _mdp_value(cg_mdf, 'dt'),
               'temperature_k': _mdp_value(aa_eqf, 'ref_t'), 'sasa_probe_nm': 0.191, 'output_interval_ps': 10.0, 'cg_seed': 20260911}
+    values.update(_production_defaults())
     if profile == 'draft-smoke': values.update(aa_equil_ps=10.0, aa_production_ps=50.0, cg_equil_ps=10.0, cg_production_ps=50.0)
     if profile == 'draft-smoke-reference': values.update(cg_equil_ps=10.0, cg_production_ps=10000.0)
     return {'values': values, 'sources': {'AA': 'resources/templates/small_mols_fast_forward/1_AA_reference/mdps/{eq,md}.mdp', 'CG': 'resources/templates/small_mols_fast_forward/4_CG_sim/inputs/{eq,md}.mdp', 'SASA probe': 'Fast_Forward tutorial probe convention (0.191 nm)'}, 'profile': profile}
@@ -215,7 +261,7 @@ def _normalize_cg_settings(settings=None, profile='standard'):
     values = normalize(
         settings, stage_defaults(profile)['values'], specs=SETTING_SPECS,
         object_message='Run settings must be an object', unknown_prefix='Unknown run setting: ',
-        label_messages=True, integrals={'cg_seed': 'CG random seed must be an integer'})
+        label_messages=True, integrals=_INTEGRALS)
     if values['output_interval_ps'] > min(values['aa_production_ps'], values['cg_production_ps']):
         raise ValueError('Trajectory interval must not exceed either production duration')
     return values
@@ -243,14 +289,23 @@ def mdp_values(settings, profile):
     """The numbers one CG dynamics profile leaves to the run, at the profile's own timestep.
 
     The step count and the output stride are the arithmetic `cg.prepare` has always used; only the timestep moved,
-    from a template read back after patching to the reviewed profile the file is rendered from.
+    from a template read back after patching to the reviewed profile the file is rendered from. The production leg
+    also takes any option the run named from the form's Other run options; with none named the map is the reviewed
+    profile's own, byte for byte.
     """
     dt = PROFILES[profile].settings['dt']
     duration = settings['cg_equil_ps' if profile == 'cg-equilibration-v1' else 'cg_production_ps']
-    return {'nsteps': round(duration / dt),
-            'nstxtcout': max(1, round(settings['output_interval_ps'] / dt)),
-            'ref-t': settings['temperature_k'], 'gen-temp': settings['temperature_k'],
-            'gen-seed': settings['cg_seed'], 'ld-seed': settings['cg_seed']}
+    values = {'nsteps': round(duration / dt),
+              'nstxtcout': max(1, round(settings['output_interval_ps'] / dt)),
+              'ref-t': settings['temperature_k'], 'gen-temp': settings['temperature_k'],
+              'gen-seed': settings['cg_seed'], 'ld-seed': settings['cg_seed']}
+    if profile == 'cg-production-v1':
+        for setting, mdp in PRODUCTION_OVERRIDES.items():
+            if settings.get(setting) is not None:
+                values[mdp] = settings[setting]
+        if settings.get('nstxtcout') is not None:
+            values['nstxtcout'] = settings['nstxtcout']
+    return values
 
 
 def normalize_settings(settings=None, profile='standard'):

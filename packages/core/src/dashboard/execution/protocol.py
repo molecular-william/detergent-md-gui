@@ -113,13 +113,18 @@ def profile_for_run_type(run_type: str) -> str:
     10 / 10000).
 
     The CG half's own constant is the literal, resolved through the adapter registry so this module adds none of its
-    own; every other type starts from `standard`, which is what `create_job` has always defaulted to.
+    own; `sugar_cg` has its own duration preset for the same reason; every other type starts from `standard`, which
+    is what `create_job` has always defaulted to.
     """
     if run_type not in RUN_TYPES:
         raise ValueError(f'Unknown run type: {run_type}')
     if run_type == 'aa_cg':
         from .adapters import cg
         return cg.AA_CG_PROFILE
+    if run_type == 'sugar_cg':
+        # The CG-only sugar run's own preset: the reviewed CG profiles at 5 ns equilibration and 10 ns production.
+        # Named here because every caller asks this one resolver, and the engine may not import a feature to ask.
+        return 'sugar-cg-v1'
     return 'standard'
 
 

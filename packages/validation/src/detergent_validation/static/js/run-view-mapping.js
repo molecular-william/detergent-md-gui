@@ -414,6 +414,118 @@ function drawDisplacement(host, shape) {
 
 // ------------------------------------------------------------------------------------------------- the sections
 
+//: The published Fast-Forward record. It is its own analysis attempt, so the Bonded pane reads it beside the
+//: comparison; a run that has not published one answers `available: false` with its reason.
+async function loadFf(job, isCurrent) {
+  try {
+    const body = await api(`/api/jobs/${encodeURIComponent(job.id)}/ff-interactions`);
+    return isCurrent() ? body : null;
+  } catch (error) {
+    return {available: false, reason: error.message};
+  }
+}
+
+function ffSourceLabel(ff) {
+  if (ff?.source === 'consumed') {
+    const revision = ff.reference?.revision;
+    return `consumed · parameterization store${revision === undefined ? '' : ` · revision ${revision}`}`;
+  }
+  return ff?.source === 'fitted' ? 'fitted · stage 3 ff_inter' : 'Fast-Forward';
+}
+
+function ffPanelMarkup(ff) {
+  if (!ff || !ff.available) {
+    return `<h4>Fast-Forward · reference vs simulated</h4>
+      <p class="hint">${cell(ff?.reason || 'No Fast-Forward interaction record has been published for this run yet.')}</p>`;
+  }
+  return `<div class="rvm-ff-head"><h4>Fast-Forward · reference vs simulated</h4>
+      <span class="rvm-ff-source">${cell(ffSourceLabel(ff))}</span></div>
+    <p class="hint">Select a bonded term to see its reference and simulated distributions. <b>Hellinger</b> below is
+      Fast-Forward's own distance; the row's <b>overlap</b> badge is the dashboard's histogram intersection. They are
+      different metrics.</p>
+    <div class="rvm-ff-chart" hidden></div>
+    <p class="rvm-ff-empty">A term with no reference or simulated side will say which one is absent.</p>`;
+}
+
+function drawFfChart(chart, term) {
+  if (!chart) return;
+  ensurePlotly().then(() => {
+    const unit = term.unit === 'degrees' ? 'degrees' : 'nm';
+    const traces = [
+      {type: 'scatter', mode: 'lines', name: 'reference', x: term.reference.x, y: term.reference.density,
+       line: {color: '#2864b5', width: 1.8}, hovertemplate: `reference · %{x:.3f} ${unit} · %{y:.4f}<extra></extra>`},
+      {type: 'scatter', mode: 'lines', name: 'simulated', x: term.simulated.x, y: term.simulated.density,
+       line: {color: '#188b75', width: 1.8, dash: 'dash'},
+       hovertemplate: `simulated · %{x:.3f} ${unit} · %{y:.4f}<extra></extra>`},
+    ];
+    window.Plotly.react(chart, traces, {
+      margin: {l: 48, r: 10, t: 6, b: 34}, height: 200,
+      xaxis: {title: {text: `bin (${unit})`, font: {size: 10}}},
+      yaxis: {title: {text: 'probability density', font: {size: 10}}},
+      legend: {orientation: 'h', y: 1.16, x: 0, font: {size: 10}},
+      paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+    }, {displayModeBar: false, responsive: true});
+  }).catch(error => {
+    chart.textContent = `The distribution could not be drawn: ${error.message}.`;
+  });
+}
+
+function ffMetric(label, value, what, className = '') {
+  return `<div class="rvm-ff-metric ${className}"><span class="rvm-ff-metric-name">${cell(label)}</span>
+    <b>${cell(value)}</b><span class="rvm-ff-metric-what">${cell(what)}</span></div>`;
+}
+
+//: One selected term's panel. The FF term is matched by the comparison's own label and section -- both analyses
+//: describe the same topology term -- so a record from a different comparison cannot silently attach itself.
+function showFfTerm(host, aside, ff, comparison, index) {
+  const row = (comparison.terms || [])[index];
+  if (!row) return;
+  host.dataset.ffTerm = String(index);
+  for (const article of host.querySelectorAll('[data-item^="term:"]')) {
+    article.setAttribute('aria-selected', String(article.dataset.item === `term:${index}`));
+  }
+  const source = ffSourceLabel(ff);
+  const head = `<div class="rvm-ff-head"><h4>Fast-Forward · ${cell(row.section || 'term')}</h4>
+    <span class="rvm-ff-source">${cell(source)}</span></div>`;
+  if (!ff || !ff.available) {
+    aside.innerHTML = `${head}<p class="hint">${cell(ff?.reason
+      || 'No Fast-Forward interaction record has been published for this run yet.')}</p>`;
+    return;
+  }
+  const section = String(row.section || '');
+  const label = String(row.beads || '');
+  const term = (ff.terms || []).find(entry => entry.label === label && entry.section === section)
+    || (ff.terms || []).find(entry => entry.label === label);
+  if (!term) {
+    aside.innerHTML = `${head}<p class="hint">${cell(label)}</p>
+      <p class="hint">This term has no Fast-Forward distribution. It is in the comparison but not in the published
+        FF term list, so its overlap number and the cross-check still apply.</p>`;
+    return;
+  }
+  const absent = term.reference_missing || term.simulated_missing;
+  const metrics = `<div class="rvm-ff-metrics">
+      ${ffMetric('FF Hellinger distance', term.hellinger === undefined ? 'not scored' : fixed(term.hellinger, 3),
+        'Fast-Forward ff_assess; 0 identical, 1 no overlap. Different from the overlap coefficient.', 'ff')}
+      ${ffMetric('FF score', term.ff_score === undefined ? 'not scored' : fixed(term.ff_score, 3),
+        "Fast-Forward's score for the same term; lower is closer.", 'ff')}
+      ${ffMetric('Dashboard overlap coefficient', fixed(row.overlap, 3),
+        'Histogram intersection of the dashboard comparison; 1 identical. Not the Hellinger distance.', 'overlap')}
+    </div>`;
+  if (absent) {
+    const which = term.reference_missing ? 'reference' : 'simulated';
+    const why = term.reference_missing || term.simulated_missing;
+    aside.innerHTML = `${head}<p class="hint">${cell(row.section)} · <b>${cell(label)}</b> ·
+      ${cell(term.unit === 'degrees' ? 'degrees' : 'nm')}</p>${metrics}
+      <p class="rvm-ff-missing"><b>No ${cell(which)} distribution for this term.</b> ${cell(why)} One side alone is
+        not a comparison.</p>`;
+    return;
+  }
+  aside.innerHTML = `${head}<p class="hint">${cell(row.section)} · <b>${cell(label)}</b> ·
+      ${cell(term.unit === 'degrees' ? 'degrees' : 'nm')} · bins from the analysis's own text distributions.</p>
+    ${metrics}<div class="rvm-ff-chart"></div>`;
+  drawFfChart(aside.querySelector('.rvm-ff-chart'), term);
+}
+
 async function paintGeometry(host, {job, isCurrent, button, refresh, queue}) {
   const body = await loadBody(host, job, isCurrent, queue ? () => queue(
     `/api/jobs/${encodeURIComponent(job.id)}/mapping-consistency`, {},
@@ -437,15 +549,21 @@ async function paintGeometry(host, {job, isCurrent, button, refresh, queue}) {
   drawDisplacement(host, comparison.displacement);
 }
 
-async function paintBonded(host, {job, isCurrent, button, refresh}) {
-  const body = await loadBody(host, job, isCurrent);
+async function paintBonded(host, {job, isCurrent, button, refresh, queue}) {
+  const [body, ff] = await Promise.all([loadBody(host, job, isCurrent), loadFf(job, isCurrent)]);
   if (!body || !isCurrent()) return;
-  // The comparison's attempt is not the only record this pane shows: a cross-check or a dihedral fit that publishes
-  // later must repaint the pane even though the comparison itself is unchanged.
-  const attemptKey = [body.attempt, body.bonded_cross_check?.attempt, body.dihedral_fit?.attempt]
-    .map(value => value ?? '').join('|');
+  // The comparison's attempt is not the only record this pane shows: a cross-check, a dihedral fit or the FF
+  // interaction record publishing later must repaint the pane even though the comparison itself is unchanged.
+  const attemptKey = [body.attempt, body.bonded_cross_check?.attempt, body.dihedral_fit?.attempt,
+    ff?.attempt, ff?.published_at].map(value => value ?? '').join('|');
   if (refresh && host.dataset.attempt === attemptKey) return;
   host.dataset.attempt = attemptKey;
+  // A selection belongs to one run's term list: a monitor that moves to another run must not open the same index
+  // against the new comparison.
+  if (host.dataset.run !== String(job.id)) {
+    host.dataset.run = String(job.id);
+    delete host.dataset.ffTerm;
+  }
   const comparison = body.comparison || {};
   const crossCheck = body.bonded_cross_check || {};
   const dihedral = body.dihedral_fit || {};
@@ -472,10 +590,15 @@ async function paintBonded(host, {job, isCurrent, button, refresh}) {
     : (dihedral.reason || 'The run’s dihedral fit has not been published.');
   host.innerHTML = `<p class="rvm-identity">AA-mapped vs CG-simulated · topology
       <b>${cell(crossCheck.ours_from || dihedral.ours_from || 'the run’s own topology')}</b></p>
-    ${termRows(comparison)}
+    <div class="rvm-term-view">
+      <div class="rvm-term-list" role="listbox" aria-label="Bonded terms">${termRows(comparison)}</div>
+      <aside class="rvm-ff" data-ff-panel aria-live="polite">${ffPanelMarkup(ff)}</aside>
+    </div>
     <p class="hint">Each bonded term the model carries, as it appears in the mapped atomistic trajectory and in the
       simulated coarse-grained one. <b>Overlap</b> is the shared area of the two histograms: 1 is identical, 0 is no
-      overlap. Δ is the mean difference in the term's own unit (nm or degrees).</p>
+      overlap. Δ is the mean difference in the term's own unit (nm or degrees). Select a term for its Fast-Forward
+      reference-vs-simulated distribution on the right; that chart's <b>Hellinger</b> is a different metric from
+      <b>overlap</b>.</p>
     <div class="rvm-sub"><h4>Our fit against the independent estimate</h4>
       <p class="hint">${crossCheckNote}</p>
       ${crossCheck.available ? crossCheckRows(crossCheck) : ''}
@@ -486,6 +609,33 @@ async function paintBonded(host, {job, isCurrent, button, refresh}) {
       ${dihedral.available ? dihedralRows(dihedral) : ''}
       <p class="hint">${dihedral.available ? (dihedral.limitations || []).join(' ') : ''}</p>
     </div>`;
+  const aside = host.querySelector('[data-ff-panel]');
+  if ((!ff || !ff.available) && aside) {
+    addQueueButton(aside, job, queue,
+      {label: 'Calculate Fast-Forward distributions', kind: 'ff-interactions',
+       sentence: 'Fast-Forward distributions queued.'});
+  }
+  for (const article of host.querySelectorAll('[data-item^="term:"]')) {
+    const index = Number(String(article.dataset.item).split(':')[1]);
+    article.tabIndex = 0;
+    article.setAttribute('role', 'option');
+    const activate = () => showFfTerm(host, aside, ff, comparison, index);
+    article.addEventListener('click', activate);
+    article.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); }
+    });
+  }
+  // The map's term line and the row are one selection: the map announces the term it focused, and this pane shows
+  // the same term. The listener is replaced on every repaint so two maps/two paints cannot stack handlers.
+  host._ffAbort?.abort();
+  const controller = new AbortController();
+  host._ffAbort = controller;
+  host.closest('.run-view-analysis')?.addEventListener('rvm-term-focus', event => {
+    if (event.detail?.mode !== 'mapping-bonded') return;
+    const index = Number(String(event.detail.itemId || '').split(':')[1]);
+    if (Number.isInteger(index) && index >= 0) showFfTerm(host, aside, ff, comparison, index);
+  }, {signal: controller.signal});
+  if (host.dataset.ffTerm) showFfTerm(host, aside, ff, comparison, Number(host.dataset.ffTerm));
 }
 
 //: The Shape section's missing analyses are started here: the generic queue route takes an empty body, so the button
@@ -621,8 +771,10 @@ const SECTIONS = [
     label: 'Bonded terms',
     order: 20,
     serves: isComparisonRun,
-    mount: ({host, job, isCurrent, button}) => paintBonded(host, {job, isCurrent, button, refresh: false}),
-    refresh: ({host, job, isCurrent, button}) => paintBonded(host, {job, isCurrent, button, refresh: true}),
+    mount: ({host, job, isCurrent, button, queue}) =>
+      paintBonded(host, {job, isCurrent, button, queue, refresh: false}),
+    refresh: ({host, job, isCurrent, button, queue}) =>
+      paintBonded(host, {job, isCurrent, button, queue, refresh: true}),
   },
   {
     name: 'mapping-shape',

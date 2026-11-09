@@ -6,6 +6,8 @@ is what the worker leaves behind: a content-addressed output directory under the
 """
 import json
 
+from detergent_validation.analysis.runs import ff_interactions
+
 COMPARISON = {
     'schema_version': 1, 'comparison': 'AA vs CG', 'molecule': 'Sucrose', 'entry': 'SUCR',
     'pairs': {'counts': {'pairs': 6, 'compared': 6, 'cg_outside_aa_range': 1}, 'rows': []},
@@ -231,3 +233,174 @@ def test_an_atomistic_only_run_is_refused(dashboard):
 
     assert response.status_code == 400
     assert 'AA-to-CG run' in response.json['error']
+
+
+# ------------------------------------------------------------------------------------ Fast-Forward interactions
+
+FF_MODEL = {'beads': [
+    {'export_name': 'B01', 'residue': 1, 'letter': 'A'},
+    {'export_name': 'B02', 'residue': 1, 'letter': 'B'},
+    {'export_name': 'B03', 'residue': 2, 'letter': 'A'},
+    {'export_name': 'B04', 'residue': 2, 'letter': 'B'},
+]}
+FF_REPORT = """ [ Interaction Distribution Report ]
+   Overall Score : 0.238 +/- 0.0208
+
+ bonds
+\tB01_B02             : 0.18 (0.17)
+
+ angles
+\tB01_B02_B03         : 0.44 (0.41)
+
+ dihedrals
+\tB01_B02_B03_B04     : 0.21 (0.19)
+"""
+
+
+def distr(path, base):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f'0.20 {base}\n0.30 {base * 2}\n0.40 {base / 2}\n')
+
+
+def ff_work(tmp_path, *, consumed=False):
+    """A staged work directory shaped the way the analysis worker leaves it."""
+    work = tmp_path / 'work'
+    (work / '2_mapping').mkdir(parents=True)
+    (work / '2_mapping/model.json').write_text(json.dumps(FF_MODEL))
+    (work / '5_assessment').mkdir(parents=True)
+    (work / '5_assessment/report_interactions.out').write_text(FF_REPORT)
+    for name in ('B01_B02_bonds', 'B01_B02_B03_angles', 'B01_B02_B03_B04_dihedrals'):
+        distr(work / '5_assessment' / f'{name}_distr.dat', 0.5)
+    if consumed:
+        (work / '3_initial_CG').mkdir(parents=True)
+        store = tmp_path / 'store'
+        entries = []
+        for name in ('B01_B02_bonds', 'B01_B02_B03_angles', 'B01_B02_B03_B04_dihedrals'):
+            path = store / f'{name}_distr.dat'; distr(path, 0.7)
+            entries.append({'name': str(path), 'sha256': 'x'})
+        (work / '3_initial_CG/parameterization_used.json').write_text(json.dumps(
+            {'fitted': False, 'engine': 'fast-forward', 'revision': 1,
+             'reference_distributions': entries}))
+        (work / 'store').mkdir()
+        for entry in entries:
+            source = tmp_path / 'store' / entry['name'].rsplit('/', 1)[-1]
+            (work / 'store' / source.name).write_text(source.read_text())
+    else:
+        (work / '3_initial_CG').mkdir(parents=True)
+        for name in ('B01_B02_bonds', 'B01_B02_B03_angles', 'B01_B02_B03_B04_dihedrals'):
+            distr(work / '3_initial_CG' / f'{name}_distr.dat', 0.7)
+        (work / '3_initial_CG/bonded_fit.json').write_text(json.dumps({'temperature_k': 303.0}))
+    return work
+
+
+def test_the_ff_record_reads_the_fitted_shape_and_its_metrics(tmp_path):
+    work = ff_work(tmp_path)
+    record = ff_interactions.publish(work)
+
+    assert record['source'] == 'fitted' and record['scope'] == 'bonded-terms'
+    assert record['reference']['from'] == 'stage 3 ff_inter'
+    assert record['reference']['fit_temperature_k'] == 303.0
+    terms = {term['name']: term for term in record['terms']}
+    assert set(terms) == {'B01_B02', 'B01_B02_B03', 'B01_B02_B03_B04'}
+    bond = terms['B01_B02']
+    assert bond['section'] == 'bonds' and bond['label'] == '(1,A) - (1,B)' and bond['unit'] == 'nm'
+    assert bond['hellinger'] == 0.18 and bond['ff_score'] == 0.17
+    assert bond['reference']['density'] == [0.7, 1.4, 0.35]
+    assert bond['simulated']['density'] == [0.5, 1.0, 0.25]
+    assert (work / 'ff-interactions.json').is_file()
+    assert json.loads((work / 'ff-interactions.json').read_text())['terms'] == record['terms']
+
+
+def test_the_ff_record_reads_the_consumed_shape_from_the_store(tmp_path):
+    work = ff_work(tmp_path, consumed=True)
+    record = ff_interactions.publish(work)
+
+    assert record['source'] == 'consumed'
+    assert record['reference']['from'] == 'parameterization store'
+    assert record['reference']['revision'] == 1 and record['reference']['engine'] == 'fast-forward'
+    bond = next(term for term in record['terms'] if term['name'] == 'B01_B02')
+    assert bond['reference']['density'] == [0.7, 1.4, 0.35]
+    assert bond['simulated']['density'] == [0.5, 1.0, 0.25]
+
+
+def test_a_missing_side_is_named_rather_than_drawn_as_a_comparison(tmp_path):
+    work = ff_work(tmp_path)
+    (work / '3_initial_CG/B01_B02_bonds_distr.dat').unlink()
+    record = ff_interactions.publish(work)
+
+    bond = next(term for term in record['terms'] if term['name'] == 'B01_B02')
+    assert 'reference' not in bond
+    assert 'fitted no reference histogram' in bond['reference_missing']
+    assert bond['simulated']
+
+
+def test_the_source_hook_stages_the_store_for_a_consuming_run(tmp_path):
+    run = tmp_path / 'run'
+    stages = run / 'stages'
+    stages.mkdir(parents=True)
+    (stages / '2_mapping').mkdir()
+    (stages / '2_mapping/model.json').write_text(json.dumps(FF_MODEL))
+    (stages / '5_assessment').mkdir()
+    (stages / '5_assessment/report_interactions.out').write_text(FF_REPORT)
+    distr(stages / '5_assessment/B01_B02_bonds_distr.dat', 0.5)
+    store = tmp_path / 'store'
+    reference = store / 'B01_B02_bonds_distr.dat'; distr(reference, 0.7)
+    (stages / '3_initial_CG').mkdir()
+    (stages / '3_initial_CG/parameterization_used.json').write_text(json.dumps(
+        {'reference_distributions': [{'name': str(reference), 'sha256': 'x'}]}))
+
+    entries = ff_interactions.sources(run)
+
+    assert entries['store/B01_B02_bonds_distr.dat'] == reference
+    assert '3_initial_CG/parameterization_used.json' in entries
+    assert '5_assessment/report_interactions.out' in entries
+
+
+def publish_ff(dashboard, jid, record):
+    directory = dashboard.coordinator.RUNS / jid / 'analyses/ff-interactions/hash/attempt1'
+    output = directory / 'output/abc123'
+    output.mkdir(parents=True)
+    (output / 'ff-interactions.json').write_text(json.dumps(record))
+    (directory / 'result.json').write_text(json.dumps(
+        {'result': record, 'output_directory': 'output/abc123', 'wall_seconds': 1.0}))
+
+
+def test_the_ff_route_serves_the_published_record(dashboard):
+    job(dashboard, 'aa11bb22cc33')
+    publish_ff(dashboard, 'aa11bb22cc33', {'schema_version': 1, 'scope': 'bonded-terms', 'available': True,
+                                           'source': 'consumed', 'terms': [{'name': 'B01_B02', 'section': 'bonds',
+                                                                           'label': '(1,A) - (1,B)'}]})
+
+    body = dashboard.client.get('/api/jobs/aa11bb22cc33/ff-interactions').json
+
+    assert body['available'] is True and body['source'] == 'consumed'
+    assert body['attempt'] == 'attempt1' and body['terms'][0]['name'] == 'B01_B02'
+    assert body['published_at']
+
+
+def test_the_ff_route_says_why_there_is_no_record(dashboard):
+    job(dashboard, 'bb22cc33dd44')
+
+    body = dashboard.client.get('/api/jobs/bb22cc33dd44/ff-interactions').json
+
+    assert body['available'] is False
+    assert 'no fast-forward interaction record' in body['reason'].lower()
+
+
+def test_the_source_hook_stages_a_fitted_runs_own_histograms(tmp_path):
+    run = tmp_path / 'run'
+    stages = run / 'stages'
+    (stages / '2_mapping').mkdir(parents=True)
+    (stages / '2_mapping/model.json').write_text(json.dumps(FF_MODEL))
+    (stages / '5_assessment').mkdir()
+    (stages / '5_assessment/report_interactions.out').write_text(FF_REPORT)
+    distr(stages / '5_assessment/B01_B02_bonds_distr.dat', 0.5)
+    (stages / '3_initial_CG').mkdir()
+    distr(stages / '3_initial_CG/B01_B02_bonds_distr.dat', 0.7)
+    (stages / '3_initial_CG/bonded_fit.json').write_text(json.dumps({'temperature_k': 303.0}))
+
+    entries = ff_interactions.sources(run)
+
+    assert entries['3_initial_CG/B01_B02_bonds_distr.dat'].is_file()
+    assert entries['3_initial_CG/bonded_fit.json'].is_file()
+    assert not [name for name in entries if name.startswith('store/')]

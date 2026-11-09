@@ -211,7 +211,17 @@ def defaults_api():
     if run_type == 'cg_composition':
         result = cg.stage_defaults(_requested_profile(profile_for_run_type(run_type)))
         result['values'].update({'cg_equil_ps': 10.0, 'cg_production_ps': 50.0})
+        # A composition run writes no MDP from the engine profiles -- its prepared scripts fix their own numbers --
+        # so it does not advertise the CG production overrides: a form field whose key the run drops would show a
+        # value the run never receives.
+        for key in cg.PRODUCTION_OVERRIDES:
+            result['values'].pop(key, None)
+        result['values'].pop('nstxtcout', None)
         return jsonify(_with_force_fields(result))
+    if run_type == 'sugar_cg':
+        # A feature run type's own defaults, asked of the adapter it registered: the sugar form fills every field
+        # from this answer, so the preset it shows is the preset the run is stamped with.
+        return jsonify(_with_force_fields(adapter_for(run_type).stage_defaults()))
     if run_type not in (None,'aa_cg'):abort(400,'Unknown run type')
     profile = _requested_profile(profile_for_run_type(run_type or 'aa_cg'))
     result=cg.stage_defaults(profile)
@@ -228,11 +238,17 @@ def _with_force_fields(result):
 
     The list comes from the registry rather than from a copy held in the template, so adding an entry there is
     enough for the panel to offer it, and the temperature shown is the one that entry's parameterisation assumes.
+
+    The help map travels with every defaults answer for the same reason: it is one server-side map keyed by setting
+    name (`execution.settings_help`), quoted from the GROMACS manual and `gmx mdrun -h`, so the template states no
+    help text of its own and the panel renders the same sentences the run type accepts.
     """
-    from ...execution import forcefields
+    from ...execution import forcefields, settings_help
     result['force_fields']=[{'name':entry.name,'label':entry.label,'temperature_k':entry.temperature_k,
                              'water':entry.water_file[:-len('.itp')]} for entry in
                             (forcefields.entry(name) for name in forcefields.names())]
+    result['help'] = dict(settings_help.HELP)
+    result['help_sources'] = dict(settings_help.SOURCES)
     return result
 
 
@@ -251,11 +267,11 @@ def readiness_api():
     """
     c = coordinator()
     run_type = request.args.get('run_type') or 'aa_cg'
-    if run_type not in ('aa_only', 'aa_cg', 'cg_composition', 'pdc'):
+    if run_type not in ('aa_only', 'aa_cg', 'cg_composition', 'pdc', 'sugar_cg'):
         abort(400, 'Unknown run type')
 
     molecule = None
-    if run_type in ('aa_only', 'aa_cg') and 'molecule_id' in request.args:
+    if run_type in ('aa_only', 'aa_cg', 'sugar_cg') and 'molecule_id' in request.args:
         try: molecule = aa_molecules.inspect(c.ROOT / 'molecules', request.args['molecule_id'])
         except (OSError, ValueError) as exc: abort(400, str(exc))
         if not molecule['executable']:
@@ -289,6 +305,11 @@ def readiness_api():
         'template': request.args.get('template') or None,
         'project_root': c.ROOT,
     }
+    if run_type == 'sugar_cg':
+        # The sugar run's one identity choice beside the molecule. It rides in `settings` because that is where the
+        # adapter's readiness reads it, and it is echoed top-level for the panel's summary.
+        metadata['sugar_entry'] = request.args.get('sugar_entry') or 'SUCR'
+        metadata['settings'] = {'sugar_entry': metadata['sugar_entry']}
     # A copy, so decorating the answer for this page cannot reach back into whatever the adapter returned -- an
     # adapter that hands out a module-level dict would otherwise accumulate a molecule from every request.
     answer = dict(adapter_for(run_type).readiness(metadata))

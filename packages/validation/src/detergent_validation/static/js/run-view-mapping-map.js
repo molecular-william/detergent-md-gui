@@ -366,6 +366,7 @@ export async function mount({host, job, side, isCurrent, queue}) {
       state.selected = {beadKeys: term.beads, itemId: term.id, pairId: null, termId: term.id};
       state.status = `${term.kind} · ${term.label} · overlap ${fixed(term.overlap, 2)}`;
       renderAll();
+      announceTerm(term.id);
     },
     onPairSelection: (picked) => {
       const id = Array.isArray(picked) ? picked[0] : picked;
@@ -392,12 +393,22 @@ export async function mount({host, job, side, isCurrent, queue}) {
       ? 'unconstrained · the pinned entry states none' : `${pair.status} the AA range`}`;
   }
 
+  //: The map's term line focuses the same term in the Bonded terms pane, which owns the Fast-Forward distribution.
+  //: The event bubbles to the Analysis card; the pane filters it by section and reads the same `term:<index>` id.
+  function announceTerm(termId) {
+    if (!termId || state.mode !== 'mapping-bonded') return;
+    host.dispatchEvent(new CustomEvent('rvm-term-focus', {
+      bubbles: true, detail: {mode: state.mode, itemId: termId},
+    }));
+  }
+
   function choose(item) {
     const next = {beadKeys: [...(item.beadKeys || [])], itemId: item.itemId || null,
                   pairId: item.pairId || null, termId: item.termId || null};
     state.selected = next;
     state.status = item.status || '';
     renderAll();
+    if (next.termId) announceTerm(next.termId);
   }
 
   function focusRow() {
