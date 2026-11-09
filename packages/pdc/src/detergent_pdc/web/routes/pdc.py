@@ -1,12 +1,14 @@
 """Protein-detergent complex endpoints: the catalogue the panel builds its setup from, and the system it built."""
 import json
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import unquote
 
 from dashboard import paths
 from dashboard.analysis.runs import layout, structures
 from dashboard.execution.adapters.micelle import run_micelle_job
+from dashboard.web.routes.analyses import newest_published
 from dashboard.web.routes.common import coordinator, json_object
 from detergent_pdc.execution import rebuild_whole
 from detergent_pdc.execution.adapters import pdc, pdc_import
@@ -38,6 +40,32 @@ def whole_trajectory_api(job_id):
     """The raw and derived trajectories, their sizes and cadence, and the last rebuild's state."""
     _, run_dir = _whole_trajectory_run(job_id)
     return jsonify(rebuild_whole.describe(run_dir))
+
+
+@blueprint.get('/api/jobs/<job_id>/pdc-structure')
+def pdc_structure_api(job_id):
+    """The newest published `pdc-structure` record, or a 404 saying the run has never published one.
+
+    The record is the analysis's own artifact (`analyses/pdc-structure/...`), not a raw run file. "Not run yet" and
+    "ran and failed" are different answers for a reader, and only the second is worth looking into, so a run that
+    has never published one answers 404 with the reason.
+    """
+    c = coordinator()
+    try:
+        job = c.lookup(job_id)
+    except (KeyError, OSError):
+        abort(404, 'unknown run')
+    if job.get('run_type') != 'pdc':
+        abort(400, 'only a protein-detergent run holds the production leg this analysis reads')
+    found = newest_published(c, job, 'pdc-structure', 'pdc-structure.json')
+    if found is None:
+        abort(404, 'No structure analysis has been published for this run. It is queued by hand from the Run '
+                   'view, and it reads one bounded sample of the run\'s production leg.')
+    attempt, published, path = found
+    return jsonify({**published,
+                    'attempt': attempt.name,
+                    'published_at': datetime.fromtimestamp(attempt.stat().st_mtime, timezone.utc).isoformat(),
+                    'source': str(path.relative_to(c.RUNS))})
 
 
 @blueprint.post('/api/pdc/<job_id>/whole-trajectory')

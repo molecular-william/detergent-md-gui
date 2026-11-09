@@ -4,6 +4,7 @@ from pathlib import Path
 from dashboard import features
 from dashboard.execution import protocol
 
+from . import kinds as pdc_kinds
 from . import layout as pdc_layout
 from . import legacy
 from . import segments as pdc_segments
@@ -48,6 +49,8 @@ FEATURE = features.Feature(
     name='pdc',
     blueprints=(pdc_routes.blueprint,),
     protocols={'pdc': lambda: pdc.PROTOCOL},
+    # The analyses this feature owns: the run view's Structure and interactions section queues and reads them.
+    kinds=pdc_kinds.KINDS,
     # What the Runs filter panel calls this run type.
     run_type_labels={'pdc': 'Protein-detergent'},
     prepare={'pdc': _prepare},
@@ -63,9 +66,10 @@ FEATURE = features.Feature(
     static=PACKAGE / 'static',
     styles=('pdc.css',),
     panel_modules={'pdc': ('js/pdc.js', 'createPdc')},
-    # The shared panels' pdc behaviour: the protein-detergent New run form (`new-run-pdc.js`) and which run-view
-    # structures are beads (`run-view-pdc.js`), registered onto the engine panels as they load.
-    extension_modules=('js/new-run-pdc.js', 'js/run-view-pdc.js'),
+    # The shared panels' pdc behaviour: the protein-detergent New run form (`new-run-pdc.js`), which run-view
+    # structures are beads (`run-view-pdc.js`), and the Structure and interactions section
+    # (`run-view-pdc-analysis.js`), registered onto the engine panels as they load.
+    extension_modules=('js/new-run-pdc.js', 'js/run-view-pdc.js', 'js/run-view-pdc-analysis.js'),
     planned_skips=pdc_view.planned_skips,
     protein_topologies=pdc_topologies.read_protein_topologies,
     section=('simulations', {
