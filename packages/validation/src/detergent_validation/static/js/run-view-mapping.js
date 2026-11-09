@@ -570,6 +570,12 @@ async function paintShape(host, {job, isCurrent, button, refresh, queue}) {
     addQueueButton(subs[1], job, queue,
       {label: 'Calculate bead overlap', kind: 'overlap', sentence: 'Bead overlap analysis queued.'});
   }
+  // An attempt published before the pair JSON existed still has its old figure and SASA files; a new attempt is the
+  // only way to publish the two-panel pair, so the fallback carries the action its sentence promises.
+  if (surfaces.available && !surfaces.aa_cg_comparison && subs[0]) {
+    addQueueButton(subs[0], job, queue,
+      {label: 'Recalculate surfaces', kind: 'surfaces', sentence: 'Surfaces analysis queued.'});
+  }
   if (!surfaces.available) return;
   if (surfaces.aa_cg_comparison) {
     const text = await artifactText(run, surfaces.aa_cg_comparison);

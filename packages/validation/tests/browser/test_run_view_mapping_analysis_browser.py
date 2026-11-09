@@ -439,6 +439,7 @@ def test_an_older_surfaces_attempt_without_the_pair_falls_back_to_its_figure(das
     expect(envelope.locator('iframe')).to_have_count(1, timeout=30000)
     assert 'surface-comparison.html' in envelope.locator('iframe').get_attribute('src')
     assert 'predates the AA vs Simulated CG pair' in envelope.text_content()
+    expect(envelope.get_by_role('button', name='Recalculate surfaces')).to_be_visible()
     page.wait_for_function("""selector => {
       const el = document.querySelector(selector);
       return Boolean(el && el.data && el.data.length === 2);
