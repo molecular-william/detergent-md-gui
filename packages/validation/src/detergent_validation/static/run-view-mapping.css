@@ -8,6 +8,19 @@
   background: var(--line); color: var(--ink); white-space: nowrap }
 .rvm-claim { background: #fce9eb; color: var(--danger); font-weight: 650 }
 .rvm-measures { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 }
+/* The angles group: one disclosure around the same measure rows, so the summary reads as a count and the rows come
+   back exactly as they were. `summary` is the native control, so it focuses and toggles without script. */
+.rvm-term-group { margin: 8px 0 }
+.rvm-term-summary { cursor: pointer; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
+  font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted);
+  padding: 4px 2px; list-style-position: inside }
+.rvm-term-summary:hover { color: var(--ink) }
+/* `summary` is flex, which suppresses the native marker in Chromium; make the open/closed state visible again. */
+.rvm-term-summary::before { content: '▸'; font-size: 11px; color: var(--muted) }
+.rvm-term-group[open] > .rvm-term-summary::before { content: '▾' }
+.rvm-term-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px }
+.rvm-term-summary-hint { font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--muted) }
+.rvm-term-group .rvm-measures { margin: 6px 0 0 }
 .rvm-measure { border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; background: #fcfdff }
 .rvm-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 12.5px; line-height: 1.4 }
 .rvm-head .rvm-lead { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);

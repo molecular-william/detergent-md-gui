@@ -230,9 +230,14 @@ def test_bonded_terms_and_the_two_cross_checks_render(dashboard, live_page):
     page, errors = live_page
     pane = open_section(page, live_page, 'bb22cc33dd44', 'mapping-bonded')
 
-    expect(pane.locator('.rvm-measures').first.locator('.rvm-measure')).to_have_count(2)
+    expect(pane.locator('.rvm-measures').first.locator('.rvm-measure')).to_have_count(1)
     terms = pane.locator('.rvm-measures').first.text_content()
-    assert 'bond' in terms and 'angle' in terms, terms
+    assert 'bond' in terms, terms
+    group = pane.locator('details.rvm-term-group')
+    expect(group).to_have_count(1)
+    expect(group.locator('summary')).to_contain_text('Angles (1)')
+    expect(group.locator('.rvm-measure')).to_have_count(1)
+    assert 'angle' in group.text_content(), group.text_content()
 
     subs = pane.locator('.rvm-sub')
     cross = subs.nth(0)
@@ -261,6 +266,59 @@ def test_bonded_terms_and_the_two_cross_checks_render(dashboard, live_page):
     assert '1 of 2 terms where the criterion chooses a different multiplicity' in fit_note, fit_note
     fit_row = dihedral.locator('.rvm-measure').nth(1).text_content()
     assert 'B05–B06–B07–B08' in fit_row and 'we write 3-fold, the criterion chooses 2-fold' in fit_row, fit_row
+    assert errors == []
+
+
+def test_angle_rows_collapse_and_are_present_when_reopened(dashboard, live_page):
+    """The angle group is one disclosure; closing it hides the rows, opening it brings back the same ones.
+
+    Only angles collapse -- the bond row above and any dihedral row below stay flat -- and the group is open by
+    default, so a revisit never hides a measurement the reader was not told about.
+    """
+    publish(dashboard, 'bb22cc33dd44')
+    page, errors = live_page
+    pane = open_section(page, live_page, 'bb22cc33dd44', 'mapping-bonded')
+
+    group = pane.locator('details.rvm-term-group')
+    expect(group).to_have_count(1)
+    summary = group.locator('summary')
+    expect(summary).to_contain_text('Angles (1)')
+    expect(group).to_have_attribute('open', '')
+    expect(group.locator('.rvm-measure')).to_have_count(1)
+    assert 'angle' in group.text_content(), group.text_content()
+
+    summary.click()
+    expect(group).not_to_have_attribute('open', '')
+    expect(group.locator('.rvm-measure')).to_be_hidden()
+    # The bond row is not in the group: collapsing angles must not fold the terms it does not own.
+    expect(pane.locator('.rvm-measures').first.locator('.rvm-measure')).to_be_visible()
+
+    summary.click()
+    expect(group).to_have_attribute('open', '')
+    expect(group.locator('.rvm-measure')).to_be_visible()
+    assert errors == []
+
+
+def test_a_focused_angle_opens_its_collapsed_group(dashboard, live_page):
+    """A map attention item that names an angle must reveal the row it points at, not select a hidden one."""
+    publish(dashboard, 'aa11bb22cc33', comparison=MAP_COMPARISON)
+    publish_mapping(dashboard, 'aa11bb22cc33')
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/run-view?run=aa11bb22cc33')
+    root = page.locator(CARD)
+    expect(root.locator('.analysis-views button').first).to_be_visible(timeout=30000)
+    root.locator('.analysis-views button[data-section="mapping-bonded"]').click()
+    wait_for_map(page, meta='term')
+    host = map_host(page)
+    group = root.locator('details.rvm-term-group')
+    group.locator('summary').click()
+    expect(group).not_to_have_attribute('open', '')
+
+    # Weakest first: the dihedral (0.21) leads, the angle (0.44) is the second item and lives in the group.
+    host.locator('.rvm-attention li').nth(1).locator('button').click()
+    expect(group).to_have_attribute('open', '')
+    expect(root.locator('.analysis-pane[data-section="mapping-bonded"] [data-item="term:1"]')) \
+        .to_have_attribute('aria-selected', 'true')
     assert errors == []
 
 

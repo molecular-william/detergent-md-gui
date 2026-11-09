@@ -149,22 +149,45 @@ function pairRows(comparison) {
   }));
 }
 
+function termRow(row, index) {
+  const overlap = number(row.overlap);
+  const verdict = row.compared === false ? 'not compared' : (overlap !== null && overlap >= 0.5
+    ? 'overlapping' : 'weak overlap');
+  const claim = row.compared === false || overlap === null || overlap < 0.5;
+  return measure(
+    `<span class="rvm-lead">${cell(row.section || '')}</span> <b>${cell(row.beads || '')}</b>
+     <span class="rvm-badge${claim ? ' rvm-claim' : ''}">${verdict}</span>`,
+    `<span>AA <b>${fixed(row.aa?.mean, 2)} ± ${fixed(row.aa?.std, 2)}</b></span>
+     <span>CG <b>${fixed(row.cg?.mean, 2)} ± ${fixed(row.cg?.std, 2)}</b></span>
+     <span>Δ <b>${delta(row.delta)}</b></span><span>overlap <b>${fixed(row.overlap, 3)}</b></span>`,
+    '', `term:${index}`);
+}
+
+//: Angles are the one term kind that collapses: there are usually more of them than bonds, and the reader who wants
+//: them can open the group. Bonds, constraints and dihedrals stay flat, and an angle group keeps the source order
+//: around it (the group sits where the first angle row did). Open by default so nothing disappears on a revisit; the
+//: summary is a real `<summary>` so keyboard and assistive technology get the disclosure for free.
+function angleGroup(rows) {
+  return `<details class="rvm-term-group" open>
+    <summary class="rvm-term-summary">Angles (${rows.length})<span class="rvm-term-summary-hint">measured angle rows</span></summary>
+    <div class="rvm-measures">${rows.join('')}</div>
+  </details>`;
+}
+
 function termRows(comparison) {
   const rows = comparison?.terms || [];
   if (!rows.length) return '<p class="hint">This comparison holds no bonded terms.</p>';
-  return measureList(rows.map((row, index) => {
-    const overlap = number(row.overlap);
-    const verdict = row.compared === false ? 'not compared' : (overlap !== null && overlap >= 0.5
-      ? 'overlapping' : 'weak overlap');
-    const claim = row.compared === false || overlap === null || overlap < 0.5;
-    return measure(
-      `<span class="rvm-lead">${cell(row.section || '')}</span> <b>${cell(row.beads || '')}</b>
-       <span class="rvm-badge${claim ? ' rvm-claim' : ''}">${verdict}</span>`,
-      `<span>AA <b>${fixed(row.aa?.mean, 2)} ± ${fixed(row.aa?.std, 2)}</b></span>
-       <span>CG <b>${fixed(row.cg?.mean, 2)} ± ${fixed(row.cg?.std, 2)}</b></span>
-       <span>Δ <b>${delta(row.delta)}</b></span><span>overlap <b>${fixed(row.overlap, 3)}</b></span>`,
-      '', `term:${index}`);
-  }));
+  const parts = [];
+  let flat = [], angles = [];
+  const flushFlat = () => { if (flat.length) { parts.push(measureList(flat)); flat = []; } };
+  const flushAngles = () => { if (angles.length) { flushFlat(); parts.push(angleGroup(angles)); angles = []; } };
+  rows.forEach((row, index) => {
+    if (String(row.section || '') === 'angles') angles.push(termRow(row, index));
+    else { flushAngles(); flat.push(termRow(row, index)); }
+  });
+  flushAngles();
+  flushFlat();
+  return parts.join('');
 }
 
 function crossCheckRows(crossCheck) {

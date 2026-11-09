@@ -426,8 +426,14 @@ export async function mount({host, job, side, isCurrent, queue}) {
     const pane = card.querySelector(`.analysis-pane[data-section="${state.mode}"]`);
     if (!pane) return;
     for (const row of pane.querySelectorAll('[data-item]')) {
-      row.setAttribute('aria-selected', String(Boolean(state.selected.itemId)
-        && row.dataset.item === state.selected.itemId));
+      const selected = Boolean(state.selected.itemId) && row.dataset.item === state.selected.itemId;
+      row.setAttribute('aria-selected', String(selected));
+      // A collapsed term group must not hide the row the map is pointing at: opening its details is the only way the
+      // reader can see what was focused, and it is the group's own control doing it.
+      if (selected) {
+        const group = row.closest('details');
+        if (group && !group.open) group.open = true;
+      }
     }
   }
 
