@@ -213,12 +213,14 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   function syncSugarAvailability() {
     const option=[...form.elements.run_type.options].find(candidate=>candidate.value===SUGAR_RUN);
     if(!option)return;
-    const available=selectedSugar();
+    // An empty molecule is a form still loading, not a non-sugar choice: hiding the option and resetting the run type
+    // there made a quick "sugar type, then Sucrose" selection fall back to AA-CG during the mount's molecule reload.
+    const molecule=form.elements.molecule_id.value;
+    const available=!molecule || selectedSugar();
     option.hidden=!available; option.disabled=!available;
-    if(!available && form.elements.run_type.value===SUGAR_RUN){
-      form.elements.run_type.value='aa_cg';
-      syncRunType();
-    }
+    // Do not reset the run type here. This runs while the molecule list is loading with its DDM fallback; a user who
+    // picked the sugar type first saw it fall back before they could pick Sucrose. `updateMolecule` handles the
+    // explicit non-sugar choice.
   }
   let sugarPreviewGeneration=0;
   function renderSugarPreview(answer) {
@@ -370,6 +372,10 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     form.elements.mapping_candidate.value='';
     showMolecule(record);
     syncSugarAvailability();
+    if(form.elements.run_type.value===SUGAR_RUN && !selectedSugar()){
+      form.elements.run_type.value='aa_cg';
+      syncRunType();
+    }
     if(form.elements.sugar_entry && form.elements.run_type.value===SUGAR_RUN){
       // The molecule names the only valid published entry: Sucrose is SUCR, Trehalose is TREH. The selector stays
       // visible so the Trehalose blocker can be read on the entry that causes it.

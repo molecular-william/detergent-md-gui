@@ -110,6 +110,23 @@ def test_the_sugar_mode_hides_the_aa_half_and_posts_only_its_own_vocabulary(dash
     assert errors == []
 
 
+def test_choosing_the_sugar_type_before_the_molecule_survives_the_molecule_reload(dashboard, live_page):
+    """The live order "select sugar, then Sucrose" must not fall back to AA-CG while the molecule list reloads."""
+    dashboard.coordinator.database().replace([])
+    page, errors = live_page
+    submissions = []
+    _routes(page, submissions, live_page.base_url)
+    page.add_init_script("localStorage.removeItem('ddm.form')")
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
+
+    page.locator('#run-type').select_option('sugar_cg')
+    page.locator('[name=molecule_id]').select_option('Sucrose')
+    expect(page.locator('#run-type')).to_have_value('sugar_cg', timeout=30000)
+    expect(page.locator('#sugar-panel')).to_be_visible(timeout=30000)
+    expect(page.locator('#start-run')).to_have_text('Start CG sugar run')
+    assert errors == []
+
+
 def test_switching_to_sugar_replaces_the_aa_cg_durations_with_its_own_profile(dashboard, live_page):
     """The saved AA-CG 10 ps equilibration is not the sugar profile's 5 ns; switching type must re-default."""
     dashboard.coordinator.database().replace([])
