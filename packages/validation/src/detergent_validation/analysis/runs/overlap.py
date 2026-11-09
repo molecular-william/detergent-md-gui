@@ -141,7 +141,7 @@ def overlap_matrix(reference, model):
                               for name in names]}
 
 
-REFERENCE = ('1_AA-reference/prod/lig.gro', '1_AA-reference/prod/lig.xtc')
+REFERENCE = ('2_mapping/mapped.gro', '2_mapping/mapped.xtc')
 MODEL = '2_mapping/model.json'
 SIMULATION = ('4_CG_sim/prod/lig_CG.gro', '4_CG_sim/prod/lig_CG.xtc')
 REPORT = 'overlap.json'
@@ -150,7 +150,7 @@ BIN_COUNT = 40
 
 
 def publish(work, payload=None):
-    """Compare a run's coarse-grained simulation with the atomistic reference it was built from, pair by pair.
+    """Compare a run's coarse-grained simulation with the mapped atomistic reference it was built from, pair by pair.
 
     `work` is the analysis's own directory, holding what the worker's `PATTERNS` staged: the reference, the model and
     the CG trajectory. Writes `overlap.json` and a self-contained `overlap.html`, and returns the record.
@@ -170,9 +170,13 @@ def publish(work, payload=None):
               'stride': int(payload.get('stride', 1))}
     universes = {'reference': mda.Universe(str(work / REFERENCE[0]), str(work / REFERENCE[1])),
                  'model': mda.Universe(str(work / SIMULATION[0]), str(work / SIMULATION[1]))}
-    residue = str(universes['model'].residues[0].resname)
+    # The two sides are written by different tools and need not share a residue name (the mapped reference is the
+    # mapping's own residue; the CG leg is the run's). Reading the model's name for both made the reference lookup
+    # fail on the first real run, so each side is asked for its own.
+    residue_names = {side: str(universe.residues[0].resname) for side, universe in universes.items()}
+    residue = residue_names['model']
 
-    series = {side: bead_distance_series(universe, residue, bead_names=beads, **window)
+    series = {side: bead_distance_series(universe, residue_names[side], bead_names=beads, **window)
               for side, universe in universes.items()}
     edges = np.linspace(min(data['range_nm'][0] for data in series.values()),
                         max(data['range_nm'][1] for data in series.values()), BIN_COUNT + 1)
@@ -183,6 +187,7 @@ def publish(work, payload=None):
              'model': {'gro': SIMULATION[0], 'xtc': SIMULATION[1]}}
     record = {
         'residue': residue,
+        'residue_names': residue_names,
         'bead_names': comparison['bead_names'],
         'pairs': [list(pair) for pair in comparison['pairs']],
         'matrix': comparison['matrix'].tolist(),
@@ -204,7 +209,7 @@ def publish(work, payload=None):
             'interaction that spans two residues is outside this report.',
             'One bin range spans every pair, so a short pair is binned more coarsely than a long one. The range is '
             'the union of both ensembles, not either one of them.',
-            'The comparison is against the atomistic reference this model was built from, not against experiment: '
+            'The comparison is against the mapped atomistic reference this model was built from, not against experiment: '
             'agreement here is internal consistency and cannot make the model experimentally right.',
             'A model can agree here and still be wrong where the reference itself is wrong, which this analysis '
             'cannot see.',

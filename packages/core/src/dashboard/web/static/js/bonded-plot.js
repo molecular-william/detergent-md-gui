@@ -31,6 +31,28 @@ const TERM_STYLES = {
 };
 const TERM_STYLE_DEFAULT = {ink: '54,162,105', dash: 'solid', alpha: 1, offset: 0};
 const TERM_SELECTED_INK = '223,32,61';
+//: The comparison map's pair inks, from the draft's legend: inside the AA range green, outside red,
+//: unconstrained grey and dashed -- a pair the pinned entry does not constrain is not a measured pass.
+//: The width language is the term line's own, one step shorter: 4, and 8 when selected.
+const PAIR_STYLES = {
+  inside: {ink: '31,122,77', dash: 'solid'},
+  outside: {ink: '192,42,55', dash: 'solid'},
+  unconstrained: {ink: '139,152,168', dash: 'dash'},
+};
+const PAIR_STYLE_DEFAULT = PAIR_STYLES.unconstrained;
+const PAIR_WIDTH = 4;
+const PAIR_SELECTED_WIDTH = 8;
+//: A halo selection is a wide underlay in the scene's own paper colour: it cuts a gap out of every line
+//: drawn before it, so a comparison term keeps its metric ink instead of becoming the Bonded panel's red.
+const HALO_INK = '#ffffff';
+const HALO_WIDTH = 16;
+//: `beadColor`'s default metric fill: light to dark blue, the Geometry reading legend's own gradient. A
+//: darker bead is a larger value; which direction is worse is the reading's sentence, not the hue's.
+//: `beadColor.ramp`, when the caller passes one, replaces this scale without changing anything else.
+const BEAD_SCALE_FROM = [219, 234, 254];  // #dbeafe
+const BEAD_SCALE_TO = [29, 78, 216];      // #1d4ed8
+//: A bead with no measured value is grey -- never zero, and never a green pass.
+const BEAD_UNMEASURED = [139, 152, 168];
 //: How far an offset term's line steps off the bonds it shares, as a fraction of the molecule's own diagonal.
 //: Enough that the line reads as an annotation beside a bond rather than as a second bond on top of it, small enough
 //: that it still visibly joins the atoms it names.
@@ -139,7 +161,39 @@ function ink(rgb, alpha) {
   return `rgba(${rgb},${alpha})`;
 }
 
-export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotError}) {
+function paint(triplet) {
+  return `rgb(${triplet.join(',')})`;
+}
+
+/** A metric value's fill, clamped to the caller's own domain.
+ *
+ * `beadColor.ramp` is the caller's own ratio -> CSS colour function, for a reading whose scale means
+ * something the default blue cannot (the Shape overlap's red -> amber -> green). Without one the fixed
+ * light-to-dark blue is the scale.
+ */
+function metricFill(value, domain, ramp) {
+  const low = Number(domain?.[0]);
+  const high = Number(domain?.[1]);
+  const ratio = Number.isFinite(value) && Number.isFinite(low) && Number.isFinite(high) && high > low
+    ? Math.max(0, Math.min(1, (value - low) / (high - low)))
+    : 0.5;
+  if (typeof ramp === 'function') return ramp(ratio);
+  return paint(BEAD_SCALE_FROM.map((channel, axis) =>
+    Math.round(channel + (BEAD_SCALE_TO[axis] - channel) * ratio)));
+}
+
+/** One hover-ready reading of a metric value; the units live in the caller's own label. */
+function metricReading(value) {
+  return Number.isFinite(value) ? String(Math.round(value * 1000) / 1000) : 'not measured';
+}
+
+/** A term's ink as a CSS colour: a comparison reading passes one, while the styles' own inks are
+ * `r,g,b` triplets that take the style's alpha. */
+function termColour(value, alpha) {
+  return /^\d{1,3},\d{1,3},\d{1,3}$/.test(value) ? ink(value, alpha) : value;
+}
+
+export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPairSelection, onPlotError}) {
   let selectedBeads = [];
   let clickHandler = null;
   //: Which render is the current one. Plotly arrives asynchronously, and the reader re-renders this module on
@@ -157,8 +211,10 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
     return names.map(name => positions.get(aliases.get(name) || name)).filter(Boolean);
   }
 
-  function render({beads = [], edges = [], terms = [], selectedBeads: selected = [], selectedTermId = '',
-                   beadAliases = new Map()} = {}) {
+  function render({beads = [], edges = [], terms = [], pairs = [], selectedBeads: selected = [],
+                   selectedTermId = '', selectedPairId = '', beadAliases = new Map(),
+                   beadColor = null, selection = '', height = 620,
+                   uirevision = 'bonded-workspace'} = {}) {
     selectedBeads = [...selected];
     if (!host) {
       // A missing host is a missing host: the bundle is not even asked for on this path, so blaming it
@@ -174,28 +230,57 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
       return values.length ? Math.hypot(total, Math.max(...values) - Math.min(...values)) : total;
     }, 0);
     const physical = beads.filter(bead => !bead.virtual_site);
-    const typeGroups = new Map();
-    for (const bead of physical) {
-      const type = bead.type || 'Unspecified';
-      if (!typeGroups.has(type)) typeGroups.set(type, []);
-      typeGroups.get(type).push(bead);
-    }
-    const types = [...typeGroups.keys()].sort((first, second) => first.localeCompare(second));
-    const typeColors = new Map(types.map((type, index) => [type, TYPE_COLORS[index % TYPE_COLORS.length]]));
-    const traces = types.map(type => {
-      const group = typeGroups.get(type);
-      return {
-        type: 'scatter3d', mode: 'markers+text', name: type, legendgroup: `bead-type-${type}`,
-        x: group.map(bead => bead.position[0]), y: group.map(bead => bead.position[1]),
-        z: group.map(bead => bead.position[2]), text: group.map(bead => bead.name),
-        textposition: 'top center', customdata: group.map(bead => [bead.name, bead.size || 'R']),
-        marker: {size: group.map(bead => (beadRadiusNm(bead.size || 'R') ?? beadRadiusNm('R')) * MARKER_PIXELS_PER_NM + (selectedBeads.includes(bead.name) ? 4 : 0)),
-                 color: group.map(bead => selectedBeads.includes(bead.name) ? '#df203d' : typeColors.get(type)),
-                 line: {width: 1, color: '#ffffff'}},
-        hovertemplate: `<b>%{text}</b><br>type ${type}<br>size class %{customdata[1]}<br>x %{x:.3f} nm<br>y %{y:.3f} nm<br>z %{z:.3f} nm<extra></extra>`,
-        meta: 'bead',
+    // The comparison map colours every physical bead by its own measured value instead of grouping by type:
+    // one trace, explicit per-point fills, no legend entry, because the fill no longer means a type.
+    const metric = beadColor && beadColor.values instanceof Map ? beadColor : null;
+    let traces;
+    if (metric) {
+      const measured = metric.measured instanceof Set ? metric.measured : new Set(metric.values.keys());
+      const label = metric.label || 'value';
+      const reading = bead => {
+        const value = metric.values.get(bead.name);
+        return measured.has(bead.name) ? metricReading(value) : 'not measured';
       };
-    });
+      const fill = bead => {
+        const value = metric.values.get(bead.name);
+        return measured.has(bead.name) && Number.isFinite(value) ? metricFill(value, metric.domain, metric.ramp)
+          : paint(BEAD_UNMEASURED);
+      };
+      traces = physical.length ? [{
+        type: 'scatter3d', mode: 'markers+text', name: metric.label || 'Beads', showlegend: false,
+        x: physical.map(bead => bead.position[0]), y: physical.map(bead => bead.position[1]),
+        z: physical.map(bead => bead.position[2]), text: physical.map(bead => bead.name),
+        textposition: 'top center', customdata: physical.map(bead => [bead.name, bead.size || 'R', reading(bead)]),
+        marker: {size: physical.map(bead => (beadRadiusNm(bead.size || 'R') ?? beadRadiusNm('R')) * MARKER_PIXELS_PER_NM + (selectedBeads.includes(bead.name) ? 4 : 0)),
+                 color: physical.map(fill),
+                 line: {width: 1, color: physical.map(bead => selectedBeads.includes(bead.name) ? '#1c2940' : '#ffffff')}},
+        hovertemplate: `<b>%{text}</b><br>${label} %{customdata[2]}<br>size class %{customdata[1]}<br>x %{x:.3f} nm<br>y %{y:.3f} nm<br>z %{z:.3f} nm<extra></extra>`,
+        meta: 'bead',
+      }] : [];
+    } else {
+      const typeGroups = new Map();
+      for (const bead of physical) {
+        const type = bead.type || 'Unspecified';
+        if (!typeGroups.has(type)) typeGroups.set(type, []);
+        typeGroups.get(type).push(bead);
+      }
+      const types = [...typeGroups.keys()].sort((first, second) => first.localeCompare(second));
+      const typeColors = new Map(types.map((type, index) => [type, TYPE_COLORS[index % TYPE_COLORS.length]]));
+      traces = types.map(type => {
+        const group = typeGroups.get(type);
+        return {
+          type: 'scatter3d', mode: 'markers+text', name: type, legendgroup: `bead-type-${type}`,
+          x: group.map(bead => bead.position[0]), y: group.map(bead => bead.position[1]),
+          z: group.map(bead => bead.position[2]), text: group.map(bead => bead.name),
+          textposition: 'top center', customdata: group.map(bead => [bead.name, bead.size || 'R']),
+          marker: {size: group.map(bead => (beadRadiusNm(bead.size || 'R') ?? beadRadiusNm('R')) * MARKER_PIXELS_PER_NM + (selectedBeads.includes(bead.name) ? 4 : 0)),
+                   color: group.map(bead => selectedBeads.includes(bead.name) ? '#df203d' : typeColors.get(type)),
+                   line: {width: 1, color: '#ffffff'}},
+          hovertemplate: `<b>%{text}</b><br>type ${type}<br>size class %{customdata[1]}<br>x %{x:.3f} nm<br>y %{y:.3f} nm<br>z %{z:.3f} nm<extra></extra>`,
+          meta: 'bead',
+        };
+      });
+    }
     // A virtual site is a bead with no atoms of its own: drawn as an open diamond, because a marker that is a solid
     // circle is read as an atom the model does not have.
     const virtualSites = beads.filter(bead => bead.virtual_site);
@@ -224,12 +309,40 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
     if (edgeX.length) traces.push({type: 'scatter3d', mode: 'lines', name: 'Mapping connectivity', showlegend: false,
       x: edgeX, y: edgeY, z: edgeZ, line: {color: '#a8b5c4', width: 4}, hoverinfo: 'skip', meta: 'edge'});
     const resolve = name => beadAliases.get(name) || name;
+    // Constrained pairs are the comparison's own lines. Pair ids are separate from term ids, so a click
+    // tells the controller which reading it selected; a name with no position is skipped, because the
+    // pair belongs in the rows rather than being drawn somewhere invented.
+    for (const pair of pairs) {
+      const first = positions.get(resolve(pair.a));
+      const second = positions.get(resolve(pair.b));
+      if (!first || !second) continue;
+      const style = PAIR_STYLES[pair.status] || PAIR_STYLE_DEFAULT;
+      traces.push({type: 'scatter3d', mode: 'lines', name: `${pair.a} – ${pair.b}`, showlegend: false,
+        x: [first[0], second[0]], y: [first[1], second[1]], z: [first[2], second[2]],
+        customdata: [pair.id, pair.id], meta: 'pair',
+        line: {color: ink(style.ink, 1), width: pair.id === selectedPairId ? PAIR_SELECTED_WIDTH : PAIR_WIDTH,
+               dash: style.dash},
+        hovertemplate: `${pair.a} – ${pair.b}<br>${pair.status}<extra></extra>`});
+    }
     for (const term of terms) {
       const selectedTerm = term.id === selectedTermId;
       const style = TERM_STYLES[term.kind] || TERM_STYLE_DEFAULT;
       const label = `${term.kind} · ${(term.beads || []).join(' · ')}`;
-      const line = {color: ink(selectedTerm ? TERM_SELECTED_INK : style.ink, style.alpha),
+      // `term.ink` is a comparison reading's own colour: the Bonded style keeps its dash and offset and
+      // only the ink changes. The default selection keeps today's red; a halo selection keeps the metric
+      // ink and gains a wide underlay instead, so red stays reserved for "weak" in the metric scale.
+      const termInk = term.ink ? termColour(term.ink, style.alpha) : ink(style.ink, style.alpha);
+      const line = {color: selectedTerm && selection !== 'halo' ? ink(TERM_SELECTED_INK, style.alpha) : termInk,
                     width: selectedTerm ? 10 : 6, dash: style.dash};
+      const draw = trace => {
+        if (selectedTerm && selection === 'halo') {
+          // The scene's paper is white, so the halo is white and solid: it cuts a gap out of the lines
+          // under the selection without adding a second colour a reader would try to interpret.
+          traces.push({...trace, meta: 'term-halo', hoverinfo: 'skip', hovertemplate: '',
+            line: {...trace.line, color: HALO_INK, width: HALO_WIDTH, dash: 'solid'}});
+        }
+        traces.push(trace);
+      };
       if (term.kind === 'virtual_sitesn') {
         // One name in the term, a parent list in the mapping: the geometry is a star from the site to each parent.
         const site = resolve((term.beads || [])[0]);
@@ -246,7 +359,7 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
           ids.push(term.id, term.id, term.id);
         }
         if (!x.length) continue;
-        traces.push({type: 'scatter3d', mode: 'lines', name: label, showlegend: false, x, y, z,
+        draw({type: 'scatter3d', mode: 'lines', name: label, showlegend: false, x, y, z,
           customdata: ids, meta: 'term', line, hovertemplate: `${label}<extra></extra>`});
         continue;
       }
@@ -255,7 +368,7 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
       if (term.kind === 'angles') {
         const arc = placed.length === 3 ? angleArc(placed[1], placed[0], placed[2]) : [];
         if (!arc.length) continue;
-        traces.push({type: 'scatter3d', mode: 'lines', name: label, showlegend: false,
+        draw({type: 'scatter3d', mode: 'lines', name: label, showlegend: false,
           x: arc.map(point => point[0]), y: arc.map(point => point[1]), z: arc.map(point => point[2]),
           customdata: arc.map(() => term.id), meta: 'term', line,
           hovertemplate: `${label}<extra></extra>`});
@@ -272,15 +385,15 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
       let arc = [];
       if (term.kind === 'dihedrals' && placed.length === 4) arc = dihedralArc(...placed);
       const points = arc.length ? [...spine, null, ...arc] : spine;
-      traces.push({type: 'scatter3d', mode: 'lines', name: label, showlegend: false,
+      draw({type: 'scatter3d', mode: 'lines', name: label, showlegend: false,
         x: points.map(point => (point ? point[0] : null)), y: points.map(point => (point ? point[1] : null)),
         z: points.map(point => (point ? point[2] : null)),
         customdata: points.map(() => term.id), meta: 'term', line,
         hovertemplate: `${label}<extra></extra>`});
     }
     const layout = {
-      height: 620, margin: {l: 0, r: 0, t: 16, b: 0}, showlegend: true,
-      legend: {orientation: 'h', y: 1.02, x: 0}, uirevision: 'bonded-workspace',
+      height, margin: {l: 0, r: 0, t: 16, b: 0}, showlegend: true,
+      legend: {orientation: 'h', y: 1.02, x: 0}, uirevision,
       scene: {
         xaxis: {title: 'x (nm)', showgrid: true, zeroline: false},
         yaxis: {title: 'y (nm)', showgrid: true, zeroline: false},
@@ -302,6 +415,8 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPlotE
           onBeadSelection?.(next);
         } else if (point.data?.meta === 'term') {
           onTermSelection?.(point.customdata);
+        } else if (point.data?.meta === 'pair') {
+          onPairSelection?.(point.customdata);
         }
       };
       host.removeAllListeners?.('plotly_click');

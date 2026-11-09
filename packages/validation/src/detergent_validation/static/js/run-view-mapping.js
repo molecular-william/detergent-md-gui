@@ -116,8 +116,10 @@ function measureList(rows) {
   return `<div class="rvm-measures">${rows.join('')}</div>`;
 }
 
-function measure(head, values, context) {
-  return `<article class="rvm-measure">
+function measure(head, values, context, itemId) {
+  // `data-item` is the map's own row identity: an attention item focuses the row it names, and the map controller
+  // owns the convention (`pair:<index>` / `term:<index>`). It is empty on rows the map does not rank.
+  return `<article class="rvm-measure"${itemId ? ` data-item="${cell(itemId)}" aria-selected="false"` : ''}>
     <div class="rvm-head">${head}</div>
     <div class="rvm-values">${values}</div>
     ${context ? `<p class="rvm-context">${context}</p>` : ''}
@@ -127,7 +129,7 @@ function measure(head, values, context) {
 function pairRows(comparison) {
   const rows = comparison?.pairs?.rows || [];
   if (!rows.length) return '<p class="hint">This comparison holds no constrained pairs.</p>';
-  return measureList(rows.map(row => {
+  return measureList(rows.map((row, index) => {
     const verdict = row.unconstrained
       ? 'unconstrained'
       : row.inside_range ? 'inside the AA range' : 'outside the AA range';
@@ -142,14 +144,15 @@ function pairRows(comparison) {
       `<span>AA <b>${fixed(row.aa?.mean)} ± ${fixed(row.aa?.stderr)}</b></span>
        <span>CG <b>${fixed(row.cg?.mean)} ± ${fixed(row.cg?.stderr)}</b></span>
        <span>Δ <b>${signed(row.delta_pct)}</b></span>`,
-      `Reference entry <b>${cell(reference)}</b> · this run's AA range <b>${cell(aaRange)}</b>`);
+      `Reference entry <b>${cell(reference)}</b> · this run's AA range <b>${cell(aaRange)}</b>`,
+      `pair:${index}`);
   }));
 }
 
 function termRows(comparison) {
   const rows = comparison?.terms || [];
   if (!rows.length) return '<p class="hint">This comparison holds no bonded terms.</p>';
-  return measureList(rows.map(row => {
+  return measureList(rows.map((row, index) => {
     const overlap = number(row.overlap);
     const verdict = row.compared === false ? 'not compared' : (overlap !== null && overlap >= 0.5
       ? 'overlapping' : 'weak overlap');
@@ -159,7 +162,8 @@ function termRows(comparison) {
        <span class="rvm-badge${claim ? ' rvm-claim' : ''}">${verdict}</span>`,
       `<span>AA <b>${fixed(row.aa?.mean, 2)} ± ${fixed(row.aa?.std, 2)}</b></span>
        <span>CG <b>${fixed(row.cg?.mean, 2)} ± ${fixed(row.cg?.std, 2)}</b></span>
-       <span>Δ <b>${delta(row.delta)}</b></span><span>overlap <b>${fixed(row.overlap, 3)}</b></span>`);
+       <span>Δ <b>${delta(row.delta)}</b></span><span>overlap <b>${fixed(row.overlap, 3)}</b></span>`,
+      '', `term:${index}`);
   }));
 }
 
@@ -321,8 +325,12 @@ async function paintGeometry(host, {job, isCurrent, button, refresh, queue}) {
 async function paintBonded(host, {job, isCurrent, button, refresh}) {
   const body = await loadBody(host, job, isCurrent);
   if (!body || !isCurrent()) return;
-  if (refresh && host.dataset.attempt === String(body.attempt)) return;
-  host.dataset.attempt = String(body.attempt);
+  // The comparison's attempt is not the only record this pane shows: a cross-check or a dihedral fit that publishes
+  // later must repaint the pane even though the comparison itself is unchanged.
+  const attemptKey = [body.attempt, body.bonded_cross_check?.attempt, body.dihedral_fit?.attempt]
+    .map(value => value ?? '').join('|');
+  if (refresh && host.dataset.attempt === attemptKey) return;
+  host.dataset.attempt = attemptKey;
   const comparison = body.comparison || {};
   const crossCheck = body.bonded_cross_check || {};
   const dihedral = body.dihedral_fit || {};
@@ -365,11 +373,39 @@ async function paintBonded(host, {job, isCurrent, button, refresh}) {
     </div>`;
 }
 
-async function paintShape(host, {job, isCurrent, button, refresh}) {
+//: The Shape section's missing analyses are started here: the generic queue route takes an empty body, so the button
+//: names the kind and the card's own `queue` handles the task list and the refresh. One at a time: while a request is
+//: in flight every queue button in this pane is disabled, so a double press cannot queue two attempts.
+function addQueueButton(container, job, queue, {label, kind, sentence}) {
+  if (!queue) return;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'secondary rvm-queue';
+  button.textContent = label;
+  button.onclick = async () => {
+    // Both of the section's queue buttons share one press: whichever is clicked, neither can start a second
+    // analysis while the first request is in flight.
+    const scope = container.closest('.analysis-pane') || container;
+    const peers = [...scope.querySelectorAll('.rvm-queue')];
+    for (const peer of peers) peer.disabled = true;
+    try {
+      await queue(`/api/jobs/${encodeURIComponent(job.id)}/${kind}`, {}, () => sentence);
+    } finally {
+      for (const peer of peers) peer.disabled = false;
+    }
+  };
+  container.append(button);
+}
+
+async function paintShape(host, {job, isCurrent, button, refresh, queue}) {
   const body = await loadBody(host, job, isCurrent);
   if (!body || !isCurrent()) return;
-  if (refresh && host.dataset.attempt === String(body.attempt)) return;
-  host.dataset.attempt = String(body.attempt);
+  // Surfaces and bead overlap are separate attempts on the same run: either one publishing later changes this pane
+  // without changing the comparison's attempt.
+  const attemptKey = [body.attempt, body.surfaces?.attempt, body.overlap?.attempt]
+    .map(value => value ?? '').join('|');
+  if (refresh && host.dataset.attempt === attemptKey) return;
+  host.dataset.attempt = attemptKey;
   const comparison = body.comparison || {};
   const surfaces = body.surfaces || {};
   const overlap = body.overlap || {};
@@ -401,6 +437,15 @@ async function paintShape(host, {job, isCurrent, button, refresh}) {
       ${overlap.available ? `<p class="hint">${cell(overlapDetail(overlap))}</p>` : ''}
       ${overlapFigure(overlap, body.run || job.id)}
     </div>`;
+  const subs = host.querySelectorAll('.rvm-sub');
+  if (!surfaces.available && subs[0]) {
+    addQueueButton(subs[0], job, queue,
+      {label: 'Calculate surfaces', kind: 'surfaces', sentence: 'Surfaces analysis queued.'});
+  }
+  if (!overlap.available && subs[1]) {
+    addQueueButton(subs[1], job, queue,
+      {label: 'Calculate bead overlap', kind: 'overlap', sentence: 'Bead overlap analysis queued.'});
+  }
 }
 
 // ------------------------------------------------------------------------------------------------- registration
@@ -427,8 +472,10 @@ const SECTIONS = [
     label: 'Shape and volume',
     order: 30,
     serves: isComparisonRun,
-    mount: ({host, job, isCurrent, button}) => paintShape(host, {job, isCurrent, button, refresh: false}),
-    refresh: ({host, job, isCurrent, button}) => paintShape(host, {job, isCurrent, button, refresh: true}),
+    mount: ({host, job, isCurrent, button, queue}) =>
+      paintShape(host, {job, isCurrent, button, queue, refresh: false}),
+    refresh: ({host, job, isCurrent, button, queue}) =>
+      paintShape(host, {job, isCurrent, button, queue, refresh: true}),
   },
 ];
 

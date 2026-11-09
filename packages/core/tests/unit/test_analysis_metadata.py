@@ -41,10 +41,10 @@ def test_the_overlap_analysis_is_registered_in_all_three_places():
     assert 'reference' in described['ideal_result']
 
     staged = list(TABLE['overlap'].sources)
-    # The comparison is the model against the reference it was built from, so the atomistic reference and the CG
-    # simulation are both staged, and the *mapped* trajectory deliberately is not: it is a third thing, and the
-    # overlap is not a statement about it.
-    assert '1_AA-reference/prod/lig.gro' in staged and '1_AA-reference/prod/lig.xtc' in staged
+    # Both sides are bead trajectories: the mapped AA reference and the CG simulation. The all-atom `1_AA-reference`
+    # files are not staged because their atom names are C/C1/LIG1, not the beads the comparison measures.
+    assert '2_mapping/mapped.gro' in staged and '2_mapping/mapped.xtc' in staged
+    assert TABLE['overlap'].reads_aa_reference is False
     assert '2_mapping/model.json' in staged
     assert '4_CG_sim/prod/lig_CG.gro' in staged and '4_CG_sim/prod/lig_CG.xtc' in staged
-    assert not [path for path in staged if path.startswith('2_mapping/mapped')]
+    assert not [path for path in staged if path.startswith('1_AA-reference')]

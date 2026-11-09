@@ -5,6 +5,11 @@
 // draws it. A feature may also register a notice, the one sentence a reader gets when its analysis is not
 // defined for this run rather than silently missing.
 //
+// A second registry holds the card's **map**: one drawing per card, above the section rows, that the sections are
+// perspectives on rather than panes of their own. It is a registry and not a field on a section because the map is
+// one per card, and because a run type may be served by a map whose sections are registered elsewhere. The engine
+// knows only the shape: `mount({host, job, side, isCurrent, queue})` returns the controller the card drives.
+//
 // Registration happens from the feature's own extension module before any panel mounts (`main.js` imports
 // `Feature.extension_modules` ahead of the first await), so an install without the feature downloads neither the
 // module nor its section and pays nothing for the seam.
@@ -16,6 +21,7 @@
 // monitor has moved to another run, so a late answer writes nothing.
 const sections = [];
 const notices = [];
+const maps = [];
 
 export function registerRunViewAnalysisSection(section) {
   if (!section || typeof section !== 'object' || typeof section.serves !== 'function'
@@ -40,6 +46,34 @@ export function analysisSectionsFor(job) {
       }
     })
     .sort((first, second) => (Number(first.order) || 0) - (Number(second.order) || 0));
+}
+
+//: The card's map: one scene that the section tabs recolour, rather than one pane per section. `mount` may be
+//: async and returns the controller the card drives -- `setMode(sectionName)` on every section activation,
+//: `refresh()` when an analysis task settles, `reset()` when the run changes. The card passes the section names
+//: through unchanged and never interprets them; a feature that registers a map owns what they mean.
+export function registerRunViewAnalysisMap(map) {
+  if (!map || typeof map !== 'object' || typeof map.serves !== 'function'
+      || typeof map.mount !== 'function') {
+    throw new TypeError('registerRunViewAnalysisMap needs an object with serves(job) and mount(...)');
+  }
+  // One name, one map: re-registering replaces in place, the rule the sections keep, so a module imported twice
+  // leaves one map rather than two.
+  const index = maps.findIndex(existing => existing.name === map.name);
+  if (index >= 0) maps[index] = map;
+  else maps.push(map);
+}
+
+/** The first map that serves this run, or null. */
+export function analysisMapFor(job) {
+  for (const map of maps) {
+    try {
+      if (map.serves(job)) return map;
+    } catch (error) {
+      // A map that cannot answer does not serve the run; the next one may.
+    }
+  }
+  return null;
 }
 
 export function registerRunViewAnalysisNotice(notice) {

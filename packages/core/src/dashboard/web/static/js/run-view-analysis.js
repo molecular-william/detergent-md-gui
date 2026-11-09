@@ -21,10 +21,16 @@
 // **The sections are the features'.** `run-view-analysis-extension.js` holds them; this file only builds the tab
 // strip, keeps one pane per section and calls the section's own `mount` when it is opened. A section that is not
 // defined for this run is replaced by that feature's one-sentence notice, so every run still says why.
+//
+// **The map is one per card, not one per pane.** A feature may register a map -- a single scene above the section
+// rows that the tabs are perspectives on. The card mounts it lazily the first time a section is opened, tells it
+// which section is showing, hides it on Figures (that section is the figure viewer, not a perspective), refreshes
+// it when an analysis settles and resets it when the run changes. The engine passes the section names through
+// without knowing them: `setMode(name)` is the whole vocabulary it shares with the feature.
 import { $, api, post } from './shared.js';
 import { RunFigureViewer } from './figures.js';
 import { renderDistanceDiagnostics } from './runs-diagnostics.js';
-import { analysisNoticeFor, analysisSectionsFor } from './run-view-analysis-extension.js';
+import { analysisMapFor, analysisNoticeFor, analysisSectionsFor } from './run-view-analysis-extension.js';
 
 //: How long a queued or running analysis is left alone between asks. The Trajectory block's own seam, so a browser test
 //: sets one knob rather than two.
@@ -57,6 +63,7 @@ export function analysisMarkup(side) {
       </div>
       <div class="analysis-tasks" id="${id('run-view-analysis-tasks')}" aria-live="polite"></div>
       <div class="analysis-views" role="tablist" aria-label="Analysis sections" hidden></div>
+      <div class="analysis-map" hidden></div>
       <p class="analysis-notice" role="status" hidden></p>
       <div class="analysis-panes">
         <section class="analysis-pane" data-section="figures" role="tabpanel">
@@ -76,6 +83,7 @@ export function createAnalysis({root, side}) {
   const rescore = $(id('run-view-analysis-rescore'));
   const taskList = $(id('run-view-analysis-tasks'));
   const views = card ? card.querySelector('.analysis-views') : null;
+  const mapHost = card ? card.querySelector('.analysis-map') : null;
   const notice = card ? card.querySelector('.analysis-notice') : null;
   const panes = card ? card.querySelector('.analysis-panes') : null;
   const figuresPane = card ? card.querySelector('.analysis-pane[data-section="figures"]') : null;
@@ -89,6 +97,10 @@ export function createAnalysis({root, side}) {
   const tails = new Map();              // attempt id -> the one line a failed attempt's log ends with
   let sections = [];                    // the registered sections this run offers
   let mounted = new Set();              // the section names whose pane has been built for this run
+  let mapDefinition = null;             // the registered map this run offers, or null
+  let map = null;                       // that map's controller once it is mounted
+  let mapPending = null;                // the in-flight mount, so two activations mount once
+  let mapMode = '';                     // the last section the map was asked to show
 
   const setNote = text => { note.textContent = text || ''; };
 
@@ -212,6 +224,7 @@ export function createAnalysis({root, side}) {
       if (pane.dataset.section !== 'figures') pane.remove();
     }
     mounted = new Set();
+    mapDefinition = analysisMapFor(job);
     const text = analysisNoticeFor(job);
     notice.hidden = !text;
     notice.textContent = text;
@@ -284,7 +297,16 @@ export function createAnalysis({root, side}) {
     for (const pane of panes.querySelectorAll('.analysis-pane')) {
       pane.hidden = pane.dataset.section !== name;
     }
-    if (name === 'figures') return;
+    if (name === 'figures') {
+      // Figures is the figure viewer, not a perspective on the map, so the host leaves the card rather than
+      // sitting empty above the tabs: the map is restored, still drawn, on the next mapping section.
+      hideMap();
+      return;
+    }
+    showMap();
+    mapMode = name;
+    if (map) setMapMode(name);
+    else mountMap(mine);
     if (!mounted.has(name)) {
       mounted.add(name);
       drawSection(name, mine);
@@ -303,6 +325,87 @@ export function createAnalysis({root, side}) {
       if (section && typeof section.refresh === 'function') {
         Promise.resolve(section.refresh(context(name, mine))).catch(() => {});
       }
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------------------ the map
+
+  //: The map is mounted into one host for the card, lazily: the first mapping section asked for it, not the run.
+  //: `mount` may be async, so the card's token is checked after the await -- a monitor that moved to another run
+  //: while the feature was drawing takes the scene back out instead of showing it over the wrong run's rows.
+  function mountMap(mine) {
+    if (!mapDefinition || !mapHost || map) return Promise.resolve(map);
+    if (mapPending) return mapPending;
+    const definition = mapDefinition;
+    const run = job;
+    mapPending = Promise.resolve()
+      .then(() => definition.mount({host: mapHost, job: run, side, isCurrent: () => mine === token, queue}))
+      .then(controller => {
+        mapPending = null;
+        if (mine !== token) {
+          callMap(controller, 'reset');   // the host was emptied at the switch, so this has nowhere to paint
+          return null;
+        }
+        map = controller || {};
+        // The reader may have opened another section while the feature was still drawing: show the one that is
+        // selected now, not the one that asked for the mount.
+        setMapMode(mapMode);
+        return map;
+      })
+      .catch(error => {
+        mapPending = null;
+        if (mine !== token || !mapHost) return null;
+        // One sentence where the scene would have been; the section rows and the feature's reading are the map's
+        // to keep, and a card whose map failed still reads.
+        mapHost.hidden = false;
+        const line = document.createElement('p');
+        line.className = 'hint';
+        line.textContent = `The map could not be drawn: ${error.message}`;
+        mapHost.replaceChildren(line);
+        return null;
+      });
+    return mapPending;
+  }
+
+  //: A controller method is the feature's own code: it may be missing on a partial controller, and it may reject.
+  //: Neither takes the card down, because the rows beside the map are still the reader's answer.
+  function callMap(controller, method, ...args) {
+    if (!controller || typeof controller[method] !== 'function') return;
+    try {
+      Promise.resolve(controller[method](...args)).catch(() => {});
+    } catch (error) {
+      // A scene that cannot be redrawn is not a card that cannot be read.
+    }
+  }
+
+  function setMapMode(name) {
+    if (map && name) callMap(map, 'setMode', name);
+  }
+
+  function refreshMap() {
+    if (map) callMap(map, 'refresh');
+  }
+
+  function showMap() {
+    if (mapDefinition && mapHost) mapHost.hidden = false;
+  }
+
+  function hideMap() {
+    if (mapHost) mapHost.hidden = true;
+  }
+
+  //: A run switch resets the scene and empties the host; a late mount is token-guarded above, so what lands here
+  //: is always the current run's own controller.
+  function clearMap() {
+    const controller = map;
+    map = null;
+    mapPending = null;
+    mapDefinition = null;
+    mapMode = '';
+    if (controller) callMap(controller, 'reset');
+    if (mapHost) {
+      mapHost.hidden = true;
+      mapHost.replaceChildren();
     }
   }
 
@@ -326,7 +429,7 @@ export function createAnalysis({root, side}) {
     statuses = new Map(tasks.map(task => [task.id, task.status]));
     await renderTasks(tasks, mine);
     await loadFigures(mine, fresh || settled);
-    if (settled) refreshSections();
+    if (settled) { refreshSections(); refreshMap(); }
     schedule(tasks, mine);
   }
 
@@ -384,6 +487,7 @@ export function createAnalysis({root, side}) {
     recompute.disabled = true;
     sections = [];
     mounted = new Set();
+    clearMap();
     if (views) { views.replaceChildren(); views.hidden = true; }
     if (notice) { notice.hidden = true; notice.textContent = ''; }
     if (panes) {

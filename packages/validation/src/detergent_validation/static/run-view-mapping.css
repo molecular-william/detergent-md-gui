@@ -31,3 +31,63 @@
   background: #fff; margin: 6px 0 }
 .rvm-chart { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 6px; margin-top: 8px;
   min-height: 120px }
+
+/* The comparison map: one scene above the section rows, recoloured by the section tabs. It lives in a half-width
+   card, so it is compact: a one-line head, a 340 px scene, one legend line and the reading grid beneath. */
+.rvm-map { border: 1px solid var(--line); border-radius: 10px; background: #fff; margin: 0 0 10px;
+  overflow: hidden; min-width: 0 }
+.rvm-map-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 8px 10px 0 }
+.rvm-map-title { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+  margin: 0 }
+.rvm-map-mode { font-size: 12px; font-weight: 700; color: var(--ink) }
+.rvm-map-body { padding: 0 8px }
+.rvm-map-plot { width: 100% }
+.rvm-map-missing { font-size: 12px; color: var(--muted); margin: 10px 2px; line-height: 1.5 }
+.rvm-map-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: center; padding: 2px 2px 4px;
+  font-size: 10.5px; color: var(--muted) }
+.rvm-legend-entry { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap }
+.rvm-legend-line { display: inline-block; width: 15px; height: 3px; border-radius: 2px; vertical-align: 2px }
+.rvm-legend-scale { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap }
+.rvm-gradient { display: inline-block; width: 84px; height: 7px; border-radius: 4px;
+  background: linear-gradient(90deg, #dbeafe, #1d4ed8) }
+.rvm-gradient-overlap { background: linear-gradient(90deg, #c02a37, #e0b44a, #1f7a4d) }
+.rvm-legend-note { color: var(--muted) }
+.rvm-map-status { font-size: 11.5px; color: var(--muted); margin: 0; padding: 2px 2px 8px; min-height: 1.4em;
+  line-height: 1.45; overflow-wrap: anywhere }
+.rvm-reading { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 12px;
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #fbfcfe; margin: 0 0 12px }
+.rvm-headline { min-width: 0 }
+.rvm-eyebrow { display: block; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--accent); font-weight: 700; margin-bottom: 3px }
+.rvm-headline-text { margin: 0; font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere }
+.rvm-caveat { margin: 5px 0 0; font-size: 10.5px; color: var(--muted); line-height: 1.45; overflow-wrap: anywhere }
+.rvm-attention-wrap { min-width: 0 }
+.rvm-attention-wrap h4 { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+  margin: 0 0 5px }
+.rvm-attention { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px }
+.rvm-attention li { min-width: 0 }
+.rvm-attention button { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 6px;
+  align-items: baseline; width: 100%; text-align: left; background: #fff; border: 1px solid var(--line);
+  color: var(--ink); font: inherit; font-size: 11px; padding: 4px 6px; border-radius: 6px; cursor: pointer }
+.rvm-attention button:hover { background: #f1f6fd }
+.rvm-attention button[aria-current="true"] { border-color: var(--accent); box-shadow: inset 2px 0 0 var(--accent) }
+.rvm-rank { display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px;
+  border-radius: 50%; background: #edf2f8; color: var(--accent); font-weight: 700; font-size: 10px }
+.rvm-attention b { display: block; font-weight: 600; overflow-wrap: anywhere }
+.rvm-attention-detail { display: block; color: var(--muted); font-size: 10px; line-height: 1.35 }
+.rvm-attention-value { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600 }
+.rvm-attention-context { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 6px;
+  align-items: baseline; padding: 4px 6px; font-size: 11px; color: var(--muted) }
+.rvm-attention-context b { color: var(--ink) }
+.rvm-attention-context .rvm-rank { background: #f4f6f9; color: var(--muted) }
+/* The row an attention item focused: the row highlight belongs to the row's own section and is cleared with it. */
+.rvm-measure[aria-selected="true"] { background: #eef4fd; box-shadow: inset 3px 0 0 var(--accent) }
+.rvm-queue { margin: 4px 0 2px }
+@media (max-width: 800px) { .rvm-reading { grid-template-columns: 1fr } }
+@media (max-width: 390px) {
+  .rvm-map-head { padding: 7px 8px 0 }
+  .rvm-reading { padding: 9px; gap: 9px }
+  .rvm-attention button, .rvm-attention-context { grid-template-columns: 16px minmax(0, 1fr) auto; font-size: 10.5px }
+  .rvm-legend-scale { width: 100% }
+  .rvm-map-status { font-size: 11px }
+}

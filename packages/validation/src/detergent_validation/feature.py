@@ -112,6 +112,6 @@ FEATURE = features.Feature(
     templates=PACKAGE / 'templates',
     static=PACKAGE / 'static',
     styles=('osmotic.css', 'run-view-mapping.css'),
-    extension_modules=('js/run-view-mapping.js',),
+    extension_modules=('js/run-view-mapping.js', 'js/run-view-mapping-map.js'),
     panel_modules={'osmotic-pressure': ('js/osmotic.js', 'createOsmoticSeries')},
 )

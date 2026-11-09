@@ -38,6 +38,24 @@ run's own record. `67bc79a995d6` was queued this way at 16:30 and attempt `06a79
 outside the AA observed range), 34 terms and rmsd 0.0274 nm; its cross-check and dihedral fit were already
 published, while surfaces and overlap still have to be queued by hand.
 
+The 2026-11-09 comparison-map slice is built and live-checked; its plan is
+`docs/plans/2026-11-06-comparison-map.md`. One map per monitor sits above the mapping sections; the section tabs are
+its perspectives (Geometry = displacement + pairs, Bonded terms = terms coloured by overlap, Shape = per-bead overlap)
+and it is hidden on Figures. The production renderer reuses `bonded-plot.js` with optional `beadColor` (including
+`ramp`), `pairs`, `term.ink`, halo selection, `height` and `uirevision`; the Bonded panel passes none of them and is
+unchanged. The map controller resolves `(residue,letter)`, `B01` and the mapping name to one bead key, reads
+`stages/2_mapping/model.json` + `mapped.gro` (static first frame), and renders a headline plus top-three ranked
+attention per perspective; no composite score. Shape also offers **Calculate surfaces** and **Calculate bead overlap**.
+
+The live check exposed and fixed a real overlap bug: `overlap` was staged the all-atom `1_AA-reference` (atoms
+`C`/`C1`, residue `LIG1`) and read the model's residue name for both sides, so it died on the first Universe. It now
+stages `2_mapping/mapped.{gro,xtc}`, compares the mapped AA beads with the CG leg, and reads each side's own residue
+name (`overlap.publish`; `kinds.py` no longer declares `reads_aa_reference`). On `67bc79a995d6`, overlap published
+253 pairs with mean 0.710, and surfaces published four SASA rows; the Shape envelope and overlap figures are present.
+The dashboard was restarted at 09:24. Live map: 12 pairs, all unconstrained (the pinned entry states none), largest
+displacement 45 pm at (4,C); 34 terms, 3 below overlap 0.5. Checks: fast tier 2471 passed, 1 xfailed; browser 303
+passed; ruff clean.
+
 The dashboard was restarted on 2026-11-05 at 17:12 for the whole round. Live checks: LMNG's automatic candidate is
 23 connected beads with the branch bead `[11,22,46]` (connectivity and spectral agree on the bead count, differ on
 the grouping); run `619ab118abd6`'s rebuilt AA series carries 160 CONECT records over 201 models and the viewer draws
@@ -78,8 +96,9 @@ after the check; this host reports three GPUs, so the no-GPU path is pinned by t
   by matching the form's arguments and played as the view it described. Each monitor has its own **Analysis** card
   under the Trajectory block: the run's current figures (every kind, through `GET /api/jobs/<id>/figures` and
   `RunFigureViewer`), the three controls that queue analyses (Recompute, Trajectory overview, Re-score assessment),
-  the task list, the assessment's distance diagnostics, and the feature-registered sections (Geometry, Bonded terms,
-  Shape and volume) read from the published mapping comparison. The Runs card draws no figures and offers no analysis
+  the task list, the assessment's distance diagnostics, the feature-registered sections (Geometry, Bonded terms,
+  Shape and volume) read from the published mapping comparison, and the one comparison map above those sections. The
+  Runs card draws no figures and offers no analysis
   button; the Run view's gallery door and pdc's `gallery_note` are gone. `/trajectory` answers run-root paths with
   each playable segment's `identity`, `frames` and `time_ns`; the Trajectory block states the selected segment's
   `45,001 frames · 900 ns` and "not recorded" when the header cannot be read. A `.pdb` structure is served by the

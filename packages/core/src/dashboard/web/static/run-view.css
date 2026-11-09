@@ -163,6 +163,12 @@
   border: 1px solid var(--line); border-radius: 6px; background: #edf2f8; color: var(--ink); cursor: pointer }
 .run-view-analysis .analysis-views button[aria-selected="true"] { background: var(--accent); color: #fff;
   border-color: var(--accent) }
+/* One map per card, between the section strip and the panes: the tabs are perspectives on it rather than its
+   neighbours. The feature that registers the map draws the scene -- this reserves its place, gives a half-width
+   card a usable height before the scene lands, and keeps the host out of the card on Figures or when no feature
+   serves the run. */
+.run-view-analysis .analysis-map { margin: 0 0 10px; min-height: 240px }
+.run-view-analysis .analysis-map[hidden] { display: none }
 .run-view-analysis .analysis-pane { min-width: 0 }
 .run-view-analysis .analysis-pane[hidden] { display: none }
 .run-view-analysis .analysis-notice { border: 1px solid var(--line); border-left: 3px solid #b8891f;

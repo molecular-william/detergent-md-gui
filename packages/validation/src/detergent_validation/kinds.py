@@ -60,15 +60,15 @@ KINDS = (
     Kind(
         'overlap',
         (
-            "1_AA-reference/prod/lig.gro",
-            "1_AA-reference/prod/lig.xtc",
+            "2_mapping/mapped.gro",
+            "2_mapping/mapped.xtc",
             "2_mapping/model.json",
             "4_CG_sim/prod/lig_CG.gro",
             "4_CG_sim/prod/lig_CG.xtc",
         ),
         overlap.publish,
         "AA/CG bead overlap",
-        "The coarse-grained model should reproduce the intra-bead distance distributions of the atomistic reference it was built from; agreement is internal consistency, not experimental evidence.",
+        "The coarse-grained model should reproduce the intra-bead distance distributions of the mapped atomistic reference it was built from; agreement is internal consistency, not experimental evidence.",
         "overlap coefficient 0-1; higher is closer"),
 
     Kind(

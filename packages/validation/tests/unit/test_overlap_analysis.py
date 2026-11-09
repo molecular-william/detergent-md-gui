@@ -84,16 +84,19 @@ def _bead_universe(frames):
     return 'beads.gro', 'beads.xtc'
 
 
-def _run_directory(tmp_path, aa_frames, cg_frames):
-    """The three files the analysis reads, staged as the worker stages them: a reference, a model, a CG trajectory."""
+def _run_directory(tmp_path, aa_frames, cg_frames, resnames=None):
+    """The three files the analysis reads, staged as the worker stages them: a mapped reference, a model, a CG
+    trajectory. The two sides may name their residue differently; `resnames` lets a test hold that."""
     import json
     work = tmp_path / 'work'
-    for name, frames in (('1_AA-reference/prod/lig', aa_frames), ('4_CG_sim/prod/lig_CG', cg_frames)):
+    resnames = resnames or {'reference': 'DDM', 'model': 'DDM'}
+    for side, name, frames in (('reference', '2_mapping/mapped', aa_frames),
+                               ('model', '4_CG_sim/prod/lig_CG', cg_frames)):
         directory = work / pathlib.Path(name).parent
         directory.mkdir(parents=True, exist_ok=True)
         universe = mda.Universe.empty(3, n_residues=1, atom_resindex=[0, 0, 0], trajectory=True)
         universe.add_TopologyAttr('names', ['B01', 'B02', 'B03'])
-        universe.add_TopologyAttr('resnames', ['DDM'])
+        universe.add_TopologyAttr('resnames', [resnames[side]])
         universe.add_TopologyAttr('resids', [1])
         with mda.Writer(str(directory / f'{pathlib.Path(name).name}.xtc'), n_atoms=3) as writer:
             for index, positions in enumerate(frames):
@@ -132,6 +135,18 @@ def test_a_model_that_agrees_with_its_reference_overlaps_on_every_pair(tmp_path)
     assert report['bead_names'] == ['B01', 'B02', 'B03']
     assert report['overlaps'] == pytest.approx([1.0, 1.0, 1.0])
     assert report['frames'] == {'reference': 1, 'model': 1}
+
+
+def test_the_two_sides_may_name_their_residue_differently(tmp_path):
+    """The mapped reference and the CG leg are written by different tools; reading the model's residue name for both
+    made the first real LMNG overlap fail on the reference lookup."""
+    work = _run_directory(tmp_path, AGREEING, AGREEING,
+                          resnames={'reference': 'LIG1', 'model': 'LMNG'})
+    report = overlap.publish(work)
+
+    assert report['residue'] == 'LMNG'
+    assert report['residue_names'] == {'reference': 'LIG1', 'model': 'LMNG'}
+    assert report['overlaps'] == pytest.approx([1.0, 1.0, 1.0])
 
 
 def test_pairs_that_moved_into_different_bins_score_zero_and_the_rest_one(tmp_path):
