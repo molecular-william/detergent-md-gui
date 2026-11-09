@@ -1,5 +1,5 @@
-// One Run view monitor's Analysis card: the run's own figures, the controls that queue them, the task list, the
-// assessment's diagnostics, and the analysis sections a feature registers for its own records.
+// One Run view monitor's Analysis card: the run's own figures, the controls that queue them, the analysis checklist,
+// the assessment's diagnostics, and the analysis sections a feature registers for its own records.
 //
 // The Runs page used to draw this in its card's **Analysis graphs** panel. It is here now, beside the run's structure
 // and trajectory, because a figure is read next to the thing it was measured from -- and because the two monitors
@@ -158,20 +158,37 @@ export function createAnalysis({root, side}) {
                                                           messages[index], task.directory || '']));
     if (key === drawn) return;
     drawn = key;
-    taskList.replaceChildren(...rows.map((task, index) => row(task, messages[index])));
+    const list = document.createElement('ul');
+    list.className = 'analysis-check';
+    list.append(...rows.map((task, index) => row(task, messages[index])));
+    taskList.replaceChildren(list);
   }
 
+  //: One line per analysis kind: a decorative box (ticked by CSS once calculated), the kind as the label, then the
+  //: status word the screen reader reads. A failed attempt keeps the last line of its own log as the reason; an
+  //: unsettled one keeps the route's progress and the Cancel button. No log link: the console is in the artifacts.
   function row(task, message) {
-    const line = document.createElement('p');
-    const kind = document.createElement('span');
-    kind.className = 'task-kind';
+    const item = document.createElement('li');
+    item.dataset.status = task.status;
+
+    const box = document.createElement('span');
+    box.className = 'check';
+    box.setAttribute('aria-hidden', 'true');
+
+    const kind = document.createElement('b');
+    kind.className = 'check-kind';
     kind.textContent = task.kind;
-    line.append(kind, document.createTextNode(` · ${task.status}`));
-    if (message) {
+
+    const status = document.createElement('span');
+    status.className = 'check-status';
+    status.textContent = task.status;
+
+    item.append(box, kind, document.createTextNode(' · '), status);
+    if (message && (task.status === 'failed' || UNSETTLED.includes(task.status))) {
       const detail = document.createElement('span');
-      detail.className = task.status === 'failed' ? 'task-message' : 'task-detail';
-      detail.textContent = ` · ${message}`;
-      line.append(detail);
+      detail.className = task.status === 'failed' ? 'check-why' : 'check-progress';
+      detail.textContent = message;
+      item.append(document.createTextNode(' · '), detail);
     }
     if (UNSETTLED.includes(task.status)) {
       const cancel = document.createElement('button');
@@ -183,16 +200,9 @@ export function createAnalysis({root, side}) {
           await reload({fresh: true});
         } catch (error) { setNote(error.message); }
       };
-      line.append(cancel);
+      item.append(cancel);
     }
-    if (task.status === 'failed' && task.directory) {
-      const link = document.createElement('a');
-      link.href = `/api/jobs/${job.id}/artifacts/${task.directory.split('/').map(encodeURIComponent).join('/')}/console.log`;
-      link.textContent = 'Log';
-      link.className = 'task-log';
-      line.append(document.createTextNode(' '), link);
-    }
-    return line;
+    return item;
   }
 
   async function loadFigures(mine, fresh) {

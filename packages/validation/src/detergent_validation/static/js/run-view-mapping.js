@@ -163,14 +163,13 @@ function termRow(row, index) {
     '', `term:${index}`);
 }
 
-//: Angles are the one term kind that collapses: there are usually more of them than bonds, and the reader who wants
-//: them can open the group. Bonds, constraints and dihedrals stay flat, and an angle group keeps the source order
-//: around it (the group sits where the first angle row did). Collapsed by default: there are usually more angles than
-//: the terms above them, and the map's focus opens the group when it points at one of its rows. The summary is a real
-//: `<summary>` so keyboard and assistive technology get the disclosure for free.
-function angleGroup(rows) {
+//: A term kind that collapses: usually there are more rows than a reader wants between them and the next heading, so
+//: each group is one disclosure around the same measure rows. Collapsed by default; the map's focus opens the group
+//: that holds the row it names. The summary is a real `<summary>` so keyboard and assistive technology get the
+//: disclosure for free. Bond and angle rows keep the source order of their kind; dihedrals stay flat after the groups.
+function termGroup(label, rows, hint) {
   return `<details class="rvm-term-group">
-    <summary class="rvm-term-summary">Angles (${rows.length})<span class="rvm-term-summary-hint">measured angle rows</span></summary>
+    <summary class="rvm-term-summary">${label} (${rows.length})<span class="rvm-term-summary-hint">${hint}</span></summary>
     <div class="rvm-measures">${rows.join('')}</div>
   </details>`;
 }
@@ -178,16 +177,17 @@ function angleGroup(rows) {
 function termRows(comparison) {
   const rows = comparison?.terms || [];
   if (!rows.length) return '<p class="hint">This comparison holds no bonded terms.</p>';
-  const parts = [];
-  let flat = [], angles = [];
-  const flushFlat = () => { if (flat.length) { parts.push(measureList(flat)); flat = []; } };
-  const flushAngles = () => { if (angles.length) { flushFlat(); parts.push(angleGroup(angles)); angles = []; } };
+  const bonds = [], angles = [], flat = [];
   rows.forEach((row, index) => {
-    if (String(row.section || '') === 'angles') angles.push(termRow(row, index));
-    else { flushAngles(); flat.push(termRow(row, index)); }
+    const section = String(row.section || '');
+    if (section === 'bonds') bonds.push(termRow(row, index));
+    else if (section === 'angles') angles.push(termRow(row, index));
+    else flat.push(termRow(row, index));
   });
-  flushAngles();
-  flushFlat();
+  const parts = [];
+  if (bonds.length) parts.push(termGroup('Bonds', bonds, 'measured bond rows'));
+  if (angles.length) parts.push(termGroup('Angles', angles, 'measured angle rows'));
+  if (flat.length) parts.push(measureList(flat));
   return parts.join('');
 }
 
@@ -236,19 +236,17 @@ function dihedralRows(fit) {
   return measureList([...measured, ...unmeasured]);
 }
 
+//: Three columns and nothing else: the frames and the span are the trajectory's, not a property of the mean, and the
+//: probe is already stated in the note above. Numbers are nowrap so two rows read as one column of numbers; the table
+//: sits beside the plot in a full-width card and stacks under it otherwise (the sheet owns that placement).
 function surfaceRows(surfaces) {
   const statistics = Object.entries(surfaces.statistics || {});
   if (!statistics.length) return '<p class="hint">The published analysis states no statistics.</p>';
-  const rows = statistics.map(([model, stat]) => {
-    const start = number(stat.start_ps), end = number(stat.end_ps);
-    const duration = start === null || end === null ? '—' : `${((end - start) / 1000).toFixed(1)} ns`;
-    return `<tr><th scope="row">${cell(model)}</th><td>${number(stat.frames) ?? '—'}</td><td>${duration}</td>
-      <td>${fixed(stat.mean_nm2, 3)}</td><td>${fixed(stat.std_nm2, 3)}</td></tr>`;
-  }).join('');
-  return `<div class="table-scroll"><table class="rvm-table">
-    <caption>Mean SASA per model · probe ${fixed(surfaces.probe_nm, 3)} nm · nanometres squared</caption>
-    <thead><tr><th scope="col">Model</th><th scope="col">Frames</th><th scope="col">Duration</th>
-      <th scope="col">Mean SASA</th><th scope="col">SD</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  const rows = statistics.map(([model, stat]) => `<tr><th scope="row">${cell(model)}</th>
+      <td>${fixed(stat.mean_nm2, 3)}</td><td>${fixed(stat.std_nm2, 3)}</td></tr>`).join('');
+  return `<div class="table-scroll"><table class="rvm-table rvm-table-compact">
+    <thead><tr><th scope="col">Model</th><th scope="col">Mean SASA</th><th scope="col">SD</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
 }
 
 function surfaceFigure(surfaces, run) {
@@ -259,8 +257,8 @@ function surfaceFigure(surfaces, run) {
 }
 
 // The surfaces analysis publishes the primary pair as data beside its own figure: two centred meshes, the same probe
-// and the same extent. The card draws them with the Plotly it already loads, so the primary pair is not one column
-// among the published variants and no second Plotly bundle is loaded.
+// and the same extent. The card draws them in one scene with the Plotly it already loads, so the primary pair is not
+// one column among the published variants and no second Plotly bundle is loaded.
 async function artifactText(run, relative) {
   if (!relative) return null;
   const path = String(relative).split('/').map(encodeURIComponent).join('/');
@@ -281,16 +279,16 @@ function parseSasaSeries(text) {
   return rows;
 }
 
+//: One scene, four traces: each model's mesh and its markers. The two checkboxes are the legend -- the scene's own
+//: legend stays off -- and `data-surface-model` says which pair of traces a box owns.
 function surfacePairMarkup(surfaces, run) {
   if (surfaces.aa_cg_comparison) {
-    return `<div class="rvm-surface-pair" data-surface-pair>
-      <figure class="rvm-surface-panel"><figcaption>AA reference</figcaption>
-        <div class="rvm-surface-plot" data-surface-panel="0" role="img"
-          aria-label="AA reference solvent-accessible envelope"></div></figure>
-      <figure class="rvm-surface-panel"><figcaption>Simulated CG</figcaption>
-        <div class="rvm-surface-plot" data-surface-panel="1" role="img"
-          aria-label="Simulated CG solvent-accessible envelope"></div></figure>
-    </div>`;
+    return `<div class="rvm-checks">
+      <label><input type="checkbox" data-surface-model="aa" checked> AA reference</label>
+      <label><input type="checkbox" data-surface-model="cg" checked> Simulated CG</label>
+    </div>
+    <div class="rvm-surface-plot" role="img"
+      aria-label="AA reference and Simulated CG solvent-accessible envelopes in one scene"></div>`;
   }
   if (!surfaces.figure) return '';
   return `<div class="rvm-surface-fallback">${surfaceFigure(surfaces, run)}
@@ -298,33 +296,37 @@ function surfacePairMarkup(surfaces, run) {
       each variant; recalculating surfaces publishes the primary pair as two panels.</p></div>`;
 }
 
-function drawSurfacePair(host, data) {
+function drawSurfacePair(pane, data) {
+  const plotHost = pane?.querySelector('.rvm-surface-plot');
   const panels = Array.isArray(data?.panels) ? data.panels : [];
-  if (!host || !panels.length) return;
+  if (!plotHost || panels.length < 2) return;
   const extent = number(data.extent) ?? 1;
-  ensurePlotly().then(() => {
-    panels.forEach((panel, index) => {
-      const target = host.querySelector(`[data-surface-panel="${index}"]`);
-      if (!target) return;
-      const mesh = panel.mesh || {}, markers = panel.markers || {};
-      const traces = [
-        {type: 'mesh3d', x: mesh.x, y: mesh.y, z: mesh.z, i: mesh.i, j: mesh.j, k: mesh.k,
-         color: panel.colour, opacity: .45, name: panel.label, showlegend: false, hoverinfo: 'skip'},
-        {type: 'scatter3d', x: markers.x, y: markers.y, z: markers.z, mode: 'markers',
-         marker: {size: markers.size ?? 4, color: markers.colour || '#26384f', opacity: .9},
-         name: markers.name || '', showlegend: false, hoverinfo: 'skip'},
-      ];
-      window.Plotly.react(target, traces, {
-        margin: {l: 0, r: 0, t: 0, b: 0}, height: 230, showlegend: false,
-        scene: {aspectmode: 'cube', camera: {eye: {x: 1.4, y: 1.4, z: 1.1}},
-          xaxis: {title: {text: 'x (nm)', font: {size: 9}}, range: [-extent, extent]},
-          yaxis: {title: {text: 'y (nm)', font: {size: 9}}, range: [-extent, extent]},
-          zaxis: {title: {text: 'z (nm)', font: {size: 9}}, range: [-extent, extent]}},
-        paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-      }, {displayModeBar: false, responsive: true});
-    });
+  //: Trace indices are the checkbox contract: 0 and 1 are AA, 2 and 3 are Simulated CG.
+  const traces = [];
+  panels.slice(0, 2).forEach(panel => {
+    const mesh = panel.mesh || {}, markers = panel.markers || {};
+    traces.push(
+      {type: 'mesh3d', x: mesh.x, y: mesh.y, z: mesh.z, i: mesh.i, j: mesh.j, k: mesh.k,
+       color: panel.colour, opacity: .45, name: panel.label, showlegend: false, hoverinfo: 'skip', visible: true},
+      {type: 'scatter3d', x: markers.x, y: markers.y, z: markers.z, mode: 'markers',
+       marker: {size: markers.size ?? 4, color: markers.colour || '#26384f', opacity: .9},
+       name: markers.name || panel.label, showlegend: false, hoverinfo: 'skip', visible: true});
+  });
+  ensurePlotly().then(() => window.Plotly.react(plotHost, traces, {
+    margin: {l: 0, r: 0, t: 0, b: 0}, height: 230, showlegend: false,
+    scene: {aspectmode: 'cube', camera: {eye: {x: 1.4, y: 1.4, z: 1.1}},
+      xaxis: {title: {text: 'x (nm)', font: {size: 11}}, range: [-extent, extent]},
+      yaxis: {title: {text: 'y (nm)', font: {size: 11}}, range: [-extent, extent]},
+      zaxis: {title: {text: 'z (nm)', font: {size: 11}}, range: [-extent, extent]}},
+    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+  }, {displayModeBar: false, responsive: true})).then(() => {
+    observePlotResize(plotHost);
+    for (const box of pane.querySelectorAll('input[data-surface-model]')) {
+      const indices = box.dataset.surfaceModel === 'aa' ? [0, 1] : [2, 3];
+      box.onchange = () => window.Plotly.restyle(plotHost, {visible: box.checked}, indices);
+    }
   }).catch(error => {
-    host.textContent = `The surface pair could not be drawn: ${error.message}.`;
+    plotHost.textContent = `The AA vs Simulated CG pair could not be drawn: ${error.message}.`;
   });
 }
 
@@ -337,13 +339,13 @@ function drawSasaChart(host, series) {
       line: {color: entry.colour, width: 1.6},
       hovertemplate: `${entry.label} · %{x:.2f} ns · %{y:.3f} nm²<extra></extra>`,
     }));
-    window.Plotly.react(host, traces, {
+    return window.Plotly.react(host, traces, {
       margin: {l: 52, r: 12, t: 6, b: 34}, height: 240,
-      xaxis: {title: {text: 'time (ns)', font: {size: 10}}},
-      yaxis: {title: {text: 'SASA (nm²)', font: {size: 10}}},
-      legend: {orientation: 'h', y: 1.14, x: 0, font: {size: 10}},
+      xaxis: {title: {text: 'time (ns)', font: {size: 11}}},
+      yaxis: {title: {text: 'SASA (nm²)', font: {size: 11}}},
+      legend: {orientation: 'h', y: 1.14, x: 0, font: {size: 12}},
       paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-    }, {displayModeBar: false, responsive: true});
+    }, {displayModeBar: false, responsive: true}).then(() => observePlotResize(host));
   }).catch(error => {
     host.textContent = `The SASA chart could not be drawn: ${error.message}.`;
   });
@@ -352,7 +354,7 @@ function drawSasaChart(host, series) {
 function overlapFigure(overlap, run) {
   if (!overlap.available || !overlap.figure) return '';
   const relative = String(overlap.figure).split('/').map(encodeURIComponent).join('/');
-  return `<iframe class="rvm-frame" loading="lazy"
+  return `<iframe class="rvm-frame rvm-overlap-frame" loading="lazy"
     title="Bead pair overlap between the atomistic reference and the coarse-grained model"
     src="/api/jobs/${encodeURIComponent(run)}/artifacts/${relative}?inline=1"></iframe>`;
 }
@@ -376,6 +378,28 @@ function overlapDetail(overlap) {
 }
 
 // ------------------------------------------------------------------------------------------------ the graphics
+
+//: A Plotly graph is sized once, when it is drawn. The second-monitor toggle doubles the card's width without a
+//: window resize, so `responsive: true` never hears about it; watching the host is the one signal both cases deliver.
+//: One observer per host: a repaint that rewrites the pane makes a new host, and its entry goes with the old node.
+const plotResizes = new WeakMap();
+
+export function observePlotResize(host) {
+  if (!host || typeof ResizeObserver === 'undefined' || plotResizes.has(host)) return;
+  let width = host.getBoundingClientRect().width;
+  const observer = new ResizeObserver(entries => {
+    if (!host.isConnected) { observer.disconnect(); return; }
+    const next = entries[0]?.contentRect?.width ?? host.clientWidth;
+    if (!Number.isFinite(next) || Math.abs(next - width) < 1) return;
+    width = next;
+    // Plotly refuses a host whose computed display is `none`; the section switch that hid it will show it again and
+    // fire this observer once more, so the hidden step waits rather than rejecting.
+    if (next <= 0 || getComputedStyle(host).display === 'none' || !window.Plotly || !host._fullLayout) return;
+    Promise.resolve(window.Plotly.Plots.resize(host)).catch(() => {});
+  });
+  observer.observe(host);
+  plotResizes.set(host, observer);
+}
 
 function drawDisplacement(host, shape) {
   // Per bead, in picometres: the comparison publishes nanometres, and at 4 pm an axis in nanometres reads as
@@ -406,7 +430,9 @@ function drawDisplacement(host, shape) {
       yaxis: { title: { text: 'displacement (pm)', font: { size: 11 } }, rangemode: 'tozero' },
       xaxis: { title: { text: 'bead', font: { size: 11 } }, tickangle: 0 },
       paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-    }, { displayModeBar: false, responsive: true });
+    }, { displayModeBar: false, responsive: true }).then(() => {
+      if (current()) observePlotResize(chart);
+    });
   }).catch(error => {
     if (current()) chart.textContent = `The per-bead displacement could not be drawn: ${error.message}.`;
   });
@@ -458,13 +484,13 @@ function drawFfChart(chart, term) {
        line: {color: '#188b75', width: 1.8, dash: 'dash'},
        hovertemplate: `simulated · %{x:.3f} ${unit} · %{y:.4f}<extra></extra>`},
     ];
-    window.Plotly.react(chart, traces, {
+    return window.Plotly.react(chart, traces, {
       margin: {l: 48, r: 10, t: 6, b: 34}, height: 200,
-      xaxis: {title: {text: `bin (${unit})`, font: {size: 10}}},
-      yaxis: {title: {text: 'probability density', font: {size: 10}}},
-      legend: {orientation: 'h', y: 1.16, x: 0, font: {size: 10}},
+      xaxis: {title: {text: `bin (${unit})`, font: {size: 11}}},
+      yaxis: {title: {text: 'probability density', font: {size: 11}}},
+      legend: {orientation: 'h', y: 1.16, x: 0, font: {size: 12}},
       paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-    }, {displayModeBar: false, responsive: true});
+    }, {displayModeBar: false, responsive: true}).then(() => observePlotResize(chart));
   }).catch(error => {
     chart.textContent = `The distribution could not be drawn: ${error.message}.`;
   });
@@ -536,10 +562,15 @@ async function paintGeometry(host, {job, isCurrent, button, refresh, queue}) {
   const comparison = body.comparison || {};
   const rows = comparison.pairs?.rows || [];
   if (button) button.textContent = `Geometry (${plural(rows.length, 'pair')})`;
-  host.innerHTML = `${identity(body)}${pairRows(comparison)}
-    <p class="hint">These constraints are fitted from the atomistic reference they are compared against here, so
-      agreement is a check that the mapping, the mapped trajectory and the simulated trajectory are one assignment.
-      It is not a statement about the model's physics, and it is not evidence from experiment.</p>
+  host.innerHTML = `${identity(body)}
+    <details class="rvm-term-group">
+      <summary class="rvm-term-summary">Constrained pairs (${rows.length})
+        <span class="rvm-term-summary-hint">measured pair rows</span></summary>
+      ${pairRows(comparison)}
+      <p class="hint">These constraints are fitted from the atomistic reference they are compared against here, so
+        agreement is a check that the mapping, the mapped trajectory and the simulated trajectory are one assignment.
+        It is not a statement about the model's physics, and it is not evidence from experiment.</p>
+    </details>
     <h4>Per-bead displacement after a rigid-body fit</h4>
     <p class="hint">${number(comparison.displacement?.rmsd_nm) === null ? '' : `rmsd
       ${fixed(comparison.displacement.rmsd_nm)} nm, max ${fixed(comparison.displacement.max_nm)} nm over
@@ -599,10 +630,13 @@ async function paintBonded(host, {job, isCurrent, button, refresh, queue}) {
       overlap. Δ is the mean difference in the term's own unit (nm or degrees). Select a term for its Fast-Forward
       reference-vs-simulated distribution on the right; that chart's <b>Hellinger</b> is a different metric from
       <b>overlap</b>.</p>
-    <div class="rvm-sub"><h4>Our fit against the independent estimate</h4>
-      <p class="hint">${crossCheckNote}</p>
-      ${crossCheck.available ? crossCheckRows(crossCheck) : ''}
-      <p class="hint">${crossCheck.available ? (crossCheck.limitations || []).join(' ') : ''}</p>
+    <div class="rvm-sub">
+      <details class="rvm-sub-group">
+        <summary>Our fit against the independent estimate</summary>
+        <p class="hint">${crossCheckNote}</p>
+        ${crossCheck.available ? crossCheckRows(crossCheck) : ''}
+        <p class="hint">${crossCheck.available ? (crossCheck.limitations || []).join(' ') : ''}</p>
+      </details>
     </div>
     <div class="rvm-sub"><h4>Dihedral terms · a criterion against the tool default</h4>
       <p class="hint">${dihedralNote}</p>
@@ -693,8 +727,12 @@ async function paintShape(host, {job, isCurrent, button, refresh, queue}) {
           The mesh is the union of probe-inflated spheres (SAS), not a re-entrant solvent-excluded surface (SES).
           ${surfaces.validated ? '' : 'Not scientifically validated.'}`
         : cell(surfaces.reason || 'The run’s envelope analysis has not been published.')}</p>
-      ${surfaces.available ? surfacePairMarkup(surfaces, run) : ''}
-      ${surfaces.available ? surfaceRows(surfaces) : ''}
+      ${surfaces.available
+        ? `<div class="rvm-surface-view">
+            <div class="rvm-surface-plot-col">${surfacePairMarkup(surfaces, run)}</div>
+            <div class="rvm-surface-table">${surfaceRows(surfaces)}</div>
+          </div>`
+        : ''}
       ${surfaces.available ? `<div class="rvm-sasa"><h4>SASA over time</h4>
         <p class="hint">Total solvent-accessible area from the analysis’s own <code>sasa.xvg</code>, AA and Simulated CG
           on one axis. SAS is not SES. SD is frame-to-frame variability, not uncertainty of the mean; a short
@@ -732,10 +770,10 @@ async function paintShape(host, {job, isCurrent, button, refresh, queue}) {
     if (!isCurrent()) return;
     if (text) {
       try {
-        drawSurfacePair(host.querySelector('[data-surface-pair]'), JSON.parse(text));
+        drawSurfacePair(host, JSON.parse(text));
       } catch (error) {
-        const pair = host.querySelector('[data-surface-pair]');
-        if (pair) pair.textContent = `The AA vs Simulated CG pair could not be read: ${error.message}.`;
+        const plot = host.querySelector('.rvm-surface-plot');
+        if (plot) plot.textContent = `The AA vs Simulated CG pair could not be read: ${error.message}.`;
       }
     }
   }

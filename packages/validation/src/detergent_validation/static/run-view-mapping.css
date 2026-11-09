@@ -1,7 +1,8 @@
 /* The validation feature's Run view analysis sections: geometry, bonded terms, shape and volume.
-   Each monitor is half the page, so the panel's seven- and eight-column tables are drawn as one compact row per
-   pair/term/check: a name line with its badge, one line of measures, one line of context. Only the five-column SASA
-   table stays a table. The engine's `.run-view-analysis` sheet owns the card, the section strip and the pane. */
+   Each monitor is half the page, so the panel's pair/term/check rows are drawn as one compact row per
+   pair/term/check: a name line with its badge, one line of measures, one line of context. Only the SASA
+   table stays a table, and only three columns of it. The engine's `.run-view-analysis` sheet owns the card,
+   the section strip and the pane. */
 .rvm-identity { font-size: 12px; color: var(--muted); margin: 2px 0 8px; line-height: 1.5; overflow-wrap: anywhere }
 .rvm-identity b { color: var(--ink) }
 .rvm-badge { display: inline-block; border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 600;
@@ -60,6 +61,14 @@
 .rvm-sub { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 2px }
 .rvm-sub h4 { font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted);
   margin: 12px 0 4px }
+/* "Our fit against the independent estimate" is a disclosure: its heading is the summary, and the note, rows and
+   limitations are inside. The styling is the block heading it replaces, plus the native open/closed marker. */
+.rvm-sub-group > summary { cursor: pointer; font-size: 12px; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--muted); font-weight: 600; padding: 8px 0 4px; list-style-position: inside }
+.rvm-sub-group > summary:hover { color: var(--ink) }
+.rvm-sub-group > summary::before { content: '▸'; font-size: 11px; margin-right: 6px; color: var(--muted) }
+.rvm-sub-group[open] > summary::before { content: '▾' }
+.rvm-sub-group > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px }
 .rvm-table { border-collapse: collapse; width: 100%; font-size: 12px }
 .rvm-table caption { text-align: left; font-size: 11px; color: var(--muted); padding: 2px 0 4px }
 .rvm-table th, .rvm-table td { border-bottom: 1px solid var(--line); padding: 5px 6px; text-align: left;
@@ -67,23 +76,35 @@
 .rvm-table thead th { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
   font-weight: 700; white-space: nowrap }
 .rvm-table tbody th { font-weight: 600 }
+/* The SASA table is three columns of a number a reader compares with the row above, not a wide data table: narrow
+   padding, nowrap numeric cells, and no caption block (the probe is stated in the note above). */
+.rvm-table-compact { width: auto; min-width: 0 }
+.rvm-table-compact th, .rvm-table-compact td { padding: 3px 14px 3px 0 }
+.rvm-table-compact td { white-space: nowrap; font-variant-numeric: tabular-nums }
 .rvm-frame { display: block; width: 100%; height: 420px; border: 1px solid var(--line); border-radius: 8px;
   background: #fff; margin: 6px 0 }
+/* The bead-overlap figure is a published artifact with its own internal legend: it is scaled down by its frame. */
+.rvm-frame.rvm-overlap-frame { max-width: 640px; height: 300px }
 .rvm-chart { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 6px; margin-top: 8px;
   min-height: 120px }
-/* Shape's primary pair: two 3D panels on the same probe and the same extent. The panels share a row in a half-width
-   card, so the plot height is modest and the axis titles stay small. */
-.rvm-surface-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin: 8px 0 }
-.rvm-surface-panel { margin: 0; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: #fbfdff }
-.rvm-surface-panel figcaption { font-size: 11.5px; font-weight: 650; color: var(--ink); padding: 6px 8px 0 }
-.rvm-surface-plot { min-height: 230px }
+/* Shape's primary pair: one scene whose four traces are toggled by two checkboxes, with the three-column table
+   beside it in a full-width card and stacked under it otherwise. */
+.rvm-checks { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 4px 0 6px; font-size: 12.5px; color: var(--ink) }
+.rvm-checks label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer }
+.rvm-surface-view { display: grid; grid-template-columns: 1fr; gap: 8px; margin: 8px 0 }
+.rvm-surface-plot-col { min-width: 0 }
+.rvm-surface-table { min-width: 0 }
+.rvm-surface-plot { min-height: 230px; border: 1px solid var(--line); border-radius: 8px; background: #fbfdff }
 .rvm-surface-fallback { margin: 6px 0 }
+.run-view-monitors.one-column .rvm-surface-view {
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); align-items: start }
 .rvm-sasa { margin-top: 8px }
 .rvm-sasa-chart { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 6px;
   margin-top: 4px; min-height: 180px }
 
-/* The comparison map: one scene above the section rows, recoloured by the section tabs. It lives in a half-width
-   card, so it is compact: a one-line head, a 340 px scene, one legend line and the reading grid beneath. */
+/* The comparison map: one scene above the section rows, recoloured by the section tabs. In a half-width card it is
+   compact and stacked: a one-line head, a 340 px scene, one legend line and the reading grid beneath. A full-width
+   card puts the scene and the reading side by side. */
 .rvm-map { border: 1px solid var(--line); border-radius: 10px; background: #fff; margin: 0 0 10px;
   overflow: hidden; min-width: 0 }
 .rvm-map-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 8px 10px 0 }
@@ -94,7 +115,7 @@
 .rvm-map-plot { width: 100% }
 .rvm-map-missing { font-size: 12px; color: var(--muted); margin: 10px 2px; line-height: 1.5 }
 .rvm-map-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: center; padding: 2px 2px 4px;
-  font-size: 10.5px; color: var(--muted) }
+  font-size: 12px; color: var(--muted) }
 .rvm-legend-entry { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap }
 .rvm-legend-line { display: inline-block; width: 15px; height: 3px; border-radius: 2px; vertical-align: 2px }
 .rvm-legend-scale { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap }
@@ -102,8 +123,15 @@
   background: linear-gradient(90deg, #dbeafe, #1d4ed8) }
 .rvm-gradient-overlap { background: linear-gradient(90deg, #c02a37, #e0b44a, #1f7a4d) }
 .rvm-legend-note { color: var(--muted) }
-.rvm-map-status { font-size: 11.5px; color: var(--muted); margin: 0; padding: 2px 2px 8px; min-height: 1.4em;
+.rvm-map-status { font-size: 12px; color: var(--muted); margin: 0; padding: 2px 2px 8px; min-height: 1.4em;
   line-height: 1.45; overflow-wrap: anywhere }
+/* Full-width card (only one monitor shown): the scene and the reading box become two columns, the head spans both.
+   Two monitors keep the stacked map: a half-width card has no room for the reading beside the scene. */
+.run-view-monitors.one-column .rvm-map {
+  display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); column-gap: 10px; align-items: start }
+.run-view-monitors.one-column .rvm-map-head { grid-column: 1 / -1 }
+.run-view-monitors.one-column .rvm-map-body { min-width: 0 }
+.run-view-monitors.one-column .rvm-reading { grid-template-columns: 1fr; margin: 0 8px 8px 0 }
 .rvm-reading { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 12px;
   border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #fbfcfe; margin: 0 0 12px }
 .rvm-headline { min-width: 0 }

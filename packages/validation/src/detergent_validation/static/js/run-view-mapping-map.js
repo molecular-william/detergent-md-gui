@@ -11,6 +11,7 @@
 import { api } from '/static/js/shared.js';
 import { mountBondedPlot } from '/static/js/bonded-plot.js';
 import { registerRunViewAnalysisMap } from '/static/js/run-view.js';
+import { observePlotResize } from './run-view-mapping.js';
 
 const MODES = {
   'mapping-geometry': {title: 'Geometry', label: 'Pairs · displacement'},
@@ -530,7 +531,8 @@ export async function mount({host, job, side, isCurrent, queue}) {
       render.selectedPairId = state.selected.pairId || '';
       paintLegend();
     }
-    plot.render(render);
+    // The scene is drawn at the card's current width; the monitor toggle changes that width with no window resize.
+    Promise.resolve(plot.render(render)).then(() => observePlotResize(plotHost));
   }
 
   function renderAll() {

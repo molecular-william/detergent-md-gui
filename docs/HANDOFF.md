@@ -138,6 +138,20 @@ would help, which the plan rejects by default; NGL is still an eager 1,284,224 B
 `67bc79a995d6`: `/analyses` 527,290 B -> 33,265 B, and a queued `surfaces` attempt (`73051f3c10b0`) published in
 50.6 s with the phases above and the same numbers as the earlier attempt (AA 14.819, Simulated CG 13.728 nm²).
 
+The 2026-11-09 Run view Analysis UI slice is built and live-checked on `67bc79a995d6`; its plan and draft are local
+(`docs/plans/2026-11-09-analysis-ui.md`, `docs/design/drafts/2026-11-09-analysis-ui.html` + `.png`). The analysis list
+is a ticked checklist (`run-view-analysis.js`/`run-view.css`, `.analysis-check`): a completed kind is ticked, a failed
+one is unticked with the last line of its console and no Log link, and an unsettled one shows its progress and Cancel.
+The validation sections start compact: Constrained pairs, Bonds, Angles and "Our fit against the independent estimate"
+are closed `<details>` (the map's focus opens the group that holds the term it names), and in the full-width card
+(`#run-view-monitors.one-column`, second monitor minimized) the comparison map's scene and its Reading box sit side by
+side. Shape and volume draws one scene from the published pair JSON with the AA and Simulated CG meshes and their
+markers, two checkboxes as that scene's legend, the 3-column SASA table (Model/Mean/SD, no frames or duration) beside
+it in the full-width card, and the bead-overlap figure capped at 640x300. Legend text is 12 px and every Plotly host is
+observed so the monitor toggle resizes it. The test construction for surfaces/overlap/mapping moved into
+`tests/harness/validation_fixtures.py`. Checks: fast 2523 passed / 1 xfailed; browser 331 passed; ruff clean.
+Static JS/CSS only, so the dashboard was not restarted.
+
 The dashboard was restarted on 2026-11-05 at 17:12 for the whole round. Live checks: LMNG's automatic candidate is
 23 connected beads with the branch bead `[11,22,46]` (connectivity and spectral agree on the bead count, differ on
 the grouping); run `619ab118abd6`'s rebuilt AA series carries 160 CONECT records over 201 models and the viewer draws
@@ -203,6 +217,7 @@ after the check; this host reports three GPUs, so the no-GPU path is pinned by t
 | item | state | next |
 | --- | --- | --- |
 | Align trajectory's initial state | the form prefills defaults, so a stored series built with `fit: rot+trans` opens with the box unchecked while its summary line says the fit | decide whether Frame options should prefill the stored build's arguments instead of the defaults |
+| Analysis checklist membership | the checklist lists the run's attempted kinds; a kind never queued (e.g. an automatic kind that has not run) is absent | add a server-side "what this run can compute" list and show those unticked, if wanted |
 | NGL is eager on every panel | one blocking 1,284,224 B script on every page, 68% of the shell's script bytes; Runs, New run and Bonded build no scene | make it lazy like Plotly (`vendor/ngl-loader.js`) and load it for Run view/Complexes/Bead editor; `window.NGL` has readers in three distributions, so this is its own measured slice |
 | Plotly warm and the default figure | a panel that plots asks for its own bundle at mount, so a shown-panel warm cannot help it (Bonded first content 4275 ms); a cold Run view also pulls a 10,300.8 KB interactive figure | decide plan open decisions 2 and whether the first figure waits for a click or visibility; do not prefetch hidden panels |
 | CG-only molecules beyond pdc | a `kind: cg` folder works as a pdc detergent without a mapping; compositions, osmotic and CG conformation libraries still assume a mapping | separate slice if wanted (`docs/plans/2026-11-05-feature-round.md`, *Not in this round*) |

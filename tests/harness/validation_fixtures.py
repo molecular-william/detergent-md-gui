@@ -1,8 +1,9 @@
 """What a completed comparison analysis leaves on disk, for the panels that read it.
 
 `publish` and `publish_cross_check`, with the comparison and cross-check records they write, lived in the browser
-test that first needed them and `test_plotly_lazy_browser.py` imported them from there. The construction is shared;
-what each panel asserts about it stays in its own file.
+test that first needed them and `test_plotly_lazy_browser.py` imported them from there. The surfaces, overlap and
+mapping builders came the same way: the analysis browser tests wrote them first, and the layout tests read the same
+construction. What each panel asserts about it stays in its own file.
 """
 import json
 
@@ -97,3 +98,117 @@ def publish_cross_check(dashboard, jid):
     (attempt / 'result.json').write_text(json.dumps(
         {'result': CROSS_CHECK, 'output_directory': 'output/abc123', 'wall_seconds': 4.0}))
     return attempt
+
+SURFACES = {
+    'probe_nm': 0.191, 'rendering': 'SAS mesh, GROMACS Connolly dots retained separately',
+    'scientifically_validated': False, 'comparison_html': 'analysis/surfaces/surface-comparison.html',
+    'aa_cg_comparison': 'analysis/surfaces/surface-comparison-aa-cg.json',
+    'statistics': {'AA': {'frames': 20001, 'start_ps': 0.0, 'end_ps': 200000.0,
+                          'mean_nm2': 5.8157, 'std_nm2': 0.077, 'xvg': 'analysis/surfaces/aa/sasa.xvg'},
+                   'Simulated CG': {'frames': 20001, 'start_ps': 0.0, 'end_ps': 200000.0,
+                                    'mean_nm2': 5.599, 'std_nm2': 0.174,
+                                    'xvg': 'analysis/surfaces/simulated-cg/sasa.xvg'}},
+}
+
+#: One triangle per panel and two marker vertices: enough to assert the two-panel data path without a 10 MB figure.
+SURFACE_PAIR = {
+    'probe_nm': 0.191, 'extent': 1.2, 'rendering': 'SAS mesh, AA vs Simulated CG',
+    'scientifically_validated': False,
+    'panels': [
+        {'label': 'AA reference', 'colour': '#2864b5',
+         'mesh': {'x': [0.0, 0.2, 0.0], 'y': [0.0, 0.0, 0.2], 'z': [0.0, 0.0, 0.0],
+                  'i': [0], 'j': [1], 'k': [2]},
+         'markers': {'name': 'AA atoms', 'colour': '#26384f', 'size': 3,
+                     'x': [0.05, 0.1], 'y': [0.02, 0.03], 'z': [0.0, 0.01]}},
+        {'label': 'Simulated CG', 'colour': '#188b75',
+         'mesh': {'x': [0.0, 0.25, 0.0], 'y': [0.0, 0.0, 0.25], 'z': [0.0, 0.0, 0.0],
+                  'i': [0], 'j': [1], 'k': [2]},
+         'markers': {'name': 'Simulated CG beads', 'colour': '#188b75', 'size': 5,
+                     'x': [0.06, 0.12], 'y': [0.03, 0.04], 'z': [0.01, 0.0]}},
+    ],
+}
+
+
+def publish_surfaces(dashboard, jid):
+    """Leave behind what `analysis.worker` leaves behind for a completed surfaces analysis."""
+    attempt = dashboard.coordinator.RUNS / jid / 'analyses/surfaces/hash/attempt1'
+    output = attempt / 'output/abc123'
+    surfaces = output / 'analysis/surfaces'
+    surfaces.mkdir(parents=True)
+    (surfaces / 'metadata.json').write_text(json.dumps(SURFACES))
+    (surfaces / 'surface-comparison.html').write_text('<html><body>envelopes</body></html>')
+    (surfaces / 'surface-comparison-aa-cg.json').write_text(json.dumps(SURFACE_PAIR))
+    (surfaces / 'aa').mkdir(); (surfaces / 'simulated-cg').mkdir()
+    (surfaces / 'aa/sasa.xvg').write_text(
+        '# time (ps) SASA (nm^2)\n0 5.80\n100 5.82\n200 5.81\n')
+    (surfaces / 'simulated-cg/sasa.xvg').write_text(
+        '# time (ps) SASA (nm^2)\n0 5.60\n100 5.59\n200 5.61\n')
+    (attempt / 'result.json').write_text(json.dumps(
+        {'result': SURFACES, 'output_directory': 'output/abc123', 'wall_seconds': 121.0}))
+    return attempt
+
+
+OVERLAP = {
+    'residue': 'DDM',
+    'bead_names': ['B01', 'B02', 'B03'],
+    'pairs': [['B01', 'B02'], ['B01', 'B03'], ['B02', 'B03']],
+    'matrix': [[1.0, 0.82, 0.31], [0.82, 1.0, 0.44], [0.31, 0.44, 1.0]],
+    'overlaps': [0.82, 0.31, 0.44],
+    'per_bead_mean': [{'bead': 'B01', 'mean': 0.565}, {'bead': 'B02', 'mean': 0.63},
+                      {'bead': 'B03', 'mean': 0.375}],
+    'range_nm': [0.1, 0.6],
+    'frames': {'reference': 20001, 'model': 2001},
+    'limitations': ['Intra-residue bead distances only: an interaction spanning two residues is outside this report.'],
+    'figure': 'overlap.html',
+    'report': 'overlap.json',
+    'scientifically_validated': False,
+}
+
+
+def publish_overlap(dashboard, jid):
+    """Leave behind what `analysis.worker` leaves behind for a completed overlap analysis."""
+    attempt = dashboard.coordinator.RUNS / jid / 'analyses/overlap/hash/attempt1'
+    output = attempt / 'output/abc123'
+    output.mkdir(parents=True)
+    (output / 'overlap.json').write_text(json.dumps(OVERLAP))
+    (output / 'overlap.html').write_text('<html><body>heatmap</body></html>')
+    (attempt / 'result.json').write_text(json.dumps(
+        {'result': OVERLAP, 'output_directory': 'output/abc123', 'wall_seconds': 3.0}))
+    return attempt
+
+MAP_MODEL = {
+    'name': 'Sucrose', 'status': 'candidate-unvalidated', 'martini_version': '3', 'mapping_mode': 'COG',
+    'connections': [['S1A', 'S1B'], ['S1B', 'S2A'], ['S2A', 'S2B']],
+    'beads': [
+        {'name': 'S1A', 'residue': 1, 'letter': 'A', 'export_name': 'B01', 'size': 'S',
+         'type': 'SP1r', 'atoms': [1, 2]},
+        {'name': 'S1B', 'residue': 1, 'letter': 'B', 'export_name': 'B02', 'size': 'S',
+         'type': 'SP1r', 'atoms': [3, 4]},
+        {'name': 'S1VS', 'residue': 1, 'letter': 'VS', 'export_name': 'B03', 'size': 'T',
+         'type': 'TC4', 'atoms': [], 'virtual_site': {'function': 1, 'parents': ['S1A', 'S1B']}},
+        {'name': 'S2A', 'residue': 2, 'letter': 'A', 'export_name': 'B04', 'size': 'S',
+         'type': 'SP1r', 'atoms': [5, 6]},
+        {'name': 'S2B', 'residue': 2, 'letter': 'B', 'export_name': 'B05', 'size': 'S',
+         'type': 'SP1r', 'atoms': [7, 8]},
+    ],
+}
+
+MAP_POSITIONS = {'B01': (0.0, 0.0, 0.0), 'B02': (0.3, 0.0, 0.0), 'B03': (0.15, 0.2, 0.05),
+                 'B04': (0.9, 0.25, 0.0), 'B05': (1.1, 0.45, 0.1)}
+
+
+def publish_mapping(dashboard, jid, model=None, positions=None):
+    """Leave behind the run's own mapped frame: the model the beads come from and one static GRO frame."""
+    model = model or MAP_MODEL
+    positions = positions or MAP_POSITIONS
+    directory = dashboard.coordinator.RUNS / jid / 'stages/2_mapping'
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / 'model.json').write_text(json.dumps(model))
+    lines = ['mapped frame', f'{len(model["beads"]):5d}']
+    for index, bead in enumerate(model['beads'], 1):
+        name = bead.get('export_name') or f'B{index:02d}'
+        x, y, z = positions[name]
+        lines.append(f'{1:5d}{"MOL":<5}{name:>5}{index:5d}{x:8.3f}{y:8.3f}{z:8.3f}')
+    lines.append('   0.00000   0.00000   0.00000')
+    (directory / 'mapped.gro').write_text('\n'.join(lines) + '\n')
+    return directory

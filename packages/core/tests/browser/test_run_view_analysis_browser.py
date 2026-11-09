@@ -1,4 +1,4 @@
-"""The Run view's Analysis card: a run's own figures, the controls that queue them, and its task lines.
+"""The Run view's Analysis card: a run's own figures, the controls that queue them, and its analysis checklist.
 
 The card moved here from the Runs page's **Analysis graphs** panel, so what this file pins is the move rather than the
 viewer's mechanics: a monitor draws *its own* run's figures, a second monitor draws its own, a run with none says so
@@ -55,6 +55,11 @@ def note(page, side='A'):
 
 def tasks(page, side='A'):
     return page.locator(f'#run-view-analysis-tasks-{side}')
+
+
+def tick(page, item):
+    """The box's tick is a CSS pseudo-element, so `none` is an unticked box and a quoted string is the drawn tick."""
+    return item.locator('.check').evaluate("el => getComputedStyle(el, '::after').content")
 
 
 def open_view(page, live_page, run_id=A_RUN, tabs=4):
@@ -189,12 +194,13 @@ def test_the_trajectory_overview_button_queues_one_first_look(dashboard, live_pa
 
 
 def test_a_running_task_is_listed_with_a_cancel_and_the_cancel_posts(dashboard, live_page):
-    """The task list moved with the card: its progress, its log link and its cancel are read where the figures are."""
+    """The checklist moved with the card: a running analysis shows its progress, offers Cancel, and cancelling
+    disables that button rather than leaving a second request on the table."""
     seed(dashboard)
     page, errors = live_page
     cancelled = []
 
-    state = {'tasks': [{'id': 'task-9', 'kind': 'stability', 'status': 'running',
+    state = {'tasks': [{'id': 'task-9', 'kind': 'stability', 'status': 'running', 'progress': 'reading pairs',
                         'directory': 'analyses/stability/test'}]}
 
     def analyses(route):
@@ -208,18 +214,23 @@ def test_a_running_task_is_listed_with_a_cancel_and_the_cancel_posts(dashboard, 
     page.route(re.compile(rf'/api/jobs/{A_RUN}/analyses(?:\?.*)?$'), analyses)
     page.route(re.compile(rf'/api/jobs/{A_RUN}/analyses/task-9/cancel$'), cancel)
     open_view(page, live_page)
-    card = page.locator('.run-view-analysis').first
-    expect(card).to_contain_text('stability · running')
-    card.get_by_role('button', name='Cancel analysis', exact=True).click()
 
-    expect(page.locator('#run-view-analysis-tasks-A')).to_contain_text('cancelling')
+    listing = tasks(page)
+    expect(listing.locator('li[data-status="running"]')).to_have_count(1)
+    expect(listing).to_contain_text('stability · running')
+    expect(listing.locator('.check-progress')).to_have_text('reading pairs')
+    expect(listing.get_by_role('button', name='Cancel analysis', exact=True)).to_be_enabled()
+    listing.get_by_role('button', name='Cancel analysis', exact=True).click()
+
+    expect(listing.locator('li[data-status="cancelling"]')).to_have_count(1)
+    expect(listing.get_by_role('button', name='Cancel analysis', exact=True)).to_be_disabled()
     assert cancelled == ['POST'], 'the card drew a cancel that asked nothing'
     assert errors == [], errors
 
 
 def test_the_task_list_keeps_one_row_per_kind_and_shows_the_latest_error(dashboard, live_page):
-    """The run keeps every attempt; the card shows the current state. The failed row's message is the last line of
-    the attempt's own log, not the command line the coordinator recorded, and only that row carries a Log link."""
+    """The run keeps every attempt; the checklist shows the current state. The failed row's reason is the last line
+    of that attempt's own log, not the command line the coordinator recorded, and there is no Log link to open."""
     seed(dashboard)
     page, errors = live_page
     state = {'tasks': [
@@ -234,18 +245,66 @@ def test_the_task_list_keeps_one_row_per_kind_and_shows_the_latest_error(dashboa
     ]}
 
     page.route(re.compile(rf'/api/jobs/{A_RUN}/analyses(?:\?.*)?$'), lambda route: route.fulfill(json=state['tasks']))
+
+    def console(route):
+        body = 'old reason\n' if '/old/' in route.request.url else \
+            'warning\nValueError: LMNG_ff_inter.itp:47: a bond needs 5 fields, found 2\n'
+        route.fulfill(body=body, content_type='text/plain')
+
+    page.route(re.compile(rf'/api/jobs/{A_RUN}/artifacts/.*console\.log.*'), console)
+    open_view(page, live_page)
+
+    listing = tasks(page)
+    failed = listing.locator('li[data-status="failed"]')
+    completed = listing.locator('li[data-status="completed"]')
+    expect(listing.locator('li')).to_have_count(2)
+    expect(failed).to_have_count(1)
+    expect(completed).to_have_count(1)
+    expect(failed).to_contain_text('bonded-cross-check · failed')
+    expect(failed.locator('.check-why')).to_have_text('ValueError: LMNG_ff_inter.itp:47: a bond needs 5 fields, found 2')
+    expect(listing).not_to_contain_text('Command old')
+    expect(listing).not_to_contain_text('Command new')
+    expect(listing).not_to_contain_text('old reason')
+    assert tick(page, failed) == 'none', 'a failed analysis is ticked'
+    assert tick(page, completed) != 'none', 'a completed analysis has no tick'
+    expect(listing.locator('a.task-log')).to_have_count(0)
+    assert errors == [], errors
+
+
+def test_a_mixed_list_draws_each_state_and_ticks_only_the_calculated_analysis(dashboard, live_page):
+    """Completed + failed + running in one list: three rows, three data-status values, one tick, one reason and one
+    Cancel. The failed row has no Log link, because the reason is the line and the console stays in the artifacts."""
+    seed(dashboard)
+    page, errors = live_page
+    state = {'tasks': [
+        {'id': 'done', 'kind': 'frame-series', 'status': 'completed',
+         'created_at': '2026-11-06T01:00:00+00:00'},
+        {'id': 'bad', 'kind': 'bonded-cross-check', 'status': 'failed',
+         'directory': 'analyses/bonded-cross-check/signature/attempt',
+         'created_at': '2026-11-06T02:00:00+00:00'},
+        {'id': 'busy', 'kind': 'dihedral-fit', 'status': 'running', 'progress': 'reading pairs',
+         'created_at': '2026-11-06T03:00:00+00:00'},
+    ]}
+
+    page.route(re.compile(rf'/api/jobs/{A_RUN}/analyses(?:\?.*)?$'), lambda route: route.fulfill(json=state['tasks']))
     page.route(re.compile(rf'/api/jobs/{A_RUN}/artifacts/.*console\.log.*'),
-               lambda route: route.fulfill(body='warning\nValueError: LMNG_ff_inter.itp:47: a bond needs 5 fields, found 2\n',
+               lambda route: route.fulfill(body='warning\nLMNG_ff_inter.itp:47: a bond needs 5 fields, found 2\n',
                                            content_type='text/plain'))
     open_view(page, live_page)
 
     listing = tasks(page)
-    expect(listing.locator('p')).to_have_count(2)
-    expect(listing).to_contain_text('bonded-cross-check · failed')
-    expect(listing).to_contain_text('a bond needs 5 fields, found 2')
-    expect(listing).not_to_contain_text('Command old')
-    expect(listing).not_to_contain_text('Command new')
-    expect(listing.locator('a.task-log')).to_have_count(1)
+    items = listing.locator('li')
+    expect(items).to_have_count(3)
+    assert [items.nth(index).get_attribute('data-status') for index in range(3)] == \
+        ['completed', 'failed', 'running']
+    completed, failed, running = items.nth(0), items.nth(1), items.nth(2)
+    assert tick(page, completed) != 'none', 'the completed analysis has no tick'
+    assert tick(page, failed) == 'none', 'the failed analysis is ticked'
+    assert tick(page, running) == 'none', 'the running analysis is ticked'
+    expect(failed.locator('.check-why')).to_have_text('LMNG_ff_inter.itp:47: a bond needs 5 fields, found 2')
+    expect(failed.locator('a.task-log')).to_have_count(0)
+    expect(running.locator('.check-progress')).to_have_text('reading pairs')
+    expect(running.get_by_role('button', name='Cancel analysis', exact=True)).to_be_enabled()
     assert errors == [], errors
 
 

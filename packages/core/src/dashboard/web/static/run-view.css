@@ -149,11 +149,36 @@
   color: var(--muted) }
 .run-view-analysis-note { overflow-wrap: anywhere }
 .run-view-analysis .toolbar { margin: 8px 0 }
-.run-view-analysis .analysis-tasks p { margin: 3px 0; font-size: 12px }
-.run-view-analysis .analysis-tasks .task-kind { font-weight: 600 }
-.run-view-analysis .analysis-tasks .task-message { color: var(--danger) }
-.run-view-analysis .analysis-tasks .task-log { margin-left: 6px; white-space: nowrap }
-.run-view-analysis .analysis-tasks button { margin-left: 8px }
+/* The analysis checklist: one row per analysis kind, ticked once it has been calculated. The box is drawn in CSS so
+   the list needs no glyph or icon font; it is `aria-hidden`, and the status word beside it is the accessible state.
+   A failed row's reason is the last line of its console, not a log to open. */
+.run-view-analysis .analysis-tasks { margin: 4px 0 }
+.run-view-analysis .analysis-check { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;
+  gap: 3px }
+.run-view-analysis .analysis-check li { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: 12px }
+.run-view-analysis .analysis-check .check { position: relative; flex: 0 0 12px; width: 12px; height: 12px;
+  align-self: center; border: 1.5px solid var(--muted); border-radius: 3px; box-sizing: border-box }
+.run-view-analysis .analysis-check li[data-status="completed"] .check { background: #286644; border-color: #286644 }
+.run-view-analysis .analysis-check li[data-status="completed"] .check::after { content: ''; position: absolute;
+  left: 3px; top: 0; width: 4px; height: 8px; border: 2px solid #fff; border-top: 0; border-left: 0;
+  transform: rotate(40deg) }
+.run-view-analysis .analysis-check li[data-status="failed"] .check,
+.run-view-analysis .analysis-check li[data-status="cancelled"] .check { border-color: var(--danger) }
+.run-view-analysis .analysis-check li[data-status="queued"] .check,
+.run-view-analysis .analysis-check li[data-status="running"] .check,
+.run-view-analysis .analysis-check li[data-status="cancelling"] .check { border-color: var(--accent);
+  border-style: dashed; animation: analysis-check-pulse 1.4s ease-in-out infinite }
+@keyframes analysis-check-pulse { 50% { opacity: .35 } }
+@media (prefers-reduced-motion: reduce) {
+  .run-view-analysis .analysis-check li[data-status="queued"] .check,
+  .run-view-analysis .analysis-check li[data-status="running"] .check,
+  .run-view-analysis .analysis-check li[data-status="cancelling"] .check { animation: none }
+}
+.run-view-analysis .analysis-check .check-kind { font-weight: 600 }
+.run-view-analysis .analysis-check .check-status { color: var(--muted) }
+.run-view-analysis .analysis-check .check-why { color: var(--danger); overflow-wrap: anywhere }
+.run-view-analysis .analysis-check .check-progress { color: var(--accent) }
+.run-view-analysis .analysis-check button { margin-left: 8px; font-size: 11px; padding: 2px 8px }
 .run-view-analysis .analysis-plots { margin-top: 8px }
 /* The section strip: Figures, then one tab per feature-registered section. It is hidden when no feature has a
    section for the run, so an install without one draws the card it always did. */
