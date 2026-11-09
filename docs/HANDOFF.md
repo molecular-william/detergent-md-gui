@@ -158,6 +158,21 @@ global `label` 12 px margin was the height), and cuts the grid gap to 4 px. A ce
 went from 79 px to 58 px; the info button sits on the caption's line at its right, and the geometry is pinned in
 `test_aa_new_run_browser.py`'s help-button test. CSS and a test only; no restart.
 
+**The next queue (2026-11-09, for the next session)** is four items; the plan with the proposed copy, files and
+acceptance is `docs/plans/2026-11-09-next-round-runs-filters-pdc-analyses.md` (local, as plans are). **Runs**: dense is
+the only view (remove Table/Grouped, its storage key and CSS), and checkbox filters for run type and status (plus
+possibly molecule/method/date) feed a multi-value `/api/jobs`; the run-type vocabulary and labels come from the
+registered types, not a hardcoded engine list. **Bond Interactions**: replace the Torsion refinement hint with a plain
+"why / how / what a run needs" explainer — torsions set chain flexibility, the circular-harmonic fit takes phase and
+stiffness from the mapped AA dihedral distribution (scaled 0.1–3), stage 3's `refine_bonded` rewrites the fitted ITP
+and keeps `*_ff_inter.itp`, and the choice travels as the mapping's parameterization revision that a later run consumes
+and records. **Shape and volume**: state what AA reference, Mapped raw, Mapped ring-scaled and Simulated CG are, and
+mark Simulated CG as the only one that is this run's data; the others are the AA reference or mapped from it. **pdc Run
+view analyses**: a pdc "Structure and interactions" section backed by kinds — `pdc-structure` (RDF, micelle
+eccentricity/asphericity, aggregation and contacts from the final production leg), `pdc-interaction-energy` (GROMACS
+rerun with energy groups over a sampled window), and an optional `pdc-sdf`; the science definitions are listed in the
+plan and must be answered before a producer is written. UI changes need an HTML draft before code.
+
 The dashboard was restarted on 2026-11-05 at 17:12 for the whole round. Live checks: LMNG's automatic candidate is
 23 connected beads with the branch bead `[11,22,46]` (connectivity and spectral agree on the bead count, differ on
 the grouping); run `619ab118abd6`'s rebuilt AA series carries 160 CONECT records over 201 models and the viewer draws
@@ -224,6 +239,8 @@ after the check; this host reports three GPUs, so the no-GPU path is pinned by t
 | --- | --- | --- |
 | Align trajectory's initial state | the form prefills defaults, so a stored series built with `fit: rot+trans` opens with the box unchecked while its summary line says the fit | decide whether Frame options should prefill the stored build's arguments instead of the defaults |
 | Analysis checklist membership | the checklist lists the run's attempted kinds; a kind never queued (e.g. an automatic kind that has not run) is absent | add a server-side "what this run can compute" list and show those unticked, if wanted |
+| Runs filter set | the plan proposes run type + status first, with molecule/method/date optional; the `/api/jobs` route takes one status and one run type today | confirm the facets and whether filters persist, then extend the route to multi-value with the count/page boundaries unchanged |
+| pdc CG analysis definitions | `pdc-structure` (RDF, micelle eccentricity, aggregation/contacts), `pdc-interaction-energy` (GROMACS rerun with energy groups) and optional `pdc-sdf` need science definitions | settle the energy pairs/terms/sampling, RDF selections and normalization, eccentricity definition and SDF grid, then build `pdc-structure` first |
 | NGL is eager on every panel | one blocking 1,284,224 B script on every page, 68% of the shell's script bytes; Runs, New run and Bonded build no scene | make it lazy like Plotly (`vendor/ngl-loader.js`) and load it for Run view/Complexes/Bead editor; `window.NGL` has readers in three distributions, so this is its own measured slice |
 | Plotly warm and the default figure | a panel that plots asks for its own bundle at mount, so a shown-panel warm cannot help it (Bonded first content 4275 ms); a cold Run view also pulls a 10,300.8 KB interactive figure | decide plan open decisions 2 and whether the first figure waits for a click or visibility; do not prefetch hidden panels |
 | CG-only molecules beyond pdc | a `kind: cg` folder works as a pdc detergent without a mapping; compositions, osmotic and CG conformation libraries still assume a mapping | separate slice if wanted (`docs/plans/2026-11-05-feature-round.md`, *Not in this round*) |
