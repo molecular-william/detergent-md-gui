@@ -167,6 +167,18 @@ def circular_harmonic(degrees, temperature):
 
 
 def refine(topology, data, directory, temperature):
+    """Rewrite a fitted topology's flexible terms from the mapping's own bonded options.
+
+    **One fitted torsion is eight `funct 9` lines, and it is one interaction.** Fast-Forward writes a periodic
+    dihedral as one cosine term per harmonic -- eight lines with the same four atoms. A circular-harmonic fit therefore
+    rewrites the interaction **once**, from the first of those lines, and drops the siblings. Rewriting each line
+    produced eight identical `funct 2` terms, so the stiffness a run simulated was eight times the one that was fitted
+    and `bonded_fit.json` counted eight torsions for one (found 2026-11-09, pinned by
+    `test_a_fitted_torsion_is_rewritten_once_not_once_per_harmonic`). The legacy model leaves every line as the fit
+    wrote it.
+
+    Grouping is per `[ dihedrals ]` block, so two molecule types carrying the same atom indices stay separate terms.
+    """
     validate(data)
     names = {b['name']:i for i,b in enumerate(data['beads'],1)}
     overrides = {}
@@ -175,15 +187,19 @@ def refine(topology, data, directory, temperature):
         overrides[(term['section'], min(ids,ids[::-1]))] = term
     options = data.get('bonded_options',{})
     report = {'temperature_k':temperature, 'options':options, 'torsions':[], 'manual_overrides':[]}
-    section = ''; lines = []; applied=set()
+    section = ''; block = 0; lines = []; applied=set(); rewritten=set()
     for line in topology.splitlines():
         raw = line.split(';',1)[0].strip()
-        if raw.startswith('['): section=raw.strip('[] ')
+        if raw.startswith('['): section=raw.strip('[] '); block += 1
         arity = {'bonds':2,'angles':3,'dihedrals':4}.get(section)
         if raw and not raw.startswith(('[','#')) and arity:
             fields=raw.split(); ids=tuple(map(int,fields[:arity])); key=(section,min(ids,ids[::-1]))
             suffix = ' ;' + line.split(';',1)[1] if ';' in line else ''
             if section=='dihedrals' and options.get('torsion_model')=='circular-harmonic' and key not in overrides:
+                # The second and later lines of one fitted torsion are the same interaction's other harmonics: the
+                # first line becomes the single harmonic term and these lines are dropped, not rewritten again.
+                if (block, key) in rewritten: continue
+                rewritten.add((block, key))
                 label = '_'.join(f'B{i:02d}' for i in ids)
                 samples = np.loadtxt(Path(directory)/f'{label}_dihedrals.dat')
                 phase,k = circular_harmonic(samples,temperature)

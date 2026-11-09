@@ -65,3 +65,61 @@ def test_manual_connectivity_must_stay_connected():
 def test_seed_is_validated():
     assert cg.normalize_settings({'cg_seed': 123})['cg_seed'] == 123
     with pytest.raises(ValueError): cg.normalize_settings({'cg_seed': 1.5})
+
+
+# --- the refinement's unit of work is one interaction, not one line -------------------------------------------
+
+def _fitted_torsion_lines():
+    """One torsion as Fast-Forward writes it: eight `funct 9` lines, one cosine harmonic each."""
+    return ''.join(f'1 2 5 6 9 {0.1 * i:.2f} {-0.5 * i:.2f} {i}\n' for i in range(1, 9))
+
+
+def test_a_fitted_torsion_is_rewritten_once_not_once_per_harmonic(tmp_path):
+    """Fast-Forward writes one torsion as eight `funct 9` lines; the circular fit replaces the interaction, not each line.
+
+    The defect this pins: rewriting every line produced eight identical `funct 2` terms, so the stiffness a run
+    simulated was eight times the fitted one and `bonded_fit.json` counted eight torsions for one (found 2026-11-09).
+    """
+    seed = '[ dihedrals ]\n' + _fitted_torsion_lines() + '1 2 5 7 9 10.00 2.00 1\n'
+    candidate = {'beads': [{'name': f'B0{i}'} for i in range(1, 7)],
+                 'bonded_options': {'torsion_model': 'circular-harmonic', 'torsion_scale': 2}}
+    np.savetxt(tmp_path / 'B01_B02_B05_B06_dihedrals.dat', [-110, -100, -90])
+    np.savetxt(tmp_path / 'B01_B02_B05_B07_dihedrals.dat', [10, 20, 30])
+
+    result, report = bonded.refine(seed, candidate, tmp_path, 300)
+
+    dihedrals = [line for line in result.split('[ dihedrals ]')[1].splitlines() if line.strip()]
+    assert len(dihedrals) == 2, dihedrals
+    assert dihedrals[0].startswith('1 2 5 6 2 '), dihedrals[0]
+    assert dihedrals[1].startswith('1 2 5 7 2 '), dihedrals[1]
+    assert all(' 9 ' not in line for line in dihedrals), 'a fitted harmonic line survived the refinement'
+    assert [torsion['beads'] for torsion in report['torsions']] == [[1, 2, 5, 6], [1, 2, 5, 7]]
+    phase, k = bonded.circular_harmonic([-110, -100, -90], 300)
+    assert report['torsions'][0]['phase_deg'] == pytest.approx(phase)
+    assert report['torsions'][0]['k_kj_mol_rad2'] == pytest.approx(k * 2), \
+        'the stiffness scale multiplies the fitted stiffness once'
+
+
+def test_legacy_keeps_every_fitted_harmonic_line(tmp_path):
+    """The legacy model is not a fit of its own: the run simulates the periodic series Fast-Forward wrote."""
+    seed = '[ dihedrals ]\n' + _fitted_torsion_lines()
+    candidate = {'beads': [{'name': f'B0{i}'} for i in range(1, 7)],
+                 'bonded_options': {'torsion_model': 'legacy'}}
+
+    result, report = bonded.refine(seed, candidate, tmp_path, 300)
+
+    assert result == seed, 'legacy must write the fitted lines unchanged'
+    assert report['torsions'] == []
+
+
+def test_two_molecule_blocks_keep_their_own_torsions(tmp_path):
+    """The same four atom indices in two `[ dihedrals ]` blocks are two terms, not one interaction's harmonics."""
+    one = '[ dihedrals ]\n1 2 5 6 9 1.0 2.0 1\n1 2 5 6 9 3.0 4.0 2\n'
+    candidate = {'beads': [{'name': f'B0{i}'} for i in range(1, 7)],
+                 'bonded_options': {'torsion_model': 'circular-harmonic'}}
+    np.savetxt(tmp_path / 'B01_B02_B05_B06_dihedrals.dat', [-110, -100, -90])
+
+    result, report = bonded.refine(one + one, candidate, tmp_path, 300)
+
+    assert len([torsion for torsion in report['torsions']]) == 2, 'one rewrite per block'
+    assert len([line for line in result.splitlines() if line.strip().startswith('1 2 5 6 2')]) == 2
