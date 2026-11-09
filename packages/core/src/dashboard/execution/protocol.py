@@ -242,6 +242,18 @@ It was a hand-written tuple that omitted `osmotic` -- reachable by name, invisib
 published tuple. A list that has to agree with a dict is a second source of truth, and this one was already wrong.
 """
 
+RUN_TYPE_LABELS: Mapping[str, str] = {
+    'aa_only': 'AA simulation',
+    'aa_cg': 'AA \u2192 CG fitting',
+    'cg_composition': 'CG composition',
+}
+"""What the engine's own run types are called where a person reads them.
+
+Presentation only: the vocabulary is `RUN_TYPES`, and a name with no label reads as its own slug. A feature labels
+its own types (`Feature.run_type_labels`) so that `pdc` or `sugar_cg` never has to be spelled out in the engine --
+the shell must not learn a feature's vocabulary by being edited.
+"""
+
 
 def register(builders: Mapping[str, Callable[[], Protocol]]) -> None:
     """Add the run types one feature owns, and republish the tuple that lists them.

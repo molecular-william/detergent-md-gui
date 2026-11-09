@@ -13,13 +13,18 @@ Three properties, and the third is the one worth the file:
   narrowed list, so paging walks the filtered sequence.
 * **a name the registry does not have is a 400 that says what it does have**, rather than an empty page -- which
   reads as "none of those exist" and is the same answer a working filter would give for a run type nobody has run.
+
+The Runs panel's checkbox groups are the reason for the second half: each parameter may be repeated, values in one
+parameter are an *or*, and the parameters are an *and*. A group with no values is an absent parameter, not a wildcard
+trick -- which is why "no box ticked" needs no special case in the route.
 """
 JOBS = '/api/jobs'
 
 
-def _job(owner, run_id, run_type, *, status='completed', created=None, det='DDM', label=None):
+def _job(owner, run_id, run_type, *, status='completed', created=None, det='DDM', label=None,
+         method='fast_forward'):
     """One run record in the fixture's own database, with `run_type` optional so the legacy shape is testable."""
-    job = {'id': run_id, 'label': label or f'{det} run', 'detergent': det, 'method': 'fast_forward',
+    job = {'id': run_id, 'label': label or f'{det} run', 'detergent': det, 'method': method,
            'status': status, 'stage': 'complete', 'created': created or owner.now(),
            'profile': 'standard', 'layout_version': 2}
     if run_type is not None:
@@ -39,6 +44,12 @@ def _seed(owner):
     _job(owner, 'ccc000000001', 'aa_cg', status='failed', created='2026-10-01T00:00:03+00:00')
     _job(owner, 'ddd000000001', 'osmotic', created='2026-10-01T00:00:04+00:00', label='osmotic second')
     _job(owner, 'eee000000001', None, created='2026-10-01T00:00:05+00:00', label='legacy, no run type')
+
+
+def _more(owner):
+    """Two runs of types and methods the first seed has none of, for the repeated-value cases."""
+    _job(owner, 'ggg000000001', 'pdc', created='2026-10-01T00:00:07+00:00', det='LMNG', method='gromacs')
+    _job(owner, 'hhh000000001', 'aa_cg', created='2026-10-01T00:00:08+00:00', det='LMNG', method='bartender')
 
 
 def _get(dashboard, query=''):
@@ -137,10 +148,117 @@ def test_the_osmotic_panel_can_ask_for_the_series_runs_alone(dashboard):
     from dashboard.web.routes import runs as runs_route
 
     _seed(dashboard.coordinator)
-    rows, total = runs_route.pages_of_runs(dashboard.coordinator, 1, 100, '', '', 'osmotic')
+    rows, total = runs_route.pages_of_runs(dashboard.coordinator, 1, 100, [], '', ['osmotic'])
 
     assert total == 2 and len(rows) == 2
     assert all(job.get('run_type') == 'osmotic' for job, _ in rows)
     # The unfiltered path is the store's own answer, unchanged: no clause, no narrowing, all five rows.
     unfiltered, everyone = runs_route.pages_of_runs(dashboard.coordinator, 1, 100)
     assert everyone == 5 and len(unfiltered) == 5
+
+
+# --- repeated values, which is what the panel's checkbox groups send ------------------------------------------
+
+def test_two_run_types_return_either_and_the_total_is_the_narrowed_list(dashboard):
+    """One box per run type: ticking two is "either", and the count describes exactly what was asked for."""
+    owner = dashboard.coordinator
+    _seed(owner); _more(owner)
+
+    body = _get(dashboard, '?limit=100&run_type=aa_cg&run_type=pdc').get_json()
+
+    assert [job['id'] for job in body['jobs']] == ['hhh000000001', 'ggg000000001', 'eee000000001',
+                                                   'ccc000000001'], 'newest first, legacy aa_cg included'
+    assert body['total'] == 4
+    # And it is the unfiltered list narrowed, in the same order the table would have shown.
+    everything = _get(dashboard, '?limit=100').get_json()['jobs']
+    assert [job['id'] for job in body['jobs']] == \
+           [job['id'] for job in everything if (job.get('run_type') or 'aa_cg') in ('aa_cg', 'pdc')]
+
+
+def test_the_groups_are_an_and_and_the_values_inside_one_are_an_or(dashboard):
+    owner = dashboard.coordinator
+    _seed(owner); _more(owner)
+
+    body = _get(dashboard, '?limit=100&run_type=osmotic&run_type=aa_only&status=completed').get_json()
+
+    assert [job['id'] for job in body['jobs']] == ['ddd000000001', 'bbb000000001', 'aaa000000001']
+    assert body['total'] == 3
+
+
+def test_two_statuses_are_an_or_and_compose_with_a_run_type(dashboard):
+    owner = dashboard.coordinator
+    _seed(owner)
+
+    body = _get(dashboard, '?limit=100&status=completed&status=failed').get_json()
+    assert body['total'] == 5, 'every seeded run is completed or failed'
+
+    narrower = _get(dashboard, '?limit=100&run_type=aa_cg&status=completed&status=failed').get_json()
+    assert [job['id'] for job in narrower['jobs']] == ['eee000000001', 'ccc000000001']
+    assert narrower['total'] == 2
+
+
+def test_a_named_method_returns_only_the_runs_that_recorded_it(dashboard):
+    owner = dashboard.coordinator
+    _seed(owner); _more(owner)
+
+    assert [job['id'] for job in _get(dashboard, '?limit=100&method=bartender').get_json()['jobs']] == ['hhh000000001']
+    fitted = _get(dashboard, '?limit=100&method=fast_forward&status=failed').get_json()
+    assert [job['id'] for job in fitted['jobs']] == ['ccc000000001'], 'the method and status groups compose'
+
+
+def test_an_empty_value_is_an_absent_parameter(dashboard):
+    """A cleared box sends nothing; a select that sends `status=` must not be read as "status is empty"."""
+    owner = dashboard.coordinator
+    _seed(owner)
+
+    body = _get(dashboard, '?limit=100&run_type=&status=').get_json()
+
+    assert body['total'] == 5
+
+
+def test_one_unknown_name_in_a_list_is_still_refused(dashboard):
+    owner = dashboard.coordinator
+    _seed(owner)
+
+    response = _get(dashboard, '?run_type=osmotic&run_type=osmotik')
+
+    assert response.status_code == 400, response.get_data(as_text=True)
+    assert 'Unknown run type' in response.get_data(as_text=True)
+
+
+# --- the vocabulary the panel draws its boxes from ------------------------------------------------------------
+
+def test_the_filter_vocabulary_is_the_registered_types_and_the_methods_on_disk(dashboard):
+    """`/api/run-filters` is the panel's one list: no engine file names a feature's run type or a method it has not
+    recorded, so a type a feature registers appears in the boxes without an edit here."""
+    from dashboard.execution import protocol
+
+    owner = dashboard.coordinator
+    _seed(owner); _more(owner)   # fast_forward, gromacs and bartender are all recorded now
+    with dashboard.client as client:
+        body = client.get('/api/run-filters').get_json()
+
+    assert [row['name'] for row in body['types']] == list(protocol.RUN_TYPES)
+    labels = {row['name']: row['label'] for row in body['types']}
+    assert labels['aa_only'] == 'AA simulation'
+    assert labels['aa_cg'] == 'AA \u2192 CG fitting'
+    assert labels['cg_composition'] == 'CG composition'
+    # A feature labels its own; the engine names neither its type nor its words.
+    assert labels['osmotic'] == 'Osmotic series'
+    assert labels['sugar_cg'] == 'Sugar, CG only'
+    assert labels.get('pdc') == 'Protein-detergent'
+
+    methods = body['methods']
+    assert [row['name'] for row in methods] == ['fast_forward', 'bartender', 'gromacs'], \
+        'the known methods keep their declared order'
+    assert [row['label'] for row in methods] == ['Fast_Forward', 'Bartender', 'GROMACS']
+
+
+def test_a_method_no_run_recorded_is_not_offered(dashboard):
+    """A box that can only ever empty the table is not a filter; an unknown method still filters if one appears."""
+    owner = dashboard.coordinator
+    _seed(owner)          # all fast_forward
+    with dashboard.client as client:
+        body = client.get('/api/run-filters').get_json()
+
+    assert [row['name'] for row in body['methods']] == ['fast_forward']

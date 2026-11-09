@@ -105,13 +105,10 @@ def test_runs_views_checkpoints_and_inline_console(dashboard, live_page):
     expect(active.locator('.timeline-step[data-status=reused]')).to_have_count(1)
     expect(failed.locator('.timeline-step[data-status=failed]')).to_have_count(1)
     assert active.locator('.workflow-timeline').bounding_box()['x'] > active.locator('.job-title').bounding_box()['x']
-    for view in ('table', 'dense', 'grouped'):
-        page.locator(f'[data-run-view={view}]').click()
-        expect(page.locator('#runs')).to_have_attribute('data-view', view)
-        for button in page.locator('[data-run-view]').all():
-            expect(button).to_be_visible()
-            assert button.evaluate('(el)=>getComputedStyle(el).color!==getComputedStyle(el).backgroundColor')
-    page.locator('[data-run-view=table]').click()
+    # One list, no layout control: Dense is the table itself now, so there is nothing to switch to and nothing to
+    # remember. The old storage key is simply ignored rather than migrated.
+    expect(page.locator('[data-run-view]')).to_have_count(0)
+    expect(page.locator('#runs')).not_to_have_attribute('data-view', re.compile('table|grouped|dense'))
     complete.locator('.job-artifacts > summary').click()
     expect(complete.locator('.artifact-list')).to_contain_text('result.svg')
     complete.locator('.job-records > summary').click()
@@ -137,8 +134,7 @@ def test_runs_views_checkpoints_and_inline_console(dashboard, live_page):
     expect(complete.locator('.job-console')).not_to_have_attribute('open','')
     page.evaluate('refreshJobs()')
     expect(active.locator('#console-output')).to_contain_text('Active screening line 99')
-    page.locator('[data-run-view=dense]').click(); page.reload()
-    expect(page.locator('#runs')).to_have_attribute('data-view', 'dense')
+    page.reload()
     expect(active.locator('#console-output')).to_contain_text('Active screening line 99')
     # Filtering the current console out must park the viewer, not destroy it.
     page.locator('#run-search').fill('Completed control')
@@ -149,9 +145,8 @@ def test_runs_views_checkpoints_and_inline_console(dashboard, live_page):
     active.locator('.job-console > summary').click() if not active.locator('.job-console').evaluate('(el)=>el.open') else None
     expect(active.locator('#console-output')).to_contain_text('Active screening line 99')
     page.set_viewport_size({'width':390, 'height':844})
-    for view in ('table','dense','grouped'):
-        page.locator(f'[data-run-view={view}]').click()
-        browser.assert_no_horizontal_scroll(page)
+    # The table itself scrolls inside its frame; the page must not gain a horizontal scrollbar because of it.
+    browser.assert_no_horizontal_scroll(page)
     assert not errors, errors
 
 
@@ -343,4 +338,101 @@ def test_the_run_list_stops_asking_while_hidden_and_refreshes_once_on_return(das
     page.wait_for_timeout(200)           # less than one 500 ms cadence
     assert len(hits) == settled + 1, 'the return refreshed twice'
     expect(page.locator('#connection')).to_contain_text('Updated')
+    assert errors == [], errors
+
+
+# --- the filter boxes -----------------------------------------------------------------------------------------
+
+def _filter_jobs():
+    """Four runs, one per facet the boxes offer, in a fixed order (`created` is written, not taken from the clock)."""
+    return [
+        {'id': 'f00000000001', 'label': 'aa only reference', 'detergent': 'DDM', 'method': 'gromacs',
+         'status': 'completed', 'run_type': 'aa_only', 'stage': 'complete', 'created': '2026-10-01T10:00:00+00:00'},
+        {'id': 'f00000000002', 'label': 'fitted CG run', 'detergent': 'DDM', 'method': 'fast_forward',
+         'status': 'completed', 'run_type': 'aa_cg', 'stage': 'complete', 'created': '2026-10-02T10:00:00+00:00'},
+        {'id': 'f00000000003', 'label': 'second fitted run', 'detergent': 'LMNG', 'method': 'bartender',
+         'status': 'failed', 'run_type': 'aa_cg', 'stage': 'complete', 'created': '2026-10-03T10:00:00+00:00'},
+        {'id': 'f00000000004', 'label': 'protein-detergent run', 'detergent': 'LMNG', 'method': 'gromacs',
+         'status': 'completed', 'run_type': 'pdc', 'stage': 'complete', 'created': '2026-10-04T10:00:00+00:00'}]
+
+
+def test_the_filter_boxes_narrow_the_request_and_the_poll_keeps_the_narrowing(dashboard, live_page):
+    """Ticking a box re-reads the narrowed list at once, and the five-second poll asks the same narrowed question.
+
+    Asserted on the query string the server received, not only on the rows: a panel that filtered the fetched page
+    in the browser would show the right rows and still page a hidden superset of every other run.
+    """
+    jobs = _filter_jobs()
+    for job in jobs:
+        job.update(started_at=job['created'], layout_version=2)
+    dashboard.coordinator.database().replace(jobs)
+    page, errors = live_page
+    page.add_init_script('window.__runsPollMs = 400')
+    requests = []
+    page.on('request', lambda request: requests.append(request.url) if '/api/jobs?' in request.url else None)
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
+
+    def jobs_requests():
+        return [url for url in requests if '/api/jobs?' in url]
+
+    expect(page.locator('.job')).to_have_count(4)
+    # The boxes come from the server's own vocabulary: a type a feature registers is offered without an engine edit.
+    page.locator('#runs-filters > summary').click()
+    expect(page.locator('#run-type-filters label')).to_have_count(6)
+    expect(page.locator('#run-type-filters')).to_contain_text('Protein-detergent')
+    expect(page.locator('#run-method-filters label')).to_have_count(3)
+
+    page.locator('#run-type-filters input[value=aa_cg]').check()
+    expect(page.locator('.job')).to_have_count(2)
+    assert 'run_type=aa_cg' in jobs_requests()[-1], jobs_requests()[-1]
+    expect(page.locator('#runs-filter-count')).to_have_text('1 active')
+
+    # A second box in the same group is "either"; a box in another group narrows further.
+    page.locator('#run-type-filters input[value=pdc]').check()
+    expect(page.locator('.job')).to_have_count(3)
+    latest = jobs_requests()[-1]
+    assert 'run_type=aa_cg' in latest and 'run_type=pdc' in latest, latest
+    page.locator('#runs-filters input[name=status][value=failed]').check()
+    expect(page.locator('.job')).to_have_count(1)
+    assert 'status=failed' in jobs_requests()[-1], jobs_requests()[-1]
+    expect(page.locator('#runs-filter-count')).to_have_text('3 active')
+    expect(page.locator('#runs-filter-summary')).to_contain_text('Run type:')
+
+    # The poll asks the same question: every list read after the tick still carries the narrowing.
+    ticked = len(jobs_requests())
+    page.wait_for_timeout(1200)
+    later = jobs_requests()[ticked:]
+    assert later, 'the run list never polled after the tick'
+    assert all('run_type=aa_cg' in url and 'status=failed' in url for url in later), later
+
+    # A narrowing survives a reload -- and opens the panel, so the table is never narrowed without saying why.
+    page.reload()
+    expect(page.locator('.job')).to_have_count(1)
+    expect(page.locator('#runs-filters')).to_have_attribute('open', '')
+    expect(page.locator('#runs-filter-count')).to_have_text('3 active')
+    assert errors == [], errors
+
+
+def test_clearing_the_filters_restores_every_run_and_the_empty_state_says_what_happened(dashboard, live_page):
+    """No runs yet and no runs match are different sentences: "mine are gone" is the wrong thing to read."""
+    jobs = _filter_jobs()
+    for job in jobs:
+        job.update(started_at=job['created'], layout_version=2)
+    dashboard.coordinator.database().replace(jobs)
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
+    expect(page.locator('.job')).to_have_count(4)
+
+    page.locator('#runs-filters > summary').click()
+    page.locator('#runs-filters input[name=status][value=cancelled]').check()
+    expect(page.locator('.job')).to_have_count(0)
+    expect(page.locator('#empty-jobs')).to_be_visible()
+    expect(page.locator('#empty-jobs')).to_contain_text('No runs match these filters.')
+    expect(page.locator('#empty-jobs')).not_to_contain_text('No runs yet')
+    page.locator('#empty-jobs button').click()
+    expect(page.locator('.job')).to_have_count(4)
+    expect(page.locator('#runs-filter-count')).to_be_hidden()
+    expect(page.locator('#runs-filter-summary')).to_have_text('Nothing narrowed \u2014 every run is listed')
+    for input_ in page.locator('#runs-filters input[type=checkbox]').all():
+        assert not input_.is_checked(), 'a box stayed ticked after Clear filters'
     assert errors == [], errors

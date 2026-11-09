@@ -92,13 +92,23 @@
 <p id="notice" role="status" class="notice" hidden></p>
 <section id="runs" class="panel" role="tabpanel" aria-labelledby="tab-runs"{% if panel != 'runs' %} hidden{% endif %}>
   <div class="section-heading"><div><h2>Run activity</h2><p>Status updates in the background. Your workspace stays in place.</p></div><button data-go="new">New molecule run</button></div>
-  <div class="card"><div class="toolbar">
-    <label>Filter status<select id="run-status-filter"><option value="">All statuses</option><option>waiting</option><option>queued</option><option>running</option><option>completed</option><option>failed</option><option>blocked</option><option>cancelled</option></select></label>
-    <label>Search runs<input id="run-search" type="search" maxlength="160"></label>
-    <button class="secondary" id="runs-prev">Previous</button><span id="runs-page" role="status"></span><button class="secondary" id="runs-next">Next</button>
-  </div><p id="storage-report" class="hint" role="status"></p><button class="secondary" id="refresh-storage">Refresh storage report</button></div>
-  <div class="runs-view-controls" role="group" aria-label="Run layout">
-    <span>View</span><button type="button" data-run-view="table" aria-pressed="true">Table</button><button type="button" data-run-view="grouped" aria-pressed="false">Grouped</button><button type="button" data-run-view="dense" aria-pressed="false">Dense</button>
+  <div class="card">
+    {# One list, narrowed by checkboxes. The boxes apply as they change: a filter that needed a submit button would
+       let a reader look at a list that does not match the boxes on screen. #}
+    <details id="runs-filters" class="runs-filters">
+      <summary>Filters <span id="runs-filter-count" class="filter-count" hidden></span><span id="runs-filter-summary" class="filter-summary">Nothing narrowed &mdash; every run is listed</span></summary>
+      <div class="filter-groups">
+        <fieldset><legend>Run type</legend><div id="run-type-filters" class="filter-options"></div></fieldset>
+        <fieldset><legend>Status</legend><div class="filter-options"><label><input type="checkbox" name="status" value="waiting"> waiting</label><label><input type="checkbox" name="status" value="queued"> queued</label><label><input type="checkbox" name="status" value="running"> running</label><label><input type="checkbox" name="status" value="completed"> completed</label><label><input type="checkbox" name="status" value="failed"> failed</label><label><input type="checkbox" name="status" value="blocked"> blocked</label><label><input type="checkbox" name="status" value="cancelled"> cancelled</label></div></fieldset>
+        <fieldset><legend>Method</legend><div id="run-method-filters" class="filter-options"></div></fieldset>
+      </div>
+      <div class="filters-foot"><button class="secondary" id="runs-clear-filters" type="button">Clear filters</button><span class="hint">Leave a group empty to include everything in it; tick two boxes to see either.</span></div>
+    </details>
+    <div class="toolbar">
+      <label>Search runs<input id="run-search" type="search" maxlength="160"></label>
+      <button class="secondary" id="runs-prev">Previous</button><span id="runs-page" role="status"></span><button class="secondary" id="runs-next">Next</button>
+    </div>
+    <p id="storage-report" class="hint" role="status"></p><button class="secondary" id="refresh-storage">Refresh storage report</button>
   </div>
   <div class="run-table-scroll" tabindex="0" aria-label="Run table; scroll horizontally on smaller screens">
     <table id="jobs" class="run-table"><caption class="sr-only">Simulation runs and their resources</caption><colgroup><col class="col-identity"><col class="col-status"><col class="col-molecule"><col class="col-method"><col class="col-created"><col class="col-duration"><col class="col-actions"></colgroup><thead><tr><th scope="col">Run / progress</th><th scope="col">Status</th><th scope="col">Molecule</th><th scope="col">Method</th><th scope="col">Created</th><th scope="col">Duration</th><th scope="col">Actions</th></tr></thead><tbody id="empty-jobs"><tr><td colspan="7">Loading runs…</td></tr></tbody></table>

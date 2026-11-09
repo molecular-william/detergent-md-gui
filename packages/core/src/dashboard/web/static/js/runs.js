@@ -1,5 +1,5 @@
 import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResource, guarded, DROP, panelIds,
-         liveVisible, whenLive } from './shared.js';
+         liveVisible, whenLive, CATALOGUE_MAX_AGE } from './shared.js';
 import { createConsoleViewer } from './console.js';
 
 // Owns run cards, filtering, artifact loading, and polling. Form changes are callbacks.
@@ -21,14 +21,124 @@ const pollMilliseconds = () => Number(window.__runsPollMs) || 5000;
 const HIDDEN_WAKE_MS = 30000;
 
 export function createRuns({ onClone, onDeleted }) {
-  function setRunView(view) {
-    const selected = ['table', 'grouped', 'dense'].includes(view) ? view : 'table';
-    $('#'+panelIds().runs).dataset.view = selected;
-    $$('[data-run-view]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.runView === selected)));
-    storage.set('runsView', selected);
+  // The narrowing the table is drawn under: one set per checkbox group. An empty set contributes no clause, which is
+  // how "nothing ticked" means "everything in this group"; two values in one set are an OR; the sets are AND-ed by
+  // the route. The group names are also the query parameter names, so the state reaches the request with no second
+  // spelling. A tick applies at once -- there is no Apply button, because a list that disagrees with its boxes is
+  // worse than no filter at all.
+  const FILTER_GROUPS = ['run_type', 'status', 'method'];
+  const GROUP_LABELS = {run_type: 'Run type', status: 'Status', method: 'Method'};
+  const SAVED_FILTERS = 'runsFilters';
+  const filters = {run_type: new Set(), status: new Set(), method: new Set()};
+  const runTypeLabels = new Map(), methodLabels = new Map();
+
+  const activeFilters = () => FILTER_GROUPS.reduce((count, group) => count + filters[group].size, 0);
+  function saveFilters() {
+    storage.set(SAVED_FILTERS, Object.fromEntries(FILTER_GROUPS.map(group => [group, [...filters[group]]])));
   }
-  $$('[data-run-view]').forEach(button => button.onclick = () => setRunView(button.dataset.runView));
-  setRunView(storage.get('runsView', 'table'));
+  function restoreFilters() {
+    const saved = storage.get(SAVED_FILTERS, null);
+    if (!saved || typeof saved !== 'object') return;
+    for (const group of FILTER_GROUPS) {
+      for (const value of Array.isArray(saved[group]) ? saved[group] : [])
+        if (typeof value === 'string') filters[group].add(value);
+    }
+  }
+  // The words a narrowing is described in. A value with no label reads as its stored spelling rather than vanishing
+  // from the summary, so the sentence and the request cannot say different things.
+  const filterLabel = (group, value) => (group === 'run_type' ? runTypeLabels.get(value) : group === 'method'
+    ? methodLabels.get(value) : null) || value;
+
+  function refreshFilterSummary() {
+    const count = activeFilters(), badge = $('#runs-filter-count');
+    badge.hidden = !count; setText(badge, count ? `${count} active` : '');
+    const parts = [];
+    for (const group of FILTER_GROUPS) {
+      if (!filters[group].size) continue;
+      const names = [...filters[group]].map(value => filterLabel(group, value));
+      parts.push(`${GROUP_LABELS[group]}: ${filters[group].size > 3 ? `${filters[group].size} selected`
+                                                                     : names.join(', ')}`);
+    }
+    setText($('#runs-filter-summary'),
+            parts.length ? parts.join(' \u00b7 ') : 'Nothing narrowed \u2014 every run is listed');
+  }
+
+  function onFilterChange(group, input) {
+    if (input.checked) filters[group].add(input.value); else filters[group].delete(input.value);
+    saveFilters(); refreshFilterSummary();
+    runPage = 1; jobsEtag = '';
+    refreshJobs().catch(error => notice(error.message));
+  }
+
+  function buildOptions(host, group, values) {
+    host.replaceChildren(...values.map(value => {
+      const label = document.createElement('label');
+      const input = document.createElement('input');
+      input.type = 'checkbox'; input.name = group; input.value = value.name;
+      input.checked = filters[group].has(value.name);
+      input.onchange = () => onFilterChange(group, input);
+      const text = document.createElement('span'); text.textContent = value.label;
+      label.append(input, text);
+      // The spelling the request sends, beside the name it is read as: a reader who quotes a run type to a colleague
+      // can copy a value the route accepts. The two differ only where the vocabulary has a label.
+      if (value.label !== value.name) {
+        const slug = document.createElement('span'); slug.className = 'filter-slug'; slug.textContent = value.name;
+        label.append(slug);
+      }
+      return label;
+    }));
+  }
+
+  function syncStatusInputs() {
+    const inputs = $$('#runs-filters input[name=status]');
+    const available = new Set(inputs.map(input => input.value));
+    for (const value of [...filters.status]) if (!available.has(value)) filters.status.delete(value);
+    for (const input of inputs) input.checked = filters.status.has(input.value);
+  }
+
+  function clearFilters() {
+    for (const group of FILTER_GROUPS) filters[group].clear();
+    for (const input of $$('#runs-filters input[type=checkbox]')) input.checked = false;
+    saveFilters(); refreshFilterSummary();
+    runPage = 1; jobsEtag = '';
+    refreshJobs().catch(error => notice(error.message));
+  }
+
+  // The vocabulary is the server's answer, not a list kept here: a run type a feature registers appears in the boxes
+  // without this file being edited. A method list is the values runs actually record; a feature's own method would
+  // appear the same way. Nothing narrowed by a value this answer does not offer may survive -- an invisible filter is
+  // a table that hides runs with no box to clear it.
+  async function loadVocabulary() {
+    let answer = null;
+    try { answer = await cachedApi('/api/run-filters', {maxAge: CATALOGUE_MAX_AGE}); }
+    catch (error) { notice(`Run filters unavailable: ${error.message}`); }
+    const available = {run_type: [], method: []};
+    if (answer && Array.isArray(answer.types)) {
+      for (const type of answer.types) {
+        if (!type || !type.name) continue;
+        runTypeLabels.set(type.name, type.label || type.name); available.run_type.push(type);
+      }
+      for (const method of answer.methods || []) {
+        if (!method || !method.name) continue;
+        methodLabels.set(method.name, method.label || method.name); available.method.push(method);
+      }
+    }
+    for (const group of ['run_type', 'method'])
+      for (const value of [...filters[group]])
+        if (!available[group].some(option => option.name === value)) filters[group].delete(value);
+    buildOptions($('#run-type-filters'), 'run_type', available.run_type);
+    buildOptions($('#run-method-filters'), 'method', available.method);
+    syncStatusInputs();
+    saveFilters(); refreshFilterSummary();
+    if (activeFilters()) $('#runs-filters').open = true;
+  }
+
+  // The status boxes are the record's own fixed vocabulary, so the shell renders them; this wires them and lets a
+  // saved narrowing survive a reload.
+  restoreFilters();
+  for (const input of $$('#runs-filters input[name=status]')) input.onchange = () => onFilterChange('status', input);
+  $('#runs-clear-filters').onclick = clearFilters;
+  refreshFilterSummary();
 
   const cards = new Map();
   const consoleViewer = createConsoleViewer({ getCards: () => cards.values() });
@@ -37,9 +147,22 @@ export function createRuns({ onClone, onDeleted }) {
     const n = Math.floor(seconds); return `${Math.floor(n / 3600)}h ${Math.floor(n % 3600 / 60)}m ${n % 60}s`;
   }
   function stageDurationSeconds(start,end) { if (!start || !end) return null; const a=Date.parse(start), b=Date.parse(end); return Number.isFinite(a)&&Number.isFinite(b)&&b>=a ? (b-a)/1000 : null; }
-  function updateJobs(jobs) {
-    setText($('#empty-jobs td'), jobs.length ? '' : 'No runs yet. Check readiness in New run to get started.');
+  // Two different empty tables: a repository with no runs says how to start one, and a narrowed table that matches
+  // nothing says so and offers the way back. Reading "no runs yet" after ticking a box would be a false statement
+  // about the workspace.
+  function showEmpty(jobs) {
     $('#empty-jobs').hidden = !!jobs.length;
+    if (jobs.length) return;
+    const cell = $('#empty-jobs td');
+    if (!activeFilters()) { cell.textContent = 'No runs yet. Check readiness in New run to get started.'; return; }
+    const clear = document.createElement('button');
+    clear.type = 'button'; clear.className = 'linkish'; clear.textContent = 'Clear all filters';
+    clear.onclick = clearFilters;
+    cell.replaceChildren(document.createTextNode('No runs match these filters. '), clear,
+                         document.createTextNode('. Runs are never deleted by filtering.'));
+  }
+  function updateJobs(jobs) {
+    showEmpty(jobs);
     const ids = new Set(jobs.map(job => job.id));
     for (const [id, card] of cards) if (!ids.has(id)) {
       if (card.contains($('#console-panel'))) { consoleViewer.detach(); }
@@ -125,7 +248,10 @@ export function createRuns({ onClone, onDeleted }) {
       const size = trajectorySize(job.trajectory_bytes);
       setText($('.job-meta', card), [job.id, job.gpu_name ? `GPU ${job.gpu_name}` : null, size].filter(Boolean).join(' · '));
       setText($('.job-molecule', card), job.molecule_name || job.detergent || '—');
-      setText($('.job-method', card), {fast_forward: 'Fast_Forward', bartender: 'Bartender'}[job.method] || job.method || '—');
+      // The same label the filter box offers, from the same server answer: a card's method and the box that narrows
+      // to it cannot spell it two ways. A method recorded after that answer arrived reads as its stored spelling
+      // until the page's next load -- the same fallback the title line always had.
+      setText($('.job-method', card), job.method ? methodLabels.get(job.method) || job.method : '—');
       setText($('.job-created', card), job.created ? new Date(job.created).toLocaleString() : '—');
       setText($('.job-status', card), job.status === 'cancelling' ? 'Cancelling…' : job.status);
       $('.job-status', card).dataset.status = job.status;
@@ -258,7 +384,11 @@ export function createRuns({ onClone, onDeleted }) {
     $('.artifacts-prev',card).disabled = result.page <= 1; $('.artifacts-next',card).disabled = result.page*result.limit >= result.total;
   }
   async function refreshJobs(conditional=false) {
-    const query = new URLSearchParams({view:'summary',page:runPage,limit:20,status:$('#run-status-filter').value,search:$('#run-search').value});
+    const query = new URLSearchParams({view:'summary',page:runPage,limit:20,search:$('#run-search').value});
+    // One repeated parameter per ticked box. The poll and the user's own read go through this one builder, so a
+    // narrowing cannot be dropped by the next tick -- a filtered table that quietly refills with everything is the
+    // bug this shape prevents.
+    for (const group of FILTER_GROUPS) for (const value of filters[group]) query.append(group, value);
     // One loader for the table: a poll that lands after a newer one is dropped with its
     // answer. A 304 is not an answer, and stays a no-op here.
     const payload = await guarded('runs:jobs', async () => {
@@ -275,7 +405,7 @@ export function createRuns({ onClone, onDeleted }) {
   $('#runs-prev').onclick = () => { runPage--; jobsEtag=''; refreshJobs().catch(e=>notice(e.message)); };
   $('#runs-next').onclick = () => { runPage++; jobsEtag=''; refreshJobs().catch(e=>notice(e.message)); };
   let searchTimer;
-  for (const element of [$('#run-search'),$('#run-status-filter')]) element.oninput = () => { runPage=1; jobsEtag=''; clearTimeout(searchTimer); searchTimer=setTimeout(()=>refreshJobs().catch(e=>notice(e.message)),150); };
+  $('#run-search').oninput = () => { runPage=1; jobsEtag=''; clearTimeout(searchTimer); searchTimer=setTimeout(()=>refreshJobs().catch(e=>notice(e.message)),150); };
   let pollTimer, polling=false;
   async function poll() {
     if(polling) return;
@@ -305,6 +435,8 @@ export function createRuns({ onClone, onDeleted }) {
 
   return { refreshJobs, refreshConsole: consoleViewer.refresh, refreshStorage,
     // The panel's own first read, returned so the mount's busy state lasts until the table is filled: a mount that
-    // resolves before `/api/jobs` answers would clear the loading line in the same tick it appeared.
-    mount() { return Promise.all([poll(), refreshStorage()]); }, start() {} }; 
+    // resolves before `/api/jobs` answers would clear the loading line in the same tick it appeared. The filter
+    // vocabulary is read first because the boxes are drawn from it, so the first table is already the one the saved
+    // boxes ask for.
+    async mount() { await loadVocabulary(); return Promise.all([poll(), refreshStorage()]); }, start() {} };
 }

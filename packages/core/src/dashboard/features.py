@@ -62,6 +62,10 @@ class Feature:
     protocols: Mapping[str, Callable] = field(default_factory=dict)
     #: `kinds.Kind` rows the feature owns.
     kinds: tuple = ()
+    #: `{run type: label}` for a panel that lists run types by name. A type with no label reads as its own slug; the
+    #: engine labels its own in `execution.protocol.RUN_TYPE_LABELS`, so a feature's vocabulary never has to be
+    #: spelled out in the engine.
+    run_type_labels: Mapping[str, str] = field(default_factory=dict)
     #: `(name, record)` added to `web.sections.SECTIONS`: the workspace this feature contributes.
     section: tuple | None = None
     #: `(slug, (label, glyph))` and `(slug, blurb)` and `(slug, DOM id)` for the panels in that workspace.

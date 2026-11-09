@@ -113,31 +113,84 @@ def panel_view(section, panel):
     return render_template('dashboard.html', **workspace_context(section, panel))
 
 
-def pages_of_runs(c, page, limit, status='', search='', run_type=''):
-    """One page of run records, optionally narrowed to a single run type.
+def pages_of_runs(c, page, limit, statuses=(), search='', run_types=(), methods=()):
+    """One page of run records, optionally narrowed by status, run type and fitting method.
 
-    **The run-type clause lives here rather than in `Store.page`.** That method is the one place the run list's
-    ordering and its search clause are decided, and it has four other callers that want every run; the narrowing
-    is a *view* over the same list, so the clause below is written to agree with it exactly -- newest first, the
-    same status and substring tests -- and the filtered answer is asserted to be the unfiltered one narrowed
+    **The narrowing clauses live here rather than in `Store.page`.** That method is the one place the run list's
+    ordering and its search clause are decided, and it has four other callers that want every run; the narrowing is
+    a *view* over the same list, so the clauses below are written to agree with it exactly -- newest first, the same
+    substring test -- and the filtered answer is asserted to be the unfiltered one narrowed
     (`test_jobs_run_type_filter.py`). The alternative, filtering a fetched page in Python, would move the page
-    boundaries: `total` and `has_more` would count runs the caller asked not to see.
+    boundaries: `total` would count runs the caller asked not to see.
+
+    Each parameter is a sequence because the Runs panel offers checkboxes: several values in one group are an *or*
+    (an `IN` clause) and the groups are an *and*. The values are never interpolated -- one placeholder per value --
+    and the caller (the route) is what checks a run type against the registry. A group with no values contributes
+    no clause, which is why "no box ticked" is "everything".
 
     An absent `run_type` on a record means the historical combined AA-to-CG job
     (`protocol.run_type_of`), so filtering for `aa_cg` finds those too rather than reporting them as nothing.
+
+    The one-filter-or-none case delegates to `Store.page`, so the answer every pre-existing caller gets is not
+    merely equal to the store's but is the store's own query.
     """
     store = c.database()
-    if not run_type:
-        return store.page(page, limit, status, search)
-    clause = ("WHERE (?='' OR json_extract(data,'$.status')=?) AND (?='' OR instr(lower(data),lower(?))>0) "
-              "AND COALESCE(json_extract(data,'$.run_type'),'aa_cg')=?")
-    args = (status, status, search, search, run_type)
+    statuses, run_types, methods = tuple(statuses), tuple(run_types), tuple(methods)
+    if not run_types and not methods and len(statuses) <= 1:
+        return store.page(page, limit, statuses[0] if statuses else '', search)
+    tests = ["(?='' OR instr(lower(data),lower(?))>0)"]
+    args = [search, search]
+    for column, values in (("json_extract(data,'$.status')", statuses),
+                           ("COALESCE(json_extract(data,'$.run_type'),'aa_cg')", run_types),
+                           ("json_extract(data,'$.method')", methods)):
+        if values:
+            tests.append(f'{column} IN ({",".join("?" * len(values))})')
+            args.extend(values)
+    clause = 'WHERE ' + ' AND '.join(tests)
     with store.connection() as db:
         count = db.execute('SELECT count(*) FROM jobs ' + clause, args).fetchone()[0]
         rows = db.execute("SELECT data,revision FROM jobs " + clause
                           + " ORDER BY json_extract(data,'$.created') DESC, rowid DESC LIMIT ? OFFSET ?",
                           (*args, limit, (page - 1) * limit)).fetchall()
     return [(json.loads(row[0]), row[1]) for row in rows], count
+
+
+#: What a run's recorded `method` is called where a person reads it. The run cards and the filter box share this one
+#: map, so a card and the box that narrows to it cannot disagree. A method with no entry reads as its stored spelling.
+METHOD_LABELS = {'fast_forward': 'Fast_Forward', 'bartender': 'Bartender', 'gromacs': 'GROMACS'}
+
+
+def _requested(name):
+    """The repeated values of one query parameter, blanks dropped and repeats collapsed, in the caller's order."""
+    values = [value.strip() for value in request.args.getlist(name)]
+    return list(dict.fromkeys(value for value in values if value))
+
+
+@blueprint.get('/api/run-filters')
+def run_filters_api():
+    """The vocabulary the Runs panel's filter boxes offer: run types with their labels, and the methods on disk.
+
+    Run types are `protocol.RUN_TYPES` -- the registry a feature adds to when it registers -- so a type whose runs
+    exist only in a feature appears in the boxes without an engine edit. The labels are the engine's own
+    (`protocol.RUN_TYPE_LABELS`) overlaid by each feature's (`Feature.run_type_labels`); an unlabelled type reads as
+    its slug rather than being dropped, because a filter a reader cannot name is worse than a slug.
+
+    Methods are the distinct values actually recorded, not a fixed list: this repository's runs carry `fast_forward`,
+    `bartender` and `gromacs`, and a method nobody has run would be a checkbox that can only ever empty the table.
+    The one exception is the order -- the three known methods keep their declared order, and anything else follows
+    alphabetically.
+
+    No page and no narrowing: it is one session-long read of the vocabulary, which is why the panel caches it.
+    """
+    labels = dict(protocol.RUN_TYPE_LABELS)
+    for feature in features.ensure():
+        labels.update(feature.run_type_labels)
+    with coordinator().database().connection() as db:
+        recorded = {row[0] for row in db.execute("SELECT DISTINCT json_extract(data,'$.method') FROM jobs")
+                    if row[0]}
+    ordered = [name for name in METHOD_LABELS if name in recorded] + sorted(recorded - set(METHOD_LABELS))
+    return jsonify({'types': [{'name': name, 'label': labels.get(name, name)} for name in protocol.RUN_TYPES],
+                    'methods': [{'name': name, 'label': METHOD_LABELS.get(name, name)} for name in ordered]})
 
 
 @blueprint.get('/api/run/devices')
@@ -167,6 +220,12 @@ def jobs_api():
     paging would show twenty rows and claim there were more of another kind. The value is checked against the
     registry of run types rather than accepted as free text, so a typo is a 400 that names the vocabulary instead
     of an empty page that reads as "none of those exist".
+
+    **A type, a status and a method may each be named more than once** (`?run_type=aa_cg&run_type=pdc`). Values
+    within one name are an *or*, and the three names are an *and* -- the Runs panel's checkbox groups. The single
+    value form is what the other panels send, and it answers as it always did. `method` is the run's recorded
+    fitting method, not validated against a list because it is not a closed vocabulary: a method no run records
+    simply matches nothing.
     """
     c = coordinator()
     # The list answers with the summary unless a caller asks for the whole record. Measured before this: 100 runs were
@@ -174,11 +233,12 @@ def jobs_api():
     # 24 kB. A caller that needs `settings`, outputs or a stage's detail says `view=full` and pays for it.
     summary = request.args.get('view') != 'full'
     page, limit = pagination()
-    run_type = request.args.get('run_type', '').strip()
-    if run_type and run_type not in protocol.RUN_TYPES:
-        abort(400, 'Unknown run type; one of: ' + ', '.join(protocol.RUN_TYPES))
-    rows, total = pages_of_runs(c, page, limit, request.args.get('status', ''),
-                                request.args.get('search', '')[:160], run_type)
+    run_types = _requested('run_type')
+    for name in run_types:
+        if name not in protocol.RUN_TYPES:
+            abort(400, 'Unknown run type; one of: ' + ', '.join(protocol.RUN_TYPES))
+    rows, total = pages_of_runs(c, page, limit, _requested('status'), request.args.get('search', '')[:160],
+                                run_types, _requested('method'))
     payload = {'jobs': [view_of(c, j, summary=summary) | {'revision': revision} for j, revision in rows],
                'total': total, 'page': page, 'limit': limit}
     etag = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()

@@ -302,6 +302,21 @@ device, not across the host.
 
 Background polling updates individual status fields every five seconds. Forms, expanded details, mapping edits, and scroll position are not rebuilt. Terminal runs can be manually deleted from their run card; active workers are protected. Tabs, form values, and mapping drafts are remembered in browser storage. Elapsed time is reported only when recorded; ETA is shown only when present in current GROMACS output. Legacy runs without timestamps show "Not recorded".
 
+The Runs panel is one dense table — the Table/Grouped layouts and their remembered choice are gone — narrowed by a
+**Filters** disclosure above it (`web/static/js/runs.js`) with three checkbox groups: run type, status and method.
+Values inside a group are an *or*, the groups are an *and*, and a group with nothing ticked contributes no clause, so
+"no box ticked" needs no special case. The boxes come from `GET /api/run-filters`: `types` is `protocol.RUN_TYPES`
+labelled by `protocol.RUN_TYPE_LABELS` overlaid by each feature's `Feature(run_type_labels=…)` (an unlabelled type
+reads as its slug), and `methods` is the distinct set runs actually record, labelled by `routes/runs.py`'s
+`METHOD_LABELS` — the same map the run card's Method column uses, so a card and the box that narrows to it cannot
+disagree. `/api/jobs` takes each of `run_type`, `status` and `method` repeated
+(`?run_type=aa_cg&run_type=pdc`); one value answers exactly as it did before, which is why the Run view's one-type
+read and Complexes' `?limit=100` are unchanged, and an unknown run type in a list is still a 400 naming the
+vocabulary. A tick applies at once, returns to page 1, clears the remembered `ETag`, and is sent by the five-second
+poll too; the choice is saved in browser storage under `runsFilters`, and the panel opens itself when one is
+active. A narrowed table that matches nothing says "No runs match these filters" with a Clear filters action, which
+is never the "No runs yet" sentence a workspace with no runs gets.
+
 Each run card states, beside its id and GPU, how much of the run is trajectory (`layout.trajectory_bytes`: every
 `.xtc`/`.trr`/`.tng`/`.h5` under the run directory, symlinks never followed, remembered for 30 s because the panel
 polls), so a reader deciding what to delete sees the bytes rather than opening the run. It is a directory fact,

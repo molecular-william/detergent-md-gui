@@ -118,6 +118,8 @@ FEATURE = features.Feature(
     blueprints=(bonded.blueprint, osmotic.blueprint, targets.blueprint,
                 analyses_routes.blueprint, sugars.blueprint),
     protocols={'osmotic': _osmotic_protocol, 'sugar_cg': _sugar_protocol},
+    # What the Runs filter panel calls this feature's run types.
+    run_type_labels={'osmotic': 'Osmotic series', 'sugar_cg': 'Sugar, CG only'},
     kinds=kind_rows.KINDS,
     code_roots=(('detergent_validation', Path(__file__).resolve().parent),),
     layout=(sugar_layout.register,),

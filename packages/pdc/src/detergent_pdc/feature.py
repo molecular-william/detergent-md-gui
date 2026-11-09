@@ -48,6 +48,8 @@ FEATURE = features.Feature(
     name='pdc',
     blueprints=(pdc_routes.blueprint,),
     protocols={'pdc': lambda: pdc.PROTOCOL},
+    # What the Runs filter panel calls this run type.
+    run_type_labels={'pdc': 'Protein-detergent'},
     prepare={'pdc': _prepare},
     create_settings={'pdc': _create_settings},
     readiness={'pdc': _readiness},
