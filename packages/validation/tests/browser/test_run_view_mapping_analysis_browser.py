@@ -432,7 +432,7 @@ def test_the_envelope_analysis_is_drawn_with_its_statistics_and_its_own_figure(d
     rows = envelope.locator('.rvm-table tbody tr')
     assert rows.nth(0).locator('th').text_content() == 'AA'
     assert [value.strip() for value in rows.nth(0).locator('td').all_text_contents()] == ['5.816', '0.077']
-    assert rows.nth(1).locator('th').text_content() == 'Simulated CG'
+    assert rows.nth(1).locator('th').text_content() == 'Simulated CG this run'
     assert [value.strip() for value in rows.nth(1).locator('td').all_text_contents()] == ['5.599', '0.174']
     # One scene with both models: two meshes and two marker traces, the checkboxes above are its legend.
     expect(envelope.locator('.rvm-surface-plot')).to_have_count(1)
@@ -465,6 +465,76 @@ def test_the_envelope_analysis_is_drawn_with_its_statistics_and_its_own_figure(d
     assert 'SAS' in note and 'not a re-entrant solvent-excluded surface (SES)' in note, note
     assert 'Not scientifically validated' in note, note
     expect(envelope.locator('iframe')).to_have_count(0)
+    assert errors == []
+
+
+def test_the_surface_models_block_names_the_four_models_and_marks_this_run(dashboard, live_page):
+    """What the four SASA models are, which one is this run's own data, and the AA run they are measured against.
+
+    The block is plain and always visible above the scene, not a disclosure: a reader who never clicks still learns
+    that three of the four rows are AA-derived context. It lists all four models even when a row is not published --
+    a mapping that declares no rings publishes no "Mapped ring-scaled" row, and its line says why.
+    """
+    publish(dashboard, 'bb22cc33dd44')
+    publish_surfaces(dashboard, 'bb22cc33dd44')
+    page, errors = live_page
+    pane = open_section(page, live_page, 'bb22cc33dd44', 'mapping-shape')
+
+    envelope = pane.locator('[data-shape="surfaces"]')
+    block = envelope.locator('.rvm-models')
+    expect(block).to_be_visible(timeout=30000)
+    assert block.evaluate('el => !el.closest("details")')
+
+    # The AA source run id is in this section's identity line, as the payload carries it.
+    identity = pane.locator('.rvm-identity').first.text_content()
+    assert 'AA source' in identity and '03875cf39790' in identity, identity
+
+    # The producer's own row names, in its order: the block does not rename a row.
+    assert [name.strip() for name in block.locator('dt').all_text_contents()] == [
+        'AA', 'Mapped raw', 'Mapped ring-scaled', 'Simulated CG this run']
+    # The lead defines SASA before it is used, and says outright that only one model is this run's data.
+    lead = ' '.join(block.locator('.lead').text_content().split())
+    assert 'SASA (solvent-accessible surface area)' in lead, lead
+    assert 'only one is this run’s own data' in lead, lead
+
+    # One plain line per model, each carrying the phrase a reword would drop.
+    definitions = [' '.join(text.split()) for text in block.locator('dd').all_text_contents()]
+    assert len(definitions) == 4
+    for text, phrase in zip(definitions, [
+            'atomistic reference',
+            'average position of the atoms it owns',
+            'ring dilation',
+            'this run’s own coarse-grained trajectory']):
+        assert phrase in text, text
+    # A ringless mapping publishes no ring-scaled row and the line says why it is absent.
+    assert 'absent when the mapping declares no rings' in definitions[2], definitions[2]
+    assert envelope.locator('.rvm-table tbody th', has_text='Mapped ring-scaled').count() == 0
+
+    # Plain block directly under the heading and above the scene's checkboxes, not a disclosure.
+    heading_box = envelope.locator('h4').first.bounding_box()
+    block_box = block.bounding_box()
+    checks_box = envelope.locator('.rvm-checks').bounding_box()
+    assert heading_box['y'] + heading_box['height'] <= block_box['y']
+    assert block_box['y'] + block_box['height'] <= checks_box['y']
+
+    # The marker is the Simulated CG row's alone; the block's Simulated CG term carries it too, and nothing else.
+    rows = envelope.locator('.rvm-table tbody tr')
+    expect(rows).to_have_count(2)
+    assert rows.nth(0).locator('.rvm-own').count() == 0
+    assert rows.nth(1).locator('.rvm-own').text_content() == 'this run'
+    assert envelope.locator('.rvm-own').count() == 2
+    assert 'AA-derived context' in ' '.join(envelope.locator('.rvm-surface-caption').text_content().split())
+    assert 'None of these numbers is an experiment' in envelope.locator('.rvm-surface-caption').text_content()
+
+    # The block is presentation only: the AA-vs-CG pair scene still draws from the published pair JSON.
+    expect(envelope.locator('.rvm-surface-plot')).to_have_count(1)
+    expect(envelope.locator('.rvm-checks input')).to_have_count(2)
+    page.wait_for_function("""selector => {
+      const el = document.querySelector(selector);
+      return Boolean(el && el.data && el.data.length === 4);
+    }""", arg=f'{CARD} .analysis-pane[data-section="mapping-shape"] .rvm-surface-plot', timeout=30000)
+    assert envelope.locator('.rvm-surface-plot').evaluate(
+        'el => el.data.map(trace => trace.type)') == ['mesh3d', 'scatter3d', 'mesh3d', 'scatter3d']
     assert errors == []
 
 

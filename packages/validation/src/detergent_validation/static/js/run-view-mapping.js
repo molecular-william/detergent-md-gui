@@ -236,17 +236,48 @@ function dihedralRows(fit) {
   return measureList([...measured, ...unmeasured]);
 }
 
+//: The four names are the producer's own statistics keys, so the block below the heading and the table speak the same
+//: words. Every model is explained even when the published statistics omit it: a mapping that declares no rings
+//: publishes no "Mapped ring-scaled" row, and its line says why rather than leaving a described model unexplained.
+//: The AA run id is the Shape identity line's, not repeated here; the AA line points at it.
+function surfaceModels() {
+  return `<div class="rvm-models" role="group" aria-label="What the four models are">
+    <p class="lead"><b>SASA</b> (solvent-accessible surface area) is how much of a molecule’s surface a solvent-sized
+      probe could touch, in nm². Four models are measured here; only one is this run’s own data.</p>
+    <dl>
+      <dt>AA</dt>
+      <dd>the <b>atomistic reference</b>: a separate all-atom simulation of the same molecule (the AA source run named
+        above), every atom present, none grouped into beads. Not this CG run’s data.</dd>
+      <dt>Mapped raw</dt>
+      <dd>the same AA frames, with each bead placed at the average position of the atoms it owns (a virtual site sits
+        at the average of its parent beads). Still the reference; no coarse-grained force field was used.</dd>
+      <dt>Mapped ring-scaled</dt>
+      <dd>the same mapped frames with <b>ring dilation</b>: each declared ring’s beads are moved out from that ring’s
+        centre by the ring’s own scale, a number the mapping declares between 0.5 and 2.0. A rough illustration, and
+        this row is absent when the mapping declares no rings.</dd>
+      <dt>Simulated CG <span class="rvm-own">this run</span></dt>
+      <dd>this run’s own coarse-grained trajectory, where each bead stands for a group of atoms. The only row computed
+        from this run; it is what the scene and the SASA chart compare with AA.</dd>
+    </dl>
+  </div>`;
+}
+
 //: Three columns and nothing else: the frames and the span are the trajectory's, not a property of the mean, and the
 //: probe is already stated in the note above. Numbers are nowrap so two rows read as one column of numbers; the table
-//: sits beside the plot in a full-width card and stacks under it otherwise (the sheet owns that placement).
+//: sits beside the plot in a full-width card and stacks under it otherwise (the sheet owns that placement). Only the
+//: Simulated CG row is this run's own data, so it alone carries the text marker; the sentence under the table says
+//: what the other rows are.
 function surfaceRows(surfaces) {
   const statistics = Object.entries(surfaces.statistics || {});
   if (!statistics.length) return '<p class="hint">The published analysis states no statistics.</p>';
-  const rows = statistics.map(([model, stat]) => `<tr><th scope="row">${cell(model)}</th>
+  const rows = statistics.map(([model, stat]) => `<tr><th scope="row">${cell(model)}${
+    model === 'Simulated CG' ? ' <span class="rvm-own">this run</span>' : ''}</th>
       <td>${fixed(stat.mean_nm2, 3)}</td><td>${fixed(stat.std_nm2, 3)}</td></tr>`).join('');
   return `<div class="table-scroll"><table class="rvm-table rvm-table-compact">
     <thead><tr><th scope="col">Model</th><th scope="col">Mean SASA</th><th scope="col">SD</th></tr></thead>
-    <tbody>${rows}</tbody></table></div>`;
+    <tbody>${rows}</tbody></table>
+    <p class="hint rvm-surface-caption">The AA, Mapped raw and Mapped ring-scaled rows are AA-derived context, not
+      independent evidence: they come from the same atomistic frames. None of these numbers is an experiment.</p></div>`;
 }
 
 function surfaceFigure(surfaces, run) {
@@ -715,12 +746,14 @@ async function paintShape(host, {job, isCurrent, button, refresh, queue}) {
     const available = [surfaces.available, overlap.available].filter(Boolean).length;
     button.textContent = `Shape and volume (${available})`;
   }
-  host.innerHTML = `<p class="rvm-identity">AA vs CG · rigid-body fitted on the beads that own atoms</p>
+  host.innerHTML = `<p class="rvm-identity">AA vs CG · rigid-body fitted on the beads that own atoms · AA source
+      <b>${cell(body.reference_run_id || '—')}</b></p>
     <p class="hint"><b>rmsd ${fixed(comparison.displacement?.rmsd_nm)} nm, max
       ${fixed(comparison.displacement?.max_nm)} nm over ${comparison.displacement?.aa_frames ?? '—'} AA and
       ${comparison.displacement?.cg_frames ?? '—'} CG frames.</b> The fitted beads are filled in the Geometry chart;
       the others are carried for completeness.</p>
     <div class="rvm-sub" data-shape="surfaces"><h4>Surface area · AA vs Simulated CG</h4>
+      ${surfaces.available ? surfaceModels() : ''}
       <p class="hint">${surfaces.available
         ? `Attempt <b>${cell(surfaces.attempt)}</b>, published ${cell(shortTime(surfaces.published_at))} UTC.
           ${cell(surfaces.rendering || '')} Probe ${fixed(surfaces.probe_nm, 3)} nm, the same on both panels.

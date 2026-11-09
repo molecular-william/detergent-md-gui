@@ -61,6 +61,20 @@
 .rvm-sub { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 2px }
 .rvm-sub h4 { font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted);
   margin: 12px 0 4px }
+/* Shape: the four models stated above the scene and always visible, each name beside its one plain line. The marker
+   is text, not colour alone, so the row that is this run's own data reads without the badge's green. */
+.rvm-models { border: 1px solid #c9d8ea; border-radius: 9px; background: #fafcff; padding: 8px 12px; margin: 6px 0 8px;
+  font-size: 12px; line-height: 1.5 }
+.rvm-models .lead { margin: 0 0 6px; color: var(--muted) }
+.rvm-models .lead b { color: var(--ink) }
+.rvm-models dl { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px;
+  align-items: baseline }
+.rvm-models dt { font-weight: 650; white-space: nowrap; font-size: 12.5px }
+.rvm-models dd { margin: 0; color: var(--muted) }
+.rvm-models dd b { color: var(--ink) }
+.rvm-own { display: inline-block; border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 600;
+  background: #e6f4ec; color: #1f6b45; border: 1px solid #b8dcc8; white-space: nowrap; margin-left: 4px }
+.rvm-surface-caption { margin: 4px 0 0; font-size: 11px }
 /* "Our fit against the independent estimate" is a disclosure: its heading is the summary, and the note, rows and
    limitations are inside. The styling is the block heading it replaces, plus the native open/closed marker. */
 .rvm-sub-group > summary { cursor: pointer; font-size: 12px; letter-spacing: .05em; text-transform: uppercase;
