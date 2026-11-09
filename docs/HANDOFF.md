@@ -80,6 +80,16 @@ citation, not a validation); and `docs/research/2026-11-09-new-run-settings-spec
 and the drafts: FF plots, sugar run shape/acceptance, which mdrun extras and MDP values, and whether `box_shape` is
 exposed or removed.
 
+The Shape decision is built: `bbe4691` + `cb074f3` replace the map in Shape with the AA vs Simulated CG two-panel
+surface comparison and a 2D SASA-vs-time chart, keep bead overlap as a separate labelled block, collapse the angle
+group by default, and add **Recalculate surfaces** for attempts that predate the pair. The surfaces producer now
+publishes `surface-comparison-aa-cg.json`; the route rebases the pair and the per-model `sasa.xvg` paths to run-root
+artifacts. The dashboard was restarted at 10:50 for the Python changes. Live on `67bc79a995d6`: the Shape map is
+hidden, the two panels draw (AA 14.819 nm² vs Simulated CG 13.728 nm², probe 0.191 nm), and both SASA series carry
+20,001 frames; the new surfaces attempt is `b524698b71d3`. Older attempts show their published figure plus the SASA
+series and the recalculate action. Checks: fast 2471 passed / 1 xfailed; browser 308 passed; validation browser 29,
+integration 10; ruff clean.
+
 The dashboard was restarted on 2026-11-05 at 17:12 for the whole round. Live checks: LMNG's automatic candidate is
 23 connected beads with the branch bead `[11,22,46]` (connectivity and spectral agree on the bead count, differ on
 the grouping); run `619ab118abd6`'s rebuilt AA series carries 160 CONECT records over 201 models and the viewer draws
