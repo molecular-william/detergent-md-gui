@@ -275,17 +275,25 @@ def test_defaults_return_one_help_map_quoted_from_the_manual(dashboard):
 
 def test_new_run_form_groups_the_options_and_exposes_box_shape(dashboard):
     """The markup the lane owns: visible sampling/ensemble/seeds, one folded Other run options, and the controls the
-    specs already advertised (`box_shape`, `cg_seed`) actually rendered."""
-    from dashboard.execution.adapters import aa_box
+    specs already advertised (`box_shape`, `cg_seed`, `constraints`) actually rendered."""
+    import re
+
+    from dashboard.execution.adapters import aa, aa_box
 
     page = dashboard.client.get('/').get_data(as_text=True)
-    for name in ('aa_nvt_ps', 'cg_seed', 'box_shape', 'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision',
-                 'nstcomm', 'nstlist', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw', 'tau_t',
-                 'tau_p', 'compressibility', 'mdrun_pmefft', 'mdrun_update', 'mdrun_tunepme'):
+    for name in ('aa_nvt_ps', 'cg_seed', 'box_shape', 'constraints', 'nstlog', 'nstenergy', 'nstxtcout',
+                 'xtc_precision', 'nstcomm', 'nstlist', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb',
+                 'rvdw', 'tau_t', 'tau_p', 'compressibility', 'mdrun_pmefft', 'mdrun_update',
+                 'mdrun_tunepme'):
         assert f'name="{name}"' in page, name
     assert 'id="new-advanced"' in page and 'Other run options' in page
     assert '>Sampling<' in page and '>Ensemble and box<' in page and '>Seeds<' in page
+    assert '>Constraints<' in page
+    # The constraint control offers the adapter's own choice vocabulary, not a second list that could drift. The
+    # markup puts the protocol default first (it is the option a select shows when nothing has chosen), so the
+    # lists are compared as sets, not in the spec's own order.
+    offered = re.search(r'<select name="constraints">(.*?)</select>', page, re.S).group(1)
+    assert set(re.findall(r'value="([^"]+)"', offered)) == set(aa.CHOICE_SPECS['constraints'][1])
     # The box shape's offered values are the adapter's own shapes, not a second list that could drift.
-    import re
     select = re.search(r'<select name="box_shape">(.*?)</select>', page, re.S).group(1)
     assert re.findall(r'value="([^"]+)"', select) == list(aa_box.SHAPES)

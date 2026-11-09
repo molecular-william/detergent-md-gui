@@ -230,6 +230,14 @@
           <label class="cg-setting">CG random seed<span class="setting-control"><input name="cg_seed" type="number" min="1" max="2147483646" step="1"><button type="button" class="secondary use-default" data-field="cg_seed">Default</button></span></label>
         </div>
       </section>
+      {# Distance constraints belong to the atomistic half: the CG profiles state `none` in their own reviewed
+         files, so a run type with no AA half shows this control disabled at `none` and posts no value for it. #}
+      <section class="new-option-group" aria-labelledby="new-constraints-title">
+        <h4 id="new-constraints-title" class="new-option-title">Constraints</h4>
+        <div class="settings-grid">
+          <label>AA constraints<span class="setting-control"><select name="constraints"><option value="all-bonds">All bonds · protocol default</option><option value="h-bonds">H-bonds · GROMACS manual</option><option value="none">None · diagnostic</option></select><button type="button" class="secondary use-default" data-field="constraints">Default</button></span></label>
+        </div>
+      </section>
       {# The form's one folded block, in the pdc panel's shape: groups of options a reader scans, and the execution
          controls beside them. The CG production overrides start on the reviewed profile's own numbers -- the server
          sends those from the profile itself -- so an untouched run writes the reviewed file byte for byte. #}

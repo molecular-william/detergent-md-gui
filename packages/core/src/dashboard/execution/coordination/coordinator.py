@@ -579,10 +579,13 @@ class Coordinator:
                 job['shared_reference']={'source_run_id':reference_run_id,'sha256':reference_snapshot['sha256']}
                 return self.admit_jobs([job],job)
             if resume_of:raise SourceUnavailable('Shared CG resume requires its AA reference source')
-            # The AA source is an aa_only run, so its settings are the ones an aa_only run accepts -- asked of the
-            # run type rather than read off the AA adapter, which is the same answer without the coupling.
-            aa_settings = {key: value for key, value in settings.items()
-                           if key in protocol.adapter_for('aa_only').settings_specs()}
+            # The AA source is an aa_only run, so its settings are the ones an aa_only run accepts -- both
+            # vocabularies it publishes, numeric and choice-typed: a choice dropped here (the force field, the
+            # constraint set) is one the reference would carry at the default while this run records the one asked
+            # for, and `aa_references.verify` would then refuse the very reference it was given.
+            aa_vocabulary = ({**protocol.adapter_for('aa_only').settings_specs(),
+                              **protocol.adapter_for('aa_only').choice_specs()})
+            aa_settings = {key: value for key, value in settings.items() if key in aa_vocabulary}
             parent=self.aa_job_record(molecule_id,(str(label)+' · AA source').strip(),aa_settings,profile=profile)
             job.update(status='waiting',stage='Waiting for AA reference',reference_run_id=parent['id'])
             return self.admit_jobs([parent,job],parent,result=job)

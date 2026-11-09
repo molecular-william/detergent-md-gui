@@ -267,3 +267,23 @@ def test_analysis_sources_resolve_aa_only_and_shared_reference(dashboard, servic
     (root/'stages/07_reference/lig.xtc').unlink()
     with pytest.raises((OSError, ValueError)):
         analysis.source_entries(consumer/'stages', 'bartender-fit')
+
+
+def test_a_new_aa_source_keeps_the_choice_settings_the_parent_run_named(dashboard, monkeypatch):
+    """A choice dropped before the AA source is prepared is a source that disagrees with the run that names it.
+
+    The parent's AA half runs as an `aa_only` child; the child's vocabulary is the AA adapter's numeric *and*
+    choice settings. `force_field` and `constraints` used to be filtered out here, so the child prepared at the
+    defaults while the parent recorded the values it was asked for, and `aa_references.verify` then refused that
+    very reference as a mismatch.
+    """
+    monkeypatch.setattr(cg, 'readiness', lambda *a, **k: {'ready': True})
+    with dashboard.app.test_request_context():
+        child = dashboard.coordinator.create_job(
+            'DDM', 'fast_forward', profile='draft-smoke', run_type='aa_cg', molecule_id='DDM',
+            mapping_snapshot=mappings.automatic_candidate(mappings.molecule(), 'DDM'),
+            settings={'force_field': 'charmm36-jul2022', 'constraints': 'h-bonds'})
+    parent = dashboard.coordinator.lookup(child['reference_run_id'])
+    assert parent['run_type'] == 'aa_only'
+    assert parent['settings']['force_field'] == 'charmm36-jul2022'
+    assert parent['settings']['constraints'] == 'h-bonds'

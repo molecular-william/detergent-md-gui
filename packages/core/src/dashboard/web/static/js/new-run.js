@@ -104,7 +104,9 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
 
 // The engine's own panel: the persisted form of the single-molecule workspaces.
 function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
-  const AA_FIELDS = ['aa_nvt_ps','aa_npt_ps','aa_production_ps','temperature_k','pressure_bar','output_interval_ps','box_nm','aa_seed','mdrun_ntomp','mdrun_ranks','mdrun_nb','mdrun_pme'];
+  // `constraints` is an atomistic choice: it is inherited and locked with a shared AA reference, and it is the
+  // AA half's, so a CG-only run type does not own it (see `syncRunType`).
+  const AA_FIELDS = ['aa_nvt_ps','aa_npt_ps','aa_production_ps','temperature_k','pressure_bar','output_interval_ps','box_nm','aa_seed','mdrun_ntomp','mdrun_ranks','mdrun_nb','mdrun_pme','constraints'];
   // The device and the checkpoint cadence are settings of *this host and run*, not of the AA reference a run
   // inherits: a reference run's GPU must not be locked onto a new run, so this key is deliberately not in
   // AA_FIELDS. They still have to travel as settings when a run is cloned, which is what this list is for.
@@ -130,8 +132,15 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   //: The profile is the run type's own (`protocol.profile_for_run_type`): the panel offers no choice, sends no key, and
   //: asks `/api/defaults` and `/api/readiness` without one, so the durations it shows and the profile the run is
   //: stamped with come from one answer rather than from a control the panel would have to keep in step.
-  // Persist all controls, including disabled values inherited from a reference.
-  function formValues() { return Object.fromEntries([...form.elements].filter(el=>el.name).map(el=>[el.name,el.value])); }
+  // Persist all controls, including disabled values inherited from a reference. A CG-only run type shows `none` in
+  // the disabled AA-constraint control while the value the form owns stays the AA one: that is what a switch back
+  // and a reload restore, and an atomistic run left unconstrained by a UI default is the failure this guards.
+  let constraintsForced=false, aaConstraints='';
+  function formValues() {
+    const values=Object.fromEntries([...form.elements].filter(el=>el.name).map(el=>[el.name,el.value]));
+    if(constraintsForced)values.constraints=aaConstraints;
+    return values;
+  }
   let referenceRecords = [], referenceGeneration = 0, lockedReference = null;
   let referencesLoaded=false, mappingsLoaded=false, mounted=false, mounting=null;
   let previousRunType = form.elements.run_type.value;
@@ -346,7 +355,23 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
       if(label)label.hidden=sugarOnly;
       input.disabled=sugarOnly || (aaOnly && !!label?.classList.contains('cg-setting'));
     }
+    // Constraints are an atomistic choice. A run type with no AA half shows the control disabled at the value its CG
+    // profiles state (`none`); the AA value stays in the form (see `formValues`) so switching back cannot post it.
+    const constraint=form.elements.constraints;
+    const cgOnly=sugarOnly||compositionOnly;
+    if(constraint){
+      if(cgOnly){
+        if(!constraintsForced){aaConstraints=constraint.value;constraintsForced=true;}
+        constraint.value='none';
+      } else if(constraintsForced){constraint.value=aaConstraints;constraintsForced=false;}
+    }
     applyReferenceSettings(sugarOnly?null:aaOnly?null:referenceRecords.find(r=>r.id===form.elements.reference_run_id.value));
+    if(constraint){
+      constraint.disabled=cgOnly||!!lockedReference;
+      // The CG run types publish no default for it, so the button would write `undefined` into the control.
+      const reset=constraint.closest('label')?.querySelector('.use-default');
+      if(reset)reset.disabled=cgOnly||!!lockedReference;
+    }
     $('#start-run').textContent=sugarOnly?'Start CG sugar run':aaOnly?'Start AA run':compositionOnly?'Start CG composition run':'Start AA–CG run';
     $('#molecule-panel').classList.toggle('hidden', compositionOnly);
     $('#composition-run-selector').classList.toggle('hidden', !compositionOnly);
@@ -429,6 +454,9 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     for (const key of AA_FIELDS) {
       const input=form.elements[key];
       if (locked && reference.settings?.[key] != null) input.value=reference.settings[key];
+      // A setting the reference predates (the AA constraint set is newer than the first references) is the
+      // server's default, not whatever the form happened to show; the run records the reference's own value.
+      else if (locked && stageDefaults?.values?.[key] != null) input.value=stageDefaults.values[key];
       if (!locked && lockedReference && manualAA[key] != null) input.value=manualAA[key];
       input.disabled=locked; input.closest('label')?.classList.toggle('inherited-setting',locked);
       input.closest('label')?.querySelectorAll('.use-default').forEach(button=>{button.disabled=locked;});

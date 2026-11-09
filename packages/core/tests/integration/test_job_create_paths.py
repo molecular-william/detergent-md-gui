@@ -152,3 +152,16 @@ def test_queue_keeps_the_transferable_mdp_options_and_the_box_shape(dashboard, c
     assert settings['box_shape'] == 'dodecahedron'
     assert settings['mdrun_pmefft'] == 'cpu' and settings['mdrun_update'] == 'cpu'
     assert settings['mdrun_tunepme'] == 'off'
+
+
+def test_the_queue_keeps_the_aa_constraint_set_the_form_offers(dashboard, created):
+    """`constraints` is a choice spec, and the route keeps only advertised keys.
+
+    An AA-to-CG run takes it from the AA half; an AA-only run is the simplest proof that it reaches `create_job`
+    rather than being dropped silently, where the adapter would then run the force field's default.
+    """
+    response = dashboard.client.post('/', json={'molecule_id': 'DDM', 'method': 'gromacs',
+                                               'run_type': 'aa_only', 'constraints': 'h-bonds'})
+
+    assert response.status_code == 201, response.data
+    assert created[0]['settings']['constraints'] == 'h-bonds'

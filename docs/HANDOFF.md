@@ -32,8 +32,21 @@ drafts.
 
 ## Next task
 
-Newest first: the 2026-11-09 round is the section above. The paragraphs below are the slices before it, newest last;
-the open items table is the queue. The 2026-11-05 nine-point round is implemented and committed (items 1-6, 8, 9; there was no item 7). Its plan is
+**AA constraints in New run (2026-11-09).** The Stage settings now carry a visible
+**Constraints** control: `constraints` (`none` / `h-bonds` / `all-bonds`) is an AA-half `CHOICE_SPECS` entry that
+defaults to the force-field entry's own `all-bonds` and is written into every AA MDP (`aa.mdp_values` +
+the writer's force-field block, which accepts the run's value in place of the entry's). A run type with no AA half
+(`sugar_cg`, `cg_composition`) shows the control disabled at `none`, keeps the AA value in the form so a switch
+back cannot post it, and the reviewed CG profiles keep their own `none`. The AA child job of a new AA-to-CG pair
+now keeps the parent's **choice** settings too, not only the numeric ones -- otherwise `force_field` and
+`constraints` were dropped before the source was prepared and `aa_references.verify` would refuse the reference
+the run named. The form's help text is the manual's `constraints` sentence; the option selects bond conversion,
+and a topology's `[ constraints ]` block (the 0.274 nm B02-B05 link in `64f272ade054`) is enforced by LINCS
+whatever it says. Checks: fast 2551 passed / 1 xfailed, browser 339, ruff clean. Plan
+`docs/plans/2026-11-09-aa-constraints-setting.md` (local). The dashboard was restarted 18:56 and `/api/defaults?run_type=aa_cg` answers `all-bonds`.
+
+Newest first: the paragraph above is the current slice; the 2026-11-09 round is the section above it, and the
+paragraphs below are the slices before that, newest last; the open items table is the queue. The 2026-11-05 nine-point round is implemented and committed (items 1-6, 8, 9; there was no item 7). Its plan is
 `docs/plans/2026-11-05-feature-round.md`, which carries the decisions, the per-lane evidence and the two corrections
 found while building.
 

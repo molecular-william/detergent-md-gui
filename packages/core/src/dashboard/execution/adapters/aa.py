@@ -249,7 +249,9 @@ DEFAULTS=dict(aa_nvt_ps=100,aa_npt_ps=1000,aa_production_ps=10000,
               # run so a failed leg loses at most that much sampling to Restart.
               mdrun_cpt=10,
               box_shape=aa_box.DEFAULT_SHAPE,
-              force_field=forcefields.DEFAULT)
+              force_field=forcefields.DEFAULT,
+              # The force-field entry's own value: the paper's `all-bonds`, not the manual's `h-bonds`.
+              constraints=forcefields.entry().constraints)
 # Choices are a separate shape rather than a third element of the numeric tuple, which unpacks as (label, lo,
 # hi). 'auto' means the execution profile decides, which is what every run did before these settings existed.
 # The force field is a choice as well, and its options are the registry's entries: a name the registry does not
@@ -266,7 +268,12 @@ CHOICE_SPECS={'mdrun_nb':('Nonbonded scheme',('auto','cpu','gpu')),
               # manual's recommendation for a spherical solute and measured: it holds this cut-off in more water,
               # not less, and runs 12% slower here. Available because it was worth testing; not the faster option.
               'box_shape':('Box shape',aa_box.SHAPES),
-              'force_field':('Force field',forcefields.names())}
+              'force_field':('Force field',forcefields.names()),
+              # Which bonds GROMACS converts to constraints. The force fields here pin `all-bonds`, but the
+              # manual's `h-bonds` is a legitimate deviation to be able to run, so a run may name either -- or
+              # none for a diagnostic. This selects bond conversion only: a topology's own `[ constraints ]`
+              # block is enforced by LINCS whatever this says.
+              'constraints':('Constraints',('none','h-bonds','all-bonds'))}
 # One shape across every run type: (label, lo, hi). The label is what a caller renders.
 SETTING_SPECS={'aa_nvt_ps':('AA NVT duration',1,1000000),'aa_npt_ps':('AA NPT duration',1,1000000),
                'aa_production_ps':('AA production duration',1,1000000),
@@ -315,6 +322,10 @@ def normalize_settings(settings=None, profile='standard'):
     # temperature still wins, because they may be testing the assumption.
     if 'temperature_k' not in supplied:
         result['temperature_k']=forcefields.entry(result['force_field']).temperature_k
+    # The constraint set is the force-field entry's protocol choice, so a run that names none follows the entry it
+    # resolves rather than the one that was the default when the form was built. A caller who names one wins.
+    if 'constraints' not in supplied:
+        result['constraints']=forcefields.entry(result['force_field']).constraints
     return result
 
 
@@ -361,7 +372,7 @@ _DURATION_SETTING = {'aa-nvt-v1': 'aa_nvt_ps', 'aa-npt-v1': 'aa_npt_ps', 'aa-pro
 
 def mdp_values(settings, profile):
     """The numbers one profile leaves to the run, computed exactly as `mdp()` computes them."""
-    values = {'force_field': settings['force_field']}
+    values = {'force_field': settings['force_field'], 'constraints': settings['constraints']}
     if profile in ('aa-ions-v1', 'aa-em-v1'):
         return values
     interval = max(1, round(settings['output_interval_ps'] / 0.002))

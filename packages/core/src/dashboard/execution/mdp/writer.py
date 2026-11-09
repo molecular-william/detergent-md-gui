@@ -40,7 +40,8 @@ class Profile:
     and absent otherwise. Every other fixed setting stays the reviewed physics.
 
     `force_field` is true for a profile whose force-field block is the registry's, read at render time: the block is
-    not baked in here, because a run's force field is a choice recorded in its manifest.
+    not baked in here, because a run's force field is a choice recorded in its manifest. The block's constraint set is
+    the run's too: the entry's value is the default, and a run that names `constraints` replaces it.
     """
 
     settings: dict
@@ -83,7 +84,10 @@ def render(profile, values=None):
     # another's name.
     run_keys = {key for key, value in profile.settings.items() if value is None} | set(profile.variable)
     if profile.force_field:
-        run_keys.add('force_field')
+        # The force-field block's two run-scoped options: which entry, and its constraint set. The entry is the
+        # default for both; a run that names a different constraint set (the manual's `h-bonds`, or `none` for a
+        # diagnostic) replaces the entry's own, and the run records the value it used.
+        run_keys |= {'force_field', 'constraints'}
     foreign = sorted(set(values) - run_keys)
     if foreign:
         raise ValueError(f"{profile.version} takes no run value for {', '.join(foreign)}; its settings are the "
@@ -94,7 +98,7 @@ def render(profile, values=None):
     if profile.force_field:
         entry = forcefields.entry(values.get('force_field'))
         settings.update(entry.mdp)
-        settings['constraints'] = entry.constraints
+        settings['constraints'] = values.get('constraints', entry.constraints)
         header.append(f'; force-field block: {entry.name} (dashboard.execution.forcefields.entry at render time)')
     for key, default in profile.settings.items():
         settings[key] = values.get(key, default)

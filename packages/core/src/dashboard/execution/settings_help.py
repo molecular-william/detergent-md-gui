@@ -37,6 +37,8 @@ MDP_HELP = {
     'tau_t': 'time constant for coupling (one for each group in tc-grps); -1 means no temperature coupling',
     'tau_p': 'the time constant for pressure coupling (one value for all directions)',
     'compressibility': 'the compressibility, in bar^-1; for water at 1 atm and 300 K it is 4.5e-5 bar^-1',
+    'constraints': 'select which bonds to convert to constraints: none, h-bonds, all-bonds, h-angles, all-angles; '
+                   "a topology's own [ constraints ] block is enforced whatever this says",
 }
 
 #: Execution-flag meanings, quoted from `gmx mdrun -h` on the installed build.

@@ -134,3 +134,25 @@ def test_directory_selection_supports_generic_aa_and_ddm_cg_pair(dashboard, live
     assert set(aa_job['molecule_snapshot']['sha256'])=={'results/MMFF/lig1.pdb','results/MMFF/lig1.itp','metadata.json'}
     assert cg_job['label']=='Directory selection test'
     assert not errors, errors
+
+
+def test_a_cg_only_run_type_disables_the_aa_constraint_control_at_none(dashboard, live_page):
+    """Constraints are an atomistic choice: a CG run type shows the control disabled at `none` and keeps no value.
+
+    The control stays visible rather than hidden, so a reader can see the value the CG profiles state; switching
+    back restores the AA choice, because a form that leaves an atomistic run unconstrained by accident is the
+    failure this guards (the option selects bond conversion, and it is not inert).
+    """
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
+    page.get_by_role('tab', name='New run', exact=True).click()
+    control = page.locator('[name=constraints]')
+    expect(control).to_be_enabled()
+    expect(control).to_have_value('all-bonds')
+    page.locator('#run-type').select_option('cg_composition')
+    expect(control).to_be_disabled()
+    expect(control).to_have_value('none')
+    page.locator('#run-type').select_option('aa_only')
+    expect(control).to_be_enabled()
+    expect(control).to_have_value('all-bonds')
+    assert errors == []

@@ -409,3 +409,29 @@ def test_the_cg_production_form_starts_on_the_reviewed_numbers():
             assert setting not in numbers, setting
     # The two the profile leaves to GROMACS have no default: an empty control is the reviewed rule.
     assert 'rlist' not in numbers and 'nstxtcout' not in numbers
+
+
+def test_a_run_may_name_the_constraint_set_the_force_field_block_writes():
+    """The entry's constraints are the protocol default, not a setting the run cannot reach.
+
+    The force-field entry pins `all-bonds` (the paper's choice, not the manual's `h-bonds`), and that stays the
+    default an untouched run renders. A run that names another value gets it in every AA MDP -- including the two
+    legs that only make a box -- because the constraint set is one property of the atomistic half.
+    """
+    entry = forcefields.entry()
+    for profile in AA_KINDS.values():
+        values = aa.mdp_values(aa.normalize_settings({'constraints': 'h-bonds'}), profile)
+        assert parsed(render(profile, values))['constraints'] == 'h-bonds', profile
+        # The default is the entry's own value, and both force fields state the same one.
+        untouched = aa.mdp_values(aa.normalize_settings({}), profile)
+        assert parsed(render(profile, untouched))['constraints'] == entry.constraints, profile
+
+
+def test_the_constraint_set_defaults_to_the_force_fields_and_refuses_an_unlisted_one():
+    """One vocabulary of values for the control, and the entry -- not a copied literal -- decides the default."""
+    from dashboard.execution import forcefields
+
+    assert aa.normalize_settings({})['constraints'] == forcefields.entry().constraints
+    assert aa.normalize_settings({'constraints': 'none'})['constraints'] == 'none'
+    with pytest.raises(ValueError, match='constraints must be one of none, h-bonds, all-bonds'):
+        aa.normalize_settings({'constraints': 'all-angles'})
