@@ -44,6 +44,16 @@
   background: #fff; margin: 6px 0 }
 .rvm-chart { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 6px; margin-top: 8px;
   min-height: 120px }
+/* Shape's primary pair: two 3D panels on the same probe and the same extent. The panels share a row in a half-width
+   card, so the plot height is modest and the axis titles stay small. */
+.rvm-surface-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin: 8px 0 }
+.rvm-surface-panel { margin: 0; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: #fbfdff }
+.rvm-surface-panel figcaption { font-size: 11.5px; font-weight: 650; color: var(--ink); padding: 6px 8px 0 }
+.rvm-surface-plot { min-height: 230px }
+.rvm-surface-fallback { margin: 6px 0 }
+.rvm-sasa { margin-top: 8px }
+.rvm-sasa-chart { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 6px;
+  margin-top: 4px; min-height: 180px }
 
 /* The comparison map: one scene above the section rows, recoloured by the section tabs. It lives in a half-width
    card, so it is compact: a one-line head, a 340 px scene, one legend line and the reading grid beneath. */

@@ -43,10 +43,12 @@ def publish(dashboard, jid, attempt='attempt1', comparison=None, output='output/
 SURFACES = {
     'probe_nm': 0.191, 'rendering': 'SAS mesh, GROMACS Connolly dots retained separately',
     'scientifically_validated': False, 'comparison_html': 'analysis/surfaces/surface-comparison.html',
+    'aa_cg_comparison': 'analysis/surfaces/surface-comparison-aa-cg.json',
     'statistics': {'AA': {'frames': 20001, 'start_ps': 0.0, 'end_ps': 200000.0,
-                          'mean_nm2': 5.8157, 'std_nm2': 0.077},
+                          'mean_nm2': 5.8157, 'std_nm2': 0.077, 'xvg': 'analysis/surfaces/aa/sasa.xvg'},
                    'Simulated CG': {'frames': 20001, 'start_ps': 0.0, 'end_ps': 200000.0,
-                                    'mean_nm2': 5.599, 'std_nm2': 0.174}},
+                                    'mean_nm2': 5.599, 'std_nm2': 0.174,
+                                    'xvg': 'analysis/surfaces/simulated-cg/sasa.xvg'}},
 }
 
 
@@ -54,9 +56,14 @@ def publish_surfaces(dashboard, jid, attempt='attempt1', output='output/abc123',
     """Leave behind what `analysis.worker` leaves behind for a completed surfaces analysis."""
     directory = dashboard.coordinator.RUNS / jid / 'analyses/surfaces/hash' / attempt
     published = surfaces if surfaces is not None else SURFACES
-    (directory / output / 'analysis/surfaces').mkdir(parents=True)
-    (directory / output / 'analysis/surfaces/metadata.json').write_text(json.dumps(published))
-    (directory / output / 'analysis/surfaces/surface-comparison.html').write_text('<html>envelopes</html>')
+    surfaces_dir = directory / output / 'analysis/surfaces'
+    surfaces_dir.mkdir(parents=True)
+    (surfaces_dir / 'metadata.json').write_text(json.dumps(published))
+    (surfaces_dir / 'surface-comparison.html').write_text('<html>envelopes</html>')
+    (surfaces_dir / 'surface-comparison-aa-cg.json').write_text(json.dumps({'panels': []}))
+    (surfaces_dir / 'aa').mkdir(exist_ok=True); (surfaces_dir / 'simulated-cg').mkdir(exist_ok=True)
+    (surfaces_dir / 'aa/sasa.xvg').write_text('0 5.80\n100 5.82\n')
+    (surfaces_dir / 'simulated-cg/sasa.xvg').write_text('0 5.60\n100 5.59\n')
     (directory / 'result.json').write_text(json.dumps(
         {'result': published, 'output_directory': output, 'wall_seconds': 121.0}))
     return directory
@@ -78,6 +85,12 @@ def test_a_published_surfaces_analysis_comes_with_its_numbers_and_its_figure(das
     # Relative to the run directory, so the panel builds the artifact URL from it and never from a filesystem path.
     assert surfaces['figure'] == ('analyses/surfaces/hash/attempt1/output/abc123/'
                                   'analysis/surfaces/surface-comparison.html')
+    assert surfaces['aa_cg_comparison'] == ('analyses/surfaces/hash/attempt1/output/abc123/'
+                                            'analysis/surfaces/surface-comparison-aa-cg.json')
+    assert surfaces['statistics']['AA']['xvg'] == ('analyses/surfaces/hash/attempt1/output/abc123/'
+                                                    'analysis/surfaces/aa/sasa.xvg')
+    assert surfaces['statistics']['Simulated CG']['xvg'].endswith(
+        'output/abc123/analysis/surfaces/simulated-cg/sasa.xvg')
     assert surfaces['source'].endswith('analysis/surfaces/metadata.json')
 
 

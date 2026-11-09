@@ -165,10 +165,11 @@ function termRow(row, index) {
 
 //: Angles are the one term kind that collapses: there are usually more of them than bonds, and the reader who wants
 //: them can open the group. Bonds, constraints and dihedrals stay flat, and an angle group keeps the source order
-//: around it (the group sits where the first angle row did). Open by default so nothing disappears on a revisit; the
-//: summary is a real `<summary>` so keyboard and assistive technology get the disclosure for free.
+//: around it (the group sits where the first angle row did). Collapsed by default: there are usually more angles than
+//: the terms above them, and the map's focus opens the group when it points at one of its rows. The summary is a real
+//: `<summary>` so keyboard and assistive technology get the disclosure for free.
 function angleGroup(rows) {
-  return `<details class="rvm-term-group" open>
+  return `<details class="rvm-term-group">
     <summary class="rvm-term-summary">Angles (${rows.length})<span class="rvm-term-summary-hint">measured angle rows</span></summary>
     <div class="rvm-measures">${rows.join('')}</div>
   </details>`;
@@ -255,6 +256,97 @@ function surfaceFigure(surfaces, run) {
   const relative = String(surfaces.figure).split('/').map(encodeURIComponent).join('/');
   return `<iframe class="rvm-frame" loading="lazy" title="Solvent-accessible envelopes, drawn by the surfaces analysis"
     src="/api/jobs/${encodeURIComponent(run)}/artifacts/${relative}?inline=1"></iframe>`;
+}
+
+// The surfaces analysis publishes the primary pair as data beside its own figure: two centred meshes, the same probe
+// and the same extent. The card draws them with the Plotly it already loads, so the primary pair is not one column
+// among the published variants and no second Plotly bundle is loaded.
+async function artifactText(run, relative) {
+  if (!relative) return null;
+  const path = String(relative).split('/').map(encodeURIComponent).join('/');
+  const response = await fetch(`/api/jobs/${encodeURIComponent(run)}/artifacts/${path}?inline=1`);
+  return response.ok ? response.text() : null;
+}
+
+//: `gmx sasa -o` writes `time(ps) area(nm^2)`; the chart reads the same file the analysis measured.
+function parseSasaSeries(text) {
+  const rows = [];
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const clean = line.trim();
+    if (!clean || clean.startsWith('#') || clean.startsWith('@')) continue;
+    const [time, area] = clean.split(/\s+/);
+    const x = number(time), y = number(area);
+    if (x !== null && y !== null) rows.push([x / 1000, y]);
+  }
+  return rows;
+}
+
+function surfacePairMarkup(surfaces, run) {
+  if (surfaces.aa_cg_comparison) {
+    return `<div class="rvm-surface-pair" data-surface-pair>
+      <figure class="rvm-surface-panel"><figcaption>AA reference</figcaption>
+        <div class="rvm-surface-plot" data-surface-panel="0" role="img"
+          aria-label="AA reference solvent-accessible envelope"></div></figure>
+      <figure class="rvm-surface-panel"><figcaption>Simulated CG</figcaption>
+        <div class="rvm-surface-plot" data-surface-panel="1" role="img"
+          aria-label="Simulated CG solvent-accessible envelope"></div></figure>
+    </div>`;
+  }
+  if (!surfaces.figure) return '';
+  return `<div class="rvm-surface-fallback">${surfaceFigure(surfaces, run)}
+    <p class="hint">This surfaces attempt predates the AA vs Simulated CG pair. The published figure shows AA against
+      each variant; recalculating surfaces publishes the primary pair as two panels.</p></div>`;
+}
+
+function drawSurfacePair(host, data) {
+  const panels = Array.isArray(data?.panels) ? data.panels : [];
+  if (!host || !panels.length) return;
+  const extent = number(data.extent) ?? 1;
+  ensurePlotly().then(() => {
+    panels.forEach((panel, index) => {
+      const target = host.querySelector(`[data-surface-panel="${index}"]`);
+      if (!target) return;
+      const mesh = panel.mesh || {}, markers = panel.markers || {};
+      const traces = [
+        {type: 'mesh3d', x: mesh.x, y: mesh.y, z: mesh.z, i: mesh.i, j: mesh.j, k: mesh.k,
+         color: panel.colour, opacity: .45, name: panel.label, showlegend: false, hoverinfo: 'skip'},
+        {type: 'scatter3d', x: markers.x, y: markers.y, z: markers.z, mode: 'markers',
+         marker: {size: markers.size ?? 4, color: markers.colour || '#26384f', opacity: .9},
+         name: markers.name || '', showlegend: false, hoverinfo: 'skip'},
+      ];
+      window.Plotly.react(target, traces, {
+        margin: {l: 0, r: 0, t: 0, b: 0}, height: 230, showlegend: false,
+        scene: {aspectmode: 'cube', camera: {eye: {x: 1.4, y: 1.4, z: 1.1}},
+          xaxis: {title: {text: 'x (nm)', font: {size: 9}}, range: [-extent, extent]},
+          yaxis: {title: {text: 'y (nm)', font: {size: 9}}, range: [-extent, extent]},
+          zaxis: {title: {text: 'z (nm)', font: {size: 9}}, range: [-extent, extent]}},
+        paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+      }, {displayModeBar: false, responsive: true});
+    });
+  }).catch(error => {
+    host.textContent = `The surface pair could not be drawn: ${error.message}.`;
+  });
+}
+
+function drawSasaChart(host, series) {
+  if (!host || !series.length) return;
+  ensurePlotly().then(() => {
+    const traces = series.map(entry => ({
+      type: 'scatter', mode: 'lines', name: entry.label,
+      x: entry.rows.map(row => row[0]), y: entry.rows.map(row => row[1]),
+      line: {color: entry.colour, width: 1.6},
+      hovertemplate: `${entry.label} · %{x:.2f} ns · %{y:.3f} nm²<extra></extra>`,
+    }));
+    window.Plotly.react(host, traces, {
+      margin: {l: 52, r: 12, t: 6, b: 34}, height: 240,
+      xaxis: {title: {text: 'time (ns)', font: {size: 10}}},
+      yaxis: {title: {text: 'SASA (nm²)', font: {size: 10}}},
+      legend: {orientation: 'h', y: 1.14, x: 0, font: {size: 10}},
+      paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+    }, {displayModeBar: false, responsive: true});
+  }).catch(error => {
+    host.textContent = `The SASA chart could not be drawn: ${error.message}.`;
+  });
 }
 
 function overlapFigure(overlap, run) {
@@ -429,9 +521,12 @@ async function paintShape(host, {job, isCurrent, button, refresh, queue}) {
     .map(value => value ?? '').join('|');
   if (refresh && host.dataset.attempt === attemptKey) return;
   host.dataset.attempt = attemptKey;
+  const run = body.run || job.id;
   const comparison = body.comparison || {};
   const surfaces = body.surfaces || {};
   const overlap = body.overlap || {};
+  const statistics = surfaces.statistics || {};
+  const primary = surfaces.available && statistics['AA'] && statistics['Simulated CG'];
   if (button) {
     const available = [surfaces.available, overlap.available].filter(Boolean).length;
     button.textContent = `Shape and volume (${available})`;
@@ -440,17 +535,23 @@ async function paintShape(host, {job, isCurrent, button, refresh, queue}) {
     <p class="hint"><b>rmsd ${fixed(comparison.displacement?.rmsd_nm)} nm, max
       ${fixed(comparison.displacement?.max_nm)} nm over ${comparison.displacement?.aa_frames ?? '—'} AA and
       ${comparison.displacement?.cg_frames ?? '—'} CG frames.</b> The fitted beads are filled in the Geometry chart;
-      the others are carried for completeness. The solvent-accessible envelopes below come from the separate
-      surfaces analysis on this run.</p>
-    <div class="rvm-sub"><h4>Solvent-accessible envelope</h4>
+      the others are carried for completeness.</p>
+    <div class="rvm-sub" data-shape="surfaces"><h4>Surface area · AA vs Simulated CG</h4>
       <p class="hint">${surfaces.available
         ? `Attempt <b>${cell(surfaces.attempt)}</b>, published ${cell(shortTime(surfaces.published_at))} UTC.
-          ${cell(surfaces.rendering || '')} ${surfaces.validated ? '' : 'Not scientifically validated.'}`
+          ${cell(surfaces.rendering || '')} Probe ${fixed(surfaces.probe_nm, 3)} nm, the same on both panels.
+          The mesh is the union of probe-inflated spheres (SAS), not a re-entrant solvent-excluded surface (SES).
+          ${surfaces.validated ? '' : 'Not scientifically validated.'}`
         : cell(surfaces.reason || 'The run’s envelope analysis has not been published.')}</p>
+      ${surfaces.available ? surfacePairMarkup(surfaces, run) : ''}
       ${surfaces.available ? surfaceRows(surfaces) : ''}
-      ${surfaceFigure(surfaces, body.run || job.id)}
+      ${surfaces.available ? `<div class="rvm-sasa"><h4>SASA over time</h4>
+        <p class="hint">Total solvent-accessible area from the analysis’s own <code>sasa.xvg</code>, AA and Simulated CG
+          on one axis. SAS is not SES. SD is frame-to-frame variability, not uncertainty of the mean; a short
+          trajectory does not establish convergence.</p>
+        <div class="rvm-sasa-chart"></div></div>` : ''}
     </div>
-    <div class="rvm-sub"><h4>Bead overlap</h4>
+    <div class="rvm-sub" data-shape="overlap"><h4>Bead overlap · separate analysis (not surface area)</h4>
       <p class="hint">${overlap.available
         ? `Attempt <b>${cell(overlap.attempt)}</b>, published ${cell(shortTime(overlap.published_at))} UTC.
           ${cell(overlap.residue || 'The molecule')} against its own atomistic reference.
@@ -458,7 +559,7 @@ async function paintShape(host, {job, isCurrent, button, refresh, queue}) {
           ${overlap.validated ? '' : 'Not scientifically validated.'}`
         : cell(overlap.reason || 'The run’s bead-overlap analysis has not been published.')}</p>
       ${overlap.available ? `<p class="hint">${cell(overlapDetail(overlap))}</p>` : ''}
-      ${overlapFigure(overlap, body.run || job.id)}
+      ${overlapFigure(overlap, run)}
     </div>`;
   const subs = host.querySelectorAll('.rvm-sub');
   if (!surfaces.available && subs[0]) {
@@ -469,6 +570,33 @@ async function paintShape(host, {job, isCurrent, button, refresh, queue}) {
     addQueueButton(subs[1], job, queue,
       {label: 'Calculate bead overlap', kind: 'overlap', sentence: 'Bead overlap analysis queued.'});
   }
+  if (!surfaces.available) return;
+  if (surfaces.aa_cg_comparison) {
+    const text = await artifactText(run, surfaces.aa_cg_comparison);
+    if (!isCurrent()) return;
+    if (text) {
+      try {
+        drawSurfacePair(host.querySelector('[data-surface-pair]'), JSON.parse(text));
+      } catch (error) {
+        const pair = host.querySelector('[data-surface-pair]');
+        if (pair) pair.textContent = `The AA vs Simulated CG pair could not be read: ${error.message}.`;
+      }
+    }
+  }
+  if (!primary) return;
+  const seriesDefinitions = [
+    {label: 'AA', stat: statistics['AA'], colour: '#2864b5'},
+    {label: 'Simulated CG', stat: statistics['Simulated CG'], colour: '#188b75'},
+  ];
+  const loaded = await Promise.all(seriesDefinitions.map(async entry => {
+    const text = entry.stat?.xvg ? await artifactText(run, entry.stat.xvg) : null;
+    return {...entry, rows: parseSasaSeries(text)};
+  }));
+  if (!isCurrent()) return;
+  const series = loaded.filter(entry => entry.rows.length >= 2);
+  const chart = host.querySelector('.rvm-sasa-chart');
+  if (series.length) drawSasaChart(chart, series);
+  else if (chart) chart.textContent = 'No SASA series was published for this attempt.';
 }
 
 // ------------------------------------------------------------------------------------------------- registration

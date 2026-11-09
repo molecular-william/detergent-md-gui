@@ -30,20 +30,47 @@ def open_section(page, live_page, jid, section, card=CARD):
 SURFACES = {
     'probe_nm': 0.191, 'rendering': 'SAS mesh, GROMACS Connolly dots retained separately',
     'scientifically_validated': False, 'comparison_html': 'analysis/surfaces/surface-comparison.html',
+    'aa_cg_comparison': 'analysis/surfaces/surface-comparison-aa-cg.json',
     'statistics': {'AA': {'frames': 20001, 'start_ps': 0.0, 'end_ps': 200000.0,
-                          'mean_nm2': 5.8157, 'std_nm2': 0.077},
+                          'mean_nm2': 5.8157, 'std_nm2': 0.077, 'xvg': 'analysis/surfaces/aa/sasa.xvg'},
                    'Simulated CG': {'frames': 20001, 'start_ps': 0.0, 'end_ps': 200000.0,
-                                    'mean_nm2': 5.599, 'std_nm2': 0.174}},
+                                    'mean_nm2': 5.599, 'std_nm2': 0.174,
+                                    'xvg': 'analysis/surfaces/simulated-cg/sasa.xvg'}},
+}
+
+#: One triangle per panel and two marker vertices: enough to assert the two-panel data path without a 10 MB figure.
+SURFACE_PAIR = {
+    'probe_nm': 0.191, 'extent': 1.2, 'rendering': 'SAS mesh, AA vs Simulated CG',
+    'scientifically_validated': False,
+    'panels': [
+        {'label': 'AA reference', 'colour': '#2864b5',
+         'mesh': {'x': [0.0, 0.2, 0.0], 'y': [0.0, 0.0, 0.2], 'z': [0.0, 0.0, 0.0],
+                  'i': [0], 'j': [1], 'k': [2]},
+         'markers': {'name': 'AA atoms', 'colour': '#26384f', 'size': 3,
+                     'x': [0.05, 0.1], 'y': [0.02, 0.03], 'z': [0.0, 0.01]}},
+        {'label': 'Simulated CG', 'colour': '#188b75',
+         'mesh': {'x': [0.0, 0.25, 0.0], 'y': [0.0, 0.0, 0.25], 'z': [0.0, 0.0, 0.0],
+                  'i': [0], 'j': [1], 'k': [2]},
+         'markers': {'name': 'Simulated CG beads', 'colour': '#188b75', 'size': 5,
+                     'x': [0.06, 0.12], 'y': [0.03, 0.04], 'z': [0.01, 0.0]}},
+    ],
 }
 
 
 def publish_surfaces(dashboard, jid):
     """Leave behind what `analysis.worker` leaves behind for a completed surfaces analysis."""
     attempt = dashboard.coordinator.RUNS / jid / 'analyses/surfaces/hash/attempt1'
-    output = attempt / 'output/abc123/analysis/surfaces'
-    output.mkdir(parents=True)
-    (output / 'metadata.json').write_text(json.dumps(SURFACES))
-    (output / 'surface-comparison.html').write_text('<html><body>envelopes</body></html>')
+    output = attempt / 'output/abc123'
+    surfaces = output / 'analysis/surfaces'
+    surfaces.mkdir(parents=True)
+    (surfaces / 'metadata.json').write_text(json.dumps(SURFACES))
+    (surfaces / 'surface-comparison.html').write_text('<html><body>envelopes</body></html>')
+    (surfaces / 'surface-comparison-aa-cg.json').write_text(json.dumps(SURFACE_PAIR))
+    (surfaces / 'aa').mkdir(); (surfaces / 'simulated-cg').mkdir()
+    (surfaces / 'aa/sasa.xvg').write_text(
+        '# time (ps) SASA (nm^2)\n0 5.80\n100 5.82\n200 5.81\n')
+    (surfaces / 'simulated-cg/sasa.xvg').write_text(
+        '# time (ps) SASA (nm^2)\n0 5.60\n100 5.59\n200 5.61\n')
     (attempt / 'result.json').write_text(json.dumps(
         {'result': SURFACES, 'output_directory': 'output/abc123', 'wall_seconds': 121.0}))
     return attempt
@@ -270,10 +297,10 @@ def test_bonded_terms_and_the_two_cross_checks_render(dashboard, live_page):
 
 
 def test_angle_rows_collapse_and_are_present_when_reopened(dashboard, live_page):
-    """The angle group is one disclosure; closing it hides the rows, opening it brings back the same ones.
+    """The angle group is one disclosure, closed by default; opening it brings back the same rows.
 
-    Only angles collapse -- the bond row above and any dihedral row below stay flat -- and the group is open by
-    default, so a revisit never hides a measurement the reader was not told about.
+    Only angles collapse -- the bond row above and any dihedral row below stay flat -- and the group starts closed so
+    the usually-more-numerous angle rows do not bury the terms above them.
     """
     publish(dashboard, 'bb22cc33dd44')
     page, errors = live_page
@@ -283,19 +310,19 @@ def test_angle_rows_collapse_and_are_present_when_reopened(dashboard, live_page)
     expect(group).to_have_count(1)
     summary = group.locator('summary')
     expect(summary).to_contain_text('Angles (1)')
-    expect(group).to_have_attribute('open', '')
-    expect(group.locator('.rvm-measure')).to_have_count(1)
-    assert 'angle' in group.text_content(), group.text_content()
-
-    summary.click()
     expect(group).not_to_have_attribute('open', '')
     expect(group.locator('.rvm-measure')).to_be_hidden()
-    # The bond row is not in the group: collapsing angles must not fold the terms it does not own.
-    expect(pane.locator('.rvm-measures').first.locator('.rvm-measure')).to_be_visible()
+    assert 'angle' in group.text_content(), group.text_content()
 
     summary.click()
     expect(group).to_have_attribute('open', '')
     expect(group.locator('.rvm-measure')).to_be_visible()
+    # The bond row is not in the group: opening angles must not fold the terms it does not own.
+    expect(pane.locator('.rvm-measures').first.locator('.rvm-measure')).to_be_visible()
+
+    summary.click()
+    expect(group).not_to_have_attribute('open', '')
+    expect(group.locator('.rvm-measure')).to_be_hidden()
     assert errors == []
 
 
@@ -311,8 +338,8 @@ def test_a_focused_angle_opens_its_collapsed_group(dashboard, live_page):
     wait_for_map(page, meta='term')
     host = map_host(page)
     group = root.locator('details.rvm-term-group')
-    group.locator('summary').click()
     expect(group).not_to_have_attribute('open', '')
+    expect(group.locator('.rvm-measure')).to_be_hidden()
 
     # Weakest first: the dihedral (0.21) leads, the angle (0.44) is the second item and lives in the group.
     host.locator('.rvm-attention li').nth(1).locator('button').click()
@@ -343,16 +370,36 @@ def test_the_envelope_analysis_is_drawn_with_its_statistics_and_its_own_figure(d
     page, errors = live_page
     pane = open_section(page, live_page, 'bb22cc33dd44', 'mapping-shape')
 
-    surfaces = pane.locator('.rvm-sub').nth(0)
-    expect(surfaces.locator('.rvm-table tbody tr')).to_have_count(2, timeout=30000)
-    rows = surfaces.locator('.rvm-table tbody tr')
+    envelope = pane.locator('[data-shape="surfaces"]')
+    expect(envelope.locator('.rvm-table tbody tr')).to_have_count(2, timeout=30000)
+    rows = envelope.locator('.rvm-table tbody tr')
     assert 'AA' in rows.nth(0).text_content() and '5.816' in rows.nth(0).text_content(), rows.nth(0).text_content()
     assert 'Simulated CG' in rows.nth(1).text_content() and '5.599' in rows.nth(1).text_content()
-    frame = surfaces.locator('iframe').get_attribute('src')
-    assert frame.startswith('/api/jobs/bb22cc33dd44/artifacts/analyses/surfaces/'), frame
-    assert frame.endswith('surface-comparison.html?inline=1'), frame
-    note = surfaces.locator('.hint').nth(0).text_content()
-    assert 'SAS mesh' in note and 'Not scientifically validated' in note, note
+    # The primary pair is two panels, AA and Simulated CG, drawn from the analysis's own data.
+    expect(envelope.locator('.rvm-surface-pair')).to_be_visible()
+    expect(envelope.locator('.rvm-surface-panel')).to_have_count(2)
+    expect(envelope.locator('.rvm-surface-panel figcaption')).to_have_text(['AA reference', 'Simulated CG'])
+    page.wait_for_function("""selector => {
+      const el = document.querySelector(selector);
+      return Boolean(el && el.data && el.data.length);
+    }""", arg=f'{CARD} .analysis-pane[data-section="mapping-shape"] [data-surface-panel="0"]', timeout=30000)
+    panel_types = envelope.locator('[data-surface-panel="0"]').evaluate('el => el.data.map(trace => trace.type)')
+    assert panel_types == ['mesh3d', 'scatter3d'], panel_types
+
+    # The 2D series reads the two sasa.xvg files the analysis recorded: both models, one point per frame.
+    page.wait_for_function("""selector => {
+      const el = document.querySelector(selector);
+      return Boolean(el && el.data && el.data.length);
+    }""", arg=f'{CARD} .analysis-pane[data-section="mapping-shape"] .rvm-sasa-chart', timeout=30000)
+    traces = envelope.locator('.rvm-sasa-chart').evaluate(
+        'el => el.data.map(trace => ({name: trace.name, x: trace.x, y: trace.y}))')
+    assert [trace['name'] for trace in traces] == ['AA', 'Simulated CG'], traces
+    assert all(len(trace['x']) == 3 for trace in traces), traces
+    assert traces[0]['x'][0] == 0 and abs(traces[0]['y'][0] - 5.8) < 1e-9, traces
+    note = envelope.locator('.hint').nth(0).text_content()
+    assert 'SAS' in note and 'not a re-entrant solvent-excluded surface (SES)' in note, note
+    assert 'Not scientifically validated' in note, note
+    expect(envelope.locator('iframe')).to_have_count(0)
     assert errors == []
 
 
@@ -361,11 +408,41 @@ def test_a_run_with_no_envelope_analysis_says_so_and_frames_nothing(dashboard, l
     page, errors = live_page
     pane = open_section(page, live_page, 'bb22cc33dd44', 'mapping-shape')
 
-    surfaces = pane.locator('.rvm-sub').nth(0)
-    expect(surfaces.locator('.hint').nth(0)).to_contain_text('queued by hand', timeout=30000)
-    assert 'solvent-accessible surfaces analysis has been published' in surfaces.locator('.hint').nth(0).text_content().lower()
-    expect(surfaces.locator('.rvm-table')).to_have_count(0)
-    expect(surfaces.locator('iframe')).to_have_count(0)
+    envelope = pane.locator('[data-shape="surfaces"]')
+    expect(envelope.locator('.hint').nth(0)).to_contain_text('queued by hand', timeout=30000)
+    assert 'solvent-accessible surfaces analysis has been published' in envelope.locator('.hint').nth(0).text_content().lower()
+    expect(envelope.locator('.rvm-table')).to_have_count(0)
+    expect(envelope.locator('.rvm-surface-pair')).to_have_count(0)
+    expect(envelope.locator('.rvm-sasa-chart')).to_have_count(0)
+    expect(envelope.locator('iframe')).to_have_count(0)
+    expect(envelope.get_by_role('button', name='Calculate surfaces')).to_be_visible()
+    assert errors == []
+
+
+def test_an_older_surfaces_attempt_without_the_pair_falls_back_to_its_figure(dashboard, live_page):
+    """An attempt published before the AA/CG pair existed still shows its own figure and the SASA series.
+
+    The pair is data on the newest attempts; an older attempt must not read as a broken one, and its own figure is
+    still the AA-vs-variant comparison it published.
+    """
+    publish(dashboard, 'bb22cc33dd44')
+    attempt = publish_surfaces(dashboard, 'bb22cc33dd44')
+    metadata_path = attempt / 'output/abc123/analysis/surfaces/metadata.json'
+    metadata = json.loads(metadata_path.read_text())
+    metadata.pop('aa_cg_comparison', None)
+    metadata_path.write_text(json.dumps(metadata))
+    (attempt / 'output/abc123/analysis/surfaces/surface-comparison-aa-cg.json').unlink()
+    page, errors = live_page
+    pane = open_section(page, live_page, 'bb22cc33dd44', 'mapping-shape')
+
+    envelope = pane.locator('[data-shape="surfaces"]')
+    expect(envelope.locator('iframe')).to_have_count(1, timeout=30000)
+    assert 'surface-comparison.html' in envelope.locator('iframe').get_attribute('src')
+    assert 'predates the AA vs Simulated CG pair' in envelope.text_content()
+    page.wait_for_function("""selector => {
+      const el = document.querySelector(selector);
+      return Boolean(el && el.data && el.data.length === 2);
+    }""", arg=f'{CARD} .analysis-pane[data-section="mapping-shape"] .rvm-sasa-chart', timeout=30000)
     assert errors == []
 
 
@@ -604,9 +681,11 @@ def test_the_map_is_shown_on_a_mapping_section_and_hidden_on_figures(dashboard, 
     root.locator('.analysis-views button[data-section="mapping-bonded"]').click()
     expect(host).to_be_visible()
     expect(host.locator('.rvm-map-mode')).to_have_text('Terms · overlap')
+    # Shape has no bead map: the card steps out and the pane carries the AA vs Simulated CG surface comparison. This
+    # run has no surfaces published yet, so the pane says so instead of drawing anything.
     root.locator('.analysis-views button[data-section="mapping-shape"]').click()
-    expect(host).to_be_visible()
-    expect(host.locator('.rvm-map-mode')).to_have_text('Bead overlap')
+    expect(host).to_be_hidden()
+    expect(root.locator('.analysis-pane[data-section="mapping-shape"] [data-shape="surfaces"]')).to_be_visible()
     assert errors == []
 
 
@@ -644,14 +723,9 @@ def test_the_three_sections_recolour_one_map(dashboard, live_page):
     assert '#1f7a4d' in term_inks and '#c08a1f' in term_inks and '#c02a37' in term_inks, term_inks
 
     root.locator('.analysis-views button[data-section="mapping-shape"]').click()
-    wait_for_map(page, meta='pair')
-    shape = map_traces(page)
-    shape_beads = next(trace for trace in shape if trace['meta'] == 'bead')
-    assert shape_beads['marker']['color'] != geometry_fills, 'Shape fills the beads by bead overlap'
-    assert all(str(colour).startswith('rgb(') for colour in shape_beads['marker']['color'])
-    shape_pairs = [trace for trace in shape if trace['meta'] == 'pair']
-    assert shape_pairs
-    assert all(trace['line']['dash'] == 'dash' for trace in shape_pairs)
+    # The map is not recoloured for Shape: the surface comparison and the SASA series replace it there.
+    expect(map_host(page)).to_be_hidden()
+    expect(root.locator('.analysis-pane[data-section="mapping-shape"] [data-shape="surfaces"]')).to_be_visible()
     assert errors == []
 
 
@@ -687,9 +761,8 @@ def test_the_reading_headline_and_ranked_attention_name_their_own_metric(dashboa
     expect(items.nth(0)).to_contain_text('0.21')
 
     root.locator('.analysis-views button[data-section="mapping-shape"]').click()
-    expect(headline).to_contain_text('3 bead pairs')
-    expect(headline).to_contain_text('weakest 0.31 at B01 – B03')
-    assert 'inside one residue' in reading.locator('.rvm-caveat').text_content()
+    expect(map_host(page)).to_be_hidden()
+    expect(root.locator('.analysis-pane[data-section="mapping-shape"] [data-shape="surfaces"]')).to_be_visible()
     assert errors == []
 
 

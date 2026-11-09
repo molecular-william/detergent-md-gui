@@ -15,7 +15,9 @@ import { registerRunViewAnalysisMap } from '/static/js/run-view.js';
 const MODES = {
   'mapping-geometry': {title: 'Geometry', label: 'Pairs · displacement'},
   'mapping-bonded': {title: 'Bonded terms', label: 'Terms · overlap'},
-  'mapping-shape': {title: 'Shape and volume', label: 'Bead overlap'},
+  // Shape has no bead map: the AA vs Simulated CG surface comparison and the SASA series replace it, and the host
+  // steps out of the card for that section so the two are never presented as the same reading.
+  'mapping-shape': {title: 'Shape and volume', label: 'AA vs CG surfaces'},
 };
 //: Which file the scene is drawn from. The first is the run's own mapped frame; the fallback is an older tree whose
 //: only frame is the CG leg's ligand.
@@ -239,38 +241,16 @@ function bondedReading(state) {
 }
 
 function shapeReading(state) {
-  const overlap = state.body?.overlap || {};
   const surfaces = state.body?.surfaces || {};
-  const pairs = lowestOverlapPairs(state.overlapPairs);
-  const all = state.overlapPairs;
-  const weakest = pairs[0] || null;
-  const headline = overlap.available
-    ? `${plural(all.length, 'bead pair')}` + (weakest ? ` · weakest ${fixed(weakest.value, 2)} at ${weakest.label}` : '')
-      + (surfaces.available ? '' : ' · surfaces not published')
-    : 'No bead-overlap analysis is published for this run.';
-  const caveat = 'Bead overlap is a distance inside one residue; it says nothing about the bonds between residues. '
-    + 'SASA is per model, not per bead, so it is not painted on the beads. '
-    + (overlap.available ? '' : 'The Shape section can queue the missing analysis.');
-  const attention = pairs.slice(0, 3).map(pair => ({
-    rank: 0, actionable: true, itemId: pair.id, pairId: pair.id, beadKeys: pair.beadKeys,
-    title: pair.label,
-    detail: `mean bead overlap ${fixed(pair.value, 2)}`,
-    value: fixed(pair.value, 2),
-    status: `${pair.label} · overlap ${fixed(pair.value, 2)}`,
-  }));
-  if (attention.length < 3 && !surfaces.available) {
-    attention.push({
-      rank: 0, actionable: false, title: 'Surfaces not published',
-      detail: 'the envelope is a separate analysis; the Shape section starts it', value: 'missing',
-    });
-  }
-  if (attention.length < 3 && !overlap.available) {
-    attention.push({
-      rank: 0, actionable: false, title: 'Bead overlap not published',
-      detail: 'the Shape section can queue it', value: 'missing',
-    });
-  }
-  return {title: 'Shape and volume', headline, caveat, attention};
+  const statistics = surfaces.statistics || {};
+  const aa = statistics['AA'] || {}, cg = statistics['Simulated CG'] || {};
+  const headline = surfaces.available
+    ? `AA ${fixed(aa.mean_nm2, 3)} nm² vs Simulated CG ${fixed(cg.mean_nm2, 3)} nm² · probe
+      ${fixed(surfaces.probe_nm, 3)} nm`
+    : (surfaces.reason || 'No surfaces analysis is published for this run.');
+  const caveat = 'SAS, not SES. SD is frame variability, not uncertainty of the mean. The Shape section carries the '
+    + 'AA vs Simulated CG surface pair and the SASA time series; the bead map is not shown for this perspective.';
+  return {title: 'Shape and volume', headline, caveat, attention: []};
 }
 
 function readingFor(state) {
@@ -482,7 +462,7 @@ export async function mount({host, job, side, isCurrent, queue}) {
       ? 'Click a bead, a pair line or an attention item to read it.'
       : state.mode === 'mapping-bonded'
         ? 'Beads are neutral; term lines are coloured by histogram overlap.'
-        : 'Bead fill is per-bead mean overlap; the selected pair is drawn on the map.');
+        : 'The Shape perspective draws the AA vs Simulated CG surfaces and their SASA series, not the bead map.');
   }
 
   function paintReading() {
@@ -502,7 +482,8 @@ export async function mount({host, job, side, isCurrent, queue}) {
   }
 
   function drawMap() {
-    if (!state.scene) return;
+    // The Shape perspective is not a bead scene: the surface pair replaces it, and the host is hidden there.
+    if (!state.scene || state.mode === 'mapping-shape') return;
     const render = {
       beads: state.beads,
       edges: state.edges,
@@ -548,6 +529,16 @@ export async function mount({host, job, side, isCurrent, queue}) {
     host.dataset.selectedBeads = state.selected.beadKeys.join(' ');
     paintReading();
     paintStatus();
+    // The Shape perspective has no bead map: the card steps out and the pane carries the AA vs Simulated CG surface
+    // pair and the SASA series. The core host shows the map on every non-figures section, so the feature hides it here.
+    host.hidden = state.mode === 'mapping-shape';
+    if (host.hidden) {
+      plotHost.hidden = true;
+      missing.hidden = true;
+      legend.replaceChildren();
+      focusRow();
+      return;
+    }
     if (state.scene) {
       plotHost.hidden = false;
       missing.hidden = true;

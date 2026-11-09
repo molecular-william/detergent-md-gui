@@ -123,7 +123,27 @@ plot.on('plotly_relayout',event=>{if(updating)return;const key=Object.keys(event
         import html
         table='<table><tr><th>Model</th><th>Frames</th><th>Duration (ps)</th><th>Mean SASA (nm²)</th><th>SD (nm²)</th></tr>'+''.join(f'<tr><td>{html.escape(k)}</td><td>{v["frames"]}</td><td>{v["end_ps"]-v["start_ps"]:.1f}</td><td>{v["mean_nm2"]:.3f}</td><td>{v["std_nm2"]:.3f}</td></tr>' for k,v in stats.items())+'</table>'
         text=path.read_text();text=text.replace('</head>', '<style>body{font:15px/1.5 system-ui,sans-serif;color:#24344d;margin:16px}p{max-width:1100px}table{border-collapse:collapse;margin:18px 0}td,th{padding:8px 16px;text-align:left;border-bottom:1px solid #dbe2ea}th{background:#f1f5f9}</style></head>');text=text.replace('</body>','<p>Meshes show the union of probe-inflated spheres (SAS), not a re-entrant solvent-excluded surface. Original GROMACS Connolly dot files are downloadable separately. Simulated CG is fitted to the raw mapped first frame using massive sites. Local ring dilation is illustrative; inter-sugar fitting targets remain unscaled.</p>'+table+'<p>Statistics cover all supplied frames; SD is frame variability, not uncertainty of the mean. Short trajectories do not establish convergence. Paper comparisons averaged at least 200 ns.</p></body>');path.write_text(text)
-        metadata={'probe_nm':PROBE,'AA_radii_nm':AA_RADII,'CG_radii_nm':carbohydrates.RADII_NM,'grid_spacing_nm':.04,'statistics':stats,'commands':commands,'scientifically_validated':False,'comparison_html':str(path.relative_to(root)),'rendering':'SAS mesh, GROMACS Connolly dots retained separately','source_sha256':{str(p.relative_to(root)):files.sha256(p) for p in [root/'2_mapping/model.json',root/'1_AA-reference/prod/lig.xtc',root/'4_CG_sim/prod/lig_CG.xtc']}}
+        # The primary pair as its own machine-readable panels: the dashboard draws AA and Simulated CG side by side,
+        # on the same centred coordinates and the same extent, instead of leaving the primary pair as one column
+        # among the published variants. Data only, so the reader reuses the dashboard's Plotly instead of loading
+        # another bundle; vertices/faces are the same meshes the published figure carries.
+        def panel(label, kind, marker_name, marker_colour, marker_size):
+            vertices, faces = meshes[kind]
+            markers = first[kind] - center
+            return {'label': label, 'colour': colors[label],
+                    'mesh': {'x': np.round(vertices[:,0],6).tolist(),'y': np.round(vertices[:,1],6).tolist(),
+                             'z': np.round(vertices[:,2],6).tolist(),
+                             'i': faces[:,0].astype(int).tolist(),'j': faces[:,1].astype(int).tolist(),
+                             'k': faces[:,2].astype(int).tolist()},
+                    'markers': {'name': marker_name, 'colour': marker_colour, 'size': marker_size,
+                                'x': np.round(markers[:,0],6).tolist(),'y': np.round(markers[:,1],6).tolist(),
+                                'z': np.round(markers[:,2],6).tolist()}}
+        aa_cg={'probe_nm':float(PROBE),'extent':float(extent),'rendering':'SAS mesh, AA vs Simulated CG',
+               'scientifically_validated':False,
+               'panels':[panel('AA','AA','AA atoms','#26384f',3),
+                         panel('Simulated CG','Simulated CG','Simulated CG beads',colors['Simulated CG'],5)]}
+        aa_cg_path=output/'surface-comparison-aa-cg.json';aa_cg_path.write_text(json.dumps(aa_cg)+'\n')
+        metadata={'probe_nm':PROBE,'AA_radii_nm':AA_RADII,'CG_radii_nm':carbohydrates.RADII_NM,'grid_spacing_nm':.04,'statistics':stats,'commands':commands,'scientifically_validated':False,'comparison_html':str(path.relative_to(root)),'aa_cg_comparison':str(aa_cg_path.relative_to(root)),'rendering':'SAS mesh, GROMACS Connolly dots retained separately','source_sha256':{str(p.relative_to(root)):files.sha256(p) for p in [root/'2_mapping/model.json',root/'1_AA-reference/prod/lig.xtc',root/'4_CG_sim/prod/lig_CG.xtc']}}
         (output/'metadata.json').write_text(json.dumps(metadata,indent=2));return metadata
     finally:
         aa.trajectory.close();cg.trajectory.close()

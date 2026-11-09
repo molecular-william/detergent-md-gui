@@ -65,14 +65,33 @@ def mapping_consistency_api(jid):
                               'trajectories together.'}
     else:
         surfaces_attempt, published, metadata, figure = published_surfaces
+        # The attempt's own output directory: `metadata.json`, the published figure, the per-model `sasa.xvg` and the
+        # AA/CG panel data are all addressed from it. The panel reads the two data files through the artifact route,
+        # which resolves against the run root, so each path is re-based here rather than handed over raw.
+        output = surfaces_attempt / str(json.loads((surfaces_attempt / 'result.json').read_text())['output_directory'])
+
+        def exposed(relative):
+            if not relative:
+                return None
+            candidate = output / str(relative)
+            return str(candidate.relative_to(c.run_path(job))) if candidate.is_file() else None
+
+        statistics = {}
+        for model, stat in (published.get('statistics') or {}).items():
+            record = dict(stat)
+            record['xvg'] = exposed(record.get('xvg'))
+            statistics[model] = record
         surfaces = {'available': True,
                     'attempt': surfaces_attempt.name,
                     'published_at': datetime.fromtimestamp(
                         surfaces_attempt.stat().st_mtime, timezone.utc).isoformat(),
-                    'statistics': published.get('statistics') or {},
+                    'statistics': statistics,
                     'rendering': published.get('rendering'),
                     'probe_nm': published.get('probe_nm'),
                     'validated': bool(published.get('scientifically_validated')),
+                    # The primary AA-vs-Simulated-CG pair as data the card draws itself. Older attempts published
+                    # before the pair existed answer None; the figure below is then the fallback.
+                    'aa_cg_comparison': exposed(published.get('aa_cg_comparison')),
                     # Relative to the run directory: the panel builds the artifact URL from this, and the route
                     # that serves it resolves against the run too.
                     'figure': str(figure.relative_to(c.run_path(job))) if figure else None,
