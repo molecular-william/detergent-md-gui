@@ -56,11 +56,29 @@ The dashboard was restarted at 09:24. Live map: 12 pairs, all unconstrained (the
 displacement 45 pm at (4,C); 34 terms, 3 below overlap 0.5. Checks: fast tier 2471 passed, 1 xfailed; browser 303
 passed; ruff clean.
 
-The 2026-11-09 next-round request is handed to the durable `next-round` agent; its queue, evidence and open decisions
-are `docs/plans/2026-11-09-next-round.md`. First wave: measure and improve panel-switch prefetch/cache; produce the
-Shape AA/CG surface-comparison draft and make the Bonded angle rows collapsible; research Fast-Forward outputs and the
-Martini sugar references; draft the compact New run settings and info icons. New run, sugar selection and
-Martini-vs-AA stay on the decision list until the user answers the numbered questions in that plan.
+The 2026-11-09 next-round request is with the durable `next-round` agent; its queue, evidence and open decisions are
+`docs/plans/2026-11-09-next-round.md`. First-wave A and B are built and committed; C is research only.
+`d96eb46` warms the catalogue lists on idle and keeps them for five minutes, re-reads the live run list without
+rebuilding a shown Run view pair, and mounts Bonded once until its resources change. Measured revisits: Run view
+1706 -> 767 ms and 21 -> 4 requests; Bonded 801 -> 585 ms and 2 -> 0 requests; New run first visit after idle 7 -> 2
+requests. `0e42297` groups only the angle rows in a native details/summary, open by default; a map attention item that
+names an angle opens the group first. The Shape draft is
+`docs/design/drafts/2026-11-09-shape-surface-comparison.html` (PNG beside it): the AA-vs-Simulated-CG surface
+comparison above the bead map, with the map explicitly labelled "bead overlap, not surface area". It is a draft only;
+the user still has to confirm above-vs-replace, AA-vs-CG-only vs variant selector, and whether a 2D SASA-vs-time chart
+is wanted. Checks after the two commits: fast 2471 passed / 1 xfailed, browser 307 passed, ruff clean. Task-7
+(Fast-Forward output inventory, Martini sugar reference feasibility, compact New run settings draft) is done as
+research only; no production code for New run, sugar selection or FF plotting. Notes:
+`docs/research/2026-11-09-fast-forward-outputs.md` (stage 3 fit data vs stage 5 assessment data; four ranked plots:
+reference-vs-simulated distributions, Hellinger score ranking, pairwise distance-score heatmap, run-quality summary;
+the pickles are optional and unpickling run artifacts in the web process is a code-execution surface);
+`docs/research/2026-11-09-martini-sugar-references.md` (SUCR/TREH topology, existing sugar machinery, three options
+A compare-only / B reference-seeded parameterization / C B plus a CG simulation scored against AA; the reference is a
+citation, not a validation); and `docs/research/2026-11-09-new-run-settings-specs.md` + the compact-settings draft
+(advertised-vs-rendered table, `cg_seed` and `box_shape` gaps, exact GROMACS 2026.3 `mdrun -h` quotes, proposed
+`cg_seed`/`mdrun_pmefft`/`mdrun_update`/`mdrun_tunepme` additions). The decisions still open are printed in the plan
+and the drafts: FF plots, sugar run shape/acceptance, which mdrun extras and MDP values, and whether `box_shape` is
+exposed or removed.
 
 The dashboard was restarted on 2026-11-05 at 17:12 for the whole round. Live checks: LMNG's automatic candidate is
 23 connected beads with the branch bead `[11,22,46]` (connectivity and spectral agree on the bead count, differ on
