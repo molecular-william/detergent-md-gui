@@ -219,14 +219,39 @@ Martini topology has no hydrogens and a pdc run has no atomistic trajectory. So 
 never hydrogen bonds. The tested commands, their observed output and the one-extracted-sample rule are §1.1 of the
 definitions document.
 
-**A real defect found while drafting the torsion copy, not fixed.** `bonded.refine` rewrites every `funct 9` line of
-a fitted dihedral on its own, and Fast-Forward writes eight of them per torsion, so a circular-harmonic refinement
-turns one torsion into eight identical harmonic terms — eight times the fitted stiffness — and `bonded_fit.json`
-reports eight torsions. Reproduced on a synthetic block of eight `1 2 3 4 9 …` lines: the result is eight
-`1 2 3 4 2 -100 122.82647` lines. The fix is to rewrite the dihedral once and drop its sibling lines; it changes
-fitted science, so it waits for the user. No run tree holds a `bonded_fit.json` yet (`67bc79a995d6`'s stage 3 has
-none), so nothing has consumed the wrong stiffness. Also noted: a Bartender fit is never refined although the panel
-offers the choice.
+**The torsion refinement's eight-line defect is fixed** (`16709b7`). `bonded.refine` now groups a dihedral's lines
+per `[ dihedrals ]` block, writes the one harmonic term from the first line and drops the siblings, so a
+circular-harmonic fit lands the fitted stiffness once and `bonded_fit.json` counts one torsion. Pinned by
+`test_a_fitted_torsion_is_rewritten_once_not_once_per_harmonic`,
+`test_legacy_keeps_every_fitted_harmonic_line` and `test_two_molecule_blocks_keep_their_own_torsions`; verified on
+the real DDM fit (one `1 2 5 6 2 -93.202814 6.6283454`, k 6.628, not eight times that). No run consumed the buggy
+path: no run tree holds a `bonded_fit.json`, and the one stored circular fit (`10c318949…` revision 1) recorded the
+choice while its refinement actually ran legacy, so it never wrote `funct 2`. `funct 2` is the calibrated spelling
+(DDM_CALIBRATION's documented baseline), not a defect. Two things the fix exposed remain open: `dihedral-fit` skips
+`funct 2`, so it has no circular-harmonic reading (the panel's caveat now says so), and a fit queued with an unsaved
+circular choice records that choice in the revision while its refinement reads the mapping's saved pair (evidence:
+that revision's report carries `options: {}` and zero torsions). A Bartender fit is still never refined although
+the panel offers the choice.
+
+**The round's other three items are built.** `17fe2c4` replaces the Bond Interactions fieldset's one sentence with
+the approved explainer — visible "What it is for" and caveat, one closed disclosure holding "How it works" and
+"What a run needs", the corrected facts, and no eight-term claim. `99770d6` puts the four Shape models (AA, Mapped
+raw, Mapped ring-scaled, Simulated CG) above the scene, marks the simulated row with a text "this run", adds the
+AA-derived-context sentence and prints the AA source run id in the section's identity line; presentation only.
+`b55b9e2` adds the pdc feature's first analysis kind, `pdc-structure`: the run's own leg through the pdc segmenter,
+one bounded sample (`gmx trjconv`, ≤200 frames, then `-pbc cluster` on the detergent), `gmx gyrate`/`gmx rdf`/
+`gmx mindist` on it, the run's own micelle criterion, a report carrying method/sampling/caveats and
+`scientifically_validated: false`, a read route and the Run view section (empty, published, no protein, fallback).
+Clustering is part of the measurement: on `d17de0a443f3` the unclustered sample's Rg was 6.48 nm against 1.96 nm
+clustered. One timed live producer run on that run: 34.5 s, 200 of 50,001 frames (stride 251), Rg 1.965 nm, largest
+cluster 79.97 of 80, head–head first peak 0.45 nm, tail–tail 0.50 nm, contacts "not defined" (no protein), and the
+fallback reason read from the manifest. Checks after the round: fast 2547 passed / 1 xfailed, browser 338, pdc unit
+657, pdc browser 3, ruff clean. The dashboard was not restarted (the production run above still holds the unit); the
+new route and kind need one. The defaults the producer chose are answerable against
+`docs/plans/2026-11-09-pdc-analyses-definitions.md`'s questions without touching the UI: RDF pairs
+protein→head/head–head/tail–tail with `-norm rdf`, 0.05 nm bins, `r_max` = min(2 nm, half the box); the contact
+cutoff is the run's own micelle contact distance; the shape numbers are the detergent-only tensor eigenvalues; the
+whole leg is sampled and summarised in five blocks.
 
 ## Current state (2026-11-02)
 
@@ -289,8 +314,13 @@ offers the choice.
 | Align trajectory's initial state | the form prefills defaults, so a stored series built with `fit: rot+trans` opens with the box unchecked while its summary line says the fit | decide whether Frame options should prefill the stored build's arguments instead of the defaults |
 | Analysis checklist membership | the checklist lists the run's attempted kinds; a kind never queued (e.g. an automatic kind that has not run) is absent | add a server-side "what this run can compute" list and show those unticked, if wanted |
 | Runs filters | built 2026-11-09 (`119d5c0`): dense only, checkbox run type/status/method, multi-value `/api/jobs`, `GET /api/run-filters` | the molecule and created-after facets were not added; its own slice if wanted |
-| Torsion refinement on a `funct 9` dihedral | `bonded.refine` rewrites each of the eight lines as its own harmonic term, so a circular-harmonic fit lands 8x the fitted stiffness; reproduced on a synthetic block; no run tree has a `bonded_fit.json` yet | decide the fix (rewrite the dihedral once, drop its siblings), pin it with a unit test, and decide whether a Bartender fit should be refinable at all |
-| New routes need a restart | `119d5c0` added `/api/run-filters` and repeated `/api/jobs` values; the dashboard was not restarted because `92971317fbe2` was in production | restart after that run finishes, then re-check the Runs filters live |
+| Torsion refinement on a `funct 9` dihedral | fixed 2026-11-09 (`16709b7`): one harmonic term per dihedral, siblings dropped, pinned by three unit tests; `funct 2` is the calibrated spelling; no consumed data was affected | none — keep the grouping when the refiner changes, and decide whether a Bartender fit should be refinable at all |
+| A fit's unsaved torsion choice | the revision records what the job started with, but `refine_bonded` reads the mapping's saved `model.json`; measured on `10c318949…` revision 1 (circular in `options`, `{}` in the report) | decide: pass the job's options to the refiner, or record the mapping's options |
+| `dihedral-fit` has no circular reading | it skips `funct 2`, which is the circular model's spelling, so it checks a legacy fit only; the panel caveat now says so | add a harmonic branch, or keep it as the legacy-only check |
+| pdc `pdc-structure` defaults | built with the document's recommended defaults (RDF pairs, 0.05 nm bins, `r_max` = min(2 nm, half the box), the run's own contact cutoff, detergent-only shape tensor) | change any of them; each is stated in the report's method |
+| pdc contacts on a protein run | `gmx mindist -on` contacts are produced only when the run records a protein; no completed protein pdc run exists to verify it on | verify on the first completed protein pdc run, then its report is comparable with the micelle-only one |
+| pdc energy and SDF | not built: `pdc-interaction-energy` waits on Q10–Q12/Q14/Q15, `pdc-sdf` on Q18–Q25 | answer the questions, then build in the document's order (`pdc-structure` first, already done) |
+| New routes need a restart | `119d5c0` added `/api/run-filters` and repeated `/api/jobs` values; `16709b7`/`b55b9e2` added the refinement fix and the pdc kind. The dashboard was not restarted because `92971317fbe2` was in production | restart after that run finishes, then check the Runs filters and the Structure section live |
 | pdc CG analysis definitions | `pdc-structure` (RDF, micelle eccentricity, aggregation/contacts), `pdc-interaction-energy` (GROMACS rerun with energy groups) and optional `pdc-sdf` need science definitions | settle the energy pairs/terms/sampling, RDF selections and normalization, eccentricity definition and SDF grid, then build `pdc-structure` first |
 | NGL is eager on every panel | one blocking 1,284,224 B script on every page, 68% of the shell's script bytes; Runs, New run and Bonded build no scene | make it lazy like Plotly (`vendor/ngl-loader.js`) and load it for Run view/Complexes/Bead editor; `window.NGL` has readers in three distributions, so this is its own measured slice |
 | Plotly warm and the default figure | a panel that plots asks for its own bundle at mount, so a shown-panel warm cannot help it (Bonded first content 4275 ms); a cold Run view also pulls a 10,300.8 KB interactive figure | decide plan open decisions 2 and whether the first figure waits for a click or visibility; do not prefetch hidden panels |
@@ -422,6 +452,19 @@ offers the choice.
   caught / 1 survived. `pytest.ini` owns tier counts; do not copy moving counts into this file.
 
 ## Landed slices, newest first
+
+- **2026-11-09 pdc Structure**: the pdc feature's first kind, `pdc-structure` — one bounded, clustered sample
+  of the run's own leg read by `gmx gyrate`/`rdf`/`mindist`, the run's own micelle criterion, the schema
+  report, the read route and the Run view section. Commit `b55b9e2`.
+
+- **2026-11-09 Shape model labels**: the four SASA models named above the scene, a text "this run" marker,
+  the AA-derived-context sentence and the AA source id. Commit `99770d6`.
+
+- **2026-11-09 Torsion explainer**: the Bond Interactions fieldset's dense sentence replaced by the approved
+  Why / How / What / Caveat copy, with the corrected facts. Commit `17fe2c4`.
+
+- **2026-11-09 Torsion refinement fix**: one harmonic term per fitted torsion, its sibling `funct 9` lines
+  dropped, and three unit tests. Commit `16709b7`.
 
 - **2026-11-09 Runs filters**: the panel is one dense table with a checkbox **Filters** block (run type, status,
   method); `GET /api/run-filters` is the vocabulary; `/api/jobs` takes repeated values; the method labels live

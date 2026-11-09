@@ -52,7 +52,7 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 - An AA-CG run always fits its own bonded terms (`cg.AA_CG_PROFILE`) unless its mapping carries a current revision,
   which it then consumes and records that it did.
 - `ff_inter` writes `funct 9`: one `phi C mult` triplet per line, eight lines per dihedral. A reader that assumes
-  `funct 1` refuses the topology; one that reads each line as a dihedral measures the same torsion eight times.
+  `funct 1` refuses the topology; one that reads each line as a dihedral measures one torsion eight times, and a writer must collapse the block's lines (`refine`).
 - `ff_assess` scores against histograms it does not make. A revision recording none still runs, and its assessment stage
   records `skipped` with that reason rather than scoring 0.00.
 - `coordinator.automatic_analyses` is the one resolver for a run type's default analyses; `kinds.for_every_run()`
