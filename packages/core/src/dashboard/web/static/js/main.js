@@ -6,6 +6,7 @@ import { createMappings } from './mappings.js';
 import { createCompositions } from './compositions.js';
 import { createRunView } from './run-view.js';
 import { initModules } from './modules.js';
+import { setPanelBusy } from './panel-busy.js';
 
 //: The lists New run, Mappings and Bonded read, warmed once the shell is idle. They are catalogues -- changed only by
 //: an action that invalidates them -- so a later panel mount is a cache hit instead of a round trip. `/api/jobs`, the
@@ -48,6 +49,9 @@ export async function boot(specs = {}, extensions = []) {
     ? pending[panels.complexes].then(module => module.createPdc())
     : null;
   let osmotic = null;
+  //: The pdc panel's instance, created after the feature imports resolve; the tab listener below reads it, so it
+  //: lives at boot's scope rather than inside the try that awaits it.
+  let pdc = null;
   const runs = createRuns({
     onClone: source => newRun.cloneRun(source),
     onDeleted: id => newRun.clearDeletedClone(id),
@@ -73,15 +77,27 @@ export async function boot(specs = {}, extensions = []) {
   };
   Object.assign(window, hooks);
 
-  const modules = {};
-  for (const [panel, promise] of Object.entries(pending)) modules[panel] = await promise;
-  const pdc = pdcReady ? await pdcReady : null;
-  osmotic = modules[panels['osmotic-pressure']] ? modules[panels['osmotic-pressure']].createOsmoticSeries() : null;
-  if (pdc) window.pdcSetRun = pdc.setRun;
+  // The one panel the server marked open cannot mount until the feature imports below resolve, so it says so in the
+  // meantime. Read back the aria-selected tab rather than decide again, the same way `initializeTabs` does.
+  const openTab = document.querySelector('nav.subtabs [role=tab][aria-selected="true"][data-tab]')
+    || document.querySelector('nav.subtabs [role=tab][data-tab]');
+  const openSection = openTab ? document.getElementById(openTab.dataset.tab) : null;
+  setPanelBusy(openSection, 'Loading the dashboard modules…');
+  try {
+    const modules = {};
+    for (const [panel, promise] of Object.entries(pending)) modules[panel] = await promise;
+    pdc = pdcReady ? await pdcReady : null;
+    osmotic = modules[panels['osmotic-pressure']] ? modules[panels['osmotic-pressure']].createOsmoticSeries() : null;
+    if (pdc) window.pdcSetRun = pdc.setRun;
+  } finally {
+    setPanelBusy(openSection, '');
+  }
 
   document.addEventListener('dashboard:tab', event => {
     const id = event.detail.id;
+    const section = document.getElementById(id);
     const current = panelIds();
+    setPanelBusy(section, 'Loading this panel…');
     const loading = id===current.runs?runs.mount()
       : id===current['run-view']?runView.mount()
       : id===current['new-run']?newRun.mount()
@@ -92,7 +108,7 @@ export async function boot(specs = {}, extensions = []) {
     Promise.resolve(loading).catch(error=>{
       const target=document.querySelector(id===current['new-run']?'#launch-blocker':'#notice');
       target.textContent=error.message;target.hidden=false;
-    });
+    }).finally(()=>setPanelBusy(section, ''));
   });
   initializeTabs();
   // After the open panel has mounted: never on the critical path. A short settle first, then an idle slot, so the

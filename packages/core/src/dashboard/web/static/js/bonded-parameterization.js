@@ -36,7 +36,7 @@
  * `window.__bondedPollMs` is the one test seam: the browser tier sets the cadence to a few hundred
  * milliseconds, and one test in that tier runs the default, so the default cannot rot unnoticed.
  */
-import { $, api, cachedApi, post, setText } from './shared.js';
+import { $, api, cachedApi, post, setText, liveVisible, whenLive } from './shared.js';
 
 /** Fast_Forward's own `-constraints` default, and this repository's convention. Stated so the field can show it. */
 export const DEFAULT_CONSTRAINTS = 10000;
@@ -171,7 +171,7 @@ export function setupParameterization({host, onTerms}) {
   const pollMilliseconds = () => Number(window.__bondedPollMs) || POLL_MS;
   const visible = () => {
     const panel = host.closest('.panel') || host;
-    return !panel.hidden && !document.hidden;
+    return !panel.hidden && liveVisible();
   };
   const date = iso => (typeof iso === 'string' ? iso.slice(0, 10) : '');
   const clock = iso => (typeof iso === 'string' ? iso.slice(11, 19) : '');
@@ -445,7 +445,7 @@ export function setupParameterization({host, onTerms}) {
     if (!job || !LIVE.has(job.status) || timer) return;
     schedule(jobToken);
   }
-  document.addEventListener('visibilitychange', resume);
+  whenLive(resume);
   document.addEventListener('dashboard:tab', resume);
 
   async function cancel() {

@@ -9,6 +9,7 @@ Every run, figure and answer is built by this test in its own workspace; the ana
 where the test is about what the card asks for, and real where it is about what it draws.
 """
 import re
+import time
 
 from playwright.sync_api import expect
 
@@ -204,7 +205,7 @@ def test_a_running_task_is_listed_with_a_cancel_and_the_cancel_posts(dashboard, 
         state['tasks'][0]['status'] = 'cancelling'
         route.fulfill(json={'id': 'task-9', 'status': 'cancelling'})
 
-    page.route(re.compile(rf'/api/jobs/{A_RUN}/analyses$'), analyses)
+    page.route(re.compile(rf'/api/jobs/{A_RUN}/analyses(?:\?.*)?$'), analyses)
     page.route(re.compile(rf'/api/jobs/{A_RUN}/analyses/task-9/cancel$'), cancel)
     open_view(page, live_page)
     card = page.locator('.run-view-analysis').first
@@ -232,7 +233,7 @@ def test_the_task_list_keeps_one_row_per_kind_and_shows_the_latest_error(dashboa
          'created_at': '2026-11-06T01:00:00+00:00'},
     ]}
 
-    page.route(re.compile(rf'/api/jobs/{A_RUN}/analyses$'), lambda route: route.fulfill(json=state['tasks']))
+    page.route(re.compile(rf'/api/jobs/{A_RUN}/analyses(?:\?.*)?$'), lambda route: route.fulfill(json=state['tasks']))
     page.route(re.compile(rf'/api/jobs/{A_RUN}/artifacts/.*console\.log.*'),
                lambda route: route.fulfill(body='warning\nValueError: LMNG_ff_inter.itp:47: a bond needs 5 fields, found 2\n',
                                            content_type='text/plain'))
@@ -245,4 +246,53 @@ def test_the_task_list_keeps_one_row_per_kind_and_shows_the_latest_error(dashboa
     expect(listing).not_to_contain_text('Command old')
     expect(listing).not_to_contain_text('Command new')
     expect(listing.locator('a.task-log')).to_have_count(1)
+    assert errors == [], errors
+
+
+def test_the_card_stops_polling_while_the_run_view_is_hidden_and_reads_on_return(dashboard, live_page):
+    """A card on another panel (or behind a hidden tab) asks nothing; returning runs the same reload the timer would.
+
+    The task line is the progress line, so the resumed answer must overwrite it in the same pass: a paused card that
+    came back to its old phase would read as a frozen run. Counting is from the route, not from a flag.
+    """
+    seed(dashboard)
+    page, errors = live_page
+    page.add_init_script('window.__runViewPollMs = 300')
+    state = {'tasks': [{'id': 'task-7', 'kind': 'stability', 'status': 'running',
+                        'directory': 'analyses/stability/test', 'progress': 'phase one',
+                        'created_at': '2026-11-09T10:00:00+00:00'}]}
+    hits = []
+
+    def analyses(route):
+        hits.append(route.request.url)
+        route.fulfill(json=state['tasks'])
+
+    page.route(re.compile(rf'/api/jobs/{A_RUN}/analyses(?:\?.*)?$'), analyses)
+    open_view(page, live_page)
+    expect(tasks(page)).to_contain_text('phase one')
+
+    deadline = time.monotonic() + 10
+    while len(hits) < 2 and time.monotonic() < deadline:
+        page.wait_for_timeout(50)
+    assert len(hits) >= 2, f'the card never polled a running task: {len(hits)}'
+
+    page.evaluate("""() => {
+      document.querySelector('#runview').hidden = true;
+      document.dispatchEvent(new CustomEvent('dashboard:tab', {detail: {id: 'runs'}}));
+    }""")
+    page.wait_for_timeout(1500)          # five cadences at the seam, plus the one already pending
+    settled = len(hits)
+    page.wait_for_timeout(900)
+    assert len(hits) == settled, f'the card polled {len(hits) - settled} times with the panel hidden'
+
+    state['tasks'][0]['progress'] = 'phase two'
+    page.evaluate("""() => {
+      document.querySelector('#runview').hidden = false;
+      document.dispatchEvent(new CustomEvent('dashboard:tab', {detail: {id: 'runview'}}));
+    }""")
+    deadline = time.monotonic() + 2
+    while len(hits) == settled and time.monotonic() < deadline:
+        page.wait_for_timeout(25)
+    assert len(hits) > settled, 'the card did not read immediately on return'
+    expect(tasks(page)).to_contain_text('phase two')
     assert errors == [], errors

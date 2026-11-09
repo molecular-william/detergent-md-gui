@@ -55,6 +55,8 @@ AREAS = {
         'unit/test_model_topology.py', 'unit/test_reference_caching.py', 'unit/test_trajectory_header.py',
         # The on-demand frame series Run view's player reads: an analysis kind and its producer.
         'unit/test_frame_series.py', 'integration/test_frame_series_analysis.py',
+        # The surfaces producer: reviewed GROMACS knobs, bounded parallel variants and per-variant progress.
+        'unit/test_surfaces.py',
         'integration/test_analysis_*', 'integration/test_assessment_rescore.py', 'integration/test_default_analyses.py',
         'integration/test_distance_diagnostics_api.py',
         'integration/test_transferability_api.py',
@@ -80,6 +82,7 @@ AREAS = {
         'integration/test_api_error_contract.py', 'integration/test_workspace_panels.py',
         'integration/test_collection_shapes.py',
         'browser/test_dashboard_browser.py', 'browser/test_lazy_loading.py', 'browser/test_plotly_lazy_browser.py',
+        'browser/test_panel_loading_browser.py',
         'browser/test_workspace_navigation_browser.py',
     ),
     'runs': (

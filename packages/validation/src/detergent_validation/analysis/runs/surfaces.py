@@ -5,14 +5,21 @@ reconstruct the re-entrant solvent-excluded surface. GROMACS dot surfaces are
 retained separately for inspection.
 """
 import json
+import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
 from dashboard import files
+from dashboard.analysis import progress
 from dashboard.analysis.runs.radii import AA_RADII, PROBE
 from dashboard.execution import tools
 from dashboard.models import sugars as carbohydrates
+
+NDOTS = 240
+SASA_TIMEOUT = 300
+SNAPSHOT_TIMEOUT = 120
 
 
 def envelope(positions, radii, spacing=.04):
@@ -35,6 +42,69 @@ def align(points, target, physical):
     u,_,v=np.linalg.svd((a-a.mean(axis=0)).T@(b-b.mean(axis=0)))
     fix=np.eye(3);fix[2,2]=np.linalg.det(u@v)
     return (points-a.mean(axis=0))@(u@fix@v)+b.mean(axis=0)
+
+
+def _sasa_commands(gmx):
+    """The two GROMACS calls one variant makes: full trajectory, then the one-frame Connolly snapshot.
+
+    Pure so the reviewed knobs -- probe, ndots, surface/output -- are pinned without running GROMACS.
+    """
+    full = [gmx, 'sasa', '-s', 'surface.gro', '-f', 'surface.xtc', '-o', 'sasa.xvg',
+            '-probe', str(PROBE), '-ndots', str(NDOTS), '-surface', 'all', '-output', 'all']
+    snapshot = [gmx, 'sasa', '-s', 'surface.gro', '-f', 'surface.gro', '-o', 'snapshot-sasa.xvg',
+                '-q', 'connolly.pdb', '-probe', str(PROBE), '-ndots', str(NDOTS), '-surface', 'all',
+                '-output', 'all']
+    return full, snapshot
+
+
+def _write_variant(label, universe, reader, radii, model, work):
+    """Write one variant's XTC/GRO/radii and return its frame-0 positions in nm.
+
+    Runs on the main thread: the MDAnalysis readers are stateful, and a reader writes its offsets cache beside its
+    input, so two readers of the same file must never overlap.
+    """
+    import MDAnalysis as mda
+    mapped = label.startswith('Mapped')
+    first = None
+    # Derived portable GRO/XTCs keep source times; source trajectories never change.
+    with mda.Writer(str(work/'surface.xtc'), n_atoms=len(universe.atoms)) as writer:
+        for idx, frame in enumerate(reader.trajectory):
+            if mapped:
+                positions = carbohydrates.coordinates(model, frame.positions, scaled=label == 'Mapped ring-scaled')
+                universe.atoms.positions = positions; universe.dimensions = frame.dimensions
+                universe.trajectory.ts.time = frame.time
+            if not np.isfinite(universe.atoms.positions).all(): raise ValueError('Nonfinite surface coordinates')
+            if idx == 0:
+                first = universe.atoms.positions.copy()/10
+                universe.atoms.write(str(work/'surface.gro'))
+            writer.write(universe.atoms)
+    (work/'vdwradii.dat').write_text(''.join(f'{a.resname} {a.name} {r}\n' for a, r in zip(universe.atoms, radii)))
+    return first
+
+
+def _gmx_variant(label, work, gmx):
+    """Run one variant's two gmx commands in its own directory; return (commands, statistics).
+
+    `work` is `<run>/analysis/surfaces/<variant>`, so a command's recorded cwd is run-relative. Raises with the label
+    and the failed command's stderr tail, which the orchestrator joins across variants.
+    """
+    root = work.parents[2]
+    commands = []
+    for command, log, timeout in zip(_sasa_commands(gmx), ('sasa.log', 'connolly.log'),
+                                     (SASA_TIMEOUT, SNAPSHOT_TIMEOUT)):
+        result = subprocess.run(command, cwd=work, text=True, capture_output=True, timeout=timeout)
+        (work/log).write_text(result.stdout+result.stderr)
+        commands.append({'cwd': str(work.relative_to(root)), 'command': command, 'exit_code': result.returncode})
+        if result.returncode: raise RuntimeError(f'{label}: {result.stderr[-2000:]}')
+    try:
+        values = np.array([[float(x) for x in line.split()[:2]] for line in (work/'sasa.xvg').read_text().splitlines() if line.strip() and not line.startswith(('#', '@'))])
+        if len(values) < 2 or not np.isfinite(values).all(): raise ValueError('SASA requires at least two finite frames')
+        stats = {'frames': len(values), 'start_ps': float(values[0, 0]), 'end_ps': float(values[-1, 0]),
+                 'mean_nm2': float(values[:, 1].mean()), 'std_nm2': float(values[:, 1].std()),
+                 'xvg': str((work/'sasa.xvg').relative_to(root))}
+    except Exception as exc:
+        raise RuntimeError(f'{label}: {exc}') from exc
+    return commands, stats
 
 
 def generate(run_dir):
@@ -64,35 +134,31 @@ def generate(run_dir):
     if not gmx: raise FileNotFoundError('GROMACS not available')
     first={};stats={};commands=[]
     try:
-        for label,(universe,radii) in variants.items():
-            work=output/label.lower().replace(' ','-');work.mkdir()
-            mapped=label.startswith('Mapped')
-            reader=aa if mapped else universe
-            # Derived portable GRO/XTCs keep source times; source trajectories never change.
-            with mda.Writer(str(work/'surface.xtc'),n_atoms=len(universe.atoms)) as writer:
-                for idx,frame in enumerate(reader.trajectory):
-                    if mapped:
-                        positions=carbohydrates.coordinates(model,frame.positions,scaled=label=='Mapped ring-scaled')
-                        universe.atoms.positions=positions;universe.dimensions=frame.dimensions
-                        universe.trajectory.ts.time=frame.time
-                    if not np.isfinite(universe.atoms.positions).all(): raise ValueError('Nonfinite surface coordinates')
-                    if idx==0:
-                        first[label]=universe.atoms.positions.copy()/10
-                        universe.atoms.write(str(work/'surface.gro'))
-                    writer.write(universe.atoms)
-            (work/'vdwradii.dat').write_text(''.join(f'{a.resname} {a.name} {r}\n' for a,r in zip(universe.atoms,radii)))
-            cmd=[gmx,'sasa','-s','surface.gro','-f','surface.xtc','-o','sasa.xvg','-probe',str(PROBE),'-ndots','240','-surface','all','-output','all']
-            result=subprocess.run(cmd,cwd=work,text=True,capture_output=True,timeout=300)
-            (work/'sasa.log').write_text(result.stdout+result.stderr);commands.append({'cwd':str(work.relative_to(root)),'command':cmd,'exit_code':result.returncode})
-            if result.returncode: raise RuntimeError(result.stderr[-2000:])
-            dots=[gmx,'sasa','-s','surface.gro','-f','surface.gro','-o','snapshot-sasa.xvg','-q','connolly.pdb','-probe',str(PROBE),'-ndots','240','-surface','all','-output','all']
-            result=subprocess.run(dots,cwd=work,text=True,capture_output=True,timeout=120)
-            (work/'connolly.log').write_text(result.stdout+result.stderr);commands.append({'cwd':str(work.relative_to(root)),'command':dots,'exit_code':result.returncode})
-            if result.returncode: raise RuntimeError(result.stderr[-2000:])
-            values=np.array([[float(x) for x in line.split()[:2]] for line in (work/'sasa.xvg').read_text().splitlines() if line.strip() and not line.startswith(('#','@'))])
-            if len(values)<2 or not np.isfinite(values).all(): raise ValueError('SASA requires at least two finite frames')
-            stats[label]={'frames':len(values),'start_ps':float(values[0,0]),'end_ps':float(values[-1,0]),'mean_nm2':float(values[:,1].mean()),'std_nm2':float(values[:,1].std()),'xvg':str((work/'sasa.xvg').relative_to(root))}
-        target=first['Mapped raw']
+        # Extract each variant on this thread, submit its gmx work as soon as its XTC is closed, then extract the
+        # next: that overlaps the 26 s of extraction with the AA variant's long full-trajectory sasa.
+        with ThreadPoolExecutor(max_workers=min(len(variants),os.cpu_count() or 1)) as pool:
+            futures={}
+            for label,(universe,radii) in variants.items():
+                work=output/label.lower().replace(' ','-');work.mkdir()
+                mapped=label.startswith('Mapped')
+                reader=aa if mapped else universe
+                progress.report(f'Surfaces: extracting {label}')
+                first[label]=_write_variant(label,universe,reader,radii,model,work)
+                progress.report(f'Surfaces: {label} · gmx sasa')
+                futures[label]=pool.submit(_gmx_variant,label,work,gmx)
+                futures[label].add_done_callback(lambda _,label=label: progress.report(f'Surfaces: {label} done'))
+            # Join in variant order so metadata['commands'] is deterministic even when completions interleave.
+            failures=[]
+            for label,future in futures.items():
+                try:
+                    variant_commands,variant_stats=future.result()
+                except Exception as exc:
+                    failures.append(str(exc) if label in str(exc) else f'{label}: {exc}')
+                    continue
+                commands.extend(variant_commands);stats[label]=variant_stats
+            if failures: raise RuntimeError('surface variants failed: '+'; '.join(failures))
+            progress.report('Surfaces: envelopes and figure')
+            target=first['Mapped raw']
         first['Simulated CG']=align(first['Simulated CG'],target,physical)
         center=first['AA'].mean(axis=0)
         meshes={label:envelope(positions-center,variants[label][1]) for label,positions in first.items()}

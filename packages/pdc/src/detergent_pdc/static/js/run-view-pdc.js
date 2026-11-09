@@ -12,7 +12,7 @@
 //   * the stage-chain table under a monitor: `/api/jobs/<id>/trajectory` says which legs are one system and where
 //     the system is rebuilt, and the table prints that answer. The panel fetches the answer; this module renders it.
 import { registerRunViewExtension } from '/static/js/run-view.js';
-import { api, post, notice } from '/static/js/shared.js';
+import { api, post, notice, liveVisible, whenLive } from '/static/js/shared.js';
 
 //: The run type this extension serves.
 const RUN_TYPE = 'pdc';
@@ -122,6 +122,7 @@ function wholeEstimate(raw, dtPs, decimals) {
 //: The panel under the Trajectory block: rebuild the derived whole.xtc from the raw one, with the size choices.
 //: It is the pdc feature's card because `whole.xtc` is this run type's convention; the engine only gives it the slot.
 function mountWholeTrajectory(node, job, isCurrent) {
+  if (node.wholeResumeStop) { node.wholeResumeStop(); node.wholeResumeStop = null; }
   node.replaceChildren();
   if (!job || !job.id) return;
   const details = document.createElement('details');
@@ -194,14 +195,15 @@ function mountWholeTrajectory(node, job, isCurrent) {
 
   function arm() {
     if (timer) return;
+    if (!liveVisible()) return;              // resumed by `resumeStop`'s listener when the page is live again
     timer = setTimeout(async () => {
       timer = null;
-      if (!isCurrent()) return;
+      if (!isCurrent() || !liveVisible()) return;
       const answer = await load();
       if (answer && (answer.state || {}).status === 'running') arm();
     }, WHOLE_POLL_MS);
   }
-
+  node.wholeResumeStop = whenLive(() => { if (isCurrent() && !timer) arm(); });
   dt.addEventListener('input', () => {
     estimate.textContent = wholeEstimate(dtValue(), Number(dt.value), Number(decimals.value));
   });

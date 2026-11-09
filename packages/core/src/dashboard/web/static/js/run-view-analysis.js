@@ -27,7 +27,8 @@
 // which section is showing, hides it on Figures (that section is the figure viewer, not a perspective), refreshes
 // it when an analysis settles and resets it when the run changes. The engine passes the section names through
 // without knowing them: `setMode(name)` is the whole vocabulary it shares with the feature.
-import { $, api, post } from './shared.js';
+import { $, api, post, liveVisible, whenLive, liveApi, panelIds } from './shared.js';
+import { setPanelBusy } from './panel-busy.js';
 import { RunFigureViewer } from './figures.js';
 import { renderDistanceDiagnostics } from './runs-diagnostics.js';
 import { analysisMapFor, analysisNoticeFor, analysisSectionsFor } from './run-view-analysis-extension.js';
@@ -103,6 +104,14 @@ export function createAnalysis({root, side}) {
   let mapMode = '';                     // the last section the map was asked to show
 
   const setNote = text => { note.textContent = text || ''; };
+
+  //: The run view section hiding the card is the same condition `run-view.js` reads; polling stops while the reader
+  //: is on another panel and the card comes back with an immediate read, not a lighter status-only one.
+  const shown = () => {
+    const section = $('#' + panelIds()['run-view']);
+    return !!section && !section.hidden;
+  };
+  const liveShown = () => liveVisible() && shown();
 
   // -------------------------------------------------------------------------------------------- the list and the figures
 
@@ -285,7 +294,12 @@ export function createAnalysis({root, side}) {
       line.textContent = `This section could not be drawn: ${error.message}`;
       pane.append(line);
     };
-    Promise.resolve(section.mount(context(name, mine))).catch(fail);
+    // A section reads its own record before it can draw; the pane says so meanwhile, and the band clears even when the
+    // section writes its whole markup over the line or fails, because the line is the pane's first child, not the
+    // section's state.
+    setPanelBusy(pane, 'Reading this section…');
+    Promise.resolve(section.mount(context(name, mine))).catch(fail)
+      .finally(() => { if (mine === token) setPanelBusy(pane, ''); });
     if (label) label.disabled = false;
   }
 
@@ -416,7 +430,9 @@ export function createAnalysis({root, side}) {
     const mine = token;
     let tasks;
     try {
-      tasks = await api(`/api/jobs/${encodeURIComponent(job.id)}/analyses`);
+      // The polled list is the summary view: the same records without the heavy fields this card never reads, and
+      // shared with the Trajectory block's poll through `liveApi` so one tick asks once.
+      tasks = await liveApi(`/api/jobs/${encodeURIComponent(job.id)}/analyses?view=summary`);
     } catch (error) {
       if (mine === token) setNote(`This run's analyses could not be read: ${error.message}`);
       return;
@@ -436,8 +452,23 @@ export function createAnalysis({root, side}) {
   function schedule(tasks, mine) {
     if (timer) { clearTimeout(timer); timer = null; }
     if (!(tasks || []).some(task => UNSETTLED.includes(task.status))) return;
-    timer = setTimeout(() => { if (mine === token) reload().catch(() => {}); }, pollMilliseconds());
+    if (!liveShown()) return;
+    timer = setTimeout(() => {
+      timer = null;
+      if (mine === token && liveShown()) reload().catch(() => {});
+    }, pollMilliseconds());
   }
+
+  //: Back on screen: the same `reload` the timer would run, so the task line and progress are overwritten from one
+  //: answer. Nothing is fetched when every task is already settled -- that is still the card's stop rule.
+  function resume() {
+    if (!job || !liveShown()) return;
+    if (![...statuses.values()].some(status => UNSETTLED.includes(status))) return;
+    if (timer) { clearTimeout(timer); timer = null; }
+    reload().catch(() => {});
+  }
+  whenLive(resume);
+  document.addEventListener('dashboard:tab', resume);
 
   async function queue(path, body, sentence) {
     if (!job) return;

@@ -15,6 +15,7 @@ here is what the panel asks for and what it does with the answer.
 """
 import json
 import re
+import time
 
 import pytest
 from playwright.sync_api import expect
@@ -202,7 +203,7 @@ def install(page, state):
         route.fulfill(content_type='application/json', body=json.dumps(state['frames'][attempt_of(route.request.url)]))
 
     page.route(re.compile(rf'/api/jobs/{run_id}/trajectory$'), lambda route: route.fulfill(json=state['answer']))
-    page.route(re.compile(rf'/api/jobs/{run_id}/analyses$'), lambda route: answer_analyses(route, state))
+    page.route(re.compile(rf'/api/jobs/{run_id}/analyses(?:\?.*)?$'), lambda route: answer_analyses(route, state))
     page.route(re.compile(rf'/api/jobs/{run_id}/frame-series$'), lambda route: answer_post(route, state))
     page.route(re.compile(rf'/api/jobs/{run_id}/artifacts/.*/frames\.json'), frame_file)
     page.route(re.compile(rf'/api/jobs/{run_id}/artifacts/.*/run-frames\.pdb'),
@@ -839,3 +840,42 @@ def test_the_block_plays_and_builds_in_both_workspaces(dashboard, live_page, run
     assert errors == [], errors
 
 
+
+
+def test_both_cards_share_one_analyses_request_per_tick(dashboard, live_page):
+    """The Analysis card and the Trajectory block poll the same run: one `/analyses` request per tick, not two.
+
+    Both cards ask for the summary view of the same path through `liveApi`, so while one answer is in flight the
+    other waits for it. The route is held open on purpose: with a settled answer each caller would start its own
+    request, and this test is about the shared in-flight promise, not about a cache (there is none).
+    """
+    seed(dashboard)
+    page, errors = live_page
+    page.add_init_script('window.__runViewPollMs = 150')
+    run_id = ENGINE_RUN
+    tasks = [series_task(run_id, default_arguments(run_id), status='queued')]
+    held = []
+    page.route(re.compile(rf'/api/jobs/{run_id}/trajectory$'),
+               lambda route: route.fulfill(json=segments_answer(run_id)))
+    page.route(re.compile(rf'/api/jobs/{run_id}/analyses(?:\?.*)?$'), lambda route: held.append(route))
+    open_panel(page, live_page, WORKSPACES[run_id], run_id)
+
+    # The two mount reads share the first answer even though they start it at different times.
+    deadline = time.monotonic() + 10
+    while not held and time.monotonic() < deadline:
+        page.wait_for_timeout(25)
+    assert held, 'neither card asked for the run\'s analyses'
+    page.wait_for_timeout(600)           # more than one 150 ms cadence
+    assert len(held) == 1, f'the second card started its own request: {len(held)}'
+
+    # Release it; both cards settle and arm their own timer. The next tick must again be one request.
+    held.pop().fulfill(json=tasks)
+    deadline = time.monotonic() + 10
+    while not held and time.monotonic() < deadline:
+        page.wait_for_timeout(25)
+    assert held, 'neither card polled after the answer settled'
+    page.wait_for_timeout(1200)          # eight cadences: a second poller would have asked by now
+    assert len(held) == 1, f'the tick was requested {len(held)} times, not once'
+    for route in held:
+        route.fulfill(json=tasks)
+    assert errors == [], errors

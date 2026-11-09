@@ -4,7 +4,7 @@ import threading
 from pathlib import Path
 
 from dashboard.execution import assessment_rescore
-from flask import Blueprint, abort, jsonify
+from flask import Blueprint, abort, jsonify, request
 
 from ...analysis.runs import layout
 from .common import coordinator, json_object
@@ -172,6 +172,13 @@ def rescore_assessment(jid):
                     'revision': attempt['revision']['revision']}), 202
 
 
+#: What a 2 s poller reads: the same attempt records with the heavy fields left out (`result`, `environment`,
+#: `tools`, `command`). `payload` and `outputs` stay -- the Trajectory block needs them for a frame series -- and
+#: `progress` is what makes a running attempt readable. The default answer is the whole record.
+ANALYSIS_SUMMARY_FIELDS = ('id', 'kind', 'status', 'created_at', 'started_at', 'ended_at', 'error', 'directory',
+                           'progress', 'payload', 'outputs', 'stable')
+
+
 @blueprint.get('/api/jobs/<jid>/analyses')
 def analyses_api(jid):
     c = coordinator()
@@ -180,6 +187,8 @@ def analyses_api(jid):
         if task['status'] == 'running':
             try: task['progress'] = json.loads((c.run_path(job)/task['directory']/'progress.json').read_text())['phase']
             except (OSError, ValueError): pass
+    if request.args.get('view') == 'summary':
+        return jsonify([{key: task[key] for key in ANALYSIS_SUMMARY_FIELDS if key in task} for task in tasks])
     return jsonify(tasks)
 
 

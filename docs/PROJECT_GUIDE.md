@@ -534,7 +534,9 @@ POST /api/jobs/<id>/refinement-score persists a versioned evidence breakdown in 
 POST /api/jobs/<id>/carbohydrate-validation creates an immutable validation analysis attempt for a completed source run. The request records the mapping snapshot, representation mode, tier, target dataset, source hashes, tool versions, and protocol. Its report has the three required evidence keys: `mapped_geometry`, `transfer_free_energy`, and `osmotic_pressure`. Metadata-only or missing target datasets, missing octanol parameters, short trajectories, and incomplete concentration series remain `insufficient_data`; validation never changes mapping approval or production authorization.
 
 ### Models, analyses, and browser behavior
-Each tab loads its data when activated, including keyboard and direct-link navigation. After the shell idles it warms the catalogue lists (molecules, mappings, CG models, references, defaults) and those are cached for five minutes (`CATALOGUE_MAX_AGE`); an action that changes one invalidates it. Run state, queue answers and generated figures stay live and are never warmed. Returning to Run view re-reads the live run list but does not rebuild a pair already shown; Bonded mounts once and is invalidated by mappings, CG models or parameterizations. Mapping editors retain unsaved edits across tab changes. New run debounces readiness checks and ignores cancelled or superseded responses. Runs pauses polling while another tab is open and refreshes on return.
+Each tab loads its data when activated, including keyboard and direct-link navigation. After the shell idles it warms the catalogue lists (molecules, mappings, CG models, references, defaults) and those are cached for five minutes (`CATALOGUE_MAX_AGE`); an action that changes one invalidates it. Run state, queue answers and generated figures stay live and are never warmed. Returning to Run view re-reads the live run list but does not rebuild a pair already shown; Bonded mounts once and is invalidated by mappings, CG models or parameterizations. Mapping editors retain unsaved edits across tab changes. New run debounces readiness checks and ignores cancelled or superseded responses.
+
+Every live poller gates its timer on `liveVisible()` (not hidden and online) and resumes through `whenLive()` with the same read, so a returning reader never sees a stale progress line: Runs, the Analysis card, the Trajectory block, pdc's whole-trajectory card and the Bonded fit box. The two Run view pollers that ask the same `/api/jobs/<id>/analyses` share one in-flight request per tick through `liveApi()` (which never serves a settled answer), and the polled URL is `?view=summary` -- the same records without `result`/`environment`/`tools`/`command`, while the default answer stays whole. A panel that is still waiting says so in one `role=status` line (`panel-busy.js`'s `setPanelBusy`) and `aria-busy`; `[aria-busy="true"]` fades the section while it is busy.
 
 The full APIs remain available. view=summary on /api/jobs, /api/mappings and /api/bonded-parameterizations returns compact catalogue and polling records; individual record endpoints retain full detail. /api/mappings/context supplies the source molecule and bead types. Mapping validation caches use candidate and source content, so changed scientific inputs invalidate previous results.
 
@@ -694,6 +696,11 @@ would queue itself again -- and waits for `POST /api/jobs/<id>/analyses/recomput
 Recompute button. That route asks the same resolver, so it cannot request a set the run does not owe, and `queue`
 fingerprints the analysis code, so pressing it after a code change starts fresh attempts and pressing it with nothing
 changed starts none. `owed` is what the panel reports as still waiting.
+
+An attempt's `progress.json` is written by `analysis/worker.execute`; while the producer runs, the worker also names
+that file in `DASHBOARD_ANALYSIS_PROGRESS`, so a producer (or a thread it starts) can report its own phase through
+`dashboard.analysis.progress.report` -- a no-op outside the worker. `surfaces` reports each variant's extraction and
+gmx phase this way. The two readers (`routes/analyses.py`, `views.py`) show the record's `phase`.
 
 `GET /api/jobs/<id>/structure?path=<run-relative .gro>` writes the run's own `[ bonds ]` and `[ constraints ]` as
 CONECT, locating the topology by `analysis/runs/layout.recorded_topology` -- an `aa_only` run through its

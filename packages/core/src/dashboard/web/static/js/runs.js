@@ -1,4 +1,5 @@
-import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResource, guarded, DROP, panelIds } from './shared.js';
+import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResource, guarded, DROP, panelIds,
+         liveVisible, whenLive } from './shared.js';
 import { createConsoleViewer } from './console.js';
 
 // Owns run cards, filtering, artifact loading, and polling. Form changes are callbacks.
@@ -13,6 +14,11 @@ function trajectorySize(bytes) {
   const digits = gb >= 100 ? 0 : gb >= 1 ? 1 : 2;
   return `${gb.toFixed(digits)} GB of trajectories`;
 }
+
+//: How often the run list is re-read, and how long a hidden tab waits before looking again. `window.__runsPollMs` is
+//: the browser tier's seam, the same pattern the Run view's pollers use; production is five seconds.
+const pollMilliseconds = () => Number(window.__runsPollMs) || 5000;
+const HIDDEN_WAKE_MS = 30000;
 
 export function createRuns({ onClone, onDeleted }) {
   function setRunView(view) {
@@ -233,7 +239,7 @@ export function createRuns({ onClone, onDeleted }) {
     } catch(error) { if(card.recordsPending===key)setText($('.job-command',card),error.message); }
     finally { if(card.recordsPending===key)card.recordsPending=null; }
   }
-  let runPage = 1, jobsGeneration = 0, jobsEtag = '', pollDelay = 5000;
+  let runPage = 1, jobsGeneration = 0, jobsEtag = '', pollDelay = pollMilliseconds();
   async function refreshArtifactViews(card,job) {
     if(!$('.job-artifacts',card).open) return;
     const generation = (card.artifactGeneration || 0)+1; card.artifactGeneration = generation;
@@ -274,13 +280,14 @@ export function createRuns({ onClone, onDeleted }) {
   async function poll() {
     if(polling) return;
     clearTimeout(pollTimer);
-    if ($('#'+panelIds().runs).hidden || document.hidden || !navigator.onLine) { pollTimer=setTimeout(poll,30000); return; }
+    if ($('#'+panelIds().runs).hidden || !liveVisible()) { pollTimer=setTimeout(poll,HIDDEN_WAKE_MS); return; }
     polling=true;
-    try { await refreshJobs(true); await consoleViewer.refresh(); pollDelay=5000; setText($('#connection'),`Updated ${new Date().toLocaleTimeString()}`); }
+    try { await refreshJobs(true); await consoleViewer.refresh(); pollDelay=pollMilliseconds(); setText($('#connection'),`Updated ${new Date().toLocaleTimeString()}`); }
     catch(error) { pollDelay=Math.min(pollDelay*2,60000); setText($('#connection'),`Updates unavailable: ${error.message}. Retrying in ${pollDelay/1000}s.`); }
     finally { polling=false; pollTimer=setTimeout(poll,pollDelay); }
   }
-  for (const event of ['visibilitychange','online']) window.addEventListener(event,()=>{ if (!document.hidden) poll(); });
+  // One shared listener re-runs this same `poll` on return, so the progress line and its stamp refresh together.
+  whenLive(poll);
   async function refreshStorage(force=false) {
     try {
       if(force)invalidateResource('/api/storage');
@@ -297,5 +304,7 @@ export function createRuns({ onClone, onDeleted }) {
 
 
   return { refreshJobs, refreshConsole: consoleViewer.refresh, refreshStorage,
-    mount() { poll(); refreshStorage(); }, start() {} }; 
+    // The panel's own first read, returned so the mount's busy state lasts until the table is filled: a mount that
+    // resolves before `/api/jobs` answers would clear the loading line in the same tick it appeared.
+    mount() { return Promise.all([poll(), refreshStorage()]); }, start() {} }; 
 }

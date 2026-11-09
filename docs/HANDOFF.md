@@ -118,15 +118,25 @@ manual and `gmx mdrun -h`, returned with `/api/defaults`; the form has no duplic
 are keyboard/focus accessible. The dashboard was restarted at 11:47 for the Python changes. Checks: fast 2511 passed /
 1 xfailed; browser 318 passed; ruff clean; worker provenance and run-type default tests added.
 
-The performance work that was **not** done in `d96eb46` is handed to the next `next-round` task (task-13); the plan is
-`docs/plans/2026-11-09-performance-follow-up.md`. The committed half is the catalogue warm-up/5-minute cache, the
-Run view revisit that re-reads only the live run list, and Bonded's one-time mount. Deliberately left for this
-follow-up: cold first content (Run view's NGL scenes/Analysis card, Bonded's Plotly bundle/scene, Shape's Plotly and
-surface pair/SASA), visibility-aware/coalesced live status polling (never caching queue/running state), and the
-surfaces producer's sequential `gmx sasa` variants (~90 s for LMNG). First slice: measure cold time-to-content and
-add a loading state + shown-panel module warm; audit/coalesce the pollers; parallelise the surface variants with
-per-variant progress, with no NDOTS/frame/probe/variant change without a science decision. No code for this slice is
-committed yet.
+The performance work that was **not** done in `d96eb46` is now the built 2026-11-09 follow-up; the plan is
+`docs/plans/2026-11-09-performance-follow-up.md` and its three audits are
+`docs/research/2026-11-09-performance-cold-content.md`, `-polling.md` and `-surfaces.md`. **Loading states**: the shell
+marks the open panel busy while boot's feature imports and a tab mount are pending (`panel-busy.js`'s `setPanelBusy`, one
+`role=status` line as the panel's first child, `aria-busy`); `[aria-busy="true"]` has CSS for the first time (five
+modules set it; no stylesheet read it), `main.js` marks every tab mount and the section pane while an analysis section
+reads its record, and Runs' `mount()` now returns its first read so the line lasts until the table fills. **Polling**:
+`shared.js` gained `liveVisible()`, `whenLive()` and `liveApi()`; the Runs, Analysis, Trajectory, pdc whole-trajectory
+and Bonded pollers stop on a hidden tab or panel and resume with the same read, and the Analysis card and Trajectory
+block share one `/analyses` request per tick instead of two. `/api/jobs/<id>/analyses?view=summary` drops
+`result`/`environment`/`tools`/`command` (the default answer is unchanged): on `67bc79a995d6`, 527,290 B -> 33,245 B.
+**Surfaces**: the four variants' gmx commands are pipelined behind the main-thread XTC extraction (bound 4), failures are
+joined per variant, and a producer reports phases through `dashboard.analysis.progress` (`DASHBOARD_ANALYSIS_PROGRESS`);
+one timed end-to-end rerun took 48.2 s against 83.0 s (1.72x), with NDOTS/frames/probe/variants unchanged. Not built:
+the shown-panel Plotly warm -- a panel that plots asks for its own bundle at mount, so only a hidden-panel prefetch
+would help, which the plan rejects by default; NGL is still an eager 1,284,224 B script on every page. Checks: fast
+2523 passed / 1 xfailed; browser 325 passed; slow 25 passed; ruff clean. The dashboard was restarted at 13:39. Live on
+`67bc79a995d6`: `/analyses` 527,290 B -> 33,265 B, and a queued `surfaces` attempt (`73051f3c10b0`) published in
+50.6 s with the phases above and the same numbers as the earlier attempt (AA 14.819, Simulated CG 13.728 nm²).
 
 The dashboard was restarted on 2026-11-05 at 17:12 for the whole round. Live checks: LMNG's automatic candidate is
 23 connected beads with the branch bead `[11,22,46]` (connectivity and spectral agree on the bead count, differ on
@@ -193,6 +203,8 @@ after the check; this host reports three GPUs, so the no-GPU path is pinned by t
 | item | state | next |
 | --- | --- | --- |
 | Align trajectory's initial state | the form prefills defaults, so a stored series built with `fit: rot+trans` opens with the box unchecked while its summary line says the fit | decide whether Frame options should prefill the stored build's arguments instead of the defaults |
+| NGL is eager on every panel | one blocking 1,284,224 B script on every page, 68% of the shell's script bytes; Runs, New run and Bonded build no scene | make it lazy like Plotly (`vendor/ngl-loader.js`) and load it for Run view/Complexes/Bead editor; `window.NGL` has readers in three distributions, so this is its own measured slice |
+| Plotly warm and the default figure | a panel that plots asks for its own bundle at mount, so a shown-panel warm cannot help it (Bonded first content 4275 ms); a cold Run view also pulls a 10,300.8 KB interactive figure | decide plan open decisions 2 and whether the first figure waits for a click or visibility; do not prefetch hidden panels |
 | CG-only molecules beyond pdc | a `kind: cg` folder works as a pdc detergent without a mapping; compositions, osmotic and CG conformation libraries still assume a mapping | separate slice if wanted (`docs/plans/2026-11-05-feature-round.md`, *Not in this round*) |
 | `pdc_preview.py` wording | prepare/build describe a no-mapping CG molecule correctly; the preview still says "one centre per molecule" for any no-mapping build | align the preview's sentence with `_limitations` |
 | run-layout migration | applied 2026-10-27 (`legacy_layout.json` on every then-existing run); `936b74bd3fa8`, `00b9ae6db23f` deleted by the user | verify the migrated runs still render and resolve analyses |

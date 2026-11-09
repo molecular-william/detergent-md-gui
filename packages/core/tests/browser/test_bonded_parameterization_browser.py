@@ -479,13 +479,13 @@ def test_polling_stops_while_the_panel_is_off_screen_and_picks_up_when_it_return
         page.wait_for_timeout(100)
     assert len(polls) >= 2, polls
 
-    page.evaluate("() => { document.querySelector('#bonded').hidden = true; document.dispatchEvent(new Event('visibilitychange')); }")
+    page.evaluate("() => { document.querySelector('#bonded').hidden = true; document.dispatchEvent(new Event('visibilitychange', {bubbles: true})); }")
     page.wait_for_timeout(400)
     settled = len(polls)
     page.wait_for_timeout(700)
     assert len(polls) == settled, f'the box polled {len(polls) - settled} times with the panel hidden'
 
-    page.evaluate("() => { document.querySelector('#bonded').hidden = false; document.dispatchEvent(new Event('visibilitychange')); }")
+    page.evaluate("() => { document.querySelector('#bonded').hidden = false; document.dispatchEvent(new Event('visibilitychange', {bubbles: true})); }")
     deadline = time.monotonic() + 10
     while len(polls) == settled and time.monotonic() < deadline:
         page.wait_for_timeout(100)

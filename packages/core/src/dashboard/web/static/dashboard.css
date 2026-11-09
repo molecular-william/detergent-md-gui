@@ -154,3 +154,8 @@ nav{max-width:100%;overflow-x:auto;white-space:nowrap}nav button{flex:0 0 auto}
 .distance-diagnostic-help{margin-top:4px}
 .distance-diagnostic-help summary{font-size:12px}
 .distance-diagnostic-help p{font-size:12px;margin:4px 0 0}
+
+/* A waiting panel says so in one line at its top and fades its own content slightly, rather than hiding it. The line
+   is always a section's first child, so its margin stays small: a table or the analysis tab strip must not move. */
+.panel-loading{color:var(--muted);font-size:12px;margin:4px 0 8px}
+[aria-busy="true"]{opacity:.72;transition:opacity .15s ease}

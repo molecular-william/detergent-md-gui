@@ -57,6 +57,19 @@ function invalidateResource(prefix) {
   document.dispatchEvent(new CustomEvent('dashboard:resources-changed',{detail:{prefix}}));
 }
 
+// Live polling shares one question and one listener. A page is live when it is on screen and online; every
+// poller gates its timer on this and re-arms through `whenLive` when the reader comes back. A resumed poll runs
+// the panel's own read, so the progress line and its "Updated" stamp come from the same answer.
+const liveVisible = () => !document.hidden && navigator.onLine;
+const resumers = new Set();
+function whenLive(fn) { resumers.add(fn); return () => resumers.delete(fn); }
+for (const event of ['visibilitychange', 'online']) window.addEventListener(event, () => {
+  if (liveVisible()) for (const fn of [...resumers]) fn();
+});
+// Same-path requests inside one tick share one in-flight promise and leave nothing behind once it settles:
+// `maxAge: 0` expires the settled entry, so live state is never served from a cache.
+const liveApi = path => loadOnce(path, () => api(path), {maxAge: 0});
+
 // The DOM id each panel's section carries, written by the template from the registry (`web/sections.py`). A module
 // reads its own id from here instead of repeating the literal, so renaming a panel in the registry reaches every
 // module that addresses it: the vocabulary has one owner, and the modules follow it rather than restating it.
@@ -67,4 +80,5 @@ const panelIds = () => {
   try { return block ? (JSON.parse(block.textContent) || {}) : {}; } catch { return {}; }
 };
 
-export { loadOnce, cachedApi, invalidateResource, guarded, DROP, CATALOGUE_MAX_AGE, $,  $$, storage, setText, notice, api, post, panelIds };
+export { loadOnce, cachedApi, invalidateResource, guarded, DROP, CATALOGUE_MAX_AGE, liveVisible, whenLive, liveApi,
+         $,  $$, storage, setText, notice, api, post, panelIds };

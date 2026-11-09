@@ -8,6 +8,7 @@ import fnmatch
 import hashlib
 import importlib.metadata
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,7 @@ from pathlib import Path
 from .. import features, files
 from ..execution import tools, workflow
 from . import metadata as analysis_metadata
+from . import progress as analysis_progress
 from .kinds import TABLE
 from .runs import layout
 from .runs import references as aa_references
@@ -138,12 +140,22 @@ def execute(request_path):
         # an error. It is recorded as the workflow contract's skip -- exit 4, with the producer's own reason in
         # `skip.json` beside the request -- so the coordinator records `skipped` and the run is left alone.
         try:
-            result = TABLE[kind].run(work, request.get('payload', {}))
-        except layout.NoTrajectory as nothing_to_do:
-            files.atomic_json(attempt/'skip.json', {'kind': kind, 'reason': str(nothing_to_do)})
-            progress('Skipped: ' + str(nothing_to_do)[:200])
-            print(f'Skipped: {nothing_to_do}', flush=True)
-            sys.exit(workflow.SKIPPED_EXIT_CODE)
+            # The producer is a separate function in this process; naming its progress file here lets it report a
+            # phase from any thread it starts, without the `Kind` signature growing a parameter every kind ignores.
+            previous = os.environ.get(analysis_progress.ENV)
+            os.environ[analysis_progress.ENV] = str(attempt/'progress.json')
+            try:
+                result = TABLE[kind].run(work, request.get('payload', {}))
+            except layout.NoTrajectory as nothing_to_do:
+                files.atomic_json(attempt/'skip.json', {'kind': kind, 'reason': str(nothing_to_do)})
+                progress('Skipped: ' + str(nothing_to_do)[:200])
+                print(f'Skipped: {nothing_to_do}', flush=True)
+                sys.exit(workflow.SKIPPED_EXIT_CODE)
+        finally:
+            if previous is None:
+                os.environ.pop(analysis_progress.ENV, None)
+            else:
+                os.environ[analysis_progress.ENV] = previous
         files.atomic_json(work/'analysis-metadata.json', analysis_metadata.describe(kind, result))
         stable = TABLE[kind].stable_directory
         progress('Publishing results' if stable else 'Publishing immutable results')

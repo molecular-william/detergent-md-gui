@@ -21,7 +21,7 @@
 // The trap this block shares with the segment table is the token. A reader can pick another run, or another segment,
 // while a fetch is in flight; an answer that belongs to the row they left must write nothing. `runToken` separates
 // runs, `formToken` separates arguments, `loading` separates series files.
-import { api } from './shared.js';
+import { liveVisible, whenLive, liveApi, panelIds } from './shared.js';
 import { isCoarseGrained } from './run-view-structure.js';
 
 //: The eleven keys a frame-series attempt records its arguments under -- the form, the lookup for an existing attempt
@@ -430,6 +430,16 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
   const setNote = text => { note.textContent = text || ''; };
   const setFormNote = text => { formNote.textContent = text || ''; };
 
+  //: The run view section hiding this block is the same condition `run-view.js` reads; the build poll stops while
+  //: the reader is on another panel and resumes with the same `/analyses` read.
+  const shown = () => {
+    const section = document.getElementById(panelIds()['run-view']);
+    return !!section && !section.hidden;
+  };
+  const liveShown = () => liveVisible() && shown();
+  const buildInFlight = () => (tasks || []).some(task => task && task.kind === 'frame-series'
+    && ['queued', 'running'].includes(task.status));
+
   function setSeekable(on) {
     slider.disabled = !on;
     backButton.disabled = !on;
@@ -753,13 +763,15 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
   }
 
   // One timer, and only while a build is in flight: a settled attempt has nothing left to ask about. It is re-armed
-  // from `selectSeries`, so the poll stops by itself on the answer that settles the attempt.
+  // from `selectSeries`, so the poll stops by itself on the answer that settles the attempt; a hidden page or panel
+  // leaves no timer, and `resume` runs the same read when the reader comes back.
   function ensurePolling() {
     if (timer || !job) return;
+    if (!liveShown()) return;
     const token = runToken;
     timer = setTimeout(async () => {
       timer = null;
-      if (token !== runToken) return;
+      if (token !== runToken || !liveShown()) return;
       await loadTasks(token);
     }, pollMilliseconds());
   }
@@ -769,7 +781,9 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
     if (!runId) return;
     let list;
     try {
-      list = await api(`/api/jobs/${encodeURIComponent(runId)}/analyses`);
+      // The summary view is the same records without the fields this block never reads; `liveApi` shares one
+      // request per tick with the Analysis card's poll.
+      list = await liveApi(`/api/jobs/${encodeURIComponent(runId)}/analyses?view=summary`);
     } catch (error) {
       if (token !== runToken) return;
       tasksLoaded = true;
@@ -781,6 +795,16 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
     tasksLoaded = true;
     await selectSeries();
   }
+
+  //: Back on screen: the same `loadTasks` the timer would run. Nothing is fetched when no build is in flight -- that
+  //: is still the block's stop rule.
+  function resume() {
+    if (!job || !tasksLoaded || !liveShown() || !buildInFlight()) return;
+    if (timer) { clearTimeout(timer); timer = null; }
+    loadTasks(runToken).catch(() => {});
+  }
+  whenLive(resume);
+  document.addEventListener('dashboard:tab', resume);
 
   // What the block shows for the arguments the form holds: the newest completed attempt with those arguments, or the
   // attempt the run is building, or the one that failed with them, or the plain fact that none exists yet.

@@ -1,4 +1,5 @@
 """Runs layout and inline resources, against an isolated dashboard database."""
+import re
 
 from dashboard import files
 from playwright.sync_api import expect
@@ -295,4 +296,51 @@ def test_view_run_sits_with_the_run_sections_rather_than_beside_the_title(dashbo
     artifacts = card.locator('.run-resources .job-artifacts > summary').bounding_box()
     assert abs(door['y'] - artifacts['y']) < 8, f'View run is not on the Artifacts row: {door} vs {artifacts}'
     assert door['x'] < artifacts['x'], 'View run is the first door, left of the sections'
+    assert errors == [], errors
+
+
+def test_the_run_list_stops_asking_while_hidden_and_refreshes_once_on_return(dashboard, live_page):
+    """A hidden tab makes no run-list requests; coming back runs the same poll, so the progress line is not stale.
+
+    Counted from the route rather than from a flag: a poll that keeps running behind a hidden tab is a request a
+    reader cannot see the result of. The one request on return is the visibility listener's own `poll`, and with
+    the seam at 500 ms a second request inside 200 ms would be a duplicate listener.
+    """
+    page, errors = live_page
+    page.add_init_script('window.__runsPollMs = 500')
+    hits = []
+    page.route(re.compile(r'/api/jobs\?'),
+               lambda route: (hits.append(route.request.url),
+                              route.fulfill(json={'jobs': [], 'page': 1, 'total': 0, 'limit': 20}))[-1])
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
+    expect(page.locator('#runs')).to_be_visible()
+
+    deadline = 10
+    for _ in range(deadline * 20):
+        if len(hits) >= 2:
+            break
+        page.wait_for_timeout(50)
+    assert len(hits) >= 2, f'the run list never polled: {len(hits)}'
+
+    page.evaluate("""() => {
+      Object.defineProperty(document, 'hidden', {configurable: true, get: () => true});
+      document.dispatchEvent(new Event('visibilitychange', {bubbles: true}));
+    }""")
+    page.wait_for_timeout(2000)          # four cadences at the seam, plus the one already pending
+    settled = len(hits)
+    page.wait_for_timeout(700)
+    assert len(hits) == settled, f'the run list polled {len(hits) - settled} times with the tab hidden'
+
+    page.evaluate("""() => {
+      Object.defineProperty(document, 'hidden', {configurable: true, get: () => false});
+      document.dispatchEvent(new Event('visibilitychange', {bubbles: true}));
+    }""")
+    for _ in range(20):
+        if len(hits) > settled:
+            break
+        page.wait_for_timeout(25)
+    assert len(hits) == settled + 1, f'the return caused {len(hits) - settled} requests, not one'
+    page.wait_for_timeout(200)           # less than one 500 ms cadence
+    assert len(hits) == settled + 1, 'the return refreshed twice'
+    expect(page.locator('#connection')).to_contain_text('Updated')
     assert errors == [], errors
